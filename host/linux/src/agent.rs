@@ -1020,10 +1020,11 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 }
 
 /// The engine's settle time, milliseconds, when a transition is in flight.
-/// A reorder ghost's return counts too (LLP 1094 D8).
+/// A reorder ghost's return counts too (LLP 1094 D8), and a pad's effect.
 fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
     field_num(&p.host().agent("{\"op\":\"settle\"}"), "settle")
         .into_iter()
+        .chain(crate::pads::due())
         .chain(p.group_settles_at())
         .chain(p.scroll_end_due())
         .chain(p.brush.numerals.settles_at())
@@ -1035,9 +1036,8 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// own due time) and the motion engine's (a seek). The clock lands where
 /// the runner says: a timer's refusal stops it at that timer's due time and
 /// is the reply's error. `settle` is a fixed point: advance to when the last
-/// transition in flight ends, and if the timers crossed on the way started
-/// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
-/// §2).
+/// transition in flight ends, and if the timers crossed on the way started more, again —
+/// bounded, `settled: false` when the bound is hit (LLP 1012 §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     // The end of an input (LLP 1012 §2): the `then`s of the answers it
     // settled land, the clock unmoved and no timer fired (Runner::land_then).
@@ -1223,6 +1223,7 @@ fn clock_within<D: DataSource>(
             return r;
         }
         if p.pending() {
+            to = crate::pads::due().map_or(to, |due| to.max(due));
             rounds += 1;
             if rounds >= 16 || std::time::Instant::now() >= deadline {
                 return response(Some(false), true);
@@ -1325,19 +1326,20 @@ fn wait_for_polls<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Inst
     }
 }
 
-/// Pump the executor until no request is in flight, or until the call's
-/// deadline (`settled: false` past it), false then.
+/// Pump the executor, with the packages' turn, until no request is in flight (a pad's effect
+/// answers when the clock reaches its end, not on wall time) or the deadline, false then.
 fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) -> bool {
-    while p.pending() {
-        if std::time::Instant::now() >= deadline {
-            return false;
+    loop {
+        p.package_turn();
+        let waiting = p.pending() && crate::pads::due().is_none();
+        if !waiting || std::time::Instant::now() >= deadline {
+            return !waiting;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
         if let Some(e) = p.pump(p.host().now()) {
             eprintln!("exact: {e}");
         }
     }
-    true
 }
 
 const LETTERS: [&str; 26] = [

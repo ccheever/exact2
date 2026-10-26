@@ -98,6 +98,10 @@ public final class ExactModuleContext: @unchecked Sendable {
     var ticks: [UInt64: (ExactFrame) -> Void] = [:], afters: [UInt64: () -> Void] = [:]
     private var nextToken: UInt64 = 1
 
+    /// The session's own root view (LLP 1133.027 D17 item 3), which the host
+    /// hands over whenever the session's view changes; nil while none is mounted.
+    public internal(set) weak var sessionView: AnyObject?
+
     /// Who posts what an activation is for (LLP 1133.004 D7): the session, its owner, the process.
     let poster: [String: String]
     var emitted: UInt64 = 0
@@ -1309,6 +1313,13 @@ private let moduleImage: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer
     }
 }
 
+/// `session_view(module, view)` (LLP 1133.027 D17 item 3): the session's
+/// root view, borrowed, or nil when none is mounted; packages host views
+/// under it and present in its window. Main thread.
+private let moduleSessionView: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void = { raw, view in
+    module(raw)?.context.sessionView = view.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
+}
+
 /// The ABI major this artifact was built against; the host refuses others.
 private let major: UInt32 = 3
 
@@ -1326,7 +1337,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 248
+    let size = 256
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1360,6 +1371,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.createView, to: UnsafeRawPointer.self), toByteOffset: 224, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleAuthenticate, to: UnsafeRawPointer.self), toByteOffset: 232, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleImage, to: UnsafeRawPointer.self), toByteOffset: 240, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleSessionView, to: UnsafeRawPointer.self), toByteOffset: 248, as: UnsafeRawPointer.self)
     return t
 }()
 

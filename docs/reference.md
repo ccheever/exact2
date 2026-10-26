@@ -212,7 +212,7 @@ and `:focus-visible`'s (LLP 1121 D8, LLP 1122); a conditional class's
 as its base and each folded part in `states`. A row only a state part
 writes, a press row among them, has no base fields. Each source is listed
 with its digest, and a Contract source with its `home`, as its components'
-identities name it (a param's full name is `<home>#<component>.<param>`). Slots, derives and actions retain their declarations,
+identities name it (a param's full name is `<home>#<component>.<param>`). Slots, derives, resources and actions retain their declarations,
 including state and actions lifted from child components. Maps are separate
 files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
 `compile_path_mapped` and `compile_path_source_mapped` return the map alongside
@@ -831,6 +831,26 @@ none set, `formatLocale` is the locale),
 normalizes POSIX names to BCP 47 (`C`/`POSIX` use `en-US`), and reads the zone from
 `TZ` when it names a zoneinfo entry, otherwise the system's IANA zone (UTC fallback).
 
+### Inspect work and native presentation
+
+`perf <target> during "<operation>"`
+reports the work that operation caused in the named subtree. Development measurements
+include virtual-row construction, rebinding and retirement; Apple also counts kernel
+layout API calls and native host work. Read the reported scope and measurement start:
+process-wide native counts can include other sessions, and a reset makes a delta unavailable.
+Missing coverage is not a zero.
+
+On Apple, `"perf frames live 500"` observes display-link callbacks for 500 ms without
+advancing or changing the current clock. Its reply identifies scheduling, substitutions
+and dropped records. A normal Mac event loop is available through
+`const session = await open({host: 'macos', env: {EXACT_AGENT: 'live'}, storage: 'my-scratch-store'})` in a
+driver script importing `open` from `scripts/agent.mjs`; call
+`await session.perf(null, {live: 500})` and close the session afterward.
+This carrier still substitutes storage and secret presence. `--timing platform` alone
+keeps agent execution substitutions. Neither establishes production-equivalent performance,
+and callback timing does not prove compositor presentation. `layout` distinguishes target
+and presented geometry; an unavailable presentation remains explicit.
+
 ## Generate TypeScript data-source types
 
 The compiler can derive the logic interface from a Contract's source signatures:
@@ -850,10 +870,26 @@ property check misses a spread (`{ ...row, amount }` keeps `row`'s other fields)
 so the refusal is at run time, the same on the web as on a device:
 ``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```,
 which the agent's `state` shows under `failed` while the resource keeps its last value.
+
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
 Generated declarations are build artifacts, not files to commit. A development
 build writes them beside `app.ts` for an editor: the web build and the native
 development bake both do.
+
+Development builds also expose `resourceStatus`: opaque request and displayed-answer
+generations, the last successful generation, pending status, and `displayed`
+(`fallback`, `current`, `retained`). `argumentsEqual` compares full arguments using
+the runtime's equality; `null` means the answer's full arguments are unknown or
+the value is a fallback. `resourcesMeasuredFrom` names the observation's start on
+the runner clock. Identifiers are local to this runtime and observation, and
+unobserved seed requests have null generations. They never govern retention or
+authorization. The driver joins each resource declaration to its file and location
+using that reply’s plan digest; a missing or incompatible map is reported as unavailable.
+`placeholder` identifies a declared stand-in; `keptSeed` is the
+runner's boot admission mark, consumed at activation. The JS target reports
+`keptSeedSupported: false`: its rendered-document checkpoint is separate from a
+persisted boot answer. `failures` counts refused answers since observation began, with
+`first` and `last` on that clock. A success clears `failed`, preserving the count.
 
 ### What a data module can use
 
@@ -1835,7 +1871,8 @@ refuses `ENOENT`). The comparison and the write are queued together but are
 not one atomic step; what they close is the time an editor spends editing.
 Read the new file and let the person choose.
 
-**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS). An
+**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS, and
+Linux in a desktop session). An
 app granted `doc.keep` keeps exactly what the person chose — a file or folder
 from a picker, Finder, ⌘O, Open Recent, the command line or a drop; never a
 typed path, a followed link, or a route's folder — and its `doc:/<n>/<name>`
@@ -1857,11 +1894,18 @@ requests (`apps/markdown/data`). A kept item is the object chosen: a move
 or rename is followed and keeps its path (`<name>` is the name it was
 chosen by); a file another program replaced at its name is not the
 document, and the app's own `atomicWriteFile` carries the entry to the file
-it wrote (from Rust; not yet from TypeScript). A path whose entry is gone
+it wrote, from Rust or TypeScript. A path whose entry is gone
 refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
-both calls are refused. Under the agent the kept set is the drive's scratch
-store (`--storage`), never the person's. Linux and iOS keep nothing yet and
-list nothing; the web has neither call yet.
+both calls are refused. Under the agent on a Mac the kept set is the
+drive's scratch store (`--storage`), never the person's.
+
+On Linux the list is the desktop's recent files (`recently-used.xbel`),
+each entry marked with the app's id, and the person clears it there. The
+path is the handle: a kept document moved, or replaced at its path, is
+forgotten rather than followed. Only a desktop session keeps anything; a
+headless run, a drive and the DRM kiosk keep and list nothing. The Linux
+host has no file chooser of its own yet, so today nothing there is chosen
+to keep. iOS keeps nothing; the web has neither call yet.
 
 ### Files dropped or pasted
 
@@ -1923,13 +1967,22 @@ top-level literal `const origin`, after `EXACT_BACKEND_ORIGIN` or
 origin and keys. Before type-checking, it replaces only the captured initializer
 with a string of the selected lines joined by `\n`, so web and native read the
 same grants. Authored source stays unchanged. Keyed grants move to another
-origin in one case: in a development build (`EXACT_UPDATE_TRUST` unset or
-`development`), an origin at a private-network address (RFC 1918 or link-local
-IPv4, `fc00::/7` or `fe80::/10` IPv6) with no entry takes the entry of the same
-server at loopback (`127.0.0.1`, `localhost` or `[::1]` with the same scheme and
-port), its `net.fetch` and `net.websocket` lines moved to that address with their
-paths. This is how a phone reaches a fixture server on the Mac's LAN address. A
+origin in a development build (`EXACT_UPDATE_TRUST` unset or `development`): an
+unlisted loopback or private-network origin (RFC 1918 or link-local IPv4,
+`fc00::/7` or `fe80::/10` IPv6) takes a loopback entry (`127.0.0.1`, `localhost`
+or `[::1]`) of the same scheme. A matching port wins; otherwise exactly one
+candidate is required. Its matching `net.fetch` and `net.websocket` lines move
+to the selected host and port, preserving paths and unrelated grants. A
 production build refuses it, as it refuses any missing entry.
+
+A declared server under `fixture/` or `fixtures/`, with a top-level literal loopback
+`const origin`, gets one stable development port in 4790–5789 per real app directory.
+The bake and driver select it together. `--backend`/`EXACT_BACKEND_ORIGIN`, then
+`.exact/backend-origin`, the server command's `--port`, and `PORT` override the default.
+`bun scripts/agent-launch.mjs --fixture-port --app excord` prints the selected port.
+An agent drive refuses an occupied fixture port unless its launch record and listening
+process belong to this app directory and origin. Choose a free port with `--backend`
+or `PORT` when another checkout holds it. Ordinary app servers keep their authored ports.
 
 The producer captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
@@ -2502,7 +2555,11 @@ the Contract compiler refuses either handler there, on every target.
 row may be up to that far past the port. It is a literal, one or two nonnegative
 px or % lengths (before and after; a percentage is of the list's port along its
 axis), and defaults to one port, `"100%"`. `reach-margin="200%"` asks for the
-next page when the last row is two ports away (LLP 1145 D4).
+next page when the last row is two ports away (LLP 1145 D4). That is the
+distance at rest. While the list scrolls toward an end, the margin on that side
+grows by as much as the list's window leads for the scroll: a quarter second of
+travel, up to two ports. A fling up a transcript at 4,000 px/s in a 320 px port
+asks for older rows once the first row is within 960 px (LLP 1027.004 D3).
 
 For a plain feed or masonry, use `intersect=` on a marker at the end of the
 content, after the columns, inside the same scroller:

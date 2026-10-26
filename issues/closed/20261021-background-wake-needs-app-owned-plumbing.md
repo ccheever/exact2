@@ -1,6 +1,7 @@
 # Background refresh needs an app-owned dyld initializer, plist postprocessing and a second JS runtime
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** LLP 1133.017 (accepted 2026-10-23; stages 0 to 2 built 2026-10-24) replaced LLP 1114.001 stage 2 and ships all three asks: the host registers BGTaskScheduler at launch (ExactKit Wakes.swift), host/apple/plist.mjs derives the permitted identifiers from the grants, and a wake boots a headless session that runs the app's data module. Brooks uses @exact/background (registerPeriodicSync and the root periodicsync event; docs/recipes/background-work.md). iOS expiry reaching the wake is a QUEUE.md line; the before-first-unlock check is owed on the Background work line.
 **Systems:** app manifest (`host.ios`), Apple host launch, data sources (headless invocation), LLP 1114.001 stage 2
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from the Brooks four-way port's friction log

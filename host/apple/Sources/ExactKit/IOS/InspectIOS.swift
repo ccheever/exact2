@@ -93,16 +93,20 @@ enum InspectHost {
         if frame["clear"] as? Bool == true { overlays.values.forEach { $0.mark([]) }; return }
         guard let plan = frame["plan"] as? String, let wanted = (frame["sites"] as? [Any])?.compactMap({ ($0 as? NSNumber)?.intValue }) else { return }
         let want = Set(wanted)
-        var marks: [ObjectIdentifier: (window: UIWindow, places: [Place])] = [:], first: UIView?
+        var marks: [ObjectIdentifier: (window: UIWindow, places: [Place])] = [:]
+        var copies: [(session: ObjectIdentifier, id: UInt32, view: UIView, shown: Bool)] = [], running: [ObjectIdentifier: Int] = [:]
         for session in app.sessions where session.booted {
             let sites = Inspect.sites(session)
             guard sites.plan == plan else { continue }
+            running[ObjectIdentifier(session)] = session.generation
             let nodes = sites.views.filter { want.contains($0.site) }.compactMap { session.presenter.views[$0.id] }.filter { $0.window != nil }
-            first = first ?? nodes.first(where: shown)
+            // (shown: on screen, and not CSS `visibility: hidden`, whose box keeps its place but draws nothing)
+            copies += nodes.map { (ObjectIdentifier(session), $0.id, $0, shown($0) && !$0.cssVisibilityHidden) }
             // Each in the window it is in (a sheet's or another scene's).
             for node in nodes { if let window = node.window, let place = place(of: node, in: session) { marks[ObjectIdentifier(window), default: (window, [])].places.append(place) } }
         }
-        if !Inspect.answersClick(frame), let first { reveal(first) }
+        // The selection's own copy, or the first that shows (one rule, Inspect.revealing).
+        if !Inspect.answersClick(frame), let chosen = Inspect.revealing(copies, sites: want, plan: plan, sessions: running) { reveal(chosen) }
         for (_, m) in marks { overlay(on: m.window).mark(m.places) }
     }
 

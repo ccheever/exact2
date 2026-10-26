@@ -1610,6 +1610,7 @@ dependencies = [
  "parley",
  "png",
  "raw-window-handle",
+ "roxmltree",
  "serde",
  "serde_json",
  "sha2",

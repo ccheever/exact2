@@ -153,6 +153,22 @@ enum Inspect {
         }
     }
 
+    /// The copy an outline of `sites` in `plan` brings into view, of
+    /// `copies` (each outlined copy: its session, node and view, and whether
+    /// it shows), the sessions running `plan` given with their generations.
+    /// A session holding the selection (that plan and generation, its site
+    /// among `sites`) brings its own copy in, and nothing when that copy
+    /// does not show (a recycled row, a collapsed one): never another copy
+    /// of it (Apple pass #2: a move scrolled the feed to a copy five rows
+    /// away). Otherwise (the tool's Outline, a session holding no selection
+    /// there) the first copy that shows.
+    static func revealing<V>(_ copies: [(session: ObjectIdentifier, id: UInt32, view: V, shown: Bool)], sites: Set<Int>, plan: String, sessions: [ObjectIdentifier: Int]) -> V? {
+        if let was = selected, was.plan == plan, let site = was.site, sites.contains(site), sessions[was.session] == was.generation {
+            return copies.first { $0.session == was.session && $0.id == was.id && $0.shown }?.view
+        }
+        return copies.first { $0.shown }?.view
+    }
+
     /// Whether an outline answers a click of this inspect session: then it
     /// scrolls nothing (the copy clicked is under the finger).
     static func answersClick(_ frame: [String: Any]) -> Bool {

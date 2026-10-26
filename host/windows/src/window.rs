@@ -886,6 +886,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 Instant::now(),
                 crate::pads::read,
                 |index, connected, buttons, axes| {
+                    crate::pads::register(index, connected, buttons, axes);
                     p.hardware_pad(index, connected, buttons, axes, at)
                 },
             );
@@ -897,7 +898,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
             }
             events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
-        } else if let Some(due) = p.timer_due_ms() {
+        } else if let Some(due) = p.wake_due_ms() {
             let deadline = self.started + Duration::from_secs_f64((due / 1000.).max(0.));
             if Instant::now() >= deadline {
                 if let Some(window) = &self.window {

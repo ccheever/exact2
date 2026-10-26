@@ -1,0 +1,42 @@
+// The conformance fixture (LLP 1133.001 D7): @exact/health's names read and
+// sent as an app would, each answer shown by testId for the suites. It uses
+// the pedometer and the altimeter too, so one Android build compiles all
+// three packages' implementations.
+use healthStatus, requestHealthAuthorization, healthWorkouts, HealthStatus, HealthWorkoutPage from "@exact/health"
+use pedometerStatus, PedometerStatus from "@exact/pedometer"
+use altimeterStatus, AltimeterStatus from "@exact/altimeter"
+
+shape Line
+  text: string
+
+component Fixture
+  resource health = healthStatus(read=["steps", "distance", "workouts"]) as shape HealthStatus else empty()
+  resource steps = pedometerStatus() as shape PedometerStatus else empty()
+  resource height = altimeterStatus() as shape AltimeterStatus else empty()
+  // 11 to 14 October 2026, UTC: the fixture's 12 October holds 8,412 steps and two workouts, w7 and w8.
+  resource page = healthWorkouts(start=1791676800000, end=1791936000000) as shape HealthWorkoutPage else empty()
+  // Data code's read of the same days' steps (app.ts).
+  resource days = days() as shape Line
+  mutation asked as shape HealthStatus
+  action ask
+    send asked = requestHealthAuthorization(read=["steps", "distance", "workouts"])
+  view
+    column gap=8 padding=16
+      text `${health.available} ${health.state}` testId="health-status"
+      text health.types.map(t => `${t.type} ${t.read} ${t.complete}`).join(", ") testId="health-types"
+      text `${steps.available} ${steps.state}` testId="steps-status"
+      text `${height.available} ${height.state}` testId="height-status"
+      text days.text font-variant-numeric="tabular-nums" testId="days"
+      text page.workouts.map(w => `${w.id} ${w.activity}`).join(", ") testId="workouts"
+      match failure(page)
+        case some(f)
+          text f.code testId="workouts-error"
+        case none
+          text "" testId="workouts-error"
+      match asked
+        case some(s)
+          text s.state testId="asked"
+        case none
+          text "" testId="asked"
+      button press=ask testId="ask"
+        text "Ask"

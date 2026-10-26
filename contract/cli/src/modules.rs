@@ -467,6 +467,20 @@ fn bounded(
                 )
             })
         }
+        Expr::Str(text, at)
+            if (sub["colorOptions"].as_array().into_iter().flatten()).any(|o| o == option) =>
+        {
+            exact_kernel::Color::parse(text).is_none().then(|| {
+                error(
+                    "contract-module-color",
+                    format!(
+                        "`{}`'s `{option}` is a CSS colour, given {text:?}",
+                        m.declared
+                    ),
+                    *at,
+                )
+            })
+        }
         Expr::Str(name, at) => {
             let surface =
                 (sub["surfaceOptions"].as_array().into_iter().flatten()).any(|o| o == option);

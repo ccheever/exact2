@@ -86,6 +86,8 @@ mod perf;
 pub mod persist;
 mod query;
 mod queue;
+mod resource_inspection;
+mod world_origin;
 pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
@@ -259,6 +261,8 @@ pub enum RunnerError {
 
 #[derive(Clone)]
 struct ResourceState {
+    /// Development inspection only; zero means the request was not observed.
+    inspection_generation: u64,
     args: Vec<Value>,
     value: crate::held::Held,
     /// Store revision this answer observed; checked only for known readers.
@@ -303,6 +307,7 @@ enum Seed<'a> {
 /// answers, and the arguments it was asked with (what `parse` sees).
 #[derive(Clone)]
 struct PendingReq {
+    inspection_generation: u64,
     refusal: Option<(&'static str, bool)>,
     /// The host refused this ordered request before execution (LLP 1041 §8.4).
     /// Earlier source turns may already have executed effects.
@@ -1006,6 +1011,7 @@ impl<D: DataSource> Runner<D> {
                     })
                     .filter(|(_, _, _, value)| runner.check_shape(i, value).is_ok())
                     .map(|(_, _, args, value)| ResourceState {
+                        inspection_generation: 0,
                         args: args.clone(),
                         value: crate::held::Held::new(value.clone()),
                         store_revision: runner.store.revision(),
@@ -1213,20 +1219,6 @@ impl<D: DataSource> Runner<D> {
     /// The kernel, mutably (a host lays out through it).
     pub fn kernel_mut(&mut self) -> &mut Kernel {
         &mut self.kernel
-    }
-
-    /// Same immutable plan as a targeted node read. No work until an inspector
-    /// requests identity; a replacement runner owns a fresh cache.
-    pub fn inspection_digest(&self) -> &str {
-        self.inspection_digest.get_or_init(|| {
-            use sha2::{Digest, Sha256};
-            use std::fmt::Write;
-            let mut out = String::with_capacity(64);
-            for byte in Sha256::digest(self.plan.encode()) {
-                write!(out, "{byte:02x}").unwrap();
-            }
-            out
-        })
     }
 
     /// The data source.

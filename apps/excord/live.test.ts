@@ -4,7 +4,7 @@ import * as S from './discord/store.ts';
 import { snowflakeFromMs } from './discord/ids.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
 import { constants as zlibConstants, createDeflate } from 'node:zlib';
-import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, signIn, signOut } from './live.ts';
+import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, recordIdentify, signIn, signOut } from './live.ts';
 import { unlockSession } from './lock.ts';
 import { createRenderer, windowOf, type Stored } from './render.ts';
 
@@ -186,6 +186,12 @@ function serverForTest() {
         if (peers.at(-1)?.snapshots.at(-1)?.state === 'recording') {
           await ask('recordIdentify', []);
           await ask('sendIdentify', []);
+          await drain();
+        }
+        // The view's `digest` task: a frame too large for the stream's own turn is applied here (a test that
+        // dials expecting another state reads the queue itself).
+        for (let turns = 0; ready === 'ready' && (peers.at(-1)?.snapshots.at(-1)?.queued ?? 0) > 0 && turns < 100; turns++) {
+          peers.at(-1)!.snapshots.push(await ask('digest', [epoch]));
           await drain();
         }
         expect(peers).toHaveLength(count + 1);
@@ -495,6 +501,19 @@ test('12. a pasted token is taken from its header value or quotes; anything else
   expect(signIn(live, secrets, `"${token}"`)).toBe('');
   expect(secrets.get('discord-token')).toBe(token);
   expect(live.token).toBe(token);
+});
+
+test('12b. an identify record that lands after its connection was retired does not let the next connection identify', async () => {
+  const live = createLive({ rest: 'http://127.0.0.1:4790', gateway: 'ws://127.0.0.1:4790', cdn: 'http://127.0.0.1:4790', fixture: true });
+  let land!: () => void;
+  const storage = { fs: { atomicWriteFile: () => new Promise<void>(resolve => { land = resolve; }) } } as unknown as Storage;
+  live.gw = { identifies: [EPOCH] } as any;
+  live.held = 'first';
+  const writing = recordIdentify(live, storage);
+  // The connection is retired and the next one's HELLO holds its own IDENTIFY while the write is pending.
+  live.attempt++; live.held = 'second'; live.recorded = '';
+  land(); await writing;
+  expect(live.recorded).toBe('');
 });
 
 test('13. a READY too large for one turn waits for digest, which applies it a part a turn, and what came after, in order', async () => {

@@ -22,6 +22,11 @@
 //   (`user`), whose consumers are told `live(null)` and draw the agent's
 //   picture themselves (§9). A preferred `mediaStreamTrack` mutes every live
 //   track, as an interruption would (LLP 1133.009 D10 item 11).
+// - An observer (LLP 1133.027 D17 item 1: a barcode scan) hears what a
+//   consumer hears and attaches to the capture the consumers keep, but takes,
+//   holds and reopens no lease. Under the agent the camera package hands the
+//   track the picture its viewfinder draws (`picture`), which an observer
+//   reads as the track's frame (D17 item 2).
 
 const GRACE = 1000; // ms a fresh browser track waits for its first consumer
 const MEMBERS = ['deviceId', 'groupId', 'facingMode', 'width', 'height', 'aspectRatio', 'frameRate', 'resizeMode', 'zoom', 'torch'];
@@ -50,7 +55,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
     muted: t.muted, muteReason: t.muted ? t.muteReason : null, readyState: t.readyState,
     settings: { ...t.settings }, capabilities: t.capabilities, apple: null, android: null,
   });
-  const each = (t, f) => { for (const c of [...t.consumers]) try { f(c); } catch (e) { say(`a consumer of ${t.id} failed: ${e.message}`); } };
+  const each = (t, f) => { for (const c of [...t.consumers, ...t.observers]) try { f(c); } catch (e) { say(`a consumer of ${t.id} failed: ${e.message}`); } };
   const mute = (t, reason) => {
     if (t.muted && t.muteReason === reason) return;
     t.muted = true; t.muteReason = reason;
@@ -134,6 +139,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
     say(`${t.id}: ended (${why})`);
     each(t, c => c.ended?.());
     t.consumers.clear();
+    t.observers.clear();
     announce();
   }
 
@@ -160,6 +166,24 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
         if (!t.consumers.size && t.active) deactivate(t);
       };
     },
+    /** `observer` hears track `id` as a consumer does, and never leases (LLP 1133.027 D17 item 1). */
+    observe(id, observer) {
+      const t = own.get(id);
+      if (!t) throw Object.assign(new Error(`no track ${id}`), { code: 'NotFoundError' });
+      if (t.readyState === 'ended') { observer.ended?.(); return () => {}; }
+      t.observers.add(observer);
+      say(`${t.id}: an observer joins, taking no lease`);
+      if (t.active) {
+        observer.live?.(t.source);
+        if (t.muted) observer.muted?.(t.muteReason);
+      } else observer.muted?.(t.muteReason ?? 'idle');
+      return () => { if (t.observers.delete(observer)) say(`${t.id}: an observer leaves`); };
+    },
+    /** Under the agent: the picture a viewfinder of track `id` draws, a promise of an `ImageBitmap` or null (D17 item 2). */
+    picture(id, frame) {
+      const t = own.get(id);
+      if (t) t.picture = frame;
+    },
   };
 
   return {
@@ -176,7 +200,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
       opened = true;
       const t = {
         id: `track-${nextId()}`, stream, kind: 'video', label: '', enabled: true, muted: true, muteReason: 'idle', readyState: 'live',
-        settings: {}, capabilities: null, constraints, consumers: new Set(), active: false, source: null, grace: null,
+        settings: {}, capabilities: null, constraints, consumers: new Set(), observers: new Set(), active: false, source: null, grace: null, picture: null,
         overlayMuted: overlay?.muted ? overlay.muteReason ?? 'interrupted' : null,
       };
       if (agent) Object.assign(t, agentCamera(constraints.facingMode === 'user' ? 'user' : 'environment'));
@@ -185,7 +209,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
         t.grace = setTimeout(() => { if (!t.active) { say(`${t.id}: no consumer joined; the browser's track stops`); stopSource(t); } }, GRACE);
       }
       own.set(t.id, t);
-      tracks.add({ id: t.id, kind: 'video', owner, extension: 'media-capture', state: () => shape(t), source: () => t.source });
+      tracks.add({ id: t.id, kind: 'video', owner, extension: 'media-capture', state: () => shape(t), source: () => t.source, frame: () => t.picture });
       say(`${stream}: opened with ${t.id} (${t.label})`);
       announce();
       changed('media-capture.enumerateDevices');

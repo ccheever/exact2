@@ -41,6 +41,7 @@ pub(super) struct Checkpoint {
     root_font: (super::root_font::RootFont, f32, u32),
     /// Kept answers refused before this commit (`kept::refuse`).
     refused: usize,
+    resource_inspection: Vec<crate::perf::ResourceWork>,
     /// Who each request and `then` is from (LLP 1133.023 D7).
     origins: super::modules::OriginsSaved,
 }
@@ -116,6 +117,7 @@ impl<D: DataSource> Runner<D> {
                 self.ids.theme.window,
             ),
             refused: self.keeping.refused.len(),
+            resource_inspection: self.ids.work.resources.clone(),
             origins: self.origins_saved(),
         }
     }
@@ -157,6 +159,7 @@ impl<D: DataSource> Runner<D> {
                 self.store_readers = c.store_readers;
                 self.watching = c.watching;
                 self.failed_args = c.failed_args;
+                self.ids.work.resources = c.resource_inspection;
                 self.failed_why = c.failed_why;
                 self.failed_mut = c.failed_mut;
                 self.refresh_next = c.refresh_next;
@@ -655,6 +658,11 @@ impl<D: DataSource> Runner<D> {
             }
             i += 1;
         }
+        // A world hears whose commit posted to it (`world_origin.rs`).
+        super::world_origin::mark_world_posts(
+            self.call_origin(),
+            &mut self.commands[first_command..],
+        );
         let commands: Vec<String> = self.commands[first_command..]
             .iter()
             .map(|c| {
@@ -807,6 +815,10 @@ impl<D: DataSource> Runner<D> {
                     && p.keepable.as_ref() == Some(&request)
             }) {
                 p.args = args;
+                if let Target::Resource(i) = target {
+                    p.inspection_generation =
+                        self.ids.work.resources.get(i).map_or(0, |w| w.request);
+                }
                 let ticket = p.ticket;
                 // A source that parks calls hears the kept ticket's newer
                 // arguments and drops the call parked under the old ones.
@@ -830,6 +842,10 @@ impl<D: DataSource> Runner<D> {
         self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);
         self.pending.push(PendingReq {
+            inspection_generation: match target {
+                Target::Resource(i) => self.inspected_request(i),
+                Target::Mutation(_) => 0,
+            },
             refusal: None,
             refused: false,
             ticket,
@@ -1330,6 +1346,7 @@ impl<D: DataSource> Runner<D> {
                 if let Some(next) = self.pending.last_mut() {
                     next.ask_again |= p.ask_again;
                     next.origin = p.origin;
+                    next.inspection_generation = p.inspection_generation;
                     next.write = p.write;
                 }
                 return self.update();
@@ -1360,6 +1377,7 @@ impl<D: DataSource> Runner<D> {
                     self.force_refresh(i);
                 }
                 self.resources[i] = Some(ResourceState {
+                    inspection_generation: p.inspection_generation,
                     args: p.args,
                     value: crate::held::Held::new(value),
                     store_revision: self.store.revision(),
@@ -1368,6 +1386,7 @@ impl<D: DataSource> Runner<D> {
                     answered_for: None,
                     origin: p.origin,
                 });
+                self.inspected_success(i, p.inspection_generation);
             }
             Target::Mutation(m) => {
                 self.failed_mut[m] = None;

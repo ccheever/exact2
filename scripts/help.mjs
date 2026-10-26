@@ -137,7 +137,7 @@ Server   runs server.ts on DB=.exact/test/db.sqlite; refuses a live server or an
 Runs     to completion, exit 1 when a test fails; nothing is left running.
 Backend  test web never starts a Snapback backend: start snapback4 dev on app.ts’s selected origin’s port
          first; checked before launch. The app's own server.ts is managed as above. EXACT_PORT is the page’s.
-Lines    tap, type, expect text|tree|state|disabled|refusal, clock data|settle|+<ms>, reload, back, fail|pass
+Lines    tap, type, expect text|tree|state|disabled|refusal, clock data|settle|+<ms>|until state …, reload, back, fail|pass
          fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
          all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
@@ -163,7 +163,7 @@ Ops      a target is a testId, else a view's exact text or label
   clock data|settle|held|+<ms> [real]    replies · transitions · push
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>`,
-    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. A game's world: post [<surface>] <text> is a message its next tick reads (type <surface> message <text>). No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's. A deep link is typed on the navigate= root: "type <root> euxy://p/1" (macOS, iOS: through protocol_handlers, no alert). Held contact: "tap <t> down" "screenshot <png>" "tap up". clock held [<target>…] [<n>s] waits for a held reply with the clock frozen, then runs clock data (default bound: 20 s).
+    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. A game's world: post [<surface>] <text> is a message its next tick reads (type <surface> message <text>). No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's. A deep link is typed on the navigate= root: "type <root> euxy://p/1" (macOS, iOS: through protocol_handlers, no alert). Held contact: "tap <t> down" "screenshot <png>" "tap up". clock held [<target>…] [<n>s] waits for a held reply with the clock frozen, then runs clock data (default bound: 20 s). clock until state <path> == <JSON literal> within <ms> waits, the clock frozen, until state reads it (a stream's state after its first message); a miss names the last value.
 Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },

@@ -1,6 +1,7 @@
 # A screen that can be open twice has no state of its own: resources are root-only
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Guidance, not a new lifetime: a screen written as its own component inside `for e in stack(nav) key=e.id` already has `state` per entry, disposed when the entry is popped (LLP 1017.000 P4c); only resources, mutations and tasks are root-only. docs/recipes/navigation-stack.md gains "A screen open twice", and scripts/agent-test.test.mjs proves two entries keep separate state and a popped entry's is gone. LLP 1035.005.000 D5 (route-owned requests) stays unselected until a second consumer.
 **Systems:** Contract (`type-child-resource`), runner router, docs
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from the Brooks four-way port's friction log

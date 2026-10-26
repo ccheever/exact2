@@ -57,6 +57,8 @@ component DesignTool
   resource clients = loadClients(hello.local, changes.clients) as shape Clients else empty(ok=true)
   mutation revoked as shape Pinned refreshes clients
   state clientsTries = 0
+  // The builds gone up to this number are no longer shown as reloading: the window closed on them (D1.2).
+  state reloadSeen = 0
   // A paired client is the name the server gave it (T6), whatever it asks.
   derive client = hello.client != "" ? hello.client : `design-tool:${person}`
   // Its scope (T6): below write, what writes is greyed, said once why; the
@@ -318,6 +320,10 @@ component DesignTool
     after(1000, pollGrid)
   task retryClients when hello.local and not pending(clients) and not clients.ok key=clientsTries
     after(3000, reloadClients)
+  // A build that goes (a rebuild's reload) is shown reloading for 10 s from the first going this window saw, those
+  // going meanwhile with it, so none shows longer: past that, one not back is no build (stage 15 D1.2).
+  task reloadWindow when changes.reloadGen > reloadSeen key=reloadSeen
+    after(10000, closeReload)
 
   action reheld
     asks = asks + 1
@@ -366,6 +372,8 @@ component DesignTool
     gridCap = match parseNumber(v) { case some(n) => n, case none => 6 }
   action toggleGridMirror(checked: bool)
     gridMirror = checked
+  action closeReload
+    reloadSeen = changes.reloadGen
   action reloadClients
     clientsTries = clientsTries + 1
     refresh clients
@@ -1107,7 +1115,7 @@ component DesignTool
                         if t.app != ""
                           text t.app color="-exact-secondary-label" font="-exact-caption1" max-width=390 testId=`grid-app-${t.name}`
             Inspector(inspected=inspected, changes=changes, canWrite=canWrite, canPropose=canPropose, canvasView=canvasView, gridAt=gridAt, upNote=upNote, upNoteKey=upNoteKey, foldedRows=foldedRows, foldedHeld=foldedHeld, impactToken=impactToken, uses=uses, inspectSent=inspectSent, selectedUp=selectedUp, holdSent=holdSent, outlined=outlined, sendingInspect=pending(inspectSent), movingUp=pending(selectedUp), sendingHold=pending(holdSent), outlining=pending(outlined), readingUses=pending(uses), toggleInspect=toggleInspect, selectUp=selectUp, showInitial=showInitial, editState=editState, editRow=editRow, moveRow=moveRow, holdState=holdState, editFromSelection=editFromSelection, outlineImpact=outlineImpact)
-            Builds(builds=changes.builds, canWrite=canWrite, pinBuild=pinBuild, pinScheme=pinScheme, pinContrast=pinContrast, pinMode=pinMode, pinFont=pinFont, pinFontOk=pinFontOk, pinAxes=pinAxes, pinned=pinned, sendingPin=pending(pinned), choosePinBuild=choosePinBuild, choosePinScheme=choosePinScheme, choosePinContrast=choosePinContrast, choosePinMode=choosePinMode, choosePinFont=choosePinFont, applyPin=applyPin, previewPin=previewPin, clearPins=clearPins)
+            Builds(builds=changes.builds, reloading=changes.reloading, reloadGen=changes.reloadGen, reloadSeen=reloadSeen, canWrite=canWrite, pinBuild=pinBuild, pinScheme=pinScheme, pinContrast=pinContrast, pinMode=pinMode, pinFont=pinFont, pinFontOk=pinFontOk, pinAxes=pinAxes, pinned=pinned, sendingPin=pending(pinned), choosePinBuild=choosePinBuild, choosePinScheme=choosePinScheme, choosePinContrast=choosePinContrast, choosePinMode=choosePinMode, choosePinFont=choosePinFont, applyPin=applyPin, previewPin=previewPin, clearPins=clearPins)
             // Design files only: the server's files hold the app's Contract
             // sources too (LLP 1121 stage 8 D), whose state parts it writes.
             if hello.files.filter(f => !f.path.endsWith(".contract")).length > 1

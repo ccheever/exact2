@@ -23,7 +23,9 @@
     "@exact/browser-automation": "workspace:*",
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
+    "@exact/gamepad": "workspace:*",
     "@exact/geolocation": "workspace:*",
+    "@exact/alarms": "workspace:*",
     "@exact/language-model": "workspace:*",
     "@exact/local-auth": "workspace:*",
     "@exact/camera": "workspace:*",
@@ -46,6 +48,9 @@
     "@exact/tracking-consent": "workspace:*",
     "@exact/health": "workspace:*",
     "@exact/pedometer": "workspace:*",
-    "@exact/altimeter": "workspace:*"
+    "@exact/altimeter": "workspace:*",
+    "@exact/barcode-detection": "workspace:*",
+    "@exact/text-detection": "workspace:*",
+    "@exact/translation": "workspace:*"
   }
 }

@@ -45,3 +45,72 @@ pub(super) fn open(path: &Path, d: &Device) -> State {
     }
     state
 }
+
+/// Who the pad at `path` is, for the registry (`crate::pads`).
+pub(super) fn identity(path: &Path, d: &Device) -> crate::pads::Identity {
+    crate::pads::Identity {
+        id: d.name().unwrap_or("Gamepad").to_owned(),
+        vendor: d.input_id().vendor(),
+        product: d.input_id().product(),
+        driver: crate::gamepad::driver(Path::new("/sys"), path),
+        user_index: None,
+    }
+}
+
+/// The pad's motors, where its driver takes `FF_RUMBLE` and the device
+/// opens for writing: a descriptor of their own, so the reader's is as it
+/// was. A pad opened read-only lists no effects.
+pub(super) fn motors(path: &Path, d: &Device) -> Option<Box<dyn crate::pads::Output>> {
+    if !d.supported_ff()?.contains(evdev::FFEffectCode::FF_RUMBLE) {
+        return None;
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .ok()?;
+    let device = Device::from_fd(file.into()).ok()?;
+    Some(Box::new(Motors {
+        device,
+        effect: None,
+    }))
+}
+
+/// A pad's two motors through evdev's force feedback
+/// (<https://docs.kernel.org/input/ff.html>): one `FF_RUMBLE` effect at a
+/// time, removed from the device when the next replaces it.
+struct Motors {
+    device: Device,
+    effect: Option<evdev::FFEffect>,
+}
+
+impl crate::pads::Output for Motors {
+    fn rumble(&mut self, strong: f32, weak: f32, ms: u32) -> bool {
+        self.effect = None;
+        let magnitude = |m: f32| (m.clamp(0., 1.) * f32::from(u16::MAX)) as u16;
+        let data = evdev::FFEffectData {
+            direction: 0,
+            trigger: evdev::FFTrigger::default(),
+            replay: evdev::FFReplay {
+                length: ms.min(u32::from(u16::MAX)) as u16,
+                delay: 0,
+            },
+            kind: evdev::FFEffectKind::Rumble {
+                strong_magnitude: magnitude(strong),
+                weak_magnitude: magnitude(weak),
+            },
+        };
+        let Ok(mut effect) = self.device.upload_ff_effect(data) else {
+            return false;
+        };
+        let played = effect.play(1).is_ok();
+        self.effect = Some(effect);
+        played
+    }
+
+    fn stop(&mut self) {
+        if let Some(mut effect) = self.effect.take() {
+            let _ = effect.stop();
+        }
+    }
+}

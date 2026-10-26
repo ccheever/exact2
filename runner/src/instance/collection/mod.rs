@@ -21,6 +21,7 @@ mod tests;
 mod traversal;
 pub(crate) mod views;
 mod within;
+pub(super) mod work;
 use super::*;
 pub use api::*;
 use exact_kernel::PropId;
@@ -59,7 +60,7 @@ const LEAN_BEHIND: f64 = 0.5;
 /// [`LEAN_BEHIND`] of a viewport on the side it travels from.
 fn lead(viewport: f64, fill: CollectionFill) -> [f64; 2] {
     let velocity = fill.velocity;
-    let extra = (velocity.abs() * LEAD_SECONDS).min(viewport * 2.0);
+    let extra = travel_lead(viewport, velocity);
     let k = f64::from_bits(LEAD_SCALE.load(std::sync::atomic::Ordering::Relaxed));
     let behind = if fill.lean && velocity != 0.0 {
         viewport * LEAN_BEHIND
@@ -71,6 +72,12 @@ fn lead(viewport: f64, fill: CollectionFill) -> [f64; 2] {
     } else {
         [(viewport + extra) * k, behind * k]
     }
+}
+
+/// How much farther than its overscan the window leads toward the side it
+/// travels: a quarter second of travel, up to two viewports.
+fn travel_lead(viewport: f64, velocity: f64) -> f64 {
+    (velocity.abs() * LEAD_SECONDS).min(viewport * 2.0)
 }
 
 /// 1.0's bits: the process's lead scale (a host may boot on one thread and
@@ -177,6 +184,8 @@ pub(crate) struct Collection {
     edge_handlers: [bool; 2],
     reorderable: bool,
     edge_armed: [bool; 2],
+    /// Each edge's row when it last fired ([`Collection::disarm_edge`]).
+    edge_fired: [Option<Rc<str>>; 2],
     /// The last realization left window rows unbuilt or kept rows past it.
     pending: bool,
     /// The outer list whose row holds this one (LLP 1070 N1).
@@ -478,6 +487,7 @@ impl Collection {
                 .iter()
                 .any(|h| plan.handler(h).event == EventKind::Reorderdrop),
             edge_armed: [true; 2],
+            edge_fired: [None, None],
             pending: false,
             parent: None,
             nested,
@@ -969,6 +979,7 @@ impl Collection {
                     // removed it; a build-only report never sees one.
                     None => {
                         debug_assert!(false, "a build-only report met a row whose item left");
+                        self.retire_row(u, &mounted);
                         views::item_left(u, mounted.wrapper);
                         u.ops.push(Op::DestroyView {
                             id: mounted.wrapper,
@@ -992,6 +1003,7 @@ impl Collection {
                     leaving.push((self.distance(p, top, end).1, text, mounted))
                 }
                 (_, None) => {
+                    self.retire_row(u, &mounted);
                     views::item_left(u, mounted.wrapper);
                     u.ops.push(Op::DestroyView {
                         id: mounted.wrapper,
@@ -1124,6 +1136,7 @@ impl Collection {
             awaiting: false,
             held: false,
         };
+        self.count_row(u, |w| w.row_constructed += 1);
         self.mounted_shown(u, &mut mounted);
         Ok(mounted)
     }

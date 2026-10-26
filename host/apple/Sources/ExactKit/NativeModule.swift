@@ -65,6 +65,9 @@
 //        nullable: a presence check (LLP 1133.010 D13), Presence.swift
 // 240  image(module, json, len, ctx, done)              size ≥ 248;
 //        nullable: a package picture (LLP 1133.019 D11 item 1), PackagePictures.swift
+// 248  session_view(module, view)                     size ≥ 256;
+//        nullable: the session's root view, borrowed, or nil, each time it
+//        changes (LLP 1133.027 D17 item 3)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -168,6 +171,9 @@ private final class NativeTable {
     var authenticate: PresenceAuthenticateFn?
     /// A package picture (LLP 1133.019 D11 item 1), in one of 248 or more.
     var image: PackageImageFn?
+    /// The session's root view for packages (LLP 1133.027 D17 item 3), in one of 256 or more.
+    var sessionView: SessionViewFn?
+    typealias SessionViewFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -253,6 +259,7 @@ private final class NativeTable {
         if size >= 232 { loaded.createView = pointer(224).map { unsafeBitCast($0, to: CreateViewFn.self) } }
         if size >= 240 { loaded.authenticate = pointer(232).map { unsafeBitCast($0, to: PresenceAuthenticateFn.self) } }
         if size >= 248 { loaded.image = pointer(240).map { unsafeBitCast($0, to: PackageImageFn.self) } }
+        if size >= 256 { loaded.sessionView = pointer(248).map { unsafeBitCast($0, to: SessionViewFn.self) } }
         return .success(loaded)
     }
 }
@@ -601,6 +608,7 @@ final class NativeViews {
         }
         instance = made
         log("module instance made (agent \(ExactEnv.agentMode)) \(sincePixel)")
+        sessionViewChanged()
         if Self.hatchesOff { log("hatches: off (EXACT_HATCHES=off); no hatch is connected or called") }
         if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
             let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
@@ -617,6 +625,12 @@ final class NativeViews {
             if session.firstDrawMs != nil { activateHatches() }
         }
         return .success(made)
+    }
+
+    /// The module is handed the session's view as it changes (`session_view`).
+    func sessionViewChanged() {
+        guard let instance, case .success(let table)? = NativeProcess.table, let call = table.sessionView else { return }
+        call(instance, session?.view.map { Unmanaged.passUnretained($0).toOpaque() })
     }
 
     private var pendingHatches: (() -> Void)?

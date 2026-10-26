@@ -1,0 +1,38 @@
+use chimeStatus, chimes, setChime, stopChime, holdChime, goChime, requestChime, ChimeStatus, Chime from "@fixture/chime"
+
+shape Time
+  epochAtZero: number
+
+component App
+  resource status = chimeStatus() as shape ChimeStatus
+  resource list = chimes() as shape Chime[]
+  resource time = exactTime() as shape Time
+  mutation asked as shape ChimeStatus
+  action start
+    setChime(tag="t", title="Tea", duration=60000, snooze=30000)
+  action wake
+    setChime(tag="a", title="Wake", at=time.epochAtZero + performanceNow() + 120000)
+  action neither
+    setChime(tag="n", title="None")
+  action both
+    setChime(tag="b", title="Both", at=time.epochAtZero + performanceNow() + 120000, duration=60000)
+  action past
+    setChime(tag="p", title="Past", at=time.epochAtZero + performanceNow() - 1000)
+  action short
+    setChime(tag="s", title="Short", duration=500)
+  action untitled
+    setChime(tag="u", title="", duration=60000)
+  action hold
+    holdChime(tag="t")
+  action go
+    goChime(tag="t")
+  action stop
+    stopChime(tag="t")
+  action ask
+    send asked = requestChime()
+  view
+    column
+      text testId="state" status.state
+      text testId="count" `${list.length}`
+      for c in list key = c.tag
+        text testId=`chime-${c.tag}` c.state

@@ -395,7 +395,7 @@ public final class ExactSession {
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
-    weak package var view: ExactView?
+    weak package var view: ExactView? { didSet { if view !== oldValue { natives.sessionViewChanged() } } }
     #if os(iOS) || os(tvOS)
     private var systemDark = false
     var launchViewport: (plan: Data?, cover: Bool)?

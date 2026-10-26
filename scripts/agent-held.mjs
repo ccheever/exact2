@@ -1,5 +1,6 @@
-// The agent's `clock held` (LLP 1016.000 D9, theme2 2026-10-22), over the session's own ops (scripts/agent.mjs), so
-// one implementation serves every host.
+// The agent's waits on real time with the clock frozen, `clock held` (LLP 1016.000 D9, theme2 2026-10-22) and `clock
+// until state` (rules/DEFERRED.md, "Agent API", 2026-10-26), over the session's own ops (scripts/agent.mjs), so one
+// implementation serves every host.
 import { MalformedOperation } from './agent-keys.mjs';
 
 // `clock held [<target>…] [<n>s|<n>ms]`: real time passes, the clock frozen, until each held request in flight now
@@ -39,6 +40,64 @@ export async function heldClock(s, words) {
   if (left.length) return { ...(await s.op({ op: 'tags' }).catch(() => ({}))), clock: s.now, settled: false, reason: 'held', held: seen.held.length, heldTargets: left, diagnostic: `clock held waited ${bound} ms of real time and ${left.join(', ')} had no reply: the server still holds ${left.length > 1 ? 'them' : 'it'}; give a longer bound (clock held ${Math.ceil(bound / 500)}s) or check the server` };
   const landed = await s.clock('data');
   return targets.length ? landed : { ...landed, diagnostic: 'clock held: no held request was in flight, so it waited for none' };
+}
+
+const UNTIL = 'clock until state <path> == <literal> within <ms> (the literal is JSON: a string, a number, true, false or null)';
+
+// `clock until state <path> == <literal> within <ms>`: real time passes, the clock frozen (no timer fires), until
+// `state <path>` reads the literal, for at most <ms>; a miss throws, naming the last value read. It is for state a
+// stream reaches after its first message, which no settlement waits for (LLP 1016.000 D5). Each look first lands
+// what has arrived, as an input's end does (`clock` with `land`: the `then`s of answers in, no timer fired), so a
+// protocol's later steps go on meanwhile: Excord's IDENTIFY is sent from a write's `then`, and READY answers it.
+export async function untilClock(s, spec) {
+  const m = /^until\s+state\s+(\S+)\s*==\s*(\S.*?)\s+within\s+(\d+)$/s.exec(spec.trim());
+  if (!m) throw new MalformedOperation(`${UNTIL}, not \`clock ${spec.trim()}\``);
+  const [, path, literal] = m, bound = Number(m[3]);
+  let want;
+  try { want = JSON.parse(literal); } catch { /* refused below */ }
+  if (want === undefined || (want !== null && typeof want === 'object') || (typeof want === 'number' && !Number.isFinite(want))) throw new MalformedOperation(`${UNTIL}: ${literal} is not one`);
+  if (bound < 1 || bound > 3_600_000) throw new MalformedOperation(`${UNTIL}: a bound is 1 ms up to an hour, not ${bound}`);
+  // A name, then fields and list indexes, read from `state` as an authored `expect state` reads it.
+  const [name, ...fields] = path.split('.'), has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
+  const read = async () => {
+    const landed = await s.op({ op: 'clock', land: true });
+    if (landed?.error) throw new Error(`clock until state ${path}: ${landed.error}`);
+    const record = await s.op({ op: 'state' }), bag = { ...record.resources, ...record.derives, ...record.slots };
+    const tasks = record.tasks ?? {};
+    if (!has(bag, name) && !has(record, name)) return { unknown: Object.keys(bag), tasks };
+    let got = has(bag, name) ? bag[name] : record[name], at = name;
+    for (const field of fields) {
+      if (!has(got, field)) return { missing: `${at} has no field "${field}" (it is ${JSON.stringify(got)?.slice(0, 200)})`, tasks };
+      got = got[field]; at += `.${field}`;
+    }
+    return { value: got, tasks };
+  };
+  if (['ios', 'host-ios', 'macos', 'host'].includes(s.carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
+  // Every look races the bound: one that answers past it counts nothing, so a value is never met late.
+  const t0 = performance.now(), end = t0 + bound, met = (r) => r != null && 'value' in r && r.value === want;
+  const look = () => {
+    const r = read();
+    r.catch(() => {}); // a look abandoned at the bound may fail later, unheard
+    let timer;
+    const late = new Promise((ok) => { timer = setTimeout(() => ok(null), Math.max(0, end - performance.now())); });
+    return Promise.race([r, late]).finally(() => clearTimeout(timer));
+  };
+  let seen = await look();
+  if (seen?.unknown) throw new MalformedOperation(`clock until state ${path}: no state named "${name}" (${seen.unknown.join(', ') || 'none declared'})`);
+  while (!met(seen) && performance.now() < end) {
+    await new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(50, end - performance.now()))));
+    if (performance.now() >= end) break;
+    const got = await look();
+    if (!got) break;
+    seen = got;
+  }
+  const real = Math.round(performance.now() - t0);
+  if (met(seen)) return { clock: s.now, real, until: 'met', value: seen.value };
+  const last = seen == null ? 'no look answered within the bound' : 'value' in seen ? `${path} was ${JSON.stringify(seen.value)?.slice(0, 200)}` : seen.missing ?? `no state named "${name}"`;
+  // A task due a commit later (`after(1, …)`) is a step the frozen clock never takes (Excord's `record`, which sends IDENTIFY).
+  const soon = Object.entries(seen?.tasks ?? {}).filter(([, at]) => Number.isFinite(at) && at > s.now && at <= s.now + 1).map(([task]) => `\`${task}\``);
+  const hint = soon.length ? `; ${soon.join(', ')} ${soon.length > 1 ? 'are' : 'is'} due a commit later (an \`after(1, …)\`), which the frozen clock never reaches: \`clock settle\` or \`clock +1\` before this step runs ${soon.length > 1 ? 'them' : 'it'}` : '';
+  throw new Error(`clock until state ${path} == ${literal} within ${bound}: ${last} after ${real} ms of real time, the clock frozen at ${s.now} ms${hint}`);
 }
 
 /** A missed target's note on what is still out (`state.pending`): requests `clock data` lands, and held asks, whose

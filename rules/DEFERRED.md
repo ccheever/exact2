@@ -32,6 +32,31 @@ scheme and fragment. A no-router URL event remains deferred; Charlie's ruling
 keeps the navigation root requirement. Take: no second delivery mechanism is
 added.
 
+**Expanded (Charlie, 2026-10-26, #1003):** an iOS app can ask to be the default
+browser. `host.ios.webBrowser: true` emits Apple's managed
+`com.apple.developer.web-browser` entitlement, registers the `http` and `https`
+`protocol_handlers` the platform requires, and fails the build, naming the
+profile, when the signing profile does not grant the entitlement. Apple
+approves each app. Nathan Schroeder implements it, with T3 Code's browser as
+the consumer. Take: none offered; waived by Charlie. Still out: http and https
+handlers for any app that does not opt in.
+
+**Expanded (Charlie, 2026-10-26, #1002; LLP 1133.028 §10):** Apple builds write
+a privacy manifest (`PrivacyInfo.xcprivacy`) into each bundle that links a
+required-reason API (the app, a widget extension, `ExactCore.framework` and
+the other Exact frameworks). It is generated from an audited table of the
+APIs Exact itself calls; a call with no approved reason is removed rather
+than given one. Nathan Schroeder implements it (#1004). Take: none offered;
+waived by Charlie. Still out: an app's own declarations, until an app with
+native code of its own asks.
+
+**Expanded (Charlie, 2026-10-26, Excord):** a virtualized `list` takes
+`reach-margin`, a nonnegative `px` or `%` distance along the scroll axis, one
+viewport by default, saying how far ahead of an end `reachstart` and
+`reachend` fire. With it, the default edge band follows the collection's own
+lead, as LLP 1027.004 D3 has it, so a fling that the window preloads for also
+fires the edge event. Take: none offered; waived by Charlie.
+
 **Expanded (Charlie, 2026-10-11, events ruling):** `keycapture=` admits DOM
 capture-phase key dispatch for the coding-agent desktop app's early shortcuts;
 `focusin`/`focusout` admit bubbling subtree focus observation for the clipped
@@ -174,9 +199,22 @@ held to Chrome. The reader app's diary is the consumer: pagination and a
 two-page spread from one flow. Unblocks book pagination without a polled
 height or a duplicated chapter. Take: LLP 1043.000 stage 5
 (`shape-outside: <image>`, the dancer's traced silhouette) moves behind
-LLP 1093 stage 2. Still out: `column-span`, regions, paged media and `@page`,
-`box-decoration-break: clone`, and slicing decorated, fixed-height, flex-row
-and grid boxes (LLP 1093 §5).
+LLP 1093 stage 2. Still out: `column-span`, regions, `@page` (page size,
+margins and page-margin boxes), `box-decoration-break: clone`, and slicing
+decorated, fixed-height, flex-row and grid boxes (LLP 1093 §5); printing an
+element is LLP 1133.024.
+
+**Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", waived; LLP
+1133.024 §19 question 6):** printing one element through the platform's
+print UI (`print` from `@exact/print`): a print layout of the element at
+the page's width and the kernel's cut over pages of the platform's paper,
+with `break-*`'s `page` and `avoid-page` values, which do nothing on
+screen. Consumer: Fieldnotes' Print note. Unblocks printing and Save as
+PDF of a view made for paper without app Swift or Kotlin. Take: none
+named; the ruling is its own waiver. Still out (LLP 1133.024 §18):
+`@page`, a PDF export without the print UI, slicing a monolithic box
+across pages, a multi-column box continued across pages, and repeated
+fixed boxes.
 
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
 across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown
@@ -927,11 +965,30 @@ reading. Nothing that isn't HTML is added by it.
   for a store lane; development builds and the stores' test environments
   need none. Still out, each until a consumer asks (LLP 1133.015 §11):
   StoreKit's merchandising views as package views; External Purchase, the
-  link-out entitlements and Play's alternative billing as tier 1; payments
-  for physical goods; the web cell inside a TWA or a Microsoft Store PWA;
+  link-out entitlements and Play's alternative billing as tier 1; the web
+  cell inside a TWA or a Microsoft Store PWA;
   a receipt-validation or entitlement server of exact2's, and relaying the
   stores' server notifications; and the Windows, tvOS, visionOS and
   watchOS cells.
+- **Expanded (Charlie, 2026-10-26, "Accept r5, build (Recommended)",
+  waived; LLP 1133.034 §13 question 9):** payment for physical goods and
+  services by Payment Request's names (`showPaymentRequest`,
+  `paymentRequestStatus` and the wallet's button `exact-payment-button`,
+  from `@exact/payments`), through Apple Pay and Google Pay on the web,
+  iOS, macOS and Android, the payment token reaching the app's data code
+  alone; Wallet passes as tier 2, designed and built when a consumer asks.
+  Consumer: the photo editor's Order a Print, against a fixture print
+  server that charges nothing. Unblocks selling a physical good with the
+  device's wallet without app Swift or Kotlin. Take: none named; the
+  ruling is its own waiver. Real wallet drives wait for the Apple merchant
+  ID and the Google test account (question 7). Still out, each until a
+  consumer asks (LLP 1133.034 §11): card entry without a wallet and any
+  processor's SDK; a payment server of exact2's; Apple Pay's in-app
+  provisioning, Tap to Pay on iPhone, disbursements, identity
+  verification with Wallet and Apple Pay Later's merchandising views;
+  Secure Payment Confirmation and the web's payment handlers; native
+  merchant session updates; an Add to Apple Wallet button view; and the
+  tvOS, Windows, Linux, watchOS and visionOS cells.
 - **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
   1133.016 §14 question 9):** the device's own language model by the
   Prompt API's names (`languageModelAvailability`, `createLanguageModel`,
@@ -972,10 +1029,27 @@ reading. Nothing that isn't HTML is added by it.
   app that is not running on macOS, Linux and Windows; Android's
   long-running workers and foreground services beyond a person-started
   transfer's; resuming an interrupted upload on Android; an app's own
-  `beginBackgroundTask`; background location, geofencing, Bluetooth
-  restoration and HealthKit delivery, each its own module over this seam;
-  Background Fetch's `icons` and `updateUI`; and continued processing's
-  GPU resource.
+  `beginBackgroundTask`; continuous background location (geofencing
+  moved in, below), Bluetooth restoration and HealthKit delivery, each its
+  own module over this seam; Background Fetch's `icons` and `updateUI`;
+  and continued processing's GPU resource.
+- Maps, geocoding and geofencing were never on the doing list. **Expanded
+  (Charlie, 2026-10-26, "Accept, with Play services (Recommended)",
+  waived; LLP 1133.021 §15 question 8):** maps as the `exact-map` package
+  view (web, iOS, macOS, Android, tvOS), geocoding by the platform's
+  geocoder (iOS, macOS, Android, tvOS), and geofencing as wakes, from a
+  region carrier the host keeps on Apple and the package's receivers over
+  the host's store on Android, with Play services' geofencing there (iOS,
+  macOS, Android), with the seam additions of LLP 1133.021 §9. Background
+  location is admitted only as the grant geofencing requires
+  (`device.geolocation-background`). Consumers: map-demo, Weatherlight,
+  Caltrain. Unblocks one map on every target with a map, a followed
+  position named by its city, and an arrival that wakes a closed app.
+  Take: none named; the ruling is its own waiver, and the expansion
+  deletes map-demo's own native module (its Swift and JavaScript). Still
+  refused (LLP 1133.021 §11): continuous background location, beacons,
+  visits and significant-change launches, overlays, directions, search, a
+  default web tile source and a web geocoder.
 - **Expanded (Charlie, 2026-10-26, "Accept r5, services first
   (Recommended)", waived; LLP 1133.033 §13 question 9):** a foreground
   service the host keeps on Android, claimed by a package for a capture
@@ -1124,6 +1198,27 @@ reading. Nothing that isn't HTML is added by it.
   sound as tier 1, buttons that run app code, an author-drawn countdown,
   alarms set or resumed by tools and wakes, the Windows cell until the
   desktop builder, and the web, macOS, Linux and tvOS cells.
+- Finding services on the local network was never on the doing list, and
+  the listener's record above keeps listening beyond loopback out.
+  **Expanded (Charlie, 2026-10-26, "Accept r9, build (Recommended)",
+  waived; LLP 1133.036 §15 question 8):** finding services on the local
+  network by DNS-SD (`localNetworkStatus`, `browseServices`,
+  `resolveService` from `@exact/local-network`) on iOS, macOS, tvOS and
+  Android, and Linux and Windows over LLP 1133.022's desktop builder; and
+  reaching them under a `local-network` grant source for `net.fetch` and
+  `net.websocket`, with every host's local-network fact and the origin
+  rule at every fetch hop and WebSocket open whose destination can show a
+  prompt (LLP 1133.036 D5, D6). With the seam additions of LLP 1133.036
+  D16. Consumer: Lights, a controller for WLED lights. Unblocks listing
+  the devices of a known type on the person's network and reaching one
+  by name or typed address, without app Swift or Kotlin, and closes a
+  tool's or a wake's reach to the LAN opening the system's prompt. Take:
+  none named; the ruling is its own waiver. Still out, each until a
+  consumer asks (LLP 1133.036 §13): advertising and a LAN listener;
+  Wi-Fi Aware, Wi-Fi Direct and DeviceDiscoveryUI pairing; browsing every
+  type or an unlisted one, subtypes, wide-area DNS-SD and raw TXT bytes;
+  a client socket for raw TCP or UDP, SSDP and UPnP; systemd-resolved's
+  browse on Linux; and a browse in a wake or the background.
 - **Expanded (Charlie, 2026-10-25, "Waive both (Recommended)", on LLP
   1133.027 §13 question 9):** barcodes and QR codes read in a still image
   and live in a camera track a viewfinder shows (`getSupportedFormats`,
@@ -1445,6 +1540,13 @@ tenth operation.
 LLP 1079 D7):** `perf` is the tenth operation and takes none away: a subtree's work
 by plan site, and a host's presented frames. A new measurement is a form of `perf`,
 never an eleventh operation.
+
+**Ruled (Charlie, 2026-10-26, Excord's socket handshake):** `clock until state
+<path> == <literal> within <ms>` is a form of `clock`, in the agent and in
+authored tests. Virtual time stays frozen while it waits on the wall clock for
+at most `<ms>`, and a miss names the last value it saw. It is for state that a
+stream reaches after its first message, which settlement does not wait for
+(LLP 1016.000 D5).
 
 **An eleventh operation replaces one of the ten, same PR.** A new input is a form of
 `tap` or `type` (a wheel is a `tap`; so would a drag be); a new question is answered

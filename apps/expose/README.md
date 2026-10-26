@@ -43,9 +43,14 @@ The assistant needs an OpenRouter key. Two ways to give it one:
    device only.
 2. Bake it into your own build: `EXPOSE_OPENROUTER_KEY=sk-or-… bun host/apple/build.mjs …`.
    Each crate's `build.rs` writes `apps/expose/local.ts` from the variable
-   (gitignored; an empty one is written when the variable is unset so a clean
-   checkout builds). The dev loop reads the same file, so write it once by
-   hand or run any native build first.
+   (gitignored; an empty one when the variable is unset, so the bake watches
+   it). `./local` resolves to that file when it exists and to the tracked
+   `apps/expose/local/index.ts` (no key) when it doesn't, so a clean checkout
+   builds with nothing generated. The dev loop reads the same file,
+   so write it once by hand or run any native build first.
+
+   A `local.ts` written before stays, and still wins, after the variable is
+   unset: delete `apps/expose/local.ts` to un-bake the key.
 
 A key from Settings wins over a baked one. *Forget the saved key* in Settings
 falls back to the baked one.

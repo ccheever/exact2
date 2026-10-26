@@ -10,56 +10,21 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, channelOf, connected, draftOf, withDraft, piece from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, MediaPreferences, Place, Viewport, Page, noAnswers, channelOf, connected, draftOf, withDraft, placeOf, piece, keyOf, Time, typingDot from "./shapes.contract"
+use MessageLanguage, Translated, withTranslated, pendingLineOf from "./translate.contract"
+use translatorAvailability, createTranslator, translate, createLanguageDetector, TranslatorAvailability, TranslatorInfo, TranslatorResult, LanguageDetectorInfo from "@exact/translation"
 use AgeGate from "./agegate.contract"
 use MessageRow from "./transcript.contract"
 use DirectoryList from "./directory.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
-use MemberList from "./members.contract"
+use MemberList, ProfileCard from "./members.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
 
-shape MediaPreferences
-  prefersContrast: string
-fn noAnswers(): string[] = []
-
-shape Time
-  epochAtZero: number
-  utcOffset: number
-
-// Where a reader left a channel, kept for the session (§3.3).
-shape Place
-  channel: string
-  anchor: string
-  key: string
-  offset: number
-  atEnd: bool
-
 routes nav
   home "/"
     channel "/c/:channel"
-
-fn placeOf(places: Place[], channel: string): Place = match first(places.filter(p => p.channel == channel)) { case some(p) => p, case none => Place(channel="", anchor="", key="", offset=0, atEnd=true) }
-
-// A row's key for a message id: a send confirmed here keeps its nonce as key.
-fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
-shape Viewport
-  width: number
-  displayMode: string
-  prefersReducedMotion: bool
-  pointer: string
-
-// Someone typing: three dots that rise and fall in turn, as Discord draws them.
-keyframes typingDot
-  from opacity=0.35 translate="0px 0px"
-  50% opacity=1 translate="0px -2px"
-  to opacity=0.35 translate="0px 0px"
-
-// The page's visibility, for acknowledging what the reader sees (§2: an ack is a
-// write, sent as the official client sends it).
-shape Page
-  visibilityState: string
 
 component Excord
   state now = 0
@@ -112,6 +77,7 @@ component Excord
   state ackTries = 0
   state pageTries = 0
   state pageAsked = ""
+  state pageAsks = 0
   state baseArrived = 0
   state followed = 0
   state highlight = ""
@@ -173,6 +139,20 @@ component Excord
   resource mediaPreferences = exactViewport() as shape MediaPreferences
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
+  // Translate: the aimed message's language, the pair to the person's, and each translation for the session.
+  state translated: Translated[] = []
+  state translating = ""
+  state translatingText = ""
+  state translatingFrom = ""
+  resource lang = messageLanguage(aimedText) as shape MessageLanguage else empty()
+  derive myLanguage = piece(time.locale.split("-"), 0)
+  resource pair = translatorAvailability(sourceLanguage=lang.language, targetLanguage=myLanguage) as shape TranslatorAvailability else empty()
+  mutation translator as shape TranslatorInfo then runTranslation
+  mutation translation as shape TranslatorResult then landTranslation
+  mutation detectorMade as shape LanguageDetectorInfo refreshes lang
+  derive canTranslate = lang.detector == "downloadable" or (lang.language != "" and lang.language != myLanguage and pair.availability != "unavailable")
+  derive pendingLine = translating == "" ? "" : pendingLineOf(match failure(translator) { case some(f) => f.code, case none => match failure(translation) { case some(f) => f.code, case none => "" } }, translatingFrom, pair)
+  derive translations = pendingLine == "" ? translated : withTranslated(translated, Translated(id=translating, text="", line=pendingLine))
   resource viewport = exactViewport() as shape Viewport
   // The gateway opens once the kept credentials are read, which only `session` reads, so
   // keeping a new identify or token re-asks it and not the socket. The launch's epoch makes
@@ -277,7 +257,9 @@ component Excord
   // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
   derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
   derive pageKey = `${win.channel}/${win.need}/${win.cursor}`
-  derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and pageTries >= 3
+  // Asks count as well as failures: a page whose answer the host refused (a window it could not read)
+  // runs no `afterPage`, or leaves the window as it was, and would otherwise be asked again for good.
+  derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and (pageTries >= 3 or (pageAsks >= 3 and not pending(paged)))
   derive historyLoading = pending(win) or win.channel != open or win.need != ""
   // The transcript is on screen, not the channel list or a picture over it.
   derive reading = top(nav).name == "channel" and viewing == ""
@@ -334,6 +316,12 @@ component Excord
   // A dropped connection resumes once its backoff has passed.
   task redial when gw.state == "backoff"
     every(1000, redialNow)
+  // A gateway answer the host refused (a turn over its budget) ends the stream with no close the data
+  // module hears, and the resource keeps its last state: asked again, it connects again (the identify
+  // budget bounds how often). Not while `digest` is applying a large READY: connecting again drops the
+  // rest of it, and a resumed session would never bring those servers back.
+  task regateway when failed(gateway) and session.ready and session.signedIn and gw.queued == 0 and not pending(digested)
+    every(10000, redialNow)
   task record when gw.state == "recording"
     after(1, recordNow)
   // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
@@ -422,6 +410,7 @@ component Excord
   action pageNow
     if pageAsked != pageKey
       pageTries = 0
+    pageAsks = pageAsked != pageKey ? 1 : pageAsks + 1
     pageAsked = pageKey
     send paged = loadPage(win.channel, win.need, win.cursor)
   action afterPage
@@ -438,6 +427,7 @@ component Excord
         pageTries = 0
   action retryHistory
     pageTries = 0
+    pageAsks = 0
   action followEnd
     followed = chan.arrived
     if not away and endGap > 0.5
@@ -490,6 +480,7 @@ component Excord
       target = ""
     ackTries = 0
     pageTries = 0
+    pageAsks = 0
     if c.ageRestricted and ageGate == ""
       ageGate = "asked"
       send age = requestAgeRange(ageGates=[18])
@@ -944,6 +935,22 @@ component Excord
   action copyLink
     let serverId = chan.guild == "" ? "@me" : chan.guild
     copyText(`https://discord.com/channels/${serverId}/${open}/${aimedId}`)
+  // On the web the detector itself may need a download, which this press makes; the next press translates (§10 step 4).
+  action translateAimed
+    if lang.detector == "downloadable"
+      send detectorMade = createLanguageDetector()
+    else
+      translating = aimedId
+      translatingText = aimedText
+      translatingFrom = lang.name
+      send translator = createTranslator(sourceLanguage=lang.language, targetLanguage=myLanguage)
+  action runTranslation
+    send translation = translate(translator=(match translator { case some(t) => t.id, case none => "" }), input=translatingText)
+  action landTranslation
+    translated = withTranslated(translated, Translated(id=translating, text=(match translation { case some(r) => r.text, case none => "" }), line=`Translated from ${translatingFrom}`))
+    translating = ""
+  action showOriginal(id: string)
+    translated = translated.filter(t => t.id != id)
   action reactAimed(emoji: string)
     send changed = react(open, aimedId, emoji)
   action openPicker
@@ -1249,6 +1256,8 @@ component Excord
                 text "Receive a message"
               button press=injectNow("burst") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-burst"
                 text "Receive a burst"
+              button press=injectNow("japanese") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-japanese"
+                text "Receive a message in Japanese"
               button press=injectNow("typing") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-typing"
                 text "Someone types"
               hr
@@ -1292,7 +1301,7 @@ component Excord
                       reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                       flex=1 min-height=0 padding-top=8 padding-bottom=22
                       for m in rows key=m.key
-                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" and m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" and dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, poll=pollAct)
+                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" and m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" and dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, poll=pollAct, translations=translations, original=showOriginal)
                   if rows.length == 0
                     column position="absolute" inset=0 align-items="center" justify-content="center" gap=12 padding=24
                       if historyFailed
@@ -1322,6 +1331,9 @@ component Excord
                     button press=copyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-copy"
                       image "symbol:copy"
                       text "Copy Text"
+                    if canTranslate
+                      button press=translateAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-translate"
+                        text "Translate"
                     button press=copyLink popovertarget="message-menu" popovertargetaction="hide" testId="menu-link"
                       image "symbol:link"
                       text "Copy Message Link"
@@ -1425,7 +1437,7 @@ component Excord
                     // The field draws no ring of its own: the pill's border shows the focus. One line
                     // sits at Send's middle, whatever height the platform gives Send; Send stays at the
                     // bottom as the field grows.
-                    row flex=1 min-width=0 min-height=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
+                    row flex=1 min-width=0 min-height=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing and viewport.pointer != "coarse" ? "1px solid AccentColor" : "1px solid -exact-separator")
                       focusin=composerFocus(true) focusout=composerFocus(false)
                       textarea id="composer" value=draft input=edit selectionchange=caretMoved paste=pastedInto key=keyed focus=focusComposer blur=blurComposer rows=1 field-sizing="content" max-height="9rem" min-height=0
                         placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
@@ -1448,19 +1460,7 @@ component Excord
           MemberList(rows=members, open=memberCard)
       dialog id="profile" aria-label=(profile.name != "" ? profile.name : "Profile") close=profileClosed testId="profile"
         column gap=10 padding=20 width="20rem" max-width="100%" align-items="flex-start"
-          image profile.avatar width=80 height=80 border-radius=40 object-fit="cover" background-color="-exact-tertiary-fill" aria-hidden=true
-          row gap=8 align-items="center" flex-wrap="wrap"
-            text profile.name font="-exact-title2" font-weight=700 color=(profile.color != "" ? profile.color : "-exact-label") testId="profile-name"
-            if profile.bot
-              Badge(label="APP", tint=some("AccentColor"))
-          text `@${profile.handle}` color="-exact-secondary-label" testId="profile-handle"
-          if profile.roles.length > 0
-            text "Roles" font="-exact-footnote" font-weight=600 color="-exact-secondary-label" padding-top=6
-            row gap=6 flex-wrap="wrap"
-              for r in profile.roles key=r.id
-                row gap=6 align-items="center" padding="3px 8px" border-radius=6 background-color="-exact-quaternary-fill"
-                  view width=10 height=10 border-radius=5 background-color=(r.swatch != "" ? r.swatch : "-exact-tertiary-label") aria-hidden=true
-                  text r.name font="-exact-footnote"
+          ProfileCard(profile=profile)
           button commandfor="profile" command="close" align-self="stretch" testId="profile-close"
             text "Done"
       // The quick switcher is the window's, so ⌘K shows it over whichever screen is on top.

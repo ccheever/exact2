@@ -44,6 +44,14 @@ const changedSince = (path, since) => { const s = lstatSync(path), now = Date.no
 /** Whether a watcher's event for `path` is an edit since `since`: macOS reports a build's reads of a tree (the assets it
  * copies) as events too, and a path unchanged since then is none. A path that is gone is an edit. */
 const movedSince = (path, since) => { try { return changedSince(path, since); } catch { return true; } };
+/** The inputs that moved while a build ran, as its set-aside line names them (stage 15 D1.5): each by its path under
+ * the app (a package's as it lies), three at most and how many more; "an input" when none was seen by name. */
+const movedWords = (paths, dir) => {
+  const names = [...new Set(paths)].map((p) => (relative(dir, p).startsWith('..') ? p : relative(dir, p)) || '.');
+  if (!names.length) return 'an input';
+  const shown = names.slice(0, 3).join(', ');
+  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+};
 
 let building = null; // the build in flight, stopped with the server
 /** Stop the build in flight and what it runs (its own process group). */
@@ -437,6 +445,8 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // Builds set aside in a row past three are said: an input that moves in
   // every build (a build that writes one of its own) is never published.
   let inputs = 0, buildBegan = 0, lastBuildMs = 0, stopped = false, asideRun = 0;
+  // The paths that moved since the full build in flight began: what its set-aside line names (stage 15 D1.5).
+  const movedSinceBuild = new Set();
   // A value-only edit waiting for the design reader to build again (it does after every other edit): it reads the
   // edit then, in seconds, where the full build it would otherwise take is minutes on a large app, said nowhere until
   // it ended (the third hands-on pass: 343 s, the canvas on the old value). A reader that fails gives it the full build.
@@ -558,6 +568,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     since = t;
     backendSeen = backendOf();
     const hadError = error, began = inputs;
+    movedSinceBuild.clear();
     const keep = (next, logic) => designOnly && design && next && logic === logicRevision
       && next.structure === design.structure && next.tokens.length === design.tokens.length
       && next.tokens.every((t, i) => t.name === design.tokens[i].name && String(t.accent) === String(design.tokens[i].accent) && (!t.inline || same(t, design.tokens[i])));
@@ -571,7 +582,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // dist, which a fresh page loads, nor the design or a reload). The
     // edits it took are the next build's, with those since.
     if (built.superseded) {
-      console.log(`edit → a build superseded after ${Date.now() - t} ms, set aside: an input moved while it built`);
+      console.log(`edit → a build superseded after ${Date.now() - t} ms, set aside: ${movedWords([...movedSinceBuild], app.dir)} moved while it built`);
       watchPackages(built.packages);
       for (const p of pendingEdits) edited.add(p);
       for (const p of pendingAppeared) appeared.add(p);
@@ -685,7 +696,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // again, while it runs.
     if (!residentChild || base === app.dir) starting.failure = null;
     // A build in flight read older files: set aside, and stopped while young.
-    inputs++;
+    inputs++; movedSinceBuild.add(path);
     stopYoungBuild();
     // Made since the last build began (a temporary), not an input it had:
     // only such a file gone again edited nothing.
