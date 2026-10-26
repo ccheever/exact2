@@ -6013,12 +6013,15 @@ Its wire is the one `tamber/1.17` bullet. It was opened by the `pen` importer (`
   - the symbol-tint lint and the web following "a symbol draws in its colour on every host";
   - the iOS dev-joined blank rows: a generation reload's presenter reset called the new runtime before its committed
     batch applied; closed at one choke point (`Runtime.on`, `ResetGate.swift`'s replayed and dropped lists), signed
-    off and landing as its own push (iosfix, `x2/blank-rows`);
+    off and landed after the close (iosfix, `024efaa22c..097aedfd17`);
   - Excord's relaunch reds: a launch reopens the channel it left, once, with its draft, yielding to any user action
     (`9265bf2c0b`; the full contract suite 2469/0 on its tip).
   - **Known reds at close:** two more Excord app tests failed on clean main on every run at load 20–36 ("scrolling up
     from the end acknowledges what was on screen" and "Mark As Read away from the end"). They aren't stage 14 work;
     x2-perf4 owns them as main-red fixes, being fixed now, not QUEUE'd.
+    *(Follow-up, 2026-10-26:)* both are fixed on main, with "Escape from history", the same race
+    (`995a737454`): each test waited for the list's asynchronous scroll report (`clock settle`) before reading;
+    the Excord file 73/0, no known reds.
 
 | Part | Gate | Result |
 |---|---|---|
@@ -6031,3 +6034,5 @@ Its wire is the one `tamber/1.17` bullet. It was opened by the `pen` importer (`
 **Carried to the next stage, by name:** R4 (the deployed relay's gate: Charlie's VPS, the domain, account issuance, the PSL PR) and the real-Figma run (Charlie's session).
 
 **Stage 14 is closed.** The `tamber/1.17` window is closed, and the next wire change takes `tamber/1.18`.
+
+**A note on commit hashes (2026-10-26):** exact2's history was rewritten at about 20:00Z that day. Hashes written in this RFC before 2026-10-26 20:00Z refer to the pre-rewrite history; the team keeps an old-to-new map.

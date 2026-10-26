@@ -443,7 +443,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         let mut timeout = work_timeout(
             display.pending(),
             p.needs_animation_frame(),
-            p.timer_due_ms(),
+            p.wake_due_ms(),
             last_tick,
             now,
             frame_ms,
@@ -547,7 +547,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         // elements runs, and the moments this turn's commits caused.
         p.hatch_turn();
         let now = wall();
-        let due = timer_wake_delay(p.timer_due_ms(), now, last_tick, frame_ms)
+        let due = timer_wake_delay(p.wake_due_ms(), now, last_tick, frame_ms)
             .is_some_and(|wait| wait <= 0.0);
         if due || p.wants_frames() {
             if let Some(e) = p.follow_local_offset() {

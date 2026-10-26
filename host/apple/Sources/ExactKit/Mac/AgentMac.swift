@@ -249,11 +249,13 @@ extension Agent {
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
             let r = box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
+            n["geometry"] = geometry(v)
             n["radii"] = v.cornerSizes(in: v.bounds).map { [Double($0.width), Double($0.height)] }
             if let toolbar = presenter.toolbar.observation(v) {
                 n = ["id": Int(id), "native": toolbar]
             }
             if let sv = v.scroll {
+                n["scrollGeometry"] = Self.scrollGeometry(sv)
                 let o = sv.contentView.bounds.origin
                 n["sx"] = Agent.r2(o.x)
                 n["sy"] = Agent.r2(o.y)
@@ -283,7 +285,7 @@ extension Agent {
         // The page scrolls too, and it is the one whose overscroll drags the
         // app's own chrome (LLP 1033 D4).
         let (px, py) = Agent.overscroll(of: presenter.viewport)
-        var viewport: [String: Any] = ["w": Agent.r2(clip.bounds.width), "h": Agent.r2(clip.bounds.height)]
+        var viewport: [String: Any] = ["w": Agent.r2(clip.bounds.width), "h": Agent.r2(clip.bounds.height), "scrollGeometry": Self.scrollGeometry(presenter.viewport)]
         if px != 0 { viewport["ox"] = Agent.r2(px) }
         if py != 0 { viewport["oy"] = Agent.r2(py) }
         return ["clock": session.now(), "viewport": viewport, "env": env, "nodes": nodes]
@@ -328,6 +330,8 @@ extension Agent {
             let top = NSScreen.screens.first?.frame.maxY ?? onScreen.maxY
             space["screen"] = rect(NSRect(x: onScreen.origin.x, y: top - onScreen.maxY, width: onScreen.width, height: onScreen.height))
         }
+        node["geometry"] = geometry(host, region: local)
+        if let scroll = host.scroll { node["scrollGeometry"] = Self.scrollGeometry(scroll) }
         node["space"] = space
         var clipped = b.isEmpty
         var chain: [[String: Any]] = []
@@ -715,7 +719,7 @@ extension Agent {
                 ? [(began, halfX, halfY), (changed, wheel[0] - halfX, wheel[1] - halfY), (ended, 0, 0)] : [(none, wheel[0], wheel[1])]
             guard Agent.wheel(steps, gesture: gesture, at: p, in: win, flags: flags) else { return ["error": "no wheel event at a window point (CGEventSetWindowLocation)"] }
             session.presenter.settlePump()
-            return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at, "delivery": "platform"]
+            return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at, "delivery": "synthetic", "inputPath": "NSApplication.sendEvent"]
         }
         if let scale = req["pinch"] as? Double {
             // A trackpad pinch: magnify events (began, changed…, ended) whose

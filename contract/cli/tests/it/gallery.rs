@@ -944,3 +944,175 @@ fn a_string_shown_as_an_image_gets_a_neutral_picture_and_text_keeps_its_name() {
     assert!(text.contains("width='150' height='150'"), "{banner}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const STYLED: &str = r#"component Dot
+  props
+    size: string
+    ink: string
+    label: string
+  view
+    column width=size height=size background-color=ink aria-label=label
+      text label
+
+component Ring
+  props
+    edge: string
+    tint: string
+  view
+    Dot(size=edge, ink=tint, label="ring")
+
+component Glow
+  props
+    glow: string
+  view
+    text "g" text-shadow=glow
+
+component Inks
+  props
+    caret: string
+    accent: string
+    pressed: string
+    pressInk: string
+    go: action
+  view
+    column press=go -exact-press-background-color=pressed -exact-press-color=pressInk
+      input value="" aria-label="field" caret-color=caret accent-color=accent
+"#;
+
+const STYLED_APP: &str = r#"use Dot, Ring, Glow, Inks from "@acme/lib"
+
+component App
+  action go
+  view
+    column
+      Dot(size="4px", ink="red", label="a")
+      Ring(edge="4px", tint="red")
+      Glow(glow="glow")
+      Inks(caret="red", accent="red", pressed="red", pressInk="red", go=go)
+"#;
+
+/// A string prop written as a style row's value, directly or through a
+/// component it is passed to, gets a value of that row's kind, not its name,
+/// which no row reads (LLP 1121 stage 15 B: Avatar's `width=size`,
+/// VerifiedBadge's `color=ink`): a length row `24px`, a colour row the
+/// role `-exact-label` (a caret, an accent and a press colour too); a label keeps its name, and so does a shadow (a row that
+/// holds a colour but takes no colour alone; its name may be a token's).
+#[test]
+fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
+    let dir = fixture("styled");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), STYLED).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber app\n\ntheme\n  lib.pad = 6px\n  glow: text-shadow = 0 1px 2px #000000\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.contract"), STYLED_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(
+        g.cells.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        g.cells.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    let dot = text
+        .lines()
+        .find(|l| l.contains("Dot("))
+        .expect("a Dot cell");
+    assert!(dot.contains(r#"size="24px""#), "{dot}");
+    assert!(dot.contains(r#"ink="-exact-label""#), "{dot}");
+    assert!(dot.contains(r#"label="label""#), "{dot}");
+    let ring = text
+        .lines()
+        .find(|l| l.contains("Ring("))
+        .expect("a Ring cell");
+    assert!(ring.contains(r#"edge="24px""#), "{ring}");
+    assert!(ring.contains(r#"tint="-exact-label""#), "{ring}");
+    let glow = text
+        .lines()
+        .find(|l| l.contains("Glow("))
+        .expect("a Glow cell");
+    assert!(glow.contains(r#"glow="glow""#), "{glow}");
+    // A caret, an accent and the press colours, which refuse `currentcolor`,
+    // read the role (Astra r2).
+    let inks = text
+        .lines()
+        .find(|l| l.contains("Inks("))
+        .expect("an Inks cell");
+    for prop in ["caret", "accent", "pressed", "pressInk"] {
+        assert!(
+            inks.contains(&format!(r#"{prop}="-exact-label""#)),
+            "{inks}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const PATHS: &str = r#"component Glyph
+  props
+    d: string
+    selectedD: string
+    selected: bool
+    label: string
+  parts
+    mark: paint
+  view
+    column part="mark"
+      svg viewBox="0 0 24 24" width=24 height=24
+        path d=(selected ? selectedD : d)
+      text label
+
+component Tab
+  props
+    shape: string
+    title: string
+  parts
+    tab: paint
+  view
+    column part="tab"
+      Glyph(d=shape, selectedD=shape, selected=false, label=title)
+"#;
+
+const PATHS_APP: &str = r#"use Glyph, Tab from "@acme/lib"
+
+component App
+  view
+    column
+      Glyph(d="M0 0h1v1z", selectedD="M0 0h2v2z", selected=false, label="a")
+      Tab(shape="M0 0h1v1z", title="b")
+"#;
+
+/// A string prop drawn as a path's data, directly, through either branch of a `?:` or through a component it is
+/// passed to, gets a neutral square, not its name, which no path parses (`attribute d: Expected moveto`, design-tool
+/// pass 3, #10); a text prop keeps its name.
+#[test]
+fn a_string_drawn_as_a_paths_data_gets_a_neutral_square_and_text_keeps_its_name() {
+    let dir = fixture("paths");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), PATHS).unwrap();
+    std::fs::write(dir.join("app.contract"), PATHS_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(
+        g.cells.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        g.cells.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    let square = r#""M6 6h12v12H6z""#;
+    let glyph = text
+        .lines()
+        .find(|l| l.contains("Glyph(") && !l.contains("use "))
+        .expect("a Glyph cell");
+    assert!(glyph.contains(&format!("d={square}")), "{glyph}");
+    assert!(glyph.contains(&format!("selectedD={square}")), "{glyph}");
+    assert!(glyph.contains(r#"label="label""#), "{glyph}");
+    let tab = text
+        .lines()
+        .find(|l| l.contains("Tab(") && !l.contains("use "))
+        .expect("a Tab cell");
+    assert!(tab.contains(&format!("shape={square}")), "{tab}");
+    assert!(tab.contains(r#"title="title""#), "{tab}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

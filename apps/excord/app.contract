@@ -16,7 +16,7 @@ use AgeGate from "./agegate.contract"
 use MessageRow from "./transcript.contract"
 use DirectoryList from "./directory.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
-use MemberList from "./members.contract"
+use MemberList, ProfileCard from "./members.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
@@ -76,6 +76,7 @@ component Excord
   state ackTries = 0
   state pageTries = 0
   state pageAsked = ""
+  state pageAsks = 0
   state baseArrived = 0
   state followed = 0
   state highlight = ""
@@ -189,9 +190,9 @@ component Excord
   // The server's channels, never another's: a load that failed keeps the last server's answer.
   derive here = categories.filter(g => g.channels.map(c => c.guild).includes(guild.id))
   derive channels = here.map(g => g.channels).flat()
-  // A browser window wide enough to show the channel beside the list (the web's split, from 900
-  // points) opens the server's last channel, or its first, as Discord's web app does. The Mac's split
-  // gives the list its own column's width, and Windows and Android push, so they show the list first.
+  // From 900 points, browsers open the last or first channel beside the list and omit Back.
+  // Browser history keeps the reader's place through `leave`. The Mac's split gives the list
+  // its own column's width; Windows and Android push, showing the list first.
   derive wide = viewport.displayMode == "browser" and viewport.width >= 900
   derive listed = dmsShown ? dms : channels
   derive remembered = draftOf(lastChannels, dmsShown ? "@me" : guild.id)
@@ -255,7 +256,8 @@ component Excord
   // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
   derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
   derive pageKey = `${win.channel}/${win.need}/${win.cursor}`
-  derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and pageTries >= 3
+  // Asks count too: a page whose window the host refused runs no `afterPage` and would be asked for good.
+  derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and (pageTries >= 3 or (pageAsks >= 3 and not pending(paged)))
   derive historyLoading = pending(win) or win.channel != open or win.need != ""
   // The transcript is on screen, not the channel list or a picture over it.
   derive reading = top(nav).name == "channel" and viewing == ""
@@ -312,6 +314,12 @@ component Excord
   // A dropped connection resumes once its backoff has passed.
   task redial when gw.state == "backoff"
     every(1000, redialNow)
+  // A gateway answer the host refused (a turn over its budget) ends the stream with no close the data
+  // module hears, and the resource keeps its last state: asked again, it connects again (the identify
+  // budget bounds how often). Not while `digest` is applying a large READY: connecting again drops the
+  // rest of it, and a resumed session would never bring those servers back.
+  task regateway when failed(gateway) and session.ready and session.signedIn and gw.queued == 0 and not pending(digested)
+    every(10000, redialNow)
   task record when gw.state == "recording"
     after(1, recordNow)
   // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
@@ -400,6 +408,7 @@ component Excord
   action pageNow
     if pageAsked != pageKey
       pageTries = 0
+    pageAsks = pageAsked != pageKey ? 1 : pageAsks + 1
     pageAsked = pageKey
     send paged = loadPage(win.channel, win.need, win.cursor)
   action afterPage
@@ -416,6 +425,7 @@ component Excord
         pageTries = 0
   action retryHistory
     pageTries = 0
+    pageAsks = 0
   action followEnd
     followed = chan.arrived
     if not away and endGap > 0.5
@@ -468,6 +478,7 @@ component Excord
       target = ""
     ackTries = 0
     pageTries = 0
+    pageAsks = 0
     if c.ageRestricted and ageGate == ""
       ageGate = "asked"
       send age = requestAgeRange(ageGates=[18])
@@ -1230,8 +1241,9 @@ component Excord
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
-              button id="back" press=back aria-label="Back" testId="back"
-                image "symbol:back"
+              if not wide
+                button id="back" press=back aria-label="Back" testId="back"
+                  image "symbol:back"
               h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
               if chan.guild != ""
                 button press=toggleMembers aria-label="Members" aria-pressed=membersBeside testId="members-toggle"
@@ -1425,7 +1437,7 @@ component Excord
                     // The field draws no ring of its own: the pill's border shows the focus. One line
                     // sits at Send's middle, whatever height the platform gives Send; Send stays at the
                     // bottom as the field grows.
-                    row flex=1 min-width=0 min-height=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
+                    row flex=1 min-width=0 min-height=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing and viewport.pointer != "coarse" ? "1px solid AccentColor" : "1px solid -exact-separator")
                       focusin=composerFocus(true) focusout=composerFocus(false)
                       textarea id="composer" value=draft input=edit selectionchange=caretMoved paste=pastedInto key=keyed focus=focusComposer blur=blurComposer rows=1 field-sizing="content" max-height="9rem" min-height=0
                         placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
@@ -1448,19 +1460,7 @@ component Excord
           MemberList(rows=members, open=memberCard)
       dialog id="profile" aria-label=(profile.name != "" ? profile.name : "Profile") close=profileClosed testId="profile"
         column gap=10 padding=20 width="20rem" max-width="100%" align-items="flex-start"
-          image profile.avatar width=80 height=80 border-radius=40 object-fit="cover" background-color="-exact-tertiary-fill" aria-hidden=true
-          row gap=8 align-items="center" flex-wrap="wrap"
-            text profile.name font="-exact-title2" font-weight=700 color=(profile.color != "" ? profile.color : "-exact-label") testId="profile-name"
-            if profile.bot
-              Badge(label="APP", tint=some("AccentColor"))
-          text `@${profile.handle}` color="-exact-secondary-label" testId="profile-handle"
-          if profile.roles.length > 0
-            text "Roles" font="-exact-footnote" font-weight=600 color="-exact-secondary-label" padding-top=6
-            row gap=6 flex-wrap="wrap"
-              for r in profile.roles key=r.id
-                row gap=6 align-items="center" padding="3px 8px" border-radius=6 background-color="-exact-quaternary-fill"
-                  view width=10 height=10 border-radius=5 background-color=(r.swatch != "" ? r.swatch : "-exact-tertiary-label") aria-hidden=true
-                  text r.name font="-exact-footnote"
+          ProfileCard(profile=profile)
           button commandfor="profile" command="close" align-self="stretch" testId="profile-close"
             text "Done"
       // The quick switcher is the window's, so ⌘K shows it over whichever screen is on top.

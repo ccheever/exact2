@@ -177,3 +177,54 @@ extension Agent {
         return node
     }
 }
+
+// The target is the mounted model geometry; the presentation tree is read
+// independently. A missing presentation never borrows the target's value.
+extension Agent {
+    func geometry(_ view: NodeView, region: CGRect? = nil) -> [String: Any] {
+        let local = region ?? view.bounds
+        var result: [String: Any] = ["target": AgreementReport.rect(box(view, region: local)), "space": "viewport", "source": "model-view"]
+        #if os(macOS)
+        let layer = view.layer
+        let destination = presenter.viewport.contentView.layer
+        #else
+        let layer: CALayer? = view.layer
+        let destination: CALayer? = presenter.viewport.layer
+        #endif
+        guard view.window === presenter.viewport.window, view.placedAncestor?.placement == nil,
+              let shown = layer?.presentation(), let port = destination?.presentation() else {
+            result["presented"] = ["unavailable": "no comparable presentation layer"]
+            return result
+        }
+        guard local == view.bounds || shown.bounds == view.bounds else {
+            result["presented"] = ["unavailable": "fragment geometry during an animated bounds change"]
+            return result
+        }
+        let rect = shown.convert(local == view.bounds ? shown.bounds : local, to: port)
+        #if os(macOS)
+        let origin = port.bounds.origin
+        #else
+        let margins = presenter.pageMargins
+        let origin = CGPoint(x: port.bounds.minX + margins.left, y: port.bounds.minY + margins.top)
+        #endif
+        result["presented"] = AgreementReport.rect(rect.offsetBy(dx: -origin.x, dy: -origin.y))
+        return result
+    }
+    #if os(macOS)
+    static func scrollGeometry(_ scroll: NSScrollView) -> [String: Any] {
+        let model = scroll.contentView.bounds.origin
+        let shown = scroll.contentView.layer?.presentation()?.bounds.origin
+        return ["target": ["sx": r2(model.x), "sy": r2(model.y)],
+                "presented": shown.map { ["sx": r2($0.x), "sy": r2($0.y)] as [String: Any] } ?? ["unavailable": "no presentation layer"],
+                "source": "NSClipView.bounds"]
+    }
+    #else
+    static func scrollGeometry(_ scroll: UIScrollView) -> [String: Any] {
+        let model = scroll.bounds.origin
+        let shown = scroll.layer.presentation()?.bounds.origin
+        return ["target": ["sx": r2(model.x), "sy": r2(model.y)],
+                "presented": shown.map { ["sx": r2($0.x), "sy": r2($0.y)] as [String: Any] } ?? ["unavailable": "no presentation layer"],
+                "source": "UIScrollView.bounds"]
+    }
+    #endif
+}

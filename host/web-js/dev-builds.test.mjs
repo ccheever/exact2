@@ -73,6 +73,8 @@ test('the JS loop: a build an edit lands during is set aside, never published, a
     await new Promise(ok => setTimeout(ok, 500));
     clearInterval(sampler);
     expect(said()).toContain('edit → a build superseded');
+    // The input that moved, named (stage 15 D1.5).
+    expect(said()).toMatch(/set aside: app\.contract moved while it built/);
     expect(stale).toBe(false);
   } finally {
     await loop?.stop().catch(() => {});

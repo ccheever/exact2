@@ -22,6 +22,7 @@ import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from 
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
 import { partsOf } from './parts';
+import { buildRow, Gone } from './builds';
 export { joined, missing, partsOf } from './parts';
 
 export const appId = 'com.exact.design-tool';
@@ -329,6 +330,7 @@ function wroteMine(ok: { write?: number; diff?: string; before?: Record<string, 
 // command it could not apply, kept while that pin is its pin.
 type BuildState = { inspectRefused?: string | null; refusalSeq?: number; id: string; host: string; page: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
 let buildsNow = new Map<string, BuildState>();
+const goneNow = new Gone();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
 // to the same facts is another document). And the builds this tool turned
@@ -361,7 +363,7 @@ let polls = 0, resync = true, polled = '', seeded = '';
 // The changes' poll (stage 14 D): `reread`, a reply the long poll could not fold alone (a coalesced one, from
 // another cursor, or starting again), so the next ask reads once by POST; its answers' common part.
 let reread = false, byCursor = false, taken: unknown = null; // (`byCursor`: the server speaks 1.17's GET long poll; an older one keeps the held POST; `taken`, the last answer's cursor folded, opaque)
-const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), ...refusalRows(buildsNow.values()) });
+const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold} ${written}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), reloading: goneNow.rows(), reloadGen: goneNow.newest, ...refusalRows(buildsNow.values()) });
 /** One reply of the long poll (wire.ts `longPoll`), folded as it comes, or the poll's end (`ok: false`, asked again
  * after 3 s). A reply that names another cursor than the last folded, or carries others folded into it (D4's
  * coalescing keeps the newest), or starts again (missed, another run), is read again once by POST instead, which
@@ -434,7 +436,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // changeset starts again with it.
   // Another run of the server has none of this run's scrub: it ended
   // there, and a new one is chosen again.
-  if (place.epoch && r.epoch !== place.epoch) { holdNotes.clear(); asked.clear(); forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); keptReads.clear(); buildsNow = new Map(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+  if (place.epoch && r.epoch !== place.epoch) { holdNotes.clear(); asked.clear(); forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); keptReads.clear(); buildsNow = new Map(); goneNow.clear(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
   // Events missed: an end among them would be lost, so a scrub open is
   // ended here (cancelled, if the server still has it).
   // Missed, inspect mode's state is not known either: Inspect sends it again.
@@ -450,7 +452,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // Where the changes start from: the files as the poll has them when it
   // starts again (the first answer, a gap it says it missed, a new run).
   const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
-  if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; clientMoves += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
+  if (anew) { written = r.missed === true; lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; clientMoves += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
   // A gap in this run: said in the list, which is no longer complete.
   if (epoch && r.missed && r.epoch === place.epoch) {
     changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
@@ -468,12 +470,13 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     if (e.event === 'paired' || e.event === 'revoked') clientMoves += 1;
     if (e.event === 'scrub') { scrubMoves += 1; if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
     if (e.event === 'changed' && e.files) filesAt = e.files;
+    if (e.event === 'changed' || e.event === 'committed') written = e.event === 'changed';
     // Each as it comes, so a reload told in one answer still ends a
     // selection (a build that went keeps its inspect mode at the server,
     // which tells it again when it is back).
     if (e.event === 'builds' || e.event === 'build-status') moving = null; // (a move's report is never carried past its build moving)
     if (e.event === 'builds') { takeBuilds(e.builds, client); latch(); }
-    else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
+    else if (e.event === 'build-status' && e.build?.id) { goneNow.back(String(e.build.id)); buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
     // This tool's scrub, ended by the server (another write, idle, the
     // tool gone, the server lost): said, and a new one is chosen again.
     else if (e.event === 'scrub' && !['opened', 'released', 'cancelled'].includes(e.reason)) {
@@ -523,22 +526,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   return !!anew;
 }
 
-const pinText = (pin: any) => pin ? [pin.scheme, pin.contrast && `contrast ${pin.contrast}`, ...Object.entries(pin.mode ?? {}).map(([a, v]) => `${a}=${v}`), pin.rootFontSize && `${pin.rootFontSize}px`].filter(Boolean).join(', ') : '';
-/** Builds as the panel lists them: each one's effective scheme, contrast,
- * mode and root font size from its status (an app's own setScheme beats a
- * pin, D3), its pin, whether its status has caught up with the last pin
- * frame it was sent (a pin, or a hand-back; none before it reports), and
- * the last command it could not apply, as the server keeps it. */
-const buildRows = () => [...buildsNow.values()].map(b => {
-  const st = b.status ?? {};
-  const mode = Object.entries((st.mode ?? {}) as Record<string, string>).map(([a, v]) => `${a}=${v}`).join(' ');
-  return {
-    id: b.id, host: b.host, gallery: b.page === 'gallery', reported: b.status != null, scheme: String(st.scheme ?? ''), contrast: String(st.contrast ?? ''), mode, rootFontSize: Number(st.rootFontSize ?? 0),
-    pin: pinText(b.pin), caughtUp: Number.isSafeInteger(st.revision) && st.revision >= b.pinRevision,
-    behind: Number.isSafeInteger(st.revision) && st.revision < b.pinRevision,
-    unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
-  };
-});
+const buildRows = () => [...buildsNow.values()].map(buildRow);
 const buildOf = (b: any, was?: BuildState): BuildState => {
   // Its hold's last word as the listing moves it, and none asked of a hold gone.
   const id = String(b.id), holding = holdingOf(b, was?.holding), note = holdNote(holding, was?.holding, holdNotes.get(id) ?? '');
@@ -549,7 +537,8 @@ const buildOf = (b: any, was?: BuildState): BuildState => {
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
-  stepsAgain(list ?? [], buildsNow); buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
+  stepsAgain(list ?? [], buildsNow); goneNow.listed(buildsNow, (list ?? []).map(b => String(b.id)));
+  buildsNow = new Map((list ?? []).map(b => [String(b.id), buildOf(b, buildsNow.get(String(b.id)))]));
   for (const b of list ?? []) owned(b, client);
 };
 // This tool's inspect mode on a build, as its record says (tamber/1.6).
@@ -562,6 +551,10 @@ let lastFiles: Record<string, string> = {};
 let fileChanges = 0;
 // Commits told (with fileChanges, what moves while a scrub is open).
 let commitsTold = 0;
+// Whether this run of the server has written since its last commit, as its events tell it (stage 15 D1.6): the dry
+// commit is asked only then, a write from before the tool opened (the first answer's backlog) included; a first answer
+// that missed some of the run can't say, so it asks.
+let written = false;
 // The scrubs open on the server, any client's, as its events tell them:
 // while one is, a build's status or a frame re-reads nothing.
 const scrubsOpen = new Set<string>();
@@ -1147,6 +1140,9 @@ const sources: Sources = {
     // its pins live only while it is (LLP 1122 D4).
     // A poll another has replaced (a new name starts one) changes nothing
     // when it answers: the newer one reads the same events.
+    // None for no one (`design-tool:`, before the name: the tool asks it first and shows nothing else), and no answer
+    // counted, so nothing asks again until the name comes (stage 15 D1.6).
+    if (client === 'design-tool:') return { ok: true, error: '', missed: false, stream: false, ...changesState() };
     const gen = ++polls;
     // Another name is another client: what this tool inspects is read again.
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
@@ -1226,8 +1222,8 @@ const sources: Sources = {
     // What a commit would take now (a dry run, of the run the poll is on), so Commit is on when there is something,
     // writes from before the tool opened among them, a refusal to say, or no answer (it says why when pressed).
     // Read again only when the files move, a commit is told or the server starts again; never for no one
-    // (`design-tool:`, before the name).
-    if (!client || client === 'design-tool:') return { open: 0, refused: false, unavailable: false };
+    // (`design-tool:`, before the name), nor while this run has nothing written since its last commit.
+    if (!client || client === 'design-tool:' || !written) return { open: 0, refused: false, unavailable: false };
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);

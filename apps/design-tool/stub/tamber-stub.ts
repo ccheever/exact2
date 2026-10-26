@@ -20,6 +20,9 @@ let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 let refuseCommit = '';
 // A session with nothing to commit (`/__stub/refuse-commit` `{nothing: true}`).
 let nothingToCommit = false;
+// Dry commits asked, and events read for no one (`design-tool:`, before the name), since a test last asked (stage 15
+// D1.6): `/__stub/asked` answers whether each happened as the test says (409 if not), and counts again.
+let dryAsks = 0, namelessAsks = 0;
 // The dev loop's page hello names, as a test sets it (`/__stub/page`): none
 // by default, as `tamber tool` alone.
 let PAGE: string | null = null;
@@ -129,6 +132,8 @@ let lastBy = 'changed on disk';
 function take(e: Record<string, any>) {
   // (`pad`: an event this many bytes larger, up to 4 MiB, as a test makes one larger than a stream's default ceiling.)
   if (typeof e.pad === 'number') { const { pad, ...rest } = e; e = { ...rest, note: 'x'.repeat(Math.min(pad, 4 << 20)) }; }
+  // (A `committed` event as the server sends it, `files` its paths: it moves no digest.)
+  if (e.event === 'committed') { log.push({ epoch: EPOCH, edits: [], ...e, seq: seq() + 1 } as Event); return; }
   // An event's `files` are the digests from then on, and its client (else a hand edit) who last changed them.
   if (e.files) { FILES = { ...FILES, ...e.files }; lastBy = e.client ?? 'changed on disk'; }
   // A `builds` event is the list hello gives from then on, and a
@@ -391,6 +396,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // A write on digests the files have left is the server's conflict, naming who moved them (the third pass's #2).
       if (request.method === 'transaction' && request.files?.['app.tamber'] && request.files['app.tamber'] !== FILES['app.tamber']) return send({ error: { message: 'stale digests: app.tamber', conflict: true, files: FILES, stale: ['app.tamber'], by: { 'app.tamber': lastBy } } }, 409);
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
+      if (request.method === 'commit' && request.dry) dryAsks += 1;
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit
         ? send({ error: { message: `commit refused: app.tamber: ${refuseCommit}`, refused: [{ file: 'app.tamber', why: refuseCommit }] } }, 409)
@@ -487,6 +493,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!allows(asker.scope, needs({ method: 'events' })!, asker.local)) { const r = refusal('events', asker.scope, 'read'); return send({ error: r.error }, r.status); }
       const client = asker.client ?? named;
       if (typeof client === 'string') present.add(client);
+      if (client === 'design-tool:') namelessAsks += 1;
       const missed = (epoch !== undefined && epoch !== EPOCH) || miss;
       miss = false;
       return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held, ...(longPolls ? { held: holds, cursor: `${seq()}.${holds}` } : {}) });
@@ -501,6 +508,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const [after, revision] = (from ?? `${seq()}.${holds}`).split('.').map(Number);
       const client = asker.client ?? q.get('client');
       if (typeof client === 'string') present.add(client);
+      if (client === 'design-tool:') namelessAsks += 1;
       const news = () => miss || (epoch !== null && epoch !== EPOCH) || log.some(e => e.seq > after) || revision !== holds;
       // (One its client let go, as a new ask replaces it, ends unanswered: it takes no news, nor the skip below.)
       for (const start = Date.now(); asked !== null && !news() && Date.now() - start < beat && !req.signal.aborted;) await Bun.sleep(20);
@@ -537,6 +545,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       log.length = 0;
       held = [];
       holds = 0;
+      dryAsks = 0; namelessAsks = 0;
       longPolls = false; skipCursor = false; refuseHello = false; beat = LONG_POLL_MS;
       heldAnswer = null;
       BUILDS = [];
@@ -640,6 +649,15 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       reversed = true;
       return send({ ok: true });
+    },
+  },
+  '/__stub/asked': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      const { dry, nameless } = await req.json().catch(() => ({}));
+      const asked = { dry: dryAsks, nameless: namelessAsks }, as = (said: unknown, n: number) => said === undefined || said === n > 0;
+      dryAsks = 0; namelessAsks = 0;
+      return as(dry, asked.dry) && as(nameless, asked.nameless) ? send({ ok: asked }) : send({ message: `asked: ${JSON.stringify(asked)}` }, 409);
     },
   },
   '/__stub/miss': {

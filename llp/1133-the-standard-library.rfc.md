@@ -354,6 +354,13 @@ has today. The rules:
    origin is a tool invocation (LLP 1111) or a headless session fails
    `person-required` rather than open a prompt, a sheet or capture (LLP
    1133.002 D12). The declaration says which calls are requests.
+   *Amended by LLP 1133.036 §11 (Charlie, 2026-10-26: "Accept r9, build (Recommended)"):* a fetch hop or a WebSocket open
+   whose destination can show a prompt is a request too (LLP 1133.036
+   D6). On the web, a tool invocation never opens a prompt by any call
+   exact2 can classify; a browser's own Local Network Access prompt for
+   an address only the browser resolves from a name, or for a redirect a
+   browser follows while exposing no permission to read, is the
+   browser's, shown in the tab the person has open.
 4. **Synchronous where the target has it.** An operation the declaration
    marks `sync` is answered synchronously on targets whose host has a
    synchronous path: on native hosts, the module's `call` (LLP 1067.000 D9),

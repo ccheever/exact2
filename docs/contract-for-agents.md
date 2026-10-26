@@ -1290,7 +1290,10 @@ backgrounds share the existing drawn-gradient limitation for
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
-`for`, and one flow root per row. A vertical list needs `height`, `max-height`
+`for`, and one flow root per row. Its `reachstart` and `reachend` fire when the
+first or last row comes within `reach-margin` of the port (one port by default),
+and further ahead while a fling travels toward it; page from them rather than from
+`scroll` (`docs/reference.md`, "Intersection visibility"). A vertical list needs `height`, `max-height`
 or a growing `flex`, which may be computed (`max-height=(narrow ? "320px" : "640px")`).
 A percentage bounds it only against a definite containing-block height (a plain
 `column` is content-sized), and the bake refuses (`bake-scroll-unbounded`) only a
@@ -3105,6 +3108,9 @@ After an action that causes a push you will read (a write the server echoes, a b
 request in flight (or each named) has had one reply, the server's own timeout answer included; then `clock
 data` lands what that reply started. Past its bound (20 s) it answers `settled: false, reason: "held"`,
 naming the targets that had none.
+A stream counts as landed at its first message, so for state it reaches later (a socket's READY after HELLO),
+wait with `clock until state <path> == <literal> within <ms>`: real time with the clock frozen, polling `state`
+until it equals the JSON literal; a miss fails naming the last value.
 `clock settle` also runs the clock to where the last running finite, unpaused
 transition or animation ends, firing the timers due on the way, so a test on a timer's grid moves with it,
 and on past a task due a commit later (`after(1, …)`, which an input or an answer armed) until none is.
@@ -3253,7 +3259,9 @@ the down, then every 83 ms),
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `clock held [<resource>…] [<n>s|<n>ms]`
 (the driver's: real time with the clock frozen until each held request, or each named, has had a reply, such as a
-long poll's after a push the test caused, within the bound, 20 s unless given; then `clock data`), `resize
+long poll's after a push the test caused, within the bound, 20 s unless given; then `clock data`), `clock until
+state <path> == <literal> within <ms>` (real time with the clock frozen until `expect state`'s path equals a
+string, number, `true`, `false` or `null`), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, including a `secret.keep`, its state and
 clock starting over, so a test shows what persists; the web reloads its current
@@ -3994,6 +4002,13 @@ selection as the bar's current item (`aria-current="page"`, iOS's selected
 trait) and takes no long press itself: an item held for more puts
 `contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
 on the fill rather than the whole column.
+The in-repo `@exact/cards` exports PostCard, AtCard, ProfileHeader (and its
+ProfileAlert shape), Avatar `(src, size)` and VerifiedBadge `(badge, size,
+ink, mark)`; `badge` is `"verified"`, `"verifier"`, or `""` for none, which
+draws nothing. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
+`ink` and `mark`, have no defaults: pass token or role names
+(`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or
+your own), not literal colours, so setting those tokens restyles them.
 The in-repo packages' icons are icon tokens, which an app overrides by full
 name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
 (PostCard's context and reply lines), `cards.ban`, `cards.eye-slash`,

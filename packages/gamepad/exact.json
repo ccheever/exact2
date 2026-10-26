@@ -1,0 +1,120 @@
+{
+  "kind": "interface",
+  "name": "@exact/gamepad",
+  "version": "1.0.0",
+  "grants": [],
+  "tables": {
+    "labels": {
+      "xbox": ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "View", "Menu", "LS", "RS", "Up", "Down", "Left", "Right", "Xbox"],
+      "playstation": ["Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "Create", "Options", "L3", "R3", "Up", "Down", "Left", "Right", "PS"],
+      "nintendo": ["B", "A", "Y", "X", "L", "R", "ZL", "ZR", "−", "+", "LS", "RS", "Up", "Down", "Left", "Right", "Home"],
+      "generic": ["A", "B", "X", "Y", "L1", "R1", "L2", "R2", "Select", "Start", "L3", "R3", "Up", "Down", "Left", "Right", "Home"]
+    }
+  },
+  "shapes": {
+    "GamepadButton": {
+      "pressed": "bool",
+      "touched": "bool",
+      "value": "number"
+    },
+    "Gamepad": {
+      "index": "number",
+      "id": "string",
+      "mapping": "string",
+      "family": "enum<xbox|playstation|nintendo|generic>",
+      "labels": "string[]",
+      "effects": "string[]",
+      "light": "bool",
+      "buttons": "option<GamepadButton[]>",
+      "axes": "option<number[]>",
+      "timestamp": "option<number>",
+      "windows": "option<WindowsGamepad>",
+      "linux": "option<LinuxGamepad>"
+    },
+    "GamepadList": {
+      "available": "bool",
+      "gamepads": "Gamepad[]",
+      "current": "option<number>"
+    },
+    "GamepadHapticsResult": {
+      "result": "enum<complete|preempted>"
+    }
+  },
+  "names": [
+    {
+      "source": "getGamepads",
+      "live": true,
+      "options": {
+        "interval": { "type": "option<number>", "min": 50 }
+      },
+      "answers": "GamepadList",
+      "sync": { "name": "getGamepadsSync", "from": "read" },
+      "substitute": {
+        "default": { "available": true, "gamepads": [], "current": null },
+        "fill": {
+          "available": true,
+          "gamepads[].id": "Agent pad",
+          "gamepads[].mapping": "standard",
+          "gamepads[].family": "generic",
+          "gamepads[].labels": { "table": "labels", "by": "family" },
+          "gamepads[].effects": ["dual-rumble"],
+          "gamepads[].light": true
+        },
+        "changes": {
+          "list": "gamepads",
+          "key": "index",
+          "added": "gamepadconnected",
+          "removed": "gamepaddisconnected"
+        }
+      }
+    },
+    { "event": "gamepadconnected", "on": "root", "raised": "emit", "args": ["Gamepad"], "hold": 16 },
+    { "event": "gamepaddisconnected", "on": "root", "raised": "emit", "args": ["Gamepad"], "hold": 16 },
+    {
+      "send": "playEffect",
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "index": "option<number>",
+        "type": "enum<dual-rumble|trigger-rumble>",
+        "duration": { "type": "option<number>", "min": 0, "max": 5000 },
+        "startDelay": { "type": "option<number>", "min": 0 },
+        "strongMagnitude": { "type": "option<number>", "min": 0, "max": 1 },
+        "weakMagnitude": { "type": "option<number>", "min": 0, "max": 1 },
+        "leftTrigger": { "type": "option<number>", "min": 0, "max": 1 },
+        "rightTrigger": { "type": "option<number>", "min": 0, "max": 1 }
+      },
+      "answers": "GamepadHapticsResult",
+      "substitute": {
+        "of": { "source": "getGamepads", "list": "gamepads", "key": "index", "current": "current", "lacks": { "type": "effects" } },
+        "answer": { "result": "complete" },
+        "after": ["startDelay", "duration"],
+        "preempts": { "result": "preempted" },
+        "played": { "state": "effects" }
+      }
+    },
+    {
+      "send": "resetEffects",
+      "origin": "app",
+      "foreground": true,
+      "options": { "index": "option<number>" },
+      "answers": "GamepadHapticsResult",
+      "substitute": {
+        "of": { "source": "getGamepads", "list": "gamepads", "key": "index", "current": "current" },
+        "answer": { "result": "complete" },
+        "preempts": { "result": "preempted" }
+      }
+    },
+    {
+      "send": "setLight",
+      "origin": "app",
+      "foreground": true,
+      "options": { "index": "option<number>", "color": "option<color>" },
+      "answers": null,
+      "substitute": {
+        "of": { "source": "getGamepads", "list": "gamepads", "key": "index", "current": "current", "needs": "light" },
+        "played": { "state": "lights", "by": "index" }
+      }
+    }
+  ]
+}

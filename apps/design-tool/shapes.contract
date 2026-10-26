@@ -208,6 +208,12 @@ shape InspectRefusal
   name: string
   tail: string
 
+// A build gone from the server's list and not back: shown as reloading for a bounded window (stage 15 D1.2).
+shape GoneBuild
+  id: string
+  host: string
+  gen: number
+
 shape Build
   id: string
   host: string
@@ -380,6 +386,10 @@ shape Changes
   // The design read the held list's swatches are of (`design.answer`): a newer one has them shown again.
   heldDesign: number
   builds: Build[]
+  // The builds gone from the server's list and not back (by id), each numbered by its going, and the newest number:
+  // the root shows one as reloading for a bounded window from the first going it saw (stage 15 D1.2).
+  reloading: GoneBuild[]
+  reloadGen: number
   // The builds whose page refused inspect mode, said in the Inspector (at most three), and how many more.
   refusals: InspectRefusal[]
   refusedMore: number

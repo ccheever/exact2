@@ -128,8 +128,7 @@ public final class Agent {
                 // Still one request at a time, including inside nested run loops.
                 let completed = DispatchSemaphore(value: 0)
                 CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
-                    handle(line)
-                    completed.signal()
+                    handle(line, completed: { completed.signal() })
                 }
                 CFRunLoopWakeUp(CFRunLoopGetMain())
                 completed.wait()
@@ -147,7 +146,9 @@ public final class Agent {
     }
 
     /// One line: the session it names (or the default), then its operation.
-    static func handle(_ line: String) {
+    static func handle(_ line: String, completed: @escaping () -> Void = {}) {
+        var forwarded = false
+        defer { if !forwarded { completed() } }
         guard let data = line.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
@@ -168,10 +169,13 @@ public final class Agent {
             reply(["error": wanted.map { "no session \($0)" } ?? "no session"])
             return
         }
-        target.agentInstance.handle(op: op, req, line: line)
+        forwarded = true
+        target.agentInstance.handle(op: op, req, line: line, completed: completed)
     }
 
-    func handle(op: String, _ req: [String: Any], line: String) {
+    func handle(op: String, _ req: [String: Any], line: String, completed: @escaping () -> Void = {}) {
+        var asynchronous = false
+        defer { if !asynchronous { completed() } }
         // A destroyed session's handle is a stranger to the library (LLP
         // 1031 D2): every operation is refused by name, in the API's shape.
         if session.state == .destroyed {
@@ -386,7 +390,12 @@ public final class Agent {
                 session.sampler?.held = hold
                 if hold, let id = req["track"] as? Int { session.sampler?.tracked = scrollProbe(id) }
             }
-            Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20, all: req["records"] as? Bool == true) ?? ["unavailable": true])
+            if req["live"] != nil {
+                asynchronous = true
+                liveFrames(req) { reply in Agent.reply(reply); completed() }
+            } else {
+                Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20, all: req["records"] as? Bool == true) ?? ["unavailable": true])
+            }
         default:
             // The library's operations take the request without the
             // carrier's routing field.
@@ -395,7 +404,11 @@ public final class Agent {
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
             let reply = session.agent(json)
             // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.1).
-            Agent.raw(op == "perf" ? session.hatchDiagnostics.joined(perf: reply) : reply)
+            if op == "perf", let data = session.hatchDiagnostics.joined(perf: reply).data(using: .utf8),
+               var result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                result["hostWork"] = HostPhases.shared.work()
+                Agent.reply(result)
+            } else { Agent.raw(reply) }
         }
     }
 

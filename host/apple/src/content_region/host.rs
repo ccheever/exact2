@@ -104,6 +104,7 @@ impl<D: DataSource> Host<D> {
         if self.height_owner.is_some() {
             return Err("Height projection is unsupported with content region".into());
         }
+        self.runner.count_kernel_layout();
         let receipt = self
             .runner
             .kernel_mut()
@@ -142,6 +143,7 @@ impl<D: DataSource> Host<D> {
                 .map_err(|e| format!("region flow fallback: {e:?}"))?;
             self.content_region = None;
             batch.region("{\"op\":\"region\",\"disabled\":\"flowed text uses native fragments\"}");
+            self.runner.count_kernel_layout();
             let receipt = self
                 .runner
                 .kernel_mut()

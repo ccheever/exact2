@@ -448,6 +448,20 @@ as far as the drive took. `clock +N real`, a form of `clock` and of a test's
 clock to the elapsed time every 50 ms (`{"op":"clock","to":…}` on the wire), so
 timers fire beside a video's `timeupdate`s; the reply adds `real`, the ms it took.
 
+**A state reached on real time (Charlie, 2026-10-26; Excord's socket
+handshake).** `clock until state <path> == <literal> within <ms>`, a form of
+`clock` and of a test's `clock` step, is the driver's too: real time passes with
+the clock frozen, so no timer fires, until `state <path>` (as `expect state`
+reads it) equals the JSON literal (a string, a number, `true`, `false` or
+`null`), for at most `<ms>`. Each look is `{"op":"clock","land":true}` then
+`state`, about every 50 ms, so what the protocol's frames start (a write's
+`then`) goes on meanwhile; a look that answers past the bound counts nothing.
+The reply adds `real`, `until: "met"` and the
+`value`; a miss fails, naming the last value read and any task due a commit
+later, which the frozen clock never runs. It is for state a stream reaches
+after its first message, which no settlement waits for (LLP 1016.000 D5). Hosts
+need nothing new: it is the `land` and `state` they already answer.
+
 **An input's end (2026-10-04, trivia F3, kanban F19).** A mutation's `then`
 is armed at the clock its answer lands at and runs at the host's next advance
 — on a wall clock at once, but the agent's clock stood still, so the screen a

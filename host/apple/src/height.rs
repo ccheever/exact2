@@ -219,6 +219,7 @@ impl<D: DataSource> Host<D> {
             {
                 self.height_target_passes += 1;
             }
+            self.runner.count_kernel_layout();
             self.runner
                 .kernel_mut()
                 .measure_height_targets(

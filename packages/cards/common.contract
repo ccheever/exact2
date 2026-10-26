@@ -1,5 +1,6 @@
-// @exact/cards's shared pieces: what its components draw with, not
-// exported (the entry names only the components; LLP 1139 D0).
+// @exact/cards's shared pieces: what its components draw with. Avatar and
+// VerifiedBadge are exported (index.contract's `use`, LLP 1121 stage 15 B);
+// the Name style is not.
 
 style Name
   color="cards.name"

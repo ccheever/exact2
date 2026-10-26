@@ -1,7 +1,7 @@
 # `reachstart` and `reachend` fire one screen ahead, which a fling outruns
 
 **Status:** Closed
-**Resolution:** `list reach-margin` sets the lead, a length or a share of the port on each side (LLP 1145 D4); a fling that outruns the loaded rows still stalls at their edge, which needs an estimated extent past them
+**Resolution:** `list reach-margin` sets the lead, a length or a share of the port on each side (LLP 1145 D4), and a fling toward an end leads its band as far as the collection window leads (LLP 1027.004 D3); a fling that outruns the loaded rows still stalls at their edge, which needs an estimated extent past them
 **Systems:** the virtualized `list` (runner, every host)
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Excord's stage 1 transcript lane (`apps/excord/llp/0001-excord.rfc.md`)

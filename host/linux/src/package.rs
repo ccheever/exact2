@@ -155,6 +155,7 @@ pub(crate) struct Shared {
     pub(crate) now: Rc<Cell<f64>>,
     pub(crate) lines: Rc<RefCell<Vec<String>>>,
     pub(crate) notifier: Notifier,
+    pads: Cell<Option<crate::pads::Pads>>,
 }
 
 impl Context {
@@ -180,7 +181,15 @@ impl Context {
             now,
             lines,
             notifier,
+            pads: Cell::new(None),
         }))
+    }
+
+    /// The instance is gone: its claims on the pads end with it.
+    pub(crate) fn end(&self) {
+        if let Some(pads) = self.0.pads.take() {
+            crate::pads::end(pads.client());
+        }
     }
 
     /// The extension this instance implements.
@@ -243,5 +252,13 @@ impl Context {
     /// Raise the interface's event `name` with `args`, a JSON array.
     pub fn emit(&self, name: &str, args: Json) {
         self.0.notifier.emit(name, args);
+    }
+
+    /// The host's pads (LLP 1133.022 D4): the process's one registry, which
+    /// a canvas reads too, with this instance's claims, which end with it.
+    pub fn pads(&self) -> crate::pads::Pads {
+        let pads = self.0.pads.get().unwrap_or_else(crate::pads::Pads::new);
+        self.0.pads.set(Some(pads));
+        pads
     }
 }

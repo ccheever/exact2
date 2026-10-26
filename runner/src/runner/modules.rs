@@ -51,6 +51,7 @@ mod pictures;
 mod poll;
 mod presence;
 mod samples;
+mod spans;
 mod values;
 mod views;
 mod wakes;
@@ -130,6 +131,8 @@ pub(super) struct Extensions {
     /// The ceremonies and signals held or answered, by held token, with
     /// their extension (`ceremony.rs`).
     ceremonies: Vec<(u64, String, Json)>,
+    /// The sends answered after a span, and the calls kept (`spans.rs`).
+    spans: spans::Spans,
     /// The pictures admitted and refused, by extension (`pictures.rs`).
     pictures: pictures::Pictures,
     /// The canvases packages feed, and their leases (`fed.rs`).
@@ -243,6 +246,8 @@ enum Waits {
     /// answers from (`choose`: the limited selection, LLP 1133.019 §10): the
     /// agent's `type @t` sets the agent word it names; `cancel` leaves it.
     Choose,
+    /// A send the substitute answers after its span (`spans.rs`).
+    Span,
 }
 
 impl Waits {
@@ -254,6 +259,7 @@ impl Waits {
             Waits::Check => "check",
             Waits::Ceremony => "ceremony",
             Waits::Choose => "choose",
+            Waits::Span => "span",
         }
     }
 }
@@ -317,6 +323,7 @@ impl<D: DataSource> Runner<D> {
         let row = self.module_row(source);
         let mut args = self.args_json(&row, args);
         self.clamp_bounds(&row, &mut args);
+        self.resolve_of(&row, &mut args);
         let send = matches!(target, Target::Mutation(_));
         let timeout = send.then(|| self.timeout(&row, &args)).flatten();
         let origin = self.origin_for(Some(target));
@@ -446,8 +453,9 @@ impl<D: DataSource> Runner<D> {
         if !self.native_slot().synced() {
             self.publish_sync();
         }
+        self.spans_due(now_ms);
         let due: Vec<(u64, u64)> = (self.extensions.held.iter())
-            .filter(|h| h.deadline.is_some_and(|d| d <= now_ms))
+            .filter(|h| h.waits != Waits::Span && h.deadline.is_some_and(|d| d <= now_ms))
             .map(|h| (h.token, h.hold))
             .collect();
         for (token, hold) in due {
@@ -531,6 +539,9 @@ impl<D: DataSource> Runner<D> {
         // A signal the substitute records (LLP 1133.011 §9) answers nothing.
         if send && sub["records"] == true {
             return Decision::Now(Json::Null);
+        }
+        if let Some(decision) = self.decide_spans(row, &sub, send, args) {
+            return decision;
         }
         self.decide_value(row, &sub, send, args)
     }
@@ -730,23 +741,6 @@ impl<D: DataSource> Runner<D> {
         Some(value)
     }
 
-    /// `row`'s declared `fill`, where `value` leaves a path out.
-    fn fill_all(&self, row: &ModulesRow, value: &mut Json) {
-        let now = self.time.epoch_at_zero + self.now_ms;
-        for (path, filler) in self.substitute(row)["fill"]
-            .as_object()
-            .into_iter()
-            .flatten()
-        {
-            let filler = if filler == "now" {
-                json!(now)
-            } else {
-                filler.clone()
-            };
-            fill(value, path, filler);
-        }
-    }
-
     /// Hold a module request for the agent under a fresh device ticket: work
     /// under a continuation token of the runner's. `forward` is the body the
     /// implementation takes once the ticket allows the call.
@@ -766,10 +760,15 @@ impl<D: DataSource> Runner<D> {
         self.extensions.next += 1;
         let name = self.target_name(target);
         let permission = self.permission_name(&row, &args);
-        let hold = self.device_hold(&row, name, waits, origin, &permission, &args);
-        let deadline = timeout
-            .filter(|_| waits == Waits::Value)
-            .map(|t| self.now_ms + t);
+        let (hold, deadline) = match waits {
+            Waits::Span => (u64::MAX, Some(self.span_deadline(&row, &args))),
+            _ => (
+                self.device_hold(&row, name, waits, origin, &permission, &args),
+                timeout
+                    .filter(|_| waits == Waits::Value)
+                    .map(|t| self.now_ms + t),
+            ),
+        };
         self.extensions.held.push(Held {
             token,
             reply: None,
@@ -826,6 +825,8 @@ impl<D: DataSource> Runner<D> {
         let sheet = self.sheet_choices(row);
         let sheet: Vec<&str> = sheet.iter().map(String::as_str).collect();
         let (capability, args, choices, value) = match waits {
+            // A span holds no device ticket (`spans.rs`).
+            Waits::Span => return u64::MAX,
             Waits::Permission => {
                 // What `allow` grants this request (`asks`, D13 item 3).
                 let line = self.asked_line(row);
@@ -1005,6 +1006,7 @@ impl<D: DataSource> Runner<D> {
         }
         let mut args = v.get("args").cloned().unwrap_or(json!({}));
         self.clamp_bounds(&row, &mut args);
+        self.resolve_of(&row, &mut args);
         let origin = self.data_origin();
         // A send that answers nothing (LLP 1133.004 D5) settles once done.
         if self.is_effect(&row) {
@@ -1069,14 +1071,17 @@ impl<D: DataSource> Runner<D> {
                 let permission = self.permission_name(&row, &args);
                 // One sheet at a time (`ceremony.rs`): behind a modal one, no ticket yet.
                 let queued = waits == Waits::Ceremony && self.ceremony_begins(&row);
-                let hold = match queued {
+                let hold = match queued || waits == Waits::Span {
                     true => u64::MAX,
                     false => self.device_hold(&row, key, waits, origin, &permission, &args),
                 };
                 let slot = Arc::new(Mutex::new(Pending::default()));
-                let deadline = timeout
-                    .filter(|_| waits == Waits::Value)
-                    .map(|t| self.now_ms + t);
+                let deadline = match waits {
+                    Waits::Span => Some(self.span_deadline(&row, &args)),
+                    _ => timeout
+                        .filter(|_| waits == Waits::Value)
+                        .map(|t| self.now_ms + t),
+                };
                 let forward = (route == Route::Agent).then(|| self.forward_body(&row, args, None));
                 self.extensions.held.push(Held {
                     token,
@@ -1350,7 +1355,8 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             (Waits::Choose, answer) => self.chosen(&row, token, answer),
-            (Waits::Permission | Waits::Raise | Waits::Check, HoldAnswer::Value(_)) => {}
+            (Waits::Permission | Waits::Raise | Waits::Check, HoldAnswer::Value(_))
+            | (Waits::Span, _) => {}
         }
     }
 

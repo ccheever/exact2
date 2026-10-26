@@ -555,3 +555,13 @@ test('a call\'s length reads as Discord words it', () => {
   expect(rows.map(r => r.system.replace('Charlie Cheever started a call that lasted ', ''))).toEqual(
     ['a few seconds.', 'a minute.', '12 minutes.', 'an hour.', '3 hours.', 'a day.', '3 days.', 'an hour.', 'a day.', 'a month.']);
 });
+
+test('a reply preview cut at its length never splits an emoji', () => {
+  // The 100th character is an emoji: a cut in UTF-16 units left half of it, a lone surrogate, which a
+  // host's JSON reader refuses, and with it the whole window.
+  const original = message(0, { content: `${'a'.repeat(99)}😀 and more` });
+  const reply = message(1000, { content: 'ok', type: 19, message_reference: reference(original.id) } as Partial<Message>);
+  const preview = fixture([original, reply]).view().rows[1].reply[0].preview;
+  expect(preview).toBe(`${'a'.repeat(99)}😀`);
+  expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(preview)).toBe(false);
+});

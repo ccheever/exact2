@@ -845,6 +845,31 @@ makes the list longer re-arms the end too, since the page arrived before that
 row rather than past it. Without this, the feed bench's timeline stalled after
 one page in about one run in ten. `pagetail.contract` pins it.
 
+**2026-10-26 (Charlie's ruling, `rules/DEFERRED.md`, "reach-margin"):** an edge
+qualifies when its row is within the edge band of the port, not within the
+geometric window. Before and after the port the band is `reach-margin` (LLP 1145
+D4; one port by default), and on the side the report's velocity travels toward it
+adds the lead the collection window takes for that travel (`lead`'s quarter second
+of travel, up to two ports; LLP 1050.000 §6). The default band is therefore the
+window's own lead, and a fling that the window loads ahead for fires the edge
+event too: at -4,000 px/s in a 320 px port, `reachstart` fires once the first row
+is within 960 px of the port, where it waited for 320 before. A margin the author
+sets keeps its distance from the rest band, so a smaller margin than the default
+leads a fling by the same travel. An edge re-arms when its row is outside the band of the report
+it is in, or, once its row is another than the one it fired at, outside the band at
+rest. Without the second, a page smaller than a fling's band (20 rows of 32 px
+against 960) would leave the new first row inside it and the edge disarmed until
+the reader scrolled away; with it, a reader still flinging is offered the next page,
+and one who stopped is offered it at the rest margin, as before the lead. Rows that
+change only elsewhere (a message appended to a transcript whose reader is near its
+start) leave the edge's row as it was and re-arm nothing. Either waits until the
+geometric window (the port and one port each side, what a report at
+rest mounts) has current measurements; past that window the band's rows are
+estimates. A band that shrinks as a fling slows can re-arm an edge the reader is
+still near; the handler then sees the rows it saw, so it asks for the same page. The
+runner (`runner/src/instance/collection/reach.rs`) and the JS target
+(`host/web-js/list.js` `edge`) compute it; no other host computes edges.
+
 ### 6.6 Paired runner evidence, 2026-09-16
 
 `bun scripts/metrics.mjs --list-memory --collections --repeats 3 --json`

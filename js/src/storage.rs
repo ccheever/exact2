@@ -202,13 +202,53 @@ pub(crate) fn refusal(live: bool, reaches: bool, agent: bool) -> Result<Option<S
     Ok((!reaches).then(|| if agent { "agent" } else { "unsupported" }.into()))
 }
 
+/// The kept files an atomic write from TypeScript is replacing, by the
+/// token the prelude holds until the write settles.
+#[allow(clippy::type_complexity)]
+static REPLACING: std::sync::Mutex<std::collections::BTreeMap<u64, (u64, String, ReplacedFiles)>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+static NEXT_REPLACING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+type ReplacedFiles = exact_data::documents::kept::Replaced;
+
 /// `storage.fs.recentDocuments()` (`ask` empty) and `forgetDocument(path)`
 /// (`ask` is `forget <path>`), for the session `owner` names when the grants
 /// keep documents (LLP 1069.010.000 D5): the list as JSON, or nothing.
+///
+/// And the app's own `atomicWriteFile` of a kept file (D4), around the
+/// write: `replacing <path>` reads what it replaces and answers a token, or
+/// nothing when it replaces no kept file; `replaced <token>` carries the
+/// entry to the file written; `dropped <token>` lets it go (the write failed).
 pub(crate) fn kept(owner: Option<u64>, ask: &str) -> Result<Option<String>, String> {
     use exact_data::documents::kept;
     let owner =
         owner.ok_or("storage: recentDocuments and forgetDocument need the doc.keep grant")?;
+    let replacing = || REPLACING.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(path) = ask.strip_prefix("replacing ") {
+        // A save issued while an earlier one of the same file is in flight
+        // replaces what that one writes: the earlier save may have renamed
+        // its file and not yet carried the entry, so the identity at the path
+        // is not yet the kept one. The queue runs the two in order.
+        let earlier = || {
+            (replacing().values())
+                .find(|(o, p, _)| *o == owner && p == path)
+                .map(|(.., r)| r.clone())
+        };
+        let Some(replaced) = earlier().or_else(|| kept::before_write(owner, path)) else {
+            return Ok(None);
+        };
+        let token = NEXT_REPLACING.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        replacing().insert(token, (owner, path.to_owned(), replaced));
+        return Ok(Some(token.to_string()));
+    }
+    for (how, carry) in [("replaced ", true), ("dropped ", false)] {
+        if let Some(token) = ask.strip_prefix(how) {
+            let held = token.parse().ok().and_then(|t: u64| replacing().remove(&t));
+            if let Some((owner, _, replaced)) = held.filter(|_| carry) {
+                kept::carry(owner, replaced);
+            }
+            return Ok(None);
+        }
+    }
     match ask.strip_prefix("forget ") {
         Some(path) => kept::forget(owner, path)
             .map(|()| None)
@@ -318,5 +358,44 @@ impl Drop for Session {
         // Close admission and abandon cancellable work without waiting under
         // a shared lock. An already-started publication retains its real result.
         self.context.image_work().close();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    /// LLP 1069.010.000 D4: a save issued after an earlier one of the same
+    /// kept file renamed its file but before it carried the entry still
+    /// carries it, to the file the later one writes.
+    #[test]
+    fn a_save_issued_while_another_is_in_flight_carries_the_entry() {
+        use exact_data::documents::kept;
+        use std::os::unix::fs::MetadataExt;
+        let dir = std::env::temp_dir().join(format!("exact-js-overlap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("drawing.md");
+        std::fs::write(&file, "first").unwrap();
+        let set = dir.join("kept.json");
+        kept::open(9140, "test.js.overlap", &set);
+        let doc = kept::keep(9140, &file, "", "readwrite").unwrap();
+        let replace = |text: &str| {
+            std::fs::write(dir.join("next"), text).unwrap();
+            std::fs::rename(dir.join("next"), &file).unwrap();
+        };
+        let ask = |ask: String| super::kept(Some(9140), &ask).unwrap();
+        let a = ask(format!("replacing {doc}")).unwrap();
+        replace("a");
+        let b = ask(format!("replacing {doc}")).expect("the later save carries too");
+        ask(format!("replaced {a}"));
+        replace("b");
+        ask(format!("replaced {b}"));
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&set).unwrap()).unwrap();
+        assert_eq!(
+            written["documents"][0]["inode"],
+            std::fs::metadata(&file).unwrap().ino()
+        );
+        kept::end(9140);
+        exact_data::documents::forget(9140);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

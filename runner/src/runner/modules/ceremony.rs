@@ -87,6 +87,16 @@ impl<D: DataSource> Runner<D> {
     /// call with `args` is refused, if it is.
     pub(super) fn value_grants(&self, row: &ModulesRow, args: &Json) -> Result<(), (Json, String)> {
         let sub = self.substitute(row);
+        // A computed colour that is none fails the call (LLP 1133.022 D10 item 2).
+        for option in sub["colorOptions"].as_array().into_iter().flatten() {
+            let given = option
+                .as_str()
+                .and_then(|o| args.get(o))
+                .and_then(Json::as_str);
+            if given.is_some_and(|c| exact_kernel::Color::parse(c).is_none()) {
+                return Err((json!("TypeError"), format!("{option} is no CSS colour")));
+            }
+        }
         for (path, spec) in sub["nameGrants"].as_object().into_iter().flatten() {
             let Some(line) = spec["line"].as_str() else {
                 continue;

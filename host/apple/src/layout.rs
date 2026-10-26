@@ -140,6 +140,7 @@ impl<D: DataSource> Host<D> {
                 if self.content_region.is_some() {
                     self.region_layout(root, Offer::definite(w, h), batch)?;
                 } else {
+                    self.runner.count_kernel_layout();
                     let receipt = self
                         .runner
                         .kernel_mut()
@@ -583,7 +584,8 @@ impl<D: DataSource> Host<D> {
             if !self.layout_withheld && !refit.contains(&id) && last == Some(sig) {
                 continue;
             }
-            let Some(height) = kernel.fit_content_height(key) else {
+            self.runner.count_kernel_layout();
+            let Some(height) = self.runner.kernel_mut().fit_content_height(key) else {
                 continue;
             };
             self.fit_routes[i].1 = Some(sig);
@@ -746,6 +748,40 @@ mod tests {
         .unwrap()
         .0
     }
+    #[test]
+    fn measured_layout_counts_actual_entries_and_stops_when_disabled() {
+        let mut h = fixture();
+        h.runner.measure(true, true);
+        h.runner.measure_kernel_layouts();
+        let read = |h: &Host<NoData>| {
+            let reply = exact_runner::perf::reply(&h.runner, "{}");
+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["work"]["counts"]
+                ["kernelLayouts"]
+                .as_u64()
+                .unwrap()
+        };
+        let before = read(&h);
+        h.layout(&mut Batch::new()).unwrap();
+        assert_eq!(read(&h), before + h.runner.roots().len() as u64);
+        let before_trial = read(&h);
+        let root = h.runner.roots()[0];
+        let _ = h.measure_block(
+            root,
+            exact_kernel::HostBlock {
+                width: exact_kernel::BlockAxis::Is(300.0),
+                height: exact_kernel::BlockAxis::AtMost(300.0),
+            },
+        );
+        assert_eq!(
+            read(&h),
+            before_trial + 1,
+            "trial layouts also enter the kernel"
+        );
+        h.runner.measure(false, false);
+        h.layout(&mut Batch::new()).unwrap();
+        assert!(exact_runner::perf::reply(&h.runner, "{}").contains("measures no work"));
+    }
+
     fn id(host: &Host<NoData>, name: &str) -> ViewId {
         let k = host.runner.kernel();
         k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id

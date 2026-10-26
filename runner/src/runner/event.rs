@@ -1083,6 +1083,13 @@ impl<D: DataSource> Runner<D> {
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
+        // A world's message runs as the origin its mark carries (`world_origin.rs`).
+        if let Event::Message(text) = &event {
+            if let Some((origin, text)) = super::world_origin::unmark(text) {
+                let event = Event::Message(text.to_owned());
+                return self.as_origin(origin, |r| r.arrived(|r| r.dispatch_event(view, event)));
+            }
+        }
         self.arrived(|r| r.dispatch_event(view, event))
     }
 

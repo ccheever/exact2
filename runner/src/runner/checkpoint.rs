@@ -152,6 +152,7 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             self.resources[i] = Some(ResourceState {
+                inspection_generation: 0,
                 args: args.clone(),
                 value: crate::held::Held::new(value.clone()),
                 store_revision: self.store.revision(),

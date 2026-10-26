@@ -138,6 +138,7 @@ impl<D: DataSource> Runner<D> {
         for (row, args) in effects {
             let mut args = self.args_json(&row, &args);
             self.clamp_bounds(&row, &mut args);
+            self.resolve_of(&row, &mut args);
             let _ = self.module_effect(&row, args, None, origin);
         }
     }
@@ -234,8 +235,14 @@ impl<D: DataSource> Runner<D> {
                 });
                 Effect::Held
             }
-            _ => match self.apply_effect(row, &args) {
-                Ok(()) => Effect::Now(Json::Null),
+            // A call naming no entry that can do it fails (`spans.rs`).
+            _ => match (self.decide_of(row, &args))
+                .map_or_else(|| self.apply_effect(row, &args), Err)
+            {
+                Ok(()) => {
+                    self.effect_played(row, &args, origin);
+                    Effect::Now(Json::Null)
+                }
                 Err(refusal) => {
                     let code = refusal["error"].as_str().unwrap_or_default();
                     self.log(format!("{declared}: refused: {code}"));
