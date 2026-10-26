@@ -10,7 +10,7 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, MediaPreferences, Place, Viewport, Page, noAnswers, channelOf, connected, draftOf, withDraft, placeOf, piece, keyOf from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, MediaPreferences, Place, Viewport, Page, noAnswers, channelOf, connected, draftOf, withDraft, placeOf, piece, keyOf, Time, typingDot from "./shapes.contract"
 use MessageLanguage, Translated, withTranslated, pendingLineOf from "./translate.contract"
 use translatorAvailability, createTranslator, translate, createLanguageDetector, TranslatorAvailability, TranslatorInfo, TranslatorResult, LanguageDetectorInfo from "@exact/translation"
 use AgeGate from "./agegate.contract"
@@ -22,20 +22,9 @@ use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
 
-shape Time
-  epochAtZero: number
-  utcOffset: number
-  locale: string
-
 routes nav
   home "/"
     channel "/c/:channel"
-
-// Someone typing: three dots that rise and fall in turn, as Discord draws them.
-keyframes typingDot
-  from opacity=0.35 translate="0px 0px"
-  50% opacity=1 translate="0px -2px"
-  to opacity=0.35 translate="0px 0px"
 
 component Excord
   state now = 0
@@ -159,7 +148,7 @@ component Excord
   resource pair = translatorAvailability(sourceLanguage=lang.language, targetLanguage=myLanguage) as shape TranslatorAvailability else empty()
   mutation translator as shape TranslatorInfo then runTranslation
   mutation translation as shape TranslatorResult then landTranslation
-  mutation detectorMade as shape LanguageDetectorInfo then rereadLanguage
+  mutation detectorMade as shape LanguageDetectorInfo refreshes lang
   derive canTranslate = lang.detector == "downloadable" or (lang.language != "" and lang.language != myLanguage and pair.availability != "unavailable")
   derive pendingLine = translating == "" ? "" : pendingLineOf(match failure(translator) { case some(f) => f.code, case none => match failure(translation) { case some(f) => f.code, case none => "" } }, translatingFrom, pair)
   derive translations = pendingLine == "" ? translated : withTranslated(translated, Translated(id=translating, text="", line=pendingLine))
@@ -943,8 +932,6 @@ component Excord
       translatingText = aimedText
       translatingFrom = lang.name
       send translator = createTranslator(sourceLanguage=lang.language, targetLanguage=myLanguage)
-  action rereadLanguage
-    refresh lang
   action runTranslation
     send translation = translate(translator=(match translator { case some(t) => t.id, case none => "" }), input=translatingText)
   action landTranslation
