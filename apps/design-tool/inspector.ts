@@ -9,7 +9,7 @@ type Build = { status: any; plan?: string | null; design?: string | null; pinRev
 /** A selection with what it was made under: its build's facts (`at`), the
  * app design's axes, the scheme it is shown in ('' when not known), and why
  * it is no longer current, once it is not. */
-export type Selected = { e: any; at: string; axes: string; scheme: string; stale: string; files?: string; asking?: boolean; visit?: number; arrival?: number };
+export type Selected = { e: any; at: string; axes: string; scheme: string; stale: string; files?: string; asking?: boolean; visit?: number; arrival?: number; pageStale?: string; planAt?: string | null; statusAt?: boolean };
 // Each selection's visit, counted as the selections come: it moves when one names another view than the one before
 // it, so a round trip (A, then B, then A, however close together) is a new visit to A, and the Inspector's rows
 // nothing sets, opened for one visit, fold again (a refresh of the same view is the same visit).
@@ -36,6 +36,12 @@ export const rowName = (name: string) => CSS[name] ?? name.replace(/^border_(wid
  * gone, then told again), a pin, a mode or scheme, a new plan or design
  * moves them. */
 export const buildKey = (b: Build) => b ? JSON.stringify([b.status?.revision ?? null, b.status?.scheme ?? null, b.status?.mode ?? null, b.plan ?? null, b.design ?? null, b.pinRevision]) : '';
+
+/** Why the page's selection itself is no longer current, or '' (the Apple pass's #5, #6: a move up from it would be
+ * refused): its build gone, its page loaded again (registered again: no status where it had one), or rebuilt (another
+ * plan). A pin, a scheme or a mode moving keeps it: the page still holds it, and a move up from it is taken. */
+export const pageStaleness = (s: Selected, build: Build) =>
+  !build ? 'its build is gone' : s.statusAt && build.status == null ? 'its page was loaded again' : (build.plan ?? null) !== (s.planAt ?? null) ? 'its build was rebuilt (another plan)' : '';
 
 /** Why the selection is not current, or ''. */
 export const staleness = (s: Selected, build: Build, axes: Axis[]) =>
@@ -106,9 +112,9 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
   return {
     // (With the build's facts it was made under: a pin, a reload or a new plan since makes another copy.)
     key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), s.at].join('|'), visit: `${s.visit ?? 0}`, arrival: `${s.arrival ?? 0}`, files: s.files ?? '',
-    // (Not current for the page itself: its build gone or moved on, or its page's refusal. A move up is refused then;
-    // the design's axes moving only keeps its rows from editing. The Apple pass's #5, #6.)
-    pageStale: stale === "the design's axes changed" ? '' : stale,
+    // (Not current for the page itself, latched apart from the rows' staleness: a move up is refused then. The Apple
+    // pass's #5, #6.)
+    pageStale: s.pageStale ?? '',
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
     source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: at(x), up: i + 1, component: String(x?.component ?? '') })), component: String(e.source?.component ?? ''), movedUp: Number.isSafeInteger(e.moved?.up) ? e.moved.up : -1, movedStepped: Number.isSafeInteger(e.moved?.stepped) ? e.moved.stepped : -1, modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
     // A node of an exported library component's own view (stage 12 D4, LLP 1139 D5): the component by its declaring
