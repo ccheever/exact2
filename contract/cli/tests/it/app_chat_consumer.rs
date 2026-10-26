@@ -117,6 +117,13 @@ impl Context {
             .file_type()
             .is_symlink());
         let root = supplied.canonicalize().unwrap();
+        let root_metadata = fs::symlink_metadata(&root).unwrap();
+        assert!(root_metadata.is_dir() && !root_metadata.file_type().is_symlink());
+        #[cfg(unix)]
+        let root_identity = {
+            use std::os::unix::fs::MetadataExt;
+            (root_metadata.dev(), root_metadata.ino())
+        };
         let inventory: Json = serde_json::from_slice(
             &fs::read(root.join("source-context.json")).expect("admitted context inventory"),
         )
@@ -129,6 +136,8 @@ impl Context {
         let files = inventory["files"]
             .as_array()
             .expect("complete input inventory");
+        #[cfg(unix)]
+        let mut sealed_device = None;
         let mut normalized = Vec::new();
         let mut unique = BTreeSet::new();
         for file in files {
@@ -150,7 +159,12 @@ impl Context {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::MetadataExt;
-                assert_eq!(metadata.dev(), file["dev"].as_u64().unwrap());
+                let recorded_device = file["dev"].as_u64().unwrap();
+                assert_eq!(
+                    *sealed_device.get_or_insert(recorded_device),
+                    recorded_device
+                );
+                assert_eq!(metadata.dev(), root_identity.0);
                 assert_eq!(metadata.ino(), file["ino"].as_u64().unwrap());
             }
             let bytes = fs::read(&full).unwrap();
@@ -178,6 +192,16 @@ impl Context {
             APP_MANIFEST
         );
         assert_eq!(inventory["generatedFiles"], 170);
+        let final_root_metadata = fs::symlink_metadata(&root).unwrap();
+        assert!(final_root_metadata.is_dir() && !final_root_metadata.file_type().is_symlink());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_eq!(
+                (final_root_metadata.dev(), final_root_metadata.ino()),
+                root_identity
+            );
+        }
         Self { root, inventory }
     }
 
