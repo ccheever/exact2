@@ -12,9 +12,12 @@ export const MEDIA_CACHE = 'app:/cache/media-preview';
 /** The prefix a draft's PDF or page URL carries (composer-chip-file.ts draftSource): its staged copy's name follows. */
 export const STAGED_SCHEME = 't3-staged:';
 /** The largest PDF fetched for a frame. The Apple host charges an independent fetch twice its ceiling against a 64 MiB
- *  lane (host/apple/src/executor_core.rs `reservation`), so a ceiling over about 32 MiB is refused before it starts;
- *  a larger PDF shows "Could not load this file." A draft's staged copy is read from disk and has no such limit. */
-const MAX_BYTES = 31 * 1024 * 1024;
+ *  lane and starts it only when the lane has that much free (host/apple/src/executor_core.rs `reservation`, `next_job`).
+ *  Each open server socket holds about 2 MiB of the lane (a stream's 1 MiB ceiling, charged the same way), so a
+ *  ceiling near 32 MiB never starts while one is open, and the fetch waits forever. 24 MiB leaves room for seven
+ *  sockets or the transport's requests; a larger PDF shows "Could not load this file." A draft's staged copy is read
+ *  from disk and has no such limit. */
+const MAX_BYTES = 24 * 1024 * 1024;
 /** Documents kept at once; the oldest file goes when another arrives. */
 const KEPT = 16;
 const FAILED = 'Could not load this file.';
