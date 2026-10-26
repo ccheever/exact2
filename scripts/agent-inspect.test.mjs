@@ -144,7 +144,7 @@ test('work deltas retain scope and refuse reset measurement windows', () => {
 
 test('resource declarations require the state reply’s own plan digest', async () => {
   const {identifyResources} = await import('./agent-inspect.mjs');
-  const maps = {get: d => d === 'new' ? {resources:{inbox:{file:'app.contract',line:7,column:3,component:'App'}}} : null};
+  const maps = {get: d => d === 'new' ? {resources:{inbox:{file:'app.contract',line:7,col:3,end_col:8,component:'App'}}} : null};
   const reply = digest => ({planDigest:digest,resourceStatus:{inbox:{resource:1,source:'Inbox'}}});
   expect(identifyResources(reply('new'), maps).resourceStatus.inbox.declaration).toMatchObject({status:'compatible',file:'app.contract',line:7});
   expect(identifyResources(reply('old'), maps).resourceStatus.inbox.declaration.status).toBe('unavailable');

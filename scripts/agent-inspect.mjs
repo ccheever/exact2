@@ -147,9 +147,9 @@ export function identifyResources(reply, maps) {
     const at = map?.resources?.[name];
     const valid = at && typeof at.file === 'string' && at.file.length > 0
       && Number.isSafeInteger(at.line) && at.line > 0
-      && Number.isSafeInteger(at.column) && at.column > 0;
+      && Number.isSafeInteger(at.col) && at.col > 0;
     row.declaration = valid
-      ? {status:'compatible', digest, file:at.file, line:at.line, column:at.column, component:at.component}
+      ? {status:'compatible', digest, file:at.file, line:at.line, col:at.col, end_col:at.end_col, component:at.component}
       : {status:'unavailable', reason:map ? 'no resource declaration in this map' : 'no compatible development source map'};
   }
   return reply;
