@@ -771,3 +771,26 @@ test "a channel @everyone may not see is marked private"
   expect state channels.0.private == false
   expect state channels.2.name == "random"
   expect state channels.2.private == true
+
+test "the composer's emoji button puts the emoji in the draft, a server's own as its markup"
+  clock +500 real
+  tap "channel-general"
+  clock data
+  clock settle
+  type "composer" "Nice "
+  tap "composer-emoji"
+  clock settle
+  expect state pickingForDraft == true
+  type "picker-search" "thumbsup"
+  clock data
+  tap "pick-sthumbsup"
+  clock settle
+  expect state picking == false
+  expect state draft == "Nice 👍"
+  tap "composer-emoji"
+  clock settle
+  type "picker-search" "ferr"
+  clock data
+  tap "pick-e501"
+  clock settle
+  expect state draft == "Nice 👍<:ferris:501>"
