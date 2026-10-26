@@ -9,6 +9,9 @@
 //   drives it; `--bind` binds the real framework instead of the agent's
 //   stand-in, which on tvOS shows the real alert (stage 1). `--keep` keeps
 //   the fixture's directory.
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { checker } from '../../camera/test/fixture.mjs';
 import { texts, until } from '../../photos/test/fixture.mjs';
 import { build, launch, makeFixture } from './fixture.mjs';
@@ -78,8 +81,11 @@ try {
         await s.tap('ask');
         await s.tap('continue');
         await s.clock('+1500 real');
-        console.log(`${host} bound: the system's alert is up; screenshot at ${process.env.TMPDIR ?? '/tmp'}/tracking-alert.png`);
-        await s.screenshot(`${process.env.TMPDIR ?? '/tmp'}/tracking-alert.png`, 'window').catch((e) => console.log(`screenshot: ${e.message}`));
+        // The app's own screenshot leaves the system's alert out; the simulator's display has it.
+        const shot = join(tmpdir(), `tracking-alert-${host}.png`);
+        if (sim) spawnSync('xcrun', ['simctl', 'io', sim, 'screenshot', shot]);
+        else await s.screenshot(shot).catch((e) => console.log(`screenshot: ${e.message}`));
+        console.log(`${host} bound: asked, ${JSON.stringify((await texts(s)).asked ?? '')}; the screen is ${shot}`);
       }
     } finally { await s.close(); }
   } else {
