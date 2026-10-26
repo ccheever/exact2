@@ -196,8 +196,8 @@ Large    each of those screens again at the largest text size (ios: the simulato
          smaller or fixed font is the tell, and so is a line-clamp in a list's row or hyphens="auto"
          on a text of several words (a UILabel hyphenates only a word longer than its line; a
          grouped list's rows hyphenate as cells do). Counted ("3 at the largest text size"), never failing.
-Scroll   ios: a long list on the first screen gets ~20 s of real touches (host/apple/feel): "scrolling:
-         like UIKit (…)", or a counted finding a metric, with UIKit's value and whose cause it is.
+Scroll   ios: ~20 s of real touches on a long first-screen list (host/apple/feel): "like UIKit", or a counted
+         finding per metric the app can fix; Exact's own one uncounted line; load > cores: physics only.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's, the largest text size's, scrolling's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.

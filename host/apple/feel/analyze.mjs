@@ -412,14 +412,46 @@ const UNITS = new Set(['ms/s', 'ms', 'ms/frame', 'frames', 'pt', 's']);
 // plain region (a grouped list's background, a uniform card) as blank on native lists too (round r21: SwiftUI's
 // Settings 0.36, UIKit's inbox 0.22). With the check they are a finding.
 const unsure = (r, metric) => metric === 'blank samples' && !r.blank?.verified;
-/** The metrics a tell or a bad, each `{ metric, unit, verdict, value, uikit, remedy }` (`metric` without its unit;
- * `unsure`: a note, not a finding); `evidence` names the file to report Exact's own with. */
-export function findings(r, evidence = null) {
+
+/** The metrics that time the main thread: a machine busy with other work makes them, not the app. */
+export const TIMING = new Set(['hitch ratio', 'longest frame', 'main thread p95', 'flings that drop a frame at the lift',
+  'offset jumps while decelerating', 'touch-to-content lag']);
+/** Whose the late frames' time was by the sampler: the label that took most, as an owner (`exact`: Exact's runtime
+ * or host; `app`: the app's JS or code), or null when it saw none or the platform took most. */
+function ownerOfTime(hitches) {
+  const top = whereOf(hitches).by[0];
+  return !top || top.ms < 2 ? null : /^Exact/.test(top.who) ? 'exact' : /^app (JS|code)/.test(top.who) ? 'app' : null;
+}
+/** Who can fix a finding: `exact` when only Exact can (UIKit's physics, which an app cannot change, or time the
+ * sampler puts in Exact's runtime or host), `app` when the sampler puts the time in the app's JS or code or the
+ * authored cause the remedy names is present, else `either`. */
+function ownerOf(r, metric) {
+  switch (metric) {
+    case 'deceleration τ': case 'momentum hand-off': case 'flings that drop a frame at the lift': case 'rubber band settle':
+      return 'exact';
+    case 'rubber band':
+      // Not bouncing: overscroll-behavior turns it off (the app's); bouncing by the wrong amount is UIKit's own.
+      return r.rubberBand.bounces === false ? 'app' : r.rubberBand.overscrollPt ? 'exact' : 'either';
+    case 'status-bar scroll to top': return r.scrollToTop.reached ? 'exact' : 'either';
+    case 'tap while decelerating: travel': return r.tapToStop.activated ? 'either' : 'exact';
+    case 'hitch ratio': case 'offset jumps while decelerating': case 'touch-to-content lag':
+      return ownerOfTime(r.smooth.hitchAt) ?? 'either';
+    case 'longest frame': {
+      const worst = [...r.smooth.hitchAt].sort((a, b) => b.ms - a.ms)[0];
+      return (worst && ownerOfTime([worst])) ?? 'either';
+    }
+    default: return 'either';
+  }
+}
+/** The metrics a tell or a bad, each `{ metric, unit, verdict, value, uikit, remedy, owner }` (`metric` without its
+ * unit; `unsure`: a note, not a finding; `owner` from `ownerOf`); `evidence` names the file to report Exact's own
+ * with. `timing: false` leaves out the metrics that time the main thread (`TIMING`). */
+export function findings(r, evidence = null, { timing = true } = {}) {
   if (r.verdict !== 'probed') return [];
   return VERDICTS.filter(([, , verdict]) => ['tell', 'bad'].includes(verdict(r))).map(([label, value, verdict, uikit, remedy]) => {
     const unit = label.match(/\(([^;)]+)/)?.[1], metric = label.replace(/ \(.*\)$/, '');
-    return { metric, unit: UNITS.has(unit) ? unit : '', verdict: verdict(r), value: value(r), uikit, remedy: remedy(r, evidence), ...(unsure(r, metric) ? { unsure: true } : {}) };
-  });
+    return { metric, unit: UNITS.has(unit) ? unit : '', verdict: verdict(r), value: value(r), uikit, remedy: remedy(r, evidence), owner: ownerOf(r, metric), ...(unsure(r, metric) ? { unsure: true } : {}) };
+  }).filter((f) => timing || !TIMING.has(f.metric));
 }
 
 /** The key numbers, for a list that scrolls like UIKit's: what was measured, in a few words each. */

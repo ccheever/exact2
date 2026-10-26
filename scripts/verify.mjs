@@ -37,7 +37,7 @@ import { LAUNCH_MEDIA } from './agent-prefer.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
-import { networkInterfaces } from 'node:os';
+import { availableParallelism, loadavg, networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findings as feelFindings, summary as feelSummary } from '../host/apple/feel/analyze.mjs';
 import { compilerWarnings } from './app-cli.mjs';
@@ -870,17 +870,24 @@ async function tallContent(s) {
   return boxes.length > 0 && Math.max(...boxes.map((n) => n.y + n.h)) - Math.min(...boxes.map((n) => n.y)) > h * 1.5 + 100;
 }
 
+/** Whether a probe's timing can be judged: the 1-minute load average, at its start or end, no higher than the
+ * cores. Above them, other work (builds) takes the simulator's frames, so a hitch says nothing about the app. */
+const timingJudged = (load) => !load || load.avg <= load.cores;
+/** `--json`'s `scrolling`: the verdict, the metrics found a tell or a bad with UIKit's values, remedies and owner
+ * (`exact`, `app`, `either`: host/apple/feel/analyze.mjs `ownerOf`), the load it ran under, and where feel.json
+ * (every number) is. */
+const scrollingOut = (sc) => sc.error ? { error: sc.error, ms: sc.ms }
+  : { ms: sc.ms, verdict: sc.result.verdict, list: sc.result.list ?? null, summary: feelSummary(sc.result),
+    findings: feelFindings(sc.result, null, { timing: timingJudged(sc.load) }), ...(sc.load ? { load: { ...sc.load, timingJudged: timingJudged(sc.load) } } : {}), feel: resolve(sc.out, 'feel.json') };
+
 /** How the first screen's list scrolls against UIKit's (host/apple/feel): the app launched again on a fresh scratch
  * store, on real time (`timing: 'platform'`, no `clock`), with the recorder inserted, and the probe's short script of
- * real touches played on its largest list. `{ ms, out, result }` (`result.verdict` is `no-scrollable-list` when no
- * shown list is long), or `{ error }`. */
-/** `--json`'s `scrolling`: the verdict, the metrics found a tell or a bad with UIKit's values and remedies, and where
- * feel.json (every number) is. */
-const scrollingOut = (sc) => sc.error ? { error: sc.error, ms: sc.ms }
-  : { ms: sc.ms, verdict: sc.result.verdict, list: sc.result.list ?? null, summary: feelSummary(sc.result), findings: feelFindings(sc.result), feel: resolve(sc.out, 'feel.json') };
-
+ * real touches played on its largest list. `{ ms, out, result, load }` (`result.verdict` is `no-scrollable-list` when
+ * no shown list is long; `load`: the higher 1-minute load average of its start and end, and the cores), or
+ * `{ error }`. */
 async function scrolling(app, shots) {
   const started = Date.now(), out = resolve(shots, 'ios-feel'), tracePath = resolve(out, 'trace.jsonl');
+  const load0 = loadavg()[0];
   try {
     const [{ open }, feel] = await Promise.all([import('./agent.mjs'), import('../host/apple/feel/probe.mjs')]);
     rmSync(out, { recursive: true, force: true });
@@ -892,7 +899,8 @@ async function scrolling(app, shots) {
       await Bun.sleep(2500); // its first loads, on real time; the accessibility runtime the touch runner turns on
       played = await feel.play({ touches: s.carrier.touches, tracePath, script: 'short' });
     } finally { await s.close(); }
-    return { ms: Date.now() - started, out, result: feel.finish(out, app.id, played, s.carrier.udid) };
+    const load = { avg: Math.round(Math.max(load0, loadavg()[0]) * 10) / 10, cores: availableParallelism() };
+    return { ms: Date.now() - started, out, result: feel.finish(out, app.id, played, s.carrier.udid), load };
   } catch (e) { return { ms: Date.now() - started, error: e.message }; }
 }
 
@@ -1173,19 +1181,24 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     if (shown.length) full.push(`largest text size (${size}): ${plural(shown.length, 'finding')}`, ...shown);
     for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
   }
-  // How the first screen's list scrolls against UIKit's (host/apple/feel): each metric a tell or a bad is a finding,
-  // with UIKit's value and what causes it; a list like UIKit's is one line; no long list, nothing; a probe that could
-  // not run is said, not counted, since it is the tool's.
+  // How the first screen's list scrolls against UIKit's (host/apple/feel): each metric a tell or a bad the app can
+  // fix (owner `app` or `either`) is a finding, with UIKit's value and what causes it; those only Exact can fix are
+  // one line, not counted; on a busy machine the timing metrics are left out. A list like UIKit's is one line; no
+  // long list, nothing; a probe that could not run is said, not counted, since it is the tool's.
   if (scrolled?.error) out.push(`scrolling: could not measure: ${firstLine(scrolled.error)}`);
   else if (scrolled?.result?.verdict === 'probed') {
-    const r = scrolled.result, place = relative(cwd, scrolled.out), all = feelFindings(r), found = all.filter((f) => !f.unsure);
+    const r = scrolled.result, place = relative(cwd, scrolled.out), timing = timingJudged(scrolled.load);
+    const all = feelFindings(r, null, { timing }), found = all.filter((f) => !f.unsure && f.owner !== 'exact'), own = all.filter((f) => !f.unsure && f.owner === 'exact');
     const said = `${secs(scrolled.ms)} of real touches on the first screen's list, ${r.list?.cls?.split('.').at(-1) ?? 'a scroll view'}`;
-    const line = (f) => { const u = f.unit ? ` ${f.unit}` : ''; return `scrolling ${f.metric} ${f.value}${u} (${f.verdict}; UIKit ${f.uikit}${u}): ${f.remedy}`; };
+    const value = (f) => { const u = f.unit ? ` ${f.unit}` : ''; return `${f.metric} ${f.value}${u} (${f.verdict}; UIKit ${f.uikit}${u})`; };
+    const line = (f) => `scrolling ${value(f)}: ${f.remedy}`;
     const notes = all.filter((f) => f.unsure).map((f) => `  note, not counted (the probe also reads plain regions as blank): ${line(f)}`);
-    if (!found.length) out.push(`scrolling: like UIKit (${feelSummary(r)}; ${said})`, ...notes);
+    const busy = timing ? [] : [`  the machine is busy (load ${scrolled.load.avg} on ${scrolled.load.cores} cores): timing not judged; physics only`];
+    const exacts = own.length ? [`  Exact's own (not yours to fix; nothing in your app changes them): ${own.map(value).join('; ')}; report with ${place}/feel.json`] : [];
+    if (!found.length) out.push(`scrolling: ${own.length ? 'nothing for the app to fix' : 'like UIKit'} (${feelSummary(r)}; ${said})`, ...busy, ...exacts, ...notes);
     else {
       const lines = found.map((f) => `  ${line(f)}`), head = `scrolling: ${plural(found.length, 'finding')} against UIKit (${said}); each says whose it is`;
-      out.push(head, ...lines, ...notes, `  the numbers: ${place}/feel.txt; report Exact's own with ${place}/feel.json`);
+      out.push(head, ...busy, ...lines, ...exacts, ...notes, `  the numbers: ${place}/feel.txt`);
       full.push(head, ...lines);
       findings += found.length; counted('scrolling', found.length);
     }

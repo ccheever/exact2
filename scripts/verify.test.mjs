@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
+import { findings } from '../host/apple/feel/analyze.mjs';
 import { chromium } from './agent-launch.mjs';
 import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
 
@@ -1220,7 +1221,7 @@ test('many findings: the closing line names their kinds, and a check kind that d
   assert.equal(r.lines.at(-2), 'most findings are tap-target (11): fix them, or, where the design means them, app.json\'s verify.accept takes each by its kind and testId (docs/recipes/tests.md)');
 });
 
-test('scrolling: like UIKit in one line; each tell or bad a counted finding with UIKit\'s value; unchecked blanks a note; no list, nothing', () => {
+test('scrolling: like UIKit in one line; each tell or bad the app can fix a counted finding with UIKit\'s value; Exact\'s own one uncounted line; unchecked blanks a note; on a busy machine physics only; no list, nothing', () => {
   const ok = { ratio: 'ok', lag: 'ok', glide: 'ok' };
   const feel = (over = {}) => ({ app: 'a', verdict: 'probed', list: { cls: 'ExactGroupedLists.GroupedCollectionView' },
     smooth: { hitchRatio: 0, longestFrameMs: 16.7, mainP95Ms: 4.1, hitchAt: [], verdict: { hitch: 'ok', stall: 'ok', main: 'ok' } },
@@ -1237,13 +1238,13 @@ test('scrolling: like UIKit in one line; each tell or bad a counted finding with
 
   const bad = feel({ momentum: { ...feel().momentum, liftDrops: 1, verdict: { ...feel().momentum.verdict, lift: 'bad' } },
     blank: { share: 0.5, samples: 40, blankSamples: 20, maxPt: 100, verdict: { blank: 'bad' } } });
+  // A lift that drops a frame is the host's work at a fling's release: Exact's, said once and not counted.
   const found = run({ ms: 21000, out, result: bad });
-  assert.equal(found.problems, 1);
-  assert.match(found.lines[1], /^scrolling: 1 finding against UIKit/);
-  assert.match(found.lines[2], /^ {2}scrolling flings that drop a frame at the lift 1\/2 \(bad; UIKit 0\): .*the host's work at a fling's release: Exact's own: report it$/);
+  assert.equal(found.problems, 0);
+  assert.match(found.lines[1], /^scrolling: nothing for the app to fix \(hitches 0 ms\/s/);
+  assert.equal(found.lines[2], '  Exact\'s own (not yours to fix; nothing in your app changes them): flings that drop a frame at the lift 1/2 (bad; UIKit 0); report with .exact/verify/ios-feel/feel.json');
   assert.match(found.lines[3], /^ {2}note, not counted .*scrolling blank samples 0\.5 \(bad; UIKit 0\)/);
-  assert.equal(found.lines[4], '  the numbers: .exact/verify/ios-feel/feel.txt; report Exact\'s own with .exact/verify/ios-feel/feel.json');
-  assert.match(found.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\)/);
+  assert.deepEqual(findings(bad).map((f) => [f.metric, f.owner]), [['flings that drop a frame at the lift', 'exact'], ['blank samples', 'either']]);
 
   // With the blank check behind it a blank band is a counted finding; a hitch says whose time it was.
   const live = feel({ smooth: { ...feel().smooth, hitchRatio: 40, verdict: { ...feel().smooth.verdict, hitch: 'bad' },
@@ -1254,6 +1255,22 @@ test('scrolling: like UIKit in one line; each tell or bad a counted finding with
   assert.equal(said.problems, 2);
   assert.match(said.lines[2], /^ {2}scrolling hitch ratio 40 ms\/s \(bad; UIKit 0 ms\/s\): of the late frames' main thread, app JS \(main waits on exact\.owner\) took 48 ms and Exact host took 6 ms \(1 of 1 on a timer's tick\): the app's data module runs on the frame's critical path/);
   assert.match(said.lines[3], /^ {2}scrolling blank samples 0\.2 \(bad; UIKit 0\): .*rows drawn late/);
+  assert.equal(said.lines[4], '  the numbers: .exact/verify/ios-feel/feel.txt');
+  assert.deepEqual(findings(live).map((f) => f.owner), ['app', 'either']);
+
+  // A hitch whose time the sampler puts in Exact's host is Exact's; on a busy machine it is not judged at all.
+  const host = feel({ smooth: { ...feel().smooth, hitchRatio: 30, verdict: { ...feel().smooth.verdict, hitch: 'bad' },
+    hitchAt: [{ gesture: 'fling-6000', ms: 50, mainMs: 40, late: 33, cause: 'scroll', via: {}, where: { 'Exact host · UIKit': 30, 'app JS (main waits on exact.owner)': 4 } }] },
+  momentum: { ...feel().momentum, tauMs: 600, verdict: { ...feel().momentum.verdict, tau: 'tell' } } });
+  const hosted = run({ ms: 21000, out, result: host, load: { avg: 4, cores: 18 } });
+  assert.equal(hosted.problems, 0);
+  assert.match(hosted.lines[2], /^ {2}Exact's own .*: hitch ratio 30 ms\/s \(bad; UIKit 0 ms\/s\); deceleration τ 600 ms \(tell; UIKit 502 ms\); report with/);
+  const busy = run({ ms: 21000, out, result: live, load: { avg: 40.2, cores: 18 } });
+  assert.equal(busy.problems, 1);
+  assert.match(busy.lines[1], /^scrolling: 1 finding against UIKit/);
+  assert.equal(busy.lines[2], '  the machine is busy (load 40.2 on 18 cores): timing not judged; physics only');
+  assert.match(busy.lines[3], /^ {2}scrolling blank samples 0\.2/);
+  assert.deepEqual(findings(live, null, { timing: false }).map((f) => f.metric), ['blank samples']);
 
   assert.deepEqual(run({ ms: 9000, out, result: { app: 'a', verdict: 'no-scrollable-list' } }).lines.filter((l) => l.startsWith('scrolling')), []);
   const failed = run({ ms: 3000, error: 'the recorder wrote nothing in 20 s\nstack' });
