@@ -227,7 +227,10 @@ final class ControlHost: NSObject {
 
     /// `contents`: a sync outside any batch, which reads every face again;
     /// a batch has already dropped the faces it changes (`Presenter.apply`).
-    func sync(contents: Bool = true) {
+    /// `changed`, `touched`: after a batch, the views it touched with their
+    /// ancestors, and those it touched; a control nothing at, in or above
+    /// stands as the last sync left it (`stands`).
+    func sync(contents: Bool = true, changed: Set<UInt32>? = nil, touched: Set<UInt32> = []) {
         if contents { faces.removeAll() }
         // A face read with no control (a tab's, a menu row's) goes with its view.
         for id in faces.keys where controls[id] == nil && presenter.views[id] == nil { faces.removeValue(forKey: id) }
@@ -249,6 +252,7 @@ final class ControlHost: NSObject {
         }
         var sizes: [(UInt32, CGSize?)] = []
         for owner in owners {
+            if let changed, stands(owner, changed, touched) { continue }
             let native = owner.style["appearance"]?.string != "none"
             let control = control(for: owner)
             if !native {
@@ -345,6 +349,24 @@ final class ControlHost: NSObject {
             }
         }
         syncProgress()
+    }
+
+    /// Whether a batch left `owner`'s control as it was: neither the owner
+    /// nor anything in it changed (each touched view's ancestors are in
+    /// `changed`; a button's face stands), nothing above it was touched
+    /// (an inherited disabled or a closing box), and it is mounted where
+    /// it was. A live list's tick then configures its changed rows'
+    /// controls, not every row's.
+    private func stands(_ owner: NodeView, _ changed: Set<UInt32>, _ touched: Set<UInt32>) -> Bool {
+        guard !changed.contains(owner.id), let control = controls[owner.id],
+              control.superview === owner.controlMount,
+              !(control is NativeButtonIOS) || faces[owner.id] != nil else { return false }
+        var at = presenter.accessibilityParent(of: owner)
+        while let view = at {
+            if let node = view as? NodeView, touched.contains(node.id) { return false }
+            at = presenter.accessibilityParent(of: view)
+        }
+        return true
     }
 
     @objc private func changed(_ sender: UIControl) {

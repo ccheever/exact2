@@ -102,9 +102,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             let hidden = hostHidden || css
-            let changed = super.isHidden != hidden
+            // UIKit's setter walks the subtree's backdrop masks and
+            // accessibility even when the value stands (a list hiding its
+            // hidden sections every batch).
+            guard super.isHidden != hidden else { return }
             super.isHidden = hidden
-            if changed, scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
+            if scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
     package var handlers: Set<String> = [] {

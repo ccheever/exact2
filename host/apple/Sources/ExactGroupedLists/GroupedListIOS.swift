@@ -212,7 +212,7 @@ final class GroupedListHost: GroupedLists {
 
     /// Before a batch: every carried row back where the presenter put it.
     func prepare() { for list in lists.values { list.restore() } }
-    func prepare(touching ids: Set<UInt32>) { for list in lists.values { if list.touches(ids) { list.restore() } else { list.restoreUnshown() } } }
+    func prepare(touching ids: Set<UInt32>) { for list in lists.values where list.touches(ids) { list.restore() } }
 
     /// After a batch. `changed` is the touched views and their ancestors; a
     /// list outside it keeps its model and only carries its rows again.
@@ -1250,7 +1250,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// cell draws instead, and a bottom border its author wrote is its own.
     private func carry(_ id: UInt32, into cell: GroupedCell, sized: Bool = true) {
         guard rows[id]?.custom == true, let row = host.presenter.views[id] else { return }
-        for case let other as NodeView in cell.contentView.subviews where other !== row { other.removeFromSuperview() }
+        for case let other as NodeView in cell.contentView.subviews where other !== row { sendHome(other) }
         if carried[id] == nil, let parent = row.superview {
             // Its inertness is its authored ancestors', which a cell is not.
             carried[id] = (parent, parent.subviews.firstIndex(of: row) ?? 0, row.frame, row.inert)
@@ -1394,8 +1394,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             host.presenter.syncGroupedMenu(on: cell)
         }
         #endif
-        if node?.disabled == true || node?.ariaUnavailable == true { cell.accessibilityTraits.insert(.notEnabled) }
-        else { cell.accessibilityTraits.remove(.notEnabled) }
+        // Reading a list cell's traits searches its subviews: only a cell marked before or now does.
+        let unavailable = node?.disabled == true || node?.ariaUnavailable == true
+        if let cell = cell as? GroupedCell, !unavailable, !cell.markedNotEnabled { return }
+        if unavailable { cell.accessibilityTraits.insert(.notEnabled) } else { cell.accessibilityTraits.remove(.notEnabled) }
+        (cell as? GroupedCell)?.markedNotEnabled = unavailable
     }
     func collectionView(_ view: UICollectionView, shouldSelectItemAt path: IndexPath) -> Bool {
         collectionView(view, shouldHighlightItemAt: path)

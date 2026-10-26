@@ -995,6 +995,7 @@ package final class Presenter {
         PaintOrder.flush()
         session?.canvases.captureIfNeeded()
         let changed = touchedAndAbove(touchedIDs + geometryApplied)
+        let touchedHere = Set(touchedIDs + geometryApplied)
         geometryApplied = []
         swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
         groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
@@ -1004,7 +1005,9 @@ package final class Presenter {
         playPauseKey.sync()
         #endif
         segments.sync()
-        controls.sync(contents: false)
+        // A batch that changes a control's contents (a select's options, a
+        // button's face) reads every control again.
+        controls.sync(contents: false, changed: batch.controls ? nil : changed, touched: touchedHere)
         #if os(tvOS)
         // A remembered node's replacement owns focus only after its native
         // control exists, so retarget guides in this same batch after sync.

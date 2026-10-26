@@ -24,19 +24,24 @@ extension GroupedListView {
         }
     }
 
-    /// The carried rows whose cells no longer show go home, as every row
-    /// did before a batch; the shown ones stay in their cells.
-    func restoreUnshown() {
-        let shown = Set(collection.visibleCells.map { ObjectIdentifier($0.contentView) })
-        for id in carriedOrder.reversed() {
-            guard let place = carried[id] else { continue }
-            guard let row = host.presenter.views[id] else { carried[id] = nil; continue }
-            if let cell = row.superview, shown.contains(ObjectIdentifier(cell)) { continue }
-            if row.superview !== place.parent { place.parent.insertSubview(row, at: min(place.index, place.parent.subviews.count)) }
-            row.frame = place.frame
-            carried[id] = nil
+    /// A row whose cell leaves the screen goes home as it leaves, while
+    /// both are in the window: one move a cell, spread over the scroll,
+    /// where a batch taking every such row home at once moved each back
+    /// into the window. Home, a row that does not show has no native cell.
+    func collectionView(_ view: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt path: IndexPath) {
+        for case let row as NodeView in cell.contentView.subviews where carried[row.id] != nil { sendHome(row) }
+    }
+
+    /// A carried row back where the presenter put it, alone: its cell left
+    /// the screen or now holds another row.
+    func sendHome(_ row: NodeView) {
+        guard host.presenter.views[row.id] === row, let place = carried.removeValue(forKey: row.id) else {
+            row.removeFromSuperview()
+            return
         }
-        carriedOrder.removeAll { carried[$0] == nil }
+        place.parent.insertSubview(row, at: min(place.index, place.parent.subviews.count))
+        row.frame = place.frame
+        carriedOrder.removeAll { $0 == row.id }
     }
 }
 #endif

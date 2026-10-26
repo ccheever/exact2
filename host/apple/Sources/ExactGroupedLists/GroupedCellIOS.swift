@@ -26,6 +26,8 @@ final class GroupedCell: UICollectionViewListCell {
     #endif
 
     var row: UInt32?
+    /// Whether `interact` put `.notEnabled` in its traits.
+    var markedNotEnabled = false
     /// The node of its row's switch or detail button.
     var target: UInt32?
     var height: CGFloat?
