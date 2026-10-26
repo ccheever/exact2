@@ -571,7 +571,10 @@ mod tests {
             ("doc:/1/gone", "ENOENT"),
         ] {
             let e = copy(&both, from, "app:/data/x").unwrap_err().to_string();
-            assert!(e.starts_with("document ") && !e.contains(f.0.to_str().unwrap()), "{from}: {e}");
+            assert!(
+                e.starts_with("document ") && !e.contains(f.0.to_str().unwrap()),
+                "{from}: {e}"
+            );
             if says != "ELOOP" {
                 assert!(e.contains(says), "{from}: {e}");
             }

@@ -56,7 +56,10 @@ mod implementation {
             "document filesystem unsupported",
         ))
     }
-    pub(crate) fn document_file(_root: &std::fs::File, _path: &str) -> std::io::Result<std::fs::File> {
+    pub(crate) fn document_file(
+        _root: &std::fs::File,
+        _path: &str,
+    ) -> std::io::Result<std::fs::File> {
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
             "document filesystem unsupported",

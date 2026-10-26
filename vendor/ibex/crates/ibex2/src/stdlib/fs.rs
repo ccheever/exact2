@@ -591,8 +591,8 @@ mod tests {
 
 // @ref LLP 0068.001#3-chosen-document-provider — one provider contract for both doors.
 pub use super::documents::{
-    copy_document, run_document, DocumentAccess, DocumentError, DocumentErrorKind, DocumentLease, Documents,
-    DOCUMENT_PREFIX,
+    copy_document, run_document, DocumentAccess, DocumentError, DocumentErrorKind, DocumentLease,
+    Documents, DOCUMENT_PREFIX,
 };
 
 /// Dispatch with an optional chosen-document service. Mixed namespaces

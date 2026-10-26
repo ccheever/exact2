@@ -8,6 +8,7 @@ mod caltrain;
 mod castle;
 mod compress;
 mod context;
+mod doc_copy;
 mod ecdsa;
 mod entropy;
 mod forget;
