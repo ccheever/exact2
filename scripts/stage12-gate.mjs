@@ -17,7 +17,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, release } from 'node:os';
+import { homedir, release, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
 import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
@@ -1359,13 +1359,22 @@ export function parse(argv) {
   }
   if (!STAGES[opts.stage]) return `--stage ${opts.stage}: one of ${Object.keys(STAGES).join(', ')}`;
   if (opts.mode === 'baseline' && (!opts.copy || !opts.out)) return 'baseline needs --copy and --out';
-  if (opts.mode === 'gate' && !opts.out) opts.out = join(homedir(), 'x2theme', STAGES[opts.stage].out);
+  // Only a full run writes the profile's gate record (~/x2theme/<out>): a run of some lines (`--only`) is no
+  // record, and writing it there lost one (s13c-gate-run.txt, 2026-10-26). It goes to a scratch file named
+  // for its stage, lines and process, unless `--out` names a path.
+  if (opts.mode === 'gate' && !opts.out) {
+    // Its name from the lines asked for, each once and checked below to be a line's id (letters and dashes).
+    opts.out = opts.only.length
+      ? join(tmpdir(), `stage12-gate-${opts.stage}-${[...new Set(opts.only)].join('+')}-${process.pid}.txt`)
+      : join(homedir(), 'x2theme', STAGES[opts.stage].out);
+  }
   const allowed = opts.mode === 'baseline' ? CLONE_HOSTS : SLOT_HOSTS;
   const unknownHost = opts.hosts.find(h => !allowed.includes(h));
   if (unknownHost) return `--host ${unknownHost}: one of ${allowed.join(', ')}`;
   const ids = lines(opts).map(([id]) => id);
+  // Every `--only` a line's id, the empty string too: a scratch name is built from them.
   const missing = opts.only.find(o => !ids.includes(o));
-  if (missing) return `--only ${missing}: one of ${ids.join(', ')}`;
+  if (missing !== undefined) return `--only ${missing}: one of ${ids.join(', ')}`;
   return opts;
 }
 
@@ -1389,5 +1398,5 @@ if (import.meta.main) {
     console.log(`${r.status}  ${id}`);
   }
   writeFileSync(opts.out, `${text.join('\n')}\n`);
-  console.log(`written to ${opts.out}`);
+  console.log(`written to ${opts.out}${opts.only.length ? ' (a run of some lines: no gate record)' : ''}`);
 }

@@ -2,8 +2,8 @@
 // diff and its allowlist, and that every line says WAITS-ON before its parts.
 import { expect, test } from 'bun:test';
 import { encodePng } from './png.mjs';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
@@ -418,3 +418,43 @@ test('the components a shot shows, by each shown node\'s source map', () => {
   ] });
   expect(renderedComponents(`noise\n${out}\n`).sort()).toEqual(['@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow']);
 });
+
+// A run of some lines never writes the profile's gate record (the s13c record lost to `--only restyle`
+// runs, 2026-10-26): it goes to a scratch file, unless --out names one; a full run and --out write theirs.
+test('only a full run writes the gate record; --only goes to a scratch file unless --out names one', () => {
+  for (const stage of Object.keys(STAGES)) {
+    const record = join(homedir(), 'x2theme', STAGES[stage].out);
+    const full = parse(['--stage', stage]);
+    expect(full.out).toBe(record);
+    const partial = parse(['--stage', stage, '--only', 'restyle']);
+    expect(partial.out).not.toBe(record);
+    expect(partial.out.startsWith(tmpdir())).toBe(true);
+    expect(partial.out).toContain(`stage12-gate-${stage}-restyle-${process.pid}`);
+    const two = parse(['--stage', stage, '--only', 'restyle', '--only', 'anatomy']);
+    expect(two.out).toContain(`-restyle+anatomy-`);
+    expect(parse(['--stage', stage, '--only', 'restyle', '--out', '/x/named.txt']).out).toBe('/x/named.txt');
+    expect(parse(['--stage', stage, '--out', '/x/full.txt']).out).toBe('/x/full.txt');
+    // A repeated line names its file once; an empty or unknown line is refused before any name is built.
+    expect(parse(['--stage', stage, ...Array(40).fill(['--only', 'restyle']).flat()]).out).toBe(partial.out);
+    expect(parse(['--stage', stage, '--only', '', '--only', '/../../../tmp/escape'])).toMatch(/^--only : one of/);
+    expect(parse(['--stage', stage, '--only', '../escape'])).toMatch(/^--only \.\.\/escape: one of/);
+  }
+});
+
+// End to end, under a HOME of its own (cargo's homes kept), so no real record can be touched even if this
+// rule breaks: a run of one cheap line (`no-forks`) writes its scratch file and leaves the record alone.
+test('an --only run leaves the gate record untouched', () => {
+  const home = mkdtempSync(join(tmpdir(), 'stage12-gate-home-'));
+  const record = join(home, 'x2theme', STAGES.s12.out);
+  mkdirSync(join(home, 'x2theme'), { recursive: true });
+  writeFileSync(record, 'a gate record\n');
+  const env = { ...process.env, HOME: home, CARGO_HOME: process.env.CARGO_HOME ?? join(homedir(), '.cargo'), RUSTUP_HOME: process.env.RUSTUP_HOME ?? join(homedir(), '.rustup') };
+  const r = spawnSync(process.execPath, [join(import.meta.dir, 'stage12-gate.mjs'), '--only', 'no-forks'], { encoding: 'utf8', env, timeout: 900_000 });
+  const said = /^written to (.+?)(?: \(a run of some lines: no gate record\))?$/m.exec(r.stdout)?.[1];
+  expect([said === undefined, r.stderr.slice(-300)]).toEqual([false, r.stderr.slice(-300)]);
+  expect(said).not.toBe(record);
+  expect(readFileSync(said, 'utf8')).toContain('no-forks');
+  expect(readFileSync(record, 'utf8')).toBe('a gate record\n');
+  rmSync(said, { force: true });
+  rmSync(home, { recursive: true, force: true });
+}, 900_000);
