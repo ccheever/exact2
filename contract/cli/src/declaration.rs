@@ -791,6 +791,9 @@ fn permission_of(
     }
     match &entry["permission"] {
         Value::Null => {}
+        // An admission word, as with one permission: the name asks the
+        // permission that covers its grant lines (LLP 1133.030 D12 item 1).
+        Value::String(s) if matches!(s.as_str(), "asks" | "request" | "none") => {}
         Value::Bool(false) => return Ok((None, Map::new(), Vec::new())),
         Value::String(s) if s == "narrowest" => {
             let mut any = Vec::new();

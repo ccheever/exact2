@@ -1,0 +1,20 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/alarms@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidAlarmStatus": {
+      "canScheduleExactAlarms": "bool",
+      "notifications": "enum<granted|denied|prompt>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {},
+  "artifacts": []
+}

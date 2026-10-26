@@ -1,0 +1,12 @@
+{
+  "name": "@exact/alarms",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An alert at a time or after a countdown that rings through silent mode and Focus (LLP 1133.030).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

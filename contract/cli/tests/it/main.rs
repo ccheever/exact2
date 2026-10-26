@@ -107,6 +107,7 @@ mod menus;
 mod midi;
 mod migrate;
 mod miswiring;
+mod module_alarms;
 mod module_events;
 mod module_seam;
 mod module_views;

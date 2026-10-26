@@ -7,6 +7,7 @@
       "dependencies": {
         "@exact/actions": "workspace:*",
         "@exact/age-range": "workspace:*",
+        "@exact/alarms": "workspace:*",
         "@exact/altimeter": "workspace:*",
         "@exact/attestation": "workspace:*",
         "@exact/background": "workspace:*",
@@ -51,6 +52,10 @@
     },
     "packages/age-range": {
       "name": "@exact/age-range",
+      "version": "1.0.0",
+    },
+    "packages/alarms": {
+      "name": "@exact/alarms",
       "version": "1.0.0",
     },
     "packages/altimeter": {
@@ -188,6 +193,8 @@
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
 
     "@exact/age-range": ["@exact/age-range@workspace:packages/age-range"],
+
+    "@exact/alarms": ["@exact/alarms@workspace:packages/alarms"],
 
     "@exact/altimeter": ["@exact/altimeter@workspace:packages/altimeter"],
 
