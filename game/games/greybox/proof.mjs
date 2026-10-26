@@ -34,6 +34,13 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   }
   const initial = await s.state();
   pin(0, initial.world[0]);
+  if (host === 'web') {
+    const initialLogs = await s.logs();
+    check('world journal retains tick zero', initialLogs.world?.some(w => w.canvas === canvas.id && w.tick === 0), initialLogs.world);
+    const drainedLogs = await s.logs();
+    check('empty world journal retains its tick and cursor', drainedLogs.world?.some(w => w.canvas === canvas.id
+      && w.tick === 0 && w.from === w.next && w.lines.length === 0), drainedLogs.world);
+  }
   const down = await s.world('world').key_down('KeyW');
   check('W reaches the real browser input path', down?.delivery === (host === 'web' ? 'platform' : 'recognized'), down);
   await s.world('world').run(1500);
@@ -95,8 +102,9 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('world settles after movement and beacon spring', settled === true, settled);
   const hud = await s.tree();
   check('typed surface record → HUD text', node(hud, 'hud-beacons')?.props?.text === 'Beacons 1 / 1', node(hud, 'hud-beacons'));
-  await s.state();
+  const journalTick = (await s.state()).world[0].tick;
   const logs = await s.logs({all:true});
+  if (host === 'web') check('world journal tick agrees with the simulation', logs.world?.some(w => w.canvas === canvas.id && w.tick === journalTick), logs.world);
   check('world journal carries beacon-1 lit', logs?.world?.some(w => w.lines?.some(line => line.includes('beacon-1 lit'))), logs?.world);
   for (const sound of ['sfx footstep at player ', 'sfx chime at beacon-1 ', 'loop wind on ']) {
     check(`world journal carries ${sound.trim()}`, logs?.world?.some(w => w.lines?.some(line => line.includes(sound))));
@@ -189,6 +197,10 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   const restored = (await session.state()).world[0];
   check('new session restores before first render, with the same tick and hash', restored.restored === true && restored.tick === saved?.tick && restored.hash === saved?.hash, restored);
   check('restore preserves the simulation snapshot', equal(checkpointState, await session.world('world').snapshot()));
+  if (host === 'web') {
+    const restoredLogs = await session.logs({all:true});
+    check('restored world journal retains the saved tick', restoredLogs.world?.some(w => w.tick === saved.tick), restoredLogs.world);
+  }
   const continued = await continueWorld();
   await session.world('world').save(restoredFile);
   check('D6 two sessions continue to the same simulation snapshot', equal(continued, uninterrupted));
