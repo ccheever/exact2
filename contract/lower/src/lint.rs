@@ -434,6 +434,19 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
+                            // A state part's row (`:hover opacity`, LLP 1121 D8) is
+                            // checked as the row it is, as lowering checks it.
+                            let row;
+                            let a = match contract_syntax::state::state_of(&a.name) {
+                                Some((_, name)) => {
+                                    row = contract_syntax::Attr {
+                                        name: name.to_string(),
+                                        ..a.clone()
+                                    };
+                                    &row
+                                }
+                                None => a,
+                            };
                             let check = |a: &contract_syntax::Attr| match tags::attr_valued(
                                 &a.name, &a.value,
                             ) {

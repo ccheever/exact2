@@ -25,6 +25,25 @@ fn an_old_spelling_is_refused_with_the_css_name() {
     assert!(e.message.contains("`aria-label`"), "{e}");
 }
 
+/// A state part on an element (LLP 1121 D8, `:hover` then its rows) is linted
+/// as the rows it holds, as lowering reads it: a row it can hold passes, a
+/// name that is no row is refused (Excord's emoji button, f8b012ef1e).
+#[test]
+fn an_elements_state_part_is_linted_as_its_rows() {
+    let lint = |part: &str| {
+        let src = format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button press=go aria-label=\"Go\" opacity=0.6\n      :hover\n        {part}\n      text \"a\"\n");
+        contract_lower::lint(&contract_syntax::parse(&src).unwrap())
+    };
+    assert!(lint("opacity=1").is_empty(), "{:?}", lint("opacity=1"));
+    assert!(lint("opacity = 1").is_empty(), "{:?}", lint("opacity = 1"));
+    let bad = lint("opacty=1");
+    assert_eq!(
+        bad.iter().map(|e| e.id).collect::<Vec<_>>(),
+        ["lower-unknown-attr"],
+        "{bad:?}"
+    );
+}
+
 /// What a React Native port writes first is refused with what to write
 /// (the euxy port, 2026-10-17: 19 of 50 compiles refused).
 #[test]
