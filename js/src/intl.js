@@ -265,10 +265,11 @@
       configurable: true,
       get: function () {
         probe();
-        var bound = bind.call(this);
-        if (!roundsEven) return bound;
+        if (!roundsEven) return bind.call(this);
         var s = stateOf(this), self = this;
-        return s.format || (s.format = function (n) { return bound(roundFor(self, s, n)); });
+        if (s.format) return s.format;
+        var bound = bind.call(this);
+        return (s.format = function (n) { return bound(roundFor(self, s, n)); });
       },
     });
     Object.defineProperty(Native.prototype, "resolvedOptions", {
@@ -291,14 +292,41 @@
   NumberFormat.prototype = Native.prototype;
   NumberFormat.supportedLocalesOf = Native.supportedLocalesOf;
   Object.defineProperty(global.Intl, "NumberFormat", { value: NumberFormat, writable: true, configurable: true });
-  var toLocale = Number.prototype.toLocaleString;
+  // `toLocaleString` is `new Intl.NumberFormat(locales, options).format(x)`
+  // (ECMA-402 §16.4.1), and Apple's engine makes an NSNumberFormatter for
+  // each call: a data module formatting a few hundred prices a second spent
+  // most of its turn there. So a formatter is kept by the locales and
+  // options it was made with, when they read the same whenever they are
+  // read: strings, and a plain object of primitives.
+  var kept = new Map();
+  function keyOf(locales, options) {
+    if (locales !== undefined && typeof locales !== "string" && !(Array.isArray(locales) && locales.every(function (l) { return typeof l === "string"; }))) return null;
+    if (options !== undefined) {
+      if (options === null || typeof options !== "object") return null;
+      var proto = Object.getPrototypeOf(options);
+      if (proto !== Object.prototype && proto !== null) return null;
+      var names = Object.getOwnPropertyNames(options);
+      for (var i = 0; i < names.length; i++) {
+        var d = Object.getOwnPropertyDescriptor(options, names[i]), t = typeof d.value;
+        if (!d.enumerable || !("value" in d) || (t === "object" && d.value !== null) || t === "function" || t === "symbol" || (t === "number" && !isFinite(d.value))) return null;
+      }
+    }
+    return JSON.stringify([locales === undefined ? 0 : locales, options === undefined ? 0 : options]);
+  }
+  function formatterFor(locales, options) {
+    var key = keyOf(locales, options);
+    if (key === null) return new NumberFormat(locales, options);
+    var f = kept.get(key);
+    if (!f) {
+      if (kept.size >= 64) kept.clear();
+      kept.set(key, (f = new NumberFormat(locales, options)));
+    }
+    return f;
+  }
   Object.defineProperty(Number.prototype, "toLocaleString", {
     writable: true, configurable: true,
     value: function toLocaleString(locales, options) {
-      probe();
-      if (!hasCompact && options && options.notation === "compact") return new Compact(locales, options).format(Number(this));
-      if (roundsEven) return new NumberFormat(locales, options).format(Number.prototype.valueOf.call(this));
-      return toLocale.call(this, locales, options);
+      return formatterFor(locales, options).format(Number.prototype.valueOf.call(this));
     },
   });
 })(globalThis);

@@ -128,6 +128,13 @@ export function exercise(source: string): string {
       ['compact-sd',{notation:'compact',maximumSignificantDigits:3}],
     ] as [string,Intl.NumberFormatOptions][]) out[locale+' '+name]=values.map(v=>new Intl.NumberFormat(locale,options).format(v));
     out['en-US toLocaleString']=values.map(v=>v.toLocaleString('en-US',{notation:'compact'}));
+    // toLocaleString keeps a formatter per locales and options it reads the
+    // same: an options object changed between calls formats by its new value.
+    const changing:Intl.NumberFormatOptions={maximumFractionDigits:1};
+    const kept=[1.25,1.25,12345.678].map(v=>v.toLocaleString('en-US',changing));
+    changing.maximumFractionDigits=3;
+    kept.push((1.23456).toLocaleString('en-US',changing),(1.23456).toLocaleString(['de-DE'],changing),(1.23456).toLocaleString('de-DE',changing),(1234.5).toLocaleString('en-US'));
+    out['en-US toLocaleString kept']=kept;
     for(const locale of ['en-US','de-DE','fr-FR']) {
       out[locale+' currency']=[1234.5,-0.41,166.07].map(v=>new Intl.NumberFormat(locale,{style:'currency',currency:'USD'}).format(v));
       out[locale+' percent']=[0.0041,-0.0041,0.5].map(v=>new Intl.NumberFormat(locale,{style:'percent',minimumFractionDigits:2}).format(v));
