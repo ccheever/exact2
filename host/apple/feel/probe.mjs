@@ -5,19 +5,22 @@
 // (host/apple/touches.mjs), and writes trace.jsonl, gestures.json, feel.json
 // and feel.txt to --out. The same for any app, whatever it was built with.
 // `verify ios` plays the short script (`play`) in a drive of its own.
-//   bun host/apple/feel/probe.mjs --udid U --app BUNDLE [--steps "tap x,y;wait 1;drag x,y,x,y[,v]"]
+//   bun host/apple/feel/probe.mjs --udid U --app BUNDLE [--steps 'tap "All";tap x,y;wait 1;drag x,y,x,y[,v]']
 //       [--at x,y] [--out DIR] [--sample N] [--dump DIR] [--short]
+// --steps: `;` between steps; a newline between lists, each probed from a fresh launch into DIR/list-N (the first
+// into DIR), lines starting with # ignored; `tap "label"` taps what a person reads (host/apple/elements.mjs).
 // --sample N measures blank bands every Nth moving frame (0: never; 4); --dump DIR saves the first sampled
 // images and any with a blank band; --short plays verify's script.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { readTree, tapPoint } from '../elements.mjs';
 import { openTouches } from '../touches.mjs';
-import { analyze, pickList, readTrace, report } from './analyze.mjs';
+import { analyze, pickList, readTrace, report, summary } from './analyze.mjs';
 
 const HERE = dirname(new URL(import.meta.url).pathname);
 const ROOT = resolve(HERE, '../../..');
-const USAGE = 'usage: bun host/apple/feel/probe.mjs --udid <simulator udid> --app <bundle id> [--steps "tap x,y;wait 1;drag x1,y1,x2,y2[,v]"] [--at x,y] [--out DIR] [--sample N] [--dump DIR] [--short]';
+const USAGE = 'usage: bun host/apple/feel/probe.mjs --udid <simulator udid> --app <bundle id> [--steps \'tap "label";tap x,y;wait 1;drag x1,y1,x2,y2[,v]\' (a newline: another list)] [--at x,y] [--out DIR] [--sample N] [--dump DIR] [--short]';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** The recorder for the simulator, built when missing or older than feel.m. */
@@ -35,6 +38,13 @@ export function recorder() {
 /** The environment that inserts the recorder into an app, writing to `tracePath`; simctl passes each as SIMCTL_CHILD_<name>. */
 export const recorderEnv = (tracePath, { sample, dump } = {}) => ({ DYLD_INSERT_LIBRARIES: recorder(), FEEL_OUT: tracePath,
   ...(sample != null ? { FEEL_SAMPLE: String(sample) } : {}), ...(dump ? { FEEL_DUMP: resolve(dump) } : {}) });
+
+/** `--steps` as lists to probe, each its steps: a newline between lists, `;` between steps outside quotes; lines
+ * starting with # left out. One empty list when there are none. */
+export function stepLists(text = '') {
+  const lists = text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  return (lists.length ? lists : ['']).map((l) => l.match(/(?:"[^"]*"|[^;])+/g)?.map((s) => s.trim()).filter(Boolean) ?? []);
+}
 
 /** The trace so far, parsed. */
 export function traceOf(tracePath) {
@@ -65,6 +75,17 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
     if (on) writeFileSync(`${tracePath}.sample`, ''); else rmSync(`${tracePath}.sample`, { force: true });
     await sleep(300);
   };
+  /** The recorder's blank check (feel.m `check`): each sampled frame with a blank band drawn again at its offset
+   * once the list rests there; the list goes back where it was. A gesture of its own, `blank-check`. */
+  const check = async () => {
+    const start = Date.now(), seen = trace().checked.length;
+    writeFileSync(`${tracePath}.check`, '');
+    for (const until = Date.now() + 20000; trace().checked.length === seen; await sleep(100)) {
+      if (Date.now() > until) { rmSync(`${tracePath}.check`, { force: true }); say('the blank check did not finish in 20 s'); break; }
+    }
+    gestures.push({ name: 'blank-check', kind: 'check', start, end: Date.now() });
+    await sleep(300);
+  };
   // The display a gesture names: the runner's when it says (`screen`), else the app's screen.
   const screen = await touches.ask({ op: 'screen' });
   const display = screen.displays?.[0] ?? [Math.min(...hello.screen), Math.max(...hello.screen)];
@@ -79,15 +100,27 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
     gestures.push({ name, kind: 'drag', from: [x1, y1], to: [x2, y2], velocity, press, hold, start: r.injected.start, end: r.injected.end });
   };
   try {
-    for (const step of steps.split(';').map((s) => s.trim()).filter(Boolean)) {
-      const [op, arg = ''] = step.split(/\s+/, 2);
+    const stepList = Array.isArray(steps) ? steps : stepLists(steps)[0];
+    for (const step of stepList) {
+      const op = step.split(/\s+/, 1)[0], arg = step.slice(op.length).trim();
       const n = arg.split(',').map(Number);
-      if (op === 'tap') await tap(`step tap ${arg}`, n);
+      if (op === 'tap' && /^-?[\d.]+,-?[\d.]+$/.test(arg)) await tap(`step tap ${arg}`, n);
+      else if (op === 'tap' && arg) {
+        // What a person reads: found in the tree, waited for up to 8 s (a screen still loading or animating in).
+        const label = arg.replace(/^"(.*)"$/, '$1');
+        let at;
+        for (const until = Date.now() + 8000; !at;) {
+          try { at = tapPoint(await readTree((req) => touches.ask(req)), label); }
+          catch (e) { if (Date.now() > until) throw new Error(`step ${step}: ${e.message}`); await sleep(400); }
+        }
+        say(`step: tap "${label}" at ${at.x},${at.y}`);
+        await tap(`step tap "${label}"`, [at.x, at.y]);
+      }
       else if (op === 'wait') await sleep(n[0] * 1000);
       else if (op === 'drag') await drag(`step drag ${arg}`, [n[0], n[1]], [n[2], n[3]], n[4] || 1000);
       else throw new Error(`unknown step "${step}"`);
     }
-    if (steps) await rest(3000);
+    if (stepList.length) await rest(3000);
     await sleep(600); // the next scan
     const stepCount = gestures.length;
     const list = pickList(trace().scans.at(-1));
@@ -135,7 +168,7 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
         if (v === 4000) await sampling(true);
         await onward(name, v);
         await rest();
-        if (v === 4000) await sampling(false);
+        if (v === 4000) { await sampling(false); await check(); }
       }
       await statusBar();
       await pull();
@@ -146,7 +179,7 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
         if (v === 4000) await sampling(true);
         await onward(name, v);
         await rest();
-        if (v === 4000) await sampling(false);
+        if (v === 4000) { await sampling(false); await check(); }
       }
       // Back to the top, measuring blanks, each fling 1.2 s after the last; the last meets the edge with momentum.
       await sampling(true);
@@ -158,6 +191,7 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
       }
       await rest(8000);
       await sampling(false);
+      await check();
       // Rubber band: pulled past the top, held, released.
       await pull();
       // Scroll to top from the status bar.
@@ -170,6 +204,7 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
     return { display, steps: stepCount, gestures, list };
   } finally {
     rmSync(`${tracePath}.sample`, { force: true });
+    rmSync(`${tracePath}.check`, { force: true });
   }
 }
 
@@ -196,28 +231,48 @@ if (import.meta.main) {
   const { udid, app } = opts;
   const say = (s) => console.error(`feel: ${s}`);
   const out = resolve(opts.out ?? resolve(ROOT, 'target/feel', `${app}-${new Date().toISOString().replace(/[:.]/g, '-')}`));
-  mkdirSync(out, { recursive: true });
-  for (const f of ['feel.json', 'feel.txt', 'gestures.json']) rmSync(resolve(out, f), { force: true });
-  const tracePath = resolve(out, 'trace.jsonl');
+  const lists = stepLists(opts.steps ?? '');
   const simctl = (args, env) => spawnSync('xcrun', ['simctl', ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
-  const env = Object.fromEntries(Object.entries(recorderEnv(tracePath, opts)).map(([k, v]) => [`SIMCTL_CHILD_${k}`, v]));
   if (opts.dump) mkdirSync(resolve(opts.dump), { recursive: true });
   const touches = await openTouches({ udid, appId: app });
-  let played = null;
+  const results = [];
   try {
-    simctl(['terminate', udid, app]);
-    await sleep(500);
-    writeFileSync(tracePath, '');
-    const launched = simctl(['launch', udid, app], env);
-    if (launched.status !== 0) throw new Error(`launch: ${launched.stderr.trim()}`);
-    for (const until = Date.now() + 20000; !traceOf(tracePath).hello; await sleep(100)) if (Date.now() > until) throw new Error('the recorder wrote nothing in 20 s: is the app built for the simulator, and the path writable?');
-    await sleep(2500); // launch work: first frames, data, the accessibility runtime XCTest turns on
-    played = await play({ touches, tracePath, steps: opts.steps ?? '', at: opts.at ? opts.at.split(',').map(Number) : null, script: opts.short ? 'short' : 'full', say });
+    for (const [i, steps] of lists.entries()) {
+      // The first list's output where it always was; each other one in a directory of its own.
+      const dir = i ? resolve(out, `list-${i + 1}`) : out;
+      mkdirSync(dir, { recursive: true });
+      for (const f of ['feel.json', 'feel.txt', 'gestures.json']) rmSync(resolve(dir, f), { force: true });
+      const tracePath = resolve(dir, 'trace.jsonl');
+      const dump = opts.dump && (i ? resolve(opts.dump, `list-${i + 1}`) : opts.dump);
+      if (dump) mkdirSync(resolve(dump), { recursive: true });
+      const env = Object.fromEntries(Object.entries(recorderEnv(tracePath, { ...opts, dump })).map(([k, v]) => [`SIMCTL_CHILD_${k}`, v]));
+      if (lists.length > 1) say(`list ${i + 1} of ${lists.length}: ${steps.join('; ') || 'the first screen'}`);
+      let played = null;
+      try {
+        simctl(['terminate', udid, app]);
+        await sleep(500);
+        writeFileSync(tracePath, '');
+        const launched = simctl(['launch', udid, app], env);
+        if (launched.status !== 0) throw new Error(`launch: ${launched.stderr.trim()}`);
+        for (const until = Date.now() + 20000; !traceOf(tracePath).hello; await sleep(100)) if (Date.now() > until) throw new Error('the recorder wrote nothing in 20 s: is the app built for the simulator, and the path writable?');
+        await sleep(2500); // launch work: first frames, data, the accessibility runtime XCTest turns on
+        played = await play({ touches, tracePath, steps, at: opts.at ? opts.at.split(',').map(Number) : null, script: opts.short ? 'short' : 'full', say });
+      } finally {
+        simctl(['terminate', udid, app]);
+      }
+      const result = finish(dir, app, played, udid);
+      results.push({ steps, dir, result });
+      say(result.verdict === 'probed' ? dir : `no-scrollable-list; ${dir}`);
+    }
   } finally {
     await touches.close().catch((e) => say(`closing the touch runner: ${e.message}`));
-    simctl(['terminate', udid, app]);
   }
-  const result = finish(out, app, played, udid);
-  if (result.verdict === 'probed') process.stdout.write(report(result));
-  say(result.verdict === 'probed' ? out : `no-scrollable-list; ${out}`);
+  if (results.length > 1) {
+    // DIR/feel.txt says every list, each under its steps; DIR/feel.json is the first list's, naming the others.
+    writeFileSync(resolve(out, 'feel.txt'), results.map((r) => `# ${r.steps.join('; ') || 'the first screen'}\n${readFileSync(resolve(r.dir, 'feel.txt'), 'utf8')}`).join('\n'));
+    const first = JSON.parse(readFileSync(resolve(out, 'feel.json'), 'utf8'));
+    first.others = results.slice(1).map((r) => ({ steps: r.steps, dir: r.dir, verdict: r.result.verdict, summary: summary(r.result) }));
+    writeFileSync(resolve(out, 'feel.json'), JSON.stringify(first, null, 1));
+  }
+  for (const r of results) if (r.result.verdict === 'probed') process.stdout.write((results.length > 1 ? `# ${r.steps.join('; ') || 'the first screen'}\n` : '') + report(r.result));
 }

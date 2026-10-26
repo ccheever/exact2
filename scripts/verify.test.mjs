@@ -1220,7 +1220,7 @@ test('many findings: the closing line names their kinds, and a check kind that d
   assert.equal(r.lines.at(-2), 'most findings are tap-target (11): fix them, or, where the design means them, app.json\'s verify.accept takes each by its kind and testId (docs/recipes/tests.md)');
 });
 
-test('scrolling: like UIKit in one line; each tell or bad a counted finding with UIKit\'s value; blanks a note; no list, nothing', () => {
+test('scrolling: like UIKit in one line; each tell or bad a counted finding with UIKit\'s value; unchecked blanks a note; no list, nothing', () => {
   const ok = { ratio: 'ok', lag: 'ok', glide: 'ok' };
   const feel = (over = {}) => ({ app: 'a', verdict: 'probed', list: { cls: 'ExactGroupedLists.GroupedCollectionView' },
     smooth: { hitchRatio: 0, longestFrameMs: 16.7, mainP95Ms: 4.1, hitchAt: [], verdict: { hitch: 'ok', stall: 'ok', main: 'ok' } },
@@ -1244,6 +1244,16 @@ test('scrolling: like UIKit in one line; each tell or bad a counted finding with
   assert.match(found.lines[3], /^ {2}note, not counted .*scrolling blank samples 0\.5 \(bad; UIKit 0\)/);
   assert.equal(found.lines[4], '  the numbers: .exact/verify/ios-feel/feel.txt; report Exact\'s own with .exact/verify/ios-feel/feel.json');
   assert.match(found.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\)/);
+
+  // With the blank check behind it a blank band is a counted finding; a hitch says whose time it was.
+  const live = feel({ smooth: { ...feel().smooth, hitchRatio: 40, verdict: { ...feel().smooth.verdict, hitch: 'bad' },
+    hitchAt: [{ gesture: 'fling-6000', ms: 66.7, mainMs: 60, late: 50, cause: 'tick', via: { timers: 50 },
+      where: { 'app JS (main waits on exact.owner)': 48, 'Exact host · UIKit': 6 } }] },
+  blank: { share: 0.2, samples: 40, blankSamples: 8, maxPt: 120, verified: true, verdict: { blank: 'bad' } } });
+  const said = run({ ms: 21000, out, result: live });
+  assert.equal(said.problems, 2);
+  assert.match(said.lines[2], /^ {2}scrolling hitch ratio 40 ms\/s \(bad; UIKit 0 ms\/s\): of the late frames' main thread, app JS \(main waits on exact\.owner\) took 48 ms and Exact host took 6 ms \(1 of 1 on a timer's tick\): the app's data module runs on the frame's critical path/);
+  assert.match(said.lines[3], /^ {2}scrolling blank samples 0\.2 \(bad; UIKit 0\): .*rows drawn late/);
 
   assert.deepEqual(run({ ms: 9000, out, result: { app: 'a', verdict: 'no-scrollable-list' } }).lines.filter((l) => l.startsWith('scrolling')), []);
   const failed = run({ ms: 3000, error: 'the recorder wrote nothing in 20 s\nstack' });

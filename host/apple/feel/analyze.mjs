@@ -16,7 +16,7 @@ export function pickList(scan) {
 
 /** The trace's lines by kind. */
 export function readTrace(text) {
-  const t = { hello: null, frames: [], scans: [], touches: [], blanks: [] };
+  const t = { hello: null, frames: [], scans: [], touches: [], blanks: [], bchecks: [], checked: [], wheres: [] };
   for (const line of text.split('\n')) {
     if (!line) continue;
     let o; try { o = JSON.parse(line); } catch { continue; } // a line cut by a flush in progress
@@ -25,6 +25,9 @@ export function readTrace(text) {
     else if (o.k === 'scan') t.scans.push(o);
     else if (o.k === 'touch') t.touches.push(o);
     else if (o.k === 'blank') t.blanks.push(o);
+    else if (o.k === 'bcheck') t.bchecks.push(o);
+    else if (o.k === 'checked') t.checked.push(o);
+    else if (o.k === 'where') t.wheres.push(o);
   }
   return t;
 }
@@ -52,6 +55,50 @@ const T = {
   band: [[0.3, 0.65], [0.15, 0.85]], settle: [[0.25, 1.0], [0.15, 1.5]], toTop: [[0, 1.0], [0, 2.0]],
   blank: [[0, 0], [0, 0.02]],
 };
+
+/** A late frame's cause: `tick` when a timer's callout took at least a quarter of its sampled busy time (4 ms or
+ * more), else `scroll`. */
+function causeOfFrame(w) {
+  const busy = Object.values(w.ms ?? {}).reduce((a, b) => a + b, 0), timer = w.via?.timers ?? 0;
+  return timer >= 4 && timer >= busy / 4 ? 'tick' : 'scroll';
+}
+
+/** Late frames' sampled main-thread time summed: by who (the label before ` · `), each with its what and ms, and by
+ * the run loop's callout it ran in (`via`). */
+export function whereOf(hitches) {
+  const who = new Map(), via = {};
+  for (const h of hitches) {
+    if (!h.where) continue;
+    for (const [k, ms] of Object.entries(h.via ?? {})) via[k] = (via[k] ?? 0) + ms;
+    for (const [label, ms] of Object.entries(h.where)) {
+      const [w, what] = label.split(' · ');
+      const e = who.get(w) ?? { who: w, ms: 0, what: {} };
+      e.ms += ms;
+      if (what) e.what[what] = (e.what[what] ?? 0) + ms;
+      who.set(w, e);
+    }
+  }
+  const by = [...who.values()].sort((a, b) => b.ms - a.ms).map((e) => ({ who: e.who, ms: round(e.ms),
+    what: Object.entries(e.what).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, round(v)]) }));
+  return { by, via: Object.fromEntries(Object.entries(via).map(([k, ms]) => [k, round(ms)])) };
+}
+
+/** The late frames by gesture, each with where their time went. */
+function whereClusters(hitches) {
+  const gestures = [...new Set(hitches.filter((h) => h.where).map((h) => h.gesture))];
+  return gestures.map((g) => {
+    const hs = hitches.filter((h) => h.gesture === g);
+    return { gesture: g, frames: hs.length, lateMs: round(hs.reduce((sum, h) => sum + (h.late ?? 0), 0)),
+      ticks: hs.filter((h) => h.cause === 'tick').length, ...whereOf(hs) };
+  });
+}
+
+/** One cluster as a line: `who ms (what ms)` for the three that took most, and what woke the main thread. */
+export function whereLine(c) {
+  const parts = c.by.filter((b) => b.ms >= 2).slice(0, 3).map((b) => `${b.who} ${Math.round(b.ms)} ms${b.what[0]?.[1] >= 2 ? ` (in ${b.what[0][0]} ${Math.round(b.what[0][1])})` : ''}`);
+  const via = Object.entries(c.via).filter(([, ms]) => ms >= 2).sort((a, b) => b[1] - a[1]).map(([k, ms]) => `${k} ${Math.round(ms)} ms`).join(', ');
+  return `${c.gesture}: ${c.frames} late frame${c.frames === 1 ? '' : 's'} (${c.ticks} on a timer's tick), ${Math.round(c.lateMs)} ms late; ${parts.join(' · ') || 'the main thread was idle (the delay was elsewhere)'}${via ? `; in ${via}` : ''}`;
+}
 
 export function analyze(t, meta) {
   const P = 1 / (t.hello?.maxFps || 60);
@@ -81,15 +128,27 @@ export function analyze(t, meta) {
   // Smoothness over every moving frame while blanks were not sampled (a sample costs the app's main thread).
   const from = gestures[0]?.m0 ?? 0; // not the navigation steps
   const moving = steps.filter((s) => s.f.mv && !s.f.s && !s.prev.s && s.f.t >= from);
+  const wheres = new Map(t.wheres.map((w) => [w.t.toFixed(4), w]));
   const hitchMs = moving.reduce((sum, s) => sum + (s.dt > 1.5 * P ? (s.dt - P) * 1000 : 0), 0);
   const motionS = moving.reduce((sum, s) => sum + s.dt, 0);
   const smooth = {
     frames: moving.length, motionS: round(motionS, 2), fps: round(t.hello?.maxFps, 0),
     hitchRatio: round(motionS ? hitchMs / motionS : null), longestFrameMs: round(Math.max(0, ...moving.map((s) => s.dt * 1000))),
     hitches: moving.filter((s) => s.dt > 1.5 * P).length,
-    hitchAt: moving.filter((s) => s.dt > 1.5 * P).map((s) => ({ gesture: gestureAt(s.f.t), ms: round(s.dt * 1000), mainMs: round(s.app, 1) })),
+    hitchAt: moving.filter((s) => s.dt > 1.5 * P).map((s) => {
+      // Where the main thread's time went (feel.m's sampler) and what woke it: a hitch on a timer's tick is the
+      // app updating itself; any other is the scrolling (rows coming on screen, their layout and commit).
+      const w = wheres.get(s.f.t.toFixed(4));
+      return { gesture: gestureAt(s.f.t), ms: round(s.dt * 1000), mainMs: round(s.app, 1), late: (s.dt - P) * 1000,
+        ...(w ? { where: w.ms, via: w.via ?? {}, cause: causeOfFrame(w) } : {}) };
+    }),
     mainMs: round(mean(moving.map((s) => s.app)), 2), mainP95Ms: round(pct(moving.map((s) => s.app), 0.95), 2),
   };
+  // The hitch time by cause, per s of motion: timer ticks against scrolling (hitches the sampler saw).
+  const lateBy = (cause) => smooth.hitchAt.filter((h) => h.cause === cause).reduce((sum, h) => sum + h.late, 0);
+  if (t.wheres.length || smooth.hitchAt.some((h) => h.where)) Object.assign(smooth, { tickHitchRatio: round(motionS ? lateBy('tick') / motionS : null), scrollHitchRatio: round(motionS ? lateBy('scroll') / motionS : null) });
+  for (const h of smooth.hitchAt) h.late = round(h.late);
+  smooth.where = whereClusters(smooth.hitchAt);
   smooth.verdict = { hitch: band(smooth.hitchRatio, ...T.hitch), stall: band(smooth.longestFrameMs, ...T.stall),
     main: band(smooth.mainP95Ms == null ? null : smooth.mainP95Ms / (P * 1000), ...T.busyShare) };
 
@@ -242,9 +301,20 @@ export function analyze(t, meta) {
   // Blank bands: rows not yet drawn where the list shows content.
   const movingAt = new Set(frames.filter((f) => f.mv).map((f) => f.t.toFixed(4)));
   const samples = t.blanks.filter((b) => movingAt.has(b.t.toFixed(4)));
-  const blankOnes = samples.filter((b) => b.blank >= 60);
-  out.blank = { samples: samples.length, blankSamples: blankOnes.length, share: samples.length ? round(blankOnes.length / samples.length, 3) : null,
-    maxPt: round(Math.max(0, ...samples.map((b) => b.blank))), sampleMs: round(mean(samples.map((b) => b.cost)), 2) };
+  // A uniform band is a blank only where the same frame drawn again at rest has ink in it (feel.m `check`): the
+  // checked bands give the share of the rest. A trace without the check counts every uniform band, unsure.
+  const uniform = samples.filter((b) => b.blank >= 60);
+  const checks = new Map(t.bchecks.filter((c) => !c.gone && !c.unjudged).map((c) => [c.t.toFixed(4), c]));
+  const checkedOnes = uniform.filter((b) => checks.has(b.t.toFixed(4)));
+  const late = checkedOnes.filter((b) => checks.get(b.t.toFixed(4)).late >= 60);
+  const verified = t.checked.length > 0;
+  // Every uniform band left unjudged (a list whose content moved under the offset): unknown, not none.
+  const unjudged = verified && uniform.length > 0 && !checkedOnes.length;
+  const blankSamples = !verified ? uniform.length : unjudged ? null : uniform.length && late.length * uniform.length / checkedOnes.length;
+  out.blank = { samples: samples.length, uniformSamples: uniform.length, checked: checkedOnes.length, lateChecked: late.length, verified,
+    blankSamples: round(blankSamples, 1), share: samples.length && blankSamples != null ? round(blankSamples / samples.length, 3) : null,
+    maxPt: round(Math.max(0, ...(verified ? late.map((b) => checks.get(b.t.toFixed(4)).late) : uniform.map((b) => b.blank)))),
+    sampleMs: round(mean(samples.map((b) => b.cost)), 2) };
   out.blank.verdict = { blank: band(out.blank.share, ...T.blank) };
   out.list = config ? { cls: config.cls, decelerationRate: round(config.decel, 4), bounces: config.bounces, scrollsToTop: config.scrollsToTop, delaysContentTouches: config.delays, contentHeight: config.cs[1] } : null;
   return { app: meta.app, verdict: 'probed', ...out };
@@ -255,11 +325,25 @@ export function analyze(t, meta) {
 const OWN = (evidence) => `Exact's own: report it${evidence ? ` with ${evidence}` : ''}`;
 const at = (r) => { const g = [...new Set(r.smooth.hitchAt.map((h) => h.gesture))]; return g.length ? ` (during ${g.join(', ')})` : ''; };
 const ROWS = 'make the rows lighter (fewer nodes, images at the size they show, no shadow, blur or filter on each row)';
+/** What took the late frames' main-thread time, for an app author, when the sampler saw it: the two that took most,
+ * how many frames came on a timer's tick, and whose each is (each a quarter of the time or more). Null without samples. */
+function causeOf(hitches, e) {
+  const top = whereOf(hitches).by.filter((b) => b.ms >= 2).slice(0, 2);
+  if (!top.length) return null;
+  const ticks = hitches.filter((h) => h.cause === 'tick').length, total = top.reduce((sum, b) => sum + b.ms, 0);
+  const head = `of the late frames' main thread, ${top.map((b) => `${b.who} took ${Math.round(b.ms)} ms`).join(' and ')}${ticks ? ` (${ticks} of ${hitches.length} on a timer's tick)` : ''}`;
+  const whose = [...new Set(top.filter((b) => b.ms >= total / 4).map((b) =>
+    /^app JS/.test(b.who) ? `the app's data module runs on the frame's critical path: do less on each ${ticks ? 'tick' : 'update'} while the list moves (fewer or smaller state changes)`
+      : /^Exact/.test(b.who) ? OWN(e)
+        : /^app code/.test(b.who) ? `the app's own code${b.what[0]?.[1] >= b.ms / 2 ? ` (in ${b.what[0][0]})` : ''} does this; ${ticks ? 'make the timer\'s work cheaper' : ROWS}`
+          : `the platform's ${b.who} work for the rows; ${ROWS}`))];
+  return `${head}: ${whose.join('; and ')}`;
+}
 const VERDICTS = [
   ['hitch ratio (ms/s)', (r) => r.smooth.hitchRatio, (r) => r.smooth.verdict.hitch, '0',
-    (r, e) => `frames came late while the list moved${at(r)}: the main thread is busy as rows come on screen; ${ROWS}. Where each row is a few texts and an image, it is ${OWN(e)}`],
+    (r, e) => causeOf(r.smooth.hitchAt, e) ?? `frames came late while the list moved${at(r)}: the main thread is busy as rows come on screen; ${ROWS}. Where each row is a few texts and an image, it is ${OWN(e)}`],
   ['longest frame (ms)', (r) => r.smooth.longestFrameMs, (r) => r.smooth.verdict.stall, '16.7',
-    (r, e) => { const worst = [...r.smooth.hitchAt].sort((a, b) => b.ms - a.ms)[0]; return `a frame of ${r.smooth.longestFrameMs} ms${worst ? ` during ${worst.gesture} (main thread ${worst.mainMs} ms)` : ''}: a row costly the first time it shows; ${ROWS}. Where they are light, it is ${OWN(e)}`; }],
+    (r, e) => { const worst = [...r.smooth.hitchAt].sort((a, b) => b.ms - a.ms)[0]; const c = worst && causeOf([worst], e); return `a frame of ${r.smooth.longestFrameMs} ms${worst ? ` during ${worst.gesture} (main thread ${worst.mainMs} ms)` : ''}: ${c ?? `a row costly the first time it shows; ${ROWS}. Where they are light, it is ${OWN(e)}`}`; }],
   ['main thread p95 (ms/frame)', (r) => r.smooth.mainP95Ms, (r) => r.smooth.verdict.main, '1.5–2.1',
     (r, e) => `the rows' layout and drawing take most of each frame while the list moves; ${ROWS}. Where they are light, it is ${OWN(e)}`],
   ['tracking ratio', (r) => r.tracking?.ratio, (r) => r.tracking?.verdict.ratio, '1.000',
@@ -293,7 +377,9 @@ const VERDICTS = [
       ? `a tap that stopped the gliding list also opened what it landed on, where UIKit only stops the list: a row that acts on pointerdown or a touch's start does this (act on press=); without one it is ${OWN(e)}`
       : `the list kept moving ${r.tapToStop.travelPt} pt after a finger landed on it: ${OWN(e)}`],
   ['blank samples (share)', (r) => r.blank.share, (r) => r.blank.verdict.blank, '0',
-    (r, e) => `${r.blank.blankSamples} of ${r.blank.samples} frames sampled while the list moved showed a blank band (up to ${r.blank.maxPt} pt) where rows belong: rows drawn late. A row that is itself 60 pt or more of one plain colour, or drawn on a canvas, reads as blank too; otherwise it is ${OWN(e)}`],
+    (r, e) => r.blank.verified
+      ? `${r.blank.blankSamples} of ${r.blank.samples} frames sampled while the list moved showed a band (up to ${r.blank.maxPt} pt) blank where the same frame at rest has rows drawn: rows drawn late. A row whose content waits on something (an image loading, data fetched as it shows) does this; otherwise it is ${OWN(e)}`
+      : `${r.blank.blankSamples} of ${r.blank.samples} frames sampled while the list moved showed a blank band (up to ${r.blank.maxPt} pt) where rows belong: rows drawn late. A row that is itself 60 pt or more of one plain colour, or drawn on a canvas, reads as blank too; otherwise it is ${OWN(e)}`],
 ];
 
 /** feel.txt: one line a metric. */
@@ -303,20 +389,25 @@ export function report(r) {
   for (const [name, value, verdict] of VERDICTS) lines.push(`  ${(verdict(r) ?? 'n/a').padEnd(5)} ${name.padEnd(38)} ${value(r) ?? '–'}`);
   const counts = VERDICTS.map(([, , v]) => v(r)).reduce((m, v) => ({ ...m, [v]: (m[v] ?? 0) + 1 }), {});
   lines.push(`  ${counts.ok ?? 0} ok, ${counts.tell ?? 0} tell, ${counts.bad ?? 0} bad`);
+  if (r.smooth.where?.length) {
+    const split = r.smooth.tickHitchRatio != null ? ` (hitch ms/s from timer ticks ${r.smooth.tickHitchRatio}, from scrolling ${r.smooth.scrollHitchRatio})` : '';
+    lines.push(`  where the late frames' main-thread time went${split}:`, ...r.smooth.where.map((c) => `    ${whereLine(c)}`));
+  }
   return lines.join('\n') + '\n';
 }
 
 const UNITS = new Set(['ms/s', 'ms', 'ms/frame', 'frames', 'pt', 's']);
-// Metrics too unsure to put to an app author as a finding: blank bands read a plain region (a grouped list's
-// background, a uniform card) as blank on native lists too (round r21: SwiftUI's Settings 0.36, UIKit's inbox 0.22).
-const UNSURE = new Set(['blank samples']);
+// Metrics too unsure to put to an app author as a finding: blank bands measured without the check at rest read a
+// plain region (a grouped list's background, a uniform card) as blank on native lists too (round r21: SwiftUI's
+// Settings 0.36, UIKit's inbox 0.22). With the check they are a finding.
+const unsure = (r, metric) => metric === 'blank samples' && !r.blank?.verified;
 /** The metrics a tell or a bad, each `{ metric, unit, verdict, value, uikit, remedy }` (`metric` without its unit;
  * `unsure`: a note, not a finding); `evidence` names the file to report Exact's own with. */
 export function findings(r, evidence = null) {
   if (r.verdict !== 'probed') return [];
   return VERDICTS.filter(([, , verdict]) => ['tell', 'bad'].includes(verdict(r))).map(([label, value, verdict, uikit, remedy]) => {
     const unit = label.match(/\(([^;)]+)/)?.[1], metric = label.replace(/ \(.*\)$/, '');
-    return { metric, unit: UNITS.has(unit) ? unit : '', verdict: verdict(r), value: value(r), uikit, remedy: remedy(r, evidence), ...(UNSURE.has(metric) ? { unsure: true } : {}) };
+    return { metric, unit: UNITS.has(unit) ? unit : '', verdict: verdict(r), value: value(r), uikit, remedy: remedy(r, evidence), ...(unsure(r, metric) ? { unsure: true } : {}) };
   });
 }
 

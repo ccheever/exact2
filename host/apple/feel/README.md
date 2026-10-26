@@ -7,7 +7,7 @@ first screen when that screen lays out content well below its bottom (`scripts/v
 
 | File | What it is |
 |---|---|
-| `feel.m` | the recorder: a dylib inserted at launch that only watches (`probe.mjs` builds it into `target/feel/recorder-sim.dylib`) |
+| `feel.m` | the recorder: a dylib inserted at launch that watches, samples the main thread's stack, and moves the list only for the blank check (`probe.mjs` builds it into `target/feel/recorder-sim.dylib`) |
 | `probe.mjs` | relaunches the app with the recorder, plays the gestures through the touch runner (`host/apple/touches.mjs`), analyzes; `play` is the gestures alone, for a drive that launched the app itself (`verify`) |
 | `analyze.mjs` | trace → `feel.json` and `feel.txt`; given several output directories, a comparison table; `findings`, each tell or bad with UIKit's value and its cause for an app author |
 
@@ -15,8 +15,11 @@ first screen when that screen lays out content well below its bottom (`scripts/v
 
 ```sh
 bun host/apple/feel/probe.mjs --udid <simulator udid> --app <bundle id> [--out DIR] [--short]
-# a list behind a tab or a push: steps first (window points; wait in seconds; drag ends with an optional speed)
-bun host/apple/feel/probe.mjs --udid U --app B --steps "tap 300,820;wait 1"
+# a list behind a tab or a push: steps first (a label a person reads, or window points; wait in seconds; drag ends
+# with an optional speed)
+bun host/apple/feel/probe.mjs --udid U --app B --steps 'tap "All";wait 1'
+# several lists: one line of steps each, each probed from a fresh launch (DIR, then DIR/list-2, …)
+bun host/apple/feel/probe.mjs --udid U --app B --steps $'tap "All"\ntap "Shows";tap "Daily Brief"'
 # several runs side by side
 bun host/apple/feel/analyze.mjs DIR1 DIR2 DIR3
 ```
@@ -25,7 +28,13 @@ The app must already be installed on the booted simulator. A probe takes about 4
 plus about 5 s the first time the touch runner starts on a simulator. `--out` defaults to
 `target/feel/<bundle id>-<time>/`; it gets `trace.jsonl` (every recorded frame, touch and scroll-view scan),
 `gestures.json`, `feel.json` and `feel.txt`. `--at x,y` moves where the gestures land (default: the middle of the
-list); `--dump DIR` saves the first sampled frames and any with a blank band as PNGs.
+list); `--dump DIR` saves the first sampled frames and any with a blank band as PNGs, each beside a JPEG of the
+window as the screen showed it, and the blank check's frames.
+
+`tap "label"` finds what it names as the bake-off's driver does (`host/apple/elements.mjs`: label, id or
+placeholder, exactly, then ignoring case, then as part of a label), waiting up to 8 s for it. With several lines of
+steps, `DIR/feel.txt` has every list under its steps and `DIR/feel.json` is the first list's with `others` naming the
+rest. `bench/bakeoff/round.mjs` passes a spec's `feel-steps.txt` (lines starting with `#` are comments).
 
 If the screen the steps reach has no shown scroll view whose content is at least 1.5 × its height + 100 pt, the
 result is `no-scrollable-list` (exit 0), not a failure.
@@ -36,8 +45,30 @@ The recorder hooks `-[UIApplication sendEvent:]` to log touches and runs a displ
 rate. On every frame while a finger is down or a scroll view moves, it records the moving scroll view (the innermost
 one tracking, dragging or decelerating, else the one whose offset changed), its offset, content size, insets and
 flags, and the main run loop's busy time since the last frame. While the driver asks for it, every 4th moving frame
-is rendered after Core Animation's commit and searched for blank bands (60 pt or more of uniform scanlines where
+is rendered after Core Animation's commit and searched for uniform bands (60 pt or more of uniform scanlines where
 the list has content).
+
+A uniform band is not yet a blank: a grouped list's background, the space under its last section and a row's own
+plain area are uniform at rest too. After each sampled gesture the probe asks for the blank check: the recorder
+takes up to 10 of the frames with a band, spread over them, moves the list to each one's offset, and draws the
+same region again 150 ms later (and 500 ms, when nothing new is drawn yet). Lists that measure rows as they show
+(Exact's, SwiftUI's) move their content under a fixed offset, so the frame at rest is first aligned to the sampled
+one: the shift whose scanlines differ least from the sample's inked ones, accepted only when they differ by under
+1 (of 255) on average; a band the shift puts off screen, or a frame that aligns nowhere, is not judged. A band
+counts as blank when the frame at rest has at least 12 pt of ink inside it: rows that will be drawn, not drawn yet.
+The share of the judged bands that are blank stands for all of them. The list goes back to where it was, and the
+check's frames are left out of every timing metric.
+
+While it records, the recorder samples the main thread's stack about every 2 ms (a thread of its own suspends it,
+reads its frame pointers and resumes it). Each sample is labelled by who (the innermost author frame: the app's
+JS, which is Hermes in an Exact app; Exact's runtime, its Rust; Exact's host, its Swift and in an Exact app any
+other native code; or the app's own code) and what (the innermost platform framework below it: SwiftUI, UIKit,
+Core Animation, text & drawing, images, accessibility), and by the run loop's callout it runs in (timers, the main
+queue, events, display links and ports, observers such as the commit). A main thread blocked on another thread is
+labelled by that thread when it is running: Exact's runtime runs on `exact.owner`. Each late frame gets the labels'
+share of its interval. A late frame whose timers took a quarter or more of its busy time (4 ms or more) counts as a
+timer's tick; any other as the scrolling. `FEEL_STACKS=0` in the app's environment turns sampling off; with it on
+and off, watchlist-exact read 141–174 and 155–162 ms/s on a loaded Mac, no difference beyond the noise.
 
 The gestures, all real HID touches through XCTest's synthesizer:
 
@@ -75,7 +106,20 @@ Each line is a verdict (`ok`, `tell` — someone who knows iOS would notice — 
 | rubber band | overscroll ÷ finger travel past the top; and the time from the lift to resting | 0.3–0.65; 0.25–1.0 s |
 | status-bar scroll to top | from the tap to the top | ≤ 1.0 s |
 | tap while decelerating | content travel after the touch lands; `activated` if the list left the screen | < 5 pt |
-| blank samples | the share of sampled moving frames with a blank band | 0 |
+| blank samples | the share of sampled moving frames with a band blank where the same frame at rest has rows (the blank check) | 0 |
+
+Under the verdicts, `where the late frames' main-thread time went` gives each gesture with late frames: how many
+(how many on a timer's tick), how late in all, the three labels that took most of their intervals (each with the
+framework it was in) and the callouts that time ran in; and, on its first line, the hitch ratio split into timer
+ticks and scrolling. A finding on the hitch ratio or the longest frame names the two labels that took most and
+whose each is: the app's data module (a live list updating on a tick), Exact's own, the app's own code, or the
+platform's work for the rows.
+
+```
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 116.4, from scrolling 75.6):
+    fling-6000: 30 late frames (5 on a timer's tick), 871 ms late; Exact host 664 ms (in UIKit 223) · app JS (main waits on exact.owner) 278 ms · …
+    pull-top: 2 late frames (2 on a timer's tick), 176 ms late; app JS (main waits on exact.owner) 113 ms · Exact host 54 ms (in UIKit 17) · …
+```
 
 `feel.json` has every number behind these, per fling (`flings`: τ, R², content speed, lift frame and main-thread
 time, content-size changes) and where each hitch was (`smooth.hitchAt`), plus the list's declared
@@ -126,13 +170,35 @@ between UIKit's and SwiftUI's.
   speed, not the finger's speed at the lift.
 - Blank sampling renders the list's layers (`renderInContext`), which omits Metal content and costs 3–7 ms, so it
   runs only during the 4,000 pt/s fling and the flings back up, and those frames are left out of the timing
-  metrics. A list that draws through Metal would read as blank.
-- Blank bands misread plain regions: a grouped list's background or a uniform card reads as blank on native lists
-  too (round r21: SwiftUI's Settings 0.36, UIKit's inbox 0.22), so `verify` says blank samples as a note, uncounted.
+  metrics. A list that draws through Metal would read as blank (and blank at rest too, so not counted).
+- The blank check, validated on the round r21 apps: before it, uniform bands read as blank on SwiftUI's Settings
+  (0.36), UIKit's inbox (0.22), SwiftUI's moodboard (0.10) and four Exact apps (expenses 1.0, settings 0.49,
+  contacts 0.24); with it, 0 on all twelve native arms and on those Exact apps. A UIKit list whose cells fill
+  their content 200 ms after they are dequeued reads 0.43 (full script; 20 of 20 judged bands blank), the same
+  list filling at once 0. Where an Exact list's content moved too far under the offset to align, its bands are
+  unjudged and the share is unknown (`–`), not 0.
+- The stack sampler reads frame pointers and names frames with `dladdr`: code built without frame pointers loses
+  its callers, and a stripped app's own code is `app code`. The platform's run-loop callouts are named by their
+  symbols; where `dladdr` cannot name one, the time has no callout and counts as scrolling.
 - A list that opens at its end (a chat) has its slow drag and first flings go up it instead; the pull past the top
   is skipped when the flings did not bring the list back to its top.
 - Vertical lists only; the gestures land in the middle of the list and assume a row there tolerates a tap (the
   tap during deceleration). The detector picks the largest qualifying scroll view; use `--steps` and `--at` for
   another.
 - The touch runner turns on the simulator's accessibility runtime for its session (`touches.mjs`), so every arm
-  runs with it loaded.
+  runs with it loaded; the sampler shows its cost as `accessibility`.
+
+## On a phone
+
+Not yet. A phone at 120 Hz is what would exercise 8.3 ms budgets, and the recorder itself would run there, but:
+
+- the touch runner is simulator-only (LLP 1080.000 stage 4 is not built): it needs the runner built for
+  `iphoneos`, signed with the team profile, installed with `devicectl` and started with `UseDestinationArtifacts`;
+  its session's accessibility keys are set with `simctl spawn … defaults`, which a phone has no equivalent of;
+- the recorder writes its trace to a host path and reads its two switches (`.sample`, `.check`) from host paths,
+  which an app on a phone cannot reach. The probe follows the trace live, so a phone needs a live channel (the
+  phone carrier's token bridge, which the touch runner already connects out over), not `devicectl device copy`
+  after the run;
+- the dylib must be built for `iphoneos` and embedded and signed into the app, as `bench/heavy-list/probe/resign.sh`
+  does for its own probe, and inserted at launch through `devicectl device process launch --environment-variables`
+  (`devrun.sh`).

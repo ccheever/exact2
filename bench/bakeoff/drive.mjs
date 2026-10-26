@@ -8,6 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { Refusal, line, outline, readTree, refuse, tapPoint } from '../../host/apple/elements.mjs';
 import { openTouches } from '../../host/apple/touches.mjs';
 
 const USAGE = `usage: bun bench/bakeoff/drive.mjs --udid <simulator udid> --app <bundle id> [--timing] <op> [args] …
@@ -18,15 +19,7 @@ ops: launch · relaunch · terminate · home · tree · tap x,y · tap "label" �
 const SIZES = ['extra-small', 'small', 'medium', 'large', 'extra-large', 'extra-extra-large', 'extra-extra-extra-large',
   'accessibility-medium', 'accessibility-large', 'accessibility-extra-large', 'accessibility-extra-extra-large', 'accessibility-extra-extra-extra-large'];
 const SIZE_ALIASES = { default: 'large', largest: 'accessibility-extra-extra-extra-large' };
-// Elements that only group others: left out of the outline when they carry no text.
-const SILENT = new Set(['Other', 'Group', 'Window', 'LayoutArea', 'LayoutItem']);
-// What a person taps: of a match nested in another, the outer one when it is one of these.
-const TAPPABLE = new Set(['Button', 'Cell', 'Link', 'Switch', 'Toggle', 'TextField', 'SecureTextField', 'SearchField', 'TextView',
-  'Slider', 'Stepper', 'SegmentedControl', 'Tab', 'MenuItem', 'PopUpButton', 'MenuButton', 'ToolbarButton', 'CheckBox', 'RadioButton']);
 const POINT = /^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/;
-
-class Refusal extends Error {}
-const refuse = (message) => { throw new Refusal(message); };
 
 /** The ops as [name, args], each checked before anything runs. */
 function parse(words) {
@@ -116,21 +109,7 @@ async function main() {
     await ask({ op: 'drag', point: [x1, y1], to: [x2, y2], press: 0.05, hold: 0, velocity,
       ...(d.direct ? { screen: [x1, y1], screenTo: [x2, y2], display: [d.w, d.h] } : {}) });
   };
-  // An app launched while no session was open (not by `launch`) can refuse the first reads (kAXErrorAPIDisabled).
-  // Identifiers a toolkit generates (Exact's `exact-…`, anything carrying a UUID) are dropped: they would tell a
-  // blind grader how an app was built, and no person sees them.
-  const generated = /^exact-|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i;
-  const tree = async () => {
-    for (const until = Date.now() + 8000; ;) {
-      try {
-        const t = await ask({ op: 'tree' });
-        for (const e of t.elements) if (e.identifier != null && generated.test(e.identifier)) e.identifier = null;
-        return t;
-      }
-      catch (e) { if (!(e instanceof Refusal && /APIDisabled/.test(e.message)) || Date.now() > until) throw e; }
-      await sleep(250);
-    }
-  };
+  const tree = async () => readTree(async (req) => (await session()).ask(req));
   const terminate = () => spawnSync('xcrun', ['simctl', 'terminate', udid, app], { encoding: 'utf8' });
   const launch = async () => {
     // From the Home Screen: launched over another app, the status bar would name it ("◀ App").
@@ -164,13 +143,7 @@ async function main() {
     tap: async ([target]) => {
       const m = POINT.exec(target);
       if (m) { await tap(Number(m[1]), Number(m[2])); return `tapped ${m[1]},${m[2]}`; }
-      const t = await tree();
-      const { e, i } = find(t.elements, target), f = aim(t.elements, i);
-      const [fx, fy, fw, fh] = t.frame;
-      const [x0, y0] = [Math.max(f[0], fx), Math.max(f[1], fy)];
-      const [x1, y1] = [Math.min(f[0] + f[2], fx + fw), Math.min(f[1] + f[3], fy + fh)];
-      if (x1 <= x0 || y1 <= y0) refuse(`${line(e)} is off screen; swipe to bring it into view`);
-      const [x, y] = [Math.round((x0 + x1) / 2), Math.round((y0 + y1) / 2)];
+      const { x, y, e } = tapPoint(await tree(), target);
       await tap(x, y);
       return `tapped ${line(e)} at ${x},${y}`;
     },
@@ -212,76 +185,6 @@ async function main() {
     await closeSession().catch((e) => console.error(`note: closing the touch runner: ${e.message}`));
   }
   if (failed) { console.error(`error: ${failed}`); process.exitCode = 1; }
-}
-
-/** One element as the outline shows it. */
-function line(e) {
-  const [x, y, w, h] = e.frame.map(Math.round);
-  const text = (s) => JSON.stringify(s.length > 80 ? s.slice(0, 80) + '…' : s);
-  return [e.type, e.label != null ? text(e.label) : null, e.identifier != null ? `id=${text(e.identifier)}` : null,
-    e.value != null ? `value=${text(e.value)}` : null, e.placeholder != null ? `placeholder=${text(e.placeholder)}` : null,
-    e.enabled ? null : 'disabled', e.selected ? 'selected' : null, e.hasFocus ? 'focused' : null, `[${x},${y} ${w}x${h}]`].filter(Boolean).join(' ');
-}
-
-const silent = (e) => SILENT.has(e.type) && e.label == null && e.identifier == null && e.value == null && e.placeholder == null;
-
-/** The tree as an indented outline: wrappers with no text are left out, a keyboard is one line. */
-function outline({ elements, truncated }) {
-  const out = [], stack = [], seen = new Set();
-  let keyboard = null;
-  for (const e of elements) {
-    if (keyboard != null && e.depth > keyboard) continue;
-    keyboard = null;
-    while (stack.length && stack.at(-1).depth >= e.depth) stack.pop();
-    const shown = !silent(e);
-    const text = '  '.repeat(stack.filter((s) => s.shown).length) + line(e);
-    // An element some apps expose twice (a scroll bar, a keyboard's button) is shown once.
-    if (shown && !seen.has(text)) out.push(text), seen.add(text);
-    stack.push({ depth: e.depth, shown });
-    if (e.type === 'Keyboard') keyboard = e.depth;
-  }
-  if (truncated) out.push(`… (cut at ${elements.length} elements)`);
-  return out.join('\n');
-}
-
-/** The element `target` names, with its index: by label, identifier, placeholder or title, exactly, then ignoring
- * case, then as part of a label. Of two nested matches the outer is kept when a person would tap it (a button
- * around its text), else the inner; keyboard keys only when nothing else matches. */
-function find(elements, target) {
-  const lower = target.toLowerCase();
-  const tests = [
-    (e) => [e.label, e.identifier, e.placeholder, e.title].includes(target),
-    (e) => [e.label, e.identifier, e.placeholder, e.title].some((s) => s?.toLowerCase() === lower),
-    (e) => e.label?.toLowerCase().includes(lower),
-  ];
-  for (const test of tests) {
-    let found = elements.map((e, i) => ({ e, i })).filter(({ e }) => test(e));
-    if (!found.length) continue;
-    if (found.some(({ e }) => e.type !== 'Key')) found = found.filter(({ e }) => e.type !== 'Key');
-    const losers = new Set();
-    for (const a of found) for (const d of found) {
-      if (d.i > a.i && within(elements, a.i, d.i)) losers.add(TAPPABLE.has(a.e.type) ? d.i : a.i);
-    }
-    const kept = found.filter(({ i }) => !losers.has(i));
-    if (kept.length === 1) return kept[0];
-    refuse(`${kept.length} elements match ${JSON.stringify(target)}; tap one by its point:\n${kept.slice(0, 12).map(({ e }) => '  ' + line(e)).join('\n')}`);
-  }
-  refuse(`nothing labelled ${JSON.stringify(target)}; run tree to see the labels, or tap x,y`);
-}
-
-/** Whether element `d` is inside element `a` (indices into the flattened tree). */
-const within = (elements, a, d) => elements.slice(a + 1, d + 1).every((x) => x.depth > elements[a].depth);
-
-/** Where a person taps element `i`: its middle, or for a switch, the middle of the switch control inside it (a
- * SwiftUI toggle's row is labelled as a switch, but only the control turns it). */
-function aim(elements, i) {
-  let e = elements[i];
-  if (e.type === 'Switch' || e.type === 'Toggle') {
-    for (let j = i + 1; j < elements.length && elements[j].depth > e.depth; j++) {
-      if (elements[j].type === e.type) { e = elements[j]; break; }
-    }
-  }
-  return e.frame;
 }
 
 main().catch((e) => {
