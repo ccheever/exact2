@@ -622,8 +622,8 @@ and persisted-identity guidance in LLP 1027.005. No predicate or default change 
 
 ## 14. Implementation and verification (2026-10-26)
 
-The tooling increment is implemented on `codex/llp1142-excord-loop`. Stream mappers,
-collection edge semantics and new input injection remain unchanged, as §13.8 specifies.
+The tooling increment implements §13.8 without changing stream mappers, collection edge
+semantics or input injection. Main's independent collection and clock changes are preserved.
 
 - `state.resourceStatus` reports opaque observed request/answer generations, pending state,
   current/retained/fallback status, full-argument equality and separate placeholder/kept-seed
@@ -653,15 +653,16 @@ trial layouts. The initial source audit also read generated `dist.gen` bundles; 
 that build output alongside `dist`, without changing which source files it audits.
 
 Focused resource, source-map, collection, driver and fixture regressions pass. The final
-Excord Chrome drive used a fresh named scratch store and the synthetic fixture at
-`http://127.0.0.1:53908`: all 22 resource declarations mapped to source, no request remained
+Excord Chrome drive at `d6af5f3378` used a fresh named scratch store and the synthetic fixture at
+`http://127.0.0.1:53908`: all 24 resource declarations mapped to source, no request remained
 pending, and no resource failed. Scrolling the transcript increased constructed rows from
 19 to 21. No real service account was used.
 
 Eighteen focused Swift tests passed after integration, including event delivery during
 capture, exactly-once interrupted completion, presented bounds during animation and held
-sampling's wheel-routing policy. macOS and tvOS compiled. The native fixture drive opened
-the transcript. Both available Mac displays were locked; the final live-capture request
+sampling's wheel-routing policy. macOS, tvOS and web rebuilt at `d6af5f3378`. The native fixture
+drive opened the transcript and mapped all 24 resource declarations; three requests were still
+pending at inspection. Both available Mac displays were locked; the final live-capture request
 correctly reported unavailable. It does not establish a fresh cadence or held-gesture trace.
 The earlier unlocked scratch capture observed 42 callbacks over 500.49 ms, an 8.33 ms target
 cadence and no ring drops; that is callback timing, not compositor presentation or a native
@@ -679,6 +680,11 @@ At `9369bf2a8a`, the unchanged warm gate passed in 63.38 s: build 0.60, tests 48
 clippy 0.66, formatting 4.84, caps 1.70, boot 0.02 and workspace 6.81. The quick differential
 run passed separately in 2.40 s. That machine’s 40,960 standalone object files were moved
 aside before measurement; check flags, coverage and default QoS were unchanged.
+After integrating main's translation and clock changes, all six checks passed at
+`faaf45c373`. The unchanged warm run took 66.61 s (build 1.19, tests 51.19, clippy 0.77,
+formatting 4.86, caps 1.84, boot 0.02, workspace 6.74), 1.61 s over the 65 s budget.
+The quick differential run passed separately in 2.39 s. This last run does not qualify
+the timing budget; the earlier 63.38 s run does not establish that the latest source meets it.
 
 The landing merge preserves main's held sampling, orientation-lock reporting, resource-origin
 checkpoints, type-check bounds and collection tests. Two files exceeded the source cap after
@@ -686,6 +692,9 @@ the merge; their inspection method and embedded template moved into existing mod
 behavior changes. Three Bun wrappers now allow 30 s around their existing 20 s subprocess
 harness. Both landing reviewers found no issues, including the mechanical cap refactor;
 see `code-2026-10-26-1142-landing.{sol,grok}.md`.
+The incoming clock-until-state browser test needed its fixture server to return HTTP 404
+for absent optional delivery metadata. With that fix, the authored socket test and driver
+suite passed 47 tests without skips, preserving the frozen-clock and timeout assertions.
 
 The second Sol code review found a cleanup leak when same-checkout drives overlapped on
 different explicit ports. A real two-port regression reproduced it. Commit `f74625bf80`
