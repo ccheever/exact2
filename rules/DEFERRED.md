@@ -1029,10 +1029,27 @@ reading. Nothing that isn't HTML is added by it.
   app that is not running on macOS, Linux and Windows; Android's
   long-running workers and foreground services beyond a person-started
   transfer's; resuming an interrupted upload on Android; an app's own
-  `beginBackgroundTask`; background location, geofencing, Bluetooth
-  restoration and HealthKit delivery, each its own module over this seam;
-  Background Fetch's `icons` and `updateUI`; and continued processing's
-  GPU resource.
+  `beginBackgroundTask`; continuous background location (geofencing
+  moved in, below), Bluetooth restoration and HealthKit delivery, each its
+  own module over this seam; Background Fetch's `icons` and `updateUI`;
+  and continued processing's GPU resource.
+- Maps, geocoding and geofencing were never on the doing list. **Expanded
+  (Charlie, 2026-10-26, "Accept, with Play services (Recommended)",
+  waived; LLP 1133.021 §15 question 8):** maps as the `exact-map` package
+  view (web, iOS, macOS, Android, tvOS), geocoding by the platform's
+  geocoder (iOS, macOS, Android, tvOS), and geofencing as wakes, from a
+  region carrier the host keeps on Apple and the package's receivers over
+  the host's store on Android, with Play services' geofencing there (iOS,
+  macOS, Android), with the seam additions of LLP 1133.021 §9. Background
+  location is admitted only as the grant geofencing requires
+  (`device.geolocation-background`). Consumers: map-demo, Weatherlight,
+  Caltrain. Unblocks one map on every target with a map, a followed
+  position named by its city, and an arrival that wakes a closed app.
+  Take: none named; the ruling is its own waiver, and the expansion
+  deletes map-demo's own native module (its Swift and JavaScript). Still
+  refused (LLP 1133.021 §11): continuous background location, beacons,
+  visits and significant-change launches, overlays, directions, search, a
+  default web tile source and a web geocoder.
 - **Expanded (Charlie, 2026-10-26, "Accept r5, services first
   (Recommended)", waived; LLP 1133.033 §13 question 9):** a foreground
   service the host keeps on Android, claimed by a package for a capture
