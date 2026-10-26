@@ -441,6 +441,10 @@ column wakelock=(playing or waitingForClock ? "screen" : "none")
 While any element that is mounted and displayed says `wakelock="screen"`, the
 display does not dim or lock for idleness. Displayed means no ancestor is
 `display: none`, so a screen kept mounted in a hidden tab panel holds nothing.
+What a sheet covers stays displayed: the page and every sheet between it
+and the top, as the web shows them, and a `dialog` or popover counts only
+while its host has it open. LLP 1133.029's `orientationlock` shares this
+rule (`exact_runner::wakelock::displayed`).
 The value is the Screen Wake Lock API's one type. An attribute fits better
 than commands, for two reasons:
 
