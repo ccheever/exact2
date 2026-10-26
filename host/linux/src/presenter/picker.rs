@@ -200,7 +200,11 @@ impl<D: DataSource> Presenter<D> {
         let docs: Vec<String> =
             exact_runner::file_pickers::answer_paths(q["text"].as_str().unwrap_or(""))
                 .into_iter()
-                .filter_map(|p| exact_data::documents::mint(std::path::Path::new(p), 0))
+                .filter_map(|p| {
+                    // Kept across launches where the app keeps documents (LLP 1069.010.000 D3).
+                    let p = std::path::Path::new(p);
+                    crate::kept::chosen(0, p).or_else(|| exact_data::documents::mint(p, 0))
+                })
                 .collect();
         if docs.is_empty() {
             self.host.log(format!("{name}: refused: nothing to open"));
