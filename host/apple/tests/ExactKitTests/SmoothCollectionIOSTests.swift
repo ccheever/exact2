@@ -28,11 +28,41 @@ final class SmoothCollectionIOSTests: XCTestCase {
             "rows": [["view": 10, "root": 10, "epoch": 1]], "correction": correction]]]
     }
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-    /// Runs the loop until `done`, failing with `what` after `timeout` s.
-    private func wait(_ what: String, _ timeout: Double = 2, _ done: () -> Bool) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
-        XCTAssertTrue(done(), what)
+    /// Runs the loop until `done`. It may fail with `what` only once the app's
+    /// display link has delivered more than `frames` s of frames since it began
+    /// (a motion is 0.3 s), or at a 30 s cap, never on wall time alone: in the
+    /// full parallel suite a clone's link has delivered no frames for over 2 s
+    /// (a smooth motion drew one frame, then stood still), and a 2 s deadline
+    /// failed it with every frame it got right. A failure says what the link
+    /// did; a pass that took longer than the old 2 s is kept as a LATE-PASS
+    /// attachment saying the same (theme2's ruling: H1, frames starved, shows
+    /// as evidence without failing).
+    private func wait(_ what: String, frames budget: CFTimeInterval = 0.6, _ done: () -> Bool) {
+        let began = Date(), cap = began.addingTimeInterval(30), clock = FrameClock.shared
+        let before = clock.link?.timestamp ?? 0
+        var first: CFTimeInterval?, last: CFTimeInterval = before, seen = 0, gap = 0.0, slowest = 0.0, at = CACurrentMediaTime()
+        let delivered = { first.map { last - $0 } ?? 0 }
+        while !done(), Date() < cap, delivered() <= budget {
+            let turn = CACurrentMediaTime()
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005))
+            let now = CACurrentMediaTime()
+            slowest = max(slowest, now - turn)
+            // Each new link timestamp a frame delivered (sampled each turn, under a frame apart).
+            if let t = clock.link?.timestamp, t > last {
+                if first == nil { first = t }
+                last = t; seen += 1; gap = max(gap, now - at); at = now
+            }
+        }
+        let took = Date().timeIntervalSince(began)
+        let link = clock.link
+        let said = "frames seen \(seen) over \(String(format: "%.3f", delivered())) s of link time, largest gap \(String(format: "%.3f", max(gap, CACurrentMediaTime() - at))) s, slowest turn \(String(format: "%.3f", slowest)) s, link \(link == nil ? "none" : link!.isPaused ? "paused" : "running"), took \(String(format: "%.2f", took)) s, app \(UIApplication.shared.applicationState.rawValue), scene \(window?.windowScene?.activationState.rawValue ?? -9)"
+        guard done() else { XCTFail("\(what): \(said)"); return }
+        if took > 2 {
+            let note = XCTAttachment(string: "LATE-PASS \(what): \(said)")
+            note.name = "LATE-PASS \(what)"
+            note.lifetime = .keepAlways
+            add(note)
+        }
     }
     private func moving(_ p: Presenter) -> Bool { p.collections.offsetDrivers[1] != nil }
     private func list(_ p: Presenter, correction: Any) {
