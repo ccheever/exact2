@@ -110,6 +110,8 @@ impl<D: DataSource> Runner<D> {
             .chain(self.then_due.iter().copied())
             // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())
+            // A module send the substitute answers after its span.
+            .chain(self.span_due())
             .chain(self.live_times.due())
             .chain(
                 (self.text_axes.running() && !self.clock.presenting)

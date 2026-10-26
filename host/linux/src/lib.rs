@@ -71,6 +71,7 @@ pub mod input;
 mod media_session;
 pub mod navigation;
 pub mod package;
+pub mod pads;
 pub mod paint;
 pub mod picker;
 mod placement;

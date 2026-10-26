@@ -76,6 +76,7 @@ impl<G: Game> Sim<G> {
             journal: self.world.journal(),
             journal_next: self.world.journal_next(),
             overflow_logged: self.overflow_logged,
+            origin: self.origin,
         };
         let mut w = bin::Encoder::prefixed(b"EXSIM\0\x08");
         saved.write(&mut w);
@@ -194,6 +195,7 @@ impl<G: Game> Sim<G> {
         next.world.unobserve();
         next.restored_from = Some(s.args);
         next.overflow_logged = s.overflow_logged;
+        next.origin = s.origin;
         next.rebase_queue = true;
         next.restored = true;
         next.world.presentation_generation = self

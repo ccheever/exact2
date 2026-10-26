@@ -148,6 +148,24 @@ impl<D: DataSource> Runner<D> {
                 *at = Json::String(self.strings_text(&key));
             }
         }
+        // A colour reaches an implementation as its sRGB channels, 0 to 255.
+        for option in self.substitute(row)["colorOptions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let at = option.as_str().and_then(|o| args.get_mut(o));
+            if let Some(at) = at {
+                let rgb = at
+                    .as_str()
+                    .and_then(exact_kernel::Color::parse)
+                    .map(|c| c.0);
+                *at = rgb.map_or(
+                    Json::Null,
+                    |c| json!({ "r": c >> 24, "g": c >> 16 & 255, "b": c >> 8 & 255 }),
+                );
+            }
+        }
         let key = self.key(row);
         let mut body = json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared), "args": args });
         if self.route(row) == Route::Agent {

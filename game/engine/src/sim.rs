@@ -4,6 +4,7 @@ use std::{collections::VecDeque, marker::PhantomData};
 
 mod assets;
 mod diagnostics;
+mod origin;
 mod pads;
 mod paranoid;
 mod queue;
@@ -128,7 +129,7 @@ struct Queued {
     world_us: Option<i64>,
     event: InputEvent,
 }
-#[derive(Default, Data)]
+#[derive(Default)]
 struct Saved {
     game: String,
     world: Vec<u8>,
@@ -140,6 +141,8 @@ struct Saved {
     journal_next: u64,
     overflow_logged: bool,
     published: std::collections::BTreeMap<String, crate::values::Stored>,
+    // The least privileged origin posted into the world, 0 for the app's (`origin.rs`).
+    origin: u8,
 }
 // Host-only phase: one tick is 1_000_000 units. Only the bounded remainder is
 // floating point; neither elapsed world time nor the slew grows in an f64.
@@ -227,6 +230,8 @@ pub struct Sim<G: Game> {
     present_owed: bool,
     pub(crate) development_edits: bool,
     pub(crate) edits_admitted: bool,
+    // The least privileged origin posted since the fresh start (`origin.rs`).
+    origin: u8,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -418,6 +423,7 @@ impl<G: Game> Sim<G> {
             present_owed: false,
             development_edits: true,
             edits_admitted: false,
+            origin: 0,
             game: PhantomData,
         })
     }
@@ -497,6 +503,7 @@ impl<G: Game> Sim<G> {
             self.input.viewport = viewport;
             self.overflow_logged = false;
             self.posts_logged = false;
+            self.origin = 0;
             self.restored = false;
             self.world
                 .log(format_args!("world restarted: {}", changes.join(", ")));
@@ -893,7 +900,8 @@ impl<G: Game> Sim<G> {
     }
     /// Drain only explicit string events, in emission order.
     pub fn take_messages(&mut self) -> Vec<String> {
-        std::mem::take(&mut *self.world.messages.borrow_mut())
+        let messages = std::mem::take(&mut *self.world.messages.borrow_mut());
+        self.marked(messages)
     }
     fn invalidate(&mut self) {
         self.world.unobserve();

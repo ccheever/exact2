@@ -171,8 +171,9 @@ impl Packages {
     /// The session ends: each instance's `destroy`, in the order they were
     /// made, and none called again.
     pub(super) fn destroy(&mut self) {
-        for (_, mut package, _) in std::mem::take(&mut self.made) {
+        for (_, mut package, context) in std::mem::take(&mut self.made) {
             package.destroy();
+            context.end();
         }
     }
 }
