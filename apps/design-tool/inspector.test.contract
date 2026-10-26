@@ -1266,4 +1266,20 @@ test "a design that declares no mode axes is read, not 'not read yet': its copy 
   expect text "selection-build" == "web-1 · Light"
   expect tree missing "selection-stale"
   expect text "selrow-edit-background-color" == "Edit surface.card"
+  // Another run of the server: what the last one's describe said is not this one's, so until this run's is read
+  // (refused here) a selection is not placed on the old axes.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/event" {"refuseDescribe": "describe refused (a test)", "events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: the app's design is not read yet. Select it again to edit from here."
   request POST "/__stub/restart" {} as ada

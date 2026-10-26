@@ -42,6 +42,8 @@ test('an app with no mode axes: a selection is placed on the light column, and a
     await badge.click({ force: true });
     await page.locator('[data-testid="selection-source"]').waitFor({ timeout: 60_000 });
     await page.waitForFunction(() => /VerifiedBadge/.test(document.querySelector('[data-testid="selection-source"]')?.innerText ?? ''), null, { timeout: 60_000 });
+    // (Placed once the app's design is read, which may come after the selection: waited for, not assumed.)
+    await page.waitForFunction(() => document.querySelector('[data-testid="selrow-edit-color"]')?.innerText === 'Edit cards.badge-mark', null, { timeout: 60_000 });
     expect(await page.locator('[data-testid="selection-build"]').innerText()).toMatch(/ · Light$/);
     expect(await page.locator('[data-testid="selection-stale"]').count()).toBe(0);
     expect(await page.locator('[data-testid="selrow-edit-color"]').innerText()).toBe('Edit cards.badge-mark');
