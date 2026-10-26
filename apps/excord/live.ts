@@ -25,8 +25,14 @@ const INFLATED_LIMIT = 16 * 1024 * 1024;
 // fed to it PUSH_BYTES at a time until a turn has inflated INFLATE_OUT (the mapper's, INLINE_TEXT):
 // DEFLATE's limit of about 1,032 to 1 (zlib.net/zlib_tech.html) inflates one push to at most a
 // megabyte, whatever the text. Pushes of 1 KB cost about a fifth more than one push of the whole.
-const INLINE_TEXT = 512 * 1024;
+// The mapper's turn has no continuation: one the host refuses for its budget fails the stream (a
+// megabyte READY took 868 ms there on a busy M5). So it inflates and parses only a small frame
+// itself, and a larger one waits for `digest`, whose turns keep their progress if refused.
+const INLINE_TEXT = 64 * 1024;
 const PUSH_BYTES = 1024;
+// The mapper's pushes: DEFLATE's limit inflates 64 bytes to at most about 66 KB, so its turn stops near
+// INLINE_TEXT however compressible the packet is.
+const INLINE_PUSH = 64;
 const INFLATE_OUT = 1024 * 1024;
 // A frame's text longer than this is scanned (`discord/ready.ts`) rather than parsed whole. On an
 // M1 Max JSON.parse took about 7.5 ms a megabyte, the scan 23, and applying guilds 8: a turn scans
@@ -259,6 +265,9 @@ function retire(live: Live): void {
   live.queue = [];
   live.outbox = [];
   live.closing = null;
+  // An IDENTIFY held for the retired connection is not that of the next, whose HELLO holds its own.
+  live.held = null;
+  live.recorded = '';
 }
 
 /** The session resource's answer: the kept token and identify record, read into module state. It is
@@ -285,13 +294,17 @@ export async function loadSession(live: Live, secrets: Secrets, storage: Storage
 /** Write the identify record, the held IDENTIFY's included, to app storage, and await it. */
 export async function recordIdentify(live: Live, storage: Storage): Promise<void> {
   if (!live.held || !live.gw) return;
+  // A write that lands after its connection was retired speaks for that connection's IDENTIFY, not the next's.
+  const attempt = live.attempt, held = live.held, identifies = [...live.gw.identifies];
+  let recorded: string;
   try {
-    await storage.fs.atomicWriteFile(identifiesPath(live.origins), new TextEncoder().encode(JSON.stringify(live.gw.identifies)));
-    live.kept = [...live.gw.identifies];
-    live.recorded = 'ok';
+    await storage.fs.atomicWriteFile(identifiesPath(live.origins), new TextEncoder().encode(JSON.stringify(identifies)));
+    live.kept = identifies;
+    recorded = 'ok';
   } catch (error) {
-    live.recorded = `the identify record could not be kept (${error instanceof Error ? error.message : String(error)})`;
+    recorded = `the identify record could not be kept (${error instanceof Error ? error.message : String(error)})`;
   }
+  if (live.attempt === attempt && live.held === held) live.recorded = recorded;
 }
 
 /** Send the held IDENTIFY once its record is kept; else stop, saying why, and close the socket. */
@@ -392,7 +405,7 @@ export function connect(live: Live, secrets: Secrets, native: NativeModule | nul
             const packet = gather(gw, event.data);
             if (!packet) return snapshot(live);
             const item = { type: 'packet' as const, data: packet, at: 0 };
-            if (!inflateSome(gw, item, INLINE_TEXT)) return later(item);
+            if (!inflateSome(gw, item, INLINE_TEXT, INLINE_PUSH)) return later(item);
             text = inflated(gw);
           } catch { /* a packet that does not inflate is an invalid payload */ }
           if (text !== null && text.length > INLINE_TEXT) return later({ type: 'text', data: text });
@@ -429,8 +442,8 @@ export async function digest(live: Live, secrets: Secrets, nowMs: number): Promi
 }
 
 /** Inflate more of a packet, until `out` bytes have been inflated or it ends: true when it has. */
-function inflateSome(gw: GatewayState, item: { data: Uint8Array; at: number }, out: number): boolean {
-  for (let made = 0; item.at < item.data.length && made < out;) made += inflate(gw, item.data.subarray(item.at, item.at += PUSH_BYTES));
+function inflateSome(gw: GatewayState, item: { data: Uint8Array; at: number }, out: number, push = PUSH_BYTES): boolean {
+  for (let made = 0; item.at < item.data.length && made < out;) made += inflate(gw, item.data.subarray(item.at, item.at += push));
   return item.at >= item.data.length;
 }
 

@@ -313,6 +313,12 @@ component Excord
   // A dropped connection resumes once its backoff has passed.
   task redial when gw.state == "backoff"
     every(1000, redialNow)
+  // A gateway answer the host refused (a turn over its budget) ends the stream with no close the data
+  // module hears, and the resource keeps its last state: asked again, it connects again (the identify
+  // budget bounds how often). Not while `digest` is applying a large READY: connecting again drops the
+  // rest of it, and a resumed session would never bring those servers back.
+  task regateway when failed(gateway) and session.ready and session.signedIn and gw.queued == 0 and not pending(digested)
+    every(10000, redialNow)
   task record when gw.state == "recording"
     after(1, recordNow)
   // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
