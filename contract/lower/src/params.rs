@@ -227,43 +227,66 @@ pub fn add_to(design: &mut exact_tamber::Design, params: &[ParamToken], componen
 /// `message` with each param's token name written as its full name: what
 /// an author reads never names the hash.
 pub fn shown(message: &str, params: &[ParamToken]) -> String {
-    // Only where a token can start (each begins with `PREFIX`), the longest
-    // token there, so a name that prefixes another does not split it: the
-    // tokens looked up by name, not a replace over the text per param (the
-    // checker's work in param counts, Astra's round 2).
-    if !message.contains(PREFIX) {
-        return message.to_string();
+    Shown::new(params).text(message)
+}
+
+/// [`shown`]'s index of the params' token names, built once for many
+/// messages (a component list's, or a reply's diagnostics: rebuilt per
+/// message it was the params x the messages, Astra's round 3).
+#[derive(Debug, Clone, Default)]
+pub struct Shown {
+    full: std::collections::HashMap<String, String>,
+    /// Each token name's length, longest first.
+    lengths: Vec<usize>,
+}
+
+impl Shown {
+    /// The index of `params`' token names.
+    pub fn new(params: &[ParamToken]) -> Shown {
+        let mut full = std::collections::HashMap::new();
+        for p in params.iter().rev() {
+            full.insert(p.token.clone(), p.full.clone());
+        }
+        let mut lengths: Vec<usize> = full.keys().map(String::len).collect();
+        lengths.sort_unstable_by(|a, b| b.cmp(a));
+        lengths.dedup();
+        Shown { full, lengths }
     }
-    let mut full: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-    for p in params.iter().rev() {
-        full.insert(p.token.as_str(), p.full.as_str());
-    }
-    let mut lengths: Vec<usize> = full.keys().map(|t| t.len()).collect();
-    lengths.sort_unstable_by(|a, b| b.cmp(a));
-    lengths.dedup();
-    let mut out = String::with_capacity(message.len());
-    let mut at = 0;
-    while let Some(found) = message[at..].find(PREFIX) {
-        let start = at + found;
-        out.push_str(&message[at..start]);
-        let hit = lengths.iter().find_map(|&n| {
-            let end = start + n;
-            let word = message.get(start..end)?;
-            full.get(word).map(|f| (end, *f))
-        });
-        match hit {
-            Some((end, f)) => {
-                out.push_str(f);
-                at = end;
-            }
-            None => {
-                out.push_str(PREFIX);
-                at = start + PREFIX.len();
+
+    /// `message` with each param's token name written as its full name.
+    pub fn text(&self, message: &str) -> String {
+        // Only where a token can start (each begins with `PREFIX`), the
+        // longest token there, so a name that prefixes another does not
+        // split it: the tokens looked up by name, not a replace over the
+        // text per param (the checker's work in param counts, Astra's round
+        // 2).
+        if !message.contains(PREFIX) {
+            return message.to_string();
+        }
+        let mut out = String::with_capacity(message.len());
+        let mut at = 0;
+        while let Some(found) = message[at..].find(PREFIX) {
+            let start = at + found;
+            out.push_str(&message[at..start]);
+            let hit = self.lengths.iter().find_map(|&n| {
+                let end = start + n;
+                let word = message.get(start..end)?;
+                self.full.get(word).map(|f| (end, f.as_str()))
+            });
+            match hit {
+                Some((end, f)) => {
+                    out.push_str(f);
+                    at = end;
+                }
+                None => {
+                    out.push_str(PREFIX);
+                    at = start + PREFIX.len();
+                }
             }
         }
+        out.push_str(&message[at..]);
+        out
     }
-    out.push_str(&message[at..]);
-    out
 }
 
 /// The kinds a param may be (D3's, and an icon).
@@ -555,6 +578,22 @@ pub fn written_ranges(
             Some((index, t, values.collect()))
         })
         .collect();
+    // The dial readers' stem: the first `exact.probe{n}` that starts no
+    // name of the design (a token's, a param line's or a dial's).
+    let taken = |stem: &str| {
+        let below = format!("{stem}.");
+        design
+            .tokens
+            .iter()
+            .map(|t| &t.name.value)
+            .chain(design.params.iter().map(|e| &e.name.value))
+            .chain(design.dials.iter().map(|d| &d.name.value))
+            .any(|n| n == stem || n.starts_with(&below))
+    };
+    let stem = (0..)
+        .map(|n| format!("exact.probe{n}"))
+        .find(|stem| !taken(stem))
+        .expect("some stem is free");
     // One value of a line folded in its param's place, the rest of the
     // design as written: the range errors at it.
     let probe = |at: &[(usize, &exact_tamber::At<String>)]| {
@@ -569,13 +608,15 @@ pub fn written_ranges(
         // alone again).
         if at.len() > 1 {
             for (k, d) in design.dials.iter().enumerate() {
+                // (under a stem no name of the design starts with: a reader
+                // never takes an authored token's place, Astra's round 3)
                 let at = |value: String| exact_tamber::At {
                     value,
                     line: u32::MAX - k as u32,
                     col: 1,
                 };
                 probe.tokens.push(exact_tamber::Token {
-                    name: at(format!("exact.probe.dial{k}")),
+                    name: at(format!("{stem}.dial{k}")),
                     kind: None,
                     value: at(d.name.value.clone()),
                     whens: Vec::new(),
@@ -603,22 +644,65 @@ pub fn written_ranges(
     let one = |index: usize, t: &ParamToken, v: &exact_tamber::At<String>| {
         probe(&[(index, v)]).map_or(Vec::new(), |f| errors(t, v, &Folded::new(&f)))
     };
-    // A line whose value names a param, or a token (which may read one),
-    // folds with what that holds, so each of its values is folded alone; the
-    // others (literals and dials) fold together, each line's k-th value in
-    // one probe, since none reads another line (the checker's work in param
-    // counts: a fold of the design per value was values x the design).
-    // (a design token too: one can read a param in turn, Grok's round 2, so
-    // a value naming any token folds alone; a dial reads none)
-    let names: std::collections::HashSet<&str> = params
+    // A line whose value names a param, or a token that reads one, folds
+    // with what that holds, so each of its values is folded alone; the
+    // others (literals, dials and tokens reading no param) fold together,
+    // each line's k-th value in one probe, since none reads another line
+    // (the checker's work in param counts: a fold of the design per value
+    // was values x the design).
+    // (a design token can read a param in turn, Grok's round 2: the tokens
+    // that do, directly or through another, found once from the params'
+    // names out, Astra's and Grok's round 3; a dial reads none)
+    fn words(text: &str) -> impl Iterator<Item = &str> {
+        let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '#');
+        text.split(move |c: char| !word(c))
+            .filter(|w| !w.is_empty())
+    }
+    let param_lines: std::collections::HashSet<&str> = design
+        .params
         .iter()
-        .flat_map(|p| [p.token.as_str(), p.full.as_str()])
-        .chain(design.params.iter().map(|e| e.name.value.as_str()))
-        .chain(design.tokens.iter().map(|t| t.name.value.as_str()))
+        .map(|e| e.name.value.as_str())
         .collect();
-    let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '#');
-    let reads_a_param =
-        |v: &exact_tamber::At<String>| v.value.split(|c| !word(c)).any(|w| names.contains(w));
+    let param_word = |w: &str| resolver.names_a_param(w) || param_lines.contains(w);
+    // Each design token by each word its value and `when` values hold.
+    let mut readers: std::collections::HashMap<&str, Vec<usize>> = std::collections::HashMap::new();
+    let mut reading: Vec<usize> = Vec::new();
+    let mut reads = vec![false; design.tokens.len()];
+    for (i, t) in design.tokens.iter().enumerate() {
+        let texts = std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
+        for w in texts.flat_map(|text| words(text)) {
+            if param_word(w) {
+                if !reads[i] {
+                    reads[i] = true;
+                    reading.push(i);
+                }
+            } else {
+                readers.entry(w).or_default().push(i);
+            }
+        }
+    }
+    while let Some(i) = reading.pop() {
+        for &j in readers
+            .get(design.tokens[i].name.value.as_str())
+            .into_iter()
+            .flatten()
+        {
+            if !reads[j] {
+                reads[j] = true;
+                reading.push(j);
+            }
+        }
+    }
+    let reading_tokens: std::collections::HashSet<&str> = design
+        .tokens
+        .iter()
+        .zip(&reads)
+        .filter(|(_, r)| **r)
+        .map(|(t, _)| t.name.value.as_str())
+        .collect();
+    let reads_a_param = |v: &exact_tamber::At<String>| {
+        words(&v.value).any(|w| param_word(w) || reading_tokens.contains(w))
+    };
     let (alone, together): (Vec<_>, Vec<_>) = ranged
         .iter()
         .partition(|(_, _, values)| values.iter().any(|v| reads_a_param(v)));
@@ -777,6 +861,14 @@ impl<'a> Resolver<'a> {
             }
         }
         out
+    }
+
+    /// Whether `name` names a param, by its full name or a short one
+    /// (ambiguous or not): [`Resolver::resolve`]'s question, no error made.
+    pub fn names_a_param(&self, name: &str) -> bool {
+        use exact_tamber::params::Unnamed;
+        self.by_token.contains_key(name)
+            || !matches!(self.index.named(&self.folds, name), Err(Unnamed::Unknown))
     }
 
     /// As [`resolve`] answers.

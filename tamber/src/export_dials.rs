@@ -231,6 +231,11 @@ pub(crate) fn dials(
     }
     let mut held: Vec<Vec<(Candidate, ())>> = Vec::new();
     for (dial, all) in by {
+        // Past the re-import's budget (a literal's settle spent it), no more
+        // dials are checked: the re-import is refused.
+        if crate::budget::spent().is_some() {
+            return out;
+        }
         let tokens: Vec<String> = all.iter().map(|c| c.0.token.clone()).collect();
         let value = all[0].0.value.clone();
         if all.iter().any(|c| !same(&c.0.value, &value)) {
@@ -287,6 +292,9 @@ pub(crate) fn dials(
                 }
             }
         }
+    }
+    if crate::budget::spent().is_some() {
+        return out;
     }
     if !out.ops.is_empty() && crate::apply_all(current, &out.ops, vocab).is_err() {
         out.changes.clear();
