@@ -1,0 +1,1922 @@
+[
+ {
+  "id": 33,
+  "date": "2026-10-25",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 137.94,
+  "note": "work lunch"
+ },
+ {
+  "id": 104,
+  "date": "2026-10-25",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 45.55,
+  "note": ""
+ },
+ {
+  "id": 117,
+  "date": "2026-10-25",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 38.53,
+  "note": "refund pending"
+ },
+ {
+  "id": 40,
+  "date": "2026-10-24",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 51.04,
+  "note": ""
+ },
+ {
+  "id": 69,
+  "date": "2026-10-24",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 26.63,
+  "note": ""
+ },
+ {
+  "id": 194,
+  "date": "2026-10-24",
+  "merchant": "Cinema 8",
+  "category": "Fun",
+  "amount": 9.8,
+  "note": ""
+ },
+ {
+  "id": 106,
+  "date": "2026-10-23",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 41.23,
+  "note": ""
+ },
+ {
+  "id": 198,
+  "date": "2026-10-23",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 87.45,
+  "note": "refund pending"
+ },
+ {
+  "id": 218,
+  "date": "2026-10-23",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 51.13,
+  "note": "split with Sam"
+ },
+ {
+  "id": 114,
+  "date": "2026-10-22",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 121.78,
+  "note": "split with Sam"
+ },
+ {
+  "id": 169,
+  "date": "2026-10-22",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 72.26,
+  "note": ""
+ },
+ {
+  "id": 214,
+  "date": "2026-10-22",
+  "merchant": "Noodle Bar",
+  "category": "Dining",
+  "amount": 54.51,
+  "note": ""
+ },
+ {
+  "id": 76,
+  "date": "2026-10-21",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 66.94,
+  "note": ""
+ },
+ {
+  "id": 201,
+  "date": "2026-10-21",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 9.86,
+  "note": ""
+ },
+ {
+  "id": 103,
+  "date": "2026-10-20",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 30.08,
+  "note": ""
+ },
+ {
+  "id": 120,
+  "date": "2026-10-20",
+  "merchant": "Noodle Bar",
+  "category": "Dining",
+  "amount": 33.33,
+  "note": ""
+ },
+ {
+  "id": 148,
+  "date": "2026-10-20",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 38.13,
+  "note": "work lunch"
+ },
+ {
+  "id": 234,
+  "date": "2026-10-20",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 38.06,
+  "note": ""
+ },
+ {
+  "id": 110,
+  "date": "2026-10-19",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 158.67,
+  "note": ""
+ },
+ {
+  "id": 219,
+  "date": "2026-10-19",
+  "merchant": "City Bike",
+  "category": "Transport",
+  "amount": 43.25,
+  "note": ""
+ },
+ {
+  "id": 229,
+  "date": "2026-10-19",
+  "merchant": "Blue Door Cafe",
+  "category": "Dining",
+  "amount": 21.03,
+  "note": ""
+ },
+ {
+  "id": 27,
+  "date": "2026-10-18",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 20.36,
+  "note": ""
+ },
+ {
+  "id": 188,
+  "date": "2026-10-18",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 82.63,
+  "note": ""
+ },
+ {
+  "id": 213,
+  "date": "2026-10-18",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 66.53,
+  "note": ""
+ },
+ {
+  "id": 2,
+  "date": "2026-10-17",
+  "merchant": "Taqueria Sol",
+  "category": "Dining",
+  "amount": 85.96,
+  "note": ""
+ },
+ {
+  "id": 94,
+  "date": "2026-10-17",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 42.29,
+  "note": ""
+ },
+ {
+  "id": 96,
+  "date": "2026-10-17",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 60.07,
+  "note": ""
+ },
+ {
+  "id": 102,
+  "date": "2026-10-17",
+  "merchant": "Cinema 8",
+  "category": "Fun",
+  "amount": 55.84,
+  "note": "gift"
+ },
+ {
+  "id": 107,
+  "date": "2026-10-17",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 50.99,
+  "note": "work lunch"
+ },
+ {
+  "id": 116,
+  "date": "2026-10-17",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 45.91,
+  "note": "gift"
+ },
+ {
+  "id": 121,
+  "date": "2026-10-17",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 107.87,
+  "note": "refund pending"
+ },
+ {
+  "id": 132,
+  "date": "2026-10-17",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 61.11,
+  "note": "split with Sam"
+ },
+ {
+  "id": 178,
+  "date": "2026-10-17",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 58.12,
+  "note": ""
+ },
+ {
+  "id": 190,
+  "date": "2026-10-17",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 83.07,
+  "note": ""
+ },
+ {
+  "id": 58,
+  "date": "2026-10-16",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 66.7,
+  "note": "gift"
+ },
+ {
+  "id": 184,
+  "date": "2026-10-16",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 44.27,
+  "note": ""
+ },
+ {
+  "id": 30,
+  "date": "2026-10-15",
+  "merchant": "City Bike",
+  "category": "Transport",
+  "amount": 74.6,
+  "note": ""
+ },
+ {
+  "id": 38,
+  "date": "2026-10-15",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 89.97,
+  "note": ""
+ },
+ {
+  "id": 124,
+  "date": "2026-10-15",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 82.25,
+  "note": ""
+ },
+ {
+  "id": 129,
+  "date": "2026-10-15",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 39.26,
+  "note": ""
+ },
+ {
+  "id": 166,
+  "date": "2026-10-15",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 90.61,
+  "note": ""
+ },
+ {
+  "id": 175,
+  "date": "2026-10-15",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 68.14,
+  "note": ""
+ },
+ {
+  "id": 196,
+  "date": "2026-10-15",
+  "merchant": "Taqueria Sol",
+  "category": "Dining",
+  "amount": 55.09,
+  "note": ""
+ },
+ {
+  "id": 238,
+  "date": "2026-10-15",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 73.57,
+  "note": "split with Sam"
+ },
+ {
+  "id": 146,
+  "date": "2026-10-14",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 71.5,
+  "note": "refund pending"
+ },
+ {
+  "id": 71,
+  "date": "2026-10-12",
+  "merchant": "Cinema 8",
+  "category": "Fun",
+  "amount": 73.05,
+  "note": "refund pending"
+ },
+ {
+  "id": 141,
+  "date": "2026-10-12",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 136.71,
+  "note": ""
+ },
+ {
+  "id": 183,
+  "date": "2026-10-12",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 155.48,
+  "note": ""
+ },
+ {
+  "id": 212,
+  "date": "2026-10-12",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 80.12,
+  "note": ""
+ },
+ {
+  "id": 231,
+  "date": "2026-10-12",
+  "merchant": "Blue Door Cafe",
+  "category": "Dining",
+  "amount": 28.1,
+  "note": ""
+ },
+ {
+  "id": 126,
+  "date": "2026-10-11",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 9.99,
+  "note": ""
+ },
+ {
+  "id": 153,
+  "date": "2026-10-11",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 5.98,
+  "note": ""
+ },
+ {
+  "id": 211,
+  "date": "2026-10-11",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 66.28,
+  "note": ""
+ },
+ {
+  "id": 167,
+  "date": "2026-10-10",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 77.23,
+  "note": ""
+ },
+ {
+  "id": 57,
+  "date": "2026-10-09",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 43.35,
+  "note": ""
+ },
+ {
+  "id": 97,
+  "date": "2026-10-09",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 78.83,
+  "note": ""
+ },
+ {
+  "id": 180,
+  "date": "2026-10-09",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 59.83,
+  "note": ""
+ },
+ {
+  "id": 95,
+  "date": "2026-10-08",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 91.6,
+  "note": ""
+ },
+ {
+  "id": 164,
+  "date": "2026-10-08",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 57.16,
+  "note": "refund pending"
+ },
+ {
+  "id": 179,
+  "date": "2026-10-08",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 74.87,
+  "note": ""
+ },
+ {
+  "id": 221,
+  "date": "2026-10-08",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 88.6,
+  "note": ""
+ },
+ {
+  "id": 228,
+  "date": "2026-10-08",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 38.33,
+  "note": "split with Sam"
+ },
+ {
+  "id": 123,
+  "date": "2026-10-07",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 79.19,
+  "note": "refund pending"
+ },
+ {
+  "id": 170,
+  "date": "2026-10-07",
+  "merchant": "Cinema 8",
+  "category": "Fun",
+  "amount": 35.02,
+  "note": "work lunch"
+ },
+ {
+  "id": 182,
+  "date": "2026-10-07",
+  "merchant": "Pizza Pi",
+  "category": "Dining",
+  "amount": 18.11,
+  "note": ""
+ },
+ {
+  "id": 29,
+  "date": "2026-10-06",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 44.07,
+  "note": ""
+ },
+ {
+  "id": 139,
+  "date": "2026-10-06",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 75.03,
+  "note": ""
+ },
+ {
+  "id": 202,
+  "date": "2026-10-06",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 127.7,
+  "note": ""
+ },
+ {
+  "id": 217,
+  "date": "2026-10-06",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 90.73,
+  "note": ""
+ },
+ {
+  "id": 7,
+  "date": "2026-10-05",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 37.02,
+  "note": ""
+ },
+ {
+  "id": 34,
+  "date": "2026-10-05",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 92.41,
+  "note": ""
+ },
+ {
+  "id": 54,
+  "date": "2026-10-05",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 31.45,
+  "note": "split with Sam"
+ },
+ {
+  "id": 56,
+  "date": "2026-10-05",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 43.66,
+  "note": ""
+ },
+ {
+  "id": 64,
+  "date": "2026-10-05",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 26.05,
+  "note": ""
+ },
+ {
+  "id": 83,
+  "date": "2026-10-05",
+  "merchant": "Noodle Bar",
+  "category": "Dining",
+  "amount": 71.39,
+  "note": "refund pending"
+ },
+ {
+  "id": 86,
+  "date": "2026-10-05",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 90.23,
+  "note": ""
+ },
+ {
+  "id": 89,
+  "date": "2026-10-05",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 70.66,
+  "note": ""
+ },
+ {
+  "id": 226,
+  "date": "2026-10-05",
+  "merchant": "City Bike",
+  "category": "Transport",
+  "amount": 56.8,
+  "note": "split with Sam"
+ },
+ {
+  "id": 191,
+  "date": "2026-10-04",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 47.94,
+  "note": ""
+ },
+ {
+  "id": 47,
+  "date": "2026-10-02",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 39.78,
+  "note": ""
+ },
+ {
+  "id": 101,
+  "date": "2026-10-02",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 67.68,
+  "note": ""
+ },
+ {
+  "id": 200,
+  "date": "2026-10-02",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 48.18,
+  "note": ""
+ },
+ {
+  "id": 62,
+  "date": "2026-10-01",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 47.59,
+  "note": ""
+ },
+ {
+  "id": 134,
+  "date": "2026-10-01",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 64.84,
+  "note": ""
+ },
+ {
+  "id": 165,
+  "date": "2026-10-01",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 31.52,
+  "note": ""
+ },
+ {
+  "id": 205,
+  "date": "2026-10-01",
+  "merchant": "Blue Door Cafe",
+  "category": "Dining",
+  "amount": 13.23,
+  "note": ""
+ },
+ {
+  "id": 111,
+  "date": "2026-09-30",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 56.17,
+  "note": ""
+ },
+ {
+  "id": 158,
+  "date": "2026-09-30",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 58.65,
+  "note": ""
+ },
+ {
+  "id": 162,
+  "date": "2026-09-30",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 71.67,
+  "note": ""
+ },
+ {
+  "id": 189,
+  "date": "2026-09-30",
+  "merchant": "Cinema 8",
+  "category": "Fun",
+  "amount": 15.73,
+  "note": ""
+ },
+ {
+  "id": 125,
+  "date": "2026-09-29",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 64.03,
+  "note": ""
+ },
+ {
+  "id": 144,
+  "date": "2026-09-29",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 153.31,
+  "note": ""
+ },
+ {
+  "id": 209,
+  "date": "2026-09-29",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 154.28,
+  "note": ""
+ },
+ {
+  "id": 6,
+  "date": "2026-09-28",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 12.63,
+  "note": ""
+ },
+ {
+  "id": 13,
+  "date": "2026-09-28",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 25.62,
+  "note": ""
+ },
+ {
+  "id": 31,
+  "date": "2026-09-27",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 112.66,
+  "note": ""
+ },
+ {
+  "id": 45,
+  "date": "2026-09-27",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 69.28,
+  "note": ""
+ },
+ {
+  "id": 105,
+  "date": "2026-09-26",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 69.66,
+  "note": ""
+ },
+ {
+  "id": 154,
+  "date": "2026-09-26",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 69.58,
+  "note": ""
+ },
+ {
+  "id": 155,
+  "date": "2026-09-26",
+  "merchant": "Blue Door Cafe",
+  "category": "Dining",
+  "amount": 5.23,
+  "note": "work lunch"
+ },
+ {
+  "id": 161,
+  "date": "2026-09-25",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 17.57,
+  "note": "work lunch"
+ },
+ {
+  "id": 235,
+  "date": "2026-09-25",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 17.26,
+  "note": ""
+ },
+ {
+  "id": 4,
+  "date": "2026-09-24",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 85.13,
+  "note": ""
+ },
+ {
+  "id": 131,
+  "date": "2026-09-23",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 38.8,
+  "note": "work lunch"
+ },
+ {
+  "id": 98,
+  "date": "2026-09-22",
+  "merchant": "Taqueria Sol",
+  "category": "Dining",
+  "amount": 74.97,
+  "note": ""
+ },
+ {
+  "id": 136,
+  "date": "2026-09-22",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 66.31,
+  "note": ""
+ },
+ {
+  "id": 220,
+  "date": "2026-09-21",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 40.47,
+  "note": "split with Sam"
+ },
+ {
+  "id": 236,
+  "date": "2026-09-21",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 79.17,
+  "note": ""
+ },
+ {
+  "id": 82,
+  "date": "2026-09-19",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 75.84,
+  "note": ""
+ },
+ {
+  "id": 172,
+  "date": "2026-09-19",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 82.93,
+  "note": ""
+ },
+ {
+  "id": 173,
+  "date": "2026-09-19",
+  "merchant": "Pizza Pi",
+  "category": "Dining",
+  "amount": 77.85,
+  "note": "work lunch"
+ },
+ {
+  "id": 225,
+  "date": "2026-09-19",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 11.98,
+  "note": "split with Sam"
+ },
+ {
+  "id": 177,
+  "date": "2026-09-17",
+  "merchant": "Pizza Pi",
+  "category": "Dining",
+  "amount": 5.64,
+  "note": ""
+ },
+ {
+  "id": 1,
+  "date": "2026-09-16",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 35.64,
+  "note": "refund pending"
+ },
+ {
+  "id": 15,
+  "date": "2026-09-16",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 30.38,
+  "note": ""
+ },
+ {
+  "id": 16,
+  "date": "2026-09-16",
+  "merchant": "Noodle Bar",
+  "category": "Dining",
+  "amount": 72.56,
+  "note": "gift"
+ },
+ {
+  "id": 22,
+  "date": "2026-09-16",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 9.08,
+  "note": ""
+ },
+ {
+  "id": 18,
+  "date": "2026-09-15",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 52.17,
+  "note": ""
+ },
+ {
+  "id": 87,
+  "date": "2026-09-15",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 38.54,
+  "note": ""
+ },
+ {
+  "id": 203,
+  "date": "2026-09-15",
+  "merchant": "City Bike",
+  "category": "Transport",
+  "amount": 48.97,
+  "note": ""
+ },
+ {
+  "id": 48,
+  "date": "2026-09-14",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 35.47,
+  "note": ""
+ },
+ {
+  "id": 119,
+  "date": "2026-09-14",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 146.54,
+  "note": "split with Sam"
+ },
+ {
+  "id": 207,
+  "date": "2026-09-14",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 71.31,
+  "note": ""
+ },
+ {
+  "id": 230,
+  "date": "2026-09-14",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 3.49,
+  "note": "refund pending"
+ },
+ {
+  "id": 21,
+  "date": "2026-09-13",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 27.09,
+  "note": ""
+ },
+ {
+  "id": 23,
+  "date": "2026-09-12",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 33.95,
+  "note": ""
+ },
+ {
+  "id": 147,
+  "date": "2026-09-12",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 72.62,
+  "note": ""
+ },
+ {
+  "id": 80,
+  "date": "2026-09-11",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 51.15,
+  "note": ""
+ },
+ {
+  "id": 88,
+  "date": "2026-09-11",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 134.13,
+  "note": "gift"
+ },
+ {
+  "id": 90,
+  "date": "2026-09-11",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 121.41,
+  "note": ""
+ },
+ {
+  "id": 118,
+  "date": "2026-09-10",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 53.61,
+  "note": ""
+ },
+ {
+  "id": 181,
+  "date": "2026-09-10",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 122.85,
+  "note": ""
+ },
+ {
+  "id": 223,
+  "date": "2026-09-10",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 74.74,
+  "note": ""
+ },
+ {
+  "id": 35,
+  "date": "2026-09-09",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 92.05,
+  "note": "gift"
+ },
+ {
+  "id": 59,
+  "date": "2026-09-09",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 109.61,
+  "note": ""
+ },
+ {
+  "id": 128,
+  "date": "2026-09-08",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 14.18,
+  "note": ""
+ },
+ {
+  "id": 24,
+  "date": "2026-09-07",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 79.14,
+  "note": ""
+ },
+ {
+  "id": 79,
+  "date": "2026-09-07",
+  "merchant": "Pizza Pi",
+  "category": "Dining",
+  "amount": 55.57,
+  "note": "gift"
+ },
+ {
+  "id": 85,
+  "date": "2026-09-07",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 153.15,
+  "note": "split with Sam"
+ },
+ {
+  "id": 25,
+  "date": "2026-09-06",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 6.06,
+  "note": ""
+ },
+ {
+  "id": 65,
+  "date": "2026-09-06",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 4.25,
+  "note": ""
+ },
+ {
+  "id": 143,
+  "date": "2026-09-06",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 25.48,
+  "note": ""
+ },
+ {
+  "id": 208,
+  "date": "2026-09-06",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 80.24,
+  "note": "work lunch"
+ },
+ {
+  "id": 215,
+  "date": "2026-09-06",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 46.76,
+  "note": ""
+ },
+ {
+  "id": 237,
+  "date": "2026-09-06",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 17.33,
+  "note": ""
+ },
+ {
+  "id": 232,
+  "date": "2026-09-05",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 34.6,
+  "note": ""
+ },
+ {
+  "id": 75,
+  "date": "2026-09-04",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 30.88,
+  "note": ""
+ },
+ {
+  "id": 5,
+  "date": "2026-09-03",
+  "merchant": "Cinema 8",
+  "category": "Fun",
+  "amount": 9.63,
+  "note": "gift"
+ },
+ {
+  "id": 26,
+  "date": "2026-09-03",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 8.11,
+  "note": "split with Sam"
+ },
+ {
+  "id": 100,
+  "date": "2026-09-03",
+  "merchant": "Blue Door Cafe",
+  "category": "Dining",
+  "amount": 23.92,
+  "note": "gift"
+ },
+ {
+  "id": 233,
+  "date": "2026-09-03",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 58.09,
+  "note": ""
+ },
+ {
+  "id": 14,
+  "date": "2026-09-02",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 68.48,
+  "note": ""
+ },
+ {
+  "id": 17,
+  "date": "2026-09-02",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 131.18,
+  "note": ""
+ },
+ {
+  "id": 133,
+  "date": "2026-09-01",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 36.68,
+  "note": ""
+ },
+ {
+  "id": 216,
+  "date": "2026-09-01",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 73.63,
+  "note": ""
+ },
+ {
+  "id": 37,
+  "date": "2026-08-31",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 30.34,
+  "note": ""
+ },
+ {
+  "id": 43,
+  "date": "2026-08-31",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 61.42,
+  "note": ""
+ },
+ {
+  "id": 51,
+  "date": "2026-08-31",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 24.91,
+  "note": ""
+ },
+ {
+  "id": 137,
+  "date": "2026-08-31",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 54.35,
+  "note": ""
+ },
+ {
+  "id": 53,
+  "date": "2026-08-30",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 47.76,
+  "note": "work lunch"
+ },
+ {
+  "id": 68,
+  "date": "2026-08-30",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 34.94,
+  "note": ""
+ },
+ {
+  "id": 84,
+  "date": "2026-08-30",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 29.39,
+  "note": ""
+ },
+ {
+  "id": 187,
+  "date": "2026-08-30",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 17.3,
+  "note": "split with Sam"
+ },
+ {
+  "id": 108,
+  "date": "2026-08-28",
+  "merchant": "Cinema 8",
+  "category": "Fun",
+  "amount": 21.39,
+  "note": ""
+ },
+ {
+  "id": 66,
+  "date": "2026-08-27",
+  "merchant": "Taqueria Sol",
+  "category": "Dining",
+  "amount": 91.64,
+  "note": ""
+ },
+ {
+  "id": 49,
+  "date": "2026-08-26",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 87.28,
+  "note": ""
+ },
+ {
+  "id": 140,
+  "date": "2026-08-26",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 36.25,
+  "note": ""
+ },
+ {
+  "id": 224,
+  "date": "2026-08-26",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 33.54,
+  "note": ""
+ },
+ {
+  "id": 78,
+  "date": "2026-08-25",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 139,
+  "note": ""
+ },
+ {
+  "id": 204,
+  "date": "2026-08-25",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 90.19,
+  "note": ""
+ },
+ {
+  "id": 19,
+  "date": "2026-08-24",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 44.66,
+  "note": "gift"
+ },
+ {
+  "id": 73,
+  "date": "2026-08-24",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 4.55,
+  "note": ""
+ },
+ {
+  "id": 135,
+  "date": "2026-08-24",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 38.51,
+  "note": ""
+ },
+ {
+  "id": 171,
+  "date": "2026-08-24",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 47.73,
+  "note": ""
+ },
+ {
+  "id": 41,
+  "date": "2026-08-23",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 19.64,
+  "note": ""
+ },
+ {
+  "id": 112,
+  "date": "2026-08-23",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 82.69,
+  "note": ""
+ },
+ {
+  "id": 8,
+  "date": "2026-08-22",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 43.07,
+  "note": "work lunch"
+ },
+ {
+  "id": 55,
+  "date": "2026-08-22",
+  "merchant": "Cinema 8",
+  "category": "Fun",
+  "amount": 81.06,
+  "note": ""
+ },
+ {
+  "id": 11,
+  "date": "2026-08-21",
+  "merchant": "Pizza Pi",
+  "category": "Dining",
+  "amount": 42.46,
+  "note": ""
+ },
+ {
+  "id": 44,
+  "date": "2026-08-20",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 55.78,
+  "note": ""
+ },
+ {
+  "id": 93,
+  "date": "2026-08-20",
+  "merchant": "Noodle Bar",
+  "category": "Dining",
+  "amount": 9.67,
+  "note": ""
+ },
+ {
+  "id": 149,
+  "date": "2026-08-20",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 78.44,
+  "note": ""
+ },
+ {
+  "id": 197,
+  "date": "2026-08-20",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 141.49,
+  "note": "work lunch"
+ },
+ {
+  "id": 239,
+  "date": "2026-08-19",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 72.67,
+  "note": "gift"
+ },
+ {
+  "id": 67,
+  "date": "2026-08-18",
+  "merchant": "Taqueria Sol",
+  "category": "Dining",
+  "amount": 31.06,
+  "note": "work lunch"
+ },
+ {
+  "id": 185,
+  "date": "2026-08-18",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 5.31,
+  "note": ""
+ },
+ {
+  "id": 91,
+  "date": "2026-08-17",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 21.09,
+  "note": "refund pending"
+ },
+ {
+  "id": 193,
+  "date": "2026-08-17",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 6.14,
+  "note": "gift"
+ },
+ {
+  "id": 10,
+  "date": "2026-08-16",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 65.9,
+  "note": ""
+ },
+ {
+  "id": 122,
+  "date": "2026-08-16",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 23.17,
+  "note": "work lunch"
+ },
+ {
+  "id": 150,
+  "date": "2026-08-16",
+  "merchant": "Taqueria Sol",
+  "category": "Dining",
+  "amount": 82.68,
+  "note": "gift"
+ },
+ {
+  "id": 60,
+  "date": "2026-08-15",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 68.88,
+  "note": ""
+ },
+ {
+  "id": 61,
+  "date": "2026-08-15",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 10.54,
+  "note": ""
+ },
+ {
+  "id": 145,
+  "date": "2026-08-15",
+  "merchant": "Pizza Pi",
+  "category": "Dining",
+  "amount": 73.99,
+  "note": ""
+ },
+ {
+  "id": 36,
+  "date": "2026-08-14",
+  "merchant": "Blue Door Cafe",
+  "category": "Dining",
+  "amount": 39.64,
+  "note": ""
+ },
+ {
+  "id": 50,
+  "date": "2026-08-14",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 56.95,
+  "note": "refund pending"
+ },
+ {
+  "id": 77,
+  "date": "2026-08-14",
+  "merchant": "Hardware Hut",
+  "category": "Shopping",
+  "amount": 4.62,
+  "note": ""
+ },
+ {
+  "id": 138,
+  "date": "2026-08-14",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 45.49,
+  "note": "split with Sam"
+ },
+ {
+  "id": 240,
+  "date": "2026-08-14",
+  "merchant": "Pizza Pi",
+  "category": "Dining",
+  "amount": 44.91,
+  "note": ""
+ },
+ {
+  "id": 42,
+  "date": "2026-08-13",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 78.34,
+  "note": "split with Sam"
+ },
+ {
+  "id": 70,
+  "date": "2026-08-13",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 73.25,
+  "note": ""
+ },
+ {
+  "id": 199,
+  "date": "2026-08-12",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 31.96,
+  "note": ""
+ },
+ {
+  "id": 20,
+  "date": "2026-08-11",
+  "merchant": "Outfitters",
+  "category": "Shopping",
+  "amount": 91.07,
+  "note": ""
+ },
+ {
+  "id": 46,
+  "date": "2026-08-11",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 54.93,
+  "note": "work lunch"
+ },
+ {
+  "id": 142,
+  "date": "2026-08-11",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 80.47,
+  "note": "work lunch"
+ },
+ {
+  "id": 160,
+  "date": "2026-08-11",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 44.36,
+  "note": ""
+ },
+ {
+  "id": 222,
+  "date": "2026-08-11",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 91.73,
+  "note": ""
+ },
+ {
+  "id": 176,
+  "date": "2026-08-09",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 70.99,
+  "note": ""
+ },
+ {
+  "id": 192,
+  "date": "2026-08-09",
+  "merchant": "Rideshare",
+  "category": "Transport",
+  "amount": 25.7,
+  "note": "work lunch"
+ },
+ {
+  "id": 39,
+  "date": "2026-08-08",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 131.21,
+  "note": ""
+ },
+ {
+  "id": 109,
+  "date": "2026-08-08",
+  "merchant": "Dentist",
+  "category": "Health",
+  "amount": 5.77,
+  "note": ""
+ },
+ {
+  "id": 163,
+  "date": "2026-08-08",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 64.44,
+  "note": ""
+ },
+ {
+  "id": 168,
+  "date": "2026-08-08",
+  "merchant": "Blue Door Cafe",
+  "category": "Dining",
+  "amount": 18.08,
+  "note": ""
+ },
+ {
+  "id": 9,
+  "date": "2026-08-07",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 5.02,
+  "note": ""
+ },
+ {
+  "id": 72,
+  "date": "2026-08-07",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 15.66,
+  "note": ""
+ },
+ {
+  "id": 92,
+  "date": "2026-08-06",
+  "merchant": "Internet Co",
+  "category": "Bills",
+  "amount": 58.08,
+  "note": ""
+ },
+ {
+  "id": 99,
+  "date": "2026-08-06",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 69.04,
+  "note": ""
+ },
+ {
+  "id": 157,
+  "date": "2026-08-06",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 80.12,
+  "note": ""
+ },
+ {
+  "id": 113,
+  "date": "2026-08-05",
+  "merchant": "Corner Store",
+  "category": "Groceries",
+  "amount": 42.5,
+  "note": ""
+ },
+ {
+  "id": 130,
+  "date": "2026-08-05",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 92.85,
+  "note": "work lunch"
+ },
+ {
+  "id": 152,
+  "date": "2026-08-05",
+  "merchant": "Concert Hall",
+  "category": "Fun",
+  "amount": 12.98,
+  "note": ""
+ },
+ {
+  "id": 195,
+  "date": "2026-08-05",
+  "merchant": "Climbing Gym",
+  "category": "Fun",
+  "amount": 56.6,
+  "note": "split with Sam"
+ },
+ {
+  "id": 28,
+  "date": "2026-08-04",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 36.64,
+  "note": ""
+ },
+ {
+  "id": 210,
+  "date": "2026-08-03",
+  "merchant": "City Bike",
+  "category": "Transport",
+  "amount": 74.77,
+  "note": ""
+ },
+ {
+  "id": 3,
+  "date": "2026-08-02",
+  "merchant": "Water Utility",
+  "category": "Bills",
+  "amount": 111.66,
+  "note": ""
+ },
+ {
+  "id": 115,
+  "date": "2026-08-02",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 4.71,
+  "note": ""
+ },
+ {
+  "id": 32,
+  "date": "2026-08-01",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 86.43,
+  "note": ""
+ },
+ {
+  "id": 127,
+  "date": "2026-08-01",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 62.02,
+  "note": ""
+ },
+ {
+  "id": 156,
+  "date": "2026-08-01",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 146.13,
+  "note": ""
+ },
+ {
+  "id": 151,
+  "date": "2026-07-31",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 50.62,
+  "note": ""
+ },
+ {
+  "id": 227,
+  "date": "2026-07-31",
+  "merchant": "Green Grocer",
+  "category": "Groceries",
+  "amount": 7.6,
+  "note": ""
+ },
+ {
+  "id": 159,
+  "date": "2026-07-30",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 84.69,
+  "note": ""
+ },
+ {
+  "id": 174,
+  "date": "2026-07-30",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 38.63,
+  "note": ""
+ },
+ {
+  "id": 186,
+  "date": "2026-07-30",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 140.74,
+  "note": ""
+ },
+ {
+  "id": 206,
+  "date": "2026-07-30",
+  "merchant": "Metro Card",
+  "category": "Transport",
+  "amount": 10.65,
+  "note": ""
+ },
+ {
+  "id": 12,
+  "date": "2026-07-29",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 13.98,
+  "note": ""
+ },
+ {
+  "id": 52,
+  "date": "2026-07-29",
+  "merchant": "Fresh Market",
+  "category": "Groceries",
+  "amount": 58.27,
+  "note": ""
+ },
+ {
+  "id": 63,
+  "date": "2026-07-29",
+  "merchant": "Bookshop",
+  "category": "Shopping",
+  "amount": 34.73,
+  "note": ""
+ },
+ {
+  "id": 74,
+  "date": "2026-07-29",
+  "merchant": "Power & Light",
+  "category": "Bills",
+  "amount": 126.93,
+  "note": ""
+ },
+ {
+  "id": 81,
+  "date": "2026-07-29",
+  "merchant": "Noodle Bar",
+  "category": "Dining",
+  "amount": 75.74,
+  "note": ""
+ }
+]

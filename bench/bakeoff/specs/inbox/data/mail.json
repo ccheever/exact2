@@ -1,0 +1,2882 @@
+[
+ {
+  "id": 120,
+  "from": "Rafael Okafor",
+  "subject": "Lunch next week?",
+  "preview": "Hello, just checking in about next steps. No rush.",
+  "at": "2026-10-24T23:03:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 149,
+  "from": "Lucas Ito",
+  "subject": "Your order has shipped",
+  "preview": "Hi, a quick note on the dates. Thanks!",
+  "at": "2026-10-24T16:38:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 30,
+  "from": "Ada Castro",
+  "subject": "Lunch next week?",
+  "preview": "Hi, just checking in about next steps. No rush.",
+  "at": "2026-10-24T14:57:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 273,
+  "from": "Ben Wagner",
+  "subject": "Your receipt",
+  "preview": "Good morning, following up on the plan. Let me know what you think.",
+  "at": "2026-10-23T13:22:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 182,
+  "from": "Rafael Diaz",
+  "subject": "Your order has shipped",
+  "preview": "Hi, just checking in about the dates. No rush.",
+  "at": "2026-10-23T08:04:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 60,
+  "from": "Mei Dubois",
+  "subject": "Welcome to the team",
+  "preview": "Hi, a quick note on Saturday. No rush.",
+  "at": "2026-10-23T06:51:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 288,
+  "from": "Maya Kowalski",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, a quick note on the draft. Talk soon.",
+  "at": "2026-10-22T21:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 264,
+  "from": "Chloe Baker",
+  "subject": "Photos from Saturday",
+  "preview": "Hello, following up on next steps. Let me know what you think.",
+  "at": "2026-10-21T18:47:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 172,
+  "from": "Sam Dubois",
+  "subject": "Photos from Saturday",
+  "preview": "Hi, following up on next steps. Talk soon.",
+  "at": "2026-10-21T18:41:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 239,
+  "from": "Dana Quinn",
+  "subject": "Weekly digest",
+  "preview": "Hey, just checking in about Saturday. No rush.",
+  "at": "2026-10-21T16:28:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 113,
+  "from": "Zoe Ito",
+  "subject": "Welcome to the team",
+  "preview": "Hello, wanted to share the draft. No rush.",
+  "at": "2026-10-21T15:10:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 55,
+  "from": "Layla Turner",
+  "subject": "Your order has shipped",
+  "preview": "Hi, wanted to share the dates. Thanks!",
+  "at": "2026-10-21T14:18:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 274,
+  "from": "Priya Olsen",
+  "subject": "Reminder: appointment",
+  "preview": "Hi, wanted to share next steps. Thanks!",
+  "at": "2026-10-21T08:23:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 235,
+  "from": "Eli Okafor",
+  "subject": "Invoice #7298",
+  "preview": "Good morning, following up on the plan. No rush.",
+  "at": "2026-10-21T06:35:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 47,
+  "from": "Zoe Walsh",
+  "subject": "Reminder: appointment",
+  "preview": "Hello, just checking in about next steps. No rush.",
+  "at": "2026-10-20T23:22:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 147,
+  "from": "Carlos Walsh",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, following up on Saturday. Talk soon.",
+  "at": "2026-10-20T20:40:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 168,
+  "from": "Jonah Nakamura",
+  "subject": "Re: project timeline",
+  "preview": "Hey, following up on Saturday. Let me know what you think.",
+  "at": "2026-10-20T13:27:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 109,
+  "from": "Victor Adeyemi",
+  "subject": "Reminder: appointment",
+  "preview": "Hi, following up on the dates. Talk soon.",
+  "at": "2026-10-20T06:12:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 219,
+  "from": "David Edwards",
+  "subject": "Photos from Saturday",
+  "preview": "Hello, a quick note on the budget. Let me know what you think.",
+  "at": "2026-10-19T15:26:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 64,
+  "from": "Rosa Fischer",
+  "subject": "Lunch next week?",
+  "preview": "Good morning, following up on next steps. Thanks!",
+  "at": "2026-10-18T16:19:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 115,
+  "from": "Theo Edwards",
+  "subject": "Photos from Saturday",
+  "preview": "Good morning, following up on the plan. Let me know what you think.",
+  "at": "2026-10-18T15:16:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 284,
+  "from": "Wen Park",
+  "subject": "Lunch next week?",
+  "preview": "Hi, a quick note on the budget. Thanks!",
+  "at": "2026-10-18T11:42:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 39,
+  "from": "Quinn Novak",
+  "subject": "Your order has shipped",
+  "preview": "Good morning, just checking in about the budget. No rush.",
+  "at": "2026-10-17T08:19:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 136,
+  "from": "Isaac Gupta",
+  "subject": "Quick question",
+  "preview": "Hey, wanted to share next steps. No rush.",
+  "at": "2026-10-16T19:59:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 188,
+  "from": "Milo Weber",
+  "subject": "Lunch next week?",
+  "preview": "Hey, just checking in about the budget. No rush.",
+  "at": "2026-10-16T16:48:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 241,
+  "from": "Diego Vargas",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, wanted to share the plan. Thanks!",
+  "at": "2026-10-16T12:52:00Z",
+  "unread": true,
+  "flagged": true
+ },
+ {
+  "id": 155,
+  "from": "Bianca Garcia",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, following up on the draft. Talk soon.",
+  "at": "2026-10-15T13:42:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 93,
+  "from": "Uma Wang",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, just checking in about next steps. No rush.",
+  "at": "2026-10-15T09:29:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 74,
+  "from": "David Zhang",
+  "subject": "Your order has shipped",
+  "preview": "Good morning, wanted to share the dates. Thanks!",
+  "at": "2026-10-15T06:51:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 144,
+  "from": "Keiko Alvarez",
+  "subject": "Your receipt",
+  "preview": "Hey, just checking in about next steps. Thanks!",
+  "at": "2026-10-14T18:31:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 127,
+  "from": "Emma Schmidt",
+  "subject": "Weekly digest",
+  "preview": "Hey, following up on the plan. Talk soon.",
+  "at": "2026-10-14T17:16:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 253,
+  "from": "Zoe Meyer",
+  "subject": "Photos from Saturday",
+  "preview": "Hello, a quick note on next steps. Let me know what you think.",
+  "at": "2026-10-14T15:24:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 122,
+  "from": "Oscar Garcia",
+  "subject": "Your receipt",
+  "preview": "Good morning, a quick note on the budget. Let me know what you think.",
+  "at": "2026-10-14T14:51:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 123,
+  "from": "Jonah Walsh",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, just checking in about next steps. Thanks!",
+  "at": "2026-10-13T18:32:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 43,
+  "from": "Elena Adeyemi",
+  "subject": "Your receipt",
+  "preview": "Hey, just checking in about the draft. Let me know what you think.",
+  "at": "2026-10-13T18:20:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 187,
+  "from": "Amara Young",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, following up on next steps. Thanks!",
+  "at": "2026-10-13T17:24:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 3,
+  "from": "Lars Cohen",
+  "subject": "Lunch next week?",
+  "preview": "Good morning, following up on Saturday. Talk soon.",
+  "at": "2026-10-13T13:33:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 103,
+  "from": "Ruth Kaur",
+  "subject": "Re: apartment viewing",
+  "preview": "Hello, just checking in about Saturday. Let me know what you think.",
+  "at": "2026-10-12T16:57:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 291,
+  "from": "Omar Lee",
+  "subject": "Quick question",
+  "preview": "Hello, a quick note on the budget. Let me know what you think.",
+  "at": "2026-10-11T21:51:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 170,
+  "from": "Ruth Fischer",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, following up on Saturday. Let me know what you think.",
+  "at": "2026-10-11T20:58:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 229,
+  "from": "Layla Rossi",
+  "subject": "Reminder: appointment",
+  "preview": "Hi, following up on next steps. Talk soon.",
+  "at": "2026-10-11T15:16:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 201,
+  "from": "Victor Meyer",
+  "subject": "Photos from Saturday",
+  "preview": "Good morning, just checking in about the budget. Thanks!",
+  "at": "2026-10-11T10:47:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 87,
+  "from": "Lucas Brooks",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, following up on next steps. No rush.",
+  "at": "2026-10-11T09:26:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 132,
+  "from": "Ruth Walsh",
+  "subject": "Welcome to the team",
+  "preview": "Hi, wanted to share Saturday. Thanks!",
+  "at": "2026-10-10T17:06:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 250,
+  "from": "Jada Okafor",
+  "subject": "Welcome to the team",
+  "preview": "Hello, wanted to share next steps. No rush.",
+  "at": "2026-10-10T08:52:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 129,
+  "from": "Rafael Alvarez",
+  "subject": "Lunch next week?",
+  "preview": "Good morning, wanted to share Saturday. Thanks!",
+  "at": "2026-10-09T17:48:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 285,
+  "from": "Grace Becker",
+  "subject": "Re: project timeline",
+  "preview": "Hello, just checking in about the dates. No rush.",
+  "at": "2026-10-09T15:15:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 151,
+  "from": "Amara Tanaka",
+  "subject": "Reminder: appointment",
+  "preview": "Hello, a quick note on next steps. Let me know what you think.",
+  "at": "2026-10-09T14:29:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 14,
+  "from": "Jada Diaz",
+  "subject": "Reminder: appointment",
+  "preview": "Hi, just checking in about the plan. Thanks!",
+  "at": "2026-10-09T13:44:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 53,
+  "from": "Jonah Park",
+  "subject": "Re: apartment viewing",
+  "preview": "Hi, a quick note on the plan. Thanks!",
+  "at": "2026-10-09T10:11:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 293,
+  "from": "Milo Young",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, following up on Saturday. Thanks!",
+  "at": "2026-10-08T22:56:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 163,
+  "from": "Hugo Abbott",
+  "subject": "Your order has shipped",
+  "preview": "Hello, wanted to share Saturday. No rush.",
+  "at": "2026-10-08T20:21:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 244,
+  "from": "Layla Martin",
+  "subject": "Your order has shipped",
+  "preview": "Hello, following up on the plan. Let me know what you think.",
+  "at": "2026-10-08T20:07:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 116,
+  "from": "Dana Lopez",
+  "subject": "Invoice #5714",
+  "preview": "Good morning, a quick note on next steps. Let me know what you think.",
+  "at": "2026-10-08T18:37:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 66,
+  "from": "Omar Olsen",
+  "subject": "Welcome to the team",
+  "preview": "Hi, wanted to share Saturday. Let me know what you think.",
+  "at": "2026-10-08T14:26:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 31,
+  "from": "Ines Zhang",
+  "subject": "Photos from Saturday",
+  "preview": "Good morning, a quick note on the budget. Talk soon.",
+  "at": "2026-10-07T15:55:00Z",
+  "unread": true,
+  "flagged": true
+ },
+ {
+  "id": 140,
+  "from": "Priya Vargas",
+  "subject": "Welcome to the team",
+  "preview": "Hi, a quick note on Saturday. Thanks!",
+  "at": "2026-10-07T12:15:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 179,
+  "from": "Bianca Tanaka",
+  "subject": "Agenda for Thursday",
+  "preview": "Hi, wanted to share the dates. Talk soon.",
+  "at": "2026-10-07T09:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 282,
+  "from": "Noah Kim",
+  "subject": "Your order has shipped",
+  "preview": "Hello, following up on the dates. No rush.",
+  "at": "2026-10-06T22:23:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 195,
+  "from": "Lars Lopez",
+  "subject": "Your receipt",
+  "preview": "Good morning, following up on Saturday. Thanks!",
+  "at": "2026-10-06T12:55:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 276,
+  "from": "Grace Kim",
+  "subject": "Lunch next week?",
+  "preview": "Hi, just checking in about the dates. No rush.",
+  "at": "2026-10-06T12:22:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 197,
+  "from": "Amara Turner",
+  "subject": "Photos from Saturday",
+  "preview": "Hello, just checking in about the dates. Talk soon.",
+  "at": "2026-10-06T09:13:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 205,
+  "from": "Elena Martin",
+  "subject": "Re: apartment viewing",
+  "preview": "Hello, a quick note on the draft. Talk soon.",
+  "at": "2026-10-06T07:28:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 100,
+  "from": "Victor Fischer",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, wanted to share the plan. Let me know what you think.",
+  "at": "2026-10-05T15:50:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 309,
+  "from": "Chloe Edwards",
+  "subject": "Quick question",
+  "preview": "Hi, a quick note on the dates. Let me know what you think.",
+  "at": "2026-10-04T13:24:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 232,
+  "from": "Amara Wagner",
+  "subject": "Weekly digest",
+  "preview": "Hi, just checking in about the draft. Talk soon.",
+  "at": "2026-10-04T13:12:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 297,
+  "from": "Omar Cohen",
+  "subject": "Welcome to the team",
+  "preview": "Good morning, just checking in about the draft. No rush.",
+  "at": "2026-10-03T21:45:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 91,
+  "from": "Milo Wang",
+  "subject": "Re: project timeline",
+  "preview": "Hey, just checking in about the plan. No rush.",
+  "at": "2026-10-03T20:30:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 44,
+  "from": "Isaac Fischer",
+  "subject": "Reminder: appointment",
+  "preview": "Hey, following up on the budget. Let me know what you think.",
+  "at": "2026-10-03T10:10:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 213,
+  "from": "Victor Kim",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, a quick note on Saturday. Thanks!",
+  "at": "2026-10-03T07:07:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 20,
+  "from": "Eli Chang",
+  "subject": "Agenda for Thursday",
+  "preview": "Hi, wanted to share next steps. No rush.",
+  "at": "2026-10-02T21:55:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 266,
+  "from": "Layla Abbott",
+  "subject": "Weekly digest",
+  "preview": "Good morning, wanted to share next steps. Let me know what you think.",
+  "at": "2026-10-02T19:26:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 143,
+  "from": "Felix Young",
+  "subject": "Re: apartment viewing",
+  "preview": "Good morning, just checking in about Saturday. Talk soon.",
+  "at": "2026-10-02T11:20:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 33,
+  "from": "Priya Kim",
+  "subject": "Re: apartment viewing",
+  "preview": "Hello, wanted to share the budget. Thanks!",
+  "at": "2026-10-01T18:33:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 176,
+  "from": "Diego Wagner",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, wanted to share next steps. Let me know what you think.",
+  "at": "2026-10-01T17:52:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 313,
+  "from": "Hugo Kaur",
+  "subject": "Invoice #1717",
+  "preview": "Hey, a quick note on the budget. Thanks!",
+  "at": "2026-10-01T08:17:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 211,
+  "from": "Lars Gupta",
+  "subject": "Lunch next week?",
+  "preview": "Hello, a quick note on the budget. Let me know what you think.",
+  "at": "2026-09-30T15:07:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 90,
+  "from": "Kai Kowalski",
+  "subject": "Agenda for Thursday",
+  "preview": "Hi, following up on Saturday. Talk soon.",
+  "at": "2026-09-30T10:14:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 32,
+  "from": "Diego Brooks",
+  "subject": "Weekly digest",
+  "preview": "Hi, a quick note on the plan. Let me know what you think.",
+  "at": "2026-09-29T23:31:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 251,
+  "from": "Keiko Martin",
+  "subject": "Your order has shipped",
+  "preview": "Hi, following up on Saturday. Talk soon.",
+  "at": "2026-09-29T20:55:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 216,
+  "from": "Chloe Singh",
+  "subject": "Your order has shipped",
+  "preview": "Hey, following up on Saturday. Thanks!",
+  "at": "2026-09-29T09:57:00Z",
+  "unread": true,
+  "flagged": true
+ },
+ {
+  "id": 51,
+  "from": "Zoe Lopez",
+  "subject": "Your receipt",
+  "preview": "Hi, a quick note on the plan. Thanks!",
+  "at": "2026-09-28T23:43:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 259,
+  "from": "Zoe Singh",
+  "subject": "Invoice #1051",
+  "preview": "Hello, a quick note on next steps. Let me know what you think.",
+  "at": "2026-09-28T16:46:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 198,
+  "from": "Sam Becker",
+  "subject": "Invoice #5260",
+  "preview": "Hey, just checking in about the plan. No rush.",
+  "at": "2026-09-28T08:33:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 41,
+  "from": "Noah Rossi",
+  "subject": "Quick question",
+  "preview": "Good morning, a quick note on the draft. Talk soon.",
+  "at": "2026-09-27T15:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 121,
+  "from": "Milo Adeyemi",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, just checking in about the draft. Let me know what you think.",
+  "at": "2026-09-27T11:18:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 317,
+  "from": "Sam Schmidt",
+  "subject": "Your order has shipped",
+  "preview": "Hey, wanted to share next steps. Thanks!",
+  "at": "2026-09-25T17:17:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 226,
+  "from": "Ines Olsen",
+  "subject": "Your receipt",
+  "preview": "Hi, following up on the plan. Thanks!",
+  "at": "2026-09-25T15:02:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 206,
+  "from": "Rafael Dubois",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, just checking in about next steps. No rush.",
+  "at": "2026-09-25T11:45:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 203,
+  "from": "Eli Wagner",
+  "subject": "Re: apartment viewing",
+  "preview": "Good morning, a quick note on Saturday. No rush.",
+  "at": "2026-09-24T17:48:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 254,
+  "from": "Elena Dubois",
+  "subject": "Quick question",
+  "preview": "Hello, just checking in about the draft. Talk soon.",
+  "at": "2026-09-23T13:20:00Z",
+  "unread": true,
+  "flagged": true
+ },
+ {
+  "id": 62,
+  "from": "Oscar Jensen",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, wanted to share the budget. No rush.",
+  "at": "2026-09-23T11:23:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 165,
+  "from": "Diego Adeyemi",
+  "subject": "Invoice #4095",
+  "preview": "Hi, following up on Saturday. Thanks!",
+  "at": "2026-09-23T08:20:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 224,
+  "from": "Alan Zhang",
+  "subject": "Lunch next week?",
+  "preview": "Good morning, following up on the budget. No rush.",
+  "at": "2026-09-21T16:24:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 2,
+  "from": "Alan Lee",
+  "subject": "Weekly digest",
+  "preview": "Hello, following up on next steps. No rush.",
+  "at": "2026-09-21T12:56:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 75,
+  "from": "Keiko Fischer",
+  "subject": "Re: apartment viewing",
+  "preview": "Hi, just checking in about the plan. Talk soon.",
+  "at": "2026-09-21T06:50:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 84,
+  "from": "Rosa Quinn",
+  "subject": "Your order has shipped",
+  "preview": "Hi, just checking in about next steps. Thanks!",
+  "at": "2026-09-20T21:25:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 312,
+  "from": "Farah Kaur",
+  "subject": "Reminder: appointment",
+  "preview": "Hi, just checking in about next steps. No rush.",
+  "at": "2026-09-20T14:59:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 283,
+  "from": "Hana Gupta",
+  "subject": "Invoice #3285",
+  "preview": "Hey, just checking in about Saturday. Talk soon.",
+  "at": "2026-09-20T08:21:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 38,
+  "from": "Ana Garcia",
+  "subject": "Re: project timeline",
+  "preview": "Hi, following up on next steps. Talk soon.",
+  "at": "2026-09-18T17:22:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 183,
+  "from": "Hana Nakamura",
+  "subject": "Agenda for Thursday",
+  "preview": "Hi, just checking in about the plan. Let me know what you think.",
+  "at": "2026-09-18T16:51:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 125,
+  "from": "Farah Chang",
+  "subject": "Your order has shipped",
+  "preview": "Hey, a quick note on the dates. No rush.",
+  "at": "2026-09-18T12:44:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 227,
+  "from": "Amara Brooks",
+  "subject": "Your order has shipped",
+  "preview": "Hello, following up on the plan. No rush.",
+  "at": "2026-09-17T23:02:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 167,
+  "from": "Farah Singh",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, wanted to share Saturday. No rush.",
+  "at": "2026-09-17T22:58:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 305,
+  "from": "Quinn Fischer",
+  "subject": "Your receipt",
+  "preview": "Good morning, a quick note on the dates. Thanks!",
+  "at": "2026-09-17T22:45:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 162,
+  "from": "Carlos Wagner",
+  "subject": "Weekly digest",
+  "preview": "Good morning, following up on Saturday. No rush.",
+  "at": "2026-09-17T21:04:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 111,
+  "from": "Farah Brooks",
+  "subject": "Reminder: appointment",
+  "preview": "Hey, a quick note on the budget. Talk soon.",
+  "at": "2026-09-17T16:36:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 45,
+  "from": "Isaac Martin",
+  "subject": "Your order has shipped",
+  "preview": "Hey, a quick note on the budget. Thanks!",
+  "at": "2026-09-17T16:35:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 7,
+  "from": "Farah Santos",
+  "subject": "Weekly digest",
+  "preview": "Hello, following up on the budget. Talk soon.",
+  "at": "2026-09-17T15:56:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 58,
+  "from": "Kai Walsh",
+  "subject": "Your receipt",
+  "preview": "Hi, a quick note on the budget. No rush.",
+  "at": "2026-09-17T14:35:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 42,
+  "from": "Emma Moreno",
+  "subject": "Photos from Saturday",
+  "preview": "Hey, just checking in about the dates. No rush.",
+  "at": "2026-09-17T14:16:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 117,
+  "from": "Zoe Rossi",
+  "subject": "Your receipt",
+  "preview": "Hello, wanted to share the dates. Thanks!",
+  "at": "2026-09-16T21:44:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 311,
+  "from": "Hana Gupta",
+  "subject": "Your order has shipped",
+  "preview": "Hey, wanted to share the dates. Thanks!",
+  "at": "2026-09-16T21:41:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 150,
+  "from": "Theo Castro",
+  "subject": "Your receipt",
+  "preview": "Hi, just checking in about the plan. Let me know what you think.",
+  "at": "2026-09-16T16:29:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 236,
+  "from": "Sara Novak",
+  "subject": "Quick question",
+  "preview": "Hello, wanted to share the dates. Talk soon.",
+  "at": "2026-09-15T22:48:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 35,
+  "from": "Yusuf Ito",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, just checking in about the budget. No rush.",
+  "at": "2026-09-15T15:34:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 59,
+  "from": "Amara Okafor",
+  "subject": "Your order has shipped",
+  "preview": "Hi, a quick note on the dates. Thanks!",
+  "at": "2026-09-15T11:01:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 126,
+  "from": "Eli Diaz",
+  "subject": "Re: project timeline",
+  "preview": "Good morning, wanted to share the budget. Let me know what you think.",
+  "at": "2026-09-15T10:40:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 95,
+  "from": "David Walsh",
+  "subject": "Re: apartment viewing",
+  "preview": "Hi, a quick note on the budget. Let me know what you think.",
+  "at": "2026-09-15T06:58:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 256,
+  "from": "Theo Adeyemi",
+  "subject": "Invoice #3652",
+  "preview": "Hi, just checking in about the draft. No rush.",
+  "at": "2026-09-14T23:22:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 199,
+  "from": "Lina Adeyemi",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, following up on the plan. Thanks!",
+  "at": "2026-09-14T17:40:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 319,
+  "from": "Noah Baker",
+  "subject": "Weekly digest",
+  "preview": "Hi, just checking in about the dates. Thanks!",
+  "at": "2026-09-13T23:46:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 265,
+  "from": "Ada Nakamura",
+  "subject": "Your order has shipped",
+  "preview": "Hey, a quick note on the draft. Let me know what you think.",
+  "at": "2026-09-11T22:12:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 281,
+  "from": "Quinn Meyer",
+  "subject": "Weekly digest",
+  "preview": "Hey, wanted to share Saturday. Thanks!",
+  "at": "2026-09-11T12:34:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 157,
+  "from": "Yara Patel",
+  "subject": "Re: project timeline",
+  "preview": "Good morning, following up on the budget. Thanks!",
+  "at": "2026-09-10T19:13:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 148,
+  "from": "Yara Chang",
+  "subject": "Agenda for Thursday",
+  "preview": "Hi, a quick note on Saturday. Let me know what you think.",
+  "at": "2026-09-10T14:11:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 36,
+  "from": "Quinn Jensen",
+  "subject": "Your receipt",
+  "preview": "Good morning, just checking in about the draft. Thanks!",
+  "at": "2026-09-10T11:48:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 67,
+  "from": "Yusuf Schmidt",
+  "subject": "Photos from Saturday",
+  "preview": "Hey, just checking in about Saturday. Thanks!",
+  "at": "2026-09-08T13:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 154,
+  "from": "Carlos Brooks",
+  "subject": "Reminder: appointment",
+  "preview": "Hello, just checking in about the plan. Let me know what you think.",
+  "at": "2026-09-08T13:04:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 152,
+  "from": "Ana Weber",
+  "subject": "Weekly digest",
+  "preview": "Good morning, just checking in about next steps. No rush.",
+  "at": "2026-09-07T21:18:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 76,
+  "from": "Priya Patel",
+  "subject": "Invoice #6046",
+  "preview": "Good morning, wanted to share Saturday. Talk soon.",
+  "at": "2026-09-07T18:48:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 230,
+  "from": "Nadia Cohen",
+  "subject": "Welcome to the team",
+  "preview": "Hi, a quick note on the dates. Let me know what you think.",
+  "at": "2026-09-07T15:56:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 212,
+  "from": "Keiko Lopez",
+  "subject": "Photos from Saturday",
+  "preview": "Hello, a quick note on the plan. No rush.",
+  "at": "2026-09-06T23:26:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 209,
+  "from": "Maya Rossi",
+  "subject": "Quick question",
+  "preview": "Hello, following up on the draft. Let me know what you think.",
+  "at": "2026-09-06T14:22:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 40,
+  "from": "Hugo Foster",
+  "subject": "Weekly digest",
+  "preview": "Good morning, just checking in about the dates. Thanks!",
+  "at": "2026-09-06T07:59:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 6,
+  "from": "Yara Weber",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, wanted to share Saturday. No rush.",
+  "at": "2026-09-05T14:18:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 99,
+  "from": "Bianca Ito",
+  "subject": "Lunch next week?",
+  "preview": "Good morning, a quick note on the draft. No rush.",
+  "at": "2026-09-04T16:46:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 243,
+  "from": "Hugo Zhang",
+  "subject": "Invoice #5196",
+  "preview": "Hey, wanted to share the dates. Talk soon.",
+  "at": "2026-09-03T23:02:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 252,
+  "from": "Ruth Park",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, just checking in about the dates. Talk soon.",
+  "at": "2026-09-03T20:27:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 210,
+  "from": "Priya Diaz",
+  "subject": "Re: project timeline",
+  "preview": "Good morning, a quick note on the dates. Thanks!",
+  "at": "2026-09-03T17:31:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 190,
+  "from": "Isaac Dubois",
+  "subject": "Invoice #3721",
+  "preview": "Hey, just checking in about the budget. No rush.",
+  "at": "2026-09-03T14:05:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 298,
+  "from": "Priya Ito",
+  "subject": "Your order has shipped",
+  "preview": "Hi, just checking in about next steps. Let me know what you think.",
+  "at": "2026-09-03T13:44:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 220,
+  "from": "Rosa Alvarez",
+  "subject": "Invoice #9730",
+  "preview": "Hi, just checking in about the dates. Thanks!",
+  "at": "2026-09-02T19:50:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 98,
+  "from": "Rosa Abbott",
+  "subject": "Lunch next week?",
+  "preview": "Hi, just checking in about the budget. Thanks!",
+  "at": "2026-09-02T16:21:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 107,
+  "from": "Yusuf Kaur",
+  "subject": "Your receipt",
+  "preview": "Hello, following up on next steps. Talk soon.",
+  "at": "2026-09-02T13:26:00Z",
+  "unread": true,
+  "flagged": true
+ },
+ {
+  "id": 175,
+  "from": "Rosa Fischer",
+  "subject": "Your receipt",
+  "preview": "Hey, a quick note on the plan. No rush.",
+  "at": "2026-09-02T07:30:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 146,
+  "from": "Zoe Johnson",
+  "subject": "Lunch next week?",
+  "preview": "Hello, following up on the budget. Thanks!",
+  "at": "2026-09-01T14:42:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 186,
+  "from": "Layla Edwards",
+  "subject": "Photos from Saturday",
+  "preview": "Hi, wanted to share Saturday. Talk soon.",
+  "at": "2026-09-01T13:30:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 12,
+  "from": "Chen Fischer",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, just checking in about Saturday. Talk soon.",
+  "at": "2026-09-01T07:07:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 262,
+  "from": "Omar Hansen",
+  "subject": "Lunch next week?",
+  "preview": "Hey, wanted to share the budget. Talk soon.",
+  "at": "2026-08-31T17:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 306,
+  "from": "Jada Cohen",
+  "subject": "Re: project timeline",
+  "preview": "Good morning, following up on the draft. Thanks!",
+  "at": "2026-08-31T11:09:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 70,
+  "from": "Noah Zhang",
+  "subject": "Reminder: appointment",
+  "preview": "Hello, a quick note on the dates. Thanks!",
+  "at": "2026-08-31T10:15:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 221,
+  "from": "Hugo Cohen",
+  "subject": "Reminder: appointment",
+  "preview": "Hi, following up on the draft. No rush.",
+  "at": "2026-08-31T07:19:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 106,
+  "from": "Keiko Martin",
+  "subject": "Photos from Saturday",
+  "preview": "Good morning, following up on the budget. Let me know what you think.",
+  "at": "2026-08-31T06:38:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 158,
+  "from": "Ruth Moreno",
+  "subject": "Welcome to the team",
+  "preview": "Good morning, a quick note on the budget. No rush.",
+  "at": "2026-08-30T08:14:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 71,
+  "from": "Ines Diaz",
+  "subject": "Quick question",
+  "preview": "Good morning, just checking in about the plan. Thanks!",
+  "at": "2026-08-29T15:35:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 156,
+  "from": "Bianca Castro",
+  "subject": "Welcome to the team",
+  "preview": "Hello, wanted to share the draft. Talk soon.",
+  "at": "2026-08-29T14:16:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 49,
+  "from": "Oscar Castro",
+  "subject": "Invoice #2893",
+  "preview": "Hello, wanted to share Saturday. Talk soon.",
+  "at": "2026-08-29T09:23:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 303,
+  "from": "Kai Rossi",
+  "subject": "Invoice #7829",
+  "preview": "Hi, a quick note on the draft. Let me know what you think.",
+  "at": "2026-08-29T08:50:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 119,
+  "from": "Hugo Quinn",
+  "subject": "Re: project timeline",
+  "preview": "Good morning, wanted to share the plan. No rush.",
+  "at": "2026-08-29T07:49:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 16,
+  "from": "Sam Silva",
+  "subject": "Quick question",
+  "preview": "Hello, following up on Saturday. No rush.",
+  "at": "2026-08-28T06:02:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 208,
+  "from": "Farah Novak",
+  "subject": "Quick question",
+  "preview": "Hey, wanted to share the dates. Let me know what you think.",
+  "at": "2026-08-27T16:15:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 21,
+  "from": "Rosa Kaur",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, following up on the dates. Talk soon.",
+  "at": "2026-08-27T11:31:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 214,
+  "from": "Felix Castro",
+  "subject": "Quick question",
+  "preview": "Hey, following up on Saturday. Thanks!",
+  "at": "2026-08-27T10:13:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 269,
+  "from": "Carlos Schmidt",
+  "subject": "Welcome to the team",
+  "preview": "Hi, a quick note on Saturday. No rush.",
+  "at": "2026-08-25T08:02:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 271,
+  "from": "Omar Banerjee",
+  "subject": "Photos from Saturday",
+  "preview": "Hey, wanted to share the budget. No rush.",
+  "at": "2026-08-24T20:48:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 82,
+  "from": "Nadia Diaz",
+  "subject": "Invoice #4337",
+  "preview": "Hello, a quick note on the draft. Let me know what you think.",
+  "at": "2026-08-24T19:40:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 28,
+  "from": "Farah Alvarez",
+  "subject": "Invoice #7616",
+  "preview": "Hey, wanted to share the plan. Talk soon.",
+  "at": "2026-08-23T17:59:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 238,
+  "from": "David Jensen",
+  "subject": "Welcome to the team",
+  "preview": "Hi, a quick note on next steps. No rush.",
+  "at": "2026-08-23T17:18:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 159,
+  "from": "Rosa Dubois",
+  "subject": "Invoice #4340",
+  "preview": "Hello, just checking in about the draft. Talk soon.",
+  "at": "2026-08-23T08:05:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 5,
+  "from": "Dana Singh",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, following up on Saturday. Thanks!",
+  "at": "2026-08-22T17:16:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 37,
+  "from": "Isaac Edwards",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, just checking in about the budget. Thanks!",
+  "at": "2026-08-22T16:46:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 278,
+  "from": "Sara Tanaka",
+  "subject": "Weekly digest",
+  "preview": "Hello, a quick note on Saturday. No rush.",
+  "at": "2026-08-22T12:58:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 222,
+  "from": "Wen Hansen",
+  "subject": "Photos from Saturday",
+  "preview": "Hey, a quick note on the plan. Thanks!",
+  "at": "2026-08-21T21:46:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 225,
+  "from": "Emma Cohen",
+  "subject": "Photos from Saturday",
+  "preview": "Hey, following up on the budget. Thanks!",
+  "at": "2026-08-21T17:39:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 56,
+  "from": "Ines Moreno",
+  "subject": "Your order has shipped",
+  "preview": "Hello, wanted to share the plan. No rush.",
+  "at": "2026-08-21T10:13:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 94,
+  "from": "Nora Nakamura",
+  "subject": "Re: apartment viewing",
+  "preview": "Good morning, wanted to share the dates. No rush.",
+  "at": "2026-08-21T09:40:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 315,
+  "from": "Zoe Chang",
+  "subject": "Photos from Saturday",
+  "preview": "Hello, following up on the draft. Thanks!",
+  "at": "2026-08-21T09:15:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 17,
+  "from": "Bianca Weber",
+  "subject": "Re: project timeline",
+  "preview": "Hi, just checking in about next steps. Talk soon.",
+  "at": "2026-08-21T08:00:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 108,
+  "from": "Alan Lee",
+  "subject": "Reminder: appointment",
+  "preview": "Hey, following up on Saturday. Let me know what you think.",
+  "at": "2026-08-20T20:50:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 9,
+  "from": "Priya Hall",
+  "subject": "Lunch next week?",
+  "preview": "Hey, following up on Saturday. Let me know what you think.",
+  "at": "2026-08-20T18:46:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 160,
+  "from": "Sara Nakamura",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, just checking in about the draft. Let me know what you think.",
+  "at": "2026-08-20T14:14:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 301,
+  "from": "Yara Edwards",
+  "subject": "Re: apartment viewing",
+  "preview": "Hi, just checking in about the dates. Let me know what you think.",
+  "at": "2026-08-20T08:11:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 191,
+  "from": "Diego Alvarez",
+  "subject": "Weekly digest",
+  "preview": "Hi, wanted to share the dates. No rush.",
+  "at": "2026-08-19T14:29:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 85,
+  "from": "David Quinn",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, a quick note on the draft. Let me know what you think.",
+  "at": "2026-08-19T06:49:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 258,
+  "from": "Kai Singh",
+  "subject": "Your receipt",
+  "preview": "Hello, wanted to share Saturday. Thanks!",
+  "at": "2026-08-18T22:46:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 73,
+  "from": "Nadia Wagner",
+  "subject": "Photos from Saturday",
+  "preview": "Good morning, wanted to share next steps. Let me know what you think.",
+  "at": "2026-08-18T18:02:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 96,
+  "from": "Bianca Walsh",
+  "subject": "Your receipt",
+  "preview": "Hi, just checking in about the plan. Thanks!",
+  "at": "2026-08-17T20:50:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 248,
+  "from": "Hana Okafor",
+  "subject": "Weekly digest",
+  "preview": "Hey, wanted to share the budget. Talk soon.",
+  "at": "2026-08-17T19:52:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 69,
+  "from": "Ada Meyer",
+  "subject": "Photos from Saturday",
+  "preview": "Good morning, just checking in about Saturday. Talk soon.",
+  "at": "2026-08-17T18:53:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 61,
+  "from": "Milo Martin",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, a quick note on the draft. Thanks!",
+  "at": "2026-08-17T18:40:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 272,
+  "from": "Sara Hansen",
+  "subject": "Re: project timeline",
+  "preview": "Good morning, a quick note on the plan. Thanks!",
+  "at": "2026-08-17T09:54:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 1,
+  "from": "Sara Ito",
+  "subject": "Re: project timeline",
+  "preview": "Hello, wanted to share the dates. Talk soon.",
+  "at": "2026-08-17T06:01:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 8,
+  "from": "Jada Kowalski",
+  "subject": "Re: project timeline",
+  "preview": "Hello, following up on the dates. Talk soon.",
+  "at": "2026-08-16T15:29:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 142,
+  "from": "Noah Edwards",
+  "subject": "Weekly digest",
+  "preview": "Hello, a quick note on the plan. Let me know what you think.",
+  "at": "2026-08-16T09:39:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 286,
+  "from": "Grace Garcia",
+  "subject": "Weekly digest",
+  "preview": "Good morning, a quick note on the plan. Thanks!",
+  "at": "2026-08-15T10:21:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 196,
+  "from": "Bianca Cohen",
+  "subject": "Welcome to the team",
+  "preview": "Hi, following up on next steps. Thanks!",
+  "at": "2026-08-15T06:05:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 105,
+  "from": "Jonah Alvarez",
+  "subject": "Weekly digest",
+  "preview": "Good morning, just checking in about the budget. Talk soon.",
+  "at": "2026-08-14T18:45:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 110,
+  "from": "David Foster",
+  "subject": "Lunch next week?",
+  "preview": "Hi, a quick note on next steps. Talk soon.",
+  "at": "2026-08-14T07:13:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 26,
+  "from": "Lina Walsh",
+  "subject": "Reminder: appointment",
+  "preview": "Hey, wanted to share next steps. Talk soon.",
+  "at": "2026-08-13T21:34:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 215,
+  "from": "Victor Kaur",
+  "subject": "Photos from Saturday",
+  "preview": "Hey, just checking in about the draft. Thanks!",
+  "at": "2026-08-13T17:36:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 260,
+  "from": "Wen Patel",
+  "subject": "Your order has shipped",
+  "preview": "Hi, just checking in about the plan. No rush.",
+  "at": "2026-08-12T06:12:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 134,
+  "from": "Eli Edwards",
+  "subject": "Weekly digest",
+  "preview": "Good morning, just checking in about Saturday. No rush.",
+  "at": "2026-08-11T23:17:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 118,
+  "from": "Chloe Moreno",
+  "subject": "Quick question",
+  "preview": "Hi, following up on the plan. Talk soon.",
+  "at": "2026-08-11T13:31:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 207,
+  "from": "Ana Quinn",
+  "subject": "Re: project timeline",
+  "preview": "Hi, following up on Saturday. No rush.",
+  "at": "2026-08-11T06:45:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 193,
+  "from": "Dana Chang",
+  "subject": "Reminder: appointment",
+  "preview": "Hey, just checking in about the draft. Talk soon.",
+  "at": "2026-08-11T06:23:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 308,
+  "from": "Bianca Dubois",
+  "subject": "Photos from Saturday",
+  "preview": "Hey, a quick note on the plan. Talk soon.",
+  "at": "2026-08-10T23:22:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 277,
+  "from": "Eli Kaur",
+  "subject": "Your order has shipped",
+  "preview": "Hello, just checking in about the dates. Thanks!",
+  "at": "2026-08-10T10:22:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 228,
+  "from": "Jada Kim",
+  "subject": "Weekly digest",
+  "preview": "Hello, a quick note on the dates. Talk soon.",
+  "at": "2026-08-10T06:30:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 131,
+  "from": "Ana Wagner",
+  "subject": "Lunch next week?",
+  "preview": "Hello, following up on the dates. No rush.",
+  "at": "2026-08-10T06:28:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 242,
+  "from": "Emma Park",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, following up on the plan. No rush.",
+  "at": "2026-08-09T17:00:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 141,
+  "from": "Uma Adeyemi",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, wanted to share next steps. Thanks!",
+  "at": "2026-08-09T10:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 78,
+  "from": "Hana Becker",
+  "subject": "Your receipt",
+  "preview": "Hey, a quick note on next steps. Talk soon.",
+  "at": "2026-08-09T09:50:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 11,
+  "from": "Noah Okafor",
+  "subject": "Your order has shipped",
+  "preview": "Hello, just checking in about the draft. Let me know what you think.",
+  "at": "2026-08-09T09:34:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 200,
+  "from": "Isaac Olsen",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, following up on the draft. Let me know what you think.",
+  "at": "2026-08-08T06:23:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 245,
+  "from": "Grace Brooks",
+  "subject": "Re: apartment viewing",
+  "preview": "Good morning, a quick note on next steps. Let me know what you think.",
+  "at": "2026-08-07T13:25:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 180,
+  "from": "Theo Meyer",
+  "subject": "Welcome to the team",
+  "preview": "Good morning, following up on next steps. Let me know what you think.",
+  "at": "2026-08-06T15:06:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 104,
+  "from": "James Moreno",
+  "subject": "Weekly digest",
+  "preview": "Hello, following up on the budget. Talk soon.",
+  "at": "2026-08-06T14:55:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 27,
+  "from": "Bianca Baker",
+  "subject": "Your order has shipped",
+  "preview": "Hi, following up on Saturday. No rush.",
+  "at": "2026-08-06T11:38:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 77,
+  "from": "Jonah Fischer",
+  "subject": "Your receipt",
+  "preview": "Good morning, a quick note on the plan. Let me know what you think.",
+  "at": "2026-08-06T06:01:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 19,
+  "from": "Priya Quinn",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, just checking in about the plan. Let me know what you think.",
+  "at": "2026-08-05T16:00:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 279,
+  "from": "Emma Castro",
+  "subject": "Welcome to the team",
+  "preview": "Hello, a quick note on the plan. Talk soon.",
+  "at": "2026-08-05T09:25:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 4,
+  "from": "Theo Patel",
+  "subject": "Welcome to the team",
+  "preview": "Hello, following up on Saturday. Thanks!",
+  "at": "2026-08-05T09:18:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 57,
+  "from": "Alan Silva",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, wanted to share the draft. Talk soon.",
+  "at": "2026-08-05T06:51:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 300,
+  "from": "Jonah Castro",
+  "subject": "Weekly digest",
+  "preview": "Hi, a quick note on the draft. No rush.",
+  "at": "2026-08-04T20:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 240,
+  "from": "Wen Baker",
+  "subject": "Weekly digest",
+  "preview": "Good morning, just checking in about the plan. Let me know what you think.",
+  "at": "2026-08-04T08:34:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 46,
+  "from": "Grace Evans",
+  "subject": "Weekly digest",
+  "preview": "Hey, wanted to share next steps. Talk soon.",
+  "at": "2026-08-03T20:07:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 299,
+  "from": "Noah Weber",
+  "subject": "Your order has shipped",
+  "preview": "Good morning, wanted to share the budget. Talk soon.",
+  "at": "2026-08-03T14:20:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 263,
+  "from": "Oscar Johnson",
+  "subject": "Weekly digest",
+  "preview": "Hello, wanted to share the plan. Let me know what you think.",
+  "at": "2026-08-03T10:34:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 280,
+  "from": "Rafael Santos",
+  "subject": "Photos from Saturday",
+  "preview": "Hi, wanted to share next steps. Talk soon.",
+  "at": "2026-08-03T08:44:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 296,
+  "from": "Rosa Hansen",
+  "subject": "Welcome to the team",
+  "preview": "Hey, a quick note on the dates. Talk soon.",
+  "at": "2026-08-02T23:27:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 166,
+  "from": "Grace Lopez",
+  "subject": "Lunch next week?",
+  "preview": "Good morning, just checking in about Saturday. No rush.",
+  "at": "2026-08-02T22:19:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 79,
+  "from": "Rafael Hall",
+  "subject": "Lunch next week?",
+  "preview": "Hey, a quick note on next steps. Talk soon.",
+  "at": "2026-08-02T20:04:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 290,
+  "from": "Felix Park",
+  "subject": "Quick question",
+  "preview": "Hi, following up on Saturday. Thanks!",
+  "at": "2026-08-02T13:47:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 29,
+  "from": "Milo Abbott",
+  "subject": "Reminder: appointment",
+  "preview": "Hey, following up on the draft. Thanks!",
+  "at": "2026-08-02T10:51:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 174,
+  "from": "Bianca Ito",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, a quick note on the plan. No rush.",
+  "at": "2026-07-31T13:07:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 34,
+  "from": "Quinn Ito",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, wanted to share the draft. Let me know what you think.",
+  "at": "2026-07-31T10:05:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 231,
+  "from": "Oscar Young",
+  "subject": "Quick question",
+  "preview": "Hello, following up on the draft. Talk soon.",
+  "at": "2026-07-30T23:55:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 194,
+  "from": "Chloe Garcia",
+  "subject": "Your order has shipped",
+  "preview": "Hi, just checking in about Saturday. Thanks!",
+  "at": "2026-07-30T21:40:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 130,
+  "from": "Rafael Martin",
+  "subject": "Your order has shipped",
+  "preview": "Good morning, just checking in about the budget. Talk soon.",
+  "at": "2026-07-29T16:35:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 292,
+  "from": "Isaac Castro",
+  "subject": "Photos from Saturday",
+  "preview": "Good morning, following up on the dates. Let me know what you think.",
+  "at": "2026-07-29T12:10:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 80,
+  "from": "Zoe Gupta",
+  "subject": "Lunch next week?",
+  "preview": "Hey, wanted to share the plan. No rush.",
+  "at": "2026-07-28T22:37:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 138,
+  "from": "James Walsh",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, just checking in about next steps. Let me know what you think.",
+  "at": "2026-07-28T10:04:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 295,
+  "from": "Isaac Santos",
+  "subject": "Reminder: appointment",
+  "preview": "Hey, a quick note on the draft. Talk soon.",
+  "at": "2026-07-27T17:39:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 101,
+  "from": "Wen Rossi",
+  "subject": "Lunch next week?",
+  "preview": "Hi, following up on the draft. Thanks!",
+  "at": "2026-07-25T19:50:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 233,
+  "from": "Oscar Lopez",
+  "subject": "Your receipt",
+  "preview": "Hello, wanted to share the plan. Talk soon.",
+  "at": "2026-07-25T14:26:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 178,
+  "from": "Omar Brooks",
+  "subject": "Weekly digest",
+  "preview": "Good morning, following up on the draft. Thanks!",
+  "at": "2026-07-24T22:01:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 217,
+  "from": "Kai Edwards",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, following up on Saturday. Talk soon.",
+  "at": "2026-07-23T16:21:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 161,
+  "from": "Diego Weber",
+  "subject": "Weekly digest",
+  "preview": "Hi, just checking in about the budget. No rush.",
+  "at": "2026-07-23T11:31:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 102,
+  "from": "Amara Wagner",
+  "subject": "Re: project timeline",
+  "preview": "Hi, just checking in about the dates. Thanks!",
+  "at": "2026-07-23T10:41:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 145,
+  "from": "Nadia Banerjee",
+  "subject": "Re: apartment viewing",
+  "preview": "Hi, following up on Saturday. No rush.",
+  "at": "2026-07-23T06:47:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 86,
+  "from": "Amara Abbott",
+  "subject": "Your order has shipped",
+  "preview": "Hello, just checking in about the budget. No rush.",
+  "at": "2026-07-22T20:51:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 275,
+  "from": "Oscar Johnson",
+  "subject": "Re: project timeline",
+  "preview": "Good morning, a quick note on the dates. Thanks!",
+  "at": "2026-07-22T06:45:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 24,
+  "from": "Lina Lopez",
+  "subject": "Photos from Saturday",
+  "preview": "Hello, following up on the budget. No rush.",
+  "at": "2026-07-21T20:51:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 249,
+  "from": "Hugo Baker",
+  "subject": "Lunch next week?",
+  "preview": "Hi, following up on the draft. No rush.",
+  "at": "2026-07-21T18:32:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 218,
+  "from": "Chen Gupta",
+  "subject": "Re: apartment viewing",
+  "preview": "Hello, just checking in about the draft. Thanks!",
+  "at": "2026-07-20T11:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 112,
+  "from": "Amara Wang",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, wanted to share the plan. No rush.",
+  "at": "2026-07-20T07:23:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 202,
+  "from": "Quinn Castro",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, just checking in about the budget. Let me know what you think.",
+  "at": "2026-07-19T22:27:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 302,
+  "from": "Farah Hansen",
+  "subject": "Quick question",
+  "preview": "Hello, a quick note on next steps. No rush.",
+  "at": "2026-07-19T19:38:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 72,
+  "from": "Sam Patel",
+  "subject": "Quick question",
+  "preview": "Hi, following up on the plan. No rush.",
+  "at": "2026-07-19T14:20:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 270,
+  "from": "Layla Martin",
+  "subject": "Lunch next week?",
+  "preview": "Hey, following up on the draft. Let me know what you think.",
+  "at": "2026-07-19T10:05:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 114,
+  "from": "Noah Alvarez",
+  "subject": "Re: project timeline",
+  "preview": "Hello, following up on next steps. No rush.",
+  "at": "2026-07-19T08:56:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 13,
+  "from": "Leo Garcia",
+  "subject": "Your order has shipped",
+  "preview": "Hi, wanted to share the plan. No rush.",
+  "at": "2026-07-18T23:11:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 48,
+  "from": "Chen Banerjee",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, a quick note on the dates. No rush.",
+  "at": "2026-07-18T19:01:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 63,
+  "from": "James Adeyemi",
+  "subject": "Weekly digest",
+  "preview": "Hi, a quick note on the plan. No rush.",
+  "at": "2026-07-18T17:52:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 247,
+  "from": "Nadia Rossi",
+  "subject": "Your receipt",
+  "preview": "Hey, just checking in about Saturday. Talk soon.",
+  "at": "2026-07-17T14:49:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 223,
+  "from": "Kai Foster",
+  "subject": "Your receipt",
+  "preview": "Hi, wanted to share the budget. Talk soon.",
+  "at": "2026-07-17T08:22:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 52,
+  "from": "Ruth Moreno",
+  "subject": "Lunch next week?",
+  "preview": "Good morning, just checking in about Saturday. Thanks!",
+  "at": "2026-07-17T06:27:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 255,
+  "from": "Zoe Park",
+  "subject": "Invoice #3221",
+  "preview": "Good morning, following up on next steps. Thanks!",
+  "at": "2026-07-16T22:20:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 15,
+  "from": "Lina Dubois",
+  "subject": "Invoice #4430",
+  "preview": "Hello, just checking in about the draft. No rush.",
+  "at": "2026-07-16T21:30:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 234,
+  "from": "Amara Singh",
+  "subject": "Your receipt",
+  "preview": "Good morning, wanted to share next steps. Thanks!",
+  "at": "2026-07-16T12:25:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 81,
+  "from": "Ada Silva",
+  "subject": "Your receipt",
+  "preview": "Hello, a quick note on Saturday. Talk soon.",
+  "at": "2026-07-16T11:52:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 135,
+  "from": "Chen Wang",
+  "subject": "Reminder: appointment",
+  "preview": "Hi, just checking in about the dates. Let me know what you think.",
+  "at": "2026-07-15T23:43:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 54,
+  "from": "Rosa Walsh",
+  "subject": "Quick question",
+  "preview": "Hey, a quick note on the draft. Talk soon.",
+  "at": "2026-07-15T23:34:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 261,
+  "from": "Jada Kowalski",
+  "subject": "Agenda for Thursday",
+  "preview": "Hi, wanted to share the plan. No rush.",
+  "at": "2026-07-15T16:57:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 287,
+  "from": "Ana Diaz",
+  "subject": "Your order has shipped",
+  "preview": "Hey, wanted to share the dates. Talk soon.",
+  "at": "2026-07-15T07:38:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 181,
+  "from": "Milo Evans",
+  "subject": "Weekly digest",
+  "preview": "Hello, following up on the budget. Talk soon.",
+  "at": "2026-07-14T21:15:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 124,
+  "from": "Milo Tanaka",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, wanted to share the budget. Talk soon.",
+  "at": "2026-07-14T20:07:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 185,
+  "from": "Grace Zhang",
+  "subject": "Lunch next week?",
+  "preview": "Hello, following up on the draft. Thanks!",
+  "at": "2026-07-14T12:03:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 171,
+  "from": "Zoe Singh",
+  "subject": "Invoice #7631",
+  "preview": "Hey, a quick note on the dates. Let me know what you think.",
+  "at": "2026-07-13T18:02:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 97,
+  "from": "Sam Zhang",
+  "subject": "Agenda for Thursday",
+  "preview": "Hey, following up on the plan. Thanks!",
+  "at": "2026-07-13T13:32:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 25,
+  "from": "Elena Brooks",
+  "subject": "Agenda for Thursday",
+  "preview": "Good morning, wanted to share the plan. No rush.",
+  "at": "2026-07-12T23:21:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 88,
+  "from": "Lars Singh",
+  "subject": "Your receipt",
+  "preview": "Good morning, a quick note on Saturday. No rush.",
+  "at": "2026-07-11T23:01:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 137,
+  "from": "Leo Kowalski",
+  "subject": "Your receipt",
+  "preview": "Hello, just checking in about the budget. Let me know what you think.",
+  "at": "2026-07-11T20:23:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 133,
+  "from": "Sam Castro",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, just checking in about the budget. Let me know what you think.",
+  "at": "2026-07-11T13:57:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 18,
+  "from": "Bianca Lee",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, following up on the budget. Let me know what you think.",
+  "at": "2026-07-10T22:32:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 314,
+  "from": "Wen Meyer",
+  "subject": "Re: apartment viewing",
+  "preview": "Hi, just checking in about the plan. Thanks!",
+  "at": "2026-07-10T20:42:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 89,
+  "from": "Oscar Banerjee",
+  "subject": "Weekly digest",
+  "preview": "Hey, wanted to share the draft. Thanks!",
+  "at": "2026-07-10T14:55:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 320,
+  "from": "James Novak",
+  "subject": "Reminder: appointment",
+  "preview": "Good morning, just checking in about next steps. Thanks!",
+  "at": "2026-07-10T11:11:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 318,
+  "from": "Zoe Jensen",
+  "subject": "Your order has shipped",
+  "preview": "Good morning, just checking in about the draft. Let me know what you think.",
+  "at": "2026-07-10T10:57:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 92,
+  "from": "Jada Gupta",
+  "subject": "Invoice #1086",
+  "preview": "Hello, just checking in about the plan. Let me know what you think.",
+  "at": "2026-07-10T06:32:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 50,
+  "from": "Chen Jensen",
+  "subject": "Quick question",
+  "preview": "Hey, a quick note on the budget. Thanks!",
+  "at": "2026-07-09T19:26:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 310,
+  "from": "Carlos Foster",
+  "subject": "Lunch next week?",
+  "preview": "Hi, following up on the dates. Let me know what you think.",
+  "at": "2026-07-09T16:53:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 304,
+  "from": "Yusuf Schmidt",
+  "subject": "Invoice #7036",
+  "preview": "Hello, following up on next steps. No rush.",
+  "at": "2026-07-09T13:54:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 10,
+  "from": "David Nguyen",
+  "subject": "Welcome to the team",
+  "preview": "Hey, following up on the dates. No rush.",
+  "at": "2026-07-09T12:33:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 65,
+  "from": "Kai Schmidt",
+  "subject": "Your order has shipped",
+  "preview": "Good morning, wanted to share the dates. No rush.",
+  "at": "2026-07-08T16:46:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 164,
+  "from": "Ana Young",
+  "subject": "Welcome to the team",
+  "preview": "Hey, wanted to share Saturday. No rush.",
+  "at": "2026-07-07T23:06:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 128,
+  "from": "Alan Adeyemi",
+  "subject": "Re: project timeline",
+  "preview": "Hey, a quick note on the dates. No rush.",
+  "at": "2026-07-06T20:41:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 68,
+  "from": "Eli Kaur",
+  "subject": "Weekly digest",
+  "preview": "Hello, following up on the budget. Thanks!",
+  "at": "2026-07-06T13:57:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 189,
+  "from": "Jonah Foster",
+  "subject": "Weekly digest",
+  "preview": "Hey, a quick note on the draft. Talk soon.",
+  "at": "2026-07-05T14:47:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 184,
+  "from": "Sam Adeyemi",
+  "subject": "Photos from Saturday",
+  "preview": "Hey, a quick note on the plan. No rush.",
+  "at": "2026-07-05T08:53:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 268,
+  "from": "James Alvarez",
+  "subject": "Re: project timeline",
+  "preview": "Hi, following up on Saturday. Thanks!",
+  "at": "2026-07-04T22:11:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 169,
+  "from": "Nadia Wang",
+  "subject": "Weekly digest",
+  "preview": "Good morning, just checking in about the budget. Talk soon.",
+  "at": "2026-07-04T09:01:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 246,
+  "from": "Nora Cohen",
+  "subject": "Weekly digest",
+  "preview": "Hello, following up on Saturday. Talk soon.",
+  "at": "2026-07-03T22:08:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 173,
+  "from": "Jada Schmidt",
+  "subject": "Your receipt",
+  "preview": "Good morning, wanted to share next steps. Talk soon.",
+  "at": "2026-07-03T20:06:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 153,
+  "from": "Yusuf Chang",
+  "subject": "Quick question",
+  "preview": "Good morning, just checking in about the draft. No rush.",
+  "at": "2026-07-03T13:39:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 316,
+  "from": "Nora Park",
+  "subject": "Re: project timeline",
+  "preview": "Hi, wanted to share the budget. No rush.",
+  "at": "2026-07-03T07:37:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 237,
+  "from": "Chloe Foster",
+  "subject": "Re: apartment viewing",
+  "preview": "Good morning, a quick note on next steps. Thanks!",
+  "at": "2026-07-02T19:21:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 294,
+  "from": "Oscar Vargas",
+  "subject": "Re: project timeline",
+  "preview": "Good morning, wanted to share the plan. No rush.",
+  "at": "2026-07-02T12:08:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 307,
+  "from": "Victor Evans",
+  "subject": "Reminder: appointment",
+  "preview": "Hi, following up on the dates. Talk soon.",
+  "at": "2026-07-02T08:00:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 289,
+  "from": "Emma Kowalski",
+  "subject": "Weekly digest",
+  "preview": "Good morning, a quick note on Saturday. Let me know what you think.",
+  "at": "2026-07-01T17:11:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 192,
+  "from": "Ruth Schmidt",
+  "subject": "Welcome to the team",
+  "preview": "Hello, following up on next steps. No rush.",
+  "at": "2026-07-01T10:43:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 267,
+  "from": "Emma Lopez",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, wanted to share the draft. Talk soon.",
+  "at": "2026-06-30T22:20:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 139,
+  "from": "Jada Kaur",
+  "subject": "Lunch next week?",
+  "preview": "Hello, following up on next steps. Let me know what you think.",
+  "at": "2026-06-29T17:53:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 22,
+  "from": "Yusuf Dubois",
+  "subject": "Your order has shipped",
+  "preview": "Hey, just checking in about the budget. Let me know what you think.",
+  "at": "2026-06-29T12:55:00Z",
+  "unread": true,
+  "flagged": true
+ },
+ {
+  "id": 257,
+  "from": "Rafael Castro",
+  "subject": "Re: apartment viewing",
+  "preview": "Hey, wanted to share the dates. Talk soon.",
+  "at": "2026-06-29T12:40:00Z",
+  "unread": true,
+  "flagged": false
+ },
+ {
+  "id": 204,
+  "from": "Bianca Adeyemi",
+  "subject": "Agenda for Thursday",
+  "preview": "Hello, a quick note on Saturday. Thanks!",
+  "at": "2026-06-29T09:31:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 83,
+  "from": "Noah Jensen",
+  "subject": "Welcome to the team",
+  "preview": "Good morning, wanted to share the draft. Let me know what you think.",
+  "at": "2026-06-28T22:01:00Z",
+  "unread": false,
+  "flagged": true
+ },
+ {
+  "id": 177,
+  "from": "Nora Kaur",
+  "subject": "Re: project timeline",
+  "preview": "Hi, just checking in about Saturday. Let me know what you think.",
+  "at": "2026-06-28T15:09:00Z",
+  "unread": false,
+  "flagged": false
+ },
+ {
+  "id": 23,
+  "from": "Wen Abbott",
+  "subject": "Re: apartment viewing",
+  "preview": "Hi, following up on the dates. Talk soon.",
+  "at": "2026-06-28T13:10:00Z",
+  "unread": false,
+  "flagged": false
+ }
+]

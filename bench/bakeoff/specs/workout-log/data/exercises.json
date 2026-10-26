@@ -1,0 +1,722 @@
+[
+ {
+  "id": 1,
+  "name": "Bodyweight Bulgarian Curl",
+  "muscle": "Glutes",
+  "equipment": "Band"
+ },
+ {
+  "id": 2,
+  "name": "Kettlebell Dip",
+  "muscle": "Back",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 3,
+  "name": "Kettlebell Close-grip Pushup",
+  "muscle": "Glutes",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 4,
+  "name": "Barbell Close-grip Crunch",
+  "muscle": "Glutes",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 5,
+  "name": "Band Seated Pulldown",
+  "muscle": "Legs",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 6,
+  "name": "Bodyweight Standing Pulldown",
+  "muscle": "Core",
+  "equipment": "Band"
+ },
+ {
+  "id": 7,
+  "name": "Machine Wide Deadlift",
+  "muscle": "Chest",
+  "equipment": "Machine"
+ },
+ {
+  "id": 8,
+  "name": "Kettlebell Incline Thruster",
+  "muscle": "Core",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 9,
+  "name": "Machine Seated Deadlift",
+  "muscle": "Glutes",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 10,
+  "name": "Cable Bulgarian Shrug",
+  "muscle": "Chest",
+  "equipment": "Cable"
+ },
+ {
+  "id": 11,
+  "name": "Barbell Bulgarian Row",
+  "muscle": "Shoulders",
+  "equipment": "Band"
+ },
+ {
+  "id": 12,
+  "name": "Kettlebell Close-grip Press",
+  "muscle": "Core",
+  "equipment": "Machine"
+ },
+ {
+  "id": 13,
+  "name": "Bodyweight Extension",
+  "muscle": "Arms",
+  "equipment": "Cable"
+ },
+ {
+  "id": 14,
+  "name": "Bodyweight Close-grip Curl",
+  "muscle": "Shoulders",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 15,
+  "name": "Dumbbell Wide Pushup",
+  "muscle": "Glutes",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 16,
+  "name": "Kettlebell Close-grip Extension",
+  "muscle": "Legs",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 17,
+  "name": "Cable Wide Raise",
+  "muscle": "Shoulders",
+  "equipment": "Cable"
+ },
+ {
+  "id": 18,
+  "name": "Cable Bulgarian Deadlift",
+  "muscle": "Glutes",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 19,
+  "name": "Machine Close-grip Fly",
+  "muscle": "Arms",
+  "equipment": "Machine"
+ },
+ {
+  "id": 20,
+  "name": "Band Single-arm Row",
+  "muscle": "Shoulders",
+  "equipment": "Cable"
+ },
+ {
+  "id": 21,
+  "name": "Kettlebell Bridge",
+  "muscle": "Back",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 22,
+  "name": "Machine Seated Shrug",
+  "muscle": "Chest",
+  "equipment": "Machine"
+ },
+ {
+  "id": 23,
+  "name": "Machine Wide Crunch",
+  "muscle": "Core",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 24,
+  "name": "Band Single-arm Thruster",
+  "muscle": "Shoulders",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 25,
+  "name": "Barbell Step-up",
+  "muscle": "Shoulders",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 26,
+  "name": "Kettlebell Romanian Pushup",
+  "muscle": "Back",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 27,
+  "name": "Barbell Standing Plank",
+  "muscle": "Glutes",
+  "equipment": "Cable"
+ },
+ {
+  "id": 28,
+  "name": "Barbell Single-arm Extension",
+  "muscle": "Glutes",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 29,
+  "name": "Machine Standing Curl",
+  "muscle": "Core",
+  "equipment": "Machine"
+ },
+ {
+  "id": 30,
+  "name": "Cable Fly",
+  "muscle": "Shoulders",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 31,
+  "name": "Cable Bulgarian Plank",
+  "muscle": "Arms",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 32,
+  "name": "Barbell Seated Row",
+  "muscle": "Back",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 33,
+  "name": "Cable Single-arm Step-up",
+  "muscle": "Arms",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 34,
+  "name": "Dumbbell Extension",
+  "muscle": "Chest",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 35,
+  "name": "Machine Standing Curl",
+  "muscle": "Legs",
+  "equipment": "Band"
+ },
+ {
+  "id": 36,
+  "name": "Machine Romanian Pushup",
+  "muscle": "Legs",
+  "equipment": "Cable"
+ },
+ {
+  "id": 37,
+  "name": "Bodyweight Bulgarian Squat",
+  "muscle": "Legs",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 38,
+  "name": "Dumbbell Wide Bridge",
+  "muscle": "Core",
+  "equipment": "Cable"
+ },
+ {
+  "id": 39,
+  "name": "Dumbbell Romanian Deadlift",
+  "muscle": "Shoulders",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 40,
+  "name": "Dumbbell Wide Dip",
+  "muscle": "Arms",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 41,
+  "name": "Barbell Wide Fly",
+  "muscle": "Core",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 42,
+  "name": "Dumbbell Romanian Press",
+  "muscle": "Glutes",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 43,
+  "name": "Dumbbell Wide Pulldown",
+  "muscle": "Shoulders",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 44,
+  "name": "Kettlebell Wide Pulldown",
+  "muscle": "Shoulders",
+  "equipment": "Cable"
+ },
+ {
+  "id": 45,
+  "name": "Dumbbell Incline Raise",
+  "muscle": "Shoulders",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 46,
+  "name": "Machine Incline Extension",
+  "muscle": "Arms",
+  "equipment": "Band"
+ },
+ {
+  "id": 47,
+  "name": "Machine Raise",
+  "muscle": "Shoulders",
+  "equipment": "Band"
+ },
+ {
+  "id": 48,
+  "name": "Barbell Bulgarian Pulldown",
+  "muscle": "Core",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 49,
+  "name": "Cable Wide Dip",
+  "muscle": "Shoulders",
+  "equipment": "Cable"
+ },
+ {
+  "id": 50,
+  "name": "Dumbbell Close-grip Bridge",
+  "muscle": "Shoulders",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 51,
+  "name": "Barbell Single-arm Dip",
+  "muscle": "Core",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 52,
+  "name": "Barbell Dip",
+  "muscle": "Legs",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 53,
+  "name": "Kettlebell Standing Pushup",
+  "muscle": "Legs",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 54,
+  "name": "Band Wide Curl",
+  "muscle": "Back",
+  "equipment": "Cable"
+ },
+ {
+  "id": 55,
+  "name": "Cable Bulgarian Plank",
+  "muscle": "Shoulders",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 56,
+  "name": "Bodyweight Standing Deadlift",
+  "muscle": "Core",
+  "equipment": "Cable"
+ },
+ {
+  "id": 57,
+  "name": "Bodyweight Incline Lunge",
+  "muscle": "Chest",
+  "equipment": "Machine"
+ },
+ {
+  "id": 58,
+  "name": "Dumbbell Wide Press",
+  "muscle": "Legs",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 59,
+  "name": "Barbell Incline Squat",
+  "muscle": "Arms",
+  "equipment": "Cable"
+ },
+ {
+  "id": 60,
+  "name": "Barbell Romanian Extension",
+  "muscle": "Glutes",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 61,
+  "name": "Kettlebell Single-arm Extension",
+  "muscle": "Legs",
+  "equipment": "Machine"
+ },
+ {
+  "id": 62,
+  "name": "Bodyweight Bulgarian Pulldown",
+  "muscle": "Legs",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 63,
+  "name": "Barbell Wide Plank",
+  "muscle": "Arms",
+  "equipment": "Machine"
+ },
+ {
+  "id": 64,
+  "name": "Machine Bulgarian Squat",
+  "muscle": "Shoulders",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 65,
+  "name": "Dumbbell Seated Pulldown",
+  "muscle": "Back",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 66,
+  "name": "Machine Close-grip Plank",
+  "muscle": "Back",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 67,
+  "name": "Band Close-grip Squat",
+  "muscle": "Legs",
+  "equipment": "Machine"
+ },
+ {
+  "id": 68,
+  "name": "Band Single-arm Pushup",
+  "muscle": "Glutes",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 69,
+  "name": "Band Close-grip Raise",
+  "muscle": "Legs",
+  "equipment": "Cable"
+ },
+ {
+  "id": 70,
+  "name": "Kettlebell Step-up",
+  "muscle": "Glutes",
+  "equipment": "Machine"
+ },
+ {
+  "id": 71,
+  "name": "Cable Incline Step-up",
+  "muscle": "Back",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 72,
+  "name": "Machine Single-arm Deadlift",
+  "muscle": "Legs",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 73,
+  "name": "Machine Incline Dip",
+  "muscle": "Core",
+  "equipment": "Machine"
+ },
+ {
+  "id": 74,
+  "name": "Machine Bulgarian Row",
+  "muscle": "Legs",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 75,
+  "name": "Machine Wide Step-up",
+  "muscle": "Back",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 76,
+  "name": "Barbell Romanian Step-up",
+  "muscle": "Core",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 77,
+  "name": "Bodyweight Romanian Raise",
+  "muscle": "Shoulders",
+  "equipment": "Machine"
+ },
+ {
+  "id": 78,
+  "name": "Cable Seated Curl",
+  "muscle": "Arms",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 79,
+  "name": "Kettlebell Standing Press",
+  "muscle": "Glutes",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 80,
+  "name": "Barbell Close-grip Dip",
+  "muscle": "Arms",
+  "equipment": "Band"
+ },
+ {
+  "id": 81,
+  "name": "Band Close-grip Pushup",
+  "muscle": "Arms",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 82,
+  "name": "Dumbbell Single-arm Step-up",
+  "muscle": "Core",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 83,
+  "name": "Cable Bulgarian Squat",
+  "muscle": "Legs",
+  "equipment": "Band"
+ },
+ {
+  "id": 84,
+  "name": "Band Standing Pushup",
+  "muscle": "Glutes",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 85,
+  "name": "Cable Close-grip Plank",
+  "muscle": "Arms",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 86,
+  "name": "Cable Seated Step-up",
+  "muscle": "Back",
+  "equipment": "Band"
+ },
+ {
+  "id": 87,
+  "name": "Machine Close-grip Extension",
+  "muscle": "Glutes",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 88,
+  "name": "Cable Seated Bridge",
+  "muscle": "Legs",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 89,
+  "name": "Band Bulgarian Press",
+  "muscle": "Arms",
+  "equipment": "Machine"
+ },
+ {
+  "id": 90,
+  "name": "Band Incline Curl",
+  "muscle": "Glutes",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 91,
+  "name": "Kettlebell Seated Squat",
+  "muscle": "Chest",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 92,
+  "name": "Dumbbell Close-grip Dip",
+  "muscle": "Glutes",
+  "equipment": "Band"
+ },
+ {
+  "id": 93,
+  "name": "Dumbbell Romanian Shrug",
+  "muscle": "Core",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 94,
+  "name": "Machine Incline Raise",
+  "muscle": "Glutes",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 95,
+  "name": "Barbell Bulgarian Curl",
+  "muscle": "Arms",
+  "equipment": "Cable"
+ },
+ {
+  "id": 96,
+  "name": "Cable Seated Shrug",
+  "muscle": "Arms",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 97,
+  "name": "Barbell Seated Plank",
+  "muscle": "Back",
+  "equipment": "Cable"
+ },
+ {
+  "id": 98,
+  "name": "Band Wide Lunge",
+  "muscle": "Shoulders",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 99,
+  "name": "Machine Single-arm Thruster",
+  "muscle": "Chest",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 100,
+  "name": "Bodyweight Incline Pulldown",
+  "muscle": "Shoulders",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 101,
+  "name": "Machine Seated Press",
+  "muscle": "Back",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 102,
+  "name": "Barbell Incline Crunch",
+  "muscle": "Core",
+  "equipment": "Cable"
+ },
+ {
+  "id": 103,
+  "name": "Barbell Bulgarian Thruster",
+  "muscle": "Legs",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 104,
+  "name": "Bodyweight Single-arm Fly",
+  "muscle": "Legs",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 105,
+  "name": "Cable Bulgarian Deadlift",
+  "muscle": "Arms",
+  "equipment": "Cable"
+ },
+ {
+  "id": 106,
+  "name": "Band Standing Thruster",
+  "muscle": "Glutes",
+  "equipment": "Dumbbell"
+ },
+ {
+  "id": 107,
+  "name": "Kettlebell Wide Dip",
+  "muscle": "Arms",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 108,
+  "name": "Cable Standing Step-up",
+  "muscle": "Legs",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 109,
+  "name": "Machine Romanian Shrug",
+  "muscle": "Chest",
+  "equipment": "Cable"
+ },
+ {
+  "id": 110,
+  "name": "Cable Close-grip Raise",
+  "muscle": "Arms",
+  "equipment": "Kettlebell"
+ },
+ {
+  "id": 111,
+  "name": "Cable Close-grip Crunch",
+  "muscle": "Glutes",
+  "equipment": "Cable"
+ },
+ {
+  "id": 112,
+  "name": "Kettlebell Incline Raise",
+  "muscle": "Chest",
+  "equipment": "Barbell"
+ },
+ {
+  "id": 113,
+  "name": "Machine Wide Thruster",
+  "muscle": "Core",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 114,
+  "name": "Machine Plank",
+  "muscle": "Arms",
+  "equipment": "Cable"
+ },
+ {
+  "id": 115,
+  "name": "Bodyweight Close-grip Bridge",
+  "muscle": "Back",
+  "equipment": "Band"
+ },
+ {
+  "id": 116,
+  "name": "Barbell Seated Shrug",
+  "muscle": "Arms",
+  "equipment": "Band"
+ },
+ {
+  "id": 117,
+  "name": "Barbell Wide Pulldown",
+  "muscle": "Back",
+  "equipment": "Machine"
+ },
+ {
+  "id": 118,
+  "name": "Band Standing Curl",
+  "muscle": "Core",
+  "equipment": "Band"
+ },
+ {
+  "id": 119,
+  "name": "Machine Incline Thruster",
+  "muscle": "Core",
+  "equipment": "Bodyweight"
+ },
+ {
+  "id": 120,
+  "name": "Machine Standing Pushup",
+  "muscle": "Legs",
+  "equipment": "Machine"
+ }
+]
