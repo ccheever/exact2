@@ -138,8 +138,12 @@ const LINES: &[(&str, &str, &str)] = &[
 /// (bundled, minified copies of the sources), and a disk walk read it as
 /// readers. Under the same names as before: `.rs`, `.js`, `.mjs` and `.ts` but
 /// `.d.ts`, outside `target`, `node_modules`, `dist`, `web-dist` and dot
-/// directories.
+/// directories. Outside a git checkout (a source archive, which holds no build
+/// output) the files on disk are the sources, so they are walked instead.
 fn files(root: &Path, dir: &str, out: &mut Vec<PathBuf>) {
+    if !root.join(".git").exists() {
+        return walked(&root.join(dir), out);
+    }
     let listed = std::process::Command::new("git")
         .args(["ls-files", "-z", "--", dir])
         .current_dir(root)
@@ -159,14 +163,48 @@ fn files(root: &Path, dir: &str, out: &mut Vec<PathBuf>) {
         let skipped = parents.split('/').any(|d| {
             matches!(d, "target" | "node_modules" | "dist" | "web-dist") || d.starts_with('.')
         });
-        if !skipped
-            && [".rs", ".js", ".mjs", ".ts"]
-                .iter()
-                .any(|x| name.ends_with(x))
-            && !name.ends_with(".d.ts")
-        {
+        if !skipped && scanned(name) {
             out.push(root.join(rel));
         }
+    }
+}
+
+/// A source file the guard reads, by name.
+fn scanned(name: &str) -> bool {
+    [".rs", ".js", ".mjs", ".ts"]
+        .iter()
+        .any(|x| name.ends_with(x))
+        && !name.ends_with(".d.ts")
+}
+
+/// The disk walk for a tree that is no git checkout, under the same skips.
+fn walked(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        let name = e.file_name().to_string_lossy().into_owned();
+        if path.is_dir() {
+            if !matches!(
+                name.as_str(),
+                "target" | "node_modules" | "dist" | "web-dist"
+            ) && !name.starts_with('.')
+            {
+                walked(&path, out);
+            }
+        } else if scanned(&name) {
+            out.push(path);
+        }
+    }
+}
+
+/// Removes a test's scratch tree however the test ends, a panic included.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
@@ -282,6 +320,7 @@ fn nothing_reads_an_icons_path_but_exact_kernel_icon() {
 fn the_scan_reads_tracked_files_not_build_output() {
     let tmp = std::env::temp_dir().join(format!("exact-icon-guard-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
+    let _scratch = Scratch(tmp.clone());
     let git = |args: &[&str]| {
         let r = std::process::Command::new("git")
             .args(args)
@@ -320,12 +359,30 @@ fn the_scan_reads_tracked_files_not_build_output() {
             readers(&rel, &std::fs::read_to_string(p).unwrap()).0
         })
         .collect();
-    let _ = std::fs::remove_dir_all(&tmp);
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
         found[0].starts_with("host/web/src/tracked.js:1:"),
         "{found:?}"
     );
+}
+
+/// Outside a git checkout (a source archive) the files on disk are walked, so
+/// the guard still runs and still finds a reader.
+#[test]
+fn the_scan_walks_a_tree_that_is_no_checkout() {
+    let tmp = std::env::temp_dir().join(format!("exact-icon-guard-archive-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let _scratch = Scratch(tmp.clone());
+    let path = tmp.join("host/web/src/reader.js");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        "const symbolSource = s; const parts = s.split(\"|\");\n",
+    )
+    .unwrap();
+    let mut all = Vec::new();
+    files(&tmp, "host", &mut all);
+    assert_eq!(all, vec![path]);
 }
 
 /// Every guard bypass from rounds 1-4 fails; what isn't one passes.
