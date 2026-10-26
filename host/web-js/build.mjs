@@ -221,6 +221,8 @@ const notifies = existsSync(resolve(gen, 'notify.flag'));
 const soundTable = existsSync(resolve(gen, 'sounds.flag')) ? readFileSync(resolve(gen, 'sounds.flag'), 'utf8') : null;
 // `wakelock` on any element (wakelock.js, LLP 1125 D11).
 const wakelock = existsSync(resolve(gen, 'wakelock.flag'));
+// `orientationlock` on any element (orientationlock.js, LLP 1133.029 D7).
+const orientationlock = existsSync(resolve(gen, 'orientationlock.flag'));
 // App generation may create files imported by app.ts. Run it before reading
 // the declaration, as the wasm build does.
 const webScript = resolve(appDir, 'web/build.rs');
@@ -395,6 +397,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(notifies ? ["import './notify.js';"] : []),
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   ...(wakelock ? ["import { install as wakelock } from './wakelock.js'; wakelock();"] : []),
+  ...(orientationlock ? ["import { install as orientationlock } from './orientationlock.js'; orientationlock();"] : []),
   "import { data, journal, clock, advance, commit, inflight, heldAsks, heldReplies, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations, writeRecords, agentMode } from './rt.js';",
   ...(production ? [] : ["import { develop } from './perf.js';", "import { goTo } from './rt.js';"]),
   // A data module's answers, watched from before the app asks (seam.js).
@@ -495,6 +498,7 @@ cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
 cpSync(resolve(here, 'notify.js'), resolve(gen, 'notify.js'));
 cpSync(resolve(here, 'sounds.js'), resolve(gen, 'sounds.js'));
 cpSync(resolve(here, 'wakelock.js'), resolve(gen, 'wakelock.js'));
+cpSync(resolve(here, 'orientationlock.js'), resolve(gen, 'orientationlock.js'));
 cpSync(resolve(here, 'transport.js'), resolve(gen, 'transport.js'));
 cpSync(resolve(here, 'clockin.js'), resolve(gen, 'clockin.js'));
 cpSync(resolve(here, 'midi.js'), resolve(gen, 'midi.js'));
