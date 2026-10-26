@@ -9,6 +9,12 @@
 
 Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): LLP 1069.010.000 accepted 2026-10-15. Stage 1 (watches and expected writes) built 2026-10-16 on macOS, Linux and the web; stage 2 (documents kept across launches) built on macOS 2026-10-18 (the LLP's "As built: stage 2 on macOS"); what remains is below
 
+## Status (2026-10-26)
+
+The panel confirmed on 2026-10-26 that this is current owed work under LLP
+1069.010.000 stage 2: Linux and the web remain (below). Exact Draw's row is
+work in Exact Draw's own repository, not this one.
+
 ## The consumer
 
 Exact Draw edits Excalidraw drawings on disk: a Contract shell (file explorer,
