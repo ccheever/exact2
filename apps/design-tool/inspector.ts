@@ -5,7 +5,7 @@ import { holdView, type Holding } from './holds';
 
 type Column = { id: string; label: string; dark: boolean; values: string[] };
 type Axis = { name: string; values: string[]; under: string | null };
-type Build = { status: any; plan?: string | null; design?: string | null; pinRevision: number } | undefined;
+type Build = { status: any; plan?: string | null; planDigest?: string | null; design?: string | null; pinRevision: number } | undefined;
 /** A selection with what it was made under: its build's facts (`at`), the
  * app design's axes, the scheme it is shown in ('' when not known), and why
  * it is no longer current, once it is not. */
@@ -39,9 +39,10 @@ export const buildKey = (b: Build) => b ? JSON.stringify([b.status?.revision ?? 
 
 /** Why the page's selection itself is no longer current, or '' (the Apple pass's #5, #6: a move up from it would be
  * refused): its build gone, its page loaded again (registered again: no status where it had one), or rebuilt (another
- * plan). A pin, a scheme or a mode moving keeps it: the page still holds it, and a move up from it is taken. */
+ * plan, by its digest: a dev generation that keeps the plan, an asset one, is no rebuild). A pin, a scheme or a mode
+ * moving keeps it: the page still holds it, and a move up from it is taken. */
 export const pageStaleness = (s: Selected, build: Build) =>
-  !build ? 'its build is gone' : s.statusAt && build.status == null ? 'its page was loaded again' : (build.plan ?? null) !== (s.planAt ?? null) ? 'its build was rebuilt (another plan)' : '';
+  !build ? 'its build is gone' : s.statusAt && build.status == null ? 'its page was loaded again' : (build.planDigest ?? null) !== (s.planAt ?? null) ? 'its build was rebuilt (another plan)' : '';
 
 /** Why the selection is not current, or ''. */
 export const staleness = (s: Selected, build: Build, axes: Axis[]) =>

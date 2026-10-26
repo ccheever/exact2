@@ -438,7 +438,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // Events missed: an end among them would be lost, so a scrub open is
   // ended here (cancelled, if the server still has it).
   // Missed, inspect mode's state is not known either: Inspect sends it again.
-  if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); seeded = ''; }
+  if (epoch && r.missed) { if (selectionNow) selectionNow.stale = selectionNow.pageStale = 'some changes were missed'; inspectOn.clear(); seeded = ''; }
   if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
     const s = scrubbing;
     endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
@@ -471,6 +471,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     // Each as it comes, so a reload told in one answer still ends a
     // selection (a build that went keeps its inspect mode at the server,
     // which tells it again when it is back).
+    if (e.event === 'builds' || e.event === 'build-status') moving = null; // (a move's report is never carried past its build moving)
     if (e.event === 'builds') { takeBuilds(e.builds, client); latch(); }
     else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
     // This tool's scrub, ended by the server (another write, idle, the
@@ -498,8 +499,8 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     // from before the hold moved (or unasked) is asked for again.
     else if (e.event === 'selection') {
       const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null); if (b?.inspectRefused != null) refuse(b, null); stepping.delete(String(e.build));
-      const key = [e.build, e.node, e.site, JSON.stringify(e.instance ?? [])].join('|'), moved: unknown = e.moved ?? (moving?.key === key ? moving.moved : undefined); moving = moved ? { key, moved } : null;
-      selectionNow = { e: { ...(held || !e.held ? e : { ...e, held: undefined }), ...(moved ? { moved } : {}) }, at: buildKey(b), planAt: b?.plan ?? null, statusAt: b?.status != null, axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e), arrival: ++arrivals };
+      const key = [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), e.selected?.planDigest ?? e.planDigest ?? e.plan ?? ''].join('|'), moved: unknown = e.moved ?? (moving?.key === key ? moving.moved : undefined); moving = moved ? { key, moved } : null;
+      selectionNow = { e: { ...(held || !e.held ? e : { ...e, held: undefined }), ...(moved ? { moved } : {}) }, at: buildKey(b), planAt: b?.planDigest ?? null, statusAt: b?.status != null, axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e), arrival: ++arrivals };
     }
     // Inspect mode's owners as they move (tamber/1.6): this client's on or
     // off, or another's taking a build over. Inspect mode ending where the
@@ -512,7 +513,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     // A page that left inspect mode itself (the server says so only for
     // its current command): its selection is no longer current.
     else if (e.event === 'selected' && e.selected === null) {
-      if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = 'its page left inspect mode';
+      if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = selectionNow.pageStale = 'its page left inspect mode';
     }
   }
   const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
