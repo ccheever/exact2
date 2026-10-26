@@ -528,15 +528,19 @@ pub fn written_ranges(
     let one = |index: usize, t: &ParamToken, v: &exact_tamber::At<String>| {
         probe(&[(index, v)]).map_or(Vec::new(), |f| errors(t, v, &f))
     };
-    // A line whose value names a param folds with what that param holds, so
-    // each of its values is folded alone; the others fold together, each
-    // line's k-th value in one probe, since no value reads another line (the
-    // checker's work in param counts: a fold of the design per value was
-    // values x the design).
+    // A line whose value names a param, or a token or dial (which may read
+    // one), folds with what that holds, so each of its values is folded
+    // alone; the others (literals) fold together, each line's k-th value in
+    // one probe, since no literal reads another line (the checker's work in
+    // param counts: a fold of the design per value was values x the design).
+    // (a design token or dial too: one can read a param in turn, Grok's
+    // round 2, so a value naming any name of the design folds alone)
     let names: std::collections::HashSet<&str> = params
         .iter()
         .flat_map(|p| [p.token.as_str(), p.full.as_str()])
         .chain(design.params.iter().map(|e| e.name.value.as_str()))
+        .chain(design.tokens.iter().map(|t| t.name.value.as_str()))
+        .chain(design.dials.iter().map(|d| d.name.value.as_str()))
         .collect();
     let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '#');
     let reads_a_param =

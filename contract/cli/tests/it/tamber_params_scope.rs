@@ -343,3 +343,32 @@ fn many_ranged_params_set_by_the_design_build_in_moments() {
     let e = built.unwrap_err();
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
 }
+
+/// A ranged line whose value reads a param through a theme token is folded
+/// alone, with that param's `when` lines as written (Grok's round 2 on the
+/// counts: folded beside its siblings, the other line's dark value was
+/// pinned to its default and the out-of-range value went unseen).
+#[test]
+fn a_value_reading_a_param_through_a_token_is_checked_against_the_design() {
+    let src = r##"component App
+  params
+    p0: number = "0.5"  range="0..5"
+    p1: number = "0.5"  range="0..1"
+  view
+    column opacity="param.p0"
+      column opacity="param.p1"
+        text "x"
+"##;
+    // (a token names a param by its token name)
+    let p0 = contract_lower::params::token_name("app.contract#App", "p0");
+    let design = format!("tamber t\n\naxes\n  tone = a | b\n\ntheme\n  accent.fill = #0a7aff\n  via: number = {p0}\n\nparams\n  App.p0 = 0.5\n    when tone=b: 3\n  App.p1 = via\n");
+    let design = design.as_str();
+    let path = app(
+        "range-via",
+        &[("app.contract", src), ("app.tamber", design)],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    // `p1` through `via` is 3 where tone=b: past its 0..1 (`p0`'s 0..5 holds it).
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p1"), "{e:?}");
+}
