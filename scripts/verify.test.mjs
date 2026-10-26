@@ -578,11 +578,82 @@ test('Excord declares its transcript fixture without a database', async () => {
   assert.notEqual(validate({ database: 'false' }, schema.properties.server, 'server', schema).length, 0);
   const dir = resolve(import.meta.dir, '../apps/excord');
   assert.deepEqual(readManifest(dir, 'excord').server, { database: false });
-  assert.deepEqual(appServer(dir), {
+  const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+  const selected = backendOriginSelection(dir, {});
+  assert.deepEqual(appServer(dir, {}), {
     entry: 'fixture/server.ts', args: ['--world', 'transcript', '--reset-on-identify'], database: false,
-    url: 'http://127.0.0.1:4790', port: 4790, why: null, refusal: null,
+    url: selected.origin, port: Number(new URL(selected.origin).port), why: null, refusal: null, fixture: true,
   });
+  assert.equal(selected.source, 'checkout fixture port');
+  assert.ok(appServer(dir, {}).port >= 4790 && appServer(dir, {}).port <= 5789);
+  assert.equal(appServer(dir, {PORT:'5123'}).port, 5123);
+  assert.equal(appServer(dir, {PORT:'5123', EXACT_BACKEND_ORIGIN:'http://127.0.0.1:5124'}).port, 5124);
+  assert.equal(appServer(dir, {EXACT_BACKEND_ORIGIN:'https://discord.com'}).url, null);
+  assert.throws(() => appServer(dir, {PORT:'0'}), /fixture port must be an integer/);
 });
+
+test('two checkouts drive separate fixture worlds and refuse an unowned listener, including the same entry', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-fixture-checkouts-')), running = [];
+  const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+  const env = { ...process.env }; delete env.PORT; delete env.EXACT_BACKEND_ORIGIN;
+  const script = `import { driveServer, appServer } from ${JSON.stringify(resolve(import.meta.dir, 'verify.mjs'))};
+let running;
+try {
+  running = await driveServer(process.argv[1], 'fixture', () => {});
+  console.log(JSON.stringify({ origin: appServer(process.argv[1]).url }));
+  for await (const line of console) break;
+} catch (e) { console.log(JSON.stringify({ error: e.message })); }
+finally { await running?.stop(); }
+process.exit(0);`;
+  const drive = async (dir, extra = {}) => {
+    const child = Bun.spawn([process.execPath, '-e', script, dir], { env: { ...env, ...extra }, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+    running.push(child);
+    const reader = child.stdout.values()[Symbol.asyncIterator](), first = await reader.next();
+    const result = JSON.parse(new TextDecoder().decode(first.value));
+    return { ...result, child, stop: async () => { child.stdin.write('\n'); await child.stdin.flush(); await child.exited; } };
+  };
+  const fixtures = [], ports = new Set();
+  try {
+    for (let i = 0; fixtures.length < 2 && i < 100; i++) {
+      const dir = resolve(parent, `checkout-${i}`);
+      mkdirSync(resolve(dir, 'fixture'), { recursive: true });
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ commands: { server: ['bun', 'fixture/server.ts'] }, server: { database: false } }));
+      writeFileSync(resolve(dir, 'app.ts'), 'export const origin = "http://127.0.0.1:4790";\n');
+      const selected = backendOriginSelection(dir, {}), port = Number(new URL(selected.origin).port);
+      assert.equal(backendOriginSelection(dir, {}).origin, selected.origin);
+      if (ports.has(port)) continue;
+      let probe; try { probe = Bun.serve({ hostname: '127.0.0.1', port, fetch: () => new Response('') }); } catch { continue; }
+      probe.stop(true); ports.add(port);
+      writeFileSync(resolve(dir, 'fixture/server.ts'), `Bun.serve({hostname:'127.0.0.1', port:Number(process.env.PORT), fetch:()=>Response.json({world:${JSON.stringify(dir)}})});\n`);
+      fixtures.push(dir);
+    }
+    assert.equal(fixtures.length, 2, 'two unused checkout ports');
+    const [a, b] = await Promise.all(fixtures.map(dir => drive(dir)));
+    assert.notEqual(a.origin, b.origin);
+    assert.deepEqual(await Promise.all([a, b].map(x => fetch(x.origin).then(r => r.json()))), fixtures.map(world => ({ world })));
+    const conflict = await drive(fixtures[1], { EXACT_BACKEND_ORIGIN: a.origin });
+    assert.match(conflict.error, /fixture does not belong.*--backend.*PORT=/);
+    await conflict.child.exited;
+    // A matching command and cwd are insufficient without the launch record.
+    const lease = resolve(fixtures[0], '.exact/agent-server');
+    const record = readdirSync(lease).find(f => /^server-\d+$/.test(f)), path = resolve(lease, record), held = readFileSync(path, 'utf8');
+    rmSync(path);
+    try {
+      const unknown = await drive(fixtures[0]);
+      assert.match(unknown.error, /fixture does not belong/);
+      await unknown.child.exited;
+      assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0]);
+    } finally { writeFileSync(path, held); }
+    const shared = await drive(fixtures[0]);
+    assert.equal(shared.origin, a.origin);
+    await a.stop();
+    assert.equal((await fetch(shared.origin).then(r => r.json())).world, fixtures[0]);
+    await Promise.all([shared.stop(), b.stop()]);
+  } finally {
+    for (const child of running) { if (child.exitCode == null) child.kill('SIGTERM'); await child.exited; }
+    rmSync(parent, { recursive: true, force: true });
+  }
+}, 30000);
 
 // The rest pattern, verified as a builder would with a data.db of their own: verify runs its server on an empty
 // database and leaves theirs as it was; with their dev server up it refuses in one line and leaves that one running.

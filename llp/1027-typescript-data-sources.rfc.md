@@ -1063,8 +1063,12 @@ A data module imports pure-JavaScript packages installed in `node_modules`
   also be an object literal keyed by http(s) origin string literals, each
   value a string literal or an array of string literal grant lines. The bake
   requires an exact key for the selected `origin` and replaces the captured
-  initializer with that entry's lines joined by `\n` before type-checking;
-  the authored file stays unchanged. Every producer refuses other forms by
+  initializer with that entry's lines joined by `\n` before type-checking; the authored file stays unchanged.
+  In a development build, an unlisted loopback or private-network origin may take a loopback key
+  of the same scheme: prefer the same port, otherwise require exactly one candidate. Its matching
+  fetch and socket grant lines move to the selected host and port, preserving paths and other grants.
+  Production still requires an exact key (LLP 1142 §13 D13, 2026-10-26).
+  Every producer refuses other forms by
   name and place. (The web build had imported
   `app.ts` into Bun, whose resolver takes a package's Node entry; a `node:vm`
   realm is no boundary either: on Bun 1.4.2 its global's constructor reaches

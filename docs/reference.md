@@ -1880,13 +1880,22 @@ top-level literal `const origin`, after `EXACT_BACKEND_ORIGIN` or
 origin and keys. Before type-checking, it replaces only the captured initializer
 with a string of the selected lines joined by `\n`, so web and native read the
 same grants. Authored source stays unchanged. Keyed grants move to another
-origin in one case: in a development build (`EXACT_UPDATE_TRUST` unset or
-`development`), an origin at a private-network address (RFC 1918 or link-local
-IPv4, `fc00::/7` or `fe80::/10` IPv6) with no entry takes the entry of the same
-server at loopback (`127.0.0.1`, `localhost` or `[::1]` with the same scheme and
-port), its `net.fetch` and `net.websocket` lines moved to that address with their
-paths. This is how a phone reaches a fixture server on the Mac's LAN address. A
+origin in a development build (`EXACT_UPDATE_TRUST` unset or `development`): an
+unlisted loopback or private-network origin (RFC 1918 or link-local IPv4,
+`fc00::/7` or `fe80::/10` IPv6) takes a loopback entry (`127.0.0.1`, `localhost`
+or `[::1]`) of the same scheme. A matching port wins; otherwise exactly one
+candidate is required. Its matching `net.fetch` and `net.websocket` lines move
+to the selected host and port, preserving paths and unrelated grants. A
 production build refuses it, as it refuses any missing entry.
+
+A declared server under `fixture/` or `fixtures/`, with a top-level literal loopback
+`const origin`, gets one stable development port in 4790–5789 per real app directory.
+The bake and driver select it together. `--backend`/`EXACT_BACKEND_ORIGIN`, then
+`.exact/backend-origin`, the server command's `--port`, and `PORT` override the default.
+`bun scripts/agent-launch.mjs --fixture-port --app excord` prints the selected port.
+An agent drive refuses an occupied fixture port unless its launch record and listening
+process belong to this app directory and origin. Choose a free port with `--backend`
+or `PORT` when another checkout holds it. Ordinary app servers keep their authored ports.
 
 The producer captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated

@@ -35,12 +35,14 @@
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
 import { LAUNCH_MEDIA } from './agent-prefer.mjs';
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { compilerWarnings } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
+import { backendOriginSelection, privateNetwork } from '../js/bake/src/typescript.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
@@ -98,22 +100,28 @@ function readsDB(dir, entry) {
  * `args`. null without a server; else `why` says what keeps it
  * from being run when the app calls no local URL (null when nothing does), `refusal` (LLP 1116.008 D1) the one line for an
  * entry that needs a database but does not read `DB`, which `test` and `verify` stop on. */
-export function appServer(dir) {
-  let named = null, args = [], manifest = {};
+export function appServer(dir, env = process.env) {
+  let named = null, serverArgs = [], manifest = {};
   try { manifest = JSON.parse(readIn(dir, 'app.json') ?? '{}') ?? {}; } catch {}
   const argv = manifest.commands?.server, database = manifest.server?.database !== false;
   if (Array.isArray(argv) && /(^|\/)bun$/.test(argv[0])) {
     const index = argv.findIndex((a, i) => i > 0 && !a.startsWith('-'));
-    if (index >= 0) { named = argv[index]; args = argv.slice(index + 1); }
+    if (index >= 0) { named = argv[index]; serverArgs = argv.slice(index + 1); }
   }
   const entry = [named, 'server.ts', 'server/index.ts', 'server/server.ts'].find((p) => p && readIn(dir, p) != null);
   if (!entry) return null;
-  const url = serverUrl(dir);
+  const fixture = /(^|[/\\])fixtures?[/\\]/.test(entry);
+  const selected = fixture ? backendOriginSelection(dir, env) : null;
+  const local = selected && (/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(selected.origin)
+    || privateNetwork(selected.origin) && Object.values(networkInterfaces()).flat().some(n => n?.address === new URL(selected.origin).hostname.replace(/^\[|\]$/g, '')));
+  const url = selected ? local ? selected.origin : null : serverUrl(dir);
   const why = !url ? `${entry} is left alone: app.ts calls no local URL (http://127.0.0.1:<port>), so where the app reaches it is unknown` : null;
   const refusal = url && database && !readsDB(dir, entry)
     ? `${entry}${entry === named ? ' (app.json\'s commands.server)' : ''} does not read its database's path from DB, so it cannot be run on an empty one: write new Database(process.env.DB ?? 'data.db') in it or a module it imports, or name the entry that does in app.json: "commands": { "server": ["bun", "server/index.ts"] }`
     : null;
-  return { entry, args: entry === named ? args : [], database, url, port: url ? Number(new URL(url).port) : null, why, refusal };
+  const port = url ? Number(new URL(url).port || (new URL(url).protocol === 'https:' ? 443 : 80)) : null;
+  if (selected && local) { const at = serverArgs.indexOf('--port'); if (at >= 0) serverArgs[at + 1] = String(port); }
+  return { entry, args: entry === named ? serverArgs : [], database, url, port, why, refusal, ...(fixture ? { fixture: true } : {}) };
 }
 
 function serverEnv(server, db) {
@@ -134,6 +142,24 @@ export function heldLine(server) {
   const pid = spawnSync('lsof', ['-nP', `-iTCP:${server.port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' }).stdout?.match(/^p(\d+)/m)?.[1];
   const command = pid ? commandLine(pid).slice(0, 60) : '';
   return `${server.url} already answers${pid ? ` (pid ${pid}${command ? `: ${command}` : ''})` : ''}, and the tests would ${server.database ? "write into that server's database" : 'change that server\'s state'}: stop it (${pid ? `kill ${pid}` : 'Ctrl-C where it runs'}) and run this again, which starts ${server.entry} itself${server.database ? ' on an empty one' : ''}`;
+}
+
+/** Reuse a fixture only with this directory's launch record and the recorded process still listening. */
+function ownsFixture(dir, server) {
+  const listeners = process.platform === 'win32'
+    ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-NetTCPConnection -State Listen -LocalPort ${server.port} -ErrorAction SilentlyContinue).OwningProcess`], { encoding: 'utf8' }).stdout?.match(/\d+/g) ?? []
+    : [...(spawnSync('lsof', ['-nP', `-iTCP:${server.port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' }).stdout?.matchAll(/^p(\d+)/gm) ?? [])].map(m => m[1]);
+  const root = realpathSync(dir), lease = resolve(dir, '.exact/agent-server');
+  for (const pid of listeners) {
+    let record; try { record = JSON.parse(readFileSync(resolve(lease, `server-${pid}`), 'utf8')); } catch { continue; }
+    if (record.directory !== root || record.origin !== server.url || !alive(Number(pid))) continue;
+    const command = commandLine(pid);
+    if (!command.includes(server.entry)) continue;
+    if (process.platform === 'win32') return true;
+    const cwd = spawnSync('lsof', ['-a', '-p', pid, '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout?.match(/^n(.+)$/m)?.[1];
+    if (cwd && realpathSync(cwd) === root) return true;
+  }
+  return false;
 }
 
 /** Runs `kill` when this process ends however it does (a signal ends it with the shell's code too); the function returned
@@ -255,7 +281,11 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
       throw new Error(`agent: --storage ${storage} is to start empty, but ${others.length ? `another drive (pid ${others.join(', ')}) is using` : 'something already answers at'} ${server.url}, the app server${db ? ', on its database' : ''}: let it end, or name another store`);
     }
     if (await answering(server.url)) {
-      const other = db && files('server').map(([file]) => readIn(lease, file)).find((was) => was && was !== db);
+      if (server.fixture && !ownsFixture(dir, server)) {
+        await stop();
+        throw new Error(`agent: ${server.url} answers, but its fixture does not belong to ${realpathSync(dir)}; use --backend http://127.0.0.1:<free-port> or PORT=<free-port> for this checkout`);
+      }
+      const other = db && files('server').map(([file]) => { const text = readIn(lease, file); return server.fixture ? JSON.parse(text).db : text; }).find((was) => was && was !== db);
       if (other) say(`agent: ${server.entry} at ${server.url} is another drive's, on its database (${relative(dir, other)}); this drive uses it`);
       return { stop };
     }
@@ -264,9 +294,13 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     const log = openSync(resolve(lease, 'log'), 'a');
     const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db), stdin: 'ignore', stdout: 'ignore', stderr: log });
     closeSync(log);
-    writeFileSync(resolve(lease, `server-${child.pid}`), db ?? '');
+    writeFileSync(resolve(lease, `server-${child.pid}`), server.fixture ? JSON.stringify({ directory: realpathSync(dir), origin: server.url, db }) : db ?? '');
     const why = await untilAnswers(server, child, () => lastError(readIn(lease, 'log') ?? ''));
     if (why) { await stop(); throw new Error(`agent: ${why}`); }
+    if (server.fixture && !ownsFixture(dir, server)) {
+      await stop();
+      throw new Error(`agent: ${server.url} answered before this checkout's fixture owned its port; choose another port with --backend or PORT`);
+    }
     say(`agent: started ${server.entry} at ${server.url} for this drive (${!db ? 'no database' : storage ? `database ${relative(dir, db)}, kept for --storage ${storage}` : 'an empty database'}); stopped after`);
     return { stop };
   } finally { if (locked) rmSync(starting, { force: true }); }
