@@ -887,6 +887,13 @@ Choose the mechanism from its lifetime:
 | Why it failed, to branch on or show | `failure(resourceOrMutationName)`: `none`, or `some({ code, message, reason })`, `code` a domain refusal code when supplied, otherwise one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error`; `reason` a Snapback refusal's code (`SLOT_FULL`), else `""` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
+A timer's step that reloads a resource runs the data module before the next frame, and
+the frame waits for it: a module that rebuilds every row each second drops a frame of a
+scrolling list each second, and `verify ios` says when the data module is in a late
+frame's time. Rebuild only what the tick changed (keep last tick's rows, remake those
+whose values moved), and leave out of the rows what the list does not show: a detail
+screen's chart points belong to a resource the detail reads.
+
 Resources read as their declared type. Mutations read as `option<T>` and start at
 `none`, so a mutation's `T` is not itself an option. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
