@@ -247,7 +247,9 @@ function capturedOrigins(stage) {
   return [...roots.mounts.map(([name,path])=>[resolve(stage,name),path]),[stage,roots.app]];
 }
 const within=(path,root)=>path===root || path.startsWith(root+sep);
-const physicalId=id=>isAbsolute(id) ? realpathSync.native(id) : id;
+// A path as the disk names it (a symlinked stage's real place); one that isn't there, an importer from outside the stage
+// a bundler names, stays as written, which `within` then leaves alone.
+const physicalId=id=>{ if (!isAbsolute(id)) return id; try { return realpathSync.native(id); } catch { return id; } };
 /** Capture into the stage the declarations of every package the captured
  * TypeScript names, and of the packages those declarations name: each found
  * from where its file was captured, as Node and TypeScript find it (the
