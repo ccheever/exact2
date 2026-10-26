@@ -12,7 +12,7 @@
 //
 // usage: bun packages/barcode-detection/test/agent.mjs [web] [macos] [ios] [--sim <udid>]
 import { spawnSync } from 'node:child_process';
-import { STILLS, boxOf, checker, discard, images, makeFixture, near, run, shown } from './fixture.mjs';
+import { BOX, NEAR, STILLS, boxOf, checker, discard, images, makeFixture, near, run, shown } from './fixture.mjs';
 
 const argv = process.argv.slice(2), sim = argv.includes('--sim') ? argv[argv.indexOf('--sim') + 1] : process.env.EXACT_SIM;
 const hosts = argv.filter((a, i) => ['web', 'macos', 'ios'].includes(a) && argv[i - 1] !== '--sim');
@@ -48,7 +48,11 @@ for (const host of hosts.length ? hosts : ['web']) {
   check(host, 'the drive ran', r.status === 0, out.split('\n').slice(-20).join('\n'));
   const want = STILLS.flatMap(([, , , w]) => w);
   check(host, 'each still answers its codes, D11\'s rule applied', JSON.stringify(codes.map(c => c.split(' ').slice(0, 2).join(' '))) === JSON.stringify(want), JSON.stringify(codes));
-  check(host, 'the rotated JPEG is upright: 468x280 and the ISBN\'s box', found[6] === '468x280 1' && near(boxOf(codes[5] ?? '')), `${found[6]} ${codes[5]}`);
+  // The simulator's detector (Vision's revision 2, BarcodeDetection.swift) boxes the scan lines it decoded, which
+  // span the bars' width but not their whole height: there the box's sides are checked and its top and bottom lie
+  // within the bars.
+  const box = boxOf(codes[5] ?? ''), within = b => near([b[0], BOX[1], b[2], BOX[3]]) && b[1] >= BOX[1] - NEAR && b[1] + b[3] <= BOX[1] + BOX[3] + NEAR;
+  check(host, 'the rotated JPEG is upright: 468x280 and the ISBN\'s box', found[6] === '468x280 1' && (host === 'ios' ? within(box) : near(box)), `${found[6]} ${codes[5]}`);
   check(host, 'none.png answers an empty list', found[7] === '400x300 0', found[7]);
   check(host, 'an unknown format, a path outside the grants, a missing file', JSON.stringify(shown(out, 'found-error').slice(-3)) === '["TypeError","NotAllowedError","NotFoundError"]', JSON.stringify(shown(out, 'found-error')));
   if (reads) {
