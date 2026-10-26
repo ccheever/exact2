@@ -222,6 +222,14 @@ pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
 /// Check and fold a design already parsed, or built by a caller: the
 /// compiler's inline `theme` (LLP 1095 D4) and its synthetic tokens (D3).
 pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
+    check_uncached(design, vocab)
+}
+
+/// [`check_design`], answered from the last few designs checked when this one
+/// is among them unchanged: for a server's reads (`describe`, `resolve`, a
+/// scrub's frame), so a client asking can't make it fold the same design,
+/// dial influence and all, again and again (`checked`).
+pub fn check_design_cached(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
     checked::cached(design, vocab, check_uncached)
 }
 

@@ -1,8 +1,8 @@
-//! The last few designs checked, with their answers (theme2's condition on
-//! the counts' dial influence): a design asked about again, unchanged, is
-//! answered from here, so a client asking (`describe`, `resolve`, a scrub's
-//! frame) can't make the server fold the same design, its dial influence
-//! included, again and again. Keyed by the whole input (the design, the
+//! The last few designs a server's reads checked, with their answers
+//! (theme2's condition on the counts' dial influence; `check_design_cached`):
+//! a design asked about again, unchanged, is answered from here, so a client
+//! asking (`describe`, `resolve`, a scrub's frame) can't make the server fold
+//! the same design, its dial influence included, again and again. Keyed by the whole input (the design, the
 //! vocabulary, whether the fold is traced), compared whole, not by a hash
 //! alone.
 

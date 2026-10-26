@@ -249,14 +249,14 @@ fn a_design_checked_again_unchanged_is_answered_from_the_last() {
     }
     let vocab = crate::common::vocab();
     let began = Instant::now();
-    let first = exact_tamber::check(&src, &vocab).map(|f| f.tokens.len());
+    let check = |src: &str| {
+        exact_tamber::parse(src).and_then(|d| exact_tamber::check_design_cached(d, &vocab))
+    };
+    let first = check(&src).map(|f| f.tokens.len());
     let cold = began.elapsed();
     let began = Instant::now();
     for _ in 0..20 {
-        assert_eq!(
-            exact_tamber::check(&src, &vocab).map(|f| f.tokens.len()),
-            first
-        );
+        assert_eq!(check(&src).map(|f| f.tokens.len()), first);
     }
     let warm = began.elapsed();
     assert!(warm < cold, "20 asks {warm:?}, the first {cold:?}");
