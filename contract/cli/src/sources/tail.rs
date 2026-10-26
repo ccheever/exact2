@@ -17,8 +17,9 @@ pub struct GraphBase {
     pub(super) loaded_identities: Vec<String>,
     pub(super) identities: Vec<String>,
     pub(super) errors: Vec<CompileError>,
-    /// The files that say which components are the library's (LLP 1139 D0).
-    pub(super) library: Vec<PathBuf>,
+    /// The app's directory, which the library's files are read by (LLP 1139 D0: a private package's,
+    /// only where its design is, so read with the designs).
+    pub(super) app_root: PathBuf,
 }
 
 impl GraphBase {
@@ -35,7 +36,10 @@ impl GraphBase {
         let Ok(text) = std::fs::read_to_string(&path) else {
             return "design unreadable\n".to_string();
         };
-        let package_designs: Vec<_> = packages::read(&self.sources, false)
+        // (One that can't be read, a link out of its package with the same bytes, fails the load: said, as the load fails.)
+        let read = packages::read(&self.sources, false);
+        let unread = read.as_ref().err().map(|e| format!("{e:?}"));
+        let package_designs: Vec<_> = read
             .unwrap_or_default()
             .into_iter()
             .map(|(d, _)| d)
@@ -68,7 +72,7 @@ impl GraphBase {
             &self.params,
             &self.loaded_identities,
         );
-        format!("parses {parses}\ntokens {tokens:?}\nrefused {refused:?}\nmotion {motion:?}\n")
+        format!("parses {parses}\ntokens {tokens:?}\nrefused {refused:?}\nmotion {motion:?}\npackages unread {unread:?}\n")
     }
 
     /// The graph from these sources and the design files as they are on disk now: the app's design, its packages'
@@ -183,7 +187,7 @@ impl GraphBase {
         let (designs, unmade) = packages::sources(&self.sources);
         sources.extend(designs);
         // The files that say which components are the library's (LLP 1139 D0).
-        let library = self.library.clone();
+        let library = library::read(&self.sources, &self.app_root).read;
         let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
         sources.extend(icons.into_iter().filter_map(|(path, origin, _)| {
             Some(Source {

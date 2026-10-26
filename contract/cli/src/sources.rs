@@ -555,7 +555,6 @@ pub(crate) fn graph_base(path: &Path, src: &str, app_root: &Path) -> GraphBase {
         .iter()
         .flat_map(|u| contract_lower::params::identities(&u.file))
         .collect();
-    let library = library::read(&loader.sources, app_root).read;
     GraphBase {
         root_key,
         sources: loader.sources,
@@ -564,7 +563,7 @@ pub(crate) fn graph_base(path: &Path, src: &str, app_root: &Path) -> GraphBase {
         loaded_identities,
         identities,
         errors,
-        library,
+        app_root: app_root.to_path_buf(),
     }
 }
 

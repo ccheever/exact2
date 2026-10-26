@@ -66,6 +66,17 @@ fn since(log: &Path, from: usize) -> Vec<String> {
         .collect()
 }
 
+/// After a design file was removed: a `hello {paths}` answered, and its walk lines.
+fn gone(s: &mut Serve, log: &Path) -> Vec<String> {
+    let from = since(log, 0).len();
+    let (hello, _) = s.ask(json!({"method": "hello", "paths": true}));
+    assert!(hello.get("ok").is_some(), "{hello}");
+    since(log, from)
+        .into_iter()
+        .filter(|l| l.starts_with("walk "))
+        .collect()
+}
+
 /// An edit, then the requests a hand edit's watcher and a tool make: `hello {paths}` and `describe` (which reads the
 /// params). Both answer (the server did not panic on a check); the log's lines for the edit are returned.
 fn edit_and_ask(s: &mut Serve, log: &Path, path: &Path, text: &str) -> Vec<String> {
@@ -240,13 +251,91 @@ fn a_design_edit_that_moves_the_graph_is_a_cold_walks() {
     );
     // The package's design gone, and back: each folded from the designs, each a cold walk's.
     std::fs::remove_file(&package).unwrap();
-    let (gone, _) = s.ask(json!({"method": "hello", "paths": true}));
-    assert!(gone.get("ok").is_some(), "{gone}");
+    assert_eq!(
+        gone(&mut s, &log),
+        ["walk designs"],
+        "a design file gone is folded from the designs"
+    );
     let lines = edit_and_ask(
         &mut s,
         &log,
         &package,
         &package_design("#112233", "star.svg"),
     );
-    assert!(lines.iter().any(|l| l.starts_with("walk ")), "{lines:?}");
+    assert!(lines.iter().any(|l| l == "walk designs"), "{lines:?}");
+}
+
+/// Round 1's cases (Astra): the default design deleted and made again is a design come (the walk keeps its path there
+/// or not); a private package's design gone and back moves which library files are read, folded and checked cold.
+#[test]
+fn the_default_design_made_again_and_a_private_packages_design_are_cold_walks() {
+    let dir = setup("walk-again");
+    let manifest = dir.join("node_modules/@acme/reading/package.json");
+    std::fs::write(
+        &manifest,
+        r#"{"name":"@acme/reading","version":"1.0.0","private":true,"exports":{".":"./index.contract"}}"#,
+    )
+    .unwrap();
+    let (mut s, log) = start(&dir);
+    s.ask(json!({"method": "hello", "paths": true}));
+    let app_design = dir.join("app.tamber");
+    std::fs::remove_file(&app_design).unwrap();
+    assert_eq!(
+        gone(&mut s, &log),
+        ["walk designs"],
+        "a design file gone is folded from the designs"
+    );
+    let lines = edit_and_ask(
+        &mut s,
+        &log,
+        &app_design,
+        &design("#111111", "200ms", "ink", "a.svg"),
+    );
+    assert!(
+        lines.iter().any(|l| l == "walk designs"),
+        "the design made again: {lines:?}"
+    );
+    let package = dir.join("node_modules/@acme/reading/reading.tamber");
+    std::fs::remove_file(&package).unwrap();
+    assert_eq!(
+        gone(&mut s, &log),
+        ["walk designs"],
+        "a design file gone is folded from the designs"
+    );
+    let lines = edit_and_ask(
+        &mut s,
+        &log,
+        &package,
+        &package_design("#112233", "star.svg"),
+    );
+    assert!(
+        lines.iter().any(|l| l == "walk designs"),
+        "the private package's design back: {lines:?}"
+    );
+}
+
+/// Round 1's case (Astra): `app.json` naming a package's design file as the app's: a colour edit there is in the
+/// params whole (the package's text), so they load again, checked cold.
+#[test]
+fn an_app_design_that_is_a_packages_design_keys_the_params_by_its_text() {
+    let dir = setup("walk-shared");
+    std::fs::write(
+        dir.join("app.json"),
+        r#"{"tamber": "node_modules/@acme/reading/reading.tamber"}"#,
+    )
+    .unwrap();
+    let (mut s, log) = start(&dir);
+    s.ask(json!({"method": "hello", "paths": true}));
+    s.ask(json!({"method": "describe"}));
+    let package = dir.join("node_modules/@acme/reading/reading.tamber");
+    let lines = edit_and_ask(
+        &mut s,
+        &log,
+        &package,
+        &package_design("#112233", "star.svg").replace(
+            "reading.pin = #112233",
+            "reading.pin = #112233\n  reading.ink = #abcdef",
+        ),
+    );
+    assert!(lines.iter().any(|l| l == "params loaded"), "{lines:?}");
 }

@@ -159,10 +159,12 @@ impl Walk {
         let root = dir.join("app.contract");
         let app = contract::design_path(&root.canonicalize().unwrap_or(root));
         let mut out = String::new();
+        // (The app's own design is in the facts; one that is also a package's design is whole in the params too.)
+        let package = |p: &PathBuf| self.graph.sources.iter().filter(|s| s.path == *p).count() > 1;
         for f in self
             .files
             .iter()
-            .filter(|f| f.design && Some(&f.path) != app.as_ref())
+            .filter(|f| f.design && (Some(&f.path) != app.as_ref() || package(&f.path)))
         {
             out.push_str(&f.path.to_string_lossy());
             out.push('\0');
@@ -300,6 +302,9 @@ impl Server {
     /// the last walk read reads otherwise; checked once per request.
     pub(super) fn walk(&self) -> std::cell::Ref<'_, Walk> {
         let asked = self.asked.get();
+        // Before anything is checked: a file that moves from here on, its change time this or later, is one the walk
+        // may have read as it was before (whether it keeps its Contract half or walks again).
+        let began = SystemTime::now();
         let fresh = match self.graph.borrow_mut().as_mut() {
             Some(w) if w.checked == asked && asked != 0 => Fresh::Same,
             Some(w) => {
@@ -311,7 +316,6 @@ impl Server {
         };
         if fresh != Fresh::Same {
             let root = self.dir.join("app.contract");
-            let began = SystemTime::now();
             // Design files alone moved: the kept Contract half, the rest folded again from the designs now.
             let kept = match fresh {
                 Fresh::Designs => self.graph.borrow_mut().take().and_then(|w| w.base),
@@ -340,7 +344,14 @@ impl Server {
                 );
             }
             let manifest = self.dir.join("app.json");
-            let mut paths: Vec<&PathBuf> = [&root, &manifest]
+            // The default design's path too, there or not (`app.json` naming none): a design made there again is
+            // a design file come, which the walk sees.
+            let default = root
+                .canonicalize()
+                .ok()
+                .and_then(|r| r.parent().map(|d| d.join("app.tamber")))
+                .unwrap_or_else(|| self.dir.join("app.tamber"));
+            let mut paths: Vec<&PathBuf> = [&root, &manifest, &default]
                 .into_iter()
                 .chain(graph.sources.iter().map(|s| &s.path))
                 .chain(&graph.consulted)
