@@ -14,7 +14,7 @@ import UIKit
 
 final class MenuHost {
     private(set) weak var presenter: Presenter?
-    private var touchObserver: PopoverTouch?
+    var touchObserver: PopoverTouch?
     private var overlays: [UInt32: UIButton] = [:]
     /// The target and press shape each overlay's menu was built for.
     private var menuShapes: [UInt32: String] = [:]
@@ -127,12 +127,7 @@ final class MenuHost {
     func sync() {
         // Paint ordinary menus for the agent; confirmations use UIKit with either input carrier (LLP 1021 D4).
         guard let presenter else { return }
-        let surface = presenter.modals.coordinateView ?? presenter.viewport
-        if touchObserver?.view !== surface {
-            if let observer = touchObserver { observer.view?.removeGestureRecognizer(observer) }
-            let observer = PopoverTouch(host: self)
-            surface.addGestureRecognizer(observer); touchObserver = observer
-        }
+        observeTouches()
         if let owner = confirmation, !owner.fields.isEmpty { followPrompt(owner) }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
         sheets.sync()

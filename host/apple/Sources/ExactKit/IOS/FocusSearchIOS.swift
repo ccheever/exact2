@@ -9,8 +9,8 @@
 // slowly built, parked and took back rows all the time and paid that
 // search for each one — 13% of the main thread on an M1 iPad Pro at
 // 1k pt/s, and one 20-40 ms frame a second once its throttle backed off —
-// and found nothing each time. So the viewport, the one way into a
-// session's views, answers the search with no items unless a view UIKit
+// and found nothing each time. So the viewport and native content mounts
+// answer the search with no items unless a view UIKit
 // can focus may be in the window: anything exact2 did not make itself (a
 // field, a text area, a web view, a segmented control, a menu's button, a
 // swipe's table, a platform view). Then the search is given those views
@@ -18,8 +18,8 @@
 // field, a web view, a map or a player otherwise had UIKit walk every view
 // of the session for each update — 30–40 ms a second of an iPad's main
 // thread in a fast fling of the Extra Heavy feed — to reach the few it can
-// focus. Only document viewports answer: UIKit logs, at every init, each view of
-// a class that answers `focusItems(in:)`.
+// focus. Only viewports and content mounts answer: UIKit logs, at every
+// init, each view of a class that answers `focusItems(in:)`.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -73,12 +73,11 @@ final class Viewport: ScrollView {
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
 }
-/// What a presentation mounts its navigation in (`ModalHost.present`): the
-/// other way into a session's views, which answers the search as the
-/// viewport does (LLP 1123 D2).
+/// Bound focus search to a native route or modal presentation, as the
+/// document viewport does (LLP 1123 D2).
 final class PresentationMount: UIView {
     #if os(iOS)
-    /// What the route's logical ancestors listen for (`MountRelay`).
+    /// Relay a modal presentation's events to its logical ancestors (`MountRelay`).
     var relay: MountRelay?
     #endif
     #if !os(tvOS)

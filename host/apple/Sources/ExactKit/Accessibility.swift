@@ -943,7 +943,7 @@ extension Presenter {
             // Hidden, undisplayed or painted over, it or any ancestor (a sheet's stack beside a root overlay).
             var below = true // covers are judged inside the session's viewport
             for at in ancestors(view) {
-                if at === viewport { below = false }
+                if at === viewport || at === documentMount { below = false }
                 if at.accessibilityElementsHidden || (at as? NodeView)?.style["display"]?.string == "none" || (below && covered(at)) { return false }
             }
             return true

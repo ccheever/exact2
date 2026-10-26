@@ -764,15 +764,15 @@ async function suite({ open: openSession, check: record }, reset) {
           const layout = await s.layout();
           if (overflow) {
             check(box(layout, 'app')?.h > layout.viewport.h, `${name}: the document has page overflow`);
+            // No scroll view holds native navigation that fills the screen (LLP 1123 D1), so the page does not scroll under it.
             await s.tap('app', { wheel: [0, 100] }); await settle(s);
-            check((await s.layout('app')).node.scroll.some((scroll) => scroll.viewport && scroll.sy > 0), `${name}: the outer page scrolls`);
+            check(!(await s.layout('app')).node.scroll.some((scroll) => scroll.viewport && scroll.sy > 0), `${name}: the page stays still under native navigation`);
           }
           check((await s.state()).navigation.url === '/edit', `${name}: the editing route is on top`);
           await s.back({ native: true }); await settle(s);
           const state = await s.state();
           check(state.navigation.url === '/' && state.slots.query === draft,
             `${name}: tapping UIKit's Back returns to the root and preserves the edit`);
-          if (overflow) { await s.tap('app', { wheel: [0, -100000] }); await settle(s); }
         }
       });
     } catch (e) { check(false, `native-back: ${e.message}`); } finally { await s.close(); }

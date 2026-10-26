@@ -2174,10 +2174,12 @@ route stays mounted (its nodes are in `tree`, marked `inactive`), so a `testId`
 two screens share names two nodes: give each screen its own (`list-error`,
 `detail-error`).
 
-A route does not scroll by itself, as a `div` does not: content taller than it is
-never seen. A fixed shell (a map, a camera, a chat whose composer stays put) is
-fine; anything else puts its content in a `scroll` or `list` with `flex=1
-min-height=0` right after its `header`:
+Content taller than a native route is unreachable without an explicit scroll
+container. The exception is an unpresented iOS route under native chrome with
+`resizes-visual`: its viewport scrolls overflow and accommodates the keyboard
+without layout reflow. Put scrolling content in a `scroll` or `list` with
+`flex=1 min-height=0` right after its `header`. Use an outer `scroll` when a
+document contains smaller scrollers, so content outside them remains reachable.
 
 ```text
 column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
@@ -3714,7 +3716,7 @@ signal; edge contact may be true with ratio 0. `intersect-margin="200px"`
 expands the root for overscan; a literal of one to four `px`/`%` lengths (units
 are case-insensitive) has IntersectionObserver's `rootMargin` semantics (percentages use the corresponding
 root dimension, as in Chrome).
-A native route's scrollport also counts as a root. `overflow: clip` remains
+On iOS, a `resizes-visual` route's viewport also counts as a root. `overflow: clip` remains
 an intervening clip, and margins expand only the observer root.
 Removing a node stops observation, with no synthetic leave. Both web targets
 use the browser. AppKit, UIKit and Linux sample native layout and scrolling;

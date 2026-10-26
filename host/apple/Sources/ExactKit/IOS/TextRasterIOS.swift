@@ -437,7 +437,8 @@ final class TextClips {
         guard let view else { return Entry(shift: nil, clips: reaches.map { _ in .infinite }) }
         if let known = memo[ObjectIdentifier(view)] { return known }
         var result = entry(view.superview)
-        result.shift = view === viewport ? .zero : shift(view, above: result.shift)
+        // The document's mount stands in the viewport's place (`DocumentMountIOS.swift`).
+        result.shift = view === viewport || view is DocumentMount ? .zero : shift(view, above: result.shift)
         if view.isHidden || view.alpha == 0 {
             result.clips = reaches.map { _ in .null }
         } else if !result.clips[0].isNull && (view.clipsToBounds || view is UIWindow) {
