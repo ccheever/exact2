@@ -982,6 +982,14 @@ impl Plan {
         self.views.push(row);
     }
 
+    /// Replace module row `i`'s declared substitute, after lowering: the
+    /// bake adds what `app.json` says the platform would show (LLP 1133.023
+    /// §10).
+    pub fn set_module_substitute(&mut self, i: usize, json: &str) {
+        let id = self.intern(json);
+        self.modules[i].substitute = id;
+    }
+
     /// The package view row of `tag`, if a package serves it.
     pub fn view_named(&self, tag: &str) -> Option<&ViewsRow> {
         self.views.iter().find(|v| self.str(v.tag) == tag)

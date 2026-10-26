@@ -424,6 +424,43 @@
         }
       }
     },
+    "shortcuts": {
+      "type": "array",
+      "description": "The Web App Manifest's shortcuts: the app icon's menu, fixed per binary (LLP 1133.023 D3). Each opens its url at the navigation root, which the app must have. iOS shows them as Home Screen quick actions, Android as static app shortcuts, Windows as jump list tasks, Linux as the desktop entry's actions, the Mac in the Dock menu, and a browser where it supports them. The app's own list, set by setAppShortcuts, follows these.",
+      "items": {
+        "type": "object",
+        "required": ["name", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "short_name": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "url": { "type": "string", "pattern": "^/(?!/)" },
+          "icons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["src"],
+              "additionalProperties": false,
+              "properties": { "src": { "type": "string", "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*://)" }, "sizes": { "type": "string" }, "type": { "type": "string" } }
+            }
+          },
+          "apple": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": { "symbol": { "type": "string", "minLength": 1, "description": "An SF Symbol name for the Home Screen quick action's icon." } }
+          },
+          "android": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rank": { "type": "number", "minimum": 0 },
+              "disabledMessage": { "type": "string", "minLength": 1, "description": "What a pinned copy says once the app's list no longer has it." }
+            }
+          }
+        }
+      }
+    },
     "file_handlers": {
       "type": "array",
       "description": "The W3C Web App Manifest's file handling declaration: what this app opens. The Apple bake derives `CFBundleDocumentTypes` from it (LLP 1033 D1), and a browser reads the same key.",

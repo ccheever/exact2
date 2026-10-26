@@ -33,6 +33,7 @@ import { packagePictures } from "./pictures.js";
 import { appGrantSet, coversPath } from "./admission.js";
 import { samples, groupOf } from "./samples.js";
 import { wakes, REFUSED } from "./wakes.js";
+import { reach } from "./reach.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -92,7 +93,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     const partial = row.sub.partial || (row.sub.implementation && d && typeof d === "object");
     return partial && p && !errorCode(p) ? overlay(structuredClone(d ?? {}), p) : p;
   };
-  const valueOf = row => row.sub.listed ? wk.listed(row.sub.listed) : row.sub.web ? { ...(preferredOver(row) ?? restricted(row) ?? {}), ...row.sub.web } : preferredOver(row) ?? restricted(row);
+  const valueOf = row => row.sub.index === "entries" ? rc.value(row) : row.sub.listed ? wk.listed(row.sub.listed) : row.sub.web ? { ...(preferredOver(row) ?? restricted(row) ?? {}), ...row.sub.web } : preferredOver(row) ?? restricted(row);
   // What the permission decides of a call now: its status's answer, a denial or a ticket; null when it allows it.
   // The permission a call asks: its declared one, or, where the interface declares several and the name's grants
   // are a line per argument (`permissionBy`), the one of the arguments it was given that settles the call now: a
@@ -121,6 +122,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (p) return p;
     if (send && row.sub.ceremony) return ceremonies.decide(row, args);
     if (send && row.sub.records) return { now: null }; // a signal the substitute records (LLP 1133.011 §9)
+    if (send && row.sub.shortcuts === "pin") return { now: rc.pin(row, args) };
     if (!send) return { now: valueOf(row) ?? { error: "NotSupportedError" } };
     // A send that answers another source's value, raising it when it matches `raise.when` (D10).
     const answers = sibling(row, row.sub.answers);
@@ -457,8 +459,11 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   });
   // ---- a send that answers nothing, and its declared substitute (LLP 1133.004 D5, §7)
   const lists = new Map(), setValues = new Map(), effects = [];
+  const rc = reach({ say, announce: keys => reask(keys), preferred: key => preferred.get(key) });
   const listOf = row => [...byKey.values()].filter(r => extensionOf(r) === extensionOf(row) && r.sub.list).map(r => r.sub.list.state);
   const applyEffect = (row, args) => {
+    const reached = rc.effect(row, args, [...byKey.values()]);
+    if (reached !== undefined) return reached;
     const name = row.key.split(".")[1], sub = row.sub;
     if (sub.list) {
       // A registration's kind keys it beside its key (LLP 1133.017 §10).
@@ -483,6 +488,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       setValues.set(`${extensionOf(row)}/${sub.set.state}`, value);
       say(`${name}: ${sub.set.state} ${JSON.stringify(value)}`);
     }
+    return null;
   };
   /** One call: done (`null`), refused (`{error}`), or held on the permission ticket until it is answered. */
   const effect = (row, args, from = originNow()) => {
@@ -507,14 +513,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (from !== "app") { say(`${row.key}: refused, person-required (${from} origin)`); return Promise.resolve({ error: p.denied }); }
       return new Promise(resolve => { const h = { ticket: nextTicket(), row, args, resolve }; effects.push(h); say(`device permission ${h.ticket} held (agent)`); });
     }
-    applyEffect(row, args);
-    return Promise.resolve(null);
+    return Promise.resolve(applyEffect(row, args));
   };
   const settleEffects = (name, state) => {
     for (const h of effects.filter(h => h.row.sub.permission?.name === name)) {
       if (state === "prompt") continue;
       effects.splice(effects.indexOf(h), 1);
-      if (state === "granted") { applyEffect(h.row, h.args); h.resolve(null); }
+      if (state === "granted") h.resolve(applyEffect(h.row, h.args));
       else { say(`${h.row.key.split(".")[1]}: refused: ${h.row.sub.permission.denied}`); h.resolve({ error: h.row.sub.permission.denied }); }
     }
   };
@@ -812,6 +817,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       // What a loaded implementation discloses of its own (`state()`: a language model's sessions, LLP 1133.016 §9).
       for (const [extension, e] of Object.entries(out)) {
         Object.assign(e, sampled.state(extension));
+        rc.state([...byKey.values()].filter(r => extensionOf(r) === extension), e);
         const own = ready.get(extension)?.state?.();
         if (own) e.implementation = own;
       }

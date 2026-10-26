@@ -293,6 +293,11 @@ impl<D: DataSource> Runner<D> {
                 .or_else(|| self.decide_choose(row, send))
                 .or_else(|| self.decide_raise(row, send))
                 .unwrap_or(Decision::Forward),
+            Route::Substitute
+                if self.substitute(row)["shortcuts"] == "pin" && !self.unsupported_here(row) =>
+            {
+                Decision::Now(self.pin_shortcut(row, args))
+            }
             Route::Substitute => self.decide_timed(row, send, timeout, args),
         };
         // A name whose grants are per argument asks permission only for an

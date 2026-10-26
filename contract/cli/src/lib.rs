@@ -42,6 +42,7 @@ mod resolve;
 mod retained;
 mod shape_schema;
 pub use retained::{retention_build, Kept, Retained};
+mod reach;
 mod rust;
 mod sources;
 mod strings;
@@ -946,46 +947,7 @@ fn compile_loaded(
         let binds: Vec<&str> = v.binds.iter().map(String::as_str).collect();
         plan.add_view(&v.tag, &v.extension, v.displayed, &binds);
     }
-    if app_root.join("app.json").is_file() || app_root.join(".shells/app.json").is_file() {
-        let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
-            pass: "app",
-            id: "app-manifest".into(),
-            message,
-            span: Span::default(),
-            file: Some(path.into()),
-            related: Box::new([]),
-        })?;
-        if !plan.app_id.is_empty() && plan.app_id != manifest.id {
-            return Err(vec![CompileError {
-                pass: "app",
-                id: "app-identity".into(),
-                message: format!(
-                    "the plan names app {}, but app.json names {}",
-                    plan.app_id, manifest.id
-                ),
-                span: Span::default(),
-                file: Some(path.into()),
-                related: Box::new([]),
-            }]);
-        }
-        // @ref LLP 1075.003.000.001 §4.3 — each hatch word with the
-        // platforms that handle it, under the plan's signature: a host calls
-        // a word only where the plan says its platform handles it.
-        let rows = native::hatch_rows(&manifest).map_err(|message| {
-            vec![CompileError {
-                pass: "app",
-                id: "app-manifest".into(),
-                message,
-                span: Span::default(),
-                file: Some(path.into()),
-                related: Box::new([]),
-            }]
-        })?;
-        for (word, platforms) in rows {
-            plan.add_hatch(&word, platforms);
-        }
-        plan.app_id = manifest.id;
-    }
+    reach::from_manifest(path, &app_root, &file, &mut plan)?;
     Ok((plan, sites.map(|sites| SourceMap::new(sites, sources))))
 }
 

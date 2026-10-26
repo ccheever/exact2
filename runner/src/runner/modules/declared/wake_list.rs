@@ -287,6 +287,9 @@ impl<D: DataSource> Runner<D> {
 
     /// A source declared `"listed"`: the entries of its kind, its fields each.
     pub(in crate::runner) fn listed_value(&self, sub: &Json) -> Option<Json> {
+        if let Some(entries) = self.reach_value(sub) {
+            return Some(entries);
+        }
         let listed = sub["listed"].as_object()?;
         let state = listed.get("state")?.as_str()?;
         let kind = listed.get("kind");

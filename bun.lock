@@ -21,10 +21,12 @@
         "@exact/motion": "workspace:*",
         "@exact/passkeys": "workspace:*",
         "@exact/photos": "workspace:*",
+        "@exact/quick-actions": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
+        "@exact/search-index": "workspace:*",
         "@exact/speech-recognition": "workspace:*",
         "@exact/speech-synthesis": "workspace:*",
       },
@@ -107,6 +109,10 @@
       "name": "@exact/photos",
       "version": "1.0.0",
     },
+    "packages/quick-actions": {
+      "name": "@exact/quick-actions",
+      "version": "1.0.0",
+    },
     "packages/reading": {
       "name": "@exact/reading",
       "version": "0.1.0",
@@ -128,6 +134,10 @@
     "packages/scale-fixture-notes": {
       "name": "@exact/scale-fixture-notes",
       "version": "0.1.0",
+    },
+    "packages/search-index": {
+      "name": "@exact/search-index",
+      "version": "1.0.0",
     },
     "packages/speech-recognition": {
       "name": "@exact/speech-recognition",
@@ -177,6 +187,8 @@
 
     "@exact/photos": ["@exact/photos@workspace:packages/photos"],
 
+    "@exact/quick-actions": ["@exact/quick-actions@workspace:packages/quick-actions"],
+
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 
     "@exact/recording": ["@exact/recording@workspace:packages/recording"],
@@ -184,6 +196,8 @@
     "@exact/scale-fixture-cards": ["@exact/scale-fixture-cards@workspace:packages/scale-fixture-cards"],
 
     "@exact/scale-fixture-notes": ["@exact/scale-fixture-notes@workspace:packages/scale-fixture-notes"],
+
+    "@exact/search-index": ["@exact/search-index@workspace:packages/search-index"],
 
     "@exact/speech-recognition": ["@exact/speech-recognition@workspace:packages/speech-recognition"],
 

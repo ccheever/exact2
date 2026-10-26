@@ -38,6 +38,8 @@
     "@exact/passkeys": "workspace:*",
     "@exact/contacts": "workspace:*",
     "@exact/calendar": "workspace:*",
-    "@exact/background": "workspace:*"
+    "@exact/background": "workspace:*",
+    "@exact/quick-actions": "workspace:*",
+    "@exact/search-index": "workspace:*"
   }
 }
