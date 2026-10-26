@@ -64,11 +64,9 @@ tilt from there. Within 2° of it the stick reads zero (D6's dead zone);
    the player right, tilting the top edge away walks it forward, and
    holding the level angle stands it still. If either direction is
    reversed, the sign of D6's map against the platform's gravity is wrong:
-   say which and on which phone. Expect the roll reversed: the platforms
-   and the W3C read a positive x when the left edge is down, D6's map
-   walks right on a positive x, and so walks left when the right edge
-   goes down, while its pitch is negated and walks forward as the top
-   edge goes away. If the player does not move at all on
+   say which and on which phone. Screen-frame gravity reads negative x
+   when the right edge is down; D6 negates that roll to walk right.
+   If the player does not move at all on
    Android, look for the `motion: input` line: without it the start was
    refused; with it, the samples did not reach the world.
 10. **Pause and tilt off.** Tap **Pause**: the player stops where it is

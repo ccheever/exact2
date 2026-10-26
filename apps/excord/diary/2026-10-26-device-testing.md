@@ -4,7 +4,7 @@ task: verify application lock behavior
 
 ## Rough
 
-A keychain attributes query could prompt before explicit Unlock on the tested phone. The host now probes indexed accounts without permitting authentication, and the app prevents duplicate Unlock requests. Biometric success still needs a person at the phone. Debugging time was not measured.
+A keychain attributes query could prompt before explicit Unlock on the tested phone. The host now probes indexed accounts without permitting authentication, and the app prevents duplicate Unlock requests. The tester confirms that one Face ID authentication opens Home, cancellation keeps the app locked, and Unlock then succeeds. Passcode fallback and the other unverified lifecycle cases are listed in LLP 1133.020. Debugging time was not measured.
 
 ## Lean in
 
@@ -18,4 +18,4 @@ The host regression covers indexed-secret reconciliation independently of a biom
 
 - iOS build: smooth
 - editing app.contract: smooth
-- driving the app: rough; biometric completion cannot be qualified through mirroring
+- driving the app: rough; the tester completed the basic biometric checks on the phone
