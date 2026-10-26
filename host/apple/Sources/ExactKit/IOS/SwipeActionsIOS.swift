@@ -624,8 +624,15 @@ package final class SwipeActionsHost {
                     } else { action.title = host.label(target) }
                     return action
                 }
-                // Its authored background, else UIKit's for its style.
-                if let fill = target.cgColor("background_color") { action.backgroundColor = UIColor(cgColor: fill) }
+                // Its authored background, else the accent its author wrote
+                // on it, as a native action's (Mail's Flag is orange), else
+                // UIKit's for its style.
+                if let fill = target.cgColor("background_color") {
+                    action.backgroundColor = UIColor(cgColor: fill)
+                } else if !destructive, target.wrote("accent_color"),
+                          let accent = target.channels("accent_color").map({ TextEngine.color($0) }) {
+                    action.backgroundColor = accent
+                }
                 // A custom action's symbol is a system image, as a native one's
                 // is (LLP 1069.011.000 D1); anything else is its snapshot.
                 if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = FaceSymbol.image(symbol) {

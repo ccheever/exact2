@@ -493,6 +493,10 @@ component App
               image "symbol:pin"
 ```
 
+- An action is UIKit's grey unless you colour it: `accent-color` on its button (Flag's
+  `-exact-system-orange`, Archive's `-exact-system-indigo`; `destructive=true` is red). Its
+  visible text is the label UIKit draws under the glyph: `image` then `text "Flag"` shows
+  both, as Mail does; an image with only `aria-label` shows no label.
 - UIKit draws its swipe actions itself (rounded on iOS 26 and later), whatever you paint.
   To keep painted actions (flush 76-point rectangles of your own colours), write
   `appearance="none"` on every control the row names: on iOS the row then swipes by its own
