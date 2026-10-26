@@ -164,6 +164,7 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
     const known = !!h?.messages.has(d.id) || (nonce !== '' && !!h?.pending.has(nonce));
     if (!known) live.arrived.set(d.channel_id, (live.arrived.get(d.channel_id) ?? 0) + 1);
   }
+  const person = d?.user?.id ? S.user(store, String(d.user.id)) : null;
   const changed = S.applyDispatch(store, t, d, clock.now);
   const channels = new Set(changed.channels);
   // A deleted message the store never held changes nothing it keeps, but a held reply to it now
@@ -171,10 +172,13 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
   if ((t === 'MESSAGE_DELETE' || t === 'MESSAGE_DELETE_BULK') && d?.channel_id && !channels.has(d.channel_id)
     && S.repliesTo(store, d.channel_id, t === 'MESSAGE_DELETE' ? [d.id] : d.ids ?? [])) channels.add(d.channel_id);
   if (t === 'READY' || HISTORY.test(t)) for (const id of channels) touched(live, id);
-  // A role's colour is drawn in the names of the open channel's rows (`render.ts`).
-  if (/^GUILD_ROLE_/.test(t) && live.viewing.channel && S.channel(store, live.viewing.channel)?.guild_id === d?.guild_id) {
+  // A role's colour is drawn in the names of the open channel's rows, and a server's name in a boost's line
+  // (`render.ts`).
+  if (/^GUILD_(ROLE_|UPDATE)/.test(t) && live.viewing.channel && S.channel(store, live.viewing.channel)?.guild_id === (d?.guild_id ?? d?.id)) {
     touched(live, live.viewing.channel);
   }
+  // A person's new name or picture redraws the open channel, where a row may name them.
+  if (t === 'GUILD_MEMBER_UPDATE' && person && live.viewing.channel && S.user(store, person.id) !== person) touched(live, live.viewing.channel);
   if (changed.sidebar || [...channels].some(id => id !== live.viewing.channel)) live.sidebar++;
   return { channels: [...channels], sidebar: changed.sidebar };
 }

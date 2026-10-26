@@ -35,6 +35,7 @@ function fixture(messages: Message[], query: S.HistoryQuery = { limit: 50 }) {
     user: id => S.user(store, id),
     channelName: id => S.channel(store, id)?.name ?? 'unknown-channel',
     channelGuild: id => S.channel(store, id)?.guild_id ?? '',
+    guildName: id => store.guildMap.get(id)?.name ?? '',
     canOpen: id => S.channel(store, id) !== null,
     roleName: id => {
       for (const guild of S.guilds(store)) for (const role of guild.roles ?? []) if (role.id === id) return role.name;
@@ -480,4 +481,77 @@ test('a poll shows its answers with their share of the votes, and its closing na
   expect(c).toMatchObject({ system: "buildbot's poll Lunch? has closed.", systemIcon: 'chart', embeds: [] });
   const reply = message(2000, { content: 'ok', type: 19, message_reference: reference(asked.id) } as Partial<Message>);
   expect(fixture([asked, reply]).view().rows[1].reply[0].preview).toBe('Lunch?');
+});
+
+test('an embed shows its fields, author picture and footer with its time', () => {
+  const m = message(0, { embeds: [{ type: 'rich', title: 'Deploy', author: { name: 'CI', icon_url: 'https://x/a.png', url: 'https://ci' },
+    fields: [{ name: 'Branch', value: '`main`', inline: true }, { name: 'Notes', value: '||soon||' }],
+    footer: { text: 'Buildkite', proxy_icon_url: 'https://x/f.png' }, timestamp: new Date(NOW).toISOString() }] } as Partial<Message>);
+  const [e] = fixture([m]).view().rows[0].embeds;
+  expect(e).toMatchObject({ author: 'CI', authorIcon: 'https://x/a.png', authorUrl: 'https://ci', footer: 'Buildkite',
+    footerIcon: 'https://x/f.png', at: NOW });
+  expect(e.fields.map(f => [f.id, f.name, f.inline, f.value.flatMap(b => b.runs).map(r => r.text).join('')]))
+    .toEqual([['e0.f0', 'Branch', true, 'main'], ['e0.f1', 'Notes', false, 'soon']]);
+  expect(e.fields[1].value[0].runs[0].spoiler).toBe('s0');
+  // Discord reads `#` in a field's value as text, not a heading.
+  const h = message(1000, { embeds: [{ type: 'rich', fields: [{ name: 'Ticket', value: '# 12345' }] }] } as Partial<Message>);
+  const [field] = fixture([h]).view().rows[0].embeds[0].fields;
+  expect([field.value[0].kind, field.value[0].runs.map(r => r.text).join('')]).toEqual(['paragraph', '# 12345']);
+});
+
+test('an app\'s answer to a command names who used it, and system messages read as Discord words them', () => {
+  const used = message(0, { type: 20, author: bot, content: 'done', interaction_metadata: { id: '9', type: 2, user: ada },
+    interaction: { id: '9', type: 2, name: 'deploy', user: ada } } as Partial<Message>);
+  const menu = message(1000, { type: 23, author: bot, content: 'ok', interaction_metadata: { id: '8', type: 2, user: ada } } as Partial<Message>);
+  const added = message(2000, { type: 1, content: '', author: me, mentions: [ada] } as Partial<Message>);
+  const left = message(3000, { type: 2, content: '', author: ada, mentions: [ada] } as Partial<Message>);
+  const thread = message(4000, { type: 18, content: 'Ride plans', author: me } as Partial<Message>);
+  const boosted = message(5000, { type: 8, content: '2', author: me } as Partial<Message>);
+  const [u, c, a, l, t, b] = fixture([used, menu, added, left, thread, boosted]).view().rows;
+  expect(u.reply).toEqual([{ id: 'used:9', author: 'Ada', avatar: expect.any(String), color: '', preview: '/deploy', state: 'command' }]);
+  expect(c.reply[0].preview).toBe('a command');
+  // This channel is in a server, so a member comes and goes from a thread.
+  expect([a, l, t, b].map(r => [r.system, r.systemIcon])).toEqual([
+    ['Charlie Cheever added Ada to the thread.', 'follow'], ['Ada left the thread.', 'minus-circle'],
+    ['Charlie Cheever started a thread: Ride plans.', 'messages'], ['Charlie Cheever just boosted the server 2 times!', 'sparkles']]);
+  const at = (offset: number) => new Date(NOW + offset).toISOString();
+  const missed = message(6000, { type: 3, content: '', call: { participants: [ada.id], ended_timestamp: at(6000 + 12 * 60000) } } as Partial<Message>);
+  const ongoing = message(7000, { type: 3, content: '', call: { participants: [ada.id] } } as Partial<Message>);
+  const level = message(8000, { type: 10, content: '', author: me } as Partial<Message>);
+  const renamed = message(9000, { type: 4, content: '' } as Partial<Message>);
+  expect(fixture([missed, ongoing, level, renamed]).view().rows.map(r => r.system)).toEqual([
+    'You missed a call from Ada that lasted 12 minutes.', 'Ada started a call.',
+    "Charlie Cheever just boosted the server! Exact Club has achieved Level 2!", 'Ada removed the custom group name.']);
+});
+
+test('a command\'s answer redraws when the person who used it changes', () => {
+  const used = message(0, { type: 20, author: bot, content: 'done', interaction: { id: '9', type: 2, name: 'deploy', user: ada },
+    interaction_metadata: { id: '9', type: 2, user: ada } } as Partial<Message>);
+  const f = fixture([used]);
+  expect(f.view().rows[0].reply[0].author).toBe('Ada');
+  S.applyDispatch(f.store, 'MESSAGE_CREATE', message(1000, { author: { ...ada, global_name: 'Ada L.' } }), NOW);
+  expect(f.view().rows[0].reply[0].author).toBe('Ada L.');
+  // So does a line that names a member, or the server.
+  const added = message(2000, { type: 1, content: '', author: me, mentions: [ada] } as Partial<Message>);
+  const level = message(3000, { type: 9, content: '', author: me } as Partial<Message>);
+  const g = fixture([added, level]);
+  expect(g.view().rows[0].system).toBe('Charlie Cheever added Ada to the thread.');
+  S.applyDispatch(g.store, 'MESSAGE_CREATE', message(4000, { author: { ...ada, global_name: 'Ada L.' } }), NOW);
+  S.applyDispatch(g.store, 'GUILD_UPDATE', { id: gid, name: 'Exact Club 2' }, NOW);
+  expect(g.view().rows.slice(0, 2).map(r => r.system)).toEqual(['Charlie Cheever added Ada L. to the thread.',
+    'Charlie Cheever just boosted the server! Exact Club 2 has achieved Level 1!']);
+  // A command's answer names its user from the message, newer than the directory's.
+  const fresh = message(5000, { type: 20, author: bot, content: 'ok', interaction_metadata: { id: '7', type: 2,
+    user: { ...ada, global_name: 'Ada New' } } } as Partial<Message>);
+  expect(fixture([fresh]).view().rows[0].reply[0].author).toBe('Ada New');
+});
+
+test('a call\'s length reads as Discord words it', () => {
+  const call = (ms: number, offset: number) => message(offset, { type: 3, content: '', author: me,
+    call: { participants: [me.id], ended_timestamp: new Date(NOW + offset + ms).toISOString() } } as Partial<Message>);
+  const rows = fixture([call(20000, 0), call(60000, 1000), call(12 * 60000, 2000), call(60 * 60000, 3000),
+    call(3 * 3600000, 4000), call(30 * 3600000, 5000), call(3 * 86400000, 6000), call(89.75 * 60000, 7000),
+    call(35.75 * 3600000, 8000), call(30 * 86400000, 9000)]).view().rows;
+  expect(rows.map(r => r.system.replace('Charlie Cheever started a call that lasted ', ''))).toEqual(
+    ['a few seconds.', 'a minute.', '12 minutes.', 'an hour.', '3 hours.', 'a day.', '3 days.', 'an hour.', 'a day.', 'a month.']);
 });
