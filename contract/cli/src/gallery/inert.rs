@@ -473,3 +473,43 @@ fn each(nodes: &[Node], bound: &[String], f: &mut dyn FnMut(&Node, &[String])) {
         }
     }
 }
+
+/// The string literals `c`'s own view compares string prop `prop` with in an
+/// `if` (`if badge == "verified"`, either side, an `else if` too), in the
+/// order written, each once: the values that draw something, which its name
+/// never does (VerifiedBadge, stage 15 D4 batch 1 #2). A `for` or `match`
+/// binding of the same name shadows it.
+pub(super) fn compared_literals(c: &Component, prop: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    each(&c.view, &[], &mut |node, bound| {
+        if bound.iter().any(|b| b == prop) {
+            return;
+        }
+        if let Node::When { cond, .. } = node {
+            compared(cond, prop, &mut found);
+        }
+    });
+    found
+}
+
+/// Each literal `e` compares `prop` with by `==`, through `and`/`or`.
+fn compared(e: &Expr, prop: &str, found: &mut Vec<String>) {
+    use contract_syntax::BinOp;
+    if let Expr::Binary(op, l, r, _) = e {
+        match (op, l.as_ref(), r.as_ref()) {
+            (BinOp::Eq, Expr::Ident(name, _), Expr::Str(lit, _))
+            | (BinOp::Eq, Expr::Str(lit, _), Expr::Ident(name, _))
+                if name == prop =>
+            {
+                if !found.contains(lit) {
+                    found.push(lit.clone());
+                }
+            }
+            (BinOp::And | BinOp::Or, l, r) => {
+                compared(l, prop, found);
+                compared(r, prop, found);
+            }
+            _ => {}
+        }
+    }
+}

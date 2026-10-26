@@ -610,7 +610,27 @@ fn placed<'a>(
                 at.canonicalize().unwrap_or(at)
             },
             component: c,
-            variants: contract_lower::anatomy::described(c, file).variants,
+            variants: {
+                // Its variant props, then each string prop its view compares
+                // with literals (VerifiedBadge's `badge`): those literals and
+                // the empty string, one cell each (stage 15 D4 batch 1 #2).
+                let mut variants = contract_lower::anatomy::described(c, file).variants;
+                for p in &c.props {
+                    let string = matches!(&p.ty, Some(TypeExpr::Named(t, _)) if t == "string");
+                    if !string || variants.iter().any(|(v, _)| *v == p.name) {
+                        continue;
+                    }
+                    let mut options = inert::compared_literals(c, &p.name);
+                    if options.is_empty() {
+                        continue;
+                    }
+                    if !options.iter().any(|o| o.is_empty()) {
+                        options.push(String::new());
+                    }
+                    variants.push((p.name.clone(), options));
+                }
+                variants
+            },
         });
     }
     found

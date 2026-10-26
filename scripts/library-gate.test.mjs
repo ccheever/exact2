@@ -84,13 +84,20 @@ test("contract gallery places the cells this app does, each placed, on the app's
   const out = mkdtempSync(join(ROOT, 'target', 'library-gate-gallery-'));
   const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
   expect([r.status, r.stderr]).toEqual([0, '']);
-  expect(r.stdout).toContain('gallery: 12 components, 27 cells (0 refused)');
+  expect(r.stdout).toContain('gallery: 12 components, 29 cells (0 refused)');
   const gallery = readFileSync(join(out, 'app.contract'), 'utf8');
   expect(gallery).not.toContain("can't place");
-  const placed = placements(gallery, library.map(c => c.name));
+  const placed = placements(gallery, library.map(c => c.name)), own = placements(readFileSync(APP, 'utf8'), library.map(c => c.name));
   for (const c of library) {
-    const want = cellsFor(c.variants).map(v => JSON.stringify(v)).sort();
-    const got = placed.filter(p => p.name === c.name).map(p => JSON.stringify(Object.fromEntries(c.variants.map(v => [v.prop, option(p.values[v.prop])])))).sort();
+    const cells = placed.filter(p => p.name === c.name);
+    // Beside the compiler's variants, a string prop the view compares with literals is the gallery's variant too, one
+    // cell a literal and the empty one (VerifiedBadge's badge, stage 15 D4 batch 1 #2): the values this app places it at.
+    const extra = Object.keys(cells[0]?.values ?? {}).filter(k => !c.variants.some(v => v.prop === k) && new Set(cells.map(p => p.values[k])).size > 1)
+      .map(prop => ({ prop, options: [...new Set(cells.map(p => option(p.values[prop])))] }));
+    for (const { prop, options } of extra) expect([c.name, prop, [...options].sort()]).toEqual([c.name, prop, [...new Set(own.filter(p => p.name === c.name).map(p => option(p.values[prop])))].sort()]);
+    const variants = [...c.variants, ...extra];
+    const want = cellsFor(variants).map(v => JSON.stringify(v)).sort();
+    const got = cells.map(p => JSON.stringify(Object.fromEntries(variants.map(v => [v.prop, option(p.values[v.prop])])))).sort();
     expect([c.name, got]).toEqual([c.name, want]);
   }
   expect(JSON.parse(readFileSync(join(out, 'app.json'), 'utf8')).tamber).toBe(relative(out, join(ROOT, 'apps/library-gate/app.tamber')));

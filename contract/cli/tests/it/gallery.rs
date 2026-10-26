@@ -1116,3 +1116,70 @@ fn a_string_drawn_as_a_paths_data_gets_a_neutral_square_and_text_keeps_its_name(
     assert!(tab.contains(r#"title="title""#), "{tab}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const BADGES: &str = r#"component Badge
+  props
+    badge: string
+    label: string
+  parts
+    mark: paint
+  view
+    column part="mark"
+      if badge == "verified"
+        text "V"
+      else if "verifier" == badge
+        text "T"
+      text label
+"#;
+
+const BADGES_APP: &str = r#"use Badge from "@acme/lib"
+
+component App
+  view
+    column
+      Badge(badge="verified", label="a")
+"#;
+
+/// A string prop the view compares with literals is a variant of those
+/// literals and the empty string, one cell each, never its name, which draws
+/// nothing (VerifiedBadge's `badge`, stage 15 D4 batch 1 #2); a text prop
+/// keeps its name.
+#[test]
+fn a_string_compared_with_literals_gets_a_cell_per_literal_and_the_empty_one() {
+    let dir = fixture("badges");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), BADGES).unwrap();
+    std::fs::write(dir.join("app.contract"), BADGES_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let badge: Vec<_> = g.cells.iter().filter(|c| c.component == "Badge").collect();
+    assert_eq!(
+        badge.len(),
+        3,
+        "{:?}",
+        g.cells
+            .iter()
+            .map(|c| (&c.component, &c.values))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        badge.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        badge.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let values: Vec<String> = badge
+        .iter()
+        .map(|c| {
+            c.values
+                .iter()
+                .find(|(p, _)| p == "badge")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(values, ["verified", "verifier", ""]);
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    assert!(text.contains(r#"badge="verifier""#), "{text}");
+    assert!(text.contains(r#"label="label""#), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
