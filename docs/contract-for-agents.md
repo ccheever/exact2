@@ -662,6 +662,13 @@ mutations, or tasks. Lift shared data requests to the root and pass values and
 actions. A child used under `for` owns row state keyed to that row's identity.
 Stable keys matter when content is inserted, removed, filtered, or reordered.
 
+A root that has outgrown the 1,500-line cap keeps its members and moves them
+into files by feature: `members "./composer.contract"` in its body, and in that
+file a `members App` block of states, derives, resources, mutations, actions,
+tasks and sequences. The program is the one-file program, and every file sees
+every member; each file `use`s the shapes and `fn`s it calls
+(`docs/contract-grammar.md`, "Components and actions").
+
 A state cannot start from a resource, but a child's state can start from a prop.
 So a form that edits a saved record is a child made once the record is in: the
 source answers `loaded: true`, the placeholder says `false`, and the child's
@@ -835,7 +842,7 @@ component Water
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol (none at the accessibility text sizes), the title as a heading, the message; the nodes indented under the use (your `button`) under them; a `scroll` where it is taller than its space (in a flex column, give the column `min-height=0`) |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures (under them where they do not fit on one line): a grouped list `row`'s content, or any list's |
-| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under white ink (dark on the light hues: green, mint, teal, cyan, yellow, orange); read as its text |
+| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under white ink (dark on the light hues: green, mint, teal, cyan, yellow, orange); Windows contrast themes use the system highlight/text pair for these tints; read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue on the hue at low opacity; `none` is the neutral grey with the label's ink; the title stays the default body size at every text size |
 | `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and checkmark), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross), `"dimmed"` (the rest, once told), or `"chosen"` (the person's own pick once told or closed: the selected look, disabled, so a closed poll still marks the vote while the rest dim); told, dimmed and chosen tiles are disabled; as a grouped list's row it is the list's cell on every host (`-exact-row-look`), the checkmark its accessory; a reader hears "Quito, correct" |
 
@@ -1558,6 +1565,13 @@ separates adjacent groups with UIKit's fixed-space item. Ungrouped buttons keep
 the existing platform default. `buttonStyle="glass"` on a bar button gives it a
 glass capsule of its own (`sharesBackground = false`), one for each button so styled. The wrappers remain ordinary layout on the web;
 this adds no spacing value or custom button face.
+
+A heading of only white space is no title on iOS, and a large title that starts empty
+takes no height. To keep that height while the words load, write the heading as
+`text "\u{200B}" role="heading" aria-level=1 color="transparent"`, the colour on the
+heading itself (UIKit draws U+200B alone as quotation marks), and drop the colour when
+the words arrive. Before iOS 26 a route pushed over it with no back control of its own
+shows that title on its Back button.
 
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS. A
@@ -2757,7 +2771,7 @@ font-size }` (LLP 1069.000 D3). Size what should scale in `rem` (text, control
 heights, paddings) and what should not in `px`; an action calling
 `setRootFontSize(size)` re-lays every `rem` out in its own commit, on every host.
 The app's size stands over the host's (the browser's setting, iOS Dynamic Type's
-body, 13 on macOS, 16 on Linux), as an author's `html { font-size: 20px }` stands over a
+body, 13 on macOS, 16 on Linux, and 16 times Windows' Text size factor), as an author's `html { font-size: 20px }` stands over a
 browser's font-size setting; `setRootFontSize("medium")` hands it back, so a
 "Default" choice that follows Dynamic Type calls that. Smaller and Larger that
 should scale Dynamic Type instead of replacing it are percentages:
@@ -2897,6 +2911,9 @@ talk](https://developer.apple.com/videos/play/tech-talks/111463/) says instead t
 alerts move to the trailing side of a book fold and can move to the top of a laptop
 fold, and that action sheets, menus and popovers move clear too, which was not
 measured.
+
+A route moved off a window edge is still padded as if it reached it: its top on a
+laptop fold, its right on a book fold's segment 0.
 
 ## Inspection and testing
 
@@ -3973,18 +3990,24 @@ selection as the bar's current item (`aria-current="page"`, iOS's selected
 trait) and takes no long press itself: an item held for more puts
 `contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
 on the fill rather than the whole column.
-The in-repo packages' one-colour nonzero icons are icon tokens, which an app
-overrides by full name: `@exact/cards`' `cards.repost`, `cards.pin`,
-`cards.corner-down-right` (PostCard's context and reply lines), `cards.ban`,
-`cards.eye-slash`, `cards.warning`, `cards.circle-info` (ProfileHeader's
-alerts), and `@exact/actions`' `actions.reply`, `actions.repost`,
-`actions.heart`, `actions.heart-filled`, `actions.bookmark`,
-`actions.bookmark-filled`, `actions.share`, `actions.dots` (ActionRow). Each
-has no `sf`, so Apple draws the same path as the web. Still paths, as no
-template can draw them yet (QUEUE): ComposeFrame's gallery, camera and GIF,
-`BarItem`'s and `HeaderButton`'s icons and AtCard's Attie mark fill even-odd
-(a template fills nonzero), and the verified and verifier badges are two
-colours (a template is one).
+The in-repo packages' icons are icon tokens, which an app overrides by full
+name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
+(PostCard's context and reply lines), `cards.ban`, `cards.eye-slash`,
+`cards.warning`, `cards.circle-info` (ProfileHeader's alerts), `cards.attie`
+(AtCard's visit button) and `cards.verified`, `cards.verified-check`,
+`cards.verifier`, `cards.verifier-check` (VerifiedBadge), and `@exact/actions`'
+`actions.reply`, `actions.repost`, `actions.heart`, `actions.heart-filled`,
+`actions.bookmark`, `actions.bookmark-filled`, `actions.share`, `actions.dots`
+(ActionRow) and `actions.gallery`, `actions.camera`, `actions.gif`
+(ComposeFrame's toolbar). Each has no `sf`, so Apple draws the same path as the
+web. The Attie mark, the toolbar's three and the badges' paths were inline
+`svg` with `fill-rule="evenodd"`; each one's holes wind against its outline, so
+it fills the same nonzero, and its SVG has no `fill-rule` (an even-odd icon
+gives its app a new compat id). A badge is two one-colour templates stacked,
+its ground in its `ink` and its check in its `mark`, so both colours stay a
+card's tokens and a header's params; an override replaces one layer, its colour
+unchanged. Still paths: `BarItem`'s and `HeaderButton`'s icons, which are their
+caller's `d` (a prop), not the package's.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
@@ -4014,6 +4037,12 @@ a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
 `wakelock="screen"` on any node, bound to state (`wakelock=(playing ? "screen" :
 "none")`), keeps the display awake while that node is displayed; a hidden or
 unmounted one holds nothing (LLP 1125 D11; `state.wakelock` is `{held, by}`).
+`orientationlock` on any node (`orientationlock=(tilt ? "current" : "none")`)
+keeps the window to a Screen Orientation API lock type, or `current`, while
+that node is displayed; a sheet's lock wins over what it covers and a
+descendant's over its ancestor's. A type only narrows the manifest's
+`orientation`, and a lock inside a `dialog` is refused (LLP 1133.029;
+`contract vocab orientationlock`).
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `-exact-tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not

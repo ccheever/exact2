@@ -1,0 +1,48 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/health@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidHealthStatus": {
+      "sdkStatus": "enum<available|unavailable|providerUpdateRequired>"
+    },
+    "AndroidHealthTypeStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    },
+    "AndroidHealthWorkout": {
+      "exerciseType": "number"
+    }
+  },
+  "options": {
+    "healthStatistics": {
+      "recordType": "string",
+      "metric": "string",
+      "dataOrigins": "string[]"
+    },
+    "healthWorkouts": {
+      "dataOrigins": "string[]"
+    },
+    "requestHealthAuthorization": {
+      "readHealthDataHistory": "bool"
+    },
+    "healthStatus": {
+      "readHealthDataHistory": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "healthConnectClient"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.health.HealthModule"
+}

@@ -266,7 +266,11 @@ pub(crate) fn reserve(
     );
     for value in values.lines() {
         let shown = arena.reservation_text(slot, value);
-        let runs = [TextRun { text: shown, style }];
+        let runs = [TextRun {
+            text: shown,
+            style,
+            inline: None,
+        }];
         let request = TextMeasureRequest {
             atoms: arena.markup_atoms(slot),
             runs: &runs,

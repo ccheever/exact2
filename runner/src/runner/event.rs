@@ -1087,63 +1087,59 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn dispatch_event(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
-        let mut what = super::lines::event(
-            match &event {
-                Event::ReorderDrop { .. } => "reorderdrop",
-                Event::Press | Event::PressWith(_) => "press",
-                Event::Input(_) => "input",
-                Event::Change(_) => "change",
-                Event::Cancel => "cancel",
-                Event::Close => "close",
-                Event::Toggle { .. } => "toggle",
-                Event::Scrollend => "scrollend",
-                Event::Select { .. } | Event::FieldSelect(..) => "select",
-                Event::Hover(true) => "hover in",
-                Event::Hover(false) => "hover out",
-                Event::Focus => "focus",
-                Event::Blur => "blur",
-                Event::Focusin { .. } => "focusin",
-                Event::Focusout { .. } => "focusout",
-                Event::Key(..) => "key",
-                Event::Keycapture(..) => "keycapture",
-                Event::Keyup(..) => "keyup",
-                Event::Submit => "submit",
-                Event::Load => "load",
-                Event::Message(_) => "message",
-                Event::Contextmenu | Event::ContextmenuAt(_) => "contextmenu",
-                Event::Beforeunload => "beforeunload",
-                Event::MidiMessage(_) => "midimessage",
-                Event::Wheel(_) => "wheel",
-                Event::Drop(_) => "drop",
-                Event::Dragenter(_) => "dragenter",
-                Event::Dragleave(_) => "dragleave",
-                Event::FrameNavigation(kind, _) | Event::FrameRecord(kind, _) => {
-                    frame_navigation::name(*kind)
-                }
-                Event::Atompress(_) => "atompress",
-                Event::Dblclick => "dblclick",
-                Event::Pointerdown(_) => "pointerdown",
-                Event::Pointerup(_) => "pointerup",
-                Event::Pointermove(_) => "pointermove",
-                Event::Swiperight => "swiperight",
-                Event::Refresh => "refresh",
-                Event::Scroll(_) => "scroll",
-                Event::Resize(_) => "resize",
-                Event::Intersect { .. } => "intersect",
-                Event::Pan(_, _) => "pan",
-                Event::PanRelease(_, _) => "panrelease",
-                Event::Media(kind, _) | Event::Clipboard(kind, ..) => kind.name(),
-                Event::SelectionChange { .. } | Event::FieldSelectionChange(..) => {
-                    "selectionchange"
-                }
-                Event::BeforeInput(..) => "beforeinput",
-                Event::Navigate(_) => "navigate",
-                Event::HeightRelease { .. } => "heightrelease",
-                Event::TransformGeometry { .. } => "transformgeometry",
-                Event::TransformRelease { .. } => "transformrelease",
-            },
-            view,
-        );
+        let name = match &event {
+            Event::ReorderDrop { .. } => "reorderdrop",
+            Event::Press | Event::PressWith(_) => "press",
+            Event::Input(_) => "input",
+            Event::Change(_) => "change",
+            Event::Cancel => "cancel",
+            Event::Close => "close",
+            Event::Toggle { .. } => "toggle",
+            Event::Scrollend => "scrollend",
+            Event::Select { .. } | Event::FieldSelect(..) => "select",
+            Event::Hover(true) => "hover in",
+            Event::Hover(false) => "hover out",
+            Event::Focus => "focus",
+            Event::Blur => "blur",
+            Event::Focusin { .. } => "focusin",
+            Event::Focusout { .. } => "focusout",
+            Event::Key(..) => "key",
+            Event::Keycapture(..) => "keycapture",
+            Event::Keyup(..) => "keyup",
+            Event::Submit => "submit",
+            Event::Load => "load",
+            Event::Message(_) => "message",
+            Event::Contextmenu | Event::ContextmenuAt(_) => "contextmenu",
+            Event::Beforeunload => "beforeunload",
+            Event::MidiMessage(_) => "midimessage",
+            Event::Wheel(_) => "wheel",
+            Event::Drop(_) => "drop",
+            Event::Dragenter(_) => "dragenter",
+            Event::Dragleave(_) => "dragleave",
+            Event::FrameNavigation(kind, _) | Event::FrameRecord(kind, _) => {
+                frame_navigation::name(*kind)
+            }
+            Event::Atompress(_) => "atompress",
+            Event::Dblclick => "dblclick",
+            Event::Pointerdown(_) => "pointerdown",
+            Event::Pointerup(_) => "pointerup",
+            Event::Pointermove(_) => "pointermove",
+            Event::Swiperight => "swiperight",
+            Event::Refresh => "refresh",
+            Event::Scroll(_) => "scroll",
+            Event::Resize(_) => "resize",
+            Event::Intersect { .. } => "intersect",
+            Event::Pan(_, _) => "pan",
+            Event::PanRelease(_, _) => "panrelease",
+            Event::Media(kind, _) | Event::Clipboard(kind, ..) => kind.name(),
+            Event::SelectionChange { .. } | Event::FieldSelectionChange(..) => "selectionchange",
+            Event::BeforeInput(..) => "beforeinput",
+            Event::Navigate(_) => "navigate",
+            Event::HeightRelease { .. } => "heightrelease",
+            Event::TransformGeometry { .. } => "transformgeometry",
+            Event::TransformRelease { .. } => "transformrelease",
+        };
+        let mut what = super::lines::event(name, view);
         let was_poisoned = self.poisoned;
         let outer = self.input_source.replace(view);
         let blur = matches!(event, Event::Blur);
@@ -1167,6 +1163,10 @@ impl<D: DataSource> Runner<D> {
         }
         self.input_source = outer;
         self.log_outcome(&what, &result, was_poisoned);
+        let changed = result.as_ref().is_ok_and(|r| {
+            !(r.created.is_empty() && r.destroyed.is_empty() && r.touched.is_empty())
+        });
+        self.count_dispatch(view, name, changed);
         result
     }
 

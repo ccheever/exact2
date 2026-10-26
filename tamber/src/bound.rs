@@ -41,6 +41,15 @@ impl Walk {
 /// so every chain they write folds.
 pub const MAX_REFERENCE_DEPTH: usize = 512;
 
+/// The most axes a design declares (`tamber-axes`): its tuples are capped
+/// at 64, but an axis of one value adds none, and every pass over a
+/// tuple's modes reads each axis.
+pub const MAX_AXES: usize = 32;
+
+/// The most `when` lines a token has (`tamber-whens`): one per tuple at
+/// most is all a design needs.
+pub const MAX_WHENS: usize = 64;
+
 /// Every value, name and word a design holds, past `css::over_limit` or a
 /// name's bytes: each refused where it is written, before aliasing, kind
 /// inference or any reader sees one (a token's, `when` line's, dial's,
@@ -103,6 +112,25 @@ pub(crate) fn preflight(design: &Design) -> Vec<Diagnostic> {
             for (k, v) in &p.meta {
                 said(meta(k, v), pos(&p.value));
             }
+        }
+    }
+    // How many axes, and how many `when` lines a token, before anything
+    // walks them (theme2's 19:26): every pass over a token's lines or a
+    // tuple's modes is linear in these.
+    if let Some(a) = design.axes.get(MAX_AXES) {
+        let why = format!(
+            "a design has at most {MAX_AXES} axes; this one has {}",
+            design.axes.len()
+        );
+        said(Some(("tamber-axes", why)), pos(&a.name));
+    }
+    for t in design.tokens.iter().chain(&design.params) {
+        if let Some(w) = t.whens.get(MAX_WHENS) {
+            let why = format!(
+                "a token or param has at most {MAX_WHENS} `when` lines; this one has {}",
+                t.whens.len()
+            );
+            said(Some(("tamber-whens", why)), (w.line, w.col));
         }
     }
     for a in &design.axes {

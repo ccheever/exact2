@@ -90,3 +90,34 @@ fn a_router_s_tabs_are_screens_not_rows() {
     let src = "shape User\n  id: string\nroutes nav\n  tab feed \"/\"\n  tab me \"/me\"\ncomponent App\n  state users = [User(id=\"u\")]\n  view\n    main\n      for t in nav.tabs key=t.name\n        text `${users.filter(u => u.id == t.name).length}`\n";
     assert_eq!(lookups(src), Vec::<u32>::new());
 }
+
+/// `lower-key-position` (LLP 1142 D6): a key that reads the row's position.
+#[test]
+fn a_key_that_reads_the_position_is_named_and_one_that_shadows_it_is_not() {
+    let keyed = |view: &str| -> Vec<u32> {
+        let (result, warnings) = contract::compile_warned(&app(view));
+        assert!(result.is_ok(), "a warning never fails a build");
+        warnings
+            .iter()
+            .filter(|w| w.id == "lower-key-position")
+            .map(|w| w.span.line)
+            .collect()
+    };
+    assert_eq!(keyed("for p, i in posts key=i\n  text p.id"), [14]);
+    assert_eq!(
+        keyed("for p, i in posts key=`${p.userId}-${i}`\n  text p.id"),
+        [14]
+    );
+    assert!(keyed("for p, i in posts key=p.id\n  text `${i}`").is_empty());
+    let (_, warnings) = contract::compile_warned(&app("for p, i in posts key=i\n  text p.id"));
+    let w = warnings
+        .iter()
+        .find(|w| w.id == "lower-key-position")
+        .unwrap();
+    assert!(
+        w.message
+            .starts_with("this key reads `i`, the row's position"),
+        "{}",
+        w.message
+    );
+}

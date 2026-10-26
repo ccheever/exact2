@@ -99,6 +99,17 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.lines = lines; });
         }
 
+        /// Each inline box's origin in its paragraph (LLP 1011.002 D2), with
+        /// the context `exact_set_measure` was given; `None` leaves an image
+        /// at its paragraph's content origin.
+        #[no_mangle]
+        pub extern "C" fn exact_set_inline_boxes(
+            rt: u32,
+            boxes: ::std::option::Option<$crate::measure::LinesFn>,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.inline_boxes = boxes; });
+        }
+
         /// A system symbol's natural size, measured before layout
         /// (`TextMeasurer::symbol_size`), with the context `exact_set_measure`
         /// was given, beside the text measurer it registered: with the
@@ -975,6 +986,21 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.covers(len), |n| n)
         }
 
+        /// A trial layout of a block's root (`Bridge::measure_block`): its border
+        /// box and margins, six LE f32s, in the output buffer; 0 when refused.
+        /// No batch.
+        #[no_mangle]
+        pub extern "C" fn exact_measure_block(rt: u32, view: u32, width: f32, height: f32, width_policy: u32, height_policy: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.measure_block(view, [width, height], [width_policy, height_policy]), |_| 0)
+        }
+
+        /// What moves whenever a block measure could answer differently
+        /// (`Bridge::layout_stamp`): a host keeps measures while it stands.
+        #[no_mangle]
+        pub extern "C" fn exact_layout_stamp(rt: u32) -> u64 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.layout_stamp(), |_| 0)
+        }
+
         /// Common LE collection feedback from the input buffer; returns batch length.
         #[no_mangle]
         pub extern "C" fn exact_collection_feedback(rt: u32, len: usize, now_ms: f64) -> u32 {
@@ -1097,8 +1123,8 @@ macro_rules! host {
         /// Whether a stack splits, by the runner's rule (LLP 1115.002 D4),
         /// JSON; returns its length.
         #[no_mangle]
-        pub extern "C" fn exact_stack_split(rt: u32, view: u32, retained: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.stack_split(view, retained), |n| n)
+        pub extern "C" fn exact_stack_split(rt: u32, view: u32, retained: u32, pressed: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.stack_split(view, retained, pressed), |n| n)
         }
 
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP

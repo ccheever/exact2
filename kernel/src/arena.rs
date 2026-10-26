@@ -15,6 +15,7 @@ pub(crate) mod alert;
 pub(crate) mod button;
 pub(crate) mod control_text;
 pub(crate) mod defaults;
+mod inline_image;
 pub mod text_style;
 
 use taffy::NodeId;
@@ -561,6 +562,19 @@ impl NodeArena {
         })
     }
 
+    /// A copy for a trial layout that is dropped after it
+    /// (`Kernel::measure_block`): the same text, so each paragraph keeps its
+    /// stamp, and a measurer that holds paragraphs by stamp answers the trial
+    /// from what it holds instead of taking the text for new (a plain clone
+    /// is another kernel's, in a namespace of its own).
+    pub(crate) fn trial_copy(&self) -> Self {
+        let mut copy = self.clone();
+        copy.text_revisions.clone_from(&self.text_revisions);
+        copy.text_domain = self.text_domain.clone();
+        copy.text_serial = self.text_serial;
+        copy
+    }
+
     pub(crate) fn renew_text_namespace(&mut self) {
         self.text_domain = TextDomain::default();
         self.text_serial = 0;
@@ -731,6 +745,7 @@ impl NodeArena {
                 out.push(TextRun {
                     text: text.into(),
                     style,
+                    inline: None,
                 });
                 // A textarea's final Return creates a caret line. Paragraph
                 // shapers can omit a terminal break, so retain that line with
@@ -742,6 +757,7 @@ impl NodeArena {
                     out.push(TextRun {
                         text: "\u{200b}".into(),
                         style,
+                        inline: None,
                     });
                 }
             }
@@ -760,12 +776,31 @@ impl NodeArena {
                     let mut style = rows.style();
                     // Bold Text (LLP 1115.000 D12.3), as `text_style` reads it.
                     self.embolden(slot, &mut style);
-                    out.push(TextRun { text: shown, style });
+                    out.push(TextRun {
+                        text: shown,
+                        style,
+                        inline: None,
+                    });
                 } else {
                     for child in &self.children[s] {
-                        if self.node_types[*child as usize] == NodeType::Text {
-                            let rows = self.run_style_rows(*child, rows);
-                            self.text_runs_after(*child, rows, out, boundary);
+                        match self.node_types[*child as usize] {
+                            NodeType::Text => {
+                                let rows = self.run_style_rows(*child, rows);
+                                self.text_runs_after(*child, rows, out, boundary);
+                            }
+                            // Its alignment reads its parent's font (CSS 2
+                            // §10.8.1), so its run is in the paragraph's style.
+                            NodeType::Image if self.is_run_image(*child) => {
+                                out.push(TextRun {
+                                    text: crate::text::inline_box::INLINE_BOX_TEXT.into(),
+                                    style: rows.style(),
+                                    inline: Some(
+                                        crate::text::inline_box::inline_image(self, *child)
+                                            .reserved,
+                                    ),
+                                });
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -802,14 +837,17 @@ impl NodeArena {
         runs.into_iter().nth(at).map(|run| run.text)
     }
 
-    /// The leaves [`Self::text_runs`] makes a run of, in its order.
-    fn text_leaves(&self, slot: u32, out: &mut Vec<u32>) {
+    /// The leaves [`Self::text_runs`] makes a run of, in its order: its
+    /// texts, and its images (LLP 1011.002).
+    pub fn text_leaves(&self, slot: u32, out: &mut Vec<u32>) {
         if self.props[slot as usize].str(PropId::Text).is_some() {
             return out.push(slot);
         }
         for child in &self.children[slot as usize] {
-            if self.node_types[*child as usize] == NodeType::Text {
-                self.text_leaves(*child, out);
+            match self.node_types[*child as usize] {
+                NodeType::Text => self.text_leaves(*child, out),
+                NodeType::Image if self.is_run_image(*child) => out.push(*child),
+                _ => {}
             }
         }
     }
@@ -947,6 +985,11 @@ impl NodeArena {
 
     pub(crate) fn child_index(&self, slot: u32) -> usize {
         self.child_indices[slot as usize]
+    }
+
+    /// The latest publication's number across all roots.
+    pub(crate) fn last_pass(&self) -> u64 {
+        self.last_pass
     }
 
     pub(crate) fn begin_layout_publication(&mut self, root: u32) {

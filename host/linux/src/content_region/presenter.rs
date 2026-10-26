@@ -1,6 +1,10 @@
 //! Selected native content, successful-paint publication and autonomous wake.
 use super::*;
 impl<D: DataSource> Presenter<D> {
+    /// Reuse a presented CPU frame only after every other reader has released it.
+    pub fn recycle_frame(&mut self, pixels: Arc<Pixmap>) {
+        self.brush.recycle_frame(pixels);
+    }
     /// Explicit opt-in, before the first layout, for a native consumer.
     #[allow(clippy::too_many_arguments)]
     pub fn boot_with_content_region(
@@ -52,10 +56,27 @@ impl<D: DataSource> Presenter<D> {
     pub fn frame(&mut self) -> Arc<Pixmap> {
         // Its session's roles, whatever else lives on the thread (LLP 1121 stage 5).
         let _roles = self.host.runner().bind_roles();
-        crate::text::cache::deferring_eviction(|| self.paint_frame())
+        crate::text::cache::deferring_eviction(|| {
+            let frame = self.paint_frame();
+            if self.last_frame_succeeded && self.reveal_field_cursor() {
+                self.paint_frame()
+            } else {
+                frame
+            }
+        })
+    }
+    /// Whether the last paint produced a current picture rather than a fallback.
+    pub fn last_frame_succeeded(&self) -> bool {
+        self.last_frame_succeeded
     }
     fn paint_frame(&mut self) -> Arc<Pixmap> {
+        self.brush.composition = self.ime_paint();
         self.alert_sync();
+        self.prepare_overlay();
+        if self.brush.scrollbars.enabled {
+            self.brush.scrollbars.limits = self.collection_scroll_limits();
+            self.brush.scrollbars.pointer = self.hover_point;
+        }
         self.brush.placements = self.surfaces.placements(&self.host);
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);

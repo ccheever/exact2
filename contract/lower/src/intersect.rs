@@ -2,7 +2,7 @@
 use crate::{err, LowerError};
 use contract_syntax::{Expr, Span};
 
-fn css_number(number: &str) -> bool {
+pub(crate) fn css_number(number: &str) -> bool {
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     let mantissa = if let Some((mantissa, exponent)) = number.split_once('e') {
         if !digits(exponent.strip_prefix(['+', '-']).unwrap_or(exponent)) {

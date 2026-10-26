@@ -14,6 +14,8 @@ pub(super) struct Header {
     channels: u8,
     color: u8,
     interlaced: bool,
+    #[cfg(windows)]
+    pub(super) orientation: u8,
 }
 
 /// `color` for a JPEG, GIF or WebP (not a PNG colour type); its pixels come
@@ -47,6 +49,8 @@ impl Header {
             channels: 4,
             color: JPEG,
             interlaced: false,
+            #[cfg(windows)]
+            orientation: 1,
         }
     }
 
@@ -59,12 +63,26 @@ impl Header {
             channels: 4,
             color: SVG,
             interlaced: false,
+            #[cfg(windows)]
+            orientation: 1,
         }
     }
 
     /// Whether the picture is an SVG document, drawn rather than decoded.
     pub(super) fn is_svg(&self) -> bool {
         self.color == SVG
+    }
+
+    #[cfg(windows)]
+    pub(super) fn oriented(mut self, orientation: u8) -> Self {
+        self.orientation = orientation;
+        if orientation >= 5 {
+            std::mem::swap(
+                &mut self.metadata.natural.width,
+                &mut self.metadata.natural.height,
+            );
+        }
+        self
     }
 }
 
@@ -162,6 +180,8 @@ pub(super) fn inspect(
                 channels,
                 color: head[25],
                 interlaced: head[28] == 1,
+                #[cfg(windows)]
+                orientation: 1,
             });
         }
         if end > MAX_HEADER_BYTES {
@@ -233,6 +253,25 @@ impl DecodePlan {
                 .metadata
                 .encoded_bytes
                 .checked_add(u64::from(natural.width) * 8 + 1024 * 1024)
+                .ok_or(Refusal::Overflow)?
+        } else {
+            scratch
+        };
+        // A WIC flip/rotation may keep the scaled frame for out-of-order rows.
+        #[cfg(windows)]
+        let scratch = if header.orientation != 1 {
+            scratch
+                .checked_add(u64::from(pixels.0) * u64::from(pixels.1) * 4)
+                .ok_or(Refusal::Overflow)?
+        } else {
+            scratch
+        };
+        // WIC codecs may cache a complete source frame (notably GIF/WebP).
+        // Charge that backing even when the requested thumbnail is small.
+        #[cfg(windows)]
+        let scratch = if header.color == JPEG {
+            scratch
+                .checked_add(u64::from(natural.width) * u64::from(natural.height) * 4)
                 .ok_or(Refusal::Overflow)?
         } else {
             scratch

@@ -620,7 +620,8 @@ impl<D: DataSource> Runner<D> {
                                         && states[i].is_some() =>
                                 {
                                     let failure = crate::failure::Failure::of(&e);
-                                    self.log(super::lines::failed_now(
+                                    self.count_failure(i);
+                                    self.alert(super::lines::failed_now(
                                         self.plan.str(row.name),
                                         &failure.message,
                                     ));
@@ -709,7 +710,8 @@ impl<D: DataSource> Runner<D> {
                                     };
                                     effects[i] = RequestEffect::Answered;
                                     pending_res[i] = false;
-                                    self.log(super::lines::failed_now(&resource, &why));
+                                    self.count_failure(i);
+                                    self.alert(super::lines::failed_now(&resource, &why));
                                     self.failed_args[i] = Some(args.clone());
                                     self.failed_why[i] = Some(crate::failure::Failure {
                                         code,

@@ -3,6 +3,8 @@ import Foundation
 import CoreText
 
 extension InlineText {
+    /// What it reads as: its text, or an image's `aria-label` (LLP 1011.002 D4).
+    var spoken: String { lightRun.box == nil ? text : boxShown ? props["accessibilityLabel"] ?? "" : "" }
     /// Whether a colour here is the view's tint (LLP 1095 D8).
     var namesTint: Bool { colorRef?.namesTint == true || backgroundRef?.namesTint == true || paint.namesTint }
     /// The run in its paragraph owner's traits: `contrast` and `elevated`

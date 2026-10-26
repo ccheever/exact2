@@ -41,6 +41,21 @@ pub struct Device {
 const ROOT_FONT_SIZE: f64 = 16.0;
 
 impl<D: DataSource> Presenter<D> {
+    /// The shell's text-size preference, independent of display DPI. Authored
+    /// absolute fonts keep their sizes; default fields and rem lengths scale.
+    pub fn set_text_scale(&mut self, scale: f32) -> Option<String> {
+        if !scale.is_finite() || scale <= 0.0 || self.text_scale == scale {
+            return None;
+        }
+        self.text_scale = scale;
+        let root = self
+            .host
+            .set_root_font_size(ROOT_FONT_SIZE * f64::from(scale));
+        let field = self.host.set_control_text_scale(scale).err();
+        let applied = self.after_commit();
+        root.or(field).or(applied)
+    }
+
     /// The device's settings, as its shell read them (LLP 1115.001 D3.1,
     /// D3.2). What has a door here goes through it, each one a commit only
     /// when its value changed:
@@ -96,6 +111,7 @@ impl<D: DataSource> Presenter<D> {
         };
         let mut error = self.set_preferences(preferences);
         if device.font_scale.is_finite() && device.font_scale > 0.0 {
+            self.text_scale = device.font_scale;
             let px = ROOT_FONT_SIZE * f64::from(device.font_scale);
             error = error.or(self.set_root_font_size(px));
             // A field the shell hosts starts at the scaled size too (D8).

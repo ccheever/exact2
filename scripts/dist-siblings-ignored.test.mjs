@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { replaceBuild } from '../host/web/serve.mjs';
 import { generationOf, leaseGeneration } from '../host/web/generations.mjs';
+import { newerThan } from './agent-launch.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const SIBLINGS = ['.gen/0123456789abcdef0123456789abcdef/app.js', '.leases/0123456789abcdef0123456789abcdef/1-1', '.gen.reaped', '.lock', '.previous/app.js', '.stage-abc123/app.js'];
@@ -38,5 +39,14 @@ test('two builds swapped in a sample app\'s dist, one leased, leave its git stat
     writeFileSync(`${dist}.gen.reaped`, '0123456789abcdef0123456789abcdef\n');
     expect(git('status', '--porcelain').stdout).toBe('');
     release();
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a dist\'s swap siblings are no build input: a later build\'s reap leaves a drive\'s build fresh', () => {
+  const root = mkdtempSync(join(tmpdir(), 'exact-dist-inputs-'));
+  try {
+    for (const name of ['dist.gen.reaped', 'dist.lock', 'dist.stage-abc123', 'web-dist.gen.reaped', 'serve.mjs', 'dist.ts', 'web-dist.json']) writeFileSync(join(root, name), 'x');
+    // A source that only starts with the word is an input.
+    expect(newerThan(0, [{ shallow: root }]).map((p) => p.slice(p.lastIndexOf('/') + 1)).sort()).toEqual(['dist.ts', 'serve.mjs', 'web-dist.json']);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

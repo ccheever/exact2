@@ -101,6 +101,17 @@ pub struct LayoutLine {
     pub line_height: Option<f32>,
 }
 
+/// An image's box in a line (LLP 1011.002): where its run's box went.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LayoutBox {
+    /// The visual line it is on, an index into [`Lines::lines`].
+    pub line: u32,
+    /// Its left edge from the paragraph's left, points.
+    pub x: f32,
+    /// The canonical run index whose box it is.
+    pub run: u32,
+}
+
 /// One width's lines, glyphs and faces.
 #[derive(Clone, Debug, Default)]
 pub struct Lines {
@@ -110,6 +121,8 @@ pub struct Lines {
     pub glyphs: Vec<LayoutGlyph>,
     /// The faces the glyphs name.
     pub faces: Vec<Face>,
+    /// Every line's inline boxes, in visual order.
+    pub boxes: Vec<LayoutBox>,
 }
 
 impl Lines {
@@ -123,6 +136,7 @@ impl Lines {
         self.lines.capacity() * size_of::<LayoutLine>()
             + self.glyphs.capacity() * size_of::<LayoutGlyph>()
             + self.faces.capacity() * size_of::<Face>()
+            + self.boxes.capacity() * size_of::<LayoutBox>()
             + self
                 .faces
                 .iter()
@@ -156,7 +170,8 @@ impl Lines {
 }
 
 /// One Parley line's glyphs, appended in visual order with `shift` added
-/// to every x (`styles` is the layout's, whose brushes are run indices).
+/// to every x (`styles` is the layout's, whose brushes are run indices),
+/// and its inline boxes as the next line's (a box's id is its run index).
 /// Returns the line's summed cluster advance (justified where it is).
 pub(super) fn extract(
     line: &parley::Line<'_, u32>,
@@ -167,7 +182,22 @@ pub(super) fn extract(
     let m = line.metrics();
     let mut pen = m.offset + m.inline_min_coord + shift;
     let mut content = 0.0f32;
-    for run in line.runs() {
+    for item in line.items_nonpositioned() {
+        let run = match item {
+            parley::LineItem::Run(run) => run,
+            parley::LineItem::InlineBox(b) => {
+                if b.kind == parley::InlineBoxKind::InFlow {
+                    out.boxes.push(LayoutBox {
+                        line: out.lines.len() as u32,
+                        x: pen,
+                        run: b.id as u32,
+                    });
+                    pen += b.width;
+                    content += b.width;
+                }
+                continue;
+            }
+        };
         let synthesis = run.synthesis();
         let face = out.face(Face {
             font: run.font().clone(),

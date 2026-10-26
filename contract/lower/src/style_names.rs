@@ -321,6 +321,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // projected through `shorthands`.
     ("text-box-trim", "css CSS Inline Layout 3", AttrTarget::Styles(&[StyleId::TextBoxTrim])),
     ("text-box-edge", "css CSS Inline Layout 3", AttrTarget::Shorthand),
+    // @ref LLP 1011.002 D3 — a keyword, or a length (`baseline-shift`).
+    ("vertical-align", "css CSS Inline Layout 3", AttrTarget::Shorthand),
     ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
 ];
 

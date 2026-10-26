@@ -200,6 +200,7 @@ impl Kernel {
                 layout.mark_dirty(node);
             }
             self.arena.flags_mut(*slot).insert(NodeFlags::STYLE_DIRTY);
+            self.inline_image_resized(*slot);
         }
         // A replayed row checks its styles, which a handle leaves as they
         // were, not what the handle now resolves to

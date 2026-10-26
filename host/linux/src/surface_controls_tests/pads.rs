@@ -1,6 +1,30 @@
 //! Gamepads through the presenter (LLP 1127.003 D2, D9).
 use super::*;
 
+#[test]
+fn controller_polling_needs_an_input_canvas_but_survives_editor_focus() {
+    let (mut p, path) = fixture();
+    assert!(p.has_gamepad_input());
+    let editor = find(&p, "editor");
+    p.set_focus(Some(editor), 0.);
+    assert!(
+        p.has_gamepad_input(),
+        "focus may return to a game at any time"
+    );
+    // The probe's canvas 98 paints but does not accept input.
+    for canvas in p.surfaces.canvases.values_mut() {
+        canvas.id = 98;
+    }
+    assert!(!p.has_gamepad_input());
+    let canvases = std::mem::take(&mut p.surfaces.canvases);
+    assert!(
+        !p.has_gamepad_input(),
+        "ordinary app windows need no polling"
+    );
+    p.surfaces.canvases = canvases;
+    done(p, path);
+}
+
 /// LLP 1127.003 D9: the pads follow the focus. The canvas they leave hears
 /// each pad go; the one they reach hears each pad as it is, so a button held
 /// across the move is released by the canvas that now has it.

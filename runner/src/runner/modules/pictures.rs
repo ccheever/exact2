@@ -138,8 +138,18 @@ impl<D: DataSource> Runner<D> {
 
     /// The host's target (`ios`, `macos`, `android`, `web`), which a name's
     /// `owned` and an interface's `images.owned` are by.
+    /// A change asks every module name again, since its answers were by the
+    /// target before (`targets`, a permission's `targets`).
     pub fn set_module_target(&mut self, target: &str) {
+        if self.host_target() == target {
+            self.extensions.pictures.target = Some(target.to_owned());
+            return;
+        }
         self.extensions.pictures.target = Some(target.to_owned());
+        let keys: Vec<String> = (self.plan.modules.iter()).map(|m| self.key(m)).collect();
+        for key in keys {
+            self.announce(&key);
+        }
     }
 
     /// The target a declaration's per-target words are read by: the one the

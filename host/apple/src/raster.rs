@@ -292,7 +292,7 @@ pub fn next_decode(timeout_ms: u32, since: u64) -> RasterWork {
         // A wake with no decode returns too, so the worker reads the header
         // of a source queued meanwhile, or while it last looked.
         let timeout = Duration::from_millis(u64::from(timeout_ms.min(1000)));
-        gate.wait_work_since(since, timeout)
+        gate.wait_work_since(since, Some(timeout))
     };
     let Some(permit) = permit else {
         return RasterWork::default();

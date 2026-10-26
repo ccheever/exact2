@@ -5,6 +5,36 @@ use crate::text::markup::QUIET;
 use crate::text::{backgrounds::InlineBackground, Paragraph, RunPaint};
 use exact_kernel::{Kernel, NodeRef, NodeType, PropId, StyleId};
 
+pub(super) fn focus_fragments(
+    kernel: &Kernel,
+    paragraph: &Paragraph,
+    palette: &[RunPaint],
+    focus: exact_kernel::ViewId,
+) -> Vec<super::Shape> {
+    let backgrounds: Vec<_> = palette
+        .iter()
+        .map(|run| {
+            let mut at = Some(run.source);
+            while let Some(id) = at {
+                if id == focus {
+                    return Some(InlineBackground {
+                        id: focus,
+                        color: [255; 4],
+                        radii: [exact_kernel::Dimension::Points(2.0); 4],
+                    });
+                }
+                at = kernel.node(id).and_then(|n| n.parent);
+            }
+            None
+        })
+        .collect();
+    paragraph
+        .inline_backgrounds(&backgrounds, &kernel.env())
+        .into_iter()
+        .map(|(shape, _)| shape)
+        .collect()
+}
+
 /// Mirror the canonical run ownership (own text suppresses descendants),
 /// retaining paint-only information without adding it to the metric ABI.
 pub(crate) fn text_palette(
@@ -29,8 +59,17 @@ pub(crate) fn text_palette(
         });
     } else {
         for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
+            let Some(child) = kernel.node(child) else {
+                continue;
+            };
+            if child.node_type == NodeType::Text {
                 text_palette(kernel, &child, dark, reveal, out);
+            } else if child.inline_box().is_some() {
+                // An image's run (LLP 1011.002): a box, no glyphs.
+                out.push(RunPaint {
+                    color: [0, 0, 0, 0],
+                    source: child.id,
+                });
             }
         }
     }
@@ -101,7 +140,13 @@ fn collect_backgrounds(
     } else {
         let mut emitted = false;
         for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
+            let Some(child) = kernel.node(child) else {
+                continue;
+            };
+            if child.inline_box().is_some() {
+                out.push(None); // an image's run paints its own box
+            }
+            if child.node_type == NodeType::Text {
                 // A hidden box contributes no background; a visible ancestor
                 // still covers its characters.
                 let own = super::paints(kernel, child.id, reveal)

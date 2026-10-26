@@ -281,7 +281,7 @@ final class OwnerBlocks {
     /// samples what to tell when it tells it, so a report that waited tells
     /// what is current, and the ones behind it what changed since: none.
     func publish() {
-        guard !resetting else { return }
+        guard !resetting, !presenter.resetting else { return } // (a sheet a reset dismisses is the old tree's: never told the runtime replacing it)
         presenter.nativeGeometry.changed()
         if presenter.applying {
             presenter.afterBatch { [weak self] in self?.publish() }
@@ -295,7 +295,7 @@ final class OwnerBlocks {
 
     /// What changed since the runtime was last told, told now.
     private func tell() {
-        guard !resetting, let session = presenter.session, session.state != .destroyed else { return }
+        guard !resetting, !presenter.resetting, let session = presenter.session, session.state != .destroyed else { return }
         // A callback the runtime waits on can make no runtime call: tell
         // once it returns, as `ExactView.fit` resizes then
         if Owner.shared.isServingMain {

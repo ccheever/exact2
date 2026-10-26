@@ -228,6 +228,11 @@ package final class Presenter {
     /// Use notifications for animation timing; read geometry from the guide at layout.
     @objc func keyboardChanged(_ n: Notification) {
         if let screen = n.object as? UIScreen, screen !== viewport.window?.screen { return }
+        HostLog.note(session, {
+            let end = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
+            let shown = end.height > 0 && end.minY < (viewport.window?.screen.bounds.height ?? .infinity)
+            return shown ? "keyboard: shown, \(Int(end.width))×\(Int(end.height)) at y \(Int(end.minY))" : "keyboard: hidden"
+        }())
         refitKeyboard(duration: n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0,
                       curve: n.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7)
     }
@@ -285,6 +290,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        resetting = true; defer { resetting = false }
         MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
         focusEvents.reset()
@@ -631,6 +637,12 @@ package final class Presenter {
     private var waiting: [(UInt32?, () -> Void)] = []
     /// Paragraphs whose presented colour a batch changed, painted as it ends.
     var presentedText: Set<UInt32> = []
+    /// Each painted popover's region not yet told the kernel, the latest, with the view it is for (`tellRegion`).
+    var regionsUntold: [UInt32: (view: ObjectIdentifier?, block: HostBlock?)] = [:]
+    /// The dev loop's status pill (DevPill.swift), while one shows.
+    var devPill: PlatformView?
+    /// Painted popovers' measures in their regions this batch (`placePainted`).
+    var regionMeasures = PositionArea.MeasureCache()
     /// Paragraphs whose words the batch being applied changed (`paintChangedText`)
     var changedText: Set<UInt32> = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
@@ -679,6 +691,9 @@ package final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
     /// What native containers cover of boxes (LLP 1075.003 §3.5).
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// In `reset`: host state its views would move with no runtime to tell stays as it was (FocusEvents' focus,
+    /// OwnersIOS' blocks, ExactView `fit`'s geometry; ResetGate).
+    private(set) var resetting = false
     /// Work for after the batch being applied, or now: a hatch's act on an
     /// authored element never lands inside a batch (LLP 1075.003 §3.4).
     package func afterBatch(_ work: @escaping () -> Void) { if applying { waiting.append((nil, work)) } else { work() } }
@@ -724,8 +739,8 @@ package final class Presenter {
         defer { applyLanguage(batch); applyWakeLock(batch) }
         if applySnapshots(batch) { return }
         PaintOrder.begin(); let schemes = ColorSchemes.begin(); defer { schemes.end() }
-        let post = Self.signposts.beginInterval("apply")
-        defer { Self.signposts.endInterval("apply", post) }
+        let post = Self.signposts.beginInterval("apply"), phase = HostPhases.shared.begin(.apply)
+        defer { Self.signposts.endInterval("apply", post); HostPhases.shared.end(phase) }
         collections.beginBatch(batch)
         if !applying { flats.begin(batch) }
         pool.begin(batch)
@@ -947,7 +962,7 @@ package final class Presenter {
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
-                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutResize = CGSize(width: CGFloat(op.w), height: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x; v.refreshPressOpacity()

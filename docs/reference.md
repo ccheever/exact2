@@ -1589,9 +1589,11 @@ the platform would call (`delivery: "substituted"`).
 `wakelock="screen"` on any element keeps the display from dimming or locking
 for idleness while that element is mounted and displayed: neither it nor an
 ancestor is `display: none` (or laid out so by its host, as an unopened tab
-is), and it is under no tab the navigation leaves unselected and no screen a
-stack keeps under its top, so a screen kept mounted in a hidden tab panel
-holds nothing; the screen a sheet covers is still shown, and holds. An exit
+is), inside no `dialog` or popover its host has not opened, and under no tab
+the navigation leaves unselected and no screen a stack keeps under its top,
+so a screen kept mounted in a hidden tab panel holds nothing; the page a
+sheet covers, and every sheet between it and the top, is still shown, and
+holds. An exit
 animation's ghost holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
 D11). Natively an element the host shows as its own control (a header in the
 navigation bar, a confirmation as a native alert, a menu as a native menu)
@@ -1613,6 +1615,57 @@ unset`) and holds nothing. The runner decides which elements hold it
 
 `state.wakelock` is `{held, by}`: whether any element holds it and their view
 ids, on every host's driver.
+
+### Lock the screen orientation
+
+`orientationlock` on any element keeps the window to the orientations it
+names while that element is displayed, by the wake lock's rule above, and
+outside every `dialog` and popover ([LLP 1133.029](../llp/1133.029-screen.rfc.md)).
+The words are the Screen Orientation API's lock types, `portrait`,
+`landscape`, `portrait-primary`, `portrait-secondary`, `landscape-primary`,
+`landscape-secondary`, `natural` and `any`, and `current`, the orientation
+the window has when the lock begins; `"none"`, the default, holds nothing.
+Bind it to what needs it: a game steered by tilting the phone keeps the
+orientation the player holds while tilt is on,
+`orientationlock=(tilt ? "current" : "none")`.
+
+When several displayed elements hold a lock, three rules decide which
+count. The topmost sheet that holds wins over the routes beneath it, so a
+sheet can turn a locked screen and a sheet that holds nothing leaves the
+lock beneath it. A holder with a holder among its descendants is replaced
+by it, as an inherited CSS property is: a portrait app's root says
+`orientationlock="portrait"` and one screen under it says `"landscape"`;
+`"any"` frees a subtree. The holders left intersect, and holders that share
+no orientation hold none: the journal says `orientationlock: conflict: view
+12 "portrait", view 30 "landscape"; none held`.
+
+A type narrows the manifest's `orientation` and never widens it: iOS refuses
+a screen whose orientations fall outside the app's Info.plist. So a literal
+type that shares no orientation with the manifest's (`"landscape"` in a
+`"portrait"` app) is refused at bake (`orientationlock-outside-manifest`):
+widen the manifest and lock the screens that need portrait. A literal or
+computed lock inside a `dialog` or popover is refused too
+(`orientationlock-in-top-layer`): whether a box is open is the host's
+state, and a dialog over a locked screen leaves its lock. A computed word
+outside the table is journaled (`view N: invalid orientationlock value …;
+unset`) and holds nothing.
+
+| host | held through |
+| --- | --- |
+| iOS | the root and every presented controller's `supportedInterfaceOrientations`, turned by `requestGeometryUpdate`; `current` is `prefersInterfaceOrientationLocked` from iOS 26 and the scene's orientation before |
+| iPadOS | `current` alone, in full screen (iPadOS 26 and later): a multitasking app supports every orientation, so iPadOS asks no controller for a type |
+| Android | the activity's `requestedOrientation` (request kind 13): the manifest's mapping for a type, `locked` for `current`; on a screen 600 dp wide or wider Android 16 ignores a type, and `current` holds |
+| web (both targets) | `screen.orientation.lock()`, where the browser locks: in fullscreen, on Android's Chrome and Firefox; asked again on entering fullscreen and on becoming visible. `orientationlock: unavailable: <DOMException name>` is journaled once where it refuses (desktop Chrome, Safari) |
+| Windows | the process's `SetDisplayAutoRotationPreferences`, which a convertible or a tablet follows |
+| macOS, tvOS, Linux, the terminal | none: `orientationlock: this host has no screen orientation`, journaled once |
+
+`state.orientationlock` is `{held, by, words, lock, conflict, applied}`: the
+counted holders' views and words, the lock the host is told, the holders of
+a conflict, whichever side found it, and `applied`, what the host asked the
+platform for and whether it holds (`"unavailable"` where there is none). A
+request is not an effect: a drive judges a lock by the orientation the
+window keeps (`layout`'s `screen.orientation` on iOS), and reads `applied`
+for why.
 
 ### Pick a file of any type
 
@@ -1736,7 +1789,8 @@ for (const name of await storage.fs.readdir(folder)) {
 | `writeFile`, `atomicWriteFile`, `appendFile` | `fs.write doc:/` | Creates a file beneath a chosen folder |
 | `mkdir` | `fs.write doc:/` | Makes the folders above it too |
 | `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
-| `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
+| `copyFile(from, to)`, `from` a `doc:` file, `to` an `app:/` path | `fs.read` covering `from`, `fs.write` covering `to` | The host copies the bytes; they never enter JavaScript, so a file past `readFile`'s 16 MiB result copies too. A regular file only, with `readFile`'s refusals |
+| `rename`, `realpath`, and `copyFile` to a `doc:` path | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
 refused. Native folder handles retain the selected directory even if its
@@ -1744,7 +1798,7 @@ pathname moves. Descendant symlinks and Windows reparse points are refused,
 including in intermediate folders; explicitly choosing a file through a
 symlink still selects its target. A native selection whose filename is not
 valid Unicode is refused rather than addressing a lossy spelling. A document needs no app storage: a drive without `--storage` reaches
-it. On the web the paths are the `FileSystemHandle`s the page's picker
+it, though a `copyFile` into an `app:/` path needs app storage as any app file does. On the web the paths are the `FileSystemHandle`s the page's picker
 returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
 on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
 and iOS they are security-scoped URLs held for the session; Linux opens no
@@ -2442,6 +2496,12 @@ direct `each` (LLP 1010). Only a non-empty collection has edges: its geometric
 window reaches the first or last supplied row. An empty collection fires neither
 event. A plain list lays out all its children and has no collection window;
 the Contract compiler refuses either handler there, on every target.
+
+`reach-margin` on such a list sets how far ahead of an edge they fire: the edge
+row may be up to that far past the port. It is a literal, one or two nonnegative
+px or % lengths (before and after; a percentage is of the list's port along its
+axis), and defaults to one port, `"100%"`. `reach-margin="200%"` asks for the
+next page when the last row is two ports away (LLP 1145 D4).
 
 For a plain feed or masonry, use `intersect=` on a marker at the end of the
 content, after the columns, inside the same scroller:

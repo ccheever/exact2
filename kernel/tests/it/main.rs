@@ -34,6 +34,7 @@ mod handoff;
 mod head;
 mod height_binding;
 mod image;
+mod inline_image;
 mod invocation;
 mod layout_equality;
 mod live_time;

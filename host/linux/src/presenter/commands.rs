@@ -15,6 +15,7 @@ impl<D: DataSource> Presenter<D> {
         // Every loop runs this each turn, and a reader's shell is served
         // before its first: whether a shell keeps the screen on is known.
         self.wakelock_unavailable();
+        self.orientation_unavailable();
         self.modules_in();
         self.run_queued_commands();
         if self.pending_update {
@@ -141,8 +142,8 @@ impl<D: DataSource> Presenter<D> {
                     .host
                     .log("close refused: dialogs unsupported on the headless/DRM host"),
                 // The shell's clipboard, and its browser, mail app and dialer.
-                "copyText" if self.has_shell() => self.copy_text(&c.args),
-                "openURL" if self.has_shell() => self.open_url(&c.args),
+                "copyText" if self.clipboard.is_some() || self.has_shell() => self.copy_text(&c.args),
+                "openURL" if self.has_shell() || self.url_opener.is_some() => self.open_url(&c.args),
                 // With no shell there is no clipboard or browser; and no
                 // editor, dev menu or window to close on any Linux host, and
                 // no media player (LLP 1042 §8): known, and named so.

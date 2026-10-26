@@ -1,0 +1,11 @@
+{
+  "name": "@exact/attestation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A proof for the app's own server that a request comes from a genuine build on a genuine device: App Attest and Play Integrity (LLP 1133.028).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json"
+  }
+}

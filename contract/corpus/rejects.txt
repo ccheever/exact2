@@ -358,6 +358,21 @@ component A
     input value=q change=set
       text "inside an input"
 ---
+== lower-leaf-children
+# LLP 1011.002 D1: an image in text is its paragraph's own child.
+component A
+  view
+    text
+      text
+        image "app:/a.png"
+---
+== lower-css-shorthand
+# LLP 1011.002 D1: `top` aligns to the line box, which is not built.
+component A
+  view
+    text
+      image "app:/a.png" vertical-align="top"
+---
 == lower-native-attr
 # LLP 1024 D1: a known row a module's box never uses is refused, not bound
 # to nothing while the module waits for the prop.

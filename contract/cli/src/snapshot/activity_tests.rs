@@ -475,3 +475,12 @@ fn shared_number_spellings_cover_format_boundaries_and_double_extremes() {
         );
     }
 }
+
+#[test]
+fn a_source_text_activity_names_no_members_file() {
+    // A text has no path to read members from (LLP 1091.002).
+    let src =
+        source("text title").replace("  inject\n", "  members \"./more.contract\"\n  inject\n");
+    let errors = compile_activity(&src, &activity()).unwrap_err();
+    assert_eq!(errors[0].id, "contract-use-unresolved", "{errors:?}");
+}

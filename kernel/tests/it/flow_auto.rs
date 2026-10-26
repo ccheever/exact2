@@ -413,6 +413,7 @@ fn padded_leaves_are_measured_in_content_space_and_line_clamp_holds() {
     let runs = [TextRun {
         text: PROSE.into(),
         style: node.text_style(),
+        inline: None,
     }];
     let metrics = MonospaceMeasurer::default().measure(&TextMeasureRequest {
         atoms: Default::default(),

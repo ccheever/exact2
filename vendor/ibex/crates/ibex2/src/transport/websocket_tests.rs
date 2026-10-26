@@ -1626,6 +1626,35 @@ fn an_idle_connection_blocks_without_periodic_wakeups() {
     drop(socket);
 }
 
+#[test]
+fn an_idle_pending_receive_blocks_without_writable_wakeups() {
+    let (port, peer) = idle_peer_for_exit_test();
+    let observer = Arc::new(PumpObserver::default());
+    let transport = TcpSocketTransport::with_pump_observer(observer.clone());
+    let controller = AbortController::new();
+    let mut socket = open_on(&transport, port, "/idle-receive", &controller.signal()).unwrap();
+    let receive = std::thread::spawn(move || socket.next());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !observer.receiving.load(Ordering::Acquire) && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    // A negative observation over an idle interval, as for the idle socket
+    // above, now with an outstanding receive and no peer traffic.
+    std::thread::sleep(Duration::from_millis(50));
+    let before = observer.returns.load(Ordering::Acquire);
+    std::thread::sleep(Duration::from_millis(150));
+    let after = observer.returns.load(Ordering::Acquire);
+    let receiving = observer.receiving.load(Ordering::Acquire);
+    controller.abort();
+    assert!(receive.join().unwrap().is_err());
+    peer.join().unwrap();
+    assert!(receiving, "the pump never accepted the receive");
+    assert_eq!(
+        after, before,
+        "an idle receive repeatedly woke on an empty write queue"
+    );
+}
+
 #[cfg(test)]
 fn idle_peer_for_exit_test() -> (u16, std::thread::JoinHandle<()>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

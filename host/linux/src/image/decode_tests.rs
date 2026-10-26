@@ -1,6 +1,112 @@
 use super::png_decode::{decode_rows, inspect, DecodePlan};
 use std::io::Cursor;
 
+#[cfg(windows)]
+#[test]
+fn windows_applies_jpeg_exif_orientation_to_dimensions_pixels_and_crops() {
+    let source = include_bytes!("../../../../apps/shared-elements/assets/alpine-water.jpg");
+    let header = inspect(&mut Cursor::new(source), source.len() as u64).unwrap();
+    let natural = header.metadata.natural;
+    let base_plan = DecodePlan::new(header, (natural.width, natural.height)).unwrap();
+    let base = decode_rows(Cursor::new(source), &base_plan, || false).unwrap();
+    for orientation in [6u8, 1, 2, 3, 4, 5, 7, 8] {
+        // One little-endian SHORT in IFD0, inserted before the JPEG's existing segments.
+        let mut bytes =
+            b"\xff\xd8\xff\xe1\0\x22Exif\0\0II\x2a\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0"
+                .to_vec();
+        bytes.extend([orientation, 0, 0, 0, 0, 0, 0, 0]);
+        bytes.extend_from_slice(&source[2..]);
+        let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+        let (w, h) = if orientation >= 5 {
+            (natural.height, natural.width)
+        } else {
+            (natural.width, natural.height)
+        };
+        assert_eq!(
+            (
+                header.metadata.natural.width,
+                header.metadata.natural.height
+            ),
+            (w, h),
+            "orientation {orientation}"
+        );
+        let plan = DecodePlan::new(header, (w, h)).unwrap();
+        let image = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
+        for (x, y) in [
+            (0, 0),
+            (w - 1, 0),
+            (0, h - 1),
+            (w - 1, h - 1),
+            (w / 3, h / 4),
+        ] {
+            let (sx, sy) = match orientation {
+                2 => (w - 1 - x, y),
+                3 => (w - 1 - x, h - 1 - y),
+                4 => (x, h - 1 - y),
+                5 => (y, x),
+                6 => (y, w - 1 - x),
+                7 => (h - 1 - y, w - 1 - x),
+                8 => (h - 1 - y, x),
+                _ => (x, y),
+            };
+            assert_eq!(
+                image.pixel(x, y),
+                base.pixel(sx, sy),
+                "orientation {orientation} at {x},{y}"
+            );
+        }
+        let crop = plan.part(w / 3, h / 4, (5, 7)).unwrap();
+        let cropped = decode_rows(Cursor::new(&bytes), &crop, || false).unwrap();
+        for y in 0..7 {
+            for x in 0..5 {
+                assert_eq!(
+                    cropped.pixel(x, y),
+                    image.pixel(w / 3 + x, h / 4 + y),
+                    "orientation {orientation}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_decodes_photos_and_animation_first_frames_at_the_requested_size() {
+    for path in [
+        "apps/shared-elements/assets/alpine-water.jpg",
+        "apps/motion-gallery/assets/spin.gif",
+        "apps/motion-gallery/assets/pulse.webp",
+    ] {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let bytes = std::fs::read(root.join(path)).unwrap();
+        let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+        let size = (
+            header.metadata.natural.width.min(64),
+            header.metadata.natural.height.min(64),
+        );
+        let plan = DecodePlan::new(header, size).unwrap();
+        let decoded = decode_rows(Cursor::new(&bytes), &plan, || false)
+            .unwrap_or_else(|e| panic!("{path}: {e:?}"));
+        assert_eq!((decoded.width(), decoded.height()), size, "{path}");
+        assert!(decoded.data().chunks_exact(4).any(|p| p[3] > 0), "{path}");
+        let part = plan.part(2, 3, (size.0 - 4, size.1 - 6)).unwrap();
+        let cropped = decode_rows(Cursor::new(&bytes), &part, || false).unwrap();
+        for row in 0..cropped.height() {
+            let from = (((row + 3) * size.0 + 2) * 4) as usize;
+            let len = cropped.width() as usize * 4;
+            assert_eq!(
+                &cropped.data()[row as usize * len..(row as usize + 1) * len],
+                &decoded.data()[from..from + len],
+                "{path} row {row}"
+            );
+        }
+        assert!(matches!(
+            decode_rows(Cursor::new(&bytes), &plan, || true),
+            Err(exact_raster::Refusal::Stale)
+        ));
+    }
+}
+
 fn pixel(x: u32, y: u32) -> [u8; 4] {
     [(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8, 128]
 }

@@ -10,10 +10,10 @@ import { developmentGate } from './install-page.mjs';
 import { REAL, TIMING, timingOf } from './tamber-timing.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
-const KNOBS = { EXACT_TAMBER_POLL_MS: '2000', EXACT_TAMBER_PRESENT_MS: '3000', EXACT_TAMBER_LONG_PRESENT_MS: '8000', EXACT_TAMBER_SWEEP_MS: '500' };
+const KNOBS = { EXACT_TAMBER_POLL_MS: '2000', EXACT_TAMBER_PRESENT_MS: '3000', EXACT_TAMBER_LONG_PRESENT_MS: '8000', EXACT_TAMBER_SWEEP_MS: '500', EXACT_TAMBER_VIA_WAIT_MS: '1500' };
 
-test('the real clocks: 25 s, 35 s, 90 s and 5 s, which this run (no test switch) uses', () => {
-  expect(REAL).toEqual({ poll: 25_000, present: 35_000, longPresent: 90_000, sweep: 5_000 });
+test('the real clocks: 25 s, 35 s, 90 s and 5 s, and --via\'s 20 min wait, which this run (no test switch) uses', () => {
+  expect(REAL).toEqual({ poll: 25_000, present: 35_000, longPresent: 90_000, sweep: 5_000, viaWait: 20 * 60_000 });
   expect(TIMING).toBe(REAL);
 });
 
@@ -21,7 +21,7 @@ test('the knobs count only under the test switch, and only to shorten', () => {
   // Without the switch (a person's serve, whatever its environment says): the real clocks.
   expect(timingOf(KNOBS)).toBe(REAL);
   expect(timingOf({ ...KNOBS, EXACT_TAMBER_TEST_TIMING: 'true' })).toBe(REAL);
-  expect(timingOf({ ...KNOBS, EXACT_TAMBER_TEST_TIMING: '1' })).toEqual({ poll: 2000, present: 3000, longPresent: 8000, sweep: 500 });
+  expect(timingOf({ ...KNOBS, EXACT_TAMBER_TEST_TIMING: '1' })).toEqual({ poll: 2000, present: 3000, longPresent: 8000, sweep: 500, viaWait: 1500 });
   expect(timingOf({ EXACT_TAMBER_TEST_TIMING: '1', EXACT_TAMBER_POLL_MS: '2000' })).toEqual({ ...REAL, poll: 2000 });
   for (const bad of ['26000', '49', '2s', '-1', '1.5', ''])
     expect(() => timingOf({ EXACT_TAMBER_TEST_TIMING: '1', EXACT_TAMBER_POLL_MS: bad })).toThrow(/EXACT_TAMBER_POLL_MS .*test timing only/);
@@ -36,7 +36,7 @@ test('a server process reads the knobs only under the switch, and says so when i
   expect(plain.stderr).not.toContain('TEST timing');
   const tested = run({ ...KNOBS, EXACT_TAMBER_TEST_TIMING: '1' });
   expect(tested.status, tested.stderr).toBe(0);
-  expect(JSON.parse(tested.stdout)).toEqual({ poll: 2000, present: 3000, longPresent: 8000, sweep: 500 });
+  expect(JSON.parse(tested.stdout)).toEqual({ poll: 2000, present: 3000, longPresent: 8000, sweep: 500, viaWait: 1500 });
   expect(tested.stderr).toContain('tamber: TEST timing (EXACT_TAMBER_TEST_TIMING=1): poll 2000 ms, present 3000 ms, longPresent 8000 ms, sweep 500 ms');
 });
 

@@ -112,7 +112,7 @@ pub(crate) fn directory(app_id: &str, agent: bool) -> PathBuf {
 /// Take the file's lock without waiting, for as long as it stays open: true
 /// when this process now holds it. `flock` on Unix, which Android has and the
 /// standard library's lock does not cover there; elsewhere the library's.
-fn lock(file: &std::fs::File) -> bool {
+pub(crate) fn lock(file: &std::fs::File) -> bool {
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;

@@ -13,6 +13,12 @@ use exact_kernel::ViewId;
 pub type BlockPlacement = ([f64; 4], ViewId, Option<[f64; 2]>);
 
 impl<D: DataSource> Runner<D> {
+    /// The top-layer boxes a host last reported open, which the holds while
+    /// displayed read (`crate::wakelock::displayed`).
+    pub(crate) fn top_layer_open(&self) -> &crate::geometry::Scrolled {
+        &self.scrolled
+    }
+
     /// The open popovers and dialogs last shown by a native presenter.
     pub fn top_layer(&mut self, views: &[ViewId]) {
         self.scrolled.top_layer(&self.kernel, views);

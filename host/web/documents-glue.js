@@ -26,7 +26,7 @@ const CODES = { NotFoundError: 'ENOENT', TypeMismatchError: 'ENOTDIR', InvalidMo
 function failure(message, code = 'failed') { return Object.assign(new Error(message), { kind: 'Unavailable', code }); }
 // A name of the wrong kind at the end of the path: what a native host's
 // `read`, `write` or `create_dir_all` says of it.
-const MISMATCH = { readFile: 'EISDIR', writeFile: 'EISDIR', atomicWriteFile: 'EISDIR', appendFile: 'EISDIR', mkdir: 'EEXIST' };
+const MISMATCH = { readFile: 'EISDIR', copyFile: 'EISDIR', writeFile: 'EISDIR', atomicWriteFile: 'EISDIR', appendFile: 'EISDIR', mkdir: 'EEXIST' };
 const failed = (op, path, e, last = false) => e?.kind ? e
   : failure(`fs.${op} ${path}: ${e?.message ?? e}`, (last && e?.name === 'TypeMismatchError' && MISMATCH[op]) || (CODES[e?.name] ?? 'failed'));
 
@@ -60,11 +60,13 @@ const STAT_DIR = { size: 0, isFile: false, isDirectory: true, modifiedMs: 0 };
 /** One `storage.fs` operation on a `doc:` path under `scope` (the app's
  * grants), with the semantics of ibex2's `run_document`, which a native
  * host runs for both languages: `readFile` an ArrayBuffer, `rm` one file
- * or empty folder, `mkdir` with its parents, `rename`, `copyFile` and
- * `realpath` refused. A Rust source reaches it through storage-request.js,
- * a TypeScript one through `files`. */
+ * or empty folder, `mkdir` with its parents, `rename` and `realpath`
+ * refused, and `copyFile` refused except into an app file (`copyFile`
+ * below). A Rust source reaches it through storage-request.js, a
+ * TypeScript one through `files`. */
 async function operate(op, path, bytes, scope, expect = null) {
-  if (['rename', 'copyFile', 'realpath'].includes(op)) throw failure(`fs.${op} is not available on a document; read its bytes and write them`);
+  if (op === 'copyFile') throw failure('fs.copyFile copies a document only into an app:/ path');
+  if (['rename', 'realpath'].includes(op)) throw failure(`fs.${op} is not available on a document; read its bytes and write them`);
   const write = ['writeFile', 'atomicWriteFile', 'appendFile', 'mkdir', 'rm'].includes(op), grant = write ? 'fs.write' : 'fs.read';
   if (!coversPath(scope, grant, path)) throw failure(`denied: fs.${op} ${path}: needs \`${grant} doc:/\``, 'denied');
   // `mkdir` makes the folders above too, as `create_dir_all` does.
@@ -121,6 +123,24 @@ async function operate(op, path, bytes, scope, expect = null) {
       default: throw failure(`fs.${op} is not available on a document`);
     }
   } catch (e) { throw failed(op, path, e, true); }
+}
+
+/** `copyFile(from, to)` from a document into an app file (LLP 1069.010 D1,
+ * ruled 2026-10-26), as ibex2's `copy_document`: `fs.read` on `from`, then
+ * `fs` (the app's storage-fs.js file system) admits `to` under `fs.write`
+ * before the document is opened, and keeps its File as the app file, so
+ * the bytes never pass through JavaScript. */
+async function copyFile(from, to, scope, fs) {
+  if (!coversPath(scope, 'fs.read', from)) throw failure(`denied: fs.copyFile ${from}: needs \`fs.read doc:/\``, 'denied');
+  return fs.copyIn(to, async () => {
+    const found = await locate('copyFile', from);
+    if (found.root !== undefined) throw failure(`fs.copyFile ${from}: a handle's own directory is read-only`);
+    try {
+      const h = await entry(found);
+      if (h.kind === 'directory') throw failure(`fs.copyFile ${from}: it is a folder`, 'EISDIR');
+      return await h.getFile();
+    } catch (e) { throw failed('copyFile', from, e, true); }
+  });
 }
 
 function base64(bytes) { let text = ''; for (let i = 0; i < bytes.length; i += 16384) text += String.fromCharCode(...bytes.subarray(i, i + 16384)); return btoa(text); }
@@ -277,7 +297,7 @@ function types() {
 }
 
 globalThis.exact.documents = {
-  mint, run, files, observe, hearDrags,
+  mint, run, files, copyFile, observe, hearDrags,
   /** A paste's files (`clipboardData.files`), each a read-only copy minted
    * at once, so the action hears them in the paste's own event and its
    * `preventDefault()` still cancels the field's paste; a pasted image with

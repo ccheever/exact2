@@ -774,6 +774,13 @@ pub fn import_within(
     let _work = crate::budget::Work::begin(limit);
     crate::budget::spend(text.len() as u64).map_err(refuse)?;
     let doc: Doc = serde_json::from_str(text).map_err(|e| refuse(format!("{file}: {e}")))?;
+    // Its themes are axes: past this importer's own count, refused with the
+    // design's id for too many axes (`tamber-axes`, theme2's 19:26).
+    let themes = doc.themes.as_ref().map_or(0, |t| t.0.len());
+    if themes > AXES {
+        let why = format!("{file}: {themes} axes in `themes`: at most {AXES}");
+        return Err(vec![Diagnostic::new("tamber-axes", why, 1, 1)]);
+    }
     // A value past the checker's bound refuses the import with that bound's
     // id (`super::super::source_bound`); one past this importer's own 1024
     // bytes and within it is reported, as before. A value only: not a

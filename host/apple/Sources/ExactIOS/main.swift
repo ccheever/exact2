@@ -65,6 +65,8 @@ final class Adapter: ExactSessionDelegate {
                 fputs("exact: openURL requires an external web, email or telephone URL\n", stderr)
                 return
             }
+            // Under the agent the drive keeps its app: opening another would suspend this one (LLP 1143 D1).
+            if agentMode { session.log("openURL \(value): opens outside the app (not under the agent)"); return }
             UIApplication.shared.open(url)
         // A scene is the system's to close; an app cannot (studio diary R17).
         case "close": session.log("close: unsupported: iOS closes a scene, an app does not")
@@ -192,6 +194,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
         session.hatchesOwnProcess = true
+        // `SIGUSR1` saves its trace (LLP 1142 D5): a simulator app is a Mac process.
+        TraceSignal.install { session }
         if ExactEnv.agentFreezes { session.clock = 0 }
         return true
     }

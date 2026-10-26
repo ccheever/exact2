@@ -149,6 +149,104 @@ fn failed_store_writes_retry_on_commits_without_writes() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "second");
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_persists_state_and_kept_answers_outside_the_agent_without_plaintext_secrets() {
+    const CHILD: &str = "EXACT_WINDOWS_PERSISTED_STATE_TEST";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "host::tests::windows_persists_state_and_kept_answers_outside_the_agent_without_plaintext_secrets",
+            ])
+            .env(CHILD, "1")
+            .env_remove("EXACT_AGENT")
+            .env_remove("EXACT_AGENT_STORAGE")
+            .env_remove("EXACT_AGENT_STORAGE_FRESH")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let app = format!("test.exact.windows-state-{}", std::process::id());
+    let roots = crate::picker::app_dirs(&app).unwrap().unwrap().0;
+    let root = roots[0].parent().unwrap();
+    assert_eq!(root.file_name().unwrap().to_str(), Some(app.as_str()));
+    assert!(!root.exists(), "test needs a new app identity");
+    let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
+        name: name.into(),
+        value: value.map(|v| v.as_bytes().to_vec()),
+    };
+    let result = std::panic::catch_unwind(|| {
+        assert!(crate::picker::secret_root(&app).unwrap().is_none());
+        let mut writes = StoreWrites::default();
+        assert!(writes
+            .flush(
+                &app,
+                &[
+                    write("exact.state.drafts", Some("[\"channel\\tdraft\"]")),
+                    write("exact.kept.messages", Some("[]")),
+                    write("account.token", Some("test token must not reach disk")),
+                ]
+            )
+            .is_empty());
+        let snapshot = store_snapshot(&app, false);
+        assert!(
+            snapshot.contains(&(
+                "exact.state.drafts".into(),
+                b"[\"channel\\tdraft\"]".to_vec()
+            )),
+            "{snapshot:?}"
+        );
+        assert!(
+            snapshot.contains(&("exact.kept.messages".into(), b"[]".to_vec())),
+            "{snapshot:?}"
+        );
+        assert!(!snapshot.iter().any(|(name, _)| name == "account.token"));
+        assert!(!root.join("secrets").exists());
+        let secret_files = ibex2::secrets::FileStore::new(root.join("secrets"));
+        ibex2::secrets::SecretStore::set(&secret_files, "account.token", "test-only old file")
+            .unwrap();
+        assert!(
+            !store_snapshot(&app, false)
+                .iter()
+                .any(|(name, _)| name == "account.token"),
+            "ordinary state storage must not enable reading plaintext secrets"
+        );
+        assert!(store_snapshot(&app, true).is_empty());
+        assert!(writes
+            .flush(
+                &app,
+                &[
+                    write("exact.state.drafts", None),
+                    write("exact.kept.messages", None),
+                ]
+            )
+            .is_empty());
+        assert!(store_snapshot(&app, false).is_empty());
+        std::env::set_var("EXACT_AGENT", "1");
+        assert!(writes
+            .flush(&app, &[write("exact.state.drafts", Some("[]"))])
+            .is_empty());
+        std::env::remove_var("EXACT_AGENT");
+        assert!(
+            store_snapshot(&app, false).is_empty(),
+            "a nameless drive has no storage"
+        );
+    });
+    if root.exists() {
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    if let Err(error) = result {
+        std::panic::resume_unwind(error);
+    }
+}
+
 /// A named agent drive keeps `secret.keep` in its scratch tree, and a
 /// fresh launch reads nothing back (platformer R10). A child, so the
 /// environment stays off this process.

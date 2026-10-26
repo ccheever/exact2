@@ -95,7 +95,7 @@ impl<D: DataSource> Runner<D> {
             let props: Json = (node.props.str(PropId::NativeViewProps))
                 .and_then(|p| serde_json::from_str(p).ok())
                 .unwrap_or_default();
-            let shown = row.displayed && crate::wakelock::displayed(kernel, id);
+            let shown = row.displayed && crate::wakelock::displayed(kernel, &self.scrolled, id);
             let mut was = self
                 .extensions
                 .views

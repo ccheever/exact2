@@ -52,7 +52,7 @@ final class PresenceMacTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = p.viewport
-        p.apply(wireBatch([["op": "present", "id": 2, "property": "layout", "x": 0.0, "y": 10.0, "w": 1.0, "h": 0.5]]))
+        p.apply(wireBatch([["op": "present", "id": 2, "property": "layout", "x": 0.0, "y": 10.0, "w": 0.0, "h": -25.0]]))
         let moved = try XCTUnwrap(p.presenceObservation().first { $0["id"] as? Int == 2 })
         XCTAssertEqual(moved["h"] as? CGFloat, 25)
         XCTAssertEqual(moved["exiting"] as? Bool, false)
@@ -70,11 +70,38 @@ final class PresenceMacTests: XCTestCase {
     func testALayoutSpringCannotGiveTheSurfaceANegativeSize() throws {
         let p = fixture()
         let v = try XCTUnwrap(p.views[3])
-        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 4.0, "y": 10.0, "w": -0.5, "h": -2.0]]))
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 4.0, "y": 10.0, "w": -150.0, "h": -100.0]]))
         let surface = try XCTUnwrap(v.surface)
         XCTAssertEqual(surface.bounds.size, .zero)
         XCTAssertEqual(surface.frame.origin, .zero)
         XCTAssertEqual(v.bounds.size, CGSize(width: 100, height: 50))
+    }
+
+    func testABoxClosingToZeroWidthShowsTheWidthItClosesFrom() throws {
+        let p = fixture()
+        let v = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["overflow_x": "hidden", "overflow_y": "hidden"]]]))
+        // Laid out closed, 200 wide on screen: the difference carries what
+        // no ratio of a zero width could (GitHub #940).
+        p.apply(wireBatch([
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 0.0, "h": 50.0],
+            ["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 200.0, "h": 0.0],
+        ]))
+        let surface = try XCTUnwrap(v.surface)
+        XCTAssertEqual(surface.frame, CGRect(x: 0, y: 0, width: 200, height: 50))
+        XCTAssertEqual(surface.clip.path?.boundingBox.width ?? 0, 200, accuracy: 1e-9)
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 100.0, "h": 0.0]]))
+        XCTAssertEqual(surface.frame.width, 100)
+        XCTAssertEqual(surface.clip.path?.boundingBox.width ?? 0, 100, accuracy: 1e-9)
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0]]))
+        XCTAssertNil(v.surface)
+        // A frame after the layout op in its batch resizes the surface.
+        p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 200.0, "h": 50.0]]))
+        p.apply(wireBatch([
+            ["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 200.0, "h": 0.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 0.0, "h": 50.0],
+        ]))
+        XCTAssertEqual(v.surface?.frame.width, 200)
     }
 
     func testAnExitKeepsTheViewWhereItWasInertAndUnnamedUntilItsDestroy() throws {
@@ -138,7 +165,7 @@ final class PresenceMacTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["background_color": blue, "border_radius_top_left": 6, "border_radius_top_right": 6, "border_radius_bottom_left": 6, "border_radius_bottom_right": 6, "overflow_x": "hidden", "overflow_y": "hidden"]]]))
         XCTAssertTrue(clips())
         // Grown from 25 to 50 high and moved down 10: it starts where it was.
-        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 4.0, "y": 10.0, "w": 1.0, "h": 0.5]]))
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 4.0, "y": 10.0, "w": 0.0, "h": -25.0]]))
         // The layer's transform is about its origin, the flipped view's top-left.
         let corner = { (x: CGFloat, y: CGFloat) in CGPoint(x: x, y: y).applying(v.layer!.affineTransform()) }
         let mask = { v.layer?.mask }
@@ -159,10 +186,10 @@ final class PresenceMacTests: XCTestCase {
         XCTAssertEqual(surface.clip.path?.boundingBox.height ?? 0, 25, accuracy: 1e-9)
         XCTAssertEqual(surface.clip.path?.boundingBox.width ?? 0, 100, accuracy: 1e-9)
         // Shrinking past the frame: the surface is larger than the view.
-        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.5]]))
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 0.0, "h": 25.0]]))
         XCTAssertEqual(surface.frame.height, 75)
         // At rest the node paints its own surface and clip again.
-        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0]]))
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0]]))
         XCTAssertNil(v.surface)
         XCTAssertNil(surface.superlayer)
         XCTAssertTrue(clips())
@@ -176,7 +203,7 @@ final class PresenceMacTests: XCTestCase {
         let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255])
         // Sides that differ: drawn, as the node's own `draw(_:)` draws them.
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["border_width": 4, "border_color_top": red, "border_color_right": red, "border_color_bottom": blue, "border_color_left": red]]]))
-        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 1.0, "h": 0.5]]))
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 0.0, "h": -25.0]]))
         let surface = try XCTUnwrap(v.surface)
         XCTAssertNotNil(surface.drawn)
         let (w, h) = (100, 25)

@@ -198,9 +198,16 @@ fn collect(
                 if text && !inline {
                     out.push((String::new(), selectable.selectable()));
                 }
-                if text {
+                // An image in a paragraph's text copies as its label (LLP 1011.002 D4).
+                let image = inline && u.env.plan.node(n.node).node_type == NodeType::Image as u8;
+                if text || image {
+                    let prop = if image {
+                        PropId::AccessibilityLabel
+                    } else {
+                        PropId::Text
+                    };
                     if let Some(value) = n
-                        .bound_prop(u.env.plan, u.sites, PropId::Text)
+                        .bound_prop(u.env.plan, u.sites, prop)
                         .as_ref()
                         .and_then(Value::as_str)
                     {

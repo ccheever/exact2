@@ -212,7 +212,7 @@ extension NodeView {
     var textIsSmall: Bool {
         let scale = window?.backingScaleFactor ?? 2
         guard bounds.width * bounds.height * scale * scale < TextRasterizer.minPixels else { return false }
-        return !(isParagraph && paragraphSpec().headroom > 1)
+        return !(isParagraph && paragraphHeadroom(drawing: true) > 1)
     }
 
     /// Whether the pump still owes this paragraph pixels.

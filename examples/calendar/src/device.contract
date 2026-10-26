@@ -1,4 +1,4 @@
-use DeviceAgenda, Guest from "./models.contract"
+use DeviceAgenda, Guest, ActivityAgenda, ActivityDays from "./models.contract"
 use ContactInfo from "@exact/contacts"
 
 // A picked contact as a guest: the copy the app keeps (LLP 1133.018 D4).
@@ -66,3 +66,39 @@ component Guests
           button "Add to Calendar…" press=addToCalendar disabled=disabled testId="add-to-calendar" aria-label="Add to Calendar"
       if note != ""
         text note testId="add-to-calendar-result" aria-live="polite" font-size=12 color=muted
+
+// The person's activity in the inspector (LLP 1133.026 §12): a switch, shown
+// where the target has a Health store; while it is on, the selected day's
+// workouts, and a line that says what Health shares. It never says access is
+// off, which the app cannot know on Apple (D5).
+component MyActivity
+  props
+    on: bool
+    agenda: ActivityAgenda
+    month: ActivityDays
+    ink: string
+    muted: string
+    border: string
+    toggle: action
+  view
+    column testId="my-activity" flex-shrink=0 padding-left=20 padding-right=16 padding-top=6 padding-bottom=8 gap=4 border-style="solid" border-top-width=1 border-right-width=0 border-bottom-width=0 border-left-width=0 border-color=border
+      row align-items="center" gap=8 height=36
+        text "Show my activity" flex=1 min-width=0 font-size=13 color=ink
+        input type="checkbox" switch checked=on change=toggle testId="show-my-activity" aria-label="Show my activity"
+      if on
+        column testId="my-activity-workouts" gap=2
+          for w in agenda.workouts key=w.id
+            row testId=`workout-${w.id}` align-items="center" gap=10 min-height=34
+              column flex=1 min-width=0 gap=1
+                text w.title font-size=13 color=ink white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                text w.time font-size=11 color=muted font-variant-numeric="tabular-nums"
+              if w.distance != ""
+                text w.distance flex-shrink=0 font-size=12 color=muted font-variant-numeric="tabular-nums"
+        if month.error == "" and month.days.length == 0
+          text "No activity to show. If you turned off Calendar’s access, you can allow it in Settings › Health › Data Access & Devices." testId="my-activity-none" font-size=12 color=muted
+        if month.error == "" and month.days.length > 0 and month.from != ""
+          text `Calendar can see your activity from ${month.from}.` testId="my-activity-since" font-size=12 color=muted
+        if month.error == "" and month.days.length > 0 and not month.complete
+          text "Showing the activity Health shares with Calendar." testId="my-activity-shared" font-size=12 color=muted
+        if month.error != "" and month.error != "unread"
+          text "Your activity can’t be read now." testId="my-activity-error" font-size=12 color=muted

@@ -272,6 +272,11 @@ pub(super) fn landing(
         }
     };
     if let Some(d) = fold(&vec![true; tokens.len()]).first() {
+        // A design limit the axes pass (too many axes, `when` lines) keeps
+        // its own id, as every importer's refusal of one does.
+        if matches!(d.id, "tamber-axes" | "tamber-whens") {
+            return Err(d.clone());
+        }
         return Err(Diagnostic::new(
             "tamber-import-axis",
             format!(
@@ -533,10 +538,15 @@ pub(super) fn settle(
 ) -> Result<usize, Vec<Diagnostic>> {
     let why = landing(tokens, axes, owned, design, vocab).map_err(|d| vec![d])?;
     let mut moved = 0;
+    // Each token's sources, by name, once (linear: the checker bound's sweep).
+    let mut by_name: HashMap<&str, Vec<&Vec<Unmapped>>> = HashMap::new();
+    for (n, from) in sources {
+        by_name.entry(n.as_str()).or_default().push(from);
+    }
     for (t, why) in tokens.iter().zip(&why) {
         let Some(why) = why else { continue };
-        for (_, from) in sources.iter().filter(|(n, _)| *n == t.name) {
-            for u in from {
+        for from in by_name.get(t.name.as_str()).into_iter().flatten() {
+            for u in from.iter() {
                 unmapped.push(Unmapped {
                     why: why.clone(),
                     token: Some(t.name.clone()),

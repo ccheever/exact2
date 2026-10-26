@@ -69,6 +69,8 @@ final class MenuHost {
     private var opened = 0
     private final class Lifted {
         var placement = PositionArea.History()
+        /// The region its option sized it in, as the kernel was told it (`PositionArea.place`).
+        var block: HostBlock?
         /// Anchored to its opener at least once.
         var placed = false
         let source: UInt32?
@@ -759,20 +761,17 @@ final class MenuHost {
             return
         }
         let anchorView: UIView = source.isNativeButton ? presenter.controls.controls[source.id] ?? source : source
-        var anchor = anchorView.convert(anchorView.bounds, to: entry.layer)
+        var anchor = anchorView.convert(anchorView.bounds, to: entry.layer), scroll = presenter.anchorScroll(anchorView, outside: entry.layer)
         // A bar item's popover opens from the item, not its hidden button (`agentOpen(barItem:)`).
-        if case .success(let (bar, item))? = presenter.navigation.barItem(source) { anchor = bar.convert(item, to: entry.layer) }
-        let size = pop.bounds.size
-        let placed = PositionArea.painted(pop, rtl: presenter.documentDirection == "rtl")
-        let at = PositionArea.origin(placed.area, anchor: anchor, size: size,
-                                    margins: PositionArea.margins(of: pop),
-                                    fallbacks: placed.fallbacks,
-                                    // The page's document less the bands past its area (status bar, home indicator).
-                                    overflow: PositionArea.overflow(of: pop, page: presenter.viewport.convert(CGRect(origin: .zero, size: presenter.viewport.contentSize).inset(by: presenter.pageMargins), to: entry.layer)),
-                                    rtl: presenter.documentDirection == "rtl",
-                                    history: &entry.placement, in: placement)
-        let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
+        if case .success(let (bar, item))? = presenter.navigation.barItem(source) { (anchor, scroll) = (bar.convert(item, to: entry.layer), .zero) }
+        // Sized in its option's region, as the web's (PopoverRegion.swift). The overflow's page: the
+        // document less the bands past its area (status bar, home indicator).
+        let at = presenter.placePainted(pop, laid: pop.bounds.size, anchor: anchor, scroll: scroll, pageScroll: presenter.viewport.contentOffset, overflow: PositionArea.overflow(of: pop, page: presenter.viewport.convert(CGRect(origin: .zero, size: presenter.viewport.contentSize).inset(by: presenter.pageMargins), to: entry.layer)),
+                                        history: &entry.placement, told: &entry.block, in: placement)
+        let center = CGPoint(x: at.origin.x + at.size.width / 2, y: at.origin.y + at.size.height / 2)
         entry.placed = true
+        // The size it was placed at, now: the region's frame comes with the layout its tell starts.
+        if pop.bounds.size != at.size { pop.bounds.size = at.size }
         if pop.center != center { pop.center = center }
     }
     /// Out of the top layer, hidden, back where it was; the popovers nested
@@ -780,6 +779,7 @@ final class MenuHost {
     func drop(_ name: String) {
         for (nested, entry) in agentOpen where entry.ancestor == name { drop(nested) }
         guard let entry = agentOpen.removeValue(forKey: name) else { return }
+        if let pop = entry.popover { presenter?.tellRegion(pop.id, nil, told: &entry.block) }
         coverClosed()
         entry.popover?.endEditing(true)
         entry.layer.removeFromSuperview()

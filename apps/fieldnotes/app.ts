@@ -1,4 +1,6 @@
 import type { Answer, Sources, Storage, Database, Result } from './app.contract.d.ts';
+import { pedometer } from '@exact/pedometer';
+import { altimeter } from '@exact/altimeter';
 
 type Library = Result<'library'>;
 type Note = Library['notes'][number];
@@ -7,7 +9,7 @@ type Status = Result<'backupNotes'>;
 type Store = Parameters<Answer>[2];
 
 export const appId = 'com.exact.fieldnotes';
-export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision';
+export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose';
 const backupPath = 'app:/data/backups/fieldnotes.json';
 // One app-owned revision survives source/language replacement with the Store.
 function nextRevision(store:Store):number {
@@ -204,7 +206,23 @@ async function service(source:string,args:unknown[],storage:Storage,store:Store)
     return {revision:nextRevision(store),message:notice,failed:false,backupText:text};
   } catch(error) {return {revision:nextRevision(store),message:message(error),failed:true,backupText:''};}
 }
+// A walk's figures (LLP 1133.026 §12): the steps since it began and the
+// height climbed, read only while it lasts. A figure the platform refuses
+// (no permission, no sensor) is left out, not shown as 0; so is the climb
+// where the altimeter's status says there is none.
+async function walk(start: number, climbs: boolean): Promise<Result<'walk'>> {
+  const out = { steps: 0, since: 0, counted: false, climb: 0, climbed: false, distance: -1 };
+  if (!(start > 0)) return out;
+  const [count, climb] = await Promise.allSettled([pedometer({ start }), climbs ? altimeter({ interval: 2000 }) : Promise.reject(new Error('no altimeter'))]);
+  if (count.status === 'fulfilled') {
+    Object.assign(out, { steps: count.value.steps, since: count.value.since, counted: true });
+    if (count.value.apple?.distance != null) out.distance = count.value.apple.distance;
+  }
+  if (climb.status === 'fulfilled') Object.assign(out, { climb: climb.value.relativeAltitude, climbed: true });
+  return out;
+}
 const sources: Sources = {
+  walk: ([start, , climbs]) => walk(start, climbs),
   library: ([query], _store, storage) => serial(() => library(query, storage)),
   // Native reads own their continuation; browser executors already hold a
   // whole storage-backed turn through close. Do not await another app call.

@@ -7,6 +7,107 @@ import XCTest
 /// paragraph is told it inherits; a view whose own appearance differs from
 /// the session's is noted for the host, once, until it agrees again.
 final class PaintMotionMacTests: XCTestCase {
+    private static let appearancePlan: Result<Data, Error> = Result {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rows = (0..<8).map { "          text \"Row \($0)\" testId=\"appearance-row-\($0)\" height=20 color=\"light-dark(#000000, #ffffff)\"" }.joined(separator: "\n")
+        let source = """
+        component App
+          state shown = false
+          action reveal
+            shown = true
+          view
+            column
+              button "Show" testId="appearance-reveal" press=reveal
+              column testId="appearance-changing" height=10 background-color="light-dark(#ffffff, #000000)" transition="background-color 1s linear"
+              if shown
+                column color-scheme="dark" testId="appearance-panel"
+        \(rows)
+
+        """
+        let contract = directory.appendingPathComponent("app.contract"), plan = directory.appendingPathComponent("app.plan")
+        try source.write(to: contract, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", contract.path, "-o", plan.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        return try Data(contentsOf: plan)
+    }
+
+    private func appearanceSession(_ label: String) throws -> ExactSession {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: label)
+        session.presenter.root.appearance = NSAppearance(named: .aqua)
+        XCTAssertNil(session.boot(plan: try Self.appearancePlan.get(), size: CGSize(width: 390, height: 400)).error)
+        session.clock = session.now()
+        session.apply(session.runtime.tick(now: session.now()))
+        session.scheme(dark: false)
+        return session
+    }
+
+    func testMountingAnAuthoredSchemeSkipsUnchangedAppearancePasses() throws {
+        let session = try appearanceSession("appearance-mount")
+        defer { session.destroy() }
+        let reveal = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "appearance-reveal" })
+        let before = session.appliedBatches
+        session.apply(session.runtime.press(reveal.id, now: session.now()))
+        let rows = session.presenter.views.values.filter { $0.props["testId"]?.hasPrefix("appearance-row-") == true }
+        XCTAssertEqual(rows.count, 8, "the runner mounted the authored rows")
+        XCTAssertTrue(rows.allSatisfy { $0.drawsDark && session.viewDark[$0.id] == true })
+        XCTAssertTrue(rows.allSatisfy { $0.channels("text_color") == [255, 255, 255, 255] })
+        XCTAssertEqual(session.appliedBatches, before + 1, "only the reveal applies; its unchanged appearance reports skip their passes")
+    }
+
+    func testAnAppearanceReportThatStartsMotionStillApplies() throws {
+        let session = try appearanceSession("appearance-motion")
+        defer { session.destroy() }
+        let changing = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "appearance-changing" })
+        changing.appearance = NSAppearance(named: .darkAqua)
+        session.noteAppearance(changing)
+        session.apply(wireBatch([]))
+        XCTAssertEqual(session.viewDark[changing.id], true)
+        changing.appearance = NSAppearance(named: .aqua)
+        session.noteAppearance(changing)
+        let before = session.appliedBatches, start = session.now()
+        session.apply(wireBatch([]))
+        XCTAssertEqual(session.appliedBatches, before + 2, "the ordinary batch and the report that starts the transition both apply")
+        XCTAssertTrue(session.frames.motion)
+        session.clock = start + 500
+        session.apply(session.runtime.tick(now: session.now()))
+        XCTAssertEqual(try XCTUnwrap(changing.channels("background_color")?.first), 128, accuracy: 1)
+        session.clock = start + 1000
+        session.apply(session.runtime.tick(now: session.now()))
+        XCTAssertEqual(changing.channels("background_color"), [255, 255, 255, 255])
+    }
+
+    func testAPublishedReplyLandsBeforeItsUnchangedAppearanceReports() throws {
+        let session = try appearanceSession("appearance-behind-reply")
+        defer { session.runtime.observeBatch = nil; session.destroy() }
+        let reveal = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "appearance-reveal" })
+        let earlier = session.runtime.press(reveal.id, now: session.now())
+        session.repliesInFlight = 1
+        session.replySubmissions = [0]
+        session.publish(.reply, earlier, session.generation)
+        let later = session.runtime.tick(now: session.now())
+        XCTAssertTrue(session.changesNothing(later))
+        var reportsAfterReply: [Bool] = []
+        session.runtime.observeBatch = { _, batch in
+            Owner.shared.callMain {
+                let rows = session.presenter.views.values.filter { $0.props["testId"]?.hasPrefix("appearance-row-") == true }
+                reportsAfterReply.append(session.repliesInFlight == 0 && rows.count == 8 && batch.ops.isEmpty && batch.error == nil)
+            }
+        }
+        let before = session.appliedBatches
+        session.applyUnlessEmpty(later)
+        XCTAssertEqual(session.repliesInFlight, 0)
+        XCTAssertFalse(reportsAfterReply.isEmpty, "the real mounted subtree reported its appearance")
+        XCTAssertTrue(reportsAfterReply.allSatisfy { $0 }, "each report follows the earlier reply's presentation")
+        XCTAssertEqual(session.appliedBatches, before + 1, "only the published reply applies")
+        XCTAssertEqual(session.timerDue, later.timerDueMs)
+    }
+
     func testAnInlineRunPaintsTheColourItsParagraphIsTold() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "paint-run-mac")

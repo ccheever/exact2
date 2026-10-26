@@ -240,8 +240,10 @@ public final class ExactView: NSView {
     }
 
     /// Boot at the first real size (an embedder's view), else resize; the
-    /// insets follow.
+    /// insets follow. Owed while a restart holds the runtime, the last-told
+    /// size untouched: ResetGate replays it after the batch.
     private func fit() {
+        if session.runtime.holds("resize(width:height:)") { return }
         if Owner.shared.isServingMain {
             if !fitPending {
                 fitPending = true
@@ -299,6 +301,7 @@ public final class ExactView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        ExactApp.shared.refreshDevPills() // in the window it joined, or another's (DevPill.swift)
         observeEnvironment()
         toolbarVisibilityObservation = nil
         windowToolbarObservation = window?.observe(\.toolbar, options: [.initial, .new]) { [weak self] window, _ in
@@ -376,6 +379,7 @@ public final class ExactView: NSView {
     /// zero otherwise. Then AppKit's layout regions (LLP 1123 D10) and the
     /// title-bar area beside the window's controls.
     public func syncInsets() {
+        if session.runtime.holds("insets(top:right:bottom:left:)") { return } // (owed, as `fit`: ResetGate)
         if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         let next = viewportFit == "cover" ? safeAreaInsets : NSEdgeInsetsZero
         let prev = session.presenter.insets

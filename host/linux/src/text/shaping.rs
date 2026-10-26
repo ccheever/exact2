@@ -174,16 +174,26 @@ pub(super) struct ShapeData {
 
 /// A hard line's runs: (range in the line, run index).
 type Pieces = Vec<(Range<usize>, usize)>;
+/// A hard line's inline boxes: (byte offset in the line, run index).
+type Boxes = Vec<(usize, usize)>;
 
 /// The paragraph's text split into hard lines as cosmic-text split it: at
 /// each paragraph separator (`\r\n` one), the last empty piece dropped,
 /// and one empty line for no text. Each line keeps its byte offset and
-/// pieces: (range in the line, run index).
-fn hard_lines(spec: &Spec) -> Vec<(usize, String, Pieces)> {
-    let mut out: Vec<(usize, String, Pieces)> = vec![(0, String::new(), Vec::new())];
+/// pieces: (range in the line, run index). An inline box's run has no text,
+/// only its place in the line (LLP 1011.002).
+fn hard_lines(spec: &Spec) -> Vec<(usize, String, Pieces, Boxes)> {
+    let mut out: Vec<(usize, String, Pieces, Boxes)> =
+        vec![(0, String::new(), Vec::new(), Vec::new())];
     let mut offset = 0;
     let mut after_cr = false;
     for (index, run) in spec.runs.iter().enumerate() {
+        if run.inline.is_some() {
+            after_cr = false;
+            let (_, text, _, boxes) = out.last_mut().expect("one line");
+            boxes.push((text.len(), index));
+            continue;
+        }
         let mut rest = run.text.as_str();
         while !rest.is_empty() {
             let split = rest.find([
@@ -199,7 +209,7 @@ fn hard_lines(spec: &Spec) -> Vec<(usize, String, Pieces)> {
             let consumed = sep.map_or(rest.len(), |(at, ch)| at + ch.len_utf8());
             if !piece.is_empty() {
                 after_cr = false;
-                let (_, text, pieces) = out.last_mut().expect("one line");
+                let (_, text, pieces, _) = out.last_mut().expect("one line");
                 let start = text.len();
                 text.push_str(piece);
                 pieces.push((start..text.len(), index));
@@ -211,7 +221,7 @@ fn hard_lines(spec: &Spec) -> Vec<(usize, String, Pieces)> {
                     if ch == '\n' && after_cr && piece.is_empty() {
                         out.last_mut().expect("one line").0 = next;
                     } else {
-                        out.push((next, String::new(), Vec::new()));
+                        out.push((next, String::new(), Vec::new(), Vec::new()));
                     }
                     after_cr = ch == '\r';
                     rest = &rest[at + ch.len_utf8()..];
@@ -221,7 +231,7 @@ fn hard_lines(spec: &Spec) -> Vec<(usize, String, Pieces)> {
             offset += consumed;
         }
     }
-    if out.len() > 1 && out.last().is_some_and(|l| l.1.is_empty()) {
+    if out.len() > 1 && out.last().is_some_and(|l| l.1.is_empty() && l.3.is_empty()) {
         out.pop();
     }
     out
@@ -281,7 +291,7 @@ impl ShapedSource {
         let mut text_bytes = 0;
         let pieces = hard_lines(&spec);
         let mut lines = Vec::with_capacity(pieces.len());
-        for (h, (start, text, runs)) in pieces.into_iter().enumerate() {
+        for (h, (start, text, runs, boxes)) in pieces.into_iter().enumerate() {
             #[cfg(test)]
             SHAPE_LINES.with(|n| n.set(n.get() + 1));
             text_bytes += text.len();
@@ -303,6 +313,16 @@ impl ShapedSource {
                     *index as u32,
                     &families[*index],
                 );
+            }
+            for &(index, run) in &boxes {
+                let b = spec.runs[run].inline.expect("a box's run");
+                builder.push_inline_box(parley::InlineBox {
+                    id: run as u64,
+                    kind: parley::InlineBoxKind::InFlow,
+                    index,
+                    width: b.width.max(0.0),
+                    height: b.height.max(0.0),
+                });
             }
             builder.set_base_direction(base);
             // The line box keeps the CSS direction even where the first
@@ -703,6 +723,23 @@ impl ShapedSource {
         } else {
             (line.w - (original.1 - original.0) + (new_extent.1 - new_extent.0)).max(0.0)
         };
+        // An image past the ellipsis's edge goes with the glyphs it cut: its
+        // box answers no place (LLP 1011.002).
+        let line_index = out.lines.len() as u32 - 1;
+        let spec = &self.spec;
+        out.boxes.retain(|b| {
+            let width = spec
+                .runs
+                .get(b.run as usize)
+                .and_then(|r| r.inline)
+                .map_or(0.0, |i| i.width);
+            b.line != line_index
+                || if rtl {
+                    b.x >= pen + advance
+                } else {
+                    b.x + width <= pen
+                }
+        });
         out.glyphs.truncate(a);
         out.glyphs.extend(next);
         let last = out.lines.last_mut().expect("a line");
@@ -724,9 +761,9 @@ impl ShapedSource {
         if let Some((_, widest)) = self.balanced(width) {
             w = w.max(widest);
         }
-        for line in &lines.lines {
+        for (i, line) in lines.lines.iter().enumerate() {
             w = w.max(line.w);
-            let (above, below, is_explicit) = line_box(
+            let (mut above, mut below, is_explicit) = line_box(
                 lines.glyphs_of(line).iter(),
                 &lines.faces,
                 spec,
@@ -734,6 +771,12 @@ impl ShapedSource {
                 strut,
                 run_metrics,
             );
+            // CSS 2 §10.8: an image's margin box grows the line to hold it.
+            for b in lines.boxes.iter().filter(|b| b.line as usize == i) {
+                let (a, d) = box_extent(spec, &mut catalog, b.run as usize);
+                above = above.max(a);
+                below = below.max(d);
+            }
             explicit |= is_explicit;
             baselines.push(h + above);
             h += above + below;
@@ -807,6 +850,21 @@ fn line_inset(
         0.0
     };
     (run.indent - marker, run.indent)
+}
+
+/// How far an inline box's run reaches above and below the baseline, by
+/// its `vertical-align` against the run's own font (LLP 1011.002 D3).
+pub(super) fn box_extent(spec: &Spec, catalog: &mut catalog::Catalog, run: usize) -> (f32, f32) {
+    let Some(b) = spec.runs.get(run).and_then(|r| r.inline) else {
+        return (0.0, 0.0);
+    };
+    let [ascent, _, x_height, descent] = catalog.edge_metrics(&spec.runs[run]);
+    let above = b.ascent(exact_kernel::FontEdges {
+        ascent,
+        descent,
+        x_height,
+    });
+    (above, b.height - above)
 }
 
 /// A line's box (CSS 2 §10.8): the strut, grown by each glyph's own face

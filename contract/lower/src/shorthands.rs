@@ -38,6 +38,8 @@ pub(crate) fn rows(name: &str) -> &'static [StyleId] {
         // for CSS's `cap alphabetic`); `text-box` is trim, then edge.
         "text-box-edge" => &[TextBoxEdge],
         "text-box" => &[TextBoxTrim, TextBoxEdge],
+        // CSS Inline Layout 3 §4: `alignment-baseline` and `baseline-shift`.
+        "vertical-align" => &[VerticalAlign, BaselineShift],
         _ => unreachable!("known shorthand"),
     }
 }
@@ -51,6 +53,10 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
         // An unset arm of a conditional class clears each expanded longhand.
         Expr::None(_) => {},
         Expr::Str(text, span) if longhand => out = columns_longhand(name, text, *span)?,
+        Expr::Str(text, span) if name == "vertical-align" => out = vertical_align(text, *span)?[index].clone(),
+        Expr::Number(n, span) if name == "vertical-align" => {
+            out = if index == 0 { Expr::Str("baseline".into(), *span) } else { Expr::Number(*n, *span) };
+        }
         Expr::Str(text, span) if name == "font" => out = font(text, *span)?[index].clone(),
         Expr::Number(_, span) if name == "font" => return font("", *span).map(|_| out),
         Expr::Number(n, span) if name == "column-count" && *n < 1.0 => {
@@ -100,6 +106,41 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
         _ => return err("lower-css-shorthand", format!("`{name}` takes a literal CSS shorthand or a choice of literals; computed strings cannot be split into longhands"), value.span()),
     }
     Ok(out)
+}
+
+/// `vertical-align`'s two rows (LLP 1011.002 D3): a keyword and no shift,
+/// or `baseline` raised by a length.
+fn vertical_align(text: &str, span: Span) -> Result<[Expr; 2], LowerError> {
+    let word = text.trim().to_ascii_lowercase();
+    if matches!(
+        word.as_str(),
+        "baseline" | "middle" | "text-top" | "text-bottom"
+    ) {
+        return Ok([Expr::Str(word, span), Expr::Number(0.0, span)]);
+    }
+    if matches!(word.as_str(), "sub" | "super" | "top" | "bottom" | "center") {
+        return err(
+            "lower-css-shorthand",
+            format!("`vertical-align: {word}` is not implemented; an image in text takes `baseline`, `middle`, `text-top`, `text-bottom` or a length"),
+            span,
+        );
+    }
+    let mut probe = exact_kernel::StyleProps::default();
+    if word.contains('%')
+        || probe
+            .set_dynamic(
+                StyleId::BaselineShift,
+                &exact_kernel::StyleValue::Text(word.as_str().into()),
+            )
+            .is_err()
+    {
+        return err(
+            "lower-css-shorthand",
+            format!("`vertical-align` takes `baseline`, `middle`, `text-top`, `text-bottom` or a length such as `-0.2em`, not `{text}`"),
+            span,
+        );
+    }
+    Ok([Expr::Str("baseline".into(), span), Expr::Str(word, span)])
 }
 
 fn words(text: &str) -> Vec<&str> {

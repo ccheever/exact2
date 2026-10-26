@@ -318,6 +318,15 @@ impl<D: DataSource> Presenter<D> {
             self.send_pad(view, index, connected.then_some((buttons, axes)), at);
         }
     }
+    /// Whether any mounted canvas accepts device input. A polling host can
+    /// stop reading controllers when there is no consumer; focus changes
+    /// within an app that has one still use the latest controller readings.
+    pub fn has_gamepad_input(&self) -> bool {
+        self.surfaces
+            .canvases
+            .keys()
+            .any(|view| self.surfaces.wants_input(*view))
+    }
     fn pad_target(&self) -> Option<u32> {
         match self.focus {
             Some(id) => self.input_surface(id),
@@ -390,6 +399,12 @@ impl<D: DataSource> Presenter<D> {
             self.key_down_with(name, code, repeat, self.host.now());
             return;
         }
+        // Winit forwards Alt+Space before Windows opens the system menu. It
+        // must not activate a focused button. Keep releases for held controls.
+        #[cfg(target_os = "windows")]
+        if down && code == "Space" && matches!(key, "Space" | " ") && self.modifiers().alt {
+            return;
+        }
         let contact = if code == "Space" {
             u32::MAX - 1
         } else {
@@ -459,6 +474,7 @@ impl<D: DataSource> Presenter<D> {
             self.key_down_with(key, code, repeat, self.host.now());
             return;
         }
+        let surface_was_open = self.surface_takes_keys();
         if let Some(id) = self.focus.or_else(|| {
             self.surfaces.canvases.keys().copied().find(|view| {
                 self.surfaces.wants_input(*view)
@@ -483,7 +499,9 @@ impl<D: DataSource> Presenter<D> {
             };
             self.key_down_with(name, code, repeat, self.host.now());
         }
+        // Dismissal already restores the surface's invoker; keep that focus.
         if code == "Escape"
+            && !surface_was_open
             && self.focus.is_some_and(|id| {
                 self.host
                     .kernel()
@@ -659,6 +677,7 @@ impl<D: DataSource> Presenter<D> {
     /// included (LLP 1088 D7.3), as the Apple hosts take the first
     /// responder. What tap, `autofocus` and `focus()` may focus; Tab takes
     /// only the `tabbable` ones.
+    /// Windows also focuses overflowing scroll containers for keyboard navigation.
     ///
     /// `disabled` keeps only a form control out (a button, an input, a
     /// control), where HTML defines it; on a box it means nothing to focus,
@@ -673,6 +692,7 @@ impl<D: DataSource> Presenter<D> {
                 == exact_kernel::Visibility::Visible
                 && !disabled_control(&n)
                 && (n.props.get(PropId::TabIndex).is_some()
+                    || self.desktop_scroll_focus(id)
                     || self.alert_message_overflows(id)
                     || self.focus == Some(id) && self.alert_message(id)
                     || n.props.str(PropId::Action).is_some()

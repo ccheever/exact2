@@ -46,7 +46,9 @@ extension ExactSession {
         }
     }
 
-    private func activateData(_ drawnGeneration: Int, token: UInt64) {
+    func activateData(_ drawnGeneration: Int, token: UInt64) {
+        // A restart holding the runtime: the activation waits as a pending one does, retried after (ResetGate).
+        if runtime.holds("activateData(_:token:)") { pendingActivation = (drawnGeneration, token); return }
         let batch = runtime.dataReady()
         if batch.pending {
             pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
@@ -110,7 +112,7 @@ extension ExactSession {
     /// event's own; then everything the runner queued is heard, once (an
     /// agent's tap of a listed entry too).
     func deliverModuleEvents() {
-        guard state != .destroyed, booted, firstDrawMs != nil else { return }
+        guard state != .destroyed, booted, firstDrawMs != nil, !runtime.holds("deliverModuleEvents()") else { return } // (kept for after: ResetGate)
         let held = heldModuleEvents
         heldModuleEvents = []
         for json in held { apply(runtime.moduleEvent(json)) }
