@@ -1102,12 +1102,13 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   if (platform === 'macos' || platform === 'ios') {
     const packageRoot=resolve(ROOT,'host/apple');
     const swiftEnv = {...env, EXACT_APP_COMPOSITION: compat.inputs.store.L === '0' ? 'embedded' : 'updating'}; delete swiftEnv.SDKROOT;
+    const describeArgs=['package','--package-path',packageRoot,'--scratch-path',resolve(app.target,'apple-swift','package-description'),'describe','--type','json'];
     // Cache SwiftPM's description by manifest, composition and source inventory.
     const tree=(dir)=>readdirSync(dir,{withFileTypes:true}).flatMap((e)=>e.isDirectory()?tree(resolve(dir,e.name)):[resolve(dir,e.name)]).sort();
-    const described=resolve(app.target,'apple-swift',`package-${buildHash(canonicalBuild([readFileSync(resolve(packageRoot,'Package.swift'),'utf8'),swiftEnv.EXACT_APP_COMPOSITION,swiftEnv.EXACT_TESTS??null,swiftEnv.EXACT_WIDGET_GALLERY??null,tree(resolve(packageRoot,'Sources')).map((f)=>relative(packageRoot,f))])).slice(0,16)}.json`);
+    const described=resolve(app.target,'apple-swift',`package-${buildHash(canonicalBuild([readFileSync(resolve(packageRoot,'Package.swift'),'utf8'),swiftEnv.EXACT_APP_COMPOSITION,swiftEnv.EXACT_TESTS??null,swiftEnv.EXACT_WIDGET_GALLERY??null,tree(resolve(packageRoot,'Sources')).map((f)=>relative(packageRoot,f)),describeArgs])).slice(0,16)}.json`);
     if(!existsSync(described)) {
       mkdirSync(dirname(described),{recursive:true});
-      writeFileSync(`${described}.${process.pid}.tmp`,buildCommand('swift',['package','--package-path',packageRoot,'describe','--type','json'],app,swiftEnv).stdout);
+      writeFileSync(`${described}.${process.pid}.tmp`,buildCommand('swift',describeArgs,app,swiftEnv).stdout);
       renameSync(`${described}.${process.pid}.tmp`,described);
       const kept=readdirSync(dirname(described)).filter((f)=>/^package-[0-9a-f]{16}\.json$/.test(f)).map((f)=>resolve(dirname(described),f)).sort((a,b)=>statSync(b).mtimeMs-statSync(a).mtimeMs);
       for(const old of kept.slice(6))rmSync(old,{force:true});
