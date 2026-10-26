@@ -41,6 +41,13 @@ its time counts too.
     10 ms slice takes about 80 ms.
   - Browsers: an event or a promise, or the agent's `clock settle` and virtual
     time.
+  - A drive or an authored test: `clock settle` or `clock data` for what the
+    app has in flight. A stream counts as landed at its first message (LLP
+    1016.000 D5), so for state a protocol reaches later (a socket's READY after
+    its HELLO) write `clock until state <path> == <literal> within <ms>`, not
+    `clock +N real`: the clock stays frozen while it polls `state` on real
+    time, and a miss fails naming the last value. A task due a commit later
+    (`after(1, …)`) needs a `clock settle` before it.
 - **Poll only when nothing notifies, and poll cheaply.** Every 50–100 ms, with a
   limit of tens of seconds that only stops hanging tests. A shorter interval can
   be considered for state that is cheap to read in the test's own process, when
