@@ -17,6 +17,8 @@ mod clipboard;
 mod edit_menu;
 #[cfg(windows)]
 mod ime;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod jump_list;
 #[cfg(windows)]
 mod keyboard;
 #[cfg(windows)]
