@@ -222,6 +222,9 @@ impl<D: DataSource> Bridge<D> {
             .filter(|l| !l.is_empty())
             .partition(|l| l.starts_with("agent "));
         let agent: Vec<&str> = agent.iter().map(|l| &l["agent ".len()..]).collect();
+        // Binding tells the module its views' state at once (`retell_views`), which reaches it only through
+        // the current source's native slot: before data is prepared that slot has not yet adopted the module.
+        self.adopt_app_module();
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().bind_extensions(&real, &agent);
         }
