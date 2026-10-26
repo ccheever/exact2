@@ -315,20 +315,21 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
 }
 
 /// What a string prop the view writes as a style row's value is shown
-/// with, by the row's kind: a colour row's `currentcolor` (the text's
-/// colour, a CSS colour every host reads; a row that takes one colour
-/// alone, never a shadow, gradient or filter that holds one, which keeps
-/// the prop's name, a token's it may be), a length row's `24px`, where the
-/// prop's name would be no colour, token or length (Avatar's `width=size`,
-/// VerifiedBadge's `color=ink`, LLP 1121 stage 15 B); a length row is one
-/// whose every row is a dimension (a width, a padding), so a font's family
-/// or a weight keeps its name. Through a component
-/// of `file` the prop is passed to, at any depth, as [`shows_image`]; a
-/// colour row first where it reaches both. None for a prop no row takes.
+/// with, by the row's kind: a colour row's `-exact-label` (the text's role,
+/// which every row that takes one colour alone reads: `color`, `fill`, a
+/// caret, an accent, a press colour, where `currentcolor` is refused on
+/// some; a shadow, gradient or filter that holds a colour takes none alone
+/// and keeps the prop's name, a token's it may be), a length row's `24px`,
+/// where the prop's name would be no colour, token or length (Avatar's
+/// `width=size`, VerifiedBadge's `color=ink`, LLP 1121 stage 15 B); a
+/// length row is one whose every row is a dimension (a width, a padding),
+/// so a font's family or a weight keeps its name. Through a component of
+/// `file` the prop is passed to, at any depth, as [`shows_image`]; a colour
+/// row first where it reaches both. None for a prop no row takes.
 pub(super) fn style_sample(c: &Component, file: &File, prop: &str) -> Option<&'static str> {
     let (colour, length) = styled(c, file, prop, &mut Vec::new());
     if colour {
-        Some("currentcolor")
+        Some("-exact-label")
     } else if length {
         Some("24px")
     } else {

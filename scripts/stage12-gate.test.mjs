@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
-import { apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, same } from './s13c-restyle.mjs';
+import { READS, apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, readsOf, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -291,6 +291,17 @@ test('stage 13 C\'s case values: pairwise apart in each case, past the read\'s t
   }
   // Every length is past every default a package writes (none reaches 301 px).
   for (const c of exactCases()) for (const s of c.set.filter(x => x.kind === 'length')) expect(Number.parseFloat(s.value)).toBeGreaterThanOrEqual(301);
+});
+
+// Stage 15 B's exports' batch (Grok r2): a read there must name its
+// instances, as one token is drawn by two components; `*` has no owner.
+test('a read in the exports\' batch names its instances, or it is refused', () => {
+  const was = READS['cards.badge'];
+  try {
+    READS['cards.badge'] = ['0/0 text_color *'];
+    expect(() => readsOf('cards.badge')).toThrow(/names no instance/);
+  } finally { READS['cards.badge'] = was; }
+  expect(readsOf('cards.badge').map(r => r.component)).toEqual(['VerifiedBadge']);
 });
 
 test('a read\'s node by path, and a value matched, kept and apart', () => {
