@@ -97,7 +97,10 @@ public final class CameraModule: ExactPackage {
         let next = named?.isEmpty == false ? named : nil
         guard next != picture else { return }
         picture = next
-        for (id, v) in views where v.sub?.live == true { v.sub?.leave(); v.sub = nil; reconcile(id) }
+        for (id, v) in views where v.sub?.live == true {
+            context.tracks.lookup(v.sub?.track ?? "")?.picture = agentPicture()
+            v.sub?.leave(); v.sub = nil; reconcile(id)
+        }
     }
 
     public func destroy(_ done: @escaping () -> Void) {
@@ -169,7 +172,12 @@ public final class CameraModule: ExactPackage {
         let show = { [weak self, weak v, weak sub] in
             guard let self, let v, let sub, v.sub === sub, sub.live else { return }
             let facing = (self.context.tracks.lookup(sub.track)?.state?()["settings"] as? [String: Any])?["facingMode"] as? String
-            if self.context.agent { v.view?.show(picture: self.agentPicture(), mirrored: facing == "user") } else if let source { v.view?.show(source: source) }
+            if self.context.agent {
+                let picture = self.agentPicture()
+                v.view?.show(picture: picture, mirrored: facing == "user")
+                // The track's frame is the picture drawn, unmirrored, as a sensor's is (LLP 1133.027 D17 item 2).
+                self.context.tracks.lookup(sub.track)?.picture = picture
+            } else if let source { v.view?.show(source: source) }
         }
         sub.onLive = { s in source = s; show() }
         sub.onUnmuted = show
