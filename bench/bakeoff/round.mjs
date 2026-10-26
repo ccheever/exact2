@@ -84,6 +84,7 @@ async function feel() {
     const steps = (() => { try { return readFileSync(resolve(HERE, 'specs', spec, 'feel-steps.txt'), 'utf8').trim(); } catch { return ''; } })();
     const r = await run('bun', [probe, '--udid', sim, '--app', rec.appId, '--out', out, ...(steps ? ['--steps', steps] : [])], `${spec}-${arm}.feel.txt`);
     spawnSync('xcrun', ['simctl', 'uninstall', sim, rec.appId]);
+    mkdirSync(out, { recursive: true }); // a probe that failed early made none
     writeFileSync(resolve(out, 'load.json'), JSON.stringify({ load, cores: availableParallelism() }) + '\n');
     say(`feel ${spec}-${arm}: exit ${r.code} (load ${load})`);
   }
