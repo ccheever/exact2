@@ -21,6 +21,11 @@ final class InspectRevealingTests: XCTestCase {
         // The selection (session one, generation 4, node 9, site 7): its own copy, not the first, nor another session's node 9.
         Inspect.selected = (one, 4, 9, nil, 7, "p", "[]")
         XCTAssertEqual(Inspect.revealing(copies, sites: [7], plan: "p", sessions: running), "a9")
+        // The other session's selection of a node with the same id: that session's copy, not the first listed.
+        Inspect.selected = (two, 1, 9, nil, 7, "p", "[]")
+        XCTAssertEqual(Inspect.revealing(copies, sites: [7], plan: "p", sessions: running), "b9")
+        var hidden = copies; hidden[3].shown = false
+        XCTAssertNil(Inspect.revealing(hidden, sites: [7], plan: "p", sessions: running), "never session one's node 9 for session two's")
         // Its copy shows nowhere: nothing, never another copy.
         Inspect.selected = (one, 4, 3, nil, 7, "p", "[]")
         XCTAssertNil(Inspect.revealing(copies, sites: [7], plan: "p", sessions: running))

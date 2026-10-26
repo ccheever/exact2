@@ -496,9 +496,11 @@ function outlineSites(frame) {
   // nowhere, never another copy of it (Apple pass #2: a move scrolled to a copy rows away); else (the tool's
   // Outline, or a selection kept across a reload, its element unknown) the first. As host/web/dev.js and the Apple
   // hosts' Inspect.revealing.
+  // (shown: rendered and not `visibility: hidden`, whose box would still take a scroll; Astra's round 1)
+  const shown = (el) => el.isConnected && (el.checkVisibility?.({ visibilityProperty: true }) ?? true);
   const was = inspecting.selected;
   const holds = was?.el && was.plan === frame.plan && wanted.has(String(was.site));
-  const chosen = holds ? (found.includes(was.el) && was.el.isConnected ? was.el : null) : found[0];
+  const chosen = holds ? (found.includes(was.el) && shown(was.el) ? was.el : null) : found.find(shown);
   if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) chosen?.scrollIntoView({ block: "nearest" });
   for (const el of found) {
     const mark = document.createElement("div");

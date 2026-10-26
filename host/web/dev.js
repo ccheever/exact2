@@ -822,10 +822,12 @@ if (es) {
     // shows nowhere, never another copy of it (Apple pass #2: a move
     // scrolled to a copy rows away); else (the tool's Outline) the first.
     // As the Apple hosts' Inspect.revealing.
+    // (shown: rendered and not `visibility: hidden`, whose box would still take a scroll; Astra's round 1)
+    const shown = (el) => el?.isConnected && (el.checkVisibility?.({ visibilityProperty: true }) ?? true);
     const was = inspecting.selected;
     const holds = was && was.plan === frame.plan && was.generation === globalThis.exact.generation && wanted.has(was.site);
-    const chosen = holds ? (views.sites.some(([id, site]) => id === was.id && wanted.has(site)) ? globalThis.exact.views?.get(was.id) : null) : found[0];
-    if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`)) && chosen?.isConnected) chosen.scrollIntoView({ block: "nearest" });
+    const chosen = holds ? (views.sites.some(([id, site]) => id === was.id && wanted.has(site)) ? globalThis.exact.views?.get(was.id) : null) : found.find(shown);
+    if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`)) && shown(chosen)) chosen.scrollIntoView({ block: "nearest" });
     for (const el of found) {
       const mark = document.createElement("div");
       mark.dataset.exactOutline = "";
