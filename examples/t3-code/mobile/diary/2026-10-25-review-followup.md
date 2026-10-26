@@ -40,3 +40,5 @@ The file-hold worker can expose a completion barrier without granting file autho
 - focused data tests: smooth; 89 mobile and 78 integration tests pass, as do
   the 47 Rust app-data tests and focused strict TypeScript checking.
 - driving the app: pending shared UI ownership.
+- desktop recorder fixture: the US B/KeyB event now expects `mod+shift+b`,
+  matching the maintained fixture. Korean layout coverage stays separate.
