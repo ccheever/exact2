@@ -44,6 +44,14 @@ const changedSince = (path, since) => { const s = lstatSync(path), now = Date.no
 /** Whether a watcher's event for `path` is an edit since `since`: macOS reports a build's reads of a tree (the assets it
  * copies) as events too, and a path unchanged since then is none. A path that is gone is an edit. */
 const movedSince = (path, since) => { try { return changedSince(path, since); } catch { return true; } };
+/** The inputs that moved while a build ran, as its set-aside line names them (stage 15 D1.5): each by its path under
+ * the app (a package's as it lies), three at most and how many more; "an input" when none was seen by name. */
+const movedWords = (paths, dir) => {
+  const names = [...new Set(paths)].map((p) => (relative(dir, p).startsWith('..') ? p : relative(dir, p)) || '.');
+  if (!names.length) return 'an input';
+  const shown = names.slice(0, 3).join(', ');
+  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+};
 
 let building = null; // the build in flight, stopped with the server
 /** Stop the build in flight and what it runs (its own process group). */
@@ -571,7 +579,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
     // dist, which a fresh page loads, nor the design or a reload). The
     // edits it took are the next build's, with those since.
     if (built.superseded) {
-      console.log(`edit → a build superseded after ${Date.now() - t} ms, set aside: an input moved while it built`);
+      console.log(`edit → a build superseded after ${Date.now() - t} ms, set aside: ${movedWords([...edited], app.dir)} moved while it built`);
       watchPackages(built.packages);
       for (const p of pendingEdits) edited.add(p);
       for (const p of pendingAppeared) appeared.add(p);
