@@ -652,43 +652,46 @@ reuse, asynchronous live-capture completion, presented bounds and scroll origin,
 trial layouts. The initial source audit also read generated `dist.gen` bundles; it now excludes
 that build output alongside `dist`, without changing which source files it audits.
 
-Observed evidence before final integration checks: 481 runner library tests, 23 source-map
-tests, Chrome resource inspection tests, the 13-case Chrome list suite, fixture concurrency and
-ownership regressions, and targeted Swift/driver tests passed. An Excord Chrome drive against
-`http://127.0.0.1:5138`, with a fresh named scratch store, opened the transcript, joined all 21
-resource declarations and recorded 19 constructed rows; no resource failure was reported.
-Only synthetic service data was used.
+Focused resource, source-map, collection, driver and fixture regressions pass. The final
+Excord Chrome drive used a fresh named scratch store and the synthetic fixture at
+`http://127.0.0.1:53908`: all 22 resource declarations mapped to source, no request remained
+pending, and no resource failed. Scrolling the transcript increased constructed rows from
+19 to 21. No real service account was used.
 
-After the event-pump fix, a Mac scratch fixture observed 42 display callbacks over 500.49 ms
-with an 8.33 ms target cadence and no ring drops. The clock remained real, scheduling normal,
-and the subsequent tree read returned 62 nodes. This is callback timing, not proof of compositor
-presentation or a native bounce. Eleven focused Swift tests passed, including an AppKit event
-delivered during capture, exactly-once interrupted completion, and presented bounds during
-animation. The integrated driver suite passed all 62 tests with the installed Chrome. A same-binary count-hook microbenchmark measured 3.75 ns disabled and
-23.83 ns enabled; it does not establish end-to-end app overhead. tvOS compiled the shared UIKit
-code. iOS touch/keyboard dismissal, Windows and Android app behavior, a physical iPhone and
-production app equivalence were not qualified by these runs.
+Eighteen focused Swift tests passed after integration, including event delivery during
+capture, exactly-once interrupted completion, presented bounds during animation and held
+sampling's wheel-routing policy. macOS and tvOS compiled. The native fixture drive opened
+the transcript. Both available Mac displays were locked; the final live-capture request
+correctly reported unavailable. It does not establish a fresh cadence or held-gesture trace.
+The earlier unlocked scratch capture observed 42 callbacks over 500.49 ms, an 8.33 ms target
+cadence and no ring drops; that is callback timing, not compositor presentation or a native
+bounce. The count-hook microbenchmark measured 3.75 ns disabled and 23.83 ns enabled, not
+end-to-end app overhead. iOS touch/keyboard dismissal, Windows and Android app behavior,
+a physical iPhone and production equivalence remain unqualified by these runs.
 
-Final integration checks at code revision `835be01839`: build, clippy, formatting, caps,
-boot and workspace compilation passed. The quick Contract semantics differential run agreed
-with no divergences. The generated-bundle audit and measured-layout regression passed.
-The default test run failed only the Apple library target: its nested async-executor suite
-reported four worker/socket timeouts. The nested suite reproduces the failure; one socket
-case passes alone. Those executor sources are unchanged from base `7c2fe1b36c`, but a clean
-base comparison has not been performed, so this is not classified as a proven baseline defect.
-`QUEUE.md` records the follow-up. No test was weakened or skipped to make this gate pass.
+All six integration checks and the quick Contract semantics differential run pass. The earlier
+Apple async-executor timeout was sensitive to the local build directory: it contained 355,444
+standalone object files. Moving 352,274 objects older than an hour out of that directory,
+while retaining binaries, libraries, metadata and incremental caches, reduced the same nested
+suite from 5.27 s to 0.61 s at its original path. Executor deadlines and assertions were unchanged.
+The full integrated test gate also passes on `100.107.191.6`.
+At `9369bf2a8a`, the unchanged warm gate passed in 63.38 s: build 0.60, tests 48.75,
+clippy 0.66, formatting 4.84, caps 1.70, boot 0.02 and workspace 6.81. The quick differential
+run passed separately in 2.40 s. That machine’s 40,960 standalone object files were moved
+aside before measurement; check flags, coverage and default QoS were unchanged.
 
-The repeated gate took 264.92 s: build 24.88, tests 172.52, clippy 15.20, formatting 6.26,
-caps 2.97, boot 0.03 and workspace 43.06. This does not meet the 65 s budget. The separate
-quick differential run took 3.81 s. These results qualify the focused tooling evidence above,
-not a green merge gate or the repository's loop budget.
+The landing merge preserves main's held sampling, orientation-lock reporting, resource-origin
+checkpoints, type-check bounds and collection tests. Two files exceeded the source cap after
+the merge; their inspection method and embedded template moved into existing modules without
+behavior changes. Three Bun wrappers now allow 30 s around their existing 20 s subprocess
+harness. Both landing reviewers found no issues, including the mechanical cap refactor;
+see `code-2026-10-26-1142-landing.{sol,grok}.md`.
 
 The second Sol code review found a cleanup leak when same-checkout drives overlapped on
 different explicit ports. A real two-port regression reproduced it. Commit `f74625bf80`
 validates each recorded server at its own origin while preserving process and checkout
 ownership checks; the regression and foreign-server refusal cases pass after integration.
-Sol’s focused follow-up found the issue resolved. The fix changes only fixture cleanup;
-Rust, Swift and browser runtime sources remain at the code revision checked above.
+Sol’s focused follow-up found the issue resolved. The fix changes only fixture cleanup.
 
 Grok’s independent cleanup follow-up found that canonical-origin comparison rejected explicit
 default ports. The final cleanup fix (`0d78cc00bf`) preserves the raw URL for record identity
@@ -704,7 +707,6 @@ span validator, and the icon-reader audit excludes generated `dist.previous` and
 siblings (including `web-dist` variants). The final driver suite passed 63 tests, including
 malformed resource spans. These follow-ups add no runtime semantics or qualification claims.
 
-The final icon-reader audit passed both cases with a temporary generated `dist.stage-*` tree
-present; that tree was removed afterward. Its selected Cargo target required 1m49s of
-compilation, then 0.53s of tests. Final formatting and staged caps passed. The broad gate
-failure and timing overrun above remain landing blockers; the branch has not been merged.
+The icon-reader audit passed both cases with a temporary generated `dist.stage-*` tree
+present; that tree was removed afterward. Main’s tracked-source enumeration is also preserved.
+Final formatting and staged caps pass.
