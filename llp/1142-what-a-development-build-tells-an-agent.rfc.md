@@ -661,11 +661,10 @@ Only synthetic service data was used.
 
 After the event-pump fix, a Mac scratch fixture observed 42 display callbacks over 500.49 ms
 with an 8.33 ms target cadence and no ring drops. The clock remained real, scheduling normal,
-and the subsequent tree read returned 62 nodes. Eleven focused Swift tests passed, including
-an AppKit event delivered during capture, exactly-once interrupted completion, and presented
-bounds during animation. The integrated driver suite passed all 62 tests with the installed Chrome; the initial
-missing-Chromium skip was rerun successfully with that browser. This is callback timing, not proof of compositor presentation
-or a native bounce. A same-binary count-hook microbenchmark measured 3.75 ns disabled and
+and the subsequent tree read returned 62 nodes. This is callback timing, not proof of compositor
+presentation or a native bounce. Eleven focused Swift tests passed, including an AppKit event
+delivered during capture, exactly-once interrupted completion, and presented bounds during
+animation. The integrated driver suite passed all 62 tests with the installed Chrome. A same-binary count-hook microbenchmark measured 3.75 ns disabled and
 23.83 ns enabled; it does not establish end-to-end app overhead. tvOS compiled the shared UIKit
 code. iOS touch/keyboard dismissal, Windows and Android app behavior, a physical iPhone and
 production app equivalence were not qualified by these runs.
@@ -690,3 +689,10 @@ validates each recorded server at its own origin while preserving process and ch
 ownership checks; the regression and foreign-server refusal cases pass after integration.
 Sol’s focused follow-up found the issue resolved. The fix changes only fixture cleanup;
 Rust, Swift and browser runtime sources remain at the code revision checked above.
+
+Grok’s independent cleanup follow-up found that canonical-origin comparison rejected explicit
+default ports. The final cleanup fix (`0d78cc00bf`) preserves the raw URL for record identity
+and derives its listener port from the parsed URL. Existing backend URLs with paths remain
+accepted; credentials, queries and fragments are refused. Tests compare the validator with
+`appServer`’s accepted `:80`, `:080`, `:443` and path-bearing URLs, alongside the real overlapping
+server regression. All three final integration cases passed; no port-80 listener was exercised.
