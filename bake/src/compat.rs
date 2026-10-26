@@ -42,8 +42,10 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// which an older prelude would send as an empty body. 2: `fetch`'s
 /// `redirect`, which an older prelude would ignore and follow. 3: `fetch`'s
 /// `exactLongPoll` (LLP 1016.000 D8), which an older prelude would ignore and
-/// open as an event stream.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 3;
+/// open as an event stream. 4: `fetch`'s `exactBodyTo` (LLP 1108 D6 R2),
+/// which an older prelude would ignore, reading the body into memory and
+/// writing no file.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 4;
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 

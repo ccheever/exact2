@@ -772,6 +772,74 @@ pub fn resolve_sqlite(
     }
 }
 
+/// An app file written in pieces beside its target and put in its place
+/// whole (Exact local patch 19): the staging file is removed unless
+/// [`Staged::publish`] renames it over the target.
+pub struct Staged {
+    parent: File,
+    leaf: String,
+    /// The staging file's name; empty once published.
+    temp: String,
+    file: Option<File>,
+}
+impl AppDirectories {
+    /// Admit `fs.write` on `path` and create its staging file in the pinned
+    /// parent, `.exact-<32 hex>.partial`. A missing parent, or a target that
+    /// is not a regular file, is refused before anything is written.
+    pub fn stage(&self, grants: &GrantSet, path: &str) -> Result<Staged, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.open_parent(path)?;
+        match open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK) {
+            Ok(file) if !file.metadata().map_err(error)?.is_file() => {
+                return Err(error("write needs a regular file"))
+            }
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(error(e)),
+            _ => {}
+        }
+        let mut bytes = [0; 16];
+        getrandom::getrandom(&mut bytes).map_err(error)?;
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let temp = format!(".exact-{hex}.partial");
+        let file = open_at(&parent, &temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)
+            .map_err(error)?;
+        Ok(Staged {
+            parent,
+            leaf,
+            temp,
+            file: Some(file),
+        })
+    }
+}
+impl Staged {
+    pub fn write_all(&mut self, bytes: &[u8]) -> Result<(), HostError> {
+        match self.file.as_mut() {
+            Some(file) => file.write_all(bytes).map_err(error),
+            None => Err(error("staged file already published")),
+        }
+    }
+    /// Sync the staging file and rename it over the target.
+    pub fn publish(mut self) -> Result<(), HostError> {
+        let file = self
+            .file
+            .take()
+            .ok_or_else(|| error("staged file already published"))?;
+        file.sync_all().map_err(error)?;
+        drop(file);
+        rename(&self.parent, &self.temp, &self.parent, &self.leaf).map_err(error)?;
+        self.temp.clear();
+        Ok(())
+    }
+}
+impl Drop for Staged {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        if !self.temp.is_empty() {
+            let _ = unlink(&self.parent, &self.temp, false);
+        }
+    }
+}
+
 pub(crate) struct AtomicTarget {
     parent: File,
     leaf: String,
@@ -1045,6 +1113,32 @@ mod tests {
         )
         .unwrap();
         assert_eq!(std::fs::read(f.path.join("data/a")).unwrap(), b"keep");
+    }
+    #[test]
+    fn a_staged_file_replaces_its_target_whole_or_leaves_it() {
+        let f = Fixture::new();
+        let grants = GrantSet::parse("fs.write app:/cache").unwrap();
+        std::fs::write(f.path.join("cache/a"), b"old").unwrap();
+        let names = || std::fs::read_dir(f.path.join("cache")).unwrap().count();
+        let mut staged = f.dirs.stage(&grants, "app:/cache/a").unwrap();
+        staged.write_all(b"ne").unwrap();
+        staged.write_all(b"w").unwrap();
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"old");
+        assert_eq!(names(), 2);
+        staged.publish().unwrap();
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"new");
+        assert_eq!(names(), 1);
+        let mut dropped = f.dirs.stage(&grants, "app:/cache/a").unwrap();
+        dropped.write_all(b"partial").unwrap();
+        drop(dropped);
+        assert_eq!(std::fs::read(f.path.join("cache/a")).unwrap(), b"new");
+        assert_eq!(names(), 1);
+        // Refused before anything is made: no grant, no parent, a folder.
+        assert!(f.dirs.stage(&grants, "app:/data/a").is_err());
+        assert!(f.dirs.stage(&grants, "app:/cache/none/a").is_err());
+        std::fs::create_dir(f.path.join("cache/d")).unwrap();
+        assert!(f.dirs.stage(&grants, "app:/cache/d").is_err());
+        assert_eq!(names(), 2);
     }
     #[test]
     fn atomic_replace_is_complete_under_concurrency_and_cleans_up_failure() {
