@@ -1,6 +1,6 @@
 // The conformance fixture (LLP 1133.028 §8.3): the status, the screen an app
 // may show before the system's alert (one "Continue", no way to close it,
-// D11), the request, and the advertising identifier, which data code reads
+// LLP 1133.002 D11), the request, and the advertising identifier, which data code reads
 // and compares with zeros (app.ts).
 use requestTrackingAuthorization, trackingAuthorizationStatus, TrackingStatus from "@exact/tracking-consent"
 
