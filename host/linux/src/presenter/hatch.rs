@@ -557,6 +557,16 @@ impl<D: DataSource> Presenter<D> {
             .reduce(f64::min)
     }
 
+    /// [`Self::timer_due_ms`], or a pad's effect starting or ending
+    /// (`pads.rs`): when a loop wakes. An agent's jump steps only to the
+    /// runner's, and the pads' land at the turn after it.
+    pub fn wake_due_ms(&self) -> Option<f64> {
+        self.timer_due_ms()
+            .into_iter()
+            .chain(crate::pads::due())
+            .reduce(f64::min)
+    }
+
     /// Whether every display frame is wanted: a frame task's, or a ticket's.
     pub fn wants_frames(&self) -> bool {
         self.host.wants_frames() || self.hatch_ticking()

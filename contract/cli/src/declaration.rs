@@ -391,8 +391,17 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     // the words a drive may prefer for its implementation's agent path alone
     // (LLP 1133.012 §9: `speech-recognition.heard`), each with its type.
     // Its `images`, an `img` source scheme the package serves (LLP 1133.019
-    // D11 item 1), is read by picture admission from any name too.
-    for field in ["permission", "grants", "authenticator", "agent", "images"] {
+    // D11 item 1), is read by picture admission from any name too. Its
+    // `tables` are what a `fill` reads by a field (`{"table", "by"}`: a
+    // gamepad's labels by its family, LLP 1133.022 D2).
+    for field in [
+        "permission",
+        "grants",
+        "authenticator",
+        "agent",
+        "images",
+        "tables",
+    ] {
         if !interface[field].is_null() {
             out.insert(field.into(), interface[field].clone());
         }
@@ -528,6 +537,14 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         .collect();
     if !surfaces.is_empty() {
         out.insert("surfaceOptions".into(), Value::Array(surfaces));
+    }
+    // The options that take a CSS colour (LLP 1133.022 D10 item 2).
+    let colors: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| ty.as_str().is_some_and(|t| bare(t).0 == "color"))
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !colors.is_empty() {
+        out.insert("colorOptions".into(), Value::Array(colors));
     }
     // Where a call writes a shape's name (LLP 1133.016 D15 item 4), which
     // the bake writes as its JSON Schema: an option, or a field of the
@@ -965,8 +982,9 @@ fn images_checked(images: &Map<String, Value>) -> Result<(), String> {
 /// `option<T>`, `T[]`, `enum<a|b>`, a shape's name, `strings-key`, a key of
 /// the app's strings table, `handle<kind>`, the id of a native object the
 /// session holds (LLP 1133.009 D10 item 10), `surface`, a canvas's surface
-/// name (LLP 1133.013 D12 item 3), or `json<T>`, a WebAuthn dictionary passed
-/// whole (LLP 1133.011 D10); each is a string here. `unit` answers nothing.
+/// name (LLP 1133.013 D12 item 3), `color`, a CSS colour (LLP 1133.022 D10
+/// item 2), or `json<T>`, a WebAuthn dictionary passed whole (LLP 1133.011
+/// D10); each is a string here. `unit` answers nothing.
 fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     let ty = ty.trim();
     if let Some(inner) = ty.strip_suffix("[]") {
@@ -991,7 +1009,7 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
         return Ok(TypeExpr::Named("string".to_owned(), span));
     }
     let named = match ty {
-        "strings-key" | "surface" => "string",
+        "strings-key" | "surface" | "color" => "string",
         "number" | "string" | "bool" | "unit" => ty,
         shape
             if shape.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')

@@ -6,19 +6,40 @@ use serde_json::{Map, Value as Json};
 
 /// Set `path` (`coords.accuracy`) in `value` to `filler` where it is absent.
 pub(super) fn fill(value: &mut Json, path: &str, filler: Json) {
-    let mut at = value;
-    let mut parts = path.split('.').peekable();
-    while let Some(part) = parts.next() {
-        let Some(object) = at.as_object_mut() else {
-            return;
-        };
-        if parts.peek().is_none() {
-            object.entry(part).or_insert(filler);
-            return;
+    fill_with(value, path, &|_| Some(filler.clone()));
+}
+
+/// [`fill`] with what `made` makes of the object the path ends in; a part
+/// `list[]` fills each entry of that list.
+pub(super) fn fill_with(
+    value: &mut Json,
+    path: &str,
+    made: &dyn Fn(&Map<String, Json>) -> Option<Json>,
+) {
+    let (part, rest) = path
+        .split_once('.')
+        .map_or((path, None), |(p, r)| (p, Some(r)));
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if let Some(list) = part.strip_suffix("[]") {
+        let entries = object.get_mut(list).and_then(Json::as_array_mut);
+        for entry in entries.into_iter().flatten() {
+            fill_with(entry, rest.unwrap_or_default(), made);
         }
-        at = object
-            .entry(part)
-            .or_insert_with(|| Json::Object(Map::new()));
+        return;
+    }
+    match rest {
+        None if !object.contains_key(part) => {
+            if let Some(filler) = made(object) {
+                object.insert(part.to_owned(), filler);
+            }
+        }
+        None => {}
+        Some(rest) => {
+            let next = (object.entry(part)).or_insert_with(|| Json::Object(Map::new()));
+            fill_with(next, rest, made);
+        }
     }
 }
 

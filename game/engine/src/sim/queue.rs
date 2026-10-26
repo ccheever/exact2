@@ -4,6 +4,7 @@ impl<G: Game> Sim<G> {
     /// Queue a raw event in stamp order, preserving arrival order at equal stamps.
     /// Paused input updates held state directly, without edges or queued wheel deltas.
     pub fn input(&mut self, event: InputEvent) {
+        let event = self.unmarked(event);
         if let Err(error) = self.validate_input(&event) {
             self.world.log(error);
             return;

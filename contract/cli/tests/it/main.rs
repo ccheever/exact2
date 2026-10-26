@@ -64,6 +64,7 @@ mod fonts;
 mod format;
 mod function_graph;
 mod gallery;
+mod gamepad;
 mod geometry;
 mod grouped_action;
 mod grouped_list;

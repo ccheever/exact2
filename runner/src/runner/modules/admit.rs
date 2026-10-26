@@ -449,7 +449,7 @@ impl<D: DataSource> Runner<D> {
             },
             decision => decision,
         };
-        match decision {
+        let decision = match decision {
             // Only a person answers a prompt (D12).
             Decision::Hold(Waits::Permission) if origin != CallOrigin::App => {
                 self.call_person_required();
@@ -462,7 +462,9 @@ impl<D: DataSource> Runner<D> {
                 Decision::Now(json!({ "error": code }))
             }
             decision => decision,
-        }
+        };
+        self.span_admitted(row, args, origin, &decision);
+        decision
     }
 
     /// The permission a call of `row` with `args` asks: its declared one,

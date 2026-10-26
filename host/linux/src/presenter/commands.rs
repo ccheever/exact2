@@ -16,7 +16,7 @@ impl<D: DataSource> Presenter<D> {
         // before its first: whether a shell keeps the screen on is known.
         self.wakelock_unavailable();
         self.orientation_unavailable();
-        self.modules_in();
+        self.package_turn();
         self.run_queued_commands();
         if self.pending_update {
             self.pending_update = false;
@@ -27,6 +27,17 @@ impl<D: DataSource> Presenter<D> {
                 Err(e) => eprintln!("exact update: activate: {e}"),
             }
         }
+    }
+
+    /// The packages' part of a turn: the pads' effects due by now start or
+    /// end (`pads.rs`), then the module calls queued since are handed out.
+    /// The agent runs it too while it waits for replies.
+    pub(crate) fn package_turn(&mut self) {
+        crate::pads::tick(self.host.now());
+        for line in crate::pads::take_recorded() {
+            self.host.log(line);
+        }
+        self.modules_in();
     }
 
     /// `postMessage(text, name)` into the named surface's canvas, stamped now

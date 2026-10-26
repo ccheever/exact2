@@ -87,6 +87,7 @@ pub mod persist;
 mod query;
 mod queue;
 mod resource_inspection;
+mod world_origin;
 pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};

@@ -1,0 +1,55 @@
+// The conformance fixture (LLP 1133.001 D7): @exact/gamepad's names read and
+// sent as an app would, each answer shown by testId for the suites.
+use getGamepads, playEffect, resetEffects, setLight, gamepadconnected, gamepaddisconnected, GamepadList, Gamepad, GamepadHapticsResult from "@exact/gamepad"
+
+fn inUse(l: GamepadList): string = match l.current { case some(i) => `${i}`, case none => "none" }
+fn west(p: Gamepad): string = match p.labels.at(2) { case some(l) => l, case none => "" }
+fn described(p: Gamepad): string = `${p.index}:${p.family}:${west(p)}:${p.effects.join("+")}`
+
+component Fixture
+  state came = ""
+  state went = ""
+  resource pads = getGamepads() as shape GamepadList else empty()
+  mutation played as shape GamepadHapticsResult
+  mutation stopped as shape GamepadHapticsResult
+  action connected(p: Gamepad)
+    came = `${came}${p.index}:${p.family} `
+  action disconnected(p: Gamepad)
+    went = `${went}${p.index} `
+  action buzz
+    send played = playEffect(type="dual-rumble", duration=200, strongMagnitude=1, weakMagnitude=0.5)
+  action long
+    send played = playEffect(type="dual-rumble", duration=2000, strongMagnitude=0.5, weakMagnitude=0.5)
+  action stop
+    send stopped = resetEffects()
+  action amber
+    setLight(color="#e8ad61")
+  view
+    column gap=8 padding=16 gamepadconnected=connected gamepaddisconnected=disconnected
+      text `${pads.available} ${pads.gamepads.length} ${inUse(pads)}` testId="list"
+      text pads.gamepads.map(p => described(p)).join(" ") testId="pads"
+      text came testId="came"
+      text went testId="went"
+      match played
+        case some(r)
+          text r.result testId="played"
+        case none
+          text "" testId="played"
+      match failure(played)
+        case some(f)
+          text f.code testId="played-error"
+        case none
+          text "" testId="played-error"
+      match stopped
+        case some(r)
+          text r.result testId="stopped"
+        case none
+          text "" testId="stopped"
+      button press=buzz testId="buzz"
+        text "Buzz"
+      button press=long testId="long"
+        text "Long"
+      button press=stop testId="stop"
+        text "Stop"
+      button press=amber testId="amber"
+        text "Amber"

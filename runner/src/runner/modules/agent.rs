@@ -2,7 +2,8 @@
 //! `state.extensions`, and `prefer extension` and `prefer permission`.
 
 use super::super::{CommitReceipt, DataSource, Runner};
-use super::{error_code, Json, ModulesRow, Route};
+use super::values::fill_with;
+use super::{error_code, Json, ModulesRow, Route, Waits};
 use serde_json::{json, Map};
 
 impl<D: DataSource> Runner<D> {
@@ -81,7 +82,10 @@ impl<D: DataSource> Runner<D> {
                 h.source == self.plan.str(self.plan.sources[row.source.0 as usize].name)
                     && !h.queued
             }) {
-                if let Some(held) = entry["held"].as_array_mut() {
+                if let Some(held) = entry["held"]
+                    .as_array_mut()
+                    .filter(|_| h.waits != Waits::Span)
+                {
                     held.push(json!({ "ticket": h.hold, "name": declared, "origin": h.origin.word(), "waits": h.waits.word() }));
                 }
             }
@@ -95,6 +99,9 @@ impl<D: DataSource> Runner<D> {
             }
             if let Some(pictures) = self.pictures_json(extension) {
                 entry["pictures"] = pictures;
+            }
+            for (state, calls) in self.played_json(extension).into_iter().flatten() {
+                entry[&state] = calls;
             }
             // The canvases its inputs feed, and their leases (D6).
             if let Some(surfaces) = self.fed_json(extension) {
@@ -253,10 +260,21 @@ impl<D: DataSource> Runner<D> {
         }
         let mut told = std::collections::BTreeSet::new();
         for (key, value) in group {
+            // A list whose changes are the device's events (`spans.rs`).
+            let listed = (self.plan.modules.iter())
+                .find(|m| self.key(m) == *key)
+                .cloned();
+            let before = listed.as_ref().and_then(|r| self.changes_value(r));
             if value == "clear" {
                 self.extensions.preferred.remove(key);
             } else {
                 self.extensions.preferred.insert(key.clone(), value.clone());
+            }
+            if let Some(row) = listed {
+                let after = self.changes_value(&row);
+                if before != after {
+                    self.preferred_changed(&row, before, after);
+                }
             }
             self.note_track(key, value);
             self.log(format!("prefer extension {key}"));
@@ -336,5 +354,33 @@ fn partial(at: &str, value: &Json, shape: &exact_js_value::Shape) -> Result<(), 
         (value, shape) => exact_js_value::from_json(value, shape)
             .map(|_| ())
             .map_err(|e| format!("{at}: {e}")),
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// `row`'s declared `fill`, where `value` leaves a path out. A filler
+    /// `"now"` is the agent clock's date; `{"table", "by"}` is the entry of
+    /// the declaration's `tables.<table>` that the filled object's field
+    /// `by` names, filled after the plain fillers so `by` can be one.
+    pub(super) fn fill_all(&self, row: &ModulesRow, value: &mut Json) {
+        let sub = self.substitute(row);
+        let now = json!(self.time.epoch_at_zero + self.now_ms);
+        let fills = sub["fill"].as_object().cloned().unwrap_or_default();
+        for tabled in [false, true] {
+            for (path, filler) in fills
+                .iter()
+                .filter(|(_, f)| f["table"].is_string() == tabled)
+            {
+                let made = |object: &Map<String, Json>| match filler {
+                    f if f == "now" => Some(now.clone()),
+                    f if tabled => {
+                        let by = object.get(f["by"].as_str()?)?.as_str()?;
+                        sub["tables"][f["table"].as_str()?].get(by).cloned()
+                    }
+                    f => Some(f.clone()),
+                };
+                fill_with(value, path, &made);
+            }
+        }
     }
 }

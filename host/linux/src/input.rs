@@ -108,11 +108,17 @@ pub const LINE: f32 = 40.0;
 /// An absolute device's (min, max) per axis, x then y.
 type Ranges = [(i32, i32); 2];
 
+/// A pad's identity and motors, as the registry takes them.
+type Registering = (crate::pads::Identity, Option<Box<dyn crate::pads::Output>>);
+
 /// Every device that points, types or plays.
 pub struct Input {
     devices: Vec<(Device, Option<Ranges>)>,
     // A pad, its index, its state, and whether its connection was reported.
     pads: Vec<(Device, crate::gamepad::Opened)>,
+    /// Each pad's identity and motors, for the registry (`crate::pads`)
+    /// when it is first read, by index; `None` once it is there.
+    to_register: Vec<Option<Registering>>,
     keyboard: Keyboard,
     touch_only: bool,
 }
@@ -123,12 +129,14 @@ impl Input {
     /// skipped.
     pub fn open() -> Input {
         let (mut devices, mut pads, mut pointing) = (Vec::new(), Vec::new(), Vec::new());
+        let mut to_register = Vec::new();
         for (path, d) in evdev::enumerate() {
             // A pad's sticks are ABS_X/ABS_Y too: it is a pad, not a pointer.
             if pad::is_pad(&d) {
                 if pads.len() < MAX_PADS {
                     nonblocking(&d);
                     let state = pad::open(&path, &d);
+                    to_register.push(Some((pad::identity(&path, &d), pad::motors(&path, &d))));
                     let index = pads.len() as u8;
                     let announced = false;
                     pads.push((
@@ -178,6 +186,7 @@ impl Input {
         Input {
             devices,
             pads,
+            to_register,
             keyboard: Keyboard::default(),
             touch_only: crate::presenter::touch_only(&pointing),
         }
@@ -236,6 +245,17 @@ impl Input {
             Err(_) => Fetch::Gone,
         });
         for (index, reading, at) in readings {
+            // The registry a package reads has the same pads by index.
+            match (reading, self.to_register.get_mut(index as usize)) {
+                (Some(r), Some(waiting)) => {
+                    if let Some((identity, motors)) = waiting.take() {
+                        crate::pads::connect(index, identity, motors);
+                    }
+                    crate::pads::read(index, r);
+                }
+                (None, _) => crate::pads::disconnect(index),
+                _ => {}
+            }
             out.push(InputEvent::Pad {
                 index,
                 connected: reading.is_some(),

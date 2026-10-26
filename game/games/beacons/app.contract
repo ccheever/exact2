@@ -5,6 +5,14 @@
 // While tilt is on the screen keeps the orientation the player holds
 // (LLP 1133.029 §9): steering turns the phone toward the next orientation.
 use motionStatus, requestMotionPermission, startSensorInput, stopSensorInput, gravitySensor, MotionStatus, SensorInput, GravitySensor from "@exact/motion"
+// @ref LLP 1133.022 §10 — a pad in hand: the prompt names its button, the
+// touch controls step aside, a lit beacon rumbles, and the last one turns
+// the light bar the beacons' amber.
+use getGamepads, playEffect, setLight, GamepadList, Gamepad, GamepadHapticsResult from "@exact/gamepad"
+
+// The pad in use's west face button, by its label (Square, X); "" with none.
+fn west(p: Gamepad): string = match p.labels.at(2) { case some(l) => l, case none => "" }
+fn inUse(l: GamepadList): string = l.gamepads.filter(p => l.current == some(p.index)).map(p => west(p)).join("")
 
 shape Hud
   lit: number
@@ -26,6 +34,9 @@ component Beacons
   resource angles = tiltAngles(g.x, g.y, g.z, levelX, levelY, levelZ) as shape string
   mutation asked as shape MotionStatus
   mutation input as shape SensorInput
+  resource pads = getGamepads() as shape GamepadList
+  mutation felt as shape GamepadHapticsResult
+  derive padWord = inUse(pads)
 
   action play
     playing = true
@@ -45,8 +56,17 @@ component Beacons
     let resuming = paused
     again = not again
     paused = false
+    setLight()
     if resuming and tilt
       send input = startSensorInput(surface="world", sensor="gravity", frequency=60, referenceFrame="screen")
+
+  // The world's word for a beacon lit (logic/src/lib.rs), felt on the pad
+  // in use. A failure (a pad with no motors) goes unread.
+  action heard(text: string)
+    if padWord != "" and (text == "lit" or text == "all lit")
+      send felt = playEffect(type="dual-rumble", duration=180, strongMagnitude=0.6, weakMagnitude=0.3)
+    if text == "all lit"
+      setLight(color="#e8ad61")
 
   action setTilt(on: bool)
     tilt = on
@@ -62,21 +82,25 @@ component Beacons
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       if playing
-        canvas surface=world(seed=7, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative" orientationlock=(tilt ? "current" : "none")
+        canvas surface=world(seed=7, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative" orientationlock=(tilt ? "current" : "none") message=heard
           text `Beacons ${hud.lit} / 3` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
           button press=togglePause aria-label=(paused ? "Resume" : "Pause") testId="pause" position="absolute" top=24 right=24 padding=12 border-radius=8 background-color="#202731"
             text (paused ? "Resume" : "Pause") color="#ffffff"
           if paused and motion.available
             TiltPanel(tilt=tilt, state=motion.state, x=g.x - levelX, y=g.y - levelY, gx=g.x, gy=g.y, gz=g.z, angles=angles, setTilt=setTilt, setLevel=setLevel)
-          if hud.near != ""
+          if hud.near != "" and padWord != ""
+            text `Press ${padWord} to light this beacon` testId="near-prompt" position="absolute" top=76 left=24 padding=12 background-color="#202731"
+          if hud.near != "" and padWord == ""
             text "Press E or Light to light this beacon" testId="near-prompt" position="absolute" top=76 left=24 padding=12 background-color="#202731"
-          button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
-            text "Move" color="#ffffff"
-          row position="absolute" right=24 bottom=24 gap=12
-            button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
-              text "Jump" color="#ffffff"
-            button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
-              text "Light" color="#202731"
+          // The touch controls step aside while a pad plays.
+          if pads.gamepads.length == 0
+            button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
+              text "Move" color="#ffffff"
+            row position="absolute" right=24 bottom=24 gap=12
+              button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
+                text "Jump" color="#ffffff"
+              button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
+                text "Light" color="#202731"
           if hud.lit == 3
             column testId="victory" position="absolute" inset=0 align-items="center" justify-content="center" gap=20
               text "All beacons lit" font-size=32
