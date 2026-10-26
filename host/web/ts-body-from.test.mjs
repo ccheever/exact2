@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // The file-body module (ts-body-from.js) loads on an exactBodyFrom fetch's first
 // use: the request is the call's, and its deadline and abort hold while it loads.
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const realHelpers = `export { ownWithout, redirectOf } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
+const realHelpers = `export { ownWithout, redirectOf, within } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
 
 test('an exactBodyFrom fetch captures its options before loading the file-body module', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-options-'));

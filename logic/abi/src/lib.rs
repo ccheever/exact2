@@ -323,6 +323,13 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 "exactBodyFrom cannot cross the Rust module seam".into(),
             )),
         ),
+        // Nor a body written to a file: refused, never read into memory instead.
+        Ok(Answer::Later(r)) if r.body_to.is_some() => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "exactBodyTo cannot cross the Rust module seam".into(),
+            )),
+        ),
         Ok(Answer::Now(v)) => {
             w.u8(0);
             v.encode(w);
@@ -482,6 +489,7 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
         long_poll: None,
         timeout_ms: None,
         body_from: None,
+        body_to: None,
         redirect: Redirect::Follow,
         held: false,
         http: if tag != 1 {
