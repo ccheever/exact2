@@ -1789,7 +1789,8 @@ for (const name of await storage.fs.readdir(folder)) {
 | `writeFile`, `atomicWriteFile`, `appendFile` | `fs.write doc:/` | Creates a file beneath a chosen folder |
 | `mkdir` | `fs.write doc:/` | Makes the folders above it too |
 | `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
-| `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
+| `copyFile(from, to)`, `from` a `doc:` file, `to` an `app:/` path | `fs.read` covering `from`, `fs.write` covering `to` | The host copies the bytes; they never enter JavaScript, so a file past `readFile`'s 16 MiB result copies too. A regular file only, with `readFile`'s refusals |
+| `rename`, `realpath`, and `copyFile` to a `doc:` path | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
 refused. Native folder handles retain the selected directory even if its
@@ -1797,7 +1798,7 @@ pathname moves. Descendant symlinks and Windows reparse points are refused,
 including in intermediate folders; explicitly choosing a file through a
 symlink still selects its target. A native selection whose filename is not
 valid Unicode is refused rather than addressing a lossy spelling. A document needs no app storage: a drive without `--storage` reaches
-it. On the web the paths are the `FileSystemHandle`s the page's picker
+it, though a `copyFile` into an `app:/` path needs app storage as any app file does. On the web the paths are the `FileSystemHandle`s the page's picker
 returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
 on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
 and iOS they are security-scoped URLs held for the session; Linux opens no
