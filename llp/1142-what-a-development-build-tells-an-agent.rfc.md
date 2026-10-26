@@ -618,3 +618,50 @@ is needed; remaining questions are implementation and verification details.
 
 **Deferred question, 2026-10-26:** use D9 evidence to reconsider live retention in LLP 1016.000
 and persisted-identity guidance in LLP 1027.005. No predicate or default change is authorized here.
+
+
+## 14. Implementation and verification (2026-10-26)
+
+The tooling increment is implemented on `codex/llp1142-excord-loop`. Stream mappers,
+collection edge semantics and new input injection remain unchanged, as §13.8 specifies.
+
+- `state.resourceStatus` reports opaque observed request/answer generations, pending state,
+  current/retained/fallback status, full-argument equality and separate placeholder/kept-seed
+  facts. `resourcesMeasuredFrom` bounds the history; unavailable prior history stays unknown.
+  The driver joins each declaration against the digest in that state reply. It exposes no new
+  author predicate or raw request arguments. JS adds failure counts; wasm uses its existing
+  alert batch. The recipe shows account/server ownership gating.
+- Apple `perf frames live` observes bounded display-link callbacks without moving the clock.
+  Capture returns to the application event pump. Replies name clock mode, scheduling and
+  substitutions; even Mac’s normal-scheduling live carrier uses fixture storage and simulated
+  secret presence, so it does not claim whole-production equivalence. `layout` distinguishes
+  model and presentation geometry and reports unavailable evidence explicitly.
+- `perf` counts virtual-row construction, rebinding and retirement by collection site, kernel
+  layout API entries on Apple, and four bounded native host operations. Scope and measurement
+  start are explicit. `during` differences reject changed windows; sequential process/session
+  reads are not an atomic snapshot.
+- Declared fixture backends get stable ports by checkout/app directory. Explicit choices win;
+  development relocation changes only the selected loopback/private-network fetch/socket origin.
+  Production grants remain exact. Reuse and cleanup validate the recorded process, origin,
+  command and checkout; unknown shared Windows processes fail closed because their cwd cannot
+  be established by the available query.
+
+The independent code reviews are `code-2026-10-26-1142-r1.{sol,grok}.md`. Their concrete findings
+required matching the compiler’s `col` field, checking ownership during cleanup as well as
+reuse, asynchronous live-capture completion, presented bounds and scroll origin, and counting
+trial layouts. The initial source audit also read generated `dist.gen` bundles; it now excludes
+that build output alongside `dist`, without changing which source files it audits.
+
+Observed evidence before final integration checks: 481 runner library tests, 23 source-map
+tests, Chrome resource inspection tests, the 13-case Chrome list suite, fixture concurrency and
+ownership regressions, and targeted Swift/driver tests passed. An Excord Chrome drive against
+`http://127.0.0.1:5138`, with a fresh named scratch store, opened the transcript, joined all 21
+resource declarations and recorded 19 constructed rows; no resource failure was reported.
+Only synthetic service data was used.
+
+The initial Mac scratch fixture observed 111 display callbacks over 1000.21 ms with an 8.33 ms
+target cadence and no ring drops. This is callback timing, not proof of compositor presentation
+or a native bounce. A same-binary count-hook microbenchmark measured 3.75 ns disabled and
+23.83 ns enabled; it does not establish end-to-end app overhead. tvOS compiled the shared UIKit
+code. iOS touch/keyboard dismissal, Windows and Android app behavior, a physical iPhone and
+production app equivalence were not qualified by these runs.
