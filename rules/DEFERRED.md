@@ -429,6 +429,26 @@ window (the Home Screen, the Lock Screen, StandBy, CarPlay, HomeView, the
 Mac) and Exact apps on the watch. Templates (CarPlay apps, controls) await
 their own RFC. The take is waived.
 
+**Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", on LLP 1133.023
+§15 question 8):** the app's content and actions reached from outside its
+window: quick actions by the manifest's `shortcuts` and `setAppShortcuts`
+(`@exact/quick-actions`), the system's search by the Content Index API's
+names (`@exact/search-index`), and LLP 1111's declared tools offered to the
+system's callers through a face in the manifest (App Intents, AppFunctions,
+WebMCP), each arriving as a URL at the navigation root or as a tool call of
+origin `tool`. Consumer: Shelf's Add Book, Continue Reading, books in
+Spotlight and Log Pages. Unblocks reaching an app's screens and writes
+without opening it. Take: none named; the ruling is its own waiver. Still
+out, each until a consumer asks (LLP 1133.023 §13): App Intents in widgets,
+controls and Live Activities; interactive snippets and
+`requestConfirmation`'s snippet content; assistant schemas; `IndexedEntity`
+and Spotlight's semantic index; `NSUserActivity` and Handoff; long-running
+intents; an App Intents extension; a structured `returns` through a face;
+entities that are not content-index entries; Android's App Actions built-in
+intents; the web's Launch Handler; Windows' and Linux's system search and
+Windows App Actions; a content index larger than 5,000 entries; and remote
+icons.
+
 **Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
 and document that TUI is now an officially supported platform for Exact2";
 LLP 1101, 1101.000, 1101.001):** the terminal is an officially supported,
