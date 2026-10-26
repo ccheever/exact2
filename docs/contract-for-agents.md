@@ -4037,6 +4037,12 @@ a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
 `wakelock="screen"` on any node, bound to state (`wakelock=(playing ? "screen" :
 "none")`), keeps the display awake while that node is displayed; a hidden or
 unmounted one holds nothing (LLP 1125 D11; `state.wakelock` is `{held, by}`).
+`orientationlock` on any node (`orientationlock=(tilt ? "current" : "none")`)
+keeps the window to a Screen Orientation API lock type, or `current`, while
+that node is displayed; a sheet's lock wins over what it covers and a
+descendant's over its ancestor's. A type only narrows the manifest's
+`orientation`, and a lock inside a `dialog` is refused (LLP 1133.029;
+`contract vocab orientationlock`).
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `-exact-tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not

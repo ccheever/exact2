@@ -48,18 +48,25 @@ pub fn survivor(shown: &[String], declared: impl Fn(&str) -> bool) -> Option<Str
     shown.iter().rev().find(|key| declared(key)).cloned()
 }
 
-/// Hidden and inert, respectively, for each direct route child. An unmatched
-/// selection leaves the previously projected state alone.
-pub fn route_visibility(keys: &[&str], selected: &str, modal: bool) -> Option<Vec<(bool, bool)>> {
+/// Hidden and inert, respectively, for each direct route child, `sheets`
+/// saying which routes are sheets. A sheet shows what it sits over: the page
+/// (the last route beneath it that is not a sheet) and every sheet between,
+/// as navigation.js `covered` does. An unmatched selection leaves the
+/// previously projected state alone.
+pub fn route_visibility(
+    keys: &[&str],
+    selected: &str,
+    sheets: &[bool],
+) -> Option<Vec<(bool, bool)>> {
     let selected = keys.iter().position(|key| *key == selected)?;
+    let sheet = |i: usize| sheets.get(i).copied().unwrap_or(false);
+    let page = (0..selected).rev().find(|i| !sheet(*i)).unwrap_or(0);
+    let covered = |i: usize| sheet(selected) && (page..selected).contains(&i);
     Some(
         (0..keys.len())
             .map(|index| {
                 let active = index == selected;
-                (
-                    !active && !(modal && index.checked_add(1) == Some(selected)),
-                    !active,
-                )
+                (!active && !covered(index), !active)
             })
             .collect(),
     )
@@ -243,13 +250,16 @@ impl Navigation {
                         self.stack = Some(routes[..through].to_vec());
                     }
                 }
-                let modal = routes.iter().find(|r| key(r) == shown).is_some_and(|r| {
-                    kernel
-                        .node(*r)
-                        .and_then(|n| n.props.str(PropId::NavigationPresentation))
-                        == Some("modal")
-                });
-                if let Some(visibility) = route_visibility(&keys, shown, modal) {
+                let sheets: Vec<bool> = routes
+                    .iter()
+                    .map(|r| {
+                        kernel
+                            .node(*r)
+                            .and_then(|n| n.props.str(PropId::NavigationPresentation))
+                            == Some("modal")
+                    })
+                    .collect();
+                if let Some(visibility) = route_visibility(&keys, shown, &sheets) {
                     for (route, state) in routes.iter().zip(visibility) {
                         self.routes.insert(*route, state);
                     }
@@ -334,7 +344,7 @@ mod tests {
     fn selected_route_and_only_its_modal_underlay_are_visible() {
         let keys = ["a", "b", "c", "d"];
         assert_eq!(
-            route_visibility(&keys, "c", false),
+            route_visibility(&keys, "c", &[false; 4]),
             Some(vec![
                 (true, true),
                 (true, true),
@@ -343,7 +353,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            route_visibility(&keys, "c", true),
+            route_visibility(&keys, "c", &[false, false, true, false]),
             Some(vec![
                 (true, true),
                 (false, true),
@@ -352,7 +362,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            route_visibility(&keys, "a", true),
+            route_visibility(&keys, "a", &[true, false, false, false]),
             Some(vec![
                 (false, false),
                 (true, true),
@@ -360,8 +370,34 @@ mod tests {
                 (true, true)
             ])
         );
-        assert_eq!(route_visibility(&keys, "missing", false), None);
-        assert_eq!(route_visibility(&[], "missing", false), None);
+        assert_eq!(route_visibility(&keys, "missing", &[]), None);
+        assert_eq!(route_visibility(&[], "missing", &[]), None);
+    }
+
+    /// A sheet over a sheet shows both the sheet beneath it and the page
+    /// (LLP 1133.029 D3), as navigation.js `covered` does; a page pushed
+    /// beneath the first sheet hides the route it was pushed over.
+    #[test]
+    fn a_sheet_over_a_sheet_shows_the_page_and_the_sheets_between() {
+        let keys = ["a", "b", "c", "d"];
+        assert_eq!(
+            route_visibility(&keys, "d", &[false, false, true, true]),
+            Some(vec![
+                (true, true),
+                (false, true),
+                (false, true),
+                (false, false)
+            ])
+        );
+        assert_eq!(
+            route_visibility(&keys, "d", &[false, true, false, true]),
+            Some(vec![
+                (true, true),
+                (true, true),
+                (false, true),
+                (false, false)
+            ])
+        );
     }
 
     /// LLP 1035.001 D1: a root whose key names no route (visit "0" over a

@@ -1,0 +1,109 @@
+// @ref LLP 1133.029 §9.1 — the orientation lock's cases Beacons does not
+// show: a sheet's lock over a locked screen and over an unlocked one, an
+// unlocked sheet over a locked sheet over a locked page, a dialog over a
+// locked screen, nesting (a portrait root, a landscape screen pushed and
+// popped), a conflict, `any` releasing an ancestor, and a computed word
+// outside the table. The manifest says no `orientation`. The dialog also
+// holds `wakelock`, the case of QUEUE.md's closed-dialog wake lock.
+
+routes nav
+  home "/"
+    landscape "/landscape"
+    sheet "/sheet"
+    over "/over"
+
+component App
+  state rootLock = "none"
+  state pageLock = "none"
+  state sideLock = "none"
+  state sheetLock = "landscape"
+  action root(w: string)
+    rootLock = w
+  action page(w: string)
+    pageLock = w
+  action side(w: string)
+    sideLock = w
+  action sheet(w: string)
+    sheetLock = w
+  action go(to: string)
+    nav = push(nav, to)
+  action back
+    nav = back(nav)
+  view
+    column testId="root" orientationlock=rootLock height="100%"
+      main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+        for e in stack(nav) key=e.id
+          if e.name == "home"
+            column navigationKey=`${e.id}` position="absolute" inset=0
+              header
+                h1 "Orientation"
+              scroll flex=1
+                column padding=16 gap=8
+                  column testId="page" orientationlock=pageLock gap=8
+                    text `Page: ${pageLock}` testId="page-word"
+                    row gap=8 flex-wrap="wrap"
+                      button press=page("none") testId="page-none"
+                        text "None"
+                      button press=page("portrait") testId="page-portrait"
+                        text "Portrait"
+                      button press=page("landscape") testId="page-landscape"
+                        text "Landscape"
+                      button press=page("current") testId="page-current"
+                        text "Current"
+                      button press=page("any") testId="page-any"
+                        text "Any"
+                      button press=page("sideways") testId="page-sideways"
+                        text "Sideways"
+                  text `Root: ${rootLock}` testId="root-word"
+                  row gap=8 flex-wrap="wrap"
+                    button press=root("none") testId="root-none"
+                      text "Root none"
+                    button press=root("portrait") testId="root-portrait"
+                      text "Root portrait"
+                  column testId="side" orientationlock=sideLock gap=8
+                    text `Side: ${sideLock}` testId="side-word"
+                    row gap=8 flex-wrap="wrap"
+                      button press=side("none") testId="side-none"
+                        text "Side none"
+                      button press=side("landscape") testId="side-landscape"
+                        text "Side landscape"
+                  button press=go("/landscape") testId="open-landscape"
+                    text "Landscape screen"
+                  button press=go("/sheet") testId="open-sheet"
+                    text "Sheet"
+                  button commandfor="dialog" command="show-modal" testId="open-dialog"
+                    text "Dialog"
+              dialog id="dialog" testId="dialog"
+                column padding=16 gap=8 wakelock="screen" testId="dialog-wakelock"
+                  text "A dialog over the page leaves its lock."
+                  button commandfor="dialog" command="close" testId="close-dialog"
+                    text "Close"
+          if e.name == "landscape"
+            column navigationKey=`${e.id}` position="absolute" inset=0 testId="landscape-screen" orientationlock="landscape"
+              header
+                h1 "Landscape"
+              column padding=16 gap=8
+                text "This screen locks landscape."
+                button press=back testId="landscape-back"
+                  text "Back"
+          if e.name == "sheet"
+            column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
+              column testId="sheet" orientationlock=sheetLock padding=16 gap=8
+                text `Sheet: ${sheetLock}` testId="sheet-word"
+                row gap=8 flex-wrap="wrap"
+                  button press=sheet("none") testId="sheet-none"
+                    text "None"
+                  button press=sheet("portrait") testId="sheet-portrait"
+                    text "Portrait"
+                  button press=sheet("landscape") testId="sheet-landscape"
+                    text "Landscape"
+                button press=go("/over") testId="open-over"
+                  text "Sheet over it"
+                button press=back testId="close-sheet"
+                  text "Close"
+          if e.name == "over"
+            column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
+              column testId="over" padding=16 gap=8
+                text "This sheet holds no lock."
+                button press=back testId="close-over"
+                  text "Close"

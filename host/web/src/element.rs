@@ -1004,6 +1004,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
             // Read by wakelock-glue.js (LLP 1125 D11).
             PropId::Wakelock => "data-exact-wakelock",
+            // Read by orientationlock-glue.js (LLP 1133.029 D7).
+            PropId::Orientationlock => "data-exact-orientationlock",
             // Read by the JS target's midi.js (LLP 1125 D8): the inputs, newline-joined.
             PropId::MidiInputs => "data-exact-midiinputs",
             PropId::SwipeIndicator => "swipeIndicator",
