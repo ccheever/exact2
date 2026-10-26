@@ -198,12 +198,19 @@ function replyOf(m: Stored, dirs: Directories): Row['reply'] {
   return [{ id, author: displayName(author),
     avatar: dirs.avatar(author), color: dirs.nameColor(m.channel_id, ref.member?.roles ?? []),
     // A forward's own words first, then the message it forwards.
-    preview: ([ref.message_snapshots?.[0]?.message ? ref.content : '', (ref.message_snapshots?.[0]?.message ?? ref).content]
+    preview: clip(([ref.message_snapshots?.[0]?.message ? ref.content : '', (ref.message_snapshots?.[0]?.message ?? ref).content]
       .map(words => plain(flatten(parse(String(words ?? '')), context(dirs)))).filter(Boolean).join(' ')
       || stickersOf(ref.message_snapshots?.[0]?.message ?? ref).map(stickerName).join(', ')
       || String((ref.message_snapshots?.[0]?.message ?? ref).poll?.question?.text ?? ''))
-      .replace(/\s+/g, ' ').trim().slice(0, 100),
+      .replace(/\s+/g, ' ').trim(), 100),
     state: 'present' }];
+}
+
+/** The first `n` characters of `s`, by code point: a cut in UTF-16 units can split an emoji, and the half
+ * left is a lone surrogate, which no host's JSON reader takes (the whole window it is in fails). */
+export function clip(s: string, n: number): string {
+  const points = Array.from(s);
+  return points.length > n ? points.slice(0, n).join('') : s;
 }
 
 /** A message's text as the composer shows it for an edit: a mention of a person the directories know is

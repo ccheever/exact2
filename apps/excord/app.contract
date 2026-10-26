@@ -77,6 +77,7 @@ component Excord
   state ackTries = 0
   state pageTries = 0
   state pageAsked = ""
+  state pageAsks = 0
   state baseArrived = 0
   state followed = 0
   state highlight = ""
@@ -256,7 +257,9 @@ component Excord
   // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
   derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
   derive pageKey = `${win.channel}/${win.need}/${win.cursor}`
-  derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and pageTries >= 3
+  // Asks count as well as failures: a page whose answer the host refused (a window it could not read)
+  // runs no `afterPage`, or leaves the window as it was, and would otherwise be asked again for good.
+  derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and (pageTries >= 3 or (pageAsks >= 3 and not pending(paged)))
   derive historyLoading = pending(win) or win.channel != open or win.need != ""
   // The transcript is on screen, not the channel list or a picture over it.
   derive reading = top(nav).name == "channel" and viewing == ""
@@ -407,6 +410,7 @@ component Excord
   action pageNow
     if pageAsked != pageKey
       pageTries = 0
+    pageAsks = pageAsked != pageKey ? 1 : pageAsks + 1
     pageAsked = pageKey
     send paged = loadPage(win.channel, win.need, win.cursor)
   action afterPage
@@ -423,6 +427,7 @@ component Excord
         pageTries = 0
   action retryHistory
     pageTries = 0
+    pageAsks = 0
   action followEnd
     followed = chan.arrived
     if not away and endGap > 0.5
@@ -475,6 +480,7 @@ component Excord
       target = ""
     ackTries = 0
     pageTries = 0
+    pageAsks = 0
     if c.ageRestricted and ageGate == ""
       ageGate = "asked"
       send age = requestAgeRange(ageGates=[18])
