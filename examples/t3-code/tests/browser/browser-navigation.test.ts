@@ -6,7 +6,7 @@
 // PreviewEmptyState.test.tsx (4, under their own names), over the projection the Contract view draws (a group shows
 // when its list is not empty; both empty draw "No preview yet").
 import { describe, expect, it } from 'bun:test';
-import { browserHost, browserLocal, browserView } from '../../src/browser/browser-surface';
+import { browserHost, browserLocal, browserView, frameLocal } from '../../src/browser/browser-surface';
 import { browserKey, navigationPrepare, previewKeys, previewToggleRow, showPreview } from '../../src/browser/browser-navigation';
 import { useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
 import { browserHistory } from '../../src/browser/browser-history';
@@ -281,6 +281,25 @@ describe('the preview keys and ⇧⌘J', () => {
     } finally { useAutomationCalls(null); }
     expect(commands(s)).toEqual([{ kind: 'reload', url: '', delta: 0, flag: false }, { kind: 'window', url: '', delta: 0, flag: true },
       { kind: 'window', url: '', delta: 3, flag: false }, { kind: 'window', url: '', delta: 1, flag: false }]);
+  });
+  it('⌘L over a shown page asks the address bar for the focus while the page holds it, once, and else does nothing', async () => {
+    const s = setup(), frameId = frameIdOf(s.runtimeId);
+    (s.client.config as Obj).keybindings = [{ command: 'preview.focusUrl', shortcut: { key: 'l', modKey: true }, whenAst: { type: 'identifier', name: 'previewFocus' } }];
+    let focused = false;
+    useAutomationCalls({ evaluate: async () => ({ result: focused }) } as unknown as AutomationCalls);
+    try {
+      await browserKey(s.client, frameId, 'chord=meta+l');
+      expect(browserView(s.client, s.surface, Date.now()).focusUrlSerial).toBe(0);
+      focused = true;
+      await browserKey(s.client, frameId, 'chord=meta+l');
+      const serial = browserView(s.client, s.surface, Date.now()).focusUrlSerial;
+      expect(serial).toBeGreaterThan(0);
+      // The field took the focus (browser-surface.contract BrowserChrome): a later mount of the chrome asks no more.
+      await frameLocal(s.client, module, 'frame-url-focused', s.runtimeId, String(serial));
+      expect(browserView(s.client, s.surface, Date.now()).focusUrlSerial).toBe(0);
+    } finally { useAutomationCalls(null); }
+    // ⌘L moves neither the page nor the window.
+    expect(commands(s)).toEqual([]);
   });
   it('closes a shown Browser panel, else shows the thread\'s tab without opening another', async () => {
     const s = setup();

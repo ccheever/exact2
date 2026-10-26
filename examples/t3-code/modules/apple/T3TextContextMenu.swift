@@ -20,7 +20,7 @@
 //   the shell's menu for the page: Copy Link over a link (the inline link's accessibility URL), Copy Image over an image
 //   (the image layer's bitmap), Copy while page text is selected (ExactKit enables Edit ▸ Speech ▸ Start Speaking exactly
 //   then), Select All.
-// - A Browser page answers in its web view (T3ShellWebView.swift); other web views (an iframe's page, the terminal's among them) keep their own menus.
+// - Web views (an iframe's page: a Browser tab, a rendered HTML preview, the terminal) keep their own menus.
 // - A reply's mailto, irc, xmpp or fragment link writes no `contextmenu` (markdown.contract FlowRuns), as ChatMarkdown's
 //   anchor returns before `preventDefault` when the link has no web host: its click is one no node answers.
 //
@@ -81,7 +81,6 @@ final class T3TextContextMenu: NSObject {
 
     init(agent: Bool) {
         self.agent = agent
-        T3ShellWebView.agent = agent
     }
 
     func install() {

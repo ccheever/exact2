@@ -22,6 +22,7 @@ import { filesMermaid, type MermaidDiagramView } from '../timeline/timeline-merm
 import { timelineView } from '../timeline/timeline-presentation';
 import { fileIconToken } from '../shared/timeline-files';
 import { mediaBody, mediaErrorMessage } from '../media/attachment-media'; // PDF, HTML, audio and video bodies
+import { mediaFrameSource } from '../media/media-frame'; // a PDF's or a rendered page's frame source
 import { sourceGutter } from './files-crumbs-settle'; // the reference's line-number column
 import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
@@ -163,6 +164,9 @@ export async function attachmentView(client: T3Client, native: Native | null | u
       else state.contentError = str(reply.message, 'Could not load this file.');
     }
   }
+  // A PDF or a rendered page is a frame (media-frame.ts): a PDF is first written to app:/cache, which can fail.
+  const frame = !needsText && (kind === 'pdf' || kind === 'html') && state.url && !state.urlError && !state.mediaError ? await mediaFrameSource(kind, state.url) : null;
+  if (frame?.error) state.mediaError = frame.error;
   const failure = state.urlError || (needsText ? state.contentError : state.mediaError);
   const content = state.content, rendered = state.rendered;
   const showsRawText = !failure && needsText && !!content && !(delimiter && rendered) && !(kind === 'markdown' && rendered);
@@ -187,7 +191,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     canSave: !!state.url, saving: state.saving, saveLabel: state.saving ? 'Preparing file…' : 'Save file',
     truncatedNote: content?.truncated ? `Preview limited to the first 1 MB of a ${meta.sizeBytes.toLocaleString('en-US')} byte file. Save the file to read it in full.` : '',
     ...rich, table: table?.rows ?? [],
-    lines, gutter: sourceGutter(lines.length), url: preview === 'image' || mediaBody(preview, true) ? state.url : '',
+    lines, gutter: sourceGutter(lines.length), url: preview === 'pdf' || preview === 'html' ? frame?.src ?? '' : preview === 'image' || mediaBody(preview, true) ? state.url : '',
     // The unsupported body.
     noPreview: preview === 'none' ? `Save it to open in an app that supports ${extension} files.` : '',
   };

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { serveAssets } from '../support/asset-server';
+import { memoryAppFiles, serveAssets } from '../support/asset-server';
 import { memoryFiles } from '../support/image-accent-fixture';
 import { attachmentLocal, attachmentView, previewKind, type AttachmentMeta } from '../../src/panel/attachment-surface';
 import { isMediaPreview, mediaBody, mediaErrorMessage } from '../../src/media/attachment-media';
+import { forgetMediaFrames } from '../../src/media/media-frame';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
@@ -44,15 +45,45 @@ describe('attachment media bodies', () => {
       .toEqual([true, false, '', 'audio', '']);
   });
 
-  test('PDF, audio and video draw their body from the inline signed URL; nothing reads them as text', async () => {
-    const calls: Obj[] = [], c = client(calls);
-    for (const [meta, preview] of [[files[0]!, 'pdf'], [files[2]!, 'audio'], [files[3]!, 'video']] as const) {
+  test('audio and video play the inline signed URL; a PDF frame shows its bytes from app:/cache; nothing reads them as text', async () => {
+    const calls: Obj[] = [], c = client(calls), written = memoryAppFiles();
+    server.restore();
+    server = serveAssets(() => ({ body: '%PDF-1.4 pages' }));
+    for (const [meta, preview] of [[files[2]!, 'audio'], [files[3]!, 'video']] as const) {
       const view = await attachmentView(c, native, meta, 1000);
       expect([view.preview, view.url, view.error, view.canRender, view.canCopy, view.canSave, view.noPreview])
         .toEqual([preview, `http://127.0.0.1:1/api/assets/${meta.id}?sig=1`, '', false, false, true, '']);
     }
     expect(server.calls).toEqual([]);
+    const pdf = await attachmentView(c, native, files[0]!, 1000);
+    expect([pdf.preview, pdf.error, pdf.canRender, pdf.canCopy, pdf.canSave, pdf.noPreview]).toEqual(['pdf', '', false, false, true, '']);
+    expect(pdf.url).toMatch(/^app:\/cache\/media-preview\/\d+\.pdf$/);
+    expect(new TextDecoder().decode(written.get(pdf.url))).toBe('%PDF-1.4 pages');
+    expect(server.calls.map(call => call.url)).toEqual(['http://127.0.0.1:1/api/assets/p1?sig=1']);
+    // The next view shows the same copy.
+    expect((await attachmentView(c, native, files[0]!, 2000)).url).toBe(pdf.url);
+    expect(server.calls).toHaveLength(1);
     expect(calls.map(call => (call.resource as Obj | undefined)?.disposition)).toEqual(['inline', 'inline', 'inline']);
+  });
+
+  test('a PDF the server will not give is "Could not load this file."; Try again fetches it afresh', async () => {
+    const c = client(), written = memoryAppFiles();
+    forgetMediaFrames(); // the copy the test above kept
+    let status = 500;
+    server.restore();
+    server = serveAssets(() => ({ status, body: '%PDF-1.4' }));
+    const failed = await attachmentView(c, native, files[0]!, 1000);
+    expect([failed.preview, failed.error, failed.url]).toEqual(['error', 'Could not load this file.', '']);
+    status = 200;
+    await attachmentLocal(c, native, 'retry', files[0]!.id, 1000);
+    const again = await attachmentView(c, native, files[0]!, 1000);
+    expect([again.preview, again.error]).toEqual(['pdf', '']);
+    expect(written.has(again.url)).toBe(true);
+  });
+
+  test('a rendered page frames its signed asset URL itself', async () => {
+    const view = await attachmentView(client(), native, files[1]!, 1000);
+    expect([view.preview, view.url]).toEqual(['html', 'http://127.0.0.1:1/api/assets/h1?sig=1']);
   });
 
   test('HTML opens rendered with "Show HTML source"; source reads the text and offers copy and wrap', async () => {

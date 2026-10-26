@@ -104,6 +104,8 @@ shape BrowserPanel
   aspectLocked: bool
   presets: BrowserPresetChoice[]
   keys: string
+  // A page's ⌘L for the address bar to take, 0 once taken (browser-navigation.ts browserKey).
+  focusUrlSerial: number
   recents: BrowserRecent[]
   servers: BrowserServer[]
   capture: BrowserCapture
