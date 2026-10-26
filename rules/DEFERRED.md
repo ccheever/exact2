@@ -32,6 +32,31 @@ scheme and fragment. A no-router URL event remains deferred; Charlie's ruling
 keeps the navigation root requirement. Take: no second delivery mechanism is
 added.
 
+**Expanded (Charlie, 2026-10-26, #1003):** an iOS app can ask to be the default
+browser. `host.ios.webBrowser: true` emits Apple's managed
+`com.apple.developer.web-browser` entitlement, registers the `http` and `https`
+`protocol_handlers` the platform requires, and fails the build, naming the
+profile, when the signing profile does not grant the entitlement. Apple
+approves each app. Nathan Schroeder implements it, with T3 Code's browser as
+the consumer. Take: none offered; waived by Charlie. Still out: http and https
+handlers for any app that does not opt in.
+
+**Expanded (Charlie, 2026-10-26, #1002; LLP 1133.028 §10):** Apple builds write
+a privacy manifest (`PrivacyInfo.xcprivacy`) into each bundle that links a
+required-reason API (the app, a widget extension, `ExactCore.framework` and
+the other Exact frameworks). It is generated from an audited table of the
+APIs Exact itself calls; a call with no approved reason is removed rather
+than given one. Nathan Schroeder implements it (#1004). Take: none offered;
+waived by Charlie. Still out: an app's own declarations, until an app with
+native code of its own asks.
+
+**Expanded (Charlie, 2026-10-26, Excord):** a virtualized `list` takes
+`reach-margin`, a nonnegative `px` or `%` distance along the scroll axis, one
+viewport by default, saying how far ahead of an end `reachstart` and
+`reachend` fire. With it, the default edge band follows the collection's own
+lead, as LLP 1027.004 D3 has it, so a fling that the window preloads for also
+fires the edge event. Take: none offered; waived by Charlie.
+
 **Expanded (Charlie, 2026-10-11, events ruling):** `keycapture=` admits DOM
 capture-phase key dispatch for the coding-agent desktop app's early shortcuts;
 `focusin`/`focusout` admit bubbling subtree focus observation for the clipped
@@ -1445,6 +1470,13 @@ tenth operation.
 LLP 1079 D7):** `perf` is the tenth operation and takes none away: a subtree's work
 by plan site, and a host's presented frames. A new measurement is a form of `perf`,
 never an eleventh operation.
+
+**Ruled (Charlie, 2026-10-26, Excord's socket handshake):** `clock until state
+<path> == <literal> within <ms>` is a form of `clock`, in the agent and in
+authored tests. Virtual time stays frozen while it waits on the wall clock for
+at most `<ms>`, and a miss names the last value it saw. It is for state that a
+stream reaches after its first message, which settlement does not wait for
+(LLP 1016.000 D5).
 
 **An eleventh operation replaces one of the ten, same PR.** A new input is a form of
 `tap` or `type` (a wheel is a `tap`; so would a drag be); a new question is answered
