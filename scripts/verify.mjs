@@ -255,7 +255,15 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     for (const [file, pid] of files('drive')) if (!alive(pid)) rmSync(file, { force: true });
     if (files('drive').length) return null;
     return files('server').flatMap(([file, pid]) => {
-      const ours = spawned?.pid === pid && spawned.exitCode == null || ownsServer(dir, server, pid);
+      // Overlapping drives may choose different ports; each record names the listener to validate.
+      let recordedServer = null;
+      try {
+        const origin = JSON.parse(readIn(lease, file))?.origin, url = new URL(origin);
+        if (url.origin === origin && ['http:', 'https:'].includes(url.protocol)) {
+          recordedServer = { ...server, url: origin, port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)) };
+        }
+      } catch { /* An unknown record grants no authority to stop a process. */ }
+      const ours = spawned?.pid === pid && spawned.exitCode == null || recordedServer && ownsServer(dir, recordedServer, pid);
       if (!ours && alive(pid)) return [];
       rmSync(file, { force: true });
       return ours ? [pid] : [];
