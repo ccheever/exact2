@@ -318,7 +318,7 @@ impl Scrolled {
         Some((entry, within))
     }
 
-    fn is_open(&self, key: NodeKey) -> bool {
+    pub(crate) fn is_open(&self, key: NodeKey) -> bool {
         self.top_layer.iter().any(|open| open.key == key)
     }
 

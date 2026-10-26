@@ -1,0 +1,10 @@
+{
+  "name": "@exact/tracking-consent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Apple's App Tracking Transparency: the person's consent before an app tracks them, on iOS and tvOS alone (LLP 1133.028).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json"
+  }
+}

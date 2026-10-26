@@ -140,6 +140,9 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       // Snapshot input bytes before the caller can mutate its buffers.
       let captured;
       try { captured = structuredClone(args); } catch (e) { return failed(e); }
+      // A document copied into an app file needs both (documents-glue.js `copyFile`).
+      if (method === 'copyFile' && typeof captured[0] === 'string' && captured[0].startsWith('doc:/') && typeof captured[1] === 'string' && captured[1].startsWith('app:/'))
+        return enqueue(async active => { await documentFiles(); const backend = await fileSystem(); active(); return globalThis.exact.documents.copyFile(captured[0], captured[1], admitted.grantSet, backend); }, clone, () => {}, true, method);
       if (captured.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/')))
         return enqueue(async active => { const backend = await documentFiles(); active(); return backend[method](...captured); }, clone, () => {}, false);
       // A refused read answers as an empty store would, in its answer's turn (storage-environment.js `emptyRead`).

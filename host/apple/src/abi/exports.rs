@@ -1069,6 +1069,20 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.log(len), |_| 0)
         }
 
+        /// What the presenter applied of the orientation lock (LLP 1133.029
+        /// §8): JSON in the input buffer's first `len` bytes, and whether
+        /// its resolution found a conflict. Returns 0.
+        #[no_mangle]
+        pub extern "C" fn exact_orientation_applied(rt: u32, len: usize, conflict: u8) -> u32 {
+            $crate::abi::with_runtime(
+                &EXACT_RUNTIMES,
+                rt,
+                true,
+                |b, _| b.orientation_applied(len, conflict != 0),
+                |_| 0,
+            )
+        }
+
         /// An auth session's word (LLP 1069.006): `hold` under the agent, or
         /// `done` with the callback URL or a status; JSON in the input buffer.
         #[no_mangle]

@@ -1,0 +1,121 @@
+{
+  "kind": "interface",
+  "name": "@exact/attestation",
+  "version": "1.0.0",
+  "grants": [
+    "device.attestation"
+  ],
+  "substitute": "implementation",
+  "agent": {
+    "fail": "string",
+    "delay": "number"
+  },
+  "shapes": {
+    "AttestationStatus": {
+      "available": "bool",
+      "provider": "enum<app-attest|play-integrity|none>",
+      "apple": "option<AppleAttestationStatus>"
+    },
+    "Attestation": {
+      "format": "enum<apple-appattest|apple-appattest-assertion|play-integrity|exact-substitute>",
+      "token": "string",
+      "keyId": "option<string>",
+      "attested": "option<string>"
+    }
+  },
+  "names": [
+    {
+      "source": "attestationStatus",
+      "live": true,
+      "overlays": "implementation",
+      "answers": "AttestationStatus",
+      "sync": {
+        "name": "attestationStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": false,
+          "provider": "none",
+          "apple": null
+        },
+        "targets": {
+          "ios": {
+            "available": true,
+            "provider": "app-attest",
+            "apple": {
+              "environment": "development"
+            }
+          },
+          "tvos": {
+            "available": true,
+            "provider": "app-attest",
+            "apple": {
+              "environment": "development"
+            }
+          },
+          "macos": {
+            "available": true,
+            "provider": "app-attest",
+            "apple": {
+              "environment": "development"
+            }
+          },
+          "android": {
+            "available": true,
+            "provider": "play-integrity"
+          }
+        }
+      }
+    },
+    {
+      "send": "attest",
+      "contract": false,
+      "options": {
+        "clientData": "string",
+        "account": "option<string>"
+      },
+      "answers": "Attestation",
+      "handles": {
+        "attested": "key"
+      },
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows"
+        ]
+      }
+    },
+    {
+      "send": "prepareAttestation",
+      "contract": false,
+      "options": {
+        "account": "option<string>"
+      },
+      "answers": "unit",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows"
+        ]
+      }
+    },
+    {
+      "send": "resetAttestation",
+      "contract": false,
+      "options": {
+        "account": "option<string>"
+      },
+      "answers": "unit",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows"
+        ]
+      }
+    }
+  ]
+}

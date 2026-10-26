@@ -724,6 +724,30 @@ told its request ended stops at its next 1 MiB chunk (Ibex patch 10 adds
 `AppDirectories::open_file`); the JS target refuses a pre-aborted fetch before
 making a rejection nobody handles.
 
+**Built: `exactBodyTo` (the user's ruling, 2026-10-26).** For the T3 Code
+clone, whose 6 MB image downloaded through `arrayBuffer()` and `writeFile`
+exceeded Hermes's 64 MiB heap and aborted the app. `fetch(url, {exactBodyTo:
+"app:/…"})`, `Request::body_to` for a Rust source: the host writes a 2xx body
+into that file as it arrives, under `fs.write`, through a staging file beside
+it (`.exact-<hex>.partial`, Ibex patch 19) that replaces the target only when
+the body is complete. A failure, an abort, the deadline or the bound removes
+the staging file and leaves the target as it was. A reply that is not 2xx is
+read into the response as usual, at most 1 MiB, and the file is untouched.
+The bound is `maxResponseBytes` (up to 1 GiB here), or 1 GiB when the fetch
+names none: the body is never held, so the bound is the disk's, not memory's. The written size
+travels as the response header `:exact-body-to` (the runner's `BODY_WRITTEN`;
+no HTTP header name has a colon), which the prelude turns into
+`response.exactBodyTo = {path, bytes}`; the JS target sets the same field. A
+native lane charges such a request the 1 MiB it can hold, not its bound. The
+executor core's workers write it on every native host (Apple, Linux, Windows,
+Android, render), as do the wasm host's page and the JS target (a Blob the
+browser holds, put in the page's store in one transaction). The asynchronous
+executor (`EXACT_HTTP_ASYNC`, off) refuses it with kind `Unsupported`, and the
+Rust module seam refuses it. `typescriptRuntime` is 4. This is LLP 1108.001
+slice 2's download, narrowed: named after `exactBodyFrom`, a HEAD refused,
+and no `when`. That spec's `when` and its writer thread for a stalled disk
+are not built.
+
 **Slices 2 and 3's design** (`exactSaveTo`; `Blob`, `Response.blob()`,
 object URLs, `blob:` sources) is LLP 1108.001. It amends D2's reply sum (a
 headers arm without `size` for a reply not written) and D5's URL form and

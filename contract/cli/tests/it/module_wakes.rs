@@ -492,3 +492,39 @@ fn an_implementation_raises_a_wake_and_is_told_its_end() {
     by(&mut r, 0.0);
     assert_eq!(woke(&heard)[2], r#""w3" "unheard""#, "{}", logs(&r));
 }
+
+/// LLP 1133.023 D7: a tool call is an invocation as a wake's event is, one
+/// at a time with the wakes: a call that arrives while a wake runs waits
+/// for it, and runs once the wake has ended.
+#[test]
+fn a_call_waits_for_a_running_wake() {
+    let app = App::new("call");
+    let text = std::fs::read_to_string(app.0.join("app.contract")).unwrap();
+    let tool = "  tool poke writes closed \"Pull once.\" = poke\n  action poke\n    send pulled = pull(\"call\")\n  action once\n";
+    app.write("app.contract", &text.replacen("  action once\n", tool, 1));
+    let mut r = boot(&app);
+    r.act("periodic", Vec::new()).unwrap();
+    by(&mut r, 60_000.0);
+    let reference = entry(&r, "every")["ref"].as_u64().unwrap();
+    tap(&mut r, reference).unwrap();
+    by(&mut r, 0.0);
+    assert_eq!(state(&r)["wake"]["invocations"][0]["state"], "running");
+    let how = exact_runner::CallHow {
+        door: "agent".into(),
+        ..Default::default()
+    };
+    r.call_tool("poke", "{}", how).unwrap();
+    by(&mut r, 0.0);
+    let calls = state(&r)["intents"]["calls"].clone();
+    assert_eq!(calls[0]["state"], "waiting", "{calls}");
+    answer_pull(&mut r);
+    by(&mut r, 0.0);
+    assert_eq!(state(&r)["wake"]["outcome"], "completed", "{}", logs(&r));
+    let calls = state(&r)["intents"]["calls"].clone();
+    assert_eq!(calls[0]["state"], "running", "{calls} {}", logs(&r));
+    answer_pull(&mut r);
+    by(&mut r, 0.0);
+    let calls = state(&r)["intents"]["calls"].clone();
+    assert_eq!(calls[0]["outcome"], "ok", "{calls} {}", logs(&r));
+    assert_eq!(calls[0]["certainty"], "applied");
+}

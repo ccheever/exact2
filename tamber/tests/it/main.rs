@@ -12,6 +12,8 @@ mod import;
 mod import_kinds;
 mod import_pen;
 mod limits;
+mod limits_counts;
+mod limits_sweep;
 mod limits_walks;
 mod pair;
 mod parity;

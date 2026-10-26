@@ -267,9 +267,28 @@ impl<D: DataSource> Runner<D> {
             })
             .filter_map(|p| {
                 let name = p["name"].as_str()?.to_owned();
-                Some((name.clone(), json!(self.permission_state(&name))))
+                // A `<prefix>.*` permission stands for each one set under it.
+                let under: Vec<String> = match name.strip_suffix('*') {
+                    Some(pre) => (self.extensions.permission.keys())
+                        .filter(|k| k.starts_with(pre))
+                        .cloned()
+                        .collect(),
+                    None => vec![name],
+                };
+                Some(
+                    under
+                        .into_iter()
+                        .map(|n| (n.clone(), json!(self.permission_state(&n)))),
+                )
             })
+            .flatten()
             .collect();
+        // The facts a person's answer kept beside a state the platform
+        // hides (`keyed.rs`), as the `facts` word.
+        let mut values = values;
+        if let Some(facts) = self.facts_of(extension) {
+            values.insert("facts".into(), facts);
+        }
         let body =
             json!({ "extension": extension, "preferred": values, "permissions": permissions });
         handler(body.to_string().into_bytes(), Reply::new(|_| {}));

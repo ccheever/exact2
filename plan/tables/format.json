@@ -361,6 +361,56 @@
       ]
     },
     {
+      "name": "tools",
+      "_comment": "LLP 1111 D2, LLP 1133.023 D7: a root action offered to a caller that is not the person. `consequence` is `reads`, `writes` or `destroys`; `returns`, `fails` and `available` are the derives holding the line's clauses; `face` is the manifest's `intents` face for it as a JSON object, or empty for a tool with none.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "consequence",
+          "codec": "str"
+        },
+        {
+          "name": "additive",
+          "codec": "bool"
+        },
+        {
+          "name": "idempotent",
+          "codec": "bool"
+        },
+        {
+          "name": "closed",
+          "codec": "bool"
+        },
+        {
+          "name": "description",
+          "codec": "str"
+        },
+        {
+          "name": "action",
+          "codec": "idx:actions"
+        },
+        {
+          "name": "returns",
+          "codec": "opt:derives"
+        },
+        {
+          "name": "fails",
+          "codec": "opt:derives"
+        },
+        {
+          "name": "available",
+          "codec": "opt:derives"
+        },
+        {
+          "name": "face",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "source_params",
       "fields": [
         {

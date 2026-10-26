@@ -294,6 +294,9 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private weak var windowMenu: NSMenu?
     private weak var helpMenu: NSMenu?
     private var items: [UInt32: NSMenuItem] = [:]
+    /// The symbol each item's image was made from: a sync runs after every batch, and a new image for
+    /// the same symbol was made and set on every one.
+    private var itemSymbols: [UInt32: String?] = [:]
     private let fileSeparator = NSMenuItem.separator()
     private let settingsSeparator = NSMenuItem.separator()
     private let editSeparator = NSMenuItem.separator()
@@ -384,7 +387,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             (item as? AccessibleMenuItem)?.owner = view
             item.title = title(view)
             // A symbol a button shows is its item's image (LLP 1069.011.000 D7).
-            item.image = view.isButton ? view.face?.symbol.flatMap { FaceSymbol.image($0) } : nil
+            let symbol = view.isButton ? view.face?.symbol : nil
+            if itemSymbols[view.id] != .some(symbol) {
+                itemSymbols[view.id] = .some(symbol)
+                item.image = symbol.flatMap { FaceSymbol.image($0) }
+            }
             chords.append((item, shortcut))
             item.target = self
             item.representedObject = NSNumber(value: view.id)
@@ -428,6 +435,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         }
         for id in Array(items.keys) where !live.contains(id) {
             if let item = items.removeValue(forKey: id) { item.menu?.removeItem(item) }
+            itemSymbols.removeValue(forKey: id)
         }
         // AppKit keeps one item per chord in the bar: giving an item a chord
         // another has takes it from that one. So the host's items give theirs

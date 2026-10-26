@@ -155,6 +155,7 @@ extension Presenter {
         v.web?.frame = v.bounds
         v.fitScroll()
         v.applyTransform()
+        if v.surface != nil { v.applySurface() } // its size is the laid-out one plus `layoutResize`
         menus.framed(v)
         stickies.regridded(v.id)
         if moved { if applying { gridMoved.append(v) } else { regridChildren(of: v) } }

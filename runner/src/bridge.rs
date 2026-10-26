@@ -236,6 +236,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
     {
         return Err(mismatch());
     }
+    // And `orientationlock` outside its words (LLP 1133.029 D2).
+    if prop == PropId::Orientationlock
+        && !matches!(&out, PropValue::Str(s) if crate::orientation::WORDS.contains(&s.as_str()))
+    {
+        return Err(mismatch());
+    }
     Ok((prop, out))
 }
 

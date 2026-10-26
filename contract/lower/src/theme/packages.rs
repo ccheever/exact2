@@ -352,16 +352,17 @@ pub(crate) fn references(
     // A package design's component params (stage 12 B1 round 1, Grok 2):
     // a default names what the package's tokens may, and its own
     // component's params besides, said at the default in the package's file.
+    // (the app's lines by token, resolved once: the checker's work in param
+    // counts, Astra's round 2)
+    let resolver = crate::params::Resolver::new(all, identities);
+    let set_by_app = resolver.lines(&folding.design);
     for (band, source) in packages.iter().enumerate() {
         let params = crate::params::design_tokens(source).0;
         let package = source.package.as_deref().unwrap_or_default();
         for p in &params {
             // One the app sets, by a name only it answers, is the app's
             // value, which names the app's (round 2, Grok 3).
-            let set = folding.design.params.iter().any(|e| {
-                crate::params::resolve(all, identities, &e.name.value)
-                    .is_ok_and(|q| q.token == p.token)
-            });
+            let set = set_by_app.contains_key(p.token.as_str());
             if set {
                 continue;
             }

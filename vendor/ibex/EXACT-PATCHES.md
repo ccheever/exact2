@@ -321,6 +321,27 @@ workers kept through a quiet spell otherwise keep every page a job reached
 dirty for the process's life: 80 KB in euxy on iOS after its launch's reads.
 Replay on a refresh.
 
+## Local patch 18, `copyFile` from a chosen document into an app file
+
+`stdlib/documents.rs` adds `copy_document`, which `fs::run_with_documents`
+runs for `copyFile` from a `doc:` path to an `app:` path (exact2 LLP 1069.010
+D1, ruled 2026-10-26); every other two-path document operation is still
+refused. It admits `fs.read` on the document, then
+`AppDirectories::copy_in` admits `fs.write` on the destination, and only then
+is the provider asked. The source opens as `readFile` opens it
+(`app_fs::document_file`, Unix and Windows) and the host copies its bytes, so
+no result envelope bounds them. Replay on a refresh.
+
+## Local patch 19, an app file staged in pieces and published whole
+
+`stdlib/app_fs_unix.rs` and `app_fs_windows.rs` add `AppDirectories::stage(grants,
+path)` and `Staged` (`write_all`, `publish`), for `fetch(url, {exactBodyTo})` (exact2
+LLP 1108 D6 R2, ruled 2026-10-26): the host writes a reply's body into an app file as it
+arrives. `stage` admits `fs.write` on the path, refuses a missing parent or a target that
+is not a regular file, and creates `.exact-<hex>.partial` beside the target through the
+pinned parent. `publish` syncs it and renames it over the target; a `Staged` dropped
+unpublished removes it. The stub for other platforms refuses. Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

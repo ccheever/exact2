@@ -17,7 +17,7 @@
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
-  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf;
+  var fromBase64 = binary.fromBase64, toBase64 = binary.toBase64, utf8Length = binary.utf8Length, longPollOf = binary.longPollOf, fileRefusal = binary.fileRefusal, bodyWritten = binary.bodyWritten;
   // LLP 1027.000: time and seeds are source arguments, so bake and cache
   // see them. This VM belongs to one module; no page/guest globals change.
   // Install before the app can capture an alias, including Date's prototype
@@ -544,10 +544,13 @@
     ys.forEach(function (y) { if (error) y[1](error); else y[0](); }); return ys.length;
   }
   fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources: there are no timers; split long work with await scheduler.yield()"); } }));
-  function Response(r) {
+  // `to`: the fetch's `exactBodyTo`; `exactBodyTo` is `{path, bytes}` once the host wrote the body there.
+  function Response(r, to) {
+    var written = to === undefined ? undefined : bodyWritten(r);
     this.status = r.status;
     this.ok = r.status >= 200 && r.status < 300;
     this.headers = new global.Headers(r.headers);
+    this.exactBodyTo = written === undefined ? null : { path: to, bytes: written };
     this._text = r.body;
     this._b64 = r.bodyBase64;
   }
@@ -697,29 +700,21 @@
     // host, which reads the file when it runs the request, under `fs.read`,
     // at most 64 MiB. The bytes never enter JavaScript. A missing file, a
     // denied path or one over the bound rejects the fetch before it is sent.
-    var bodyFrom = init ? init.exactBodyFrom : undefined;
-    if (bodyFrom !== undefined) {
-      if (typeof bodyFrom !== "string" || bodyFrom.slice(0, 5) !== "app:/")
-        return Promise.reject(new TypeError("exactBodyFrom must be an app:/ path"));
-      if (utf8Length(bodyFrom) > 4096)
-        return Promise.reject(new TypeError("exactBodyFrom: a path is at most 4096 bytes"));
-      if (/(^|\/)\.\.?(\/|$)|\0/.test(bodyFrom.slice(5)))
-        return Promise.reject(new TypeError("exactBodyFrom: an app:/ path has no . or .. segment"));
-      if (method === "GET" || method === "HEAD")
-        return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
-      if (raw != null)
-        return Promise.reject(new TypeError("fetch: a request has one body: body or exactBodyFrom"));
-      if (init.exactStream !== undefined && /^wss?:/i.test(String(url)))
-        return Promise.reject(new TypeError("exactBodyFrom: a WebSocket sends no body"));
-    }
+    // A body to an app file (`exactBodyTo`, 2026-10-26): the host writes a
+    // 2xx body there as it arrives, under `fs.write`, at most the ceiling or
+    // 1 GiB, and the file appears only whole; any other reply is read as usual.
+    var bodyFrom = init ? init.exactBodyFrom : undefined, bodyTo = init ? init.exactBodyTo : undefined;
+    var fileWhy = fileRefusal(init, method, url, raw); // binary.js
+    if (fileWhy) return Promise.reject(new TypeError(fileWhy));
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
     var independent = init ? init.exactIndependentHttp : undefined;
     var ceiling;
     if (independent !== undefined) {
       ceiling = independent && independent.maxResponseBytes;
-      if (!Number.isInteger(ceiling) || ceiling <= 0 || ceiling > 67108864)
-        return Promise.reject(new TypeError("exactIndependentHttp.maxResponseBytes must be an integer from 1 to 67108864"));
+      var most = bodyTo === undefined ? 67108864 : 1073741824; // a body written to a file: 1 GiB
+      if (!Number.isInteger(ceiling) || ceiling <= 0 || ceiling > most)
+        return Promise.reject(new TypeError("exactIndependentHttp.maxResponseBytes must be an integer from 1 to " + most));
     }
     // An answer that keeps coming (LLP 1016.000): `exactStream` maps each
     // server-sent event to the answer, and the end too. The promise never
@@ -757,7 +752,7 @@
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect, held: held ? true : undefined }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
@@ -765,7 +760,7 @@
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
-      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {}, early: call.status === "pending" };
+      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {}, early: call.status === "pending", bodyTo: bodyTo };
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
@@ -891,9 +886,9 @@
     }
     var refused;
     // A file operation names its path: a document the person chose
-    // (`doc:/`) needs no app storage (LLP 1069.010 D1).
+    // (`doc:/`) needs no app storage (LLP 1069.010 D1); a copy into an app file does.
     var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
-    try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
+    try { refused = host(5, method === "copyFile" && path && /^app:\//.test(args[1]) ? args[1] : path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
     // A drive with no scratch store is said once, at its first refused read or write, for the driver's note (LLP 1102 §3.17); a read finds an empty store, as on a fresh install (storage-environment.js `emptyRead`, word for word).
     if (refused === "agent" && !toldAgent) { toldAgent = true; journal("storage refused (agent): " + REFUSED.agent); }
@@ -1494,6 +1489,6 @@
     // the signal itself still says so.
     if (p.signal && p.signal.aborted) p.reject(p.signal.reason);
     else if (o.failed) p.reject(new FetchError(o.failed));
-    else p.resolve(new Response(o.response));
+    else p.resolve(new Response(o.response, p.bodyTo));
   };
 })(globalThis);

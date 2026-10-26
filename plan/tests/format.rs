@@ -990,13 +990,13 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
 /// module's event the root hears, a wake event's budget (LLP 1133.017 D5),
 /// and `currententrychange`, `navigatesuccess` and `navigateerror` the event
 /// kinds (LLP 1020.002 D2); `atompress` joins them (LLP 1045.000 D7), then
-/// `newwindow` and `download` (LLP 1020.002 D5), then `capture` (D7), then `userpromptopened` (D9). Every host needs a new binary for this plan format. The format digest is pinned: a change to `tables/format.json`, a
+/// `newwindow` and `download` (LLP 1020.002 D5), then `capture` (D7), then `userpromptopened` (D9). The `tools` table joins it (LLP 1133.023 D5, LLP 1111 D2). Every host needs a new binary for this plan format. The format digest is pinned: a change to `tables/format.json`, a
 /// comment included, moves it, and every host then needs a new binary (LLP
 /// 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0xec29_09c9_fc43_45ca,
+        FORMAT_DIGEST, 0xd7ef_547d_6e11_9056,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

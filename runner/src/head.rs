@@ -88,8 +88,9 @@ pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
 }
 
 /// Whether `id` lies under a route every host hides: [`inactive`], less the
-/// route a modal sheet covers, which stays shown beneath the sheet
-/// (navigation.js `covered`). What a wake lock reads (LLP 1125 D11).
+/// routes a modal sheet covers, which stay shown beneath the sheet
+/// (navigation.js `covered`). What a wake lock and an orientation lock read
+/// (LLP 1125 D11, LLP 1133.029 D3).
 pub(crate) fn hidden_route(kernel: &Kernel, id: ViewId) -> bool {
     inactive_with(kernel, id, true)
 }
@@ -261,10 +262,11 @@ fn unselected<'a>(
     off
 }
 
-/// The route a navigation root's selected route covers when that route is a
-/// sheet (`navigationPresentation="modal"`): the one before it in its stack,
+/// The routes a navigation root's selected route covers when that route is a
+/// sheet (`navigationPresentation="modal"`): the page (the last route
+/// beneath it that is not a sheet) and every sheet between the page and it,
 /// which every host leaves shown beneath the sheet (navigation.js `covered`),
-/// and, when that one is a split's detail in a pane its host reported (as
+/// and, when the page is a split's detail in a pane its host reported (as
 /// [`beside_a_pane`] reads it), the split's list beside it.
 fn under_a_sheet<'a>(
     kernel: &Kernel,
@@ -304,12 +306,17 @@ fn under_a_sheet<'a>(
             if !modal || top == 0 {
                 return None;
             }
-            let covered = rs[top - 1];
-            let pane = kernel.host_block(covered).is_some_and(|b| {
+            // The page is the last route beneath the top that is not a sheet.
+            let sheet = |r: ViewId| {
+                node(r)
+                    .is_some_and(|(_, p, _)| p.str(PropId::NavigationPresentation) == Some("modal"))
+            };
+            let page = (0..top).rev().find(|i| !sheet(rs[*i])).unwrap_or(0);
+            let pane = kernel.host_block(rs[page]).is_some_and(|b| {
                 matches!((b.width, b.height), (BlockAxis::Is(_), BlockAxis::Is(_)))
             });
-            let list = (top > 1 && pane && kernel.host_block(rs[0]).is_none()).then_some(rs[0]);
-            Some([Some(covered), list].into_iter().flatten().collect())
+            let list = (page > 0 && pane && kernel.host_block(rs[0]).is_none()).then_some(rs[0]);
+            Some(rs[page..top].iter().copied().chain(list).collect())
         })
         .unwrap_or_default()
 }

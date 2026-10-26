@@ -53,7 +53,7 @@ extension Runtime {
     /// from main found none ("no such runtime"), so every transform drag
     /// was refused at its first geometry report.
     package func transformMotion(_ packet: TransformDragPacket) -> TransformDragReply? {
-        guard !destroyed, let bytes = packet.encoded() else { return nil }
+        guard !destroyed, !holds(), let bytes = packet.encoded() else { return nil } // (held: ResetGate)
         return on(busy: nil) {
             let length = write(bytes)
             let count = exact_transform_motion(rt, UInt32(length))

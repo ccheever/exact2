@@ -81,11 +81,18 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
         7 => Outcome::Surface(SurfaceOutcome::Restored),
         0 => Outcome::Response(Response {
             status: status as u16,
+            // A line that starts with a colon is a pseudo-header the page
+            // names (`:exact-body-to`, exactBodyTo's size): no browser header
+            // name has a colon, so it keeps its leading one.
             headers: headers
                 .lines()
                 .filter_map(|l| {
-                    l.split_once(':')
-                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                    let (pseudo, l) = l.strip_prefix(':').map_or((false, l), |l| (true, l));
+                    l.split_once(':').map(|(k, v)| {
+                        let k = k.trim();
+                        let k = if pseudo { format!(":{k}") } else { k.into() };
+                        (k, v.trim().to_string())
+                    })
                 })
                 .collect(),
             body,

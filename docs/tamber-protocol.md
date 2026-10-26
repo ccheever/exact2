@@ -199,6 +199,9 @@ on macOS and Linux.
   1.16 `levels` for a page of an older build, and the page's selection reports `moved: {up, stepped}` (see The build channel's `inspect`). A slot's host
   is a step; past the last copy, the root. A plan past the copies limit (2^20 sites, 512 KiB encoded) gets none, and
   a `select` there is `unsupported` (`what: "inspect"`), not stale; a site past the copies held, within a map, is stale.
+  Then the sweep's: `tamber-axes` (32 axes) and `tamber-whens` (64 `when` lines a token), design limits alike everywhere,
+  and `tamber-ops-size` (1024 operations in a client's request).
+  The local token's body may be 16 MiB, every other client's 1 MiB.
 
 ## Where it runs
 
@@ -240,7 +243,14 @@ No WebSocket (LLP 1121 §10, stage 3 commit 4). Everything is HTTP on the server
   a browser POST whose `Origin` isn't the server's own (`scripts/install-page.mjs`).
 - **A body** is one JSON object, at most 1 MiB less 4,672 bytes (room for the id the wire adds and
   the digests an `import` carries to the server). A larger one gets 413, or the connection is cut
-  while it is being read.
+  while it is being read. (*1.17*) The local loopback token's body may be 16 MiB (a CLI import's
+  sources, which the server plans as any import), judged from its length before a byte is read;
+  every paired, remote or relayed client's stays 1 MiB, as does a request through `tamber tool --via`'s
+  proxy.
+- **A client's `ops`** (*1.17*) are at most 1024 in one request (`transaction`, `propose`, a
+  scrub): more is refused with 400 and `id: "tamber-ops-size"` before any is read. Operations the
+  server applies itself (accepting a held proposal, a revert's, an import it plans) are no
+  client's request; a value edited in a held proposal is `edit-held`'s, which sends none.
 - **A field of the wrong type** is an error. An optional field given as `null` reads as absent.
 
 **Replies.** A reply is `{"ok": …}` with 200, or `{"error": {"message": …, …}}` with one of these
@@ -805,7 +815,9 @@ design (a `set-state` or `unset-state`: the Contract source that declares its `s
 - **The limits are the checker's:**
   - a token's `kind` is one stage 6 built (`color`, `length`, `number`, `box-shadow`,
     `text-shadow`, `duration`, `easing`, `type`, `family`);
-  - the axes may make at most 64 tuples;
+  - the axes may make at most 64 tuples; (*1.17*) a design has at most 32 axes (`tamber-axes`) and
+    a token at most 64 `when` lines (`tamber-whens`), refused before anything walks them, and an
+    importer that would pass either refuses with the same id;
   - (*1.17*) a value is at most 4096 bytes (`tamber-value-size`) and nests at most 32 functions or calc
     groups deep (`tamber-value-depth`), refused before anything reads it, in every op that
     carries one (a name or metadata word past 4096 bytes too), in words that give its size and

@@ -25,6 +25,8 @@ pub(super) struct Waiting {
     args: Vec<Value>,
     /// The origin of the commit that sent it, which its `next` runs under.
     origin: CallOrigin,
+    /// The invocation that commit was part of (LLP 1133.023 D7); 0 for none.
+    id: u64,
 }
 
 /// The state a refused `next` saw. A standing commit that changes a slot,
@@ -122,11 +124,12 @@ impl<D: DataSource> Runner<D> {
                 mutation: self.plan.str(self.plan.mutations[m].name).to_string(),
             });
         }
-        let origin = self.call_origin();
+        let (origin, id) = (self.call_origin(), self.invocation_id());
         self.queues.waiting[m].push_back(Waiting {
             source: source.to_string(),
             args: args.to_vec(),
             origin,
+            id,
         });
         self.pending_mut[m] = true;
         Ok(())
@@ -206,10 +209,10 @@ impl<D: DataSource> Runner<D> {
         let name = self.plan.str(self.plan.mutations[m].name).to_string();
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(false);
-        let origin = self.queues.waiting[m]
+        let (origin, id) = self.queues.waiting[m]
             .front()
-            .map_or(CallOrigin::App, |w| w.origin);
-        let next = self.as_origin(origin, |r| r.next_inner(m, &name));
+            .map_or((CallOrigin::App, 0), |w| (w.origin, w.id));
+        let next = self.as_invocation(origin, id, |r| r.next_inner(m, &name));
         let (result, refusal) = match next {
             Ok(receipt) => (Ok(receipt), None),
             Err((e, why)) => (Err(e), Some(why)),
@@ -307,16 +310,20 @@ impl<D: DataSource> Runner<D> {
         self.update().map_err(other)
     }
 
-    /// Whether a send of `origin` waits its turn.
-    pub(super) fn queued_of(&self, origin: CallOrigin) -> bool {
-        (self.queues.waiting.iter()).any(|w| w.iter().any(|s| s.origin == origin))
+    /// Whether a send of invocation `id` waits its turn.
+    pub(super) fn queued_of(&self, id: u64) -> bool {
+        id != 0 && (self.queues.waiting.iter()).any(|w| w.iter().any(|s| s.id == id))
     }
 
-    /// Drop the waiting sends of `origin`, one journal line per mutation.
-    pub(super) fn drop_queued_of(&mut self, origin: CallOrigin) {
+    /// Drop the waiting sends of invocation `id`, one journal line per
+    /// mutation.
+    pub(super) fn drop_queued_of(&mut self, id: u64) {
+        if id == 0 {
+            return;
+        }
         for m in 0..self.queues.waiting.len() {
             let before = self.queues.waiting[m].len();
-            self.queues.waiting[m].retain(|s| s.origin != origin);
+            self.queues.waiting[m].retain(|s| s.id != id);
             let n = before - self.queues.waiting[m].len();
             if n > 0 {
                 let name = self.plan.str(self.plan.mutations[m].name).to_string();
@@ -361,6 +368,8 @@ impl<D: DataSource> Runner<D> {
 
 /// What asking a send gave: an answer now for the mutation's slot, or a
 /// request for the host.
+// (most sends that reach the host are requests: boxing one would cost each an allocation)
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Asked {
     Now(usize, Value),
     Later(Request),

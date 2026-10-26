@@ -24,6 +24,7 @@
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",
+    "@exact/alarms": "workspace:*",
     "@exact/language-model": "workspace:*",
     "@exact/local-auth": "workspace:*",
     "@exact/camera": "workspace:*",
@@ -38,6 +39,14 @@
     "@exact/passkeys": "workspace:*",
     "@exact/contacts": "workspace:*",
     "@exact/calendar": "workspace:*",
-    "@exact/background": "workspace:*"
+    "@exact/background": "workspace:*",
+    "@exact/quick-actions": "workspace:*",
+    "@exact/search-index": "workspace:*",
+    "@exact/attestation": "workspace:*",
+    "@exact/age-range": "workspace:*",
+    "@exact/tracking-consent": "workspace:*",
+    "@exact/health": "workspace:*",
+    "@exact/pedometer": "workspace:*",
+    "@exact/altimeter": "workspace:*"
   }
 }

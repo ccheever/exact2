@@ -23,9 +23,10 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         http: match j.get("max_response_bytes") {
             None => exact_runner::HttpScheduling::Ordered,
             Some(value) => exact_runner::HttpScheduling::Independent {
+                // Up to 1 GiB for a body written to a file (`ceiling_refusal`, below).
                 max_response_bytes: value
                     .as_u64()
-                    .filter(|n| (1..=64 << 20).contains(n))
+                    .filter(|n| (1..=u64::from(exact_runner::MAX_BODY_TO_BYTES)).contains(n))
                     .ok_or("invalid independent HTTP response ceiling")?
                     as u32,
             },
@@ -89,11 +90,17 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
             Some(Json::String(path)) => Some(path.clone()),
             Some(_) => return Err("exactBodyFrom must be an app:/ path".into()),
         },
+        // `exactBodyTo`: the path alone; the host writes a 2xx body there.
+        body_to: match j.get("body_to") {
+            None | Some(Json::Null) => None,
+            Some(Json::String(path)) => Some(path.clone()),
+            Some(_) => return Err("exactBodyTo must be an app:/ path".into()),
+        },
         redirect: Redirect::parse(j.get("redirect").and_then(Json::as_str))?,
         held: j.get("held").and_then(Json::as_bool).unwrap_or(false),
     };
     // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
-    match request.long_poll_refusal() {
+    match request.long_poll_refusal().or(request.ceiling_refusal()) {
         Some(why) => Err(why.into()),
         None => Ok(request),
     }

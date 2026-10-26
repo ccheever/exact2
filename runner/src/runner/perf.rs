@@ -1,7 +1,7 @@
 //! The runner's half of `perf` (LLP 1079 D1): the switch a host turns once,
 //! the transaction sequence, and the receipt tally.
 use super::*;
-use crate::perf::{Failures, Handler, SiteWork, ALERTS};
+use crate::perf::{Failures, Handler, SiteWork};
 
 impl<D: DataSource> Runner<D> {
     /// Measure each plan site's work from here on (LLP 1079 D1): what a host
@@ -149,30 +149,23 @@ impl<D: DataSource> Runner<D> {
     pub fn alert(&mut self, line: impl Into<String>) {
         let line = line.into();
         if !self.ids.work.sites.is_empty() {
-            let mut queue = self.ids.work.alerts.borrow_mut();
-            queue.0.push_back(line.clone());
-            if queue.0.len() > ALERTS {
-                queue.0.pop_front();
-                queue.1 += 1;
-            }
+            crate::perf::queue(&self.ids.work.alerts, line.clone());
         }
-        self.log(line);
+        self.journal_only(line);
     }
 
     /// The alert lines queued since the last call, oldest first, each once:
     /// a batch carries them (`alerts`). Lines dropped past the bound are
     /// counted in a first line of their own.
     pub fn take_alerts(&self) -> Vec<String> {
-        let mut queue = self.ids.work.alerts.borrow_mut();
-        let dropped = std::mem::take(&mut queue.1);
-        let mut lines: Vec<String> = queue.0.drain(..).collect();
-        if dropped > 0 {
-            lines.insert(
-                0,
-                format!("{dropped} earlier alert lines were dropped; `logs` has the journal"),
-            );
-        }
-        lines
+        crate::perf::take(&self.ids.work.alerts, "alert")
+    }
+
+    /// The other journal lines queued since the last call, as
+    /// [`take_alerts`](Self::take_alerts) gives alerts: a batch carries them
+    /// (`journal`, LLP 1143 open question 1).
+    pub fn take_journal(&self) -> Vec<String> {
+        crate::perf::take(&self.ids.work.journal, "journal")
     }
 
     /// Resource `i`'s answer was refused (D4): counted while measuring.

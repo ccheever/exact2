@@ -492,6 +492,7 @@ fn build_sources(
         ));
     }
     replace_changed(&out.join("module.rs"), metadata.as_bytes())?;
+    contract::native::write_desktop_packages(platform, app, &baked.plan, &target, &out)?;
     {
         let mode = compat.inputs["rustMode"]
             .as_str()

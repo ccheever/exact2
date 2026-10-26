@@ -9,8 +9,12 @@
 // screen shows, a conditional `get` offers them in the username field's
 // suggestions. Each ceremony is data code's (`app.ts`); the view reads only
 // what the server answered.
+//
+// "Check this build" (LLP 1133.028 §8.1) proves to the server that this is
+// a genuine build on a genuine device; the row shows the server's verdict.
 
 use getClientCapabilities, ClientCapabilities from "@exact/passkeys"
+use attestationStatus, AttestationStatus from "@exact/attestation"
 
 shape Time
   epochAtZero: number
@@ -31,6 +35,8 @@ component AuthFixture
   // The modal ceremonies, and the conditional one the field offers.
   mutation passkey as shape Result refreshes session
   mutation suggested as shape Result refreshes session
+  resource attestation = attestationStatus() as shape AttestationStatus
+  mutation checked as shape Result
   state username = ""
   derive busy = pending(prepared) or pending(signed)
   derive conditional = match caps.conditionalGet { case some(c) => c, case none => false }
@@ -46,8 +52,9 @@ component AuthFixture
     send signed = signIn(time.epochAtZero + performanceNow())
   action signOut
     send left = signOut()
-    // A ceremony in flight is for the session that is ending.
+    // A ceremony or a check in flight is for the session that is ending.
     send passkey = passkeyIdle()
+    send checked = passkeyIdle()
   action setUsername(value)
     username = value
   // A press asks for suggestions again once its sheet is done, even after the
@@ -60,6 +67,8 @@ component AuthFixture
     send suggested = passkeyIdle()
   action suggest
     send suggested = suggestPasskey()
+  action check
+    send checked = checkBuild()
   view
     column testId="auth" width="100%" height="100%" gap=14 padding=24 box-sizing="border-box" background-color="#f5f6f8" color="#1d2a3a" font-family="system-ui"
       text "Auth Fixture" font-size=24 font-weight=600
@@ -86,6 +95,15 @@ component AuthFixture
       match suggested
         case some(p)
           text p.message testId="suggested" font-size=14
+        case none
+          text "" font-size=14
+      text (attestation.available ? "Attestation: " + attestation.provider : "Attestation: unavailable") testId="attestation-status" font-size=14
+      if attestation.available
+        button press=check disabled=pending(checked) testId="check-build"
+          text "Check this build"
+      match checked
+        case some(c)
+          text c.message testId="checked" font-size=14
         case none
           text "" font-size=14
       match prepared

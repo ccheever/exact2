@@ -1,0 +1,12 @@
+{
+  "kind": "implementation",
+  "implements": "@fixture/tally@^1.0",
+  "platform": "windows",
+  "targets": ["windows"],
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["../linux/lib.rs"] },
+  "artifacts": [],
+  "class": "Tally"
+}

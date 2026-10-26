@@ -22,6 +22,8 @@ pub fn paint_row(a: &contract_syntax::Attr) -> bool {
     !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
 }
 mod declaration;
+/// A faced tool's signature and digest (LLP 1133.023 D8).
+pub mod faces;
 pub mod functions;
 pub mod gallery;
 mod grants;
@@ -36,12 +38,14 @@ mod module_events;
 mod module_rust;
 mod modules;
 pub mod native;
+mod orientationlock;
 mod package_views;
 pub mod picker;
 mod resolve;
 mod retained;
 mod shape_schema;
 pub use retained::{retention_build, Kept, Retained};
+mod reach;
 mod rust;
 mod sources;
 mod strings;
@@ -69,7 +73,8 @@ pub use module_rust::module_rust;
 pub use resolve::Origin;
 pub use rust::rust;
 pub use sources::{
-    code_beside, design_path, with_contract_texts, with_design_text, Package, Source, SourceGraph,
+    code_beside, design_path, with_contract_texts, with_design_text, GraphBase, Package, Source,
+    SourceGraph,
 };
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
@@ -305,7 +310,9 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
         .and_then(|mut file| {
             contract_syntax::resolve_clock_timelines(&mut file)?;
             params(&mut file)?;
-            picker::check(&file, None).map_err(first)?;
+            picker::check(&file, None)
+                .and(orientationlock::check(&file, None))
+                .map_err(first)?;
             compile_file_warned(
                 &file,
                 None,
@@ -327,7 +334,9 @@ pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
     contract_syntax::resolve_clock_timelines(&mut file)?;
     params(&mut file)?;
     terminal::check(&file).map_err(first)?;
-    picker::check(&file, None).map_err(first)?;
+    picker::check(&file, None)
+        .and(orientationlock::check(&file, None))
+        .map_err(first)?;
     compile_file_output(&file, None, None, false, contract_lower::Profile::Terminal)
         .map(|(plan, _)| plan)
         .map_err(first)
@@ -414,6 +423,12 @@ pub fn compile_path_source_mapped(
 /// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
 /// capture copies, a watcher watches, and a deploy freezes.
 pub fn source_graph(path: &Path) -> SourceGraph {
+    source_graph_base(path).map_or_else(|refused| refused, |base| base.tail())
+}
+
+/// [`source_graph`]'s Contract half ([`sources::GraphBase`]), which reads no design file, or its refusal (the root
+/// unreadable) as the whole graph: the design server's walk keeps it across a design-only edit.
+pub fn source_graph_base(path: &Path) -> Result<GraphBase, SourceGraph> {
     // The server's planned text of the root, where it has one (stage 8 D).
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
@@ -431,15 +446,15 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     };
     let src = match sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok) {
         Ok(src) => src,
-        Err(e) => return refused(format!("{}: {e}", path.display())),
+        Err(e) => return Err(refused(format!("{}: {e}", path.display()))),
     };
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     match source_root.canonicalize() {
-        Ok(app_root) => sources::graph(path, &src, &app_root),
-        Err(e) => refused(format!("{}: {e}", source_root.display())),
+        Ok(app_root) => Ok(sources::graph_base(path, &src, &app_root)),
+        Err(e) => Err(refused(format!("{}: {e}", source_root.display()))),
     }
 }
 
@@ -889,11 +904,13 @@ fn compile_loaded(
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
-    picker::check(&file, Some(&app_root)).map_err(|all| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    })?;
+    picker::check(&file, Some(&app_root))
+        .and(orientationlock::check(&file, Some(&app_root)))
+        .map_err(|all| {
+            all.into_iter()
+                .map(|e| sources.resolve(e))
+                .collect::<Vec<_>>()
+        })?;
     // Surface findings join the compile's own refusals; neither hides the other.
     let surface: Vec<CompileError> = match surfaces.then(|| surface::arguments(&app_root)) {
         Some(declared) => match declared.map_err(|e| vec![e])? {
@@ -946,46 +963,7 @@ fn compile_loaded(
         let binds: Vec<&str> = v.binds.iter().map(String::as_str).collect();
         plan.add_view(&v.tag, &v.extension, v.displayed, &binds);
     }
-    if app_root.join("app.json").is_file() || app_root.join(".shells/app.json").is_file() {
-        let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
-            pass: "app",
-            id: "app-manifest".into(),
-            message,
-            span: Span::default(),
-            file: Some(path.into()),
-            related: Box::new([]),
-        })?;
-        if !plan.app_id.is_empty() && plan.app_id != manifest.id {
-            return Err(vec![CompileError {
-                pass: "app",
-                id: "app-identity".into(),
-                message: format!(
-                    "the plan names app {}, but app.json names {}",
-                    plan.app_id, manifest.id
-                ),
-                span: Span::default(),
-                file: Some(path.into()),
-                related: Box::new([]),
-            }]);
-        }
-        // @ref LLP 1075.003.000.001 §4.3 — each hatch word with the
-        // platforms that handle it, under the plan's signature: a host calls
-        // a word only where the plan says its platform handles it.
-        let rows = native::hatch_rows(&manifest).map_err(|message| {
-            vec![CompileError {
-                pass: "app",
-                id: "app-manifest".into(),
-                message,
-                span: Span::default(),
-                file: Some(path.into()),
-                related: Box::new([]),
-            }]
-        })?;
-        for (word, platforms) in rows {
-            plan.add_hatch(&word, platforms);
-        }
-        plan.app_id = manifest.id;
-    }
+    reach::from_manifest(path, &app_root, &file, &mut plan)?;
     Ok((plan, sites.map(|sites| SourceMap::new(sites, sources))))
 }
 
@@ -1022,7 +1000,9 @@ pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
     // Media alone: a text has no app, so no `file_handlers` (LLP 1069.002 D1).
-    picker::check(&file, None).map_err(first)?;
+    picker::check(&file, None)
+        .and(orientationlock::check(&file, None))
+        .map_err(first)?;
     compile_file_output(&file, asset_root, None, false, contract_lower::Profile::Web)
         .map(|(plan, _)| plan)
         .map_err(first)

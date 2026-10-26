@@ -1,8 +1,9 @@
 // The data seam's bytes, and the store's presence calls (below), for
 // prelude.js: base64 for what crosses the seam
 // as JSON, a string's UTF-8 length, a stream message's data, a long
-// poll's terms as the seam carries them (LLP 1016.000 D8), and an image
-// call's options (here, beside the prelude, under its line cap). Natively a
+// poll's terms as the seam carries them (LLP 1016.000 D8), a fetch's file
+// options, and an image call's options (here, beside the prelude, under its
+// line cap). Natively a
 // binary message (a byte stream's bytes, a socket's frame; LLP 1016.000)
 // names only its size, and the host fills an ArrayBuffer of it through the
 // bytes door (op 9, js/src/crypto.rs): base64 decoded byte by byte in the
@@ -160,7 +161,37 @@
     word("metadata");
     return [JSON.stringify(out)];
   }
+  // `exactBodyFrom` and `exactBodyTo` (LLP 1108 D6 R2), checked as the web's
+  // ts-body-from.js checks them: a refusal's words, or undefined.
+  function filePath(name, path) {
+    if (typeof path !== "string" || path.slice(0, 5) !== "app:/") return name + " must be an app:/ path";
+    if (utf8Length(path) > 4096) return name + ": a path is at most 4096 bytes";
+    if (/(^|\/)\.\.?(\/|$)|\0/.test(path.slice(5))) return name + ": an app:/ path has no . or .. segment";
+  }
+  function fileRefusal(init, method, url, raw) {
+    var from = init ? init.exactBodyFrom : undefined, to = init ? init.exactBodyTo : undefined, why;
+    if (from !== undefined) {
+      if ((why = filePath("exactBodyFrom", from))) return why;
+      if (method === "GET" || method === "HEAD") return "fetch: a " + method + " request cannot have a body";
+      if (raw != null) return "fetch: a request has one body: body or exactBodyFrom";
+      if (init.exactStream !== undefined && /^wss?:/i.test(String(url))) return "exactBodyFrom: a WebSocket sends no body";
+    }
+    if (to !== undefined) {
+      if ((why = filePath("exactBodyTo", to))) return why;
+      if (init.exactStream !== undefined) return "exactBodyTo: a stream's body is its messages, not a file";
+      if (method === "HEAD") return "exactBodyTo: a HEAD reply has no body to write";
+    }
+  }
+  // The bytes `exactBodyTo` wrote, from the host's `:exact-body-to` pair
+  // (the runner's `BODY_WRITTEN`), taken out of the reply's headers: no HTTP
+  // header name has a colon. Undefined when the body was not written.
+  function bodyWritten(reply) {
+    for (var i = 0; i < reply.headers.length; i++)
+      if (reply.headers[i][0] === ":exact-body-to") return Number(reply.headers.splice(i, 1)[0][1]);
+  }
   global.__exact_binary = Object.freeze({
+    fileRefusal: fileRefusal,
+    bodyWritten: bodyWritten,
     imageOptions: imageOptions,
     fromBase64: fromBase64,
     toBase64: toBase64,

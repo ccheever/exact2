@@ -4,6 +4,7 @@ use crate::anatomy::{Anatomy, Mark, PartDecl};
 use crate::members::{Deferred, Members, MembersLine};
 use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
 use crate::parser::SyntaxError;
+use crate::tool::{Consequence, Tool};
 use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
@@ -85,6 +86,7 @@ leaves!(
     TapForm,
     ParamValue,
     ModuleKind,
+    Consequence,
     crate::members::Splice,
     &'static str
 );
@@ -123,7 +125,9 @@ structs! {
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
-        mutations, actions, tasks, sequences, view, params, anatomy, members, span }
+        mutations, actions, tools, tasks, sequences, view, params, anatomy, members, span }
+    Tool { name, consequence, additive, idempotent, closed, description, action, returns, fails,
+        available, span }
     Members { lines, props, outer }
     Deferred { name, if_action, in_block, error }
     SyntaxError { id, message, span }

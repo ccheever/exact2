@@ -461,7 +461,7 @@ export const navigation = {
     }
     pendingRow = null;
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7); the wake lock, which follows what shows (LLP 1125 D11).
-    globalThis.exact?.onProject?.(root); globalThis.exact?.wakeLockGlue?.projected(root); pageTitle();
+    globalThis.exact?.onProject?.(root); globalThis.exact?.wakeLockGlue?.projected(root); globalThis.exact?.orientationLockGlue?.projected(root); pageTitle();
   },
   observation(root) {
     const nav = root.querySelector("[navigationBack]");

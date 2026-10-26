@@ -12,6 +12,8 @@ shape CanvasCheck
 shape ChainLink
   text: string
   up: number
+  // The component the call site is in (the copy a press of it means to select), as the server joined it.
+  component: string
 
 // A move of the selection up the chain (`inspect` `select`): sent, or why not.
 shape SelectUp
@@ -296,6 +298,11 @@ shape Inspected
   // the root), -1 for none.
   movedUp: number
   movedStepped: number
+  // Its own component, as the server joined its site (the Apple pass's #1: where a step landed is said by it).
+  component: string
+  // Why the page's selection itself is not current (its build gone or moved on, its page's refusal), or "": a move
+  // up would be refused, so none is offered (the Apple pass's #5, #6). A scheme or mode not known stops only edits.
+  pageStale: string
   // The grid column of the branch that won for it (its modes and scheme),
   // and that column's place, whole (every axis's value, the scheme).
   modes: string

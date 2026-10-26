@@ -280,6 +280,7 @@ impl<D: DataSource> Presenter<D> {
         self.dirty |= self.top.overlay.enabled;
         self.report_top_layer();
         self.back_changed();
+        self.holds_changed();
         // The shell comes for the statement whether or not a frame follows.
         self.executor.notify();
     }

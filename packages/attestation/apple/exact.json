@@ -1,0 +1,27 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/attestation@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos",
+    "tvos"
+  ],
+  "shapes": {
+    "AppleAttestationStatus": {
+      "environment": "enum<development|production>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "Attestation.swift",
+      "AgentAttestation.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "AttestationModule"
+}

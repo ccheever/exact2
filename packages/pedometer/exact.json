@@ -1,0 +1,138 @@
+{
+  "kind": "interface",
+  "name": "@exact/pedometer",
+  "version": "1.0.0",
+  "grants": [
+    "device.motion"
+  ],
+  "permission": {
+    "name": "motion-fitness",
+    "targets": [
+      "ios",
+      "android"
+    ],
+    "status": "pedometerStatus",
+    "field": "state",
+    "denied": "NotAllowedError",
+    "whilePrompt": {
+      "error": "NotAllowedError",
+      "message": "requestPedometerPermission"
+    }
+  },
+  "shapes": {
+    "Pedometer": {
+      "steps": "number",
+      "since": "number",
+      "timestamp": "number",
+      "apple": "option<ApplePedometer>",
+      "android": "option<AndroidPedometer>"
+    },
+    "PedometerStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "apple": "option<ApplePedometerStatus>",
+      "android": "option<AndroidPedometerStatus>"
+    }
+  },
+  "names": [
+    {
+      "source": "pedometerStatus",
+      "live": true,
+      "answers": "PedometerStatus",
+      "sync": {
+        "name": "pedometerStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "state": "prompt"
+        },
+        "partial": true,
+        "targets": {
+          "web": {
+            "available": false,
+            "state": "unknown"
+          },
+          "macos": {
+            "available": false,
+            "state": "unknown"
+          },
+          "linux": {
+            "available": false,
+            "state": "unknown"
+          },
+          "windows": {
+            "available": false,
+            "state": "unknown"
+          },
+          "tvos": {
+            "available": false,
+            "state": "unknown"
+          }
+        }
+      }
+    },
+    {
+      "send": "requestPedometerPermission",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "derives": {
+        "ios": [
+          "NSMotionUsageDescription"
+        ],
+        "android": [
+          "android.permission.ACTIVITY_RECOGNITION"
+        ]
+      },
+      "answers": "PedometerStatus",
+      "substitute": {
+        "answers": "pedometerStatus",
+        "deniedAnswers": true
+      }
+    },
+    {
+      "source": "pedometer",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 1000
+      },
+      "origin": "app",
+      "person": true,
+      "grants": [
+        "device.motion"
+      ],
+      "derives": {
+        "ios": [
+          "NSMotionUsageDescription"
+        ],
+        "android": [
+          "android.permission.ACTIVITY_RECOGNITION"
+        ]
+      },
+      "options": {
+        "start": "option<number>",
+        "interval": {
+          "type": "option<number>",
+          "min": 250,
+          "default": 1000
+        }
+      },
+      "answers": "Pedometer",
+      "substitute": {
+        "default": {
+          "steps": 0
+        },
+        "track": true,
+        "counts": {
+          "since": "since",
+          "start": "start",
+          "reach": 604800000,
+          "stamp": "timestamp"
+        }
+      }
+    }
+  ]
+}

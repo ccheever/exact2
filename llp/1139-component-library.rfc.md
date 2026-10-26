@@ -663,3 +663,8 @@ amendment). Moving the packages' own path icons to them is in review.
 **QUEUE:** web semantics for a selected bar item (`role="tab"` needs a tablist); the pressed look of a custom popover
 invoker; even-odd and two-colour package icons; the Android slot-marker flake. §9 Q5 (per-instance variant pins)
 and Q6 (apps restyling parts) stay "for now": the design tool's second pass showed no need.
+
+**Stage 14 (2026-10-26):** the QUEUE's even-odd package icons are done. Every nonzero and even-odd path icon in
+`@exact/cards` and `@exact/actions` is a package icon token, drawn at its node's exact frame on every host
+(LLP 1121 §10, stage 14 C: `5b2bd17345`..`0e796f5bc8`). Two-colour package icons stay in QUEUE. The third wave is
+stage 15 B.

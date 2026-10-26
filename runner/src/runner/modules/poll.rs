@@ -63,7 +63,7 @@ impl<D: DataSource> Runner<D> {
     fn polled(&self) -> Vec<(String, f64)> {
         (self.plan.modules.iter())
             .filter(|m| m.live && !m.send)
-            .filter(|m| self.route(m) != Route::Substitute || self.samples_of(m).is_some())
+            .filter(|m| self.route(m) != Route::Substitute || self.substitute_polls(m))
             .filter_map(|m| {
                 let key = self.key(m);
                 if self.extensions.failed.contains(&key) || self.poll_ended(&key) {

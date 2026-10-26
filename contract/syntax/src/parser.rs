@@ -31,6 +31,7 @@ mod sounds;
 mod states;
 mod steps;
 mod theme;
+mod tool;
 mod view;
 pub use steps::{is_launch, same_launch};
 use steps::{launch_word, LAUNCH};

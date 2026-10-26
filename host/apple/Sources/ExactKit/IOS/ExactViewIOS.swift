@@ -59,6 +59,13 @@ public final class ExactView: UIView {
     /// with the current style when set: call `setNeedsStatusBarAppearanceUpdate`.
     public var statusBarStyle: UIStatusBarStyle { session.presenter.statusBar.style }
     public var onStatusBarStyle: ((UIStatusBarStyle) -> Void)? { didSet { onStatusBarStyle?(statusBarStyle) } }
+    /// The session's orientation lock (LLP 1133.029 D5), for the controller
+    /// that hosts this view to return from `supportedInterfaceOrientations`
+    /// (nil: its own answer) and `prefersInterfaceOrientationLocked`. The
+    /// presenter asks the window's controllers to read them again; a session
+    /// that does not own its window (`hatchesOwnWindow`) asks for none.
+    public var orientationMask: UIInterfaceOrientationMask? { session.presenter.orientationLock.supported }
+    public var orientationLocked: Bool { session.presenter.orientationLock.locked }
     #endif
 
     public init(session: ExactSession) {
@@ -208,6 +215,9 @@ public final class ExactView: UIView {
         // The window it joined takes the accent; one it left has its own back
         session.presenter.accent.apply()
         if window != nil { reportScheme() }
+        #if os(iOS)
+        if window != nil { session.presenter.resolveOrientationLock() } // a lock told before there was a window
+        #endif
         session.tellPage() // `hasFocus` is this window's scene's (#114)
         session.natives.scopesChanged()
         session.rasters.setPaused(window == nil)
@@ -294,8 +304,12 @@ public final class ExactView: UIView {
         guard session.state != .destroyed else { return }
         let presenter = session.presenter
         // A native callback served for the owner cannot resize the runtime
-        // yet. Keep the latest geometry pending until that callback returns.
-        if Owner.shared.isServingMain {
+        // yet. Keep the latest geometry pending until that callback returns;
+        // nor can a restart's reset (a keyboard it ends). While a restart holds
+        // the runtime (its own reset or another session's), the fit is owed,
+        // the last-told geometry untouched: ResetGate replays it after the batch.
+        if session.runtime.holds("view(_:)") { return }
+        if Owner.shared.isServingMain || presenter.resetting {
             if !fitPending {
                 fitPending = true
                 DispatchQueue.main.async { [weak self] in

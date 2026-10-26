@@ -46,16 +46,18 @@ final class SurfaceLayer: CALayer {
 extension NodeView {
     private var hostLayer: CALayer? { layer }
 
-    /// The surface at `layoutScale` of the laid-out size; none at one.
+    /// The surface at the laid-out size plus `layoutResize`; none at zero.
     func applySurface() {
-        guard layoutScale != CGPoint(x: 1, y: 1), let host = hostLayer else { return endSurface() }
+        guard layoutResize != .zero, let host = hostLayer else { return endSurface() }
         let started = surface == nil
         let s = surface ?? SurfaceLayer()
         surface = s
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if host.sublayers?.first !== s { host.insertSublayer(s, at: 0) }
-        let box = CGRect(x: 0, y: 0, width: max(0, bounds.width * layoutScale.x), height: max(0, bounds.height * layoutScale.y))
+        // From the size layout gave, not the pixel-grid one: a box closing to zero shows zero.
+        let laid = layoutBounds.size
+        let box = CGRect(x: 0, y: 0, width: max(0, laid.width + layoutResize.width), height: max(0, laid.height + layoutResize.height))
         if s.frame != box { s.frame = box }
         #if os(iOS) || os(tvOS)
         s.contentsScale = traitCollection.displayScale

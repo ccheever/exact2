@@ -87,12 +87,28 @@ impl<D: DataSource> Host<D> {
     /// platform's lock while any session's batch last said `true`. A new host
     /// (a boot, a committed plan) says it at its first batch.
     pub(super) fn wakelock_moved(&mut self) -> Option<bool> {
-        let held = !exact_runner::wakelock::holders(self.runner.kernel()).is_empty();
-        if self.wakelock_told == Some(held) {
+        let held = !exact_runner::wakelock::holders(&self.runner).is_empty();
+        if self.holds_told.0 == Some(held) {
             return None;
         }
-        self.wakelock_told = Some(held);
+        self.holds_told.0 = Some(held);
         Some(held)
+    }
+
+    /// The session's orientation lock when it changed since a batch last
+    /// said it (LLP 1133.029 D3): the lock's JSON, or `{"types":0}` when
+    /// none is held, a conflict among the types included, which the runner
+    /// journals. A new host says it at its first batch.
+    pub(super) fn orientation_moved(&mut self) -> Option<String> {
+        let lock = match self.runner.orientation_session() {
+            exact_runner::orientation::Session::Held(lock) => lock.json(),
+            _ => "{\"types\":0}".to_owned(),
+        };
+        if self.holds_told.1.as_ref() == Some(&lock) {
+            return None;
+        }
+        self.holds_told.1 = Some(lock.clone());
+        Some(lock)
     }
 
     /// Take the presenter's resolutions; when anything resolves differently,

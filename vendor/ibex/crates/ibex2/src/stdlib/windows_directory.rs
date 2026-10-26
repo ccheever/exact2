@@ -158,6 +158,10 @@ impl Directory {
         Ok(Self(file.try_clone()?, true))
     }
     pub(crate) fn document_read(&self, leaf: &str) -> io::Result<Vec<u8>> {
+        super::fs::read_result(self.document_file(leaf)?)
+    }
+    /// A chosen document's regular file, opened for reading.
+    pub(crate) fn document_file(&self, leaf: &str) -> io::Result<File> {
         let file = open(self, leaf, FILE_READ_DATA, FILE_OPEN, false)?;
         let meta = file.metadata()?;
         if meta.is_dir() {
@@ -166,7 +170,7 @@ impl Directory {
         if !meta.is_file() {
             return Err(refuse("document must be a regular file"));
         }
-        super::fs::read_result(file)
+        Ok(file)
     }
     pub fn try_clone(&self) -> io::Result<Self> {
         Ok(Self(self.0.try_clone()?, self.1))

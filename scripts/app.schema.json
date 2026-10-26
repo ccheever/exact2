@@ -151,6 +151,11 @@
       "description": "What the app does, in a sentence: the web manifest's `description`, which an install prompt or a store listing can show.",
       "type": "string"
     },
+    "privacy_policy": {
+      "description": "The app's privacy policy, an https: URL: the one its App Store and Google Play listings name (LLP 1133.026 D4). HealthKit requires one, and Health Connect's permission screen links to it, so an app granting device.health-read without it is refused for Android (grant-privacy-policy) and warned for iOS.",
+      "type": "string",
+      "pattern": "^https://"
+    },
     "id": {
       "description": "The web app's identity (the web manifest's `id`); usually the same as `app.id`.",
       "type": "string"
@@ -421,6 +426,97 @@
           "protocol": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$" },
           "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" },
           "distribution_only": { "type": "boolean", "description": "Register this handler in Apple bundles only for an archive or --distribution build. Defaults to false." }
+        }
+      }
+    },
+    "shortcuts": {
+      "type": "array",
+      "description": "The Web App Manifest's shortcuts: the app icon's menu, fixed per binary (LLP 1133.023 D3). Each opens its url at the navigation root, which the app must have. iOS shows them as Home Screen quick actions, Android as static app shortcuts, Windows as jump list tasks, Linux as the desktop entry's actions, the Mac in the Dock menu, and a browser where it supports them. The app's own list, set by setAppShortcuts, follows these.",
+      "items": {
+        "type": "object",
+        "required": ["name", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "short_name": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "url": { "type": "string", "pattern": "^/(?!/)" },
+          "icons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["src"],
+              "additionalProperties": false,
+              "properties": { "src": { "type": "string", "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*://)" }, "sizes": { "type": "string" }, "type": { "type": "string" } }
+            }
+          },
+          "apple": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": { "symbol": { "type": "string", "minLength": 1, "description": "An SF Symbol name for the Home Screen quick action's icon." } }
+          },
+          "android": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rank": { "type": "number", "minimum": 0 },
+              "disabledMessage": { "type": "string", "minLength": 1, "description": "What a pinned copy says once the app's list no longer has it." }
+            }
+          }
+        }
+      }
+    },
+    "intents": {
+      "type": "object",
+      "description": "Faces: the app's tools offered to the system's callers, compiled into each native binary (LLP 1133.023 D8). A tool with no face is offered to none of them. A face's tool must exist; its parameters are strings, numbers or bools, and a destroys tool's face names only the apple door (D10).",
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "type": "object",
+          "description": "Each content-index kind a parameter may name, with its type's name as the system shows it (D9).",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["title"],
+            "additionalProperties": false,
+            "properties": { "title": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "tools": {
+          "type": "object",
+          "description": "Each faced tool, by its `tool` line's name.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["title"],
+            "additionalProperties": false,
+            "properties": {
+              "title": { "type": "string", "minLength": 1, "description": "The action's constant title, as Shortcuts lists it." },
+              "parameters": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "title": { "type": "string", "minLength": 1 },
+                    "entity": { "type": "string", "minLength": 1, "description": "A kind of intents.entities: the system offers that kind's entries, and passes the entry's id." },
+                    "type": { "enum": ["integer"], "description": "A number parameter the system asks for as a whole number." }
+                  }
+                }
+              },
+              "apple": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "phrases": { "type": "array", "items": { "type": "string", "pattern": "\\$\\{applicationName\\}" }, "description": "App Shortcuts phrases; each names ${applicationName}." },
+                  "authentication": { "enum": ["required", "local", "always"], "description": "Who may run it on a locked device (D10). Defaults to required." }
+                }
+              },
+              "doors": {
+                "type": "array",
+                "items": { "enum": ["apple", "android", "web"] },
+                "description": "The doors that offer it. Defaults to every door, or apple alone for a destroys tool."
+              }
+            }
+          }
         }
       }
     },

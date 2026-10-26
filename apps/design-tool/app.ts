@@ -7,7 +7,7 @@
 // body whole, so it cannot follow the server-sent stream. A failure is
 // words in the answer, never a throw.
 import type { Answer, Result, Sources, StreamEvent } from './app.contract.d.ts';
-import { buildKey, placeOf, schemeOf, selectionView, staleness, visitOf, type Selected } from './inspector';
+import { buildKey, pageStaleness, placeOf, schemeOf, selectionView, staleness, visitOf, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf, levelsOf, lookOf } from './components';
@@ -353,7 +353,7 @@ const partsFrom = (ir: { components?: { identity: string; parts?: { name: unknow
 // newest sets them, so a late one never puts back what a newer one dropped.
 let appReads = 0, partsReads = 0;
 const inspectOn = new Set<string>();
-const latch = () => { if (selectionNow && !selectionNow.stale) selectionNow.stale = staleness(selectionNow, buildsNow.get(String(selectionNow.e.build)), designAxes); };
+const latch = () => { if (!selectionNow) return; const b = buildsNow.get(String(selectionNow.e.build)); if (!selectionNow.stale) selectionNow.stale = staleness(selectionNow, b, designAxes); selectionNow.pageStale ||= pageStaleness(selectionNow, b); };
 // The poll now (a newer one replaces it), and whether the build list must
 // be read again from hello (the poll started again, and no read has
 // succeeded since).
@@ -438,7 +438,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // Events missed: an end among them would be lost, so a scrub open is
   // ended here (cancelled, if the server still has it).
   // Missed, inspect mode's state is not known either: Inspect sends it again.
-  if (epoch && r.missed) { if (selectionNow) selectionNow.stale = 'some changes were missed'; inspectOn.clear(); seeded = ''; }
+  if (epoch && r.missed) { if (selectionNow) selectionNow.stale = selectionNow.pageStale = 'some changes were missed'; inspectOn.clear(); seeded = ''; }
   if (epoch && r.missed && r.epoch === place.epoch && scrubbing) {
     const s = scrubbing;
     endScrub(s, 'The scrub was ended: some changes were missed, so its state was not known. Nothing was written.');
@@ -461,6 +461,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   const lastWrite = anew ? ((r.events ?? []) as any[]).findLastIndex(e => e.event === 'changed') : -1;
   if (epoch && !r.missed) for (const e of (r.events ?? []) as any[]) noted(e);
   // The builds, as their events tell them.
+  let moving: { key: string; moved: unknown } | null = null; // (a move's report, kept by a refresh of its node in the same answer)
   for (const [i, e] of ((r.events ?? []) as any[]).entries()) {
     // (The design server gone: its scrubs with it.)
     if (e.event === 'down') { scrubMoves += 1; scrubsOpen.clear(); }
@@ -470,6 +471,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     // Each as it comes, so a reload told in one answer still ends a
     // selection (a build that went keeps its inspect mode at the server,
     // which tells it again when it is back).
+    if (e.event === 'builds' || e.event === 'build-status') moving = null; // (a move's report is never carried past its build moving)
     if (e.event === 'builds') { takeBuilds(e.builds, client); latch(); }
     else if (e.event === 'build-status' && e.build?.id) { buildsNow.set(String(e.build.id), buildOf(e.build, buildsNow.get(String(e.build.id)))); owned(e.build, client); latch(); }
     // This tool's scrub, ended by the server (another write, idle, the
@@ -490,14 +492,15 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
       // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
       if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
       if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`); else if (b && e.what === 'inspect' && !step && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? '')); // (refusals.ts)
-      if (e.what === 'inspect' && !step && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
+      if (e.what === 'inspect' && !step && selectionNow && String(selectionNow.e.build) === String(e.build)) { const why = `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`; selectionNow.stale ||= why; selectionNow.pageStale ||= why; }
     }
     // A selection joined to source, with what it was made under.
     // A selection's held report counts only as the answer to the hold its page was asked under: one
     // from before the hold moved (or unasked) is asked for again.
     else if (e.event === 'selection') {
       const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null); if (b?.inspectRefused != null) refuse(b, null); stepping.delete(String(e.build));
-      selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e), arrival: ++arrivals };
+      const key = [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), e.selected?.planDigest ?? e.planDigest ?? e.plan ?? ''].join('|'), moved: unknown = e.moved ?? (moving?.key === key ? moving.moved : undefined); moving = moved ? { key, moved } : null;
+      selectionNow = { e: { ...(held || !e.held ? e : { ...e, held: undefined }), ...(moved ? { moved } : {}) }, at: buildKey(b), planAt: b?.planDigest ?? null, statusAt: b?.status != null, axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e), arrival: ++arrivals };
     }
     // Inspect mode's owners as they move (tamber/1.6): this client's on or
     // off, or another's taking a build over. Inspect mode ending where the
@@ -505,12 +508,12 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     // had it; this client's own loss ends it too.
     else if (e.event === 'inspect' && Array.isArray(e.builds)) {
       for (const id of e.builds.map(String)) { if (e.client === client && e.on) inspectOn.add(id); else if (e.client === client || e.on) { inspectOn.delete(id); const b = buildsNow.get(id); if (b?.inspectRefused != null) refuse(b, null); } }
-      if (!e.on && (e.client === client || !e.to) && selectionNow && e.builds.map(String).includes(String(selectionNow.e.build))) selectionNow.stale ||= 'inspect mode was turned off there';
+      if (!e.on && (e.client === client || !e.to) && selectionNow && e.builds.map(String).includes(String(selectionNow.e.build))) { selectionNow.stale ||= 'inspect mode was turned off there'; selectionNow.pageStale ||= 'inspect mode was turned off there'; }
     }
     // A page that left inspect mode itself (the server says so only for
     // its current command): its selection is no longer current.
     else if (e.event === 'selected' && e.selected === null) {
-      if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = 'its page left inspect mode';
+      if (selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale = selectionNow.pageStale = 'its page left inspect mode';
     }
   }
   const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();

@@ -485,3 +485,32 @@ test('measured virtual rows count construction and retirement without eager real
   expect(result.moved.rowRetired).toBeGreaterThan(0);
   expect(result.after.rowRetired).toBe(result.after.rowConstructed);
 }, 60_000);
+
+// @ref LLP 1145 D4 — `reach-margin` sets how far ahead of the last row `reachend` fires, as the runner's reach.rs.
+test('reach-margin moves reachend earlier or later; the default is one port', async () => {
+  const result = await evaluate(`(async () => {
+    const lists = [undefined, '300%', '0PX 960px', '0px'].map(reach => {
+      const el = document.createElement('div');
+      el.style.cssText = 'height:320px;width:400px;overflow:auto';
+      document.getElementById('exact-root').append(el);
+      const l = { el, ends: 0, at: null };
+      l.own = rt.scope(() => list.vl(el, () => Array.from({length:200}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+      }, {est:32, pw:[], ph:[320], end: () => { l.ends++; }, reach}));
+      return l;
+    });
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    // The last row starts at 6368; the port ends 320 past its offset.
+    for (const top of [1000, 5128, 5768, 6080]) {
+      await Promise.all(lists.map(({el}) => new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = top; })));
+      await exact.lists.settle();
+      for (let f = 0; f < 3; f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+      for (const l of lists) if (l.ends && l.at === null) l.at = top;
+    }
+    for (const {el, own} of lists) { rt.end(own); el.remove(); }
+    rt.settled();
+    return lists.map(l => l.at);
+  })()`);
+  expect(result).toEqual([5768, 5128, 5128, 6080]);
+}, 60_000);

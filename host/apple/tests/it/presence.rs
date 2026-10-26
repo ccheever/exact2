@@ -143,25 +143,26 @@ fn a_resize_retires_running_layout_in_its_own_batch() {
         host.dispatch_at(move_id, Event::Press, 0.0);
         let mid = layout(&host.tick(500.0), box_id).unwrap();
         assert_ne!(mid[1], 0.0);
-        assert_ne!(mid[3], 1.0);
+        assert_ne!(mid[3], 0.0);
         let before = host.runner().kernel().node(box_id).unwrap().frame;
         let resized = host.resize(300.0, 700.0);
         let after = host.runner().kernel().node(box_id).unwrap().frame;
         assert_eq!(before == after, width == "100");
         assert_eq!(
             layout(&resized, box_id),
-            Some([0.0, 0.0, 1.0, 1.0]),
+            Some([0.0; 4]),
             "width={width}: the resize itself resets the presentation: {resized}"
         );
         assert!(resized.contains("\"motion\":false"), "{resized}");
         let next = host.tick(600.0);
-        assert!(layout(&next, box_id).is_none_or(|v| v == [0.0, 0.0, 1.0, 1.0]));
+        assert!(layout(&next, box_id).is_none_or(|v| v == [0.0; 4]));
         let moved = host.dispatch_at(move_id, Event::Press, 600.0);
-        assert_ne!(layout(&moved, box_id).unwrap(), [0.0, 0.0, 1.0, 1.0]);
+        assert_ne!(layout(&moved, box_id).unwrap(), [0.0; 4]);
     }
 }
 
-/// The last `present` of `layout` for `id`: offset and scale, `[dx, dy, sx, sy]`.
+/// The last `present` of `layout` for `id`: offset and size difference,
+/// `[dx, dy, dw, dh]`.
 fn layout(batch: &str, id: u32) -> Option<[f64; 4]> {
     let marker = format!("\"op\":\"present\",\"id\":{id},\"property\":\"layout\",");
     let at = batch.rfind(&marker)?;
@@ -199,17 +200,127 @@ fn a_box_that_grows_starts_its_surface_at_its_old_size() {
     let after = host.runner().kernel().node(card).unwrap().frame;
     assert!(after.height > before.height + 100.0);
     // An accordion opens: it starts at its old size, not its new one.
-    let [dx, dy, sx, sy] = layout(&open, card).expect("the card's size moves");
-    assert_eq!((dx, dy, sx), (0.0, 0.0, 1.0));
+    let [dx, dy, dw, dh] = layout(&open, card).expect("the card's size moves");
+    assert_eq!((dx, dy, dw), (0.0, 0.0, 0.0));
     assert!(
-        (sy - (before.height / after.height) as f64).abs() < 1e-6,
-        "{sy}"
+        (dh - (before.height - after.height) as f64).abs() < 1e-3,
+        "{dh}"
     );
     let mid = host.tick(300.0);
     let [.., half] = layout(&mid, card).unwrap();
-    assert!(half > sy && half < 1.0, "{half}");
+    assert!(half > dh && half < 0.0, "{half}");
     let settled = host.tick(501.0);
-    assert_eq!(layout(&settled, card), Some([0.0, 0.0, 1.0, 1.0]));
+    assert_eq!(layout(&settled, card), Some([0.0; 4]));
+}
+
+// GitHub #940: a clipping box closing to zero size shows the size it closes
+// from, which a ratio of the laid-out size could not carry.
+
+#[test]
+fn a_clipping_box_closes_to_zero_width_from_the_width_it_had() {
+    let shown = clip_shown(0, 0.0, "260ms linear", None, &[100.0, 230.0, 361.0]);
+    assert_eq!(shown, [200.0, 100.0, 0.0]);
+}
+
+#[test]
+fn a_clipping_box_closes_to_zero_height_from_the_height_it_had() {
+    let shown = clip_shown(1, 0.0, "260ms linear", None, &[100.0, 230.0, 361.0]);
+    assert_eq!(shown, [200.0, 100.0, 0.0]);
+}
+
+#[test]
+fn a_clipping_box_closes_to_a_nonzero_width() {
+    let shown = clip_shown(0, 20.0, "260ms linear", None, &[100.0, 230.0, 361.0]);
+    assert_eq!(shown, [200.0, 110.0, 20.0]);
+}
+
+#[test]
+fn a_clipping_box_without_motion_closes_at_once() {
+    let shown = clip_shown(0, 0.0, "none", None, &[100.0, 230.0, 361.0]);
+    assert_eq!(shown, [0.0; 3]);
+}
+
+#[test]
+fn a_clipping_box_opens_from_zero_width() {
+    let times = [100.0, 361.0, 400.0, 530.0, 661.0];
+    let shown = clip_shown(0, 0.0, "260ms linear", Some(400.0), &times);
+    assert_eq!(shown, [200.0, 0.0, 0.0, 100.0, 200.0]);
+}
+
+#[test]
+fn a_clipping_box_reopened_while_it_closes_goes_back_from_where_it_is() {
+    let times = [100.0, 230.0, 300.0, 1000.0];
+    let shown = clip_shown(0, 0.0, "260ms linear", Some(230.0), &times);
+    assert_eq!(shown[..2], [200.0, 100.0], "no snap: {shown:?}");
+    assert!(shown[2] > 100.0 && shown[2] < 200.0, "{shown:?}");
+    assert_eq!(shown[3], 200.0);
+}
+
+/// The size along `axis` (0 width, 1 height) a 200-point clipping box's
+/// surface shows at each of `times`, as `Surface.swift` sizes it from the
+/// batches: the box's last `frame` plus its last `layout` difference. The box
+/// closes to `to` at 100 ms and opens again at `open`. Its 200-point child
+/// and both ids stay, and the batch agrees with the engine at every sample.
+fn clip_shown(
+    axis: usize,
+    to: f64,
+    transition: &str,
+    open: Option<f64>,
+    times: &[f64],
+) -> Vec<f64> {
+    let [w, h] = [0, 1].map(|a| {
+        if a == axis {
+            format!("(closed ? {to} : 200)")
+        } else {
+            "200".into()
+        }
+    });
+    let mut host = boot_source(&format!(
+        "component App\n  state closed = false\n  action toggle\n    closed = not closed\n  view\n    column\n      button \"Toggle\" press=toggle testId=\"toggle\"\n      view testId=\"clip\" width={w} height={h} overflow=\"hidden\" -exact-layout-transition=\"{transition}\"\n        view testId=\"child\" width=200 height=200 background-color=\"red\"\n"
+    ));
+    let (clip, child, toggle) = (
+        view(&host, "clip").unwrap(),
+        view(&host, "child").unwrap(),
+        view(&host, "toggle").unwrap(),
+    );
+    let node = exact_kernel::motion_node(host.runner().kernel().node(clip).unwrap().key);
+    let (mut laid, mut resize) = (200.0, 0.0);
+    let mut shown = Vec::new();
+    for &time in times {
+        let batch = if time == 100.0 || Some(time) == open {
+            host.dispatch_at(toggle, Event::Press, time)
+        } else {
+            host.tick(time)
+        };
+        let json: serde_json::Value = serde_json::from_str(&batch).unwrap();
+        assert!(json["error"].is_null(), "{batch}");
+        for op in json["ops"].as_array().unwrap() {
+            if op["op"] == "frame" && op["id"] == clip {
+                laid = op[["w", "h"][axis]].as_f64().unwrap();
+            }
+        }
+        if let Some(values) = layout(&batch, clip) {
+            resize = values[2 + axis];
+        }
+        let size = |id| {
+            let f = host.runner().kernel().node(id).unwrap().frame;
+            [f.width, f.height][axis] as f64
+        };
+        assert_eq!(laid, size(clip), "at {time}: {batch}");
+        assert_eq!(size(child), 200.0, "the child keeps its size");
+        assert_eq!(view(&host, "clip"), Some(clip), "retained");
+        assert_eq!(view(&host, "child"), Some(child), "retained");
+        let at = f64::max(0.0, laid + resize);
+        if let Some(engine) = host.engine().value(node, exact_motion::Property::Layout) {
+            let engine = [engine.z, engine.w][axis].max(0.0);
+            assert!(
+                (at - engine).abs() < 1e-3,
+                "at {time}: {at} vs the engine's {engine}: {batch}"
+            );
+        }
+        shown.push((at * 1e3).round() / 1e3);
+    }
+    shown
 }
 
 #[test]
@@ -317,13 +428,9 @@ fn removing_a_layout_transition_presents_identity_mid_move() {
     host.dispatch_at(view(&host, "move").unwrap(), Event::Press, 0.0);
     let mid = layout(&host.tick(500.0), box_id).unwrap();
     assert_ne!(mid[1], 0.0);
-    assert_ne!(mid[3], 1.0);
+    assert_ne!(mid[3], 0.0);
     let stopped = host.dispatch_at(view(&host, "stop").unwrap(), Event::Press, 500.0);
-    assert_eq!(
-        layout(&stopped, box_id),
-        Some([0.0, 0.0, 1.0, 1.0]),
-        "{stopped}"
-    );
+    assert_eq!(layout(&stopped, box_id), Some([0.0; 4]), "{stopped}");
     assert!(layout(&host.tick(1000.0), box_id).is_none());
 }
 
@@ -334,19 +441,12 @@ fn hiding_an_ancestor_retires_a_descendants_layout_presentation() {
     );
     let box_id = view(&host, "box").unwrap();
     host.dispatch_at(view(&host, "move").unwrap(), Event::Press, 0.0);
-    assert_ne!(
-        layout(&host.tick(500.0), box_id).unwrap(),
-        [0.0, 0.0, 1.0, 1.0]
-    );
+    assert_ne!(layout(&host.tick(500.0), box_id).unwrap(), [0.0; 4]);
     let hidden = host.dispatch_at(view(&host, "toggle").unwrap(), Event::Press, 500.0);
-    assert_eq!(
-        layout(&hidden, box_id),
-        Some([0.0, 0.0, 1.0, 1.0]),
-        "{hidden}"
-    );
+    assert_eq!(layout(&hidden, box_id), Some([0.0; 4]), "{hidden}");
     let shown = host.dispatch_at(view(&host, "toggle").unwrap(), Event::Press, 600.0);
     assert!(
-        layout(&shown, box_id).is_none_or(|v| v == [0.0, 0.0, 1.0, 1.0]),
+        layout(&shown, box_id).is_none_or(|v| v == [0.0; 4]),
         "{shown}"
     );
     assert!(shown.contains("\"motion\":false"), "{shown}");
@@ -360,8 +460,8 @@ fn a_layout_springs_size_overshoot_is_clamped_to_zero() {
     let box_id = view(&host, "box").unwrap();
     host.dispatch_at(view(&host, "shrink").unwrap(), Event::Press, 0.0);
     let mid = host.tick(300.0);
-    let [_, _, sx, sy] = layout(&mid, box_id).unwrap();
-    assert_eq!((sx, sy), (0.0, 0.0), "{mid}");
+    let [_, _, dw, dh] = layout(&mid, box_id).unwrap();
+    assert_eq!((dw, dh), (-10.0, -10.0), "shown at zero, not below: {mid}");
 }
 
 /// Stage 14 B: a box going into the top layer (here its author's sticky
@@ -382,7 +482,7 @@ fn a_box_crossing_into_its_block_does_not_move() {
         let mid = host.tick(at + 500.0);
         for batch in [&lifted, &mid] {
             assert!(
-                layout(batch, box_id).is_none_or(|v| v == [0.0, 0.0, 1.0, 1.0]),
+                layout(batch, box_id).is_none_or(|v| v == [0.0; 4]),
                 "{batch}"
             );
         }
@@ -401,5 +501,5 @@ fn a_transition_added_inside_a_block_plays() {
     assert!(host.runner().kernel().host_block(box_id).is_some());
     host.dispatch_at(view(&host, "go").unwrap(), Event::Press, 0.0);
     let mid = layout(&host.tick(500.0), box_id).expect("it moves");
-    assert_ne!(mid[2], 1.0, "its width grows over the second: {mid:?}");
+    assert_ne!(mid[2], 0.0, "its width grows over the second: {mid:?}");
 }

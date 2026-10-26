@@ -1360,6 +1360,24 @@ two); a computed one is journaled and holds nothing. `keepScreenOn`,
 reads `state.wakelock` (`{held, by}`); [the reference](reference.md#keep-the-screen-awake)
 has each host's lock.
 
+### Orientation lock: `orientationlock`
+
+`orientationlock` on any element takes a Screen Orientation API lock type
+(`"portrait"`, `"landscape"`, `"portrait-primary"`, `"portrait-secondary"`,
+`"landscape-primary"`, `"landscape-secondary"`, `"natural"`, `"any"`),
+`"current"` or `"none"` (the default), literal or bound
+([LLP 1133.029](../llp/1133.029-screen.rfc.md)). It holds while the element
+is displayed, by `wakelock`'s rule, and outside every `dialog` and popover.
+Any other literal is refused (`lower-attr-value`, naming the words); a
+computed one is journaled and holds nothing. The bake refuses a lock inside
+a `dialog` or popover (`orientationlock-in-top-layer`) and a literal type
+that shares no orientation with the manifest's `orientation`
+(`orientationlock-outside-manifest`). `screenOrientation`, `lockOrientation`,
+`orientation`, `requestedOrientation` and `supportedInterfaceOrientations` are
+refused with this name. The agent reads `state.orientationlock`;
+[the reference](reference.md#lock-the-screen-orientation) has the rules
+and each host's lock.
+
 ## Events
 
 An event binding is an action reference or partially applied action. Captured

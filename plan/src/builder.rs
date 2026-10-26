@@ -675,6 +675,34 @@ impl PlanBuilder {
         self.plan.module_events.push(row);
     }
 
+    /// A `tool` line (LLP 1111 D2): `[additive, idempotent, closed]`, and
+    /// the derives of `[returns, fails, available]`. Its face is the
+    /// app pass's (`Plan::set_tool_face`).
+    pub fn tool(
+        &mut self,
+        name: &str,
+        consequence: &str,
+        [additive, idempotent, closed]: [bool; 3],
+        description: &str,
+        action: ActionsId,
+        [returns, fails, available]: [Option<DerivesId>; 3],
+    ) {
+        let row = ToolsRow {
+            name: self.str(name),
+            consequence: self.str(consequence),
+            additive,
+            idempotent,
+            closed,
+            description: self.str(description),
+            action,
+            returns,
+            fails,
+            available,
+            face: self.str(""),
+        };
+        self.plan.tools.push(row);
+    }
+
     /// A run of argument expressions.
     pub fn args(&mut self, exprs: &[Code]) -> ArgsRange {
         let start = self.plan.args.len() as u32;

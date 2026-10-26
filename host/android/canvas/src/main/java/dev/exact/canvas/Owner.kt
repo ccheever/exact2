@@ -584,6 +584,10 @@ internal object Exact {
     fun wake() { owner?.call {} }
     fun presence(answer: String) { val o = owner; if (o != null) o.call { Native.presence(answer) } else Native.presence(answer) }
     fun hidden(hidden: Boolean) { val o = owner; if (o != null) o.call { Native.hidden(hidden) } else Native.hidden(hidden) }
+    fun orientationApplied(applied: String, conflict: Boolean, line: String?) {
+        val o = owner
+        if (o != null) o.call { Native.orientationApplied(applied, conflict, line) } else Native.orientationApplied(applied, conflict, line)
+    }
     fun bindExtensions(names: String) { val o = owner; if (o != null) o.call { Native.bindExtensions(names) } else Native.bindExtensions(names) }
     /** A package's picture for request [id] ([Native.picture]), or why there is none: on exact2's thread. */
     fun picture(id: Int, bitmap: android.graphics.Bitmap?, error: String?) {

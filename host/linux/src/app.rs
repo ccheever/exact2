@@ -133,6 +133,9 @@ pub struct Config {
     /// The app's hatches (LLP 1075.003.000.001 §5): only their type, until
     /// the presenter makes the value after first pixel.
     pub hatches: Option<crate::hatches::Install>,
+    /// The packages the app's build composed (LLP 1133.022 D10 item 5),
+    /// bound at boot.
+    pub packages: Vec<crate::package::Entry>,
     /// Where the display's live clock reads zero, when one will own time:
     /// a fresh boot starts the runner's clock at its reading then, so a
     /// slow start (a plan fetched from a URL) does not fire the boot's
@@ -268,6 +271,7 @@ impl Config {
                 }),
             updates: None,
             hatches: None,
+            packages: Vec::new(),
             clock_started: None,
         }
     }
@@ -352,6 +356,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     };
     let (dev_url, dev_said) = (config.dev_url.clone(), config.dev_said.clone());
     let hatches = config.hatches;
+    let packages = config.packages.clone();
     let delivered = |mut booted: (Presenter<D>, Option<String>),
                      updates: Option<Box<dyn Store>>,
                      dev_identity: Option<String>| {
@@ -359,6 +364,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
         booted.0.set_hatches(hatches);
+        booted.0.serve_packages(packages.clone());
         #[cfg(windows)]
         booted.0.serve_overlays();
         #[cfg(windows)]
@@ -493,7 +499,7 @@ pub fn run_empty(baked: &[u8], compat: &str) -> i32 {
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
-    run_registered::<D>(baked, compat, None, None)
+    run_composed::<D>(baked, compat, Composed::default())
 }
 
 /// [`run`] with the app's hatches (LLP 1075.003.000.001 §5): `H` is the one
@@ -505,8 +511,34 @@ pub fn run_with_hatches<D: DataSource + Default, H: crate::hatches::Hatches>(
     compat: &str,
     words: &'static [&'static str],
 ) -> i32 {
-    let hatches = crate::hatches::install::<H>(words);
-    run_registered::<D>(baked, compat, None, Some(hatches))
+    let hatches = Some(crate::hatches::install::<H>(words));
+    run_composed::<D>(
+        baked,
+        compat,
+        Composed {
+            hatches,
+            ..Default::default()
+        },
+    )
+}
+
+/// [`run`] with what the app's build composed: its hatches, if it has
+/// any, and its packages' Linux implementations (`crate::package`).
+pub fn run_composed<D: DataSource + Default>(
+    baked: &[u8],
+    compat: &str,
+    composed: Composed,
+) -> i32 {
+    run_composed_with::<D>(baked, compat, None, composed)
+}
+
+/// What an app's build composes into its host beside the plan.
+#[derive(Default)]
+pub struct Composed {
+    /// The app's hatches (`crate::hatches::install`).
+    pub hatches: Option<crate::hatches::Install>,
+    /// Its packages' implementations for this platform.
+    pub packages: Vec<crate::package::Entry>,
 }
 
 /// Launch an explicitly registered consumer using the ordinary environment,
@@ -516,7 +548,7 @@ pub fn run_with_content_region<D: DataSource + Default>(
     compat: &str,
     region: crate::content_region::ContentRegionRegistration,
 ) -> i32 {
-    run_registered::<D>(baked, compat, Some(region), None)
+    run_composed_with::<D>(baked, compat, Some(region), Composed::default())
 }
 
 static ROW_REUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -534,11 +566,11 @@ pub(crate) fn row_reuse() -> bool {
     ROW_REUSE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-fn run_registered<D: DataSource + Default>(
+fn run_composed_with<D: DataSource + Default>(
     baked: &[u8],
     compat: &str,
     region: Option<crate::content_region::ContentRegionRegistration>,
-    hatches: Option<crate::hatches::Install>,
+    composed: Composed,
 ) -> i32 {
     row_reuse_from_env(false);
     if print_baked_receipt(compat) {
@@ -557,7 +589,8 @@ fn run_registered<D: DataSource + Default>(
     let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
     config.content_region = region;
-    config.hatches = hatches;
+    config.hatches = composed.hatches;
+    config.packages = composed.packages;
     run_config::<D>(&mut config, started)
 }
 

@@ -150,19 +150,35 @@ pub(crate) fn param_names(
     snap: &[(String, String, String)],
     app: &contract::tamber_params::AppParams,
 ) -> Result<(), Value> {
-    let mut written: Vec<(String, String, String)> = Vec::new();
+    // Each file parsed once, its params' lines by token, the names resolved
+    // by one index, and the spellings written by token: none of it a scan
+    // per operation (the checker's work in param counts).
+    let resolver = contract_lower::params::Resolver::new(&app.tokens, &app.identities);
+    let parsed: std::collections::HashMap<&str, exact_tamber::Design> = snap
+        .iter()
+        .filter_map(|(f, text, _)| Some((f.as_str(), exact_tamber::parse(text).ok()?)))
+        .collect();
+    let lines: std::collections::HashMap<&str, std::collections::HashMap<&str, String>> = parsed
+        .iter()
+        .map(|(f, d)| {
+            let by_token = resolver
+                .lines(d)
+                .into_iter()
+                .map(|(t, e)| (t, e.name.value.clone()))
+                .collect();
+            (*f, by_token)
+        })
+        .collect();
+    let mut written: std::collections::HashMap<(String, String), String> =
+        std::collections::HashMap::new();
     for (file, op) in ops.iter_mut() {
         // A line written as the design has it may always be removed: the
         // repair of one the build refuses (a short name grown ambiguous).
         if let Op::UnsetParam { name, .. } = &*op {
-            let written = snap
-                .iter()
-                .find(|(f, _, _)| f == file)
-                .and_then(|(_, text, _)| exact_tamber::parse(text).ok())
+            let written = parsed
+                .get(file.as_str())
                 .is_some_and(|d| d.params.iter().any(|e| e.name.value == *name));
-            if written
-                && contract_lower::params::resolve(&app.tokens, &app.identities, name).is_err()
-            {
+            if written && resolver.resolve(name).is_err() {
                 continue;
             }
         }
@@ -181,26 +197,15 @@ pub(crate) fn param_names(
         if let Some((id, why)) = exact_tamber::over_name(name) {
             return Err(json!({"message": format!("{id}: {why}"), "id": id}));
         }
-        let resolve = |n: &str| contract_lower::params::resolve(&app.tokens, &app.identities, n);
-        let p = resolve(name).map_err(|e| {
+        let p = resolver.resolve(name).map_err(|e| {
             let message = exact_tamber::bounded_words(format!("{}: {}", e.id, e.message));
             json!({"message": message, "id": e.id})
         })?;
-        let design = snap
-            .iter()
-            .find(|(f, _, _)| f == file)
-            .and_then(|(_, text, _)| exact_tamber::parse(text).ok());
-        let line = design.as_ref().and_then(|d| {
-            d.params
-                .iter()
-                .find(|e| resolve(&e.name.value).is_ok_and(|q| q.token == p.token))
-                .map(|e| e.name.value.clone())
-        });
+        let line = lines
+            .get(file.as_str())
+            .and_then(|by_token| by_token.get(p.token.as_str()).cloned());
         // An earlier op's spelling first: it may have respelled the line.
-        let earlier = written
-            .iter()
-            .rfind(|(f, t, _)| f == file && *t == p.token)
-            .map(|(_, _, n)| n.clone());
+        let earlier = written.get(&(file.clone(), p.token.clone())).cloned();
         // An exported library component's param is written by its full
         // name whatever name it was asked by, a new line and a set of a
         // line spelled short alike: a short one is
@@ -217,7 +222,7 @@ pub(crate) fn param_names(
                 spelled = p.full.clone();
             }
         }
-        written.push((file.clone(), p.token.clone(), spelled.clone()));
+        written.insert((file.clone(), p.token.clone()), spelled.clone());
         *name = spelled;
     }
     Ok(())
@@ -238,7 +243,7 @@ pub(crate) fn param_values(
         let Ok(design) = exact_tamber::parse(text) else {
             continue;
         };
-        let message = |m: &str| contract_lower::params::shown(m, list);
+        let message = |m: &str| app.shown(m);
         let at = |line: u32, col: u32, id: &str, m: &str| json!({"file": file, "line": line, "col": col, "id": id, "message": message(m)});
         // A line the build refuses (ambiguous, or a second for one param),
         // then each value written out of its range.
@@ -281,11 +286,12 @@ pub(crate) fn param_values(
                     }
                 }
                 // A value set charged to its line, a default to its own.
+                let resolver = contract_lower::params::Resolver::new(list, &app.identities);
                 let overridden: Vec<(String, contract_syntax::Span)> = design
                     .params
                     .iter()
                     .filter_map(|e| {
-                        let p = contract_lower::params::resolve(list, &app.identities, &e.name.value).ok()?;
+                        let p = resolver.resolve(&e.name.value).ok()?;
                         Some((p.token.clone(), contract_syntax::Span { line: e.name.line, col: e.name.col, end_col: e.name.col, source_id: 0 }))
                     })
                     .collect();

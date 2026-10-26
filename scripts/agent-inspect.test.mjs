@@ -160,3 +160,14 @@ test('resource declarations refuse incomplete or malformed source spans', async 
     expect(identifyResources(reply, maps).resourceStatus.inbox.declaration.status).toBe('unavailable');
   }
 });
+
+// LLP 1144 D3: a scroll handler that changed the tree on every event of a fling is said once, with what to do; one that
+// commits rarely, or a press, is only counted.
+test('perf names a scroll handler that commits on every event', () => {
+  const r = { target: 'transcript', seq: 9, clock: 0, incarnation: 1, sites: [], handlers: [
+    { site: 4, event: 'scroll', dispatched: 180, committed: 180 }, { site: 5, event: 'scroll', dispatched: 180, committed: 3 }, { site: 6, event: 'press', dispatched: 40, committed: 40 }] };
+  const text = render('perf', r);
+  expect(text.match(/each scroll event changed the tree, and each was a runner turn/g)?.length).toBe(1);
+  expect(text).toContain('scroll at site 4: 180 dispatched, 180 changed the tree\n    each scroll event');
+  expect(text).not.toContain('each press event');
+});

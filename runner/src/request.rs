@@ -73,7 +73,9 @@ pub enum HttpScheduling {
     /// This is not inferred from GET, origins or grants. The host still limits
     /// admission and enforces the response ceiling while receiving bytes.
     Independent {
-        /// Largest accepted response body. Zero or over 64 MiB is refused.
+        /// Largest accepted response body. Zero or over 64 MiB is refused,
+        /// except that a body written to a file ([`Request::body_to`]) may
+        /// be up to [`MAX_BODY_TO_BYTES`].
         max_response_bytes: u32,
     },
 }
@@ -170,6 +172,14 @@ pub struct Request {
     /// then empty. Set by TypeScript's `fetch(url, {exactBodyFrom})` and
     /// [`Request::body_from`] (LLP 1108 D6 R2).
     pub body_from: Option<String>,
+    /// A 2xx reply's body is written to this app file (`app:/…`) by the
+    /// host as it arrives, under the `fs.write` grant, and never crosses the
+    /// source: the [`Response`] then has an empty body and names the bytes
+    /// written ([`Response::body_written`]). A reply that is not 2xx is read
+    /// into the response as usual, at most [`BODY_TO_HELD_BYTES`], and the
+    /// file is untouched. Set by TypeScript's `fetch(url, {exactBodyTo})` and
+    /// [`Request::body_to`] (LLP 1108 D6 R2, 2026-10-26).
+    pub body_to: Option<String>,
     /// What a redirect response does (`fetch`'s `redirect`).
     pub redirect: Redirect,
     /// The server may hold the reply until something changes (a long poll;
@@ -237,8 +247,23 @@ pub type RetryReader = std::sync::Arc<dyn Fn(u64) -> Option<Retrying> + Send + S
 /// The largest file [`Request::body_from`] sends: 64 MiB.
 pub const MAX_BODY_FROM_BYTES: u64 = 64 << 20;
 
-/// The longest [`Request::body_from`] path, in bytes.
+/// The longest [`Request::body_from`] or [`Request::body_to`] path, in bytes.
 pub const MAX_BODY_FROM_PATH: usize = 4096;
+
+/// The most bytes [`Request::body_to`] writes, and its bound when the
+/// request names no `max_response_bytes`: 1 GiB. The body goes to disk as it
+/// arrives, so the bound is the disk's, not memory's.
+pub const MAX_BODY_TO_BYTES: u32 = 1 << 30;
+
+/// The most of a reply a [`Request::body_to`] request holds in memory: a
+/// reply that is not 2xx, read as the response body (or `max_response_bytes`,
+/// when that is less). A 2xx body goes to the file, a chunk at a time.
+pub const BODY_TO_HELD_BYTES: u32 = 1 << 20;
+
+/// The header a response whose body went to its [`Request::body_to`] file
+/// carries, its value the bytes written. No HTTP header name has a colon,
+/// so no server's header can take this name.
+pub const BODY_WRITTEN: &str = ":exact-body-to";
 
 /// The longest request deadline a source may ask for: one hour.
 pub const MAX_TIMEOUT_MS: u32 = 3_600_000;
@@ -271,6 +296,7 @@ impl Request {
             long_poll: None,
             timeout_ms: None,
             body_from: None,
+            body_to: None,
             redirect: Redirect::Follow,
             held: false,
         }
@@ -330,6 +356,7 @@ impl Request {
             long_poll: None,
             timeout_ms: None,
             body_from: None,
+            body_to: None,
             redirect: Redirect::Follow,
             held: false,
         }
@@ -353,6 +380,7 @@ impl Request {
             long_poll: None,
             timeout_ms: None,
             body_from: None,
+            body_to: None,
             redirect: Redirect::Follow,
             held: false,
         }
@@ -473,6 +501,7 @@ impl Request {
         if !self.method.eq_ignore_ascii_case("GET")
             || !self.body.is_empty()
             || self.body_from.is_some()
+            || self.body_to.is_some()
         {
             return Some("exactLongPoll: a long poll is a GET with no body");
         }
@@ -513,6 +542,7 @@ impl Request {
         self.held
             && !self.stream
             && self.body_from.is_none()
+            && self.body_to.is_none()
             && self.storage.is_none()
             && self.continuation.is_none()
             && self.surface.is_none()
@@ -558,6 +588,64 @@ impl Request {
             || self.is_auth()
         {
             Some("only HTTP takes exactBodyFrom")
+        } else {
+            None
+        }
+    }
+
+    /// With a 2xx reply's body written to the app file `path` (see
+    /// [`Request::body_to`]): `fetch(url, {exactBodyTo})`.
+    pub fn body_to(mut self, path: impl Into<String>) -> Self {
+        self.body_to = Some(path.into());
+        self
+    }
+
+    /// Why this request's [`Request::body_to`] is refused, if it is: a path
+    /// that is not a plain `app:/` one, a stream, a `HEAD` (its reply has no
+    /// body to write), or work that is not HTTP. The path's grant and its
+    /// parent directory are the host's to check.
+    pub fn body_to_refusal(&self) -> Option<&'static str> {
+        let path = self.body_to.as_deref()?;
+        let segments = path.get(5..).unwrap_or("").split('/');
+        if !path.starts_with("app:/") {
+            Some("exactBodyTo must be an app:/ path")
+        } else if path.len() > MAX_BODY_FROM_PATH {
+            Some("exactBodyTo: a path is at most 4096 bytes")
+        } else if path.contains('\0') || segments.into_iter().any(|s| s == "." || s == "..") {
+            Some("exactBodyTo: an app:/ path has no . or .. segment")
+        } else if self.stream {
+            Some("exactBodyTo: a stream's body is its messages, not a file")
+        } else if self.method.eq_ignore_ascii_case("HEAD") {
+            Some("exactBodyTo: a HEAD reply has no body to write")
+        } else if self.storage.is_some()
+            || self.continuation.is_some()
+            || self.surface.is_some()
+            || self.is_native()
+            || self.is_auth()
+        {
+            Some("only HTTP takes exactBodyTo")
+        } else {
+            None
+        }
+    }
+
+    /// Why this request's independent response ceiling is refused, if it
+    /// is: zero, or over 64 MiB, or over [`MAX_BODY_TO_BYTES`] for a body
+    /// written to a file.
+    pub fn ceiling_refusal(&self) -> Option<&'static str> {
+        let HttpScheduling::Independent { max_response_bytes } = self.http else {
+            return None;
+        };
+        let most = if self.body_to.is_some() {
+            MAX_BODY_TO_BYTES
+        } else {
+            64 << 20
+        };
+        if max_response_bytes == 0 || max_response_bytes > most {
+            Some(match self.body_to {
+                Some(_) => "exactBodyTo: the response limit must be 1 byte to 1 GiB",
+                None => "independent HTTP response limit must be 1..=64 MiB",
+            })
         } else {
             None
         }
@@ -627,6 +715,17 @@ pub struct Response {
     pub headers: Vec<(String, String)>,
     /// The body bytes.
     pub body: Vec<u8>,
+}
+
+impl Response {
+    /// The bytes written to the request's [`Request::body_to`] file, when
+    /// its body went there (the [`BODY_WRITTEN`] header); `None` otherwise.
+    pub fn body_written(&self) -> Option<u64> {
+        self.headers
+            .iter()
+            .find(|(name, _)| name == BODY_WRITTEN)
+            .and_then(|(_, n)| n.parse().ok())
+    }
 }
 
 /// One message of an answer that keeps coming: a server-sent event.
@@ -1190,5 +1289,56 @@ mod tests {
             storage.body_from_refusal(),
             Some("only HTTP takes exactBodyFrom")
         );
+    }
+
+    #[test]
+    fn a_body_to_a_file_is_an_http_reply_written_by_the_host() {
+        let get = |path: &str| Request::get("https://x.test").body_to(path);
+        assert_eq!(get("app:/cache/a.jpg").body_to_refusal(), None);
+        let mut post = Request::post_json("https://x.test", "{}").body_to("app:/cache/a.jpg");
+        assert_eq!(post.body_to_refusal(), None);
+        post.body_from = Some("app:/tmp/b".into());
+        post.body.clear();
+        assert_eq!(post.body_to_refusal(), None);
+        for (path, why) in [
+            ("/cache/a.jpg", "app:/"),
+            ("app:/cache/../a", ". or .."),
+            ("app:/cache/./a", ". or .."),
+            ("app:/cache/a\0", ". or .."),
+        ] {
+            assert!(get(path).body_to_refusal().unwrap().contains(why), "{path}");
+        }
+        let long = format!("app:/cache/{}", "a".repeat(4096));
+        assert!(get(&long).body_to_refusal().unwrap().contains("4096"));
+        let mut head = get("app:/cache/a");
+        head.method = "HEAD".into();
+        assert!(head.body_to_refusal().unwrap().contains("HEAD"));
+        let Answer::Later(stream) = Answer::stream(get("app:/cache/a")) else {
+            unreachable!()
+        };
+        assert!(stream.body_to_refusal().unwrap().contains("stream"));
+        assert_eq!(
+            Request::native(Vec::new())
+                .body_to("app:/cache/a")
+                .body_to_refusal(),
+            Some("only HTTP takes exactBodyTo")
+        );
+        // The ceiling: up to 1 GiB for a body written to a file, 64 MiB otherwise.
+        let big = get("app:/cache/a").independent_http(MAX_BODY_TO_BYTES);
+        assert_eq!(big.ceiling_refusal(), None);
+        assert!(get("app:/cache/a")
+            .independent_http(MAX_BODY_TO_BYTES + 1)
+            .ceiling_refusal()
+            .is_some());
+        assert!(Request::get("https://x.test")
+            .independent_http((64 << 20) + 1)
+            .ceiling_refusal()
+            .is_some());
+        let written = Response {
+            status: 200,
+            headers: vec![(BODY_WRITTEN.into(), "17".into())],
+            body: Vec::new(),
+        };
+        assert_eq!(written.body_written(), Some(17));
     }
 }

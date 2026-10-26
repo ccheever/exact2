@@ -28,6 +28,10 @@ package final class HostPhases: @unchecked Sendable {
         case scroll
         /// A region reader drawing.
         case draw
+        /// Decoded pictures put on their layers, and animated images' frames
+        /// (LLP 1144 D2). Core Animation's upload of new contents happens at
+        /// its commit, outside every phase: in `unattributed`.
+        case image
     }
 
 

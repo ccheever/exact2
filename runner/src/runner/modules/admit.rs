@@ -30,6 +30,16 @@
 //! cannot be traced to its answer here, so it is admitted under the least
 //! privileged origin in flight. A permission ticket is never raised for a
 //! tool or a wake: the call fails `person-required` instead.
+//!
+//! **Invocations** (LLP 1133.023 D7). A wake's event and a tool call each
+//! run as an invocation with an id, which its dispatch commit stamps on
+//! every request, armed `then`, held call and queued send it makes; a
+//! commit that answers a stamped request, or runs a stamped `then` or
+//! queued send, is stamped too. A resource's re-ask by the device and a
+//! model's handler (`invoke.rs`) carry none. What an invocation owns, and
+//! what lets go of it, is read by id alone. The tables are part of a
+//! commit's checkpoint, and an invocation is superseded only when the
+//! commit that let go of its work stands (`let_go`).
 
 use super::super::{CommitReceipt, DataSource, Runner, RunnerError, Target};
 use super::{error_code, Decision, Json, ModulesRow, Waits};
@@ -79,6 +89,27 @@ pub(in crate::runner) struct Origins {
     /// Each armed `then`, by mutation, whose answer's commit was not the
     /// app's: the `then` runs under it (LLP 1133.002 D12).
     thens: BTreeMap<usize, CallOrigin>,
+    /// The invocation the commit being made is part of; 0 for none.
+    id: u64,
+    /// The last invocation id given.
+    last_id: u64,
+    /// Each stamped request in flight, by ticket.
+    ids: BTreeMap<u64, u64>,
+    /// Each stamped armed `then`, by mutation.
+    then_ids: BTreeMap<usize, u64>,
+    /// The invocations whose work a commit let go of, each with whether
+    /// that work was a send; taken when the commit stands.
+    let_go: Vec<(u64, bool)>,
+}
+
+/// The origin tables as a commit found them (`commit.rs`'s checkpoint).
+pub(in crate::runner) struct OriginsSaved {
+    tickets: BTreeMap<u64, CallOrigin>,
+    asked: BTreeMap<usize, CallOrigin>,
+    thens: BTreeMap<usize, CallOrigin>,
+    ids: BTreeMap<u64, u64>,
+    then_ids: BTreeMap<usize, u64>,
+    let_go: usize,
 }
 
 /// What answers a module's name.
@@ -110,6 +141,120 @@ impl<D: DataSource> Runner<D> {
     /// The origin of the commit being made.
     pub fn call_origin(&self) -> CallOrigin {
         self.extensions.origins.now
+    }
+
+    /// Run `f` as a commit of `origin`, part of invocation `id` (0: none).
+    pub(in crate::runner) fn as_invocation<T>(
+        &mut self,
+        origin: CallOrigin,
+        id: u64,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let before = std::mem::replace(&mut self.extensions.origins.id, id);
+        let out = self.as_origin(origin, f);
+        self.extensions.origins.id = before;
+        out
+    }
+
+    /// The invocation the commit being made is part of; 0 for none.
+    pub(in crate::runner) fn invocation_id(&self) -> u64 {
+        self.extensions.origins.id
+    }
+
+    /// A new invocation's id.
+    pub(in crate::runner) fn next_invocation(&mut self) -> u64 {
+        self.extensions.origins.last_id += 1;
+        self.extensions.origins.last_id
+    }
+
+    /// The invocation request `ticket` is stamped with; 0 for none.
+    pub(in crate::runner) fn ticket_id(&self, ticket: u64) -> u64 {
+        self.extensions
+            .origins
+            .ids
+            .get(&ticket)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Whether invocation `id` owns work in flight: a request, an armed
+    /// `then`, a held call or a queued send stamped with it.
+    pub(in crate::runner) fn invocation_owns(&self, id: u64) -> bool {
+        !self.invocation_tickets(id).is_empty()
+            || (self.extensions.origins.then_ids.iter())
+                .any(|(m, i)| *i == id && self.then_due[*m].is_finite())
+            || (self.extensions.held.iter()).any(|h| h.id == id)
+            || self.queued_of(id)
+    }
+
+    /// The requests in flight stamped with invocation `id`, by ticket.
+    pub(in crate::runner) fn invocation_tickets(&self, id: u64) -> Vec<u64> {
+        let o = &self.extensions.origins;
+        (self.pending.iter())
+            .filter(|p| o.ids.get(&p.ticket) == Some(&id))
+            .map(|p| p.ticket)
+            .collect()
+    }
+
+    /// Drop the `then`s stamped with invocation `id`.
+    pub(in crate::runner) fn drop_invocation_thens(&mut self, id: u64) {
+        let thens: Vec<usize> = (self.extensions.origins.then_ids.iter())
+            .filter(|(_, i)| **i == id)
+            .map(|(m, _)| *m)
+            .collect();
+        for m in thens {
+            self.extensions.origins.then_ids.remove(&m);
+            self.extensions.origins.thens.remove(&m);
+            self.then_due[m] = f64::INFINITY;
+        }
+    }
+
+    /// Request `ticket` of `target` is let go by the commit being made: an
+    /// invocation's request, let go by a commit not its own (a device's
+    /// re-ask is none's), supersedes it when that commit stands.
+    pub(in crate::runner) fn note_let_go(&mut self, ticket: u64, target: Target) {
+        let o = &self.extensions.origins;
+        let owner = o.ids.get(&ticket).copied().unwrap_or(0);
+        let by = match target {
+            Target::Resource(_) if o.reasking => 0,
+            _ => o.id,
+        };
+        if owner != 0 && owner != by {
+            let send = matches!(target, Target::Mutation(_));
+            self.extensions.origins.let_go.push((owner, send));
+        }
+    }
+
+    /// The origin tables, for a commit's checkpoint.
+    pub(in crate::runner) fn origins_saved(&self) -> OriginsSaved {
+        let o = &self.extensions.origins;
+        OriginsSaved {
+            tickets: o.tickets.clone(),
+            asked: o.asked.clone(),
+            thens: o.thens.clone(),
+            ids: o.ids.clone(),
+            then_ids: o.then_ids.clone(),
+            let_go: o.let_go.len(),
+        }
+    }
+
+    /// A refused commit's: the tables as it found them.
+    pub(in crate::runner) fn origins_restore(&mut self, saved: OriginsSaved) {
+        let o = &mut self.extensions.origins;
+        o.tickets = saved.tickets;
+        o.asked = saved.asked;
+        o.thens = saved.thens;
+        o.ids = saved.ids;
+        o.then_ids = saved.then_ids;
+        o.let_go.truncate(saved.let_go);
+    }
+
+    /// The invocations superseded by commits that stood: each ends so.
+    pub(in crate::runner) fn invocations_let_go(&mut self) {
+        for (id, send) in std::mem::take(&mut self.extensions.origins.let_go) {
+            self.wake_superseded(id);
+            self.call_superseded(id, send);
+        }
     }
 
     /// Run `f` as a commit of `origin`.
@@ -160,6 +305,13 @@ impl<D: DataSource> Runner<D> {
         if origin != CallOrigin::App {
             o.tickets.insert(ticket, origin);
         }
+        let id = match target {
+            Target::Resource(_) if o.reasking => 0,
+            _ => o.id,
+        };
+        if id != 0 {
+            o.ids.insert(ticket, id);
+        }
         if let Target::Resource(i) = target {
             match origin {
                 CallOrigin::App => o.asked.remove(&i),
@@ -186,46 +338,26 @@ impl<D: DataSource> Runner<D> {
             CallOrigin::App => o.thens.remove(&m),
             other => o.thens.insert(m, other),
         };
+        match o.id {
+            0 => o.then_ids.remove(&m),
+            id => o.then_ids.insert(m, id),
+        };
     }
 
-    /// The origin mutation `m`'s armed `then` runs under; spent here.
-    pub(in crate::runner) fn then_origin(&mut self, m: usize) -> CallOrigin {
-        (self.extensions.origins.thens.remove(&m)).unwrap_or_default()
-    }
-
-    /// Whether work of `origin` is in flight: a request, or an armed
-    /// `then` (LLP 1133.017 D6's owned work).
-    pub(in crate::runner) fn origin_owns(&self, origin: CallOrigin) -> bool {
-        !self.origin_tickets(origin).is_empty()
-            || (self.extensions.origins.thens.iter())
-                .any(|(m, o)| *o == origin && self.then_due[*m].is_finite())
-    }
-
-    /// The requests in flight of `origin`, by ticket.
-    pub(in crate::runner) fn origin_tickets(&self, origin: CallOrigin) -> Vec<u64> {
-        let o = &self.extensions.origins;
-        (self.pending.iter())
-            .filter(|p| o.tickets.get(&p.ticket) == Some(&origin))
-            .map(|p| p.ticket)
-            .collect()
-    }
-
-    /// Drop the `then`s armed by commits of `origin`.
-    pub(in crate::runner) fn drop_origin_thens(&mut self, origin: CallOrigin) {
-        let thens: Vec<usize> = (self.extensions.origins.thens.iter())
-            .filter(|(_, o)| **o == origin)
-            .map(|(m, _)| *m)
-            .collect();
-        for m in thens {
-            self.extensions.origins.thens.remove(&m);
-            self.then_due[m] = f64::INFINITY;
-        }
+    /// The origin and invocation mutation `m`'s armed `then` runs under;
+    /// spent here.
+    pub(in crate::runner) fn then_origin(&mut self, m: usize) -> (CallOrigin, u64) {
+        let o = &mut self.extensions.origins;
+        let origin = o.thens.remove(&m).unwrap_or_default();
+        (origin, o.then_ids.remove(&m).unwrap_or(0))
     }
 
     /// Forget the origins of requests no longer in flight.
     pub(in crate::runner) fn prune_origins(&mut self) {
         let pending = &self.pending;
-        (self.extensions.origins.tickets).retain(|t, _| pending.iter().any(|p| p.ticket == *t));
+        let o = &mut self.extensions.origins;
+        (o.tickets).retain(|t, _| pending.iter().any(|p| p.ticket == *t));
+        (o.ids).retain(|t, _| pending.iter().any(|p| p.ticket == *t));
     }
 
     /// What answers `row` now (module doc).
@@ -260,6 +392,7 @@ impl<D: DataSource> Runner<D> {
                 self.key(row),
                 origin.word()
             ));
+            self.call_person_required();
             return Decision::Now(
                 json!({ "error": "PERMISSION_DENIED", "message": "person-required" }),
             );
@@ -273,6 +406,7 @@ impl<D: DataSource> Runner<D> {
         if let Err(why) = self.admit(row, args, origin) {
             self.log(format!("{}: refused, {why}", self.key(row)));
             if why.starts_with("person-required") {
+                self.call_person_required();
                 return Decision::Now(
                     json!({ "error": "NotAllowedError", "message": "person-required" }),
                 );
@@ -293,6 +427,11 @@ impl<D: DataSource> Runner<D> {
                 .or_else(|| self.decide_choose(row, send))
                 .or_else(|| self.decide_raise(row, send))
                 .unwrap_or(Decision::Forward),
+            Route::Substitute
+                if self.substitute(row)["shortcuts"] == "pin" && !self.unsupported_here(row) =>
+            {
+                Decision::Now(self.pin_shortcut(row, args))
+            }
             Route::Substitute => self.decide_timed(row, send, timeout, args),
         };
         // A name whose grants are per argument asks permission only for an
@@ -313,6 +452,7 @@ impl<D: DataSource> Runner<D> {
         match decision {
             // Only a person answers a prompt (D12).
             Decision::Hold(Waits::Permission) if origin != CallOrigin::App => {
+                self.call_person_required();
                 let code = self.permission_of(row, args)["denied"].clone();
                 self.log(format!(
                     "{}: refused, person-required ({} origin)",
@@ -331,6 +471,16 @@ impl<D: DataSource> Runner<D> {
     /// given that settles the call now: a denied one, else one still to ask,
     /// else the first (LLP 1133.008 D6, LLP 1133.009 D3).
     pub(in crate::runner) fn permission_of(&self, row: &ModulesRow, args: &Json) -> Json {
+        // A permission chosen by an argument's value, or the first still to
+        // ask of those a request asks together (`keyed.rs`).
+        if let Some(p) = self.permission_by_value(row, args) {
+            return p;
+        }
+        if let Some(names) = self.each_asked(row, args) {
+            let first =
+                (names.iter().find(|n| self.permission_state(n) == "prompt")).or(names.first());
+            return first.map_or(Json::Null, |n| self.declared_permission(n));
+        }
         let sub = self.substitute(row);
         // The first of the name's permissions whose grant line the app
         // declares (`"narrowest"`, LLP 1133.019 D4).
@@ -350,7 +500,7 @@ impl<D: DataSource> Runner<D> {
                 .unwrap_or_default();
         }
         let Some(by) = sub["permissionBy"].as_object() else {
-            return sub["permission"].clone();
+            return self.unsettled(row, &sub);
         };
         let given: Vec<&Json> = (by.iter())
             .filter(|(a, _)| given(args, a))
@@ -363,10 +513,39 @@ impl<D: DataSource> Runner<D> {
             .map_or_else(|| sub["permission"].clone(), |p| (*p).clone())
     }
 
+    /// The permission a call of `row` asks of its own and those it requires
+    /// on this target (LLP 1133.030 D12 item 1): a denied one, its own
+    /// first; else the first required one still `prompt`; else its own. A
+    /// status source answers its own.
+    fn unsettled(&self, row: &ModulesRow, sub: &Json) -> Json {
+        let own = &sub["permission"];
+        let required = self.required(own);
+        if required.is_empty() || own["status"] == self.plan.str(row.declared) {
+            return own.clone();
+        }
+        let name = own["name"].as_str().unwrap_or_default();
+        if self.own_permission_state(name, own) == "denied" {
+            return own.clone();
+        }
+        let states: Vec<(String, String)> = (required.into_iter())
+            .map(|r| {
+                let state = self.permission_state(&r);
+                (r, state)
+            })
+            .collect();
+        (states.iter().find(|(_, s)| s == "denied"))
+            .or_else(|| states.iter().find(|(_, s)| s == "prompt"))
+            .map_or_else(|| own.clone(), |(r, _)| self.permission_named(row, r))
+    }
+
     /// `row`'s substitute with the permission a call with `args` asks.
     pub(in crate::runner) fn substitute_for(&self, row: &ModulesRow, args: &Json) -> Json {
         let mut sub = self.substitute(row);
-        if sub["permissionBy"].is_object() || sub["permissionAny"].is_array() {
+        if sub["permissionBy"].is_object()
+            || sub["permissionAny"].is_array()
+            || sub["permissionValue"].is_array()
+            || sub["permission"]["requires"].is_object()
+        {
             sub["permission"] = self.permission_of(row, args);
         }
         sub
@@ -374,18 +553,35 @@ impl<D: DataSource> Runner<D> {
 
     /// [`Self::permission_of`]'s name; empty for none.
     pub(in crate::runner) fn permission_name(&self, row: &ModulesRow, args: &Json) -> String {
+        // A request asking several together holds them all, comma-joined.
+        if let Some(names) = self.each_asked(row, args).filter(|_| row.send) {
+            return names.join(",");
+        }
         (self.permission_of(row, args)["name"].as_str())
             .unwrap_or_default()
             .to_owned()
     }
 
-    /// The permission `name` as `row` declares it.
+    /// The permission `name` as `row` declares it: its own, one chosen by
+    /// argument, or one its own requires on this target.
     pub(in crate::runner) fn permission_named(&self, row: &ModulesRow, name: &str) -> Json {
         let sub = self.substitute(row);
+        // A name that asks by its arguments' values asks any of its own.
+        if sub["permissionValue"].is_array() || sub["permissionEach"].is_array() {
+            let p = self.declared_permission(name);
+            let own = (sub["permissionList"].as_array().into_iter().flatten())
+                .filter_map(|d| d["name"].as_str())
+                .any(|d| d == name || d.strip_suffix('*').is_some_and(|pre| name.starts_with(pre)));
+            return if own { p } else { Json::Null };
+        }
         let by = sub["permissionBy"].as_object().into_iter().flatten();
         let any = sub["permissionAny"].as_array().into_iter().flatten();
+        let required = self.required(&sub["permission"]);
+        let requires = (sub["permissionList"].as_array().into_iter().flatten())
+            .filter(|p| required.iter().any(|r| p["name"] == r.as_str()));
         (std::iter::once(&sub["permission"]).chain(by.map(|(_, p)| p)))
             .chain(any)
+            .chain(requires)
             .find(|p| p["name"] == name)
             .cloned()
             .unwrap_or_default()

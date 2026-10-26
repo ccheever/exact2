@@ -5,6 +5,7 @@ mod index;
 mod inset;
 mod into_view;
 mod nest;
+mod reach;
 mod rekey;
 mod reorder;
 mod reorder_api;
@@ -202,6 +203,8 @@ pub(crate) struct Collection {
     /// Where the window starts before the host reports: 0, a restored
     /// position, or the end.
     start_offset: f64,
+    /// How far ahead of an edge it fires (`reach-margin`).
+    reach: reach::Margin,
     /// `scroll-start: end`, until the list has opened there.
     at_end: bool,
     /// Consecutive reports that said the port was travelling, while it opens.
@@ -304,6 +307,7 @@ impl Collection {
         let mut follow_end = false;
         let mut smooth = false;
         let mut at_end = false;
+        let mut reach = reach::Margin::default();
         let mut estimated_height = ESTIMATED_HEIGHT;
         let mut initial: Option<usize> = None;
         let mut axis = ListAxis::Vertical;
@@ -347,6 +351,15 @@ impl Collection {
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollFollowEnd as u16 {
                 follow_end = u.eval(binding.expr, frames)? == Value::Bool(true);
+            }
+            if binding.kind == BindingKind::Prop && binding.id == PropId::ReachMargin as u16 {
+                let margin = u.eval(binding.expr, frames)?;
+                reach = margin
+                    .as_str()
+                    .and_then(reach::Margin::parse)
+                    .ok_or_else(|| {
+                        invalid("reach margin must be one or two nonnegative px or % lengths")
+                    })?;
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollStart as u16 {
                 at_end = u.eval(binding.expr, frames)?.as_str() == Some("end");
@@ -478,6 +491,7 @@ impl Collection {
             target: None,
             into_view_status: None,
             start_offset: 0.0,
+            reach,
             at_end,
             end_travel: 0,
             end_sent: f64::NAN,
@@ -804,27 +818,6 @@ impl Collection {
             .checked_sub(1)
             .and_then(|i| self.index.key(i))
             .map(str::to_owned)
-    }
-    /// Pins never qualify an edge. Re-arm only after the geometric window is
-    /// measured: replacement estimates cannot manufacture a temporary edge exit.
-    fn geometric_edges(&mut self) -> Result<[bool; 2], InstanceError> {
-        let mut reached = [false; 2];
-        if let Some(g) = &self.geometry {
-            if self.index.len() > 0 {
-                let window = self
-                    .index
-                    .window(g.offset, g.port_main, [None, None])
-                    .map_err(index_error)?;
-                reached = [0, self.index.len() - 1]
-                    .map(|i| window.segments.iter().any(|range| range.contains(&i)));
-                if self.edge_armed != [true; 2] && self.index.range_measured(window.overscan) {
-                    for (armed, reached) in self.edge_armed.iter_mut().zip(reached) {
-                        *armed |= !reached;
-                    }
-                }
-            }
-        }
-        Ok(reached)
     }
     /// Realize the window: every row it owes (visible and pinned), then, on
     /// a limited report, at most `fill.limit` more, nearest the viewport on
@@ -1431,29 +1424,6 @@ impl Collection {
             self.zero_heights.remove(&*key);
         }
         Ok(())
-    }
-    /// The edge a report's geometry reached, if armed and handled.
-    fn edge_event(
-        &mut self,
-        fill: CollectionFill,
-    ) -> Result<Option<CollectionEdges>, InstanceError> {
-        let reached = self.geometric_edges()?;
-        let ready = [0, 1].map(|i| reached[i] && self.edge_armed[i] && self.edge_handlers[i]);
-        let edge = (0..2).find(|&i| ready[i]);
-        // A build-only report runs no action (LLP 1072 §5): the edge stays
-        // armed and the report is pending, so the next report runs it.
-        if fill.create_only && edge.is_some() {
-            self.pending = true;
-            return Ok(None);
-        }
-        Ok(edge.map(|i| {
-            self.edge_armed[i] = false;
-            CollectionEdges {
-                first: [EventKind::Reachstart, EventKind::Reachend][i],
-                // End remains armed until an action actually consumes it.
-                end_after_noop: ready[0] && ready[1],
-            }
-        }))
     }
     fn release_pins(
         &mut self,

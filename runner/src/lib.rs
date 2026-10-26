@@ -62,6 +62,7 @@ pub mod held;
 pub mod instance;
 pub mod lists;
 pub mod notify;
+pub mod orientation;
 pub mod page;
 pub mod perf;
 pub mod presence;
@@ -81,6 +82,7 @@ pub mod stream_timing;
 pub mod strings;
 pub mod surface_record;
 pub mod time;
+pub mod tools;
 pub mod transport;
 pub mod uses;
 pub mod viewport;
@@ -104,10 +106,10 @@ pub use page::Page;
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, LongPoll, Message, Outcome,
     Placement, Redirect, Reply, Request, RequestOut, Response, RetryReader, Retrying, SocketOp,
-    SocketOrigin, SocketSend, SurfaceOutcome, SurfaceRequest, Work, LONG_POLL_REPLY,
-    MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
+    SocketOrigin, SocketSend, SurfaceOutcome, SurfaceRequest, Work, BODY_TO_HELD_BYTES,
+    BODY_WRITTEN, LONG_POLL_REPLY, MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_BODY_TO_BYTES,
+    MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
 };
-pub use runner::WakeHow;
 pub use runner::{
     canvas_engine, press_writes_router, routing, virtual_frame, Advanced, Announce, AuthLinks,
     BackgroundState, BlockPlacement, CallOrigin, CanvasEngine, CanvasLink, CanvasList, Carried,
@@ -122,6 +124,7 @@ pub use runner::{
     TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
+pub use runner::{CallHow, WakeHow};
 /// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
 pub mod tamber {

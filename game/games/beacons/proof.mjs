@@ -266,6 +266,11 @@ async function tiltLeg({open, check, node, world}) {
   await t.tap(`@${pending[0]?.ticket}`, {choice:'allow'});
   await t.clock('settle');
   check('tilt 1: allowed, the level reads flat', await angles() === '0° · 0°', await angles());
+  // LLP 1133.029 §9.1 drive 1: tilt on, the world's canvas holds `current`.
+  const lock = async () => (await t.state()).orientationlock;
+  const held = await lock();
+  check('orientation 1: tilt on, the canvas holds the orientation as it is',
+    held?.held && held.words.join() === 'current', held);
   await t.prefer({extension:'motion.gravitySensor={"x":0,"y":4.9,"z":8.49}'});
   await t.clock('+200'); await t.clock('settle');
   check('tilt 2: held at 30°, the readout follows the reading', await angles() === '0° · 30° forward', await angles());
@@ -298,6 +303,8 @@ async function tiltLeg({open, check, node, world}) {
     !paused.inputs?.length && paused.streams?.gravity?.frequency === 30, paused);
   await t.tap('tilt'); await t.tap('pause');
   const braking = await world(t).local_position('player');
+  const released = await lock();
+  check('orientation 1: tilt off, nothing holds it', released && !released.held, released);
   await t.clock('+500');
   const rest = await world(t).local_position('player');
   await t.clock('+500');

@@ -1,0 +1,140 @@
+{
+  "kind": "interface",
+  "name": "@fixture/chime",
+  "version": "1.0.0",
+  "grants": ["device.alarms"],
+  "permission": [
+    {
+      "name": "chime",
+      "grants": ["device.alarms"],
+      "status": "chimeStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "requires": { "android": ["ping"] },
+      "allowOn": { "android": { "android": { "exact": true } } }
+    },
+    {
+      "name": "ping",
+      "grants": [],
+      "status": "chimeStatus",
+      "field": "android.ping",
+      "denied": "NotAllowedError"
+    }
+  ],
+  "shapes": {
+    "ChimeStatus": {
+      "available": "bool",
+      "state": "enum<granted|denied|prompt|unknown>",
+      "android": "option<AndroidChime>"
+    },
+    "AndroidChime": {
+      "exact": "bool",
+      "ping": "enum<granted|denied|prompt>"
+    },
+    "Chime": {
+      "tag": "string",
+      "title": "string",
+      "state": "enum<scheduled|countdown|paused|alerting>",
+      "at": "option<number>",
+      "remaining": "option<number>",
+      "snooze": "option<number>"
+    }
+  },
+  "names": [
+    {
+      "source": "chimeStatus",
+      "live": true,
+      "answers": "ChimeStatus",
+      "substitute": {
+        "default": { "available": true, "state": "prompt" },
+        "targets": {
+          "android": { "android": { "exact": false, "ping": "prompt" } },
+          "web": { "available": false, "state": "unknown" }
+        }
+      }
+    },
+    {
+      "source": "chimes",
+      "live": true,
+      "answers": "Chime[]",
+      "substitute": { "listed": { "state": "chimes", "fields": ["tag", "title", "state", "at", "remaining", "snooze"] } }
+    },
+    {
+      "send": "setChime",
+      "permission": "asks",
+      "origin": "app",
+      "grants": ["device.alarms"],
+      "options": {
+        "tag": "string",
+        "title": "string",
+        "at": "option<number>",
+        "duration": "option<number>",
+        "snooze": "option<number>"
+      },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web"],
+        "checks": [
+          { "one": ["at", "duration"], "error": "TypeError" },
+          { "after": "at", "error": "TypeError" },
+          { "min": { "duration": 1000, "snooze": 1000 }, "error": "TypeError" },
+          { "nonEmpty": ["title"], "error": "TypeError" }
+        ],
+        "list": {
+          "state": "chimes",
+          "key": "tag",
+          "scope": "app",
+          "due": {
+            "at": "at",
+            "after": "duration",
+            "into": "at",
+            "as": { "at": { "state": "scheduled" }, "after": { "state": "countdown" } },
+            "fires": { "state": "alerting" }
+          },
+          "tap": {
+            "choices": {
+              "stop": { "retire": true },
+              "snooze": { "after": "snooze", "set": { "state": "countdown" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": "stopChime",
+      "permission": "none",
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": { "unsupported": ["web"], "unlist": "tag" }
+    },
+    {
+      "send": "holdChime",
+      "permission": "none",
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web"],
+        "update": { "state": "chimes", "key": "tag", "when": { "state": "countdown" }, "else": "InvalidStateError", "set": { "state": "paused" }, "pause": "remaining" }
+      }
+    },
+    {
+      "send": "goChime",
+      "permission": "asks",
+      "origin": "app",
+      "grants": ["device.alarms"],
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web"],
+        "update": { "state": "chimes", "key": "tag", "when": { "state": "paused" }, "else": "InvalidStateError", "set": { "state": "countdown" }, "resume": "remaining" }
+      }
+    },
+    {
+      "send": "requestChime",
+      "permission": "request",
+      "grants": ["device.alarms"],
+      "answers": "ChimeStatus",
+      "substitute": { "unsupported": ["web"], "answers": "chimeStatus", "deniedAnswers": true }
+    }
+  ]
+}

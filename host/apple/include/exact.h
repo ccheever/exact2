@@ -903,6 +903,12 @@ uint32_t exact_agent(ExactRuntime rt, size_t len);
  * input buffer's first len bytes — a refused intent and its reason. Returns 0. */
 uint32_t exact_log(ExactRuntime rt, size_t len);
 
+/* What the presenter applied of the session's orientation lock (LLP 1133.029
+ * §8): JSON in the input buffer's first len bytes, for the agent's
+ * state.orientationlock.applied; conflict nonzero when its resolution of
+ * `natural` or `current` found one. Returns 0. */
+uint32_t exact_orientation_applied(ExactRuntime rt, size_t len, uint8_t conflict);
+
 /* A command that shows system UI, about to run: {"command":"share",
  * "title","text","url","source","agent"} (LLP 1069.003) or {"command":
  * "saveFile","id","from","suggestedName","agent"} (LLP 1069.010 D3) in the

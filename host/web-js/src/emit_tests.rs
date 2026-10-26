@@ -25,6 +25,16 @@ fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization
     }
 }
 
+/// @ref LLP 1145 D4 — list.js reads `reach-margin` from the list's options.
+#[test]
+fn a_reach_margin_is_a_list_option() {
+    let source = "component App\n  action more\n    let n = 1\n  view\n    list virtualized=true height=200 reachend=more reach-margin=\"0px 200%\"\n      for x in [1, 2] key=x\n        text `${x}`\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("reach:\"0px 200%\""), "{js}");
+}
+
 #[test]
 fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     let plan = contract::compile(

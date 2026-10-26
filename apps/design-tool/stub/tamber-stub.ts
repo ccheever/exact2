@@ -156,7 +156,7 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, stayingSelect = false, refuseSelect = false, pageRefusesSelect = false, pageSelectGone = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, stayingSelect = false, slotSelect = false, furtherSelect = false, quietSelect = false, refuseSelect = false, pageRefusesSelect = false, pageSelectGone = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 // A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
@@ -291,6 +291,14 @@ Bun.serve({ hostname, port: Number(port), routes: {
           if (!chain.length && !stayingSelect) { log.push({ ...last, node: Number(last.node ?? 0) + 100, source: { file: '/stub/card.contract', line: 2, col: 3, end_col: 7, component: 'Card', chain: [] }, moved: { up: Number(request.select.up), stepped: 1 }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           // (`/__stub/staying-select`: the selection is the root already (App only renders its component), so the page
           // reports the same node again, having stepped none.)
+          // (`/__stub/slot-select`: the page steps to a slot's host the call-site chain doesn't list, PostCard, which
+          // holds the pressed line's copy in its slot.)
+          if (slotSelect) { log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { file: '/stub/postcard.contract', line: 3, col: 3, end_col: 11, component: 'PostCard', chain: chain.slice(up) }, moved: { up: Number(request.select.up), stepped: up }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
+          // (`/__stub/quiet-select`: taken, and nothing reported yet: a test reports the page's answer itself, in one batch.)
+          if (quietSelect) return send({ ok: { builds: [request.build] } });
+          // (`/__stub/further-select`: the page lands a copy further out than the pressed line, on another of the
+          // selection's callers: the line pressed owned no node of its own there.)
+          if (furtherSelect && up < chain.length) { log.push({ ...last, node: Number(last.node ?? 0) + 100 * (up + 1), source: { ...(chain[up] as object), chain: chain.slice(up + 1) }, moved: { up: Number(request.select.up), stepped: up }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           if (stayingSelect) { log.push({ ...last, moved: { up: Number(request.select.up), stepped: 0 }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           // (Another node, as the page's ancestor is: its own view id.)
           // (With the page's `moved` (1.17): the up asked and the steps it took.)
@@ -515,6 +523,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/page-select-gone': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageSelectGone = true; return send({ ok: true }); } },
   '/__stub/page-refuses-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageRefusesSelect = true; refuseSelect = false; return send({ ok: true }); } },
   '/__stub/refuse-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseSelect = true; return send({ ok: true }); } },
+  '/__stub/quiet-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); quietSelect = true; return send({ ok: true }); } },
+  '/__stub/further-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); furtherSelect = true; return send({ ok: true }); } },
+  '/__stub/slot-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); slotSelect = true; return send({ ok: true }); } },
   '/__stub/staying-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); stayingSelect = true; return send({ ok: true }); } },
   '/__stub/shallow-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); shallowSelect = true; return send({ ok: true }); } },
   '/__stub/canvas-check': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasCheck = await req.json().catch(() => null); return send({ ok: true }); } },
@@ -534,7 +545,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; stayingSelect = false; refuseSelect = false; pageRefusesSelect = false; pageSelectGone = false;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; stayingSelect = false; slotSelect = false; furtherSelect = false; quietSelect = false; refuseSelect = false; pageRefusesSelect = false; pageSelectGone = false;
       copyDelays = {}; noNavigate = []; galleryCopies = []; refuseLater = []; navs.length = 0; LIBRARY = {};
       // (The files as they were before the first package post: what any number of posts merged in, gone.)
       if (filesBefore) FILES = filesBefore;

@@ -9,7 +9,7 @@ pub use store::Updates;
 
 /// Run the app with its update store attached before boot.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
-    run_installed::<D>(baked, compat, None)
+    run_composed::<D>(baked, compat, Default::default())
 }
 
 /// [`run`] with the app's hatches (LLP 1075.003.000.001 §5), as
@@ -19,14 +19,27 @@ pub fn run_with_hatches<D: DataSource + Default, H: exact_linux::Hatches>(
     compat: &str,
     words: &'static [&'static str],
 ) -> i32 {
-    let hatches = exact_linux::hatches::install::<H>(words);
-    run_installed::<D>(baked, compat, Some(hatches))
+    let composed = exact_linux::Composed {
+        hatches: Some(exact_linux::hatches::install::<H>(words)),
+        ..Default::default()
+    };
+    run_composed::<D>(baked, compat, composed)
+}
+
+/// [`run`] with what the app's build composed, as `exact_linux::run_composed`
+/// takes it.
+pub fn run_composed<D: DataSource + Default>(
+    baked: &[u8],
+    compat: &str,
+    composed: exact_linux::Composed,
+) -> i32 {
+    run_installed::<D>(baked, compat, composed)
 }
 
 fn run_installed<D: DataSource + Default>(
     baked: &[u8],
     compat: &str,
-    hatches: Option<exact_linux::hatches::Install>,
+    composed: exact_linux::Composed,
 ) -> i32 {
     if exact_linux::app::print_baked_receipt(compat) {
         return 0;
@@ -43,7 +56,8 @@ fn run_installed<D: DataSource + Default>(
     }
     let started = std::time::Instant::now();
     let mut config = exact_linux::app::Config::from_env(baked, compat);
-    config.hatches = hatches;
+    config.hatches = composed.hatches;
+    config.packages = composed.packages;
     match Updates::open(compat, baked, &config.assets) {
         Ok(updates) => config.use_updates(Box::new(updates), baked),
         Err(error) => eprintln!("exact update: {error}"),

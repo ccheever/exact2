@@ -29,6 +29,9 @@
 // alerts take it too.) Layout (flex, gap, padding) is
 // CSS and the author's; the web host draws the same file as a web page.
 
+use setAppShortcuts, ShortcutItem from "@exact/quick-actions"
+use setContentIndex, ContentDescription from "@exact/search-index"
+
 routes nav
   tab library "/"
     book "/book/:id"
@@ -97,6 +100,9 @@ component Shelf
   resource lib = library() as shape Library else empty(ready=false, goal=12, avgText="—")
   resource works = subjectWorks(subject) as shape Subject else empty(ok=true)
   mutation changed as shape Ack queue refreshes lib
+  // The tools' own: a call's `fails when` reads its reply, never a page
+  // turn the person made while the call waited for `lib`.
+  mutation logged as shape Ack queue refreshes lib
 
   derive current = top(nav)
   derive visible = lib.books.filter(b => matches(b, filter, query.trim().toLowerCase()))
@@ -105,6 +111,31 @@ component Shelf
   derive owned = lib.books.map(b => b.sourceKey)
   derive titleError = draftTitle.trim() == "" ? "Enter a title." : ""
   derive pagesError = draftPages == "" or wholePages(draftPages) ? "" : "Pages must be a whole number from 1 to 10,000."
+  derive reading = lib.books.filter(b => b.status == "reading")
+  derive indexKey = lib.books.map(b => `${b.id}|${b.title}|${b.author}|${b.status}`).join("\n")
+
+  // The system's ways in (LLP 1133.023 §11): every book in its search, and
+  // the newest book being read on the icon's menu, after the manifest's Add
+  // Book. Set once the library has loaded, so the empty placeholder never
+  // clears what the last launch set.
+  task index when lib.ready key=indexKey
+    after(1, reindex)
+  action reindex
+    setContentIndex(kind="book", entries=lib.books.map(b => ContentDescription(id=b.id, kind=none, title=b.title, description=some(b.author),
+      category=none, icons=none, url=`/book/${b.id}`, apple=none)))
+    setAppShortcuts(shortcuts=reading.slice(0, 1).map(b => ShortcutItem(name=`Continue ${b.title}`,
+      short_name=some(b.title), description=none, url=`/book/${b.id}`, icons=none, apple=none, android=none)))
+
+  // What Shortcuts, Siri and an agent may do (LLP 1111 D2; LLP 1133.023
+  // §11); app.json's `intents` gives each its face.
+  tool logPages writes idempotent closed "Set the page you're on in a book." = logPages
+    fails when match logged { case some(a) => not a.ok, case none => false }
+  tool addToShelf writes additive closed "Add a book to your shelf." = addTitled
+    fails when match logged { case some(a) => not a.ok, case none => false }
+  action logPages(id: string, page: number)
+    send logged = setPage(id, page)
+  action addTitled(title: string, author: string, pages: number)
+    send logged = addBook(title, author, pages, "want", "", "", time.epochAtZero + performanceNow())
 
   // Navigation: a tab, a location (a book's row is a link to its route; the
   // browser's Back, Forward and a deep link arrive here too), a sheet, and

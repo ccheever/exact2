@@ -182,6 +182,22 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
+  // LLP 1069.010 D1 (2026-10-26): a chosen file copied by the host into an
+  // app file, its size read back, and the copies still refused.
+  if (op === "doc-copy") {
+    const out: string[] = [], folder = value.slice(0, value.lastIndexOf("/"));
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.copyFile(value, "app:/data/copied").then(() => storage.fs.stat("app:/data/copied")).then((s) => "copied " + s.size),
+      () => storage.fs.copyFile(value, "app:/cache/ungranted"),
+      () => storage.fs.copyFile(value, folder + "/copy"),
+      () => storage.fs.copyFile("app:/data/copied", folder + "/copy"),
+      () => storage.fs.rename(value, "app:/data/moved"),
+    ];
+    for (const step of steps) {
+      try { const r = await step(); out.push(typeof r === "string" ? r : "ok"); } catch (e: any) { out.push(e.kind + " " + e.code); }
+    }
+    return {text: out.join(" ")};
+  }
   // Ledger's shape (ledger F12): every answer queued on one chain, a listing
   // that reads, and a save that refuses bad input before touching storage.
   if (op === "count" || op === "invalid") {
@@ -369,6 +385,32 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
       { exactBodyFrom: data + "/photo.jpg" },
       { method: "HEAD", exactBodyFrom: data + "/photo.jpg" },
       { method: "POST", exactBodyFrom: data + "/" + "\ud800".repeat(1500) },
+    ];
+    for (const init of inits) {
+      try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // `exactBodyTo` (LLP 1108 D6 R2): the host writes a 2xx body to the file.
+  // The status, what was written, the body and the header names, or the
+  // rejection's name, kind and message.
+  if (op === "download" || op === "download-missing") {
+    try {
+      const r = await fetch("https://example.test/" + op, { exactBodyTo: value } as any);
+      return {text: [r.status, JSON.stringify((r as any).exactBodyTo), await r.text(), [...r.headers.keys()].join(",")].join(" ")};
+    } catch (e:any) { return {text: e.name + " " + e.kind + " " + e.message}; }
+  }
+  if (op === "download-refusals") {
+    const url = "https://example.test/download", data = storage.fs.directories.data, out: string[] = [];
+    const inits: any[] = [
+      { exactBodyTo: 42 },
+      { exactBodyTo: "/tmp/photo.jpg" },
+      { exactBodyTo: data + "/../photo.jpg" },
+      { exactBodyTo: data + "/" + "\ud800".repeat(1500) },
+      { method: "HEAD", exactBodyTo: data + "/photo.jpg" },
+      { exactBodyTo: data + "/photo.jpg", exactStream: () => null },
+      { exactBodyTo: data + "/photo.jpg", exactIndependentHttp: { maxResponseBytes: 1073741825 } },
+      { exactIndependentHttp: { maxResponseBytes: 67108865 } },
     ];
     for (const init of inits) {
       try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }

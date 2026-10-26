@@ -21,6 +21,8 @@ public struct Batch {
     public let error: String?
     /// Re-entry reached no runner turn; the presenter keeps its scheduling state.
     public let busy: Bool
+    /// Held over a restart's reset (`Runtime.held`): reached no runtime, and nothing applies it.
+    public var held = false
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     /// Store refresh acknowledged no runner commit; keep the current timers.
@@ -55,10 +57,14 @@ public struct Batch {
     public var facts = false
     /// Whether a displayed element holds the wake lock, when that changed (LLP 1125 D11).
     public var wakelock: Bool? = nil
+    /// The session's orientation lock, when it changed (LLP 1133.029 D3).
+    public var orientation: OrientationRequest? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     /// Failure lines the session writes to the unified log, each once (LLP 1142 D4).
     public var alerts: [String] = []
+    /// The journal's other lines, for the unified log at a lower level (LLP 1143).
+    public var journal: [String] = []
     package init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false, busy: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
@@ -138,7 +144,21 @@ package final class Runtime {
     package static let busy = Batch(ops: [], timers: false, motion: false, clock: nil,
         error: "busy: the owner is waiting on this callback (LLP 1072 T5)", busy: true)
     package static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
-    package func on(_ body: () -> Batch) -> Batch {
+    /// While a restart's reset tears the old tree's views down (Session `presentCommitted`): the one entry every
+    /// batch-answering call takes, so this runtime, which replaces that tree, takes none of them before its committed
+    /// batch lands. Each answers an empty batch, the runtime untouched, and is named in `heldCalls` (its method, by
+    /// `#function`), which ExactKit's ResetGate drops or replays once the batch is in.
+    package var held = false
+    package private(set) var heldCalls: [String] = []
+    /// The batch-answering calls `on` let through on main: a test's spy on what reached the runtime.
+    package private(set) var entered = 0
+    package static let heldBatch = { var batch = Batch(ops: [], timers: false, motion: false, clock: nil, error: nil); batch.held = true; return batch }()
+    package func takeHeldCalls() -> [String] { defer { heldCalls = [] }; return heldCalls }
+    /// Whether held; if so, `caller` is named in `heldCalls` (a call held outside `on`: `selection`, a notice's `later`).
+    package func holds(_ caller: String = #function) -> Bool { if held { heldCalls.append(caller) }; return held }
+    package func on(_ body: () -> Batch, caller: String = #function) -> Batch {
+        if holds(caller) { return Runtime.heldBatch }
+        if Thread.isMainThread { entered &+= 1 } // (`later` calls on the owner: the spy counts main's)
         let (open, modal) = topLayer?() ?? ([], nil)
         return Owner.shared.sync({
             installTopLayer(open, modal: modal)
@@ -328,6 +348,7 @@ package final class Runtime {
     package func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
     /// Capture native presentation on the caller before parsing replies on the owner.
     package func pumpAsync(now: Double, done: @escaping (Batch?) -> Void) {
+        if holds() { Owner.shared.post { done(nil) }; return } // (held: answered on the owner as a cancelled reply, `held`)
         let (open, modal) = topLayer?() ?? ([], nil)
         Owner.shared.post { [self] in
             guard !destroyed else { done(nil); return }
@@ -412,6 +433,7 @@ package final class Runtime {
     /// D1): posted, never waited for, since AppKit calls from inside its
     /// scroll synchronizer.
     package func scrolled(_ view: UInt32?, left: Double, top: Double) {
+        if holds() { return }
         Owner.shared.notify { [self] in
             guard !destroyed else { return }
             exact_scrolled(rt, view == nil ? 1 : 0, view ?? 0, left, top)
@@ -437,6 +459,7 @@ package final class Runtime {
     /// A build-only report on the owner, not waited for (LLP 1072 §3):
     /// `done` runs on the owner with the decoded batch.
     package func collectionFeedbackAsync(_ bytes: Data, now: Double, done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return } // (held: answered on the owner, so what waits on it ends)
         Owner.shared.post { [self] in
             guard !destroyed else { return }
             let n = write(bytes)
@@ -449,6 +472,7 @@ package final class Runtime {
     package func canvasDefer(_ deferred: Bool) { on { exact_canvas_defer(rt, deferred ? 1 : 0) } }
     /// The owed canvas draws on the owner, not waited for (LLP 1072 §8.5).
     package func canvasDrawAsync(done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
         Owner.shared.post { [self] in
             guard !destroyed else { return }
             done(read(exact_canvas_draw(rt)))
@@ -459,6 +483,7 @@ package final class Runtime {
     /// `calls`, in order, on the owner and not waited for: each batch goes to
     /// `done` there (LLP 1027.007 P1).
     package func later(_ calls: [(Runtime) -> Batch], done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { for _ in calls { done(Runtime.heldBatch) } }; return }
         Owner.shared.post { [self] in
             for call in calls {
                 guard !destroyed else { return }
@@ -467,6 +492,7 @@ package final class Runtime {
         }
     }
     package func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
         Owner.shared.post { [self] in
             guard !destroyed else { return }
             done(read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)))
@@ -564,6 +590,7 @@ package final class Runtime {
     }
     /// Shared Markdown selection facts; the editor retains its own range.
     package func selection(_ view: UInt32, json: String, now: Double) -> Batch? {
+        if holds() { return nil } // (the Batch barrier's, above)
         return on(busy: nil) {
             guard let data = json.data(using: .utf8),
                   let state = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -855,6 +882,33 @@ package final class Runtime {
     /// built. A later call runs after it; a destroyed runtime refuses it.
     package func log(_ line: String) {
         Owner.shared.notify { [self] in _ = exact_log(rt, write(line)) }
+    }
+    /// What the host applied of the orientation lock, JSON, and whether its
+    /// resolution found a conflict (LLP 1133.029 §8): queued as `log` is.
+    package func orientationApplied(_ json: String, conflict: Bool) {
+        Owner.shared.notify { [self] in _ = exact_orientation_applied(rt, write(json), conflict ? 1 : 0) }
+    }
+}
+
+/// The session's orientation lock as the runner tells it (LLP 1133.029 D3).
+public struct OrientationRequest: Equatable {
+    /// The orientations the holders' types allow, as bits in the Screen
+    /// Orientation API's order: portrait-primary 1, portrait-secondary 2,
+    /// landscape-primary 4, landscape-secondary 8. 0 when none is held.
+    public var types = 0
+    /// Whether a holder says `natural`, and `current`.
+    public var natural = false, current = false
+    /// Each counted holder, `view 12 "current"`, for a line the host journals.
+    public var holders: [String] = []
+    public init() {}
+    init(_ o: [String: BatchValue]) {
+        types = Int(o["types"]?.number ?? 0)
+        natural = o["natural"] == .bool(true)
+        current = o["current"] == .bool(true)
+        holders = (o["by"]?.array ?? []).compactMap { pair in
+            guard let p = pair.array, p.count == 2, let view = p[0].number, let word = p[1].string else { return nil }
+            return "view \(Int(view)) \"\(word)\""
+        }
     }
 }
 

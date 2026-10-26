@@ -77,10 +77,20 @@ pub struct Work {
     /// Failure lines a development host also writes to its platform's log,
     /// oldest first, and how many were dropped past [`ALERTS`] (D4).
     pub alerts: std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
+    /// Every other journal line, kept the same way for a development host's
+    /// platform log at a lower level (LLP 1143 open question 1).
+    pub journal: std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
     /// Dispatches and the ones that committed a change, by plan site and
     /// event name (LLP 1142 D6).
     pub handlers: BTreeMap<(u32, &'static str), Handler>,
+    /// The `for` regions already said to build a long list whole (LLP 1144
+    /// D4): each once a session.
+    pub long_lists: std::collections::BTreeSet<u32>,
 }
+
+/// Rows a `for` repeats outside a virtualized list from which a development
+/// build says the list is built whole (LLP 1144 D4).
+pub const LONG_LIST: usize = 200;
 
 /// The most alert lines kept for a host that has not taken them.
 pub const ALERTS: usize = 64;
@@ -92,6 +102,37 @@ pub struct ResourceWork {
     pub request: u64,
     /// Latest invocation whose valid answer committed.
     pub successful: u64,
+}
+
+/// Queue `line` for the host, dropping the oldest past [`ALERTS`].
+pub(crate) fn queue(
+    queue: &std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
+    line: String,
+) {
+    let mut queue = queue.borrow_mut();
+    queue.0.push_back(line);
+    if queue.0.len() > ALERTS {
+        queue.0.pop_front();
+        queue.1 += 1;
+    }
+}
+
+/// The queued lines, oldest first, each once; lines dropped past the bound
+/// are counted in a first line of their own.
+pub(crate) fn take(
+    queue: &std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
+    what: &str,
+) -> Vec<String> {
+    let mut queue = queue.borrow_mut();
+    let dropped = std::mem::take(&mut queue.1);
+    let mut lines: Vec<String> = queue.0.drain(..).collect();
+    if dropped > 0 {
+        lines.insert(
+            0,
+            format!("{dropped} earlier {what} lines were dropped; `logs` has the journal"),
+        );
+    }
+    lines
 }
 
 /// One resource's refused answers (LLP 1142 D4): how many, and the runner's

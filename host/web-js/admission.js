@@ -40,7 +40,7 @@ function ceilingOf(init) {
 // (LLP 1109 D3: a response over its size limit is `refused` on every host).
 // A failed read lets both branches go at once: a branch's cancel settles only
 // when the other's does, so awaiting one would wait on a body that never ends.
-async function within(response, limit) {
+export async function within(response, limit) {
   const reader = response.clone().body?.getReader();
   if (!reader) return;
   let size = 0;
@@ -72,7 +72,8 @@ export function ownWithout(init, skip) {
   return copy;
 }
 
-export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init)) {
+// `read`: how the body is taken before the fetch answers, within the deadline (`exactBodyTo`'s writes it to a file).
+export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init), read = within) {
   let value, asset, deadline, signal;
   init ??= {};
   deadline = deadlineOf(init);
@@ -118,7 +119,7 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
     // (`failure(x)`'s `offline`, LLP 1109 D3); one over its ceiling is
     // Refused, and the response is let go. The response keeps its URL,
     // type and null body, and its own read is served from what the clone took.
-    await within(response, ceiling);
+    await read(response, ceiling);
     if (deadline) deadline.signal.removeEventListener('abort', relay);
     return response;
   }

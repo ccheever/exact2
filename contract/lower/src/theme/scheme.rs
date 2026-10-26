@@ -1,9 +1,10 @@
 //! `lower-colour-one-scheme`'s question (LLP 1121 D3): which of the app's
 //! tokens are one opaque colour in both schemes (moved from `theme.rs`).
 
-use super::{inline_design, packages, same_name, stand_in_profiles, vocab};
+use super::{inline_design, packages, stand_in_profiles, vocab};
 use contract_syntax::File;
 use exact_tamber as tamber;
+use std::collections::{HashMap, HashSet};
 
 /// The app's tokens that are one opaque colour in light and dark in some app
 /// tuple and not marked `scheme=fixed` (LLP 1121 D3), each by its name as
@@ -34,31 +35,46 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
     };
     // A token fixed, or an alias of one (`ink = -exact-label` of a fixed
     // `label`), by every name it answers to.
+    // Found from the fixed ones outwards, each name once (linear: the
+    // checker bound's sweep), names compared as `same_name` does.
     let pairs: Vec<_> = folding.tokens.iter().zip(&folding.design.tokens).collect();
-    let mut fixed: Vec<String> = Vec::new();
-    let judged = |name: &str| {
-        folding.design.tokens[..app.min(folding.design.tokens.len())]
-            .iter()
-            .any(|t| t.name.value == name)
+    let key = |n: &str| {
+        super::role_named(n)
+            .map(|(x, _)| x)
+            .ok_or_else(|| n.to_string())
     };
-    loop {
-        let before = fixed.len();
-        for (t, declared) in &pairs {
-            let value = declared.value.value.trim();
-            // Only a whole alias with no `when` of its own is the mark's.
-            let alias = declared.whens.is_empty() && fixed.iter().any(|f| same_name(f, value));
-            if (t.fixed || alias) && !fixed.contains(&declared.name.value) {
-                fixed.push(declared.name.value.clone());
-                fixed.push(t.name.clone());
-            }
-        }
-        if fixed.len() == before {
-            break;
+    let mut naming: HashMap<_, Vec<usize>> = HashMap::new();
+    for (i, (_, declared)) in pairs.iter().enumerate() {
+        if declared.whens.is_empty() {
+            naming
+                .entry(key(declared.value.value.trim()))
+                .or_default()
+                .push(i);
         }
     }
+    let mut queue: Vec<usize> = (0..pairs.len()).filter(|&i| pairs[i].0.fixed).collect();
+    let (mut fixed, mut keys) = (HashSet::new(), HashSet::new());
+    while let Some(i) = queue.pop() {
+        let (t, declared) = pairs[i];
+        if !fixed.insert(declared.name.value.clone()) {
+            continue;
+        }
+        fixed.insert(t.name.clone());
+        for n in [&declared.name.value, &t.name] {
+            if keys.insert(key(n)) {
+                queue.extend(naming.get(&key(n)).into_iter().flatten());
+            }
+        }
+    }
+    let judged: HashSet<&str> = folding.design.tokens[..app.min(folding.design.tokens.len())]
+        .iter()
+        .map(|t| t.name.value.as_str())
+        .collect();
     pairs
         .into_iter()
-        .filter(|(_, declared)| !fixed.contains(&declared.name.value) && judged(&declared.name.value))
+        .filter(|(_, declared)| {
+            !fixed.contains(&declared.name.value) && judged.contains(declared.name.value.as_str())
+        })
         .filter_map(|(t, declared)| {
             // Opaque only: a translucent one is an overlay, which reads over
             // either scheme's ground, and a transparent one paints nothing.

@@ -1,0 +1,9 @@
+{
+  "name": "@exact/quick-actions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The menu of the app's icon, with the Web App Manifest's ShortcutItem (LLP 1133.023).",
+  "exports": {
+    ".": "./exact.json"
+  }
+}

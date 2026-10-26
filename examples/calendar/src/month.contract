@@ -1,4 +1,4 @@
-use Month, monthIn, paletteColor, weekday, Cell, inRange from "./models.contract"
+use Month, monthIn, paletteColor, weekday, Cell, inRange, ActivityDay from "./models.contract"
 use TodoMark from "./agenda.contract"
 
 // The month receives swipes from dates and compact item handles alike. Each
@@ -12,6 +12,8 @@ component MonthPage
     page: Month
     // The days with an event in the person's calendars (LLP 1133.018 §11).
     deviceDays: number[]
+    // Each day's steps, where Health showed any (LLP 1133.026 §12).
+    steps: ActivityDay[]
     left: number
     width: number
     height: number
@@ -49,7 +51,7 @@ component MonthPage
             box testId=`week-${page.id}-${week.id}` width="100%" height=max(minimumWeek, 34 + week.lanes * 24 + week.footer) position="relative" flex-shrink=0
               row position="absolute" left=0 top=0 right=0 bottom=0 aria-hidden=true
                 for cell in week.cells key=cell.id
-                  DateCell(cell=cell, dot=deviceDays.includes(cell.day), today=today, selected=selected, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=gridLine, cellFill=cellFill, hoverFill=hoverFill, selectedFill=selectedFill, selectedRing=selectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan)
+                  DateCell(cell=cell, dot=deviceDays.includes(cell.day), steps=(match first(steps.filter((d) => d.day == cell.day)) { case some(d) => formatNumber(d.steps, "decimal"), case none => "" }), today=today, selected=selected, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=gridLine, cellFill=cellFill, hoverFill=hoverFill, selectedFill=selectedFill, selectedRing=selectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan)
               for bar in week.bars key=bar.id
                 box testId=`bar-${page.id}-${bar.id}` aria-hidden=true position="absolute" left=`calc(${bar.startCol * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${(bar.kind == "todo" ? 1 : bar.span) * 100 / 7}% - 4px)` height=20 box-sizing="border-box" padding-left=(bar.kind == "todo" ? 2 : 6) padding-right=(bar.kind == "todo" ? 2 : 6) overflow="hidden" background-color=(bar.kind != "event" ? "#ffffff00" : paletteColor(theme, bar.color)) border-top-left-radius=(bar.continuesBefore ? 0 : 4) border-bottom-left-radius=(bar.continuesBefore ? 0 : 4) border-top-right-radius=(bar.continuesAfter ? 0 : 4) border-bottom-right-radius=(bar.continuesAfter ? 0 : 4) display="flex" align-items="center" justify-content=(bar.kind == "plan" ? "center" : "flex-start") opacity=(dragId == bar.eventId ? 0.3 : 1)
                   if bar.kind == "plan"
@@ -80,6 +82,7 @@ component DateCell
   props
     cell: Cell
     dot: bool
+    steps: string
     today: number
     selected: number
     theme: number
@@ -111,6 +114,8 @@ component DateCell
         text `${cell.number}` font-size=13 font-weight=(cell.day == today or isSelected ? 600 : 400) color=(cell.day == today ? "#ffffff" : (isSelected ? themeAccent : (cell.inMonth ? themeInk : themeMuted)))
       if dot
         box testId=`device-dot-${cell.date}` width=4 height=4 margin-top=2 border-radius=2 background-color=themeMuted aria-hidden=true
+      if steps != ""
+        text steps testId=`steps-${cell.date}` margin-top=1 font-size=10 color=themeMuted font-variant-numeric="tabular-nums" white-space="nowrap"
 
 component Weekday
   props

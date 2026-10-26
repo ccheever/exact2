@@ -1,4 +1,7 @@
 // Fieldnotes: the view is Contract; durable notes and backup files live below it.
+use pedometerStatus, requestPedometerPermission, PedometerStatus from "@exact/pedometer"
+use altimeterStatus, requestAltimeterPermission, AltimeterStatus from "@exact/altimeter"
+
 shape Note
   id: string
   title: string
@@ -59,6 +62,26 @@ fn nextSession(noteId: string, ended: Session): Session = Session(noteId=noteId,
 // outside the focused note: the list leaves room for it.
 shape Viewport
   pointer: string
+shape Time
+  epochAtZero: number
+  utcOffset: number
+// A walk's figures (app.ts `walk`): each read only while a walk lasts, and
+// saved nowhere (LLP 1133.026 §12). `counted` and `climbed` are false where
+// the platform refused the figure; `distance` is -1 where it measured none.
+shape Walk
+  steps: number
+  since: number
+  counted: bool
+  climb: number
+  climbed: bool
+  distance: number
+
+// A count that begins later than the walk (a restart, the platform's seven
+// days) says from when.
+fn walkSince(w: Walk, start: number, offset: number): string = w.since > start + 1000 ? ` since ${formatTime(w.since, offset, "short")}` : ""
+fn walkSteps(w: Walk, start: number, offset: number): string = w.counted ? ` · ${formatNumber(w.steps, "decimal")} ${w.steps == 1 ? "step" : "steps"}${walkSince(w, start, offset)}` : ""
+fn walkClimb(w: Walk): string = w.climbed ? ` · ${w.climb < 0 ? "↓" : "↑"} ${formatNumber(round(max(w.climb, -w.climb)), "decimal")} m` : ""
+fn walkFigures(w: Walk, minutes: number, start: number, offset: number): string = `${minutes} min${walkSteps(w, start, offset)}${walkClimb(w)}${w.distance >= 0 ? ` · ${(w.distance / 1000).toFixed(1)} km` : ""}`
 
 component Fieldnotes
   state query = ""
@@ -91,6 +114,24 @@ component Fieldnotes
   resource page = exactPage() as shape Page
   resource viewport = exactViewport() as shape Viewport
   derive tv = viewport.pointer == "none"
+  // A walk: its start outlives a relaunch; its summary lasts until the next
+  // walk or the app closes.
+  state walkStart = 0 persist
+  state walkSummary = ""
+  state walkDenied = false
+  state now = 0
+  resource time = exactTime() as shape Time
+  resource steps = pedometerStatus() as shape PedometerStatus
+  resource climbs = altimeterStatus() as shape AltimeterStatus
+  mutation stepsAsked as shape PedometerStatus
+  mutation climbsAsked as shape AltimeterStatus
+  derive walking = walkStart > 0
+  resource walk = walk(walkStart, now, climbs.available and climbs.state != "denied") as shape Walk else empty()
+  derive walkMinutes = max(0, floor((time.epochAtZero + now - walkStart) / 60000))
+  derive figures = walkFigures(walk, walkMinutes, walkStart, time.utcOffset)
+  derive stepsOff = walkDenied or (walking and steps.state == "denied")
+  task walkClock when walking
+    every(1000, tickWalk)
 
   action search(value)
     query = value
@@ -174,6 +215,22 @@ component Fieldnotes
   action remove
     send status = deleteNote(editingId)
     session = nextSession("", session)
+  action startWalk
+    if steps.state == "denied"
+      walkDenied = true
+    else
+      send stepsAsked = requestPedometerPermission()
+      if climbs.available
+        send climbsAsked = requestAltimeterPermission()
+      walkStart = time.epochAtZero + performanceNow()
+      now = performanceNow()
+      walkSummary = ""
+      walkDenied = false
+  action endWalk
+    walkSummary = figures
+    walkStart = 0
+  action tickWalk
+    now = performanceNow()
 
   // Apple keeps AccentColorText white; green controls name ink for both schemes.
   view
@@ -191,6 +248,19 @@ component Fieldnotes
             text "Find" font-size=13 color="AccentColor"
           button press=showBackups testId="backups" aria-keyshortcuts=(backups ? "Escape" : "") padding=10 border-style="solid" border-width=1 border-color="-exact-separator" border-radius=8 background-color="-exact-grouped-background"
             text (backups ? "Back to notes" : "Backups") font-size=13 color="AccentColor"
+          if steps.available
+            if walking
+              button press=endWalk testId="end-walk" padding=10 border-style="solid" border-width=1 border-color="-exact-separator" border-radius=8 background-color="-exact-grouped-background"
+                text "End walk" font-size=13 color="AccentColor"
+            else
+              button press=startWalk testId="start-walk" padding=10 border-style="solid" border-width=1 border-color="-exact-separator" border-radius=8 background-color="-exact-grouped-background"
+                text "Start walk" font-size=13 color="AccentColor"
+      if walking
+        text `Walking · ${figures}` font-size=14 font-variant-numeric="tabular-nums" testId="walk-line" flex-shrink=0
+      if walkSummary != "" and not walking
+        text walkSummary font-size=14 font-variant-numeric="tabular-nums" color="-exact-secondary-label" testId="walk-summary" flex-shrink=0
+      if stepsOff
+        text "Fieldnotes can't count your steps. You can allow Motion & Fitness for Fieldnotes in Settings." font-size=13 color="-exact-secondary-label" testId="walk-denied" flex-shrink=0
       row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap" flex-shrink=0
         text `${library.total} ${library.total == 1 ? "note" : "notes"} · on this device` font-size=12 color="-exact-secondary-label" testId="note-count"
         if busy

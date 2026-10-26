@@ -1404,7 +1404,7 @@ impl<D: DataSource> Presenter<D> {
         self.pointer_path.clear();
         self.hatch_reset();
         self.top_replaced();
-        self.wakelock_replaced();
+        self.holds_changed();
         self.hosts += 1;
         self.measure();
     }

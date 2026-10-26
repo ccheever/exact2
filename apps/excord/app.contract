@@ -10,13 +10,15 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, channelOf, connected, draftOf, withDraft, piece from "./shapes.contract"
+use AgeGate from "./agegate.contract"
 use MessageRow from "./transcript.contract"
 use DirectoryList from "./directory.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
 use MemberList from "./members.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
+use requestAgeRange, AgeRange from "@exact/age-range"
 
 shape MediaPreferences
   prefersContrast: string
@@ -38,18 +40,7 @@ routes nav
   home "/"
     channel "/c/:channel"
 
-fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, private=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="") }
-// The gateway holds a session, or is opening one, so the heartbeat runs.
-fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
-
-// Drafts are kept per channel, across launches, as `channel\ttext` entries.
-fn draftOf(drafts: string[], channel: string): string = match first(drafts.filter(d => d.startsWith(`${channel}\t`))) { case some(d) => d.slice(channel.length + 1), case none => "" }
-fn withDraft(drafts: string[], channel: string, text: string): string[] = drafts.filter(d => not d.startsWith(`${channel}\t`)).concat(text == "" ? [] : [`${channel}\t${text}`])
-
 fn placeOf(places: Place[], channel: string): Place = match first(places.filter(p => p.channel == channel)) { case some(p) => p, case none => Place(channel="", anchor="", key="", offset=0, atEnd=true) }
-
-// The `i`th piece of a split string, "" past its end.
-fn piece(parts: string[], i: number): string = match parts.at(i) { case some(v) => v, case none => "" }
 
 // A row's key for a message id: a send confirmed here keeps its nonce as key.
 fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
@@ -57,6 +48,7 @@ shape Viewport
   width: number
   displayMode: string
   prefersReducedMotion: bool
+  pointer: string
 
 // Someone typing: three dots that rise and fall in turn, as Discord draws them.
 keyframes typingDot
@@ -163,8 +155,8 @@ component Excord
   state composing = false
   // Files picked for the next send: their copies under app:/tmp/picked.
   state picked: Picked[] = []
-  // Why a pasted picture could not be added ("" when every one was).
-  state pasteError = ""
+  // Why a picked file or a pasted picture could not be added ("" when every one was).
+  state attachError = ""
   state swipeKey = ""
   state swipeX = 0
   state dragging = false
@@ -274,6 +266,8 @@ component Excord
   mutation returned as shape LocalAuthentication then afterReturn
   mutation lockChecked as shape LocalAuthentication then lockAfterCheck
   mutation lockSet as shape Ack refreshes session
+  mutation age as shape AgeRange
+  state ageGate = ""
   derive rows = win.channel == open ? win.rows : []
   derive keys = rows.map(r => r.key)
   derive lastKey = match rows.at(-1) { case some(r) => r.key, case none => "" }
@@ -349,6 +343,7 @@ component Excord
     after(1, openResume)
   task signedOutHome when signedOutNow and top(nav).name != "home"
     after(1, toSignIn)
+  members "./routing.contract"
   task digest when gw.queued > 0 and not pending(digested) key=gw.seq
     after(1, digestNow)
   task traffic when live and open != ""
@@ -474,7 +469,7 @@ component Excord
     cancelEditLookup()
     editError = ""
     picked = []
-    pasteError = ""
+    attachError = ""
     highlight = ""
     away = false
     historyStart = false
@@ -495,10 +490,15 @@ component Excord
       target = ""
     ackTries = 0
     pageTries = 0
+    if c.ageRestricted and ageGate == ""
+      ageGate = "asked"
+      send age = requestAgeRange(ageGates=[18])
     send joined = viewChannel(id)
     lastChannels = withDraft(lastChannels, c.guild != "" ? c.guild : "@me", id)
     // Beside the list (a split) one channel replaces another, as a sidebar's selection does.
     nav = top(nav).name == "channel" ? replace(nav, path("channel", id)) : push(nav, path("channel", id))
+  action confirmAge
+    ageGate = "confirmed"
   action toggleFolder(id: string)
     openFolders = openFolders.includes(id) ? openFolders.filter(f => f != id) : openFolders.concat([id])
   // A hundred more past the first conversation not shown: the next hundred may already show, unread.
@@ -544,6 +544,7 @@ component Excord
     leaving()
     nav = go(nav, url)
   action back
+    restore = restore == "?" ? "!" : restore
     leaving()
     nav = back(nav)
   action leaving
@@ -794,7 +795,7 @@ component Excord
       else
         send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow(), picked, replyMention)
         picked = []
-        pasteError = ""
+        attachError = ""
         replyTo = ""
         drafts = withDraft(drafts, open, "")
         if away or anchor != ""
@@ -1062,14 +1063,19 @@ component Excord
     send deleted = deleteMessage(open, key)
   action attach
     showPicker("attach")
+  // Discord refuses a file over its 10 MB limit; a picture over it is made smaller when it is sent (`upload`).
   action filesPicked(files: Picked[])
-    picked = picked.concat(files).slice(0, 10)
+    let refused = files.filter(f => f.size > 10485760 and not f.type.startsWith("image/"))
+    let fit = files.filter(f => f.size <= 10485760 or f.type.startsWith("image/"))
+    let over = picked.length + fit.length > 10
+    picked = picked.concat(fit).slice(0, 10)
+    attachError = refused.length > 0 ? `${refused.map(f => f.name).join(", ")} ${refused.length == 1 ? "is" : "are"} over Discord's 10 MB limit.` : over ? "A message takes up to 10 files." : ""
     focus("composer")
   // Pictures pasted into the composer join the picked ones, as Discord's do; text pastes as text.
   action pastedInto(e: ClipboardEvent)
     if e.files.length > 0 and editing == ""
       preventDefault()
-      pasteError = ""
+      attachError = ""
       send pastedPictures = adoptPasted(open, e.files, time.epochAtZero + performanceNow())
   // A paste's pictures join its own channel's composer: one left while they were copied keeps none.
   action takePasted
@@ -1078,7 +1084,7 @@ component Excord
         if r.channel == open
           let over = picked.length + r.files.length > 10
           picked = picked.concat(r.files).slice(0, 10)
-          pasteError = over ? (r.error != "" ? `A message takes up to 10 pictures; ${r.error}` : "A message takes up to 10 pictures.") : r.error
+          attachError = over ? (r.error != "" ? `A message takes up to 10 pictures; ${r.error}` : "A message takes up to 10 pictures.") : r.error
       case none
         aimed = aimed
   action unpick(path: string)
@@ -1264,7 +1270,7 @@ component Excord
               button press=toggleLive popovertarget="fixture-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=live testId="toggle-live"
                 text "Live traffic"
             // The transcript and its composer, and beside them the member list when there is room.
-            row flex=1 min-height=0 resize=paneResized
+            row flex=1 min-height=0 position="relative" resize=paneResized
               column flex=1 min-width=0 min-height=0
                 if historyFailed and rows.length > 0
                   row align-items="center" gap=12 padding="8px 16px" flex-wrap="wrap" background-color="-exact-secondary-background"
@@ -1286,7 +1292,7 @@ component Excord
                       reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                       flex=1 min-height=0 padding-top=8 padding-bottom=22
                       for m in rows key=m.key
-                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, poll=pollAct)
+                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" and m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" and dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, poll=pollAct)
                   if rows.length == 0
                     column position="absolute" inset=0 align-items="center" justify-content="center" gap=12 padding=24
                       if historyFailed
@@ -1365,30 +1371,37 @@ component Excord
                         image "symbol:close"
                   if editLookupError != ""
                     text editLookupError font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" flex-shrink=0 testId="find-edit-error"
-                  if replyTo != ""
-                    row align-items="center" gap=8 padding="4px 4px"
-                      text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
-                      button appearance="none" press=toggleReplyMention aria-pressed=replyMention aria-label=(replyMention ? "Mention on" : "Mention off") testId="reply-mention" padding="2px 6px"
-                        text (replyMention ? "@ ON" : "@ OFF") font="-exact-footnote" font-weight=700 color=(replyMention ? "AccentColor" : "-exact-secondary-label")
-                      button press=cancelReply aria-label="Cancel reply" testId="cancel-reply"
-                        image "symbol:close"
-                  if editing != ""
-                    row align-items="center" gap=8 padding="4px 4px" flex-shrink=0 testId="editing"
-                      if editError != "" and not (pending(edited) and editRevision == savingRevision)
-                        text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" flex=1 min-width=0 testId="edit-error"
+                  // One bar for a reply and an edit: its height holds through the swap, so the transcript keeps its end.
+                  if replyTo != "" or editing != ""
+                    row align-items="center" gap=8 padding="4px 4px" flex-shrink=0 testId=(editing != "" ? "editing" : "reply-bar")
+                      if editing != ""
+                        if editError != "" and not (pending(edited) and editRevision == savingRevision)
+                          text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" flex=1 min-width=0 testId="edit-error"
+                        else
+                          text (pending(edited) and editRevision == savingRevision ? "Saving message…" : "Editing message") font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0
+                        button press=cancelEdit aria-label="Cancel edit" testId="cancel-edit"
+                          image "symbol:close"
                       else
-                        text (pending(edited) and editRevision == savingRevision ? "Saving message…" : "Editing message") font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0
-                      button press=cancelEdit aria-label="Cancel edit" testId="cancel-edit"
-                        image "symbol:close"
+                        text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
+                        button appearance="none" press=toggleReplyMention aria-pressed=replyMention aria-label=(replyMention ? "Mention on" : "Mention off") testId="reply-mention" padding="2px 6px"
+                          text (replyMention ? "@ ON" : "@ OFF") font="-exact-footnote" font-weight=700 color=(replyMention ? "AccentColor" : "-exact-secondary-label")
+                        button press=cancelReply aria-label="Cancel reply" testId="cancel-reply"
+                          image "symbol:close"
                   // One line of text is as tall as Send beside it, so the text sits at its middle.
-                  if pasteError != ""
-                    text pasteError font="-exact-footnote" color="-exact-system-red" margin="0px 4px 6px" testId="paste-error"
+                  if attachError != ""
+                    text attachError font="-exact-footnote" color="-exact-system-red" margin="0px 4px 6px" testId="attach-error"
                   if picked.length > 0
                     scroll overflow-x="auto" overflow-y="hidden" height=88 flex-shrink=0 margin="0px 0px 6px" testId="picked"
                       row gap=8 padding="6px 2px"
                         for f in picked key=f.path
                           view position="relative" flex-shrink=0
-                            image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
+                            if f.type.startsWith("image/")
+                              image f.path width=72 height=72 border-radius=8 object-fit="cover" background-color="-exact-tertiary-fill" aria-label=f.name
+                            else
+                              // Any other file: its icon and name, as Discord's composer shows one.
+                              column width=72 height=72 box-sizing="border-box" padding="8px 6px" gap=4 align-items="center" justify-content="center" border-radius=8 background-color="-exact-tertiary-fill" aria-label=f.name testId=`picked-file-${f.name}`
+                                image "symbol:document" width=24 height=24 color="AccentColor" flex-shrink=0
+                                text f.name font="-exact-caption2" text-align="center" line-clamp=2 max-width="100%" overflow-wrap="anywhere"
                             button appearance="none" press=unpick(f.path) aria-label=`Remove ${f.name}` position="absolute" top=4 right=4 width=22 height=22 border-radius=11
                               display="flex" align-items="center" justify-content="center" background-color="-exact-label" testId=`unpick-${f.name}`
                               image "symbol:close" width=10 height=10 color="-exact-background"
@@ -1406,8 +1419,8 @@ component Excord
                               text g.detail font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 line-clamp=1
                   row align-items="flex-end" gap=8
                     // Pictures only: uploading other files is out of Excord's scope (llp/0001 §1).
-                    input type="file" accept="image/*" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
-                    button press=attach aria-label="Add a picture" testId="attach" disabled=(editing != "") margin-bottom=4
+                    input type="file" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
+                    button press=attach aria-label="Add a file" testId="attach" disabled=(editing != "") margin-bottom=4
                       image "symbol:add"
                     // The field draws no ring of its own: the pill's border shows the focus. One line
                     // sits at Send's middle, whatever height the platform gives Send; Send stays at the
@@ -1428,6 +1441,8 @@ component Excord
               if membersBeside
                 scroll width="15rem" flex-shrink=0 border-left="1px solid -exact-separator" testId="members"
                   MemberList(rows=members, open=showProfile)
+              if chan.ageRestricted and ageGate != "confirmed"
+                AgeGate(age=age, asking=pending(age), confirm=confirmAge, leave=back)
       dialog id="members" aria-label="Members" testId="members-sheet"
         scroll max-height="70vh" width="20rem" max-width="100%"
           MemberList(rows=members, open=memberCard)

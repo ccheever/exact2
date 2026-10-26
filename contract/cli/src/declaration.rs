@@ -421,9 +421,23 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         let many_ok = choose["many"].is_null()
             || (choose["many"].as_str()).is_some_and(|o| !object(&entry["options"])[o].is_null());
         let typed_ok = choose["typed"].is_null() || choose["typed"].is_boolean();
-        if !choose["ticket"].is_string() || !word_ok || !choices_ok || !many_ok || !typed_ok {
+        // A tap its status rules out (LLP 1133.028 §7): one of its `choices`,
+        // by a status source's field.
+        let listed =
+            |c: &str| (choose["choices"].as_array()).is_some_and(|l| l.iter().any(|x| x == c));
+        let unless_ok = choose["unless"].is_null()
+            || object(&choose["unless"]).iter().all(|(c, rule)| {
+                listed(c) && rule["status"].is_string() && rule["field"].is_string()
+            }) && choose["unless"].is_object();
+        if !choose["ticket"].is_string()
+            || !word_ok
+            || !choices_ok
+            || !many_ok
+            || !typed_ok
+            || !unless_ok
+        {
             return Err(format!(
-                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, and the option that allows `many`"
+                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, the option that allows `many`, and the choices its status rules out (`unless`)"
             ));
         }
     }
@@ -548,6 +562,18 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     if entry["contract"] == false {
         out.insert("dataOnly".into(), Value::Bool(true));
     }
+    // The options the bake requires a literal for (LLP 1133.026 D19 item 4:
+    // a `read` list the Android manifest derives each permission from).
+    let literal: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| ty["literal"] == true)
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !literal.is_empty() {
+        out.insert("literal".into(), Value::Array(literal));
+    }
+    if let Value::Array(permissions) = &interface["permission"] {
+        permission_templates(entry, name, permissions, &mut out)?;
+    }
     for (field, value) in object(entry) {
         match field.as_str() {
             // `{"whenAny": [options], "is": "app"}` holds a call to `app`
@@ -566,6 +592,9 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
                 "`origin` is \"app\", \"person\", or {\"whenAny\": [its options], \"is\": \"app\"}",
             )?,
             "foreground" => check(value.is_boolean(), "`foreground` is true or false")?,
+            // A source whose answers are the person's own data, which no
+            // tool's result may read (LLP 1133.026 D7, D19 item 6).
+            "person" => check(value.is_boolean(), "`person` is true or false")?,
             "when" => check(value.is_object(), "`when` is an object of argument values")?,
             "grants" => check(
                 value.is_array()
@@ -606,6 +635,29 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             // which derives the line's write permission where a platform
             // splits it (Android's `WRITE_CALENDAR`, D11).
             "writes" => check(value.is_boolean(), "`writes` is true or false")?,
+            // What an app that uses the name declares to its platform beside
+            // its grant line's own (LLP 1133.026 D19 item 4), by target
+            // (`ios`: a usage key, written with the line's purpose;
+            // `android`: a permission): a list, derived by the name's use,
+            // or per option, a permission for each literal value the app
+            // writes, or one for a flag it sets.
+            "derives" => check(
+                (value.as_object()).is_some_and(|by| {
+                    by.iter().all(|(target, d)| {
+                        matches!(target.as_str(), "ios" | "android")
+                            && (d.as_array().is_some_and(|l| l.iter().all(Value::is_string))
+                                || d.as_object().is_some_and(|o| {
+                                    o.values().all(|v| {
+                                        v.is_string()
+                                            || v.as_object().is_some_and(|m| {
+                                                m.values().all(Value::is_string)
+                                            })
+                                    })
+                                }))
+                    })
+                }),
+                "`derives` names, for `ios` or `android`, a list of what the name's use declares, or per option a permission for each value or the flag",
+            )?,
             // A read of the app's own item, let through under another grant
             // line on the targets named (LLP 1133.019 D11 item 4).
             "owned" => check(
@@ -739,6 +791,9 @@ fn permission_of(
     }
     match &entry["permission"] {
         Value::Null => {}
+        // An admission word, as with one permission: the name asks the
+        // permission that covers its grant lines (LLP 1133.030 D12 item 1).
+        Value::String(s) if matches!(s.as_str(), "asks" | "request" | "none") => {}
         Value::Bool(false) => return Ok((None, Map::new(), Vec::new())),
         Value::String(s) if s == "narrowest" => {
             let mut any = Vec::new();
@@ -779,6 +834,89 @@ fn permission_of(
         Value::Null => Ok((None, Map::new(), Vec::new())),
         line => Ok((Some(covering(line)?), Map::new(), Vec::new())),
     }
+}
+
+/// A name whose permission is chosen by an argument's value (LLP 1133.026
+/// D19 item 1): `"permissionBy": {"type": "health.{}"}` asks `health.steps`
+/// of `type="steps"`, a platform's word (`apple.quantityType`) before the
+/// shared option it beats; `"permissionEach": {"read": "health.{}"}` asks
+/// the permission of every listed value, and of every flag the call sets,
+/// in one ticket. Each becomes a list of `[option, template]` pairs,
+/// `permissionValue` and `permissionEach`, in the order the runtime tries
+/// them. A template names a declared permission once `{}` is filled, or
+/// one a `<prefix>.*` permission stands for.
+fn permission_templates(
+    entry: &Value,
+    name: &str,
+    permissions: &[Value],
+    out: &mut Map<String, Value>,
+) -> Result<(), String> {
+    let declared = |p: &str| {
+        (permissions.iter()).any(|d| {
+            d["name"].as_str().is_some_and(|n| {
+                n == p || n.strip_suffix('*').is_some_and(|pre| p.starts_with(pre))
+            })
+        })
+    };
+    for (field, key) in [
+        ("permissionBy", "permissionValue"),
+        ("permissionEach", "permissionEach"),
+    ] {
+        let Some(by) = entry[field].as_object() else {
+            if !entry[field].is_null() {
+                return Err(format!(
+                    "`{name}`'s `{field}` maps options to permission names"
+                ));
+            }
+            continue;
+        };
+        let mut pairs: Vec<(&String, &str)> = Vec::new();
+        for (option, template) in by {
+            let Some(template) = template.as_str() else {
+                return Err(format!(
+                    "`{name}`'s `{field}.{option}` is a permission name, `{{}}` for the value"
+                ));
+            };
+            // Each value an enum option can take must name a declared permission.
+            let ty = object(&entry["options"])
+                .get(option.as_str())
+                .cloned()
+                .unwrap_or_default();
+            let ty = ty
+                .as_str()
+                .or(ty["type"].as_str())
+                .unwrap_or_default()
+                .to_owned();
+            let members: Vec<String> = match bare(&ty)
+                .0
+                .strip_prefix("enum<")
+                .and_then(|t| t.strip_suffix('>'))
+            {
+                Some(m) => m.split('|').map(str::to_owned).collect(),
+                None => vec!["x".to_owned()],
+            };
+            if let Some(missing) = members
+                .iter()
+                .map(|m| template.replace("{}", m))
+                .find(|p| !declared(p))
+            {
+                return Err(format!(
+                    "`{name}`'s `{field}.{option}` asks `{missing}`, which is not declared"
+                ));
+            }
+            pairs.push((option, template));
+        }
+        // A platform's word beats the shared option it stands beside (D10);
+        // a list's flags are asked after its values.
+        let by_value = key == "permissionValue";
+        pairs.sort_by_key(|(option, _)| option.contains('.') != by_value);
+        let list = pairs
+            .into_iter()
+            .map(|(o, t)| serde_json::json!([o, t]))
+            .collect();
+        out.insert(key.into(), Value::Array(list));
+    }
+    Ok(())
 }
 
 /// The schemes a host owns, which no package's `images` may take (LLP

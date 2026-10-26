@@ -135,6 +135,30 @@ shape DeviceAgenda
 shape DeviceDays
   error: string
   days: number[]
+// The person's activity (@exact/health, LLP 1133.026 §12), read by the data
+// crate while Show my activity is on: each day of the six weeks shown with a
+// step count, and the selected day's workouts. A day Health showed nothing
+// for is absent, never 0. `since` is the first moment Health shares (0 for
+// none named), and `from` its local date ("1 October"); `complete` is false wherever the platform will not say the
+// read reaches everything (every Apple answer). `error` is as above.
+shape ActivityDay
+  day: number
+  steps: number
+shape ActivityDays
+  error: string
+  days: ActivityDay[]
+  since: number
+  from: string
+  complete: bool
+shape ActivityWorkout
+  id: string
+  title: string
+  time: string
+  distance: string
+shape ActivityAgenda
+  error: string
+  workouts: ActivityWorkout[]
+  complete: bool
 // An item's guests, picked from the person's contacts and kept in the app's
 // own storage (a pick is the app's copy, LLP 1133.018 D4).
 shape Guest

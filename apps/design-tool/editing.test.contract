@@ -183,6 +183,11 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   expect tree missing "typed-missing"
   expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 2px 1px surface.inset"
   // A type: each longhand, one it leaves out offered empty.
+  // (The edit dock covers the grid's lower rows: the draft cancelled and the dock closed first, as one scrolls past it.)
+  tap "cancel-edit"
+  clock data
+  tap "edit-dock-close"
+  clock data
   tap "cell-type.title-0-light"
   clock data
   type "part-style-field" "italic"
@@ -190,6 +195,11 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   type "part-family-field" "system-ui"
   expect state editValue == "italic 600 1.25rem/1.25 system-ui"
   // Only this mode: a field's edit is for its own branch.
+  // (The edit dock covers the grid's lower rows: the draft cancelled and the dock closed first, as one scrolls past it.)
+  tap "cancel-edit"
+  clock data
+  tap "edit-dock-close"
+  clock data
   tap "cell-opacity.muted-0-light"
   clock data
   tap "only-this-mode"
@@ -197,6 +207,11 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   expect state editValue == "0.25"
   expect state editWhen == "density=regular"
   // An expression has no typed fields.
+  // (The edit dock covers the grid's lower rows: the draft cancelled and the dock closed first, as one scrolls past it.)
+  tap "cancel-edit"
+  clock data
+  tap "edit-dock-close"
+  clock data
   tap "cell-space.gap-0-light"
   clock data
   expect tree missing "typed"
@@ -804,3 +819,117 @@ test "a library component's variant props listed in its panel entry, each with i
   // A component with neither (the app's own Card has params, no variants): no variants block.
   expect tree missing "variants-Card"
   request POST "/__stub/restart" {} as ada
+
+test "the edit dock: a cell's editor and its edit's proposal in one dock; Close and Escape end the selection only with nothing pending (third pass #7)"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // A press: the dock, the cell's editor in it, and Close (nothing pending).
+  tap "cell-surface.card-0-light"
+  clock data
+  clock +1
+  clock data
+  expect tree has "edit-dock"
+  expect tree has "branch"
+  expect tree has "edit-dock-close"
+  expect state focusedPress == 1
+  // Text typed and not yet committed is pending too: no Close, and Escape leaves it.
+  type "branch-value" "#abcdef"
+  expect tree missing "edit-dock-close"
+  type "branch-value" key "Escape"
+  clock data
+  expect tree has "edit-dock"
+  expect state selToken == "surface.card"
+  // A typed value: its proposal in the same dock, and no Close while it is pending.
+  type "branch-value" "#123456"
+  type "branch-value" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree has "proposal"
+  expect tree missing "edit-dock-close"
+  // Escape with the edit pending does nothing: the draft, the proposal and the selection stay.
+  type "branch-value" key "Escape"
+  clock data
+  expect tree has "proposal"
+  expect tree has "edit-dock"
+  expect state selToken == "surface.card"
+  expect state editValue == "#123456"
+  // Cancelled: the editor stays docked, Close back.
+  tap "cancel-edit"
+  clock data
+  expect tree missing "proposal"
+  expect tree has "branch"
+  expect tree has "edit-dock-close"
+  // A rename typed and not proposed is pending too: no Close until it is cleared.
+  type "rename-to" "surface.cardx"
+  expect tree missing "edit-dock-close"
+  type "rename-to" ""
+  expect tree has "edit-dock-close"
+  // A rename proposed, then cancelled: its name goes with it, and Close is back.
+  type "rename-to" "surface.cardy"
+  tap "rename"
+  clock data
+  tap "cancel-edit"
+  clock data
+  expect tree has "edit-dock-close"
+  // Escape in the Remove confirmation closes it, never the dock (it is outside it).
+  tap "remove"
+  type "confirm-remove-yes" key "Escape"
+  clock data
+  expect tree has "edit-dock"
+  expect state selToken == "surface.card"
+  // Escape now ends the selection: the dock goes.
+  type "branch-value" key "Escape"
+  clock data
+  expect tree missing "edit-dock"
+  expect state selToken == ""
+  // And Close does the same.
+  tap "cell-surface.card-0-light"
+  clock data
+  clock +1
+  clock data
+  tap "edit-dock-close"
+  clock data
+  expect tree missing "edit-dock"
+  expect state selToken == ""
+
+test "the edit dock: Escape during a scrub leaves the scrub and the selection; a second press of the same cell counts again (third pass #7)"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  tap "cell-surface.card-0-light"
+  clock data
+  clock +1
+  clock data
+  expect state focusedPress == 1
+  type "branch-value" "#223344"
+  type "branch-value" key "Enter"
+  clock data
+  expect text "chip" == "Live"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  // Escape: nothing cancelled, nothing closed.
+  type "branch-value" key "Escape"
+  clock data
+  expect tree has "scrub"
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  expect state selToken == "surface.card"
+  // Cancel scrub stays a press a keyboard reaches: an enabled button, named by its text (theme2's 06:01 condition).
+  expect enabled "scrub-cancel"
+  expect text "scrub-cancel" == "Cancel scrub"
+  tap "scrub-cancel"
+  clock data
+  tap "cancel-edit"
+  clock data
+  // The same cell pressed again: a press of its own, so the focus moves into the editor again.
+  tap "cell-surface.card-0-light"
+  clock data
+  clock +1
+  clock data
+  expect state pressed == 2
+  expect state focusedPress == 2

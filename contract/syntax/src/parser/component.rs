@@ -40,6 +40,7 @@ impl Parser {
             actions: Vec::new(),
             tasks: Vec::new(),
             sequences: Vec::new(),
+            tools: Vec::new(),
             view: Vec::new(),
             params: Default::default(),
             anatomy: Default::default(),
@@ -168,7 +169,7 @@ impl Parser {
                             c.anatomy.marks = crate::anatomy::take_marks(&mut c.view);
                         }
                         "state" | "derive" | "resource" | "mutation" | "action" | "task"
-                        | "sequence" => {
+                        | "sequence" | "tool" => {
                             let start = self.pos;
                             if let Err(e) = self.member(&mut c, &w) {
                                 if !self.recover {
@@ -292,6 +293,7 @@ impl Parser {
             "mutation" => c.mutations.push(self.mutation()?),
             "action" => c.actions.push(self.action()?),
             "task" => c.tasks.push(self.task()?),
+            "tool" => self.tool(c)?,
             _ => c.sequences.push(self.sequence()?),
         }
         Ok(())

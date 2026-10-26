@@ -1,0 +1,63 @@
+// Excord reopens the channel a launch left (llp/0001 §3.12; theme2 and the lead, 2026-10-26: as Discord
+// does), ONCE, at launch only. `open` is what the transcript shows and is not kept: a web relaunch keeps
+// the page's address (`/c/<channel>`), and a native one starts at `/`, so the channel last on screen is
+// kept (`onScreen`). At launch, with nothing open, that channel is resolved (its server, or the direct
+// messages, selected) and opened once the list holds it, its draft with it; beside the list (`wide`, at
+// `/`) the remembered channel resumes as before. Any user action before it opens wins and cancels it:
+// opening a channel, following a link (`pendingOpen`), Back to the list, choosing a server, signing out.
+// After launch the address is not followed live (as on main).
+use Channel from "./shapes.contract"
+
+members Excord
+  state onScreen = "" persist
+  // "?" until the launch is read; then the channel to restore, or "" (nothing, done or cancelled); "!" when
+  // Back came before the launch was read (`back`, app.contract), which leaves the list for this launch and the next.
+  state restore = "?"
+  state restoreFrom = ""
+  state restoreServer = ""
+  state restoreSelected = false
+  task readRestore when restore == "?"
+    after(1, readLaunch)
+  action readLaunch
+    restoreFrom = top(nav).name
+    restore = top(nav).name == "channel" ? top(nav).params.channel : (wide ? "" : onScreen)
+    restoreServer = server
+  // The user has not acted first: nothing opened or followed, still where the launch was, signed in, the same server.
+  derive restoreWanted = open == "" and pendingOpen == "" and not signedOutNow and server == restoreServer and (restoreFrom != "channel" or top(nav).name == "channel")
+  derive restoring = restore != "?" and restore != "!" and restore != ""
+  task backAtLaunch when restore == "!"
+    after(1, listAtLaunch)
+  action listAtLaunch
+    restore = ""
+    onScreen = ""
+  resource restoreChan = loadChannel(restoring ? restore : "", gw.sidebar) as shape Channel else empty()
+  // An id the store does not know (gone, never seen) is never resolved: it waits, as on main.
+  task restoreGuild when restoring and not restoreSelected and restoreChan.id == restore and (restoreChan.name != "" or restoreChan.direct)
+    after(1, selectRestore)
+  action selectRestore
+    if restoring and restoreWanted
+      // An action reads its own writes only after it: both from the one expression.
+      server = restoreChan.guild != "" ? restoreChan.guild : "@me"
+      restoreServer = restoreChan.guild != "" ? restoreChan.guild : "@me"
+      restoreSelected = true
+  task restoreOpen when restoring and restoreSelected and listed.map(c => c.id).includes(restore)
+    after(1, openRestore)
+  action openRestore
+    let id = restore
+    restore = ""
+    if id != "" and restoreWanted
+      openChannel(id)
+  // What the user did first wins: the restore is dropped, never applied late.
+  task restoreCancelled when restoring and not restoreWanted
+    after(1, cancelRestore)
+  action cancelRestore
+    restore = ""
+    // Back to the list at launch leaves the list for the next launch too.
+    if top(nav).name != "channel"
+      onScreen = ""
+  // What is on screen is kept for the next launch: a channel once it opens, nothing once the list shows or
+  // the account signs out (signing in again starts at the list).
+  task keepOnScreen when restore != "?" and restore != "!" and not restoring and (top(nav).name == "channel" and not signedOutNow ? open : "") != onScreen and (open != "" or top(nav).name == "channel" or signedOutNow) key = `${top(nav).name}:${open}:${signedOutNow}`
+    after(1, rememberScreen)
+  action rememberScreen
+    onScreen = top(nav).name == "channel" and not signedOutNow ? open : ""

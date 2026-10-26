@@ -26,6 +26,9 @@ component MessageRow
   props
     m: Message
     contrast: bool
+    // A touch screen's: a row swipes left to reply, as Discord's mobile apps do; with a mouse or trackpad
+    // a drag selects text instead.
+    touch: bool
     clock: number
     offset: number
     isNew: bool
@@ -67,125 +70,140 @@ component MessageRow
           image `symbol:${m.systemIcon}` font="-exact-subheadline" color=(m.systemIcon == "forward" ? "-exact-system-green" : "-exact-secondary-label") margin-left=12
           text m.system font="-exact-subheadline" color="-exact-secondary-label" flex=1 min-width=0
       else
-        column position="relative" padding="2px 16px" testId=`row-${m.id}` hover=hover(m.key)
-          background-color=(hovered ? "-exact-quaternary-fill" : "transparent")
-          translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
-          pan=swipe(m.key) panrelease=swipeEnd(m.id, m.author) touch-action="pan-left pan-y"
-          contextmenu=aim(m.key, m.id, m.mine, (m.forwarded ? m.plain : m.source), m.author, m.forwarded) contextPopover="message-menu"
-          opacity=(m.state == "pending" ? 0.5 : 1)
-          // A message that mentions the reader: Discord's gold wash and bar.
-          if m.mentionsMe
-            view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=0.12 pointer-events="none" aria-hidden=true
-            view position="absolute" left=0 top=0 bottom=0 width=2 background-color="-exact-system-yellow" pointer-events="none" aria-hidden=true
-          // A jump's target: Discord's yellow wash, fading once the reader has seen it.
-          view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=(lit ? 0.22 : 0) transition="opacity 800ms ease-out" pointer-events="none" aria-hidden=true
-          // A reply's original, joined to the avatar below by Discord's spine. A deleted original
-          // has nowhere to jump to; one the store does not hold yet loads when tapped.
-          for r in m.reply key=r.id
-            row align-items="stretch" gap=6 min-width=0 padding-left=19 padding-bottom=2
-              view width=29 margin-top=9 flex-shrink=0 border-left="2px solid -exact-separator" border-top="2px solid -exact-separator" border-top-left-radius=6 aria-hidden=true
-              if r.state == "command"
-                row gap=4 align-items="center" flex=1 min-width=0 testId=`used-${m.id}`
-                  image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
-                  text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-                  text "used" font="-exact-footnote" color="-exact-secondary-label" flex-shrink=0
-                  text r.preview font="-exact-footnote" color="AccentColor" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-              else if r.state == "deleted"
-                text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1 testId=`reply-to-${m.id}`
-              else
-                button appearance="none" press=jump(r.id) flex=1 min-width=0 testId=`reply-to-${m.id}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
-                  row gap=4 align-items="center" min-width=0
-                    if r.state == "unknown"
-                      text "Tap to see the original message" font="-exact-footnote" color="-exact-secondary-label"
-                    else
-                      image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
-                      text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-                      text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-          row gap=12 align-items="flex-start"
-            if leads
-              button appearance="none" press=profile(m.authorId, m.id) flex-shrink=0 aria-label=`${m.author}, profile` testId=`avatar-${m.id}`
-                image m.avatar width="2.5rem" height="2.5rem" border-radius="1.25rem" object-fit="cover" background-color="-exact-tertiary-fill"
-            else
-              // A pointer over a grouped message shows its time in the gutter, as Discord's desktop app does.
-              text (hovered ? formatTime(m.at, offset, "short") : "") width="2.5rem" flex-shrink=0 font="-exact-caption2" font-variant-numeric="tabular-nums" color="-exact-secondary-label" text-align="right" white-space="nowrap" padding-top=3 aria-hidden=true
-            column flex=1 min-width=0 gap=4
-              if leads
-                row gap=6 align-items="baseline" flex-wrap="wrap"
-                  text m.author font-weight=600 min-width=0 max-width="100%" overflow-wrap="break-word" color=(not contrast and m.color != "" ? m.color : "-exact-label") press=profile(m.authorId, m.id) testId=`author-${m.id}`
-                  if m.bot
-                    Badge(label="APP", tint=some("AccentColor"))
-                  text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"
-              // A forward: its own words, Discord's label, and the forwarded message behind a bar.
-              for b in m.note key=b.id
-                BlockView(b=b, mkey=m.key, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
-              if m.forwarded
-                row gap=4 align-items="center"
-                  image "symbol:forward" width=14 height=14 color="-exact-secondary-label"
-                  text "Forwarded" font="-exact-footnote" font-style="italic" color="-exact-secondary-label"
-              column gap=4 min-width=0 border-left=(m.forwarded ? "3px solid -exact-separator" : "none") padding-left=(m.forwarded ? 10 : 0)
-                for b in m.blocks key=b.id
-                  BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal, follow=follow)
-                // Two pictures or more tile, as Discord lays them out: two or four in two columns, three as one tall
-                // and two beside it, more in three columns.
-                if m.media.length == 3
-                  // Three: the first tall beside the other two, stacked.
-                  view display="grid" grid-template-columns="2fr 1fr" grid-template-rows="1fr 1fr" aspect-ratio="3 / 2" gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
-                    for i, n in m.media key=i.id
-                      TileView(i=i, mkey=m.key, square=false, tall=(n == 0), revealed=revealed, reveal=reveal, show=show)
-                else if m.media.length > 1
-                  view display="grid" grid-template-columns=(m.media.length == 2 or m.media.length == 4 ? "1fr 1fr" : "1fr 1fr 1fr") gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
-                    for i in m.media key=i.id
-                      TileView(i=i, mkey=m.key, square=true, tall=false, revealed=revealed, reveal=reveal, show=show)
+        Swipe(touch=touch, move=swipe(m.key), release=swipeEnd(m.id, m.author))
+          column position="relative" padding="2px 16px" testId=`row-${m.id}` hover=hover(m.key)
+            background-color=(hovered ? "-exact-quaternary-fill" : "transparent")
+            translate=`${0 - swipeX}px 0px` transition=(dragging ? "none" : "translate -exact-spring(300, 30, 1)")
+            contextmenu=aim(m.key, m.id, m.mine, (m.forwarded ? m.plain : m.source), m.author, m.forwarded) contextPopover="message-menu"
+            opacity=(m.state == "pending" ? 0.5 : 1)
+            // A message that mentions the reader: Discord's gold wash and bar.
+            if m.mentionsMe
+              view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=0.12 pointer-events="none" aria-hidden=true
+              view position="absolute" left=0 top=0 bottom=0 width=2 background-color="-exact-system-yellow" pointer-events="none" aria-hidden=true
+            // A jump's target: Discord's yellow wash, fading once the reader has seen it.
+            view position="absolute" inset=0 background-color="-exact-system-yellow" opacity=(lit ? 0.22 : 0) transition="opacity 800ms ease-out" pointer-events="none" aria-hidden=true
+            // A reply's original, joined to the avatar below by Discord's spine. A deleted original
+            // has nowhere to jump to; one the store does not hold yet loads when tapped.
+            for r in m.reply key=r.id
+              row align-items="stretch" gap=6 min-width=0 padding-left=19 padding-bottom=2
+                view width=29 margin-top=9 flex-shrink=0 border-left="2px solid -exact-separator" border-top="2px solid -exact-separator" border-top-left-radius=6 aria-hidden=true
+                if r.state == "command"
+                  row gap=4 align-items="center" flex=1 min-width=0 testId=`used-${m.id}`
+                    image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
+                    text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                    text "used" font="-exact-footnote" color="-exact-secondary-label" flex-shrink=0
+                    text r.preview font="-exact-footnote" color="AccentColor" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                else if r.state == "deleted"
+                  text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1 testId=`reply-to-${m.id}`
                 else
-                  for i in m.media key=i.id
-                    MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
-                for f in m.files key=f.id
-                  if f.spoiler and not revealed.includes(`${m.key}:${f.id}`)
-                    button appearance="none" press=reveal(`${m.key}:${f.id}`) align-self="flex-start" padding="12px 20px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler file, double tap to reveal" testId=`file-${m.key}-${f.id}`
-                      text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
+                  button appearance="none" press=jump(r.id) flex=1 min-width=0 testId=`reply-to-${m.id}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
+                    row gap=4 align-items="center" min-width=0
+                      if r.state == "unknown"
+                        text "Tap to see the original message" font="-exact-footnote" color="-exact-secondary-label"
+                      else
+                        image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
+                        text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                        text r.preview font="-exact-footnote" color="-exact-secondary-label" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+            row gap=12 align-items="flex-start"
+              if leads
+                button appearance="none" press=profile(m.authorId, m.id) flex-shrink=0 aria-label=`${m.author}, profile` testId=`avatar-${m.id}`
+                  image m.avatar width="2.5rem" height="2.5rem" border-radius="1.25rem" object-fit="cover" background-color="-exact-tertiary-fill"
+              else
+                // A pointer over a grouped message shows its time in the gutter, as Discord's desktop app does.
+                text (hovered ? formatTime(m.at, offset, "short") : "") width="2.5rem" flex-shrink=0 font="-exact-caption2" font-variant-numeric="tabular-nums" color="-exact-secondary-label" text-align="right" white-space="nowrap" padding-top=3 aria-hidden=true
+              column flex=1 min-width=0 gap=4
+                if leads
+                  row gap=6 align-items="baseline" flex-wrap="wrap"
+                    text m.author font-weight=600 min-width=0 max-width="100%" overflow-wrap="break-word" color=(not contrast and m.color != "" ? m.color : "-exact-label") press=profile(m.authorId, m.id) testId=`author-${m.id}`
+                    if m.bot
+                      Badge(label="APP", tint=some("AccentColor"))
+                    text stamp(m.at, clock, offset) font="-exact-caption1" color="-exact-secondary-label"
+                // A forward: its own words, Discord's label, and the forwarded message behind a bar.
+                for b in m.note key=b.id
+                  BlockView(b=b, mkey=m.key, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+                if m.forwarded
+                  row gap=4 align-items="center"
+                    image "symbol:forward" width=14 height=14 color="-exact-secondary-label"
+                    text "Forwarded" font="-exact-footnote" font-style="italic" color="-exact-secondary-label"
+                column gap=4 min-width=0 border-left=(m.forwarded ? "3px solid -exact-separator" : "none") padding-left=(m.forwarded ? 10 : 0)
+                  for b in m.blocks key=b.id
+                    BlockView(b=b, mkey=m.key, jumbo=m.jumbo, revealed=revealed, reveal=reveal, follow=follow)
+                  // Two pictures or more tile, as Discord lays them out: two or four in two columns, three as one tall
+                  // and two beside it, more in three columns.
+                  if m.media.length == 3
+                    // Three: the first tall beside the other two, stacked.
+                    view display="grid" grid-template-columns="2fr 1fr" grid-template-rows="1fr 1fr" aspect-ratio="3 / 2" gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
+                      for i, n in m.media key=i.id
+                        TileView(i=i, mkey=m.key, square=false, tall=(n == 0), revealed=revealed, reveal=reveal, show=show)
+                  else if m.media.length > 1
+                    view display="grid" grid-template-columns=(m.media.length == 2 or m.media.length == 4 ? "1fr 1fr" : "1fr 1fr 1fr") gap=4 max-width="26rem" border-radius=8 overflow="hidden" testId=`mosaic-${m.key}`
+                      for i in m.media key=i.id
+                        TileView(i=i, mkey=m.key, square=true, tall=false, revealed=revealed, reveal=reveal, show=show)
                   else
-                    link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
-                      row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
-                        image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
-                        column flex=1 min-width=0
-                          text f.name color="AccentColor" font-weight=500 line-clamp=1
-                          text f.size font="-exact-caption1" color="-exact-secondary-label"
-                for s in m.stickers key=s.id
-                  image s.src width=160 height=160 object-fit="contain" aria-label=s.name testId=`sticker-${m.key}-${s.id}`
-                for e in m.embeds key=e.id
-                  EmbedView(e=e, mkey=m.key, clock=clock, offset=offset, revealed=revealed, reveal=reveal, show=show, follow=follow)
-                for p in m.poll key=p.question
-                  PollView(p=p, mkey=m.key, mid=m.id, clock=clock, picks=picks, results=revealed.includes(`poll:${m.id}`), poll=poll)
-              if m.reactions.length > 0
-                row gap=6 flex-wrap="wrap" padding-top=2
-                  for x in m.reactions key=x.id
-                    button appearance="none" press=react(m.id, x.emoji != "" ? x.emoji : x.id) testId=`reaction-${m.key}-${x.id}` aria-label=`${x.name}, ${x.count}` aria-pressed=x.me -exact-press-haptic="selection"
-                      row gap=4 align-items="center" padding="3px 8px" border-radius=8
-                        background-color=(x.me ? "-exact-tertiary-fill" : "-exact-quaternary-fill")
-                        border=(x.me ? "1px solid AccentColor" : "1px solid transparent")
-                        if x.src != ""
-                          image x.src width=18 height=18 aria-label=x.name
-                        else
-                          text x.emoji
-                        text `${x.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(x.me ? "AccentColor" : "-exact-secondary-label")
-              if m.state == "failed"
-                row gap=12 align-items="center" flex-wrap="wrap" testId=`failed-${m.id}`
-                  text "Not sent." font="-exact-footnote" color="-exact-system-red"
-                  button press=retry(m.key) testId=`retry-${m.id}`
-                    text "Retry"
-                  button press=discard(m.key) destructive=true testId=`discard-${m.id}`
-                    text "Delete"
-          // A pointer's quick actions, at the message's top right.
-          if hovered and m.state == "sent"
-            row position="absolute" top=-14 right=16 padding=2 gap=2 border-radius=8 border="1px solid -exact-separator" background-color="-exact-background" testId=`tools-${m.id}`
-              button appearance="none" press=react(m.id, "👍") padding="4px 6px" border-radius=6 aria-label="React with thumbs up" testId=`tool-react-${m.id}`
-                text "👍"
-              button appearance="none" press=reply(m.id, m.author) padding="4px 6px" border-radius=6 aria-label="Reply" testId=`tool-reply-${m.id}`
-                image "symbol:reply" width=18 height=18 color="-exact-secondary-label"
-              button appearance="none" press=aim(m.key, m.id, m.mine, (m.forwarded ? m.plain : m.source), m.author, m.forwarded) popovertarget="message-menu" padding="4px 6px" border-radius=6 aria-label="More" testId=`tool-more-${m.id}`
-                image "symbol:more" width=18 height=18 color="-exact-secondary-label"
-          if swipeX > 0
-            image "symbol:reply" width=22 height=22 position="absolute" right=-36 top=8 opacity=(swipeX >= 56 ? 1 : swipeX / 56) color="-exact-secondary-label"
+                    for i in m.media key=i.id
+                      MediaView(i=i, mkey=m.key, revealed=revealed, reveal=reveal, show=show)
+                  for f in m.files key=f.id
+                    if f.spoiler and not revealed.includes(`${m.key}:${f.id}`)
+                      button appearance="none" press=reveal(`${m.key}:${f.id}`) align-self="flex-start" padding="12px 20px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler file, double tap to reveal" testId=`file-${m.key}-${f.id}`
+                        text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
+                    else
+                      link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
+                        row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
+                          image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
+                          column flex=1 min-width=0
+                            text f.name color="AccentColor" font-weight=500 line-clamp=1
+                            text f.size font="-exact-caption1" color="-exact-secondary-label"
+                  for s in m.stickers key=s.id
+                    image s.src width=160 height=160 object-fit="contain" aria-label=s.name testId=`sticker-${m.key}-${s.id}`
+                  for e in m.embeds key=e.id
+                    EmbedView(e=e, mkey=m.key, clock=clock, offset=offset, revealed=revealed, reveal=reveal, show=show, follow=follow)
+                  for p in m.poll key=p.question
+                    PollView(p=p, mkey=m.key, mid=m.id, clock=clock, picks=picks, results=revealed.includes(`poll:${m.id}`), poll=poll)
+                if m.reactions.length > 0
+                  row gap=6 flex-wrap="wrap" padding-top=2
+                    for x in m.reactions key=x.id
+                      button appearance="none" press=react(m.id, x.emoji != "" ? x.emoji : x.id) testId=`reaction-${m.key}-${x.id}` aria-label=`${x.name}, ${x.count}` aria-pressed=x.me -exact-press-haptic="selection"
+                        row gap=4 align-items="center" padding="3px 8px" border-radius=8
+                          background-color=(x.me ? "-exact-tertiary-fill" : "-exact-quaternary-fill")
+                          border=(x.me ? "1px solid AccentColor" : "1px solid transparent")
+                          if x.src != ""
+                            image x.src width=18 height=18 aria-label=x.name
+                          else
+                            text x.emoji
+                          text `${x.count}` font="-exact-footnote" font-weight=600 font-variant-numeric="tabular-nums" color=(x.me ? "AccentColor" : "-exact-secondary-label")
+                if m.state == "failed"
+                  row gap=12 align-items="center" flex-wrap="wrap" testId=`failed-${m.id}`
+                    text "Not sent." font="-exact-footnote" color="-exact-system-red"
+                    button press=retry(m.key) testId=`retry-${m.id}`
+                      text "Retry"
+                    button press=discard(m.key) destructive=true testId=`discard-${m.id}`
+                      text "Delete"
+            // A pointer's quick actions, at the message's top right.
+            if hovered and m.state == "sent"
+              row position="absolute" top=-14 right=16 padding=2 gap=2 border-radius=8 border="1px solid -exact-separator" background-color="-exact-background" testId=`tools-${m.id}`
+                button appearance="none" press=react(m.id, "👍") padding="4px 6px" border-radius=6 aria-label="React with thumbs up" testId=`tool-react-${m.id}`
+                  text "👍"
+                button appearance="none" press=reply(m.id, m.author) padding="4px 6px" border-radius=6 aria-label="Reply" testId=`tool-reply-${m.id}`
+                  image "symbol:reply" width=18 height=18 color="-exact-secondary-label"
+                button appearance="none" press=aim(m.key, m.id, m.mine, (m.forwarded ? m.plain : m.source), m.author, m.forwarded) popovertarget="message-menu" padding="4px 6px" border-radius=6 aria-label="More" testId=`tool-more-${m.id}`
+                  image "symbol:more" width=18 height=18 color="-exact-secondary-label"
+            if swipeX > 0
+              image "symbol:reply" width=22 height=22 position="absolute" right=-36 top=8 opacity=(swipeX >= 56 ? 1 : swipeX / 56) color="-exact-secondary-label"
+
+// A row a touch screen swipes; with a mouse or trackpad a drag selects the row's text instead, as it does in
+// Discord's desktop app, so there the gesture is not there at all.
+component Swipe
+  props
+    touch: bool
+    move: action
+    release: action
+  slot
+  view
+    if touch
+      view pan=move panrelease=release touch-action="pan-left pan-y"
+        children
+    else
+      children
 
 component BlockView
   props
@@ -365,44 +383,46 @@ component EmbedView
     show: action
     follow: action
   view
-    row max-width="26rem" border-radius=6 overflow="hidden" background-color="-exact-secondary-background" testId=`embed-${mkey}-${e.id}`
-      view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
-      column flex=1 min-width=0 padding=10 gap=4
-        if e.provider != ""
-          text e.provider font="-exact-caption1" color="-exact-secondary-label" overflow-wrap="break-word"
-        if e.author != ""
-          row gap=6 align-items="center" min-width=0
-            if e.authorIcon != ""
-              image e.authorIcon width=20 height=20 border-radius=10 object-fit="cover" flex-shrink=0 aria-hidden=true
-            if e.authorUrl != ""
-              link href=e.authorUrl min-width=0
+    // The border outside, the spine and fill clipped inside its inner corner (CSS clips a child to the padding edge).
+    view max-width="26rem" border-radius=6 border="1px solid -exact-separator" testId=`embed-${mkey}-${e.id}`
+      row border-radius=5 overflow="hidden" background-color="-exact-secondary-background"
+        view width=4 flex-shrink=0 background-color=(e.color != "" ? e.color : "-exact-separator")
+        column flex=1 min-width=0 padding=10 gap=4
+          if e.provider != ""
+            text e.provider font="-exact-caption1" color="-exact-secondary-label" overflow-wrap="break-word"
+          if e.author != ""
+            row gap=6 align-items="center" min-width=0
+              if e.authorIcon != ""
+                image e.authorIcon width=20 height=20 border-radius=10 object-fit="cover" flex-shrink=0 aria-hidden=true
+              if e.authorUrl != ""
+                link href=e.authorUrl min-width=0
+                  text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+              else
                 text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+          if e.title != ""
+            if e.url != ""
+              link href=e.url
+                text e.title font-weight=600 overflow-wrap="break-word"
             else
-              text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
-        if e.title != ""
-          if e.url != ""
-            link href=e.url
               text e.title font-weight=600 overflow-wrap="break-word"
-          else
-            text e.title font-weight=600 overflow-wrap="break-word"
-        for b in e.description key=b.id
-          BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
-        if e.fields.length > 0
-          row flex-wrap="wrap" column-gap=16 row-gap=8 padding-top=2
-            for f in e.fields key=f.id
-              column gap=2 min-width=0 flex=(f.inline ? "1 1 28%" : "1 1 100%") testId=`field-${mkey}-${f.id}`
-                text f.name font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
-                for b in f.value key=b.id
-                  BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
-        for i in e.image key=i.id
-          MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
-        if e.footer != "" or e.at > 0
-          row gap=6 align-items="center" padding-top=2 min-width=0
-            if e.footerIcon != ""
-              image e.footerIcon width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 aria-hidden=true
-            text (e.footer != "" and e.at > 0 ? `${e.footer} • ${stamp(e.at, clock, offset)}` : e.footer != "" ? e.footer : stamp(e.at, clock, offset)) font="-exact-caption1" color="-exact-secondary-label" min-width=0 overflow-wrap="break-word" testId=`footer-${mkey}-${e.id}`
-      for t in e.thumbnail key=t.id
-        image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
+          for b in e.description key=b.id
+            BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+          if e.fields.length > 0
+            row flex-wrap="wrap" column-gap=16 row-gap=8 padding-top=2
+              for f in e.fields key=f.id
+                column gap=2 min-width=0 flex=(f.inline ? "1 1 28%" : "1 1 100%") testId=`field-${mkey}-${f.id}`
+                  text f.name font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+                  for b in f.value key=b.id
+                    BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+          for i in e.image key=i.id
+            MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
+          if e.footer != "" or e.at > 0
+            row gap=6 align-items="center" padding-top=2 min-width=0
+              if e.footerIcon != ""
+                image e.footerIcon width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 aria-hidden=true
+              text (e.footer != "" and e.at > 0 ? `${e.footer} • ${stamp(e.at, clock, offset)}` : e.footer != "" ? e.footer : stamp(e.at, clock, offset)) font="-exact-caption1" color="-exact-secondary-label" min-width=0 overflow-wrap="break-word" testId=`footer-${mkey}-${e.id}`
+        for t in e.thumbnail key=t.id
+          image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
 
 // A poll, as Discord draws it: before the reader votes, its answers to choose and a Vote button; once they
 // have voted, asked to see the results, or the poll has closed, each answer's share as a bar.

@@ -13,9 +13,10 @@ use monthLongName, savedScroll, paletteColor, Time, Viewport from "./models.cont
 use Clock, Month, Agenda, Event, StickerDrag, DragTarget, Landing from "./models.contract"
 use Library, Result, DragInput, boundedMonth, edgeSpeed from "./models.contract"
 use scrollSlot, magnitude, keyStep from "./models.contract"
-use DeviceAgenda, DeviceDays, GuestList, GuestsAdded, Export from "./models.contract"
-use MyCalendars, guestName, guestEmail from "./device.contract"
+use DeviceAgenda, DeviceDays, GuestList, GuestsAdded, Export, ActivityDays, ActivityAgenda from "./models.contract"
+use MyCalendars, MyActivity, guestName, guestEmail from "./device.contract"
 use calendarStatus, showEventEditor, calendarEvents, calendars, CalendarStatus, CalendarEvent, EventEditorResult from "@exact/calendar"
+use healthStatus, requestHealthAuthorization, healthStatistics, healthWorkouts, HealthStatus from "@exact/health"
 use selectContacts, getContactProperties, ContactSelection, ContactProperties from "@exact/contacts"
 
 // One calendar: shared state and actions, with layout chosen by viewport width.
@@ -82,6 +83,15 @@ component Calendar
   derive mineRead = mineOn and calStatus.state != "denied"
   resource mineAgenda = calendarDeviceAgenda(day * 86400000 - time.utcOffset * 60000, mineRead, time.utcOffset) as shape DeviceAgenda
   resource mineDays = calendarDeviceDays(month, mineRead, time.utcOffset) as shape DeviceDays
+  // The person's activity (LLP 1133.026 §12), read by the data crate only
+  // while the switch is on and Health has been asked: the six weeks' daily
+  // steps and the day's workouts. Turning the switch on asks.
+  state showActivity = false persist
+  resource health = healthStatus(read=["steps", "workouts"]) as shape HealthStatus
+  mutation healthAsked as shape HealthStatus
+  derive activityRead = showActivity and health.available and health.state != "prompt"
+  resource activityAgenda = calendarActivityAgenda(day * 86400000 - time.utcOffset * 60000, activityRead, time.utcOffset) as shape ActivityAgenda
+  resource activityDays = calendarActivityDays(month, activityRead, time.utcOffset) as shape ActivityDays
   // Guests picked from the person's contacts, the app's own copy in its
   // storage; and an item handed to the system's calendar editor.
   resource contactFields = getContactProperties() as shape ContactProperties
@@ -786,6 +796,10 @@ component Calendar
     colorDraft = some(value)
   action toggleMine(value: bool)
     showMine = value
+  action toggleActivity(value: bool)
+    showActivity = value
+    if value and health.state == "prompt"
+      send healthAsked = requestHealthAuthorization(read=["steps", "workouts"])
   action openCalendarSettings
     openURL("app-settings:")
   action invite
@@ -944,11 +958,11 @@ component Calendar
                 // page by its laid-out origin, so each slides in place of the next.
                 if viewport.prefersReducedMotion
                   if page.month == month
-                    MonthPage(compact=compact, panMonth=panMonth, releaseMonth=releaseMonth, page=page, deviceDays=mineDays.days, left=(page.month - month) * pageWidth, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, command=itemCommand, create=create, move=moveSelection, hover=hoverOn)
+                    MonthPage(compact=compact, panMonth=panMonth, releaseMonth=releaseMonth, page=page, deviceDays=mineDays.days, steps=activityDays.days, left=(page.month - month) * pageWidth, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, command=itemCommand, create=create, move=moveSelection, hover=hoverOn)
                 else
                   if page.month >= month - 1 and page.month <= month + 1
                     box testId=`month-slot-${page.id}` position="absolute" left=(page.month - month) * pageWidth top=0 width=pageWidth height="100%" -exact-layout-transition="320ms ease-out" inert=(page.month != month) aria-hidden=(page.month != month)
-                      MonthPage(compact=compact, panMonth=panMonth, releaseMonth=releaseMonth, page=page, deviceDays=mineDays.days, left=0, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, command=itemCommand, create=create, move=moveSelection, hover=hoverOn)
+                      MonthPage(compact=compact, panMonth=panMonth, releaseMonth=releaseMonth, page=page, deviceDays=mineDays.days, steps=activityDays.days, left=0, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, command=itemCommand, create=create, move=moveSelection, hover=hoverOn)
       if compact and popupOpen and not dragging and not editorOpen and not themeOpen
         box testId="date-backdrop" press=closeDate position="absolute" left=0 top=0 right=0 bottom=0 z-index=19 background-color="rgba(28,31,44,0.12)"
       if not compact or popupOpen
@@ -972,6 +986,8 @@ component Calendar
                     StickerAgendaRow(day=agenda.day, date=agenda.date, stickerId=agenda.stickerId, hidden=(dragId == `sticker-day:${agenda.day}:${agenda.stickerId}`), disabled=(busy or modalOpen or (dragging and (not held or dragId != `sticker-day:${agenda.day}:${agenda.stickerId}`))), hot=(hovered == "row-sticker"), ink=themeInk, muted=themeMuted, fill=themeHover, edit=showPalette, command=stickerCommand, remove=clearSticker, hover=hoverOn)
               if calStatus.available
                 MyCalendars(on=showMine, state=calStatus.state, agenda=mineAgenda, ink=themeInk, muted=themeMuted, border=themeBorder, toggle=toggleMine, settings=openCalendarSettings)
+              if health.available
+                MyActivity(on=showActivity, agenda=activityAgenda, month=activityDays, ink=themeInk, muted=themeMuted, border=themeBorder, toggle=toggleActivity)
               if busy or (error != "" and not editorOpen)
                 text (busy ? "Saving…" : error) testId="inspector-status" aria-live="polite" flex-shrink=0 padding-left=20 padding-right=20 padding-top=6 padding-bottom=8 font-size=12 color=(error != "" and not busy ? "#b74238" : themeMuted)
               column testId="sticker-palette" flex-shrink=0 margin-top=(compact ? "auto" : 0) border-style="solid" border-top-width=1 border-right-width=0 border-bottom-width=0 border-left-width=0 border-color=themeBorder padding-bottom=(stickerPaletteOpen ? 14 : 4)

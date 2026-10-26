@@ -344,6 +344,7 @@ impl Rewriter<'_> {
             actions,
             tasks,
             sequences,
+            tools: _,
             view,
             params: _,
             anatomy: _,
