@@ -228,12 +228,14 @@ impl Vault for KeychainVault {
                 continue;
             };
             let request = serde_json::json!({ "service": self.service, "account": account });
-            // Only confirmed absence removes a candidate. A locked keychain
-            // or a failed probe must not erase the last durable generation.
-            if matches!(call(3, request, &[]), Ok((1, _))) {
-                let _ = self.kv.delete(INDEX, &account);
-            } else {
-                generations.push(generation);
+            // A failed probe leaves the candidate indexed, but cannot
+            // establish which generation may replace the last durable one.
+            match call(3, request, &[])? {
+                (0, _) => generations.push(generation),
+                (1, _) => {
+                    let _ = self.kv.delete(INDEX, &account);
+                }
+                _ => return Err("the keychain returned an unknown probe status".into()),
             }
         }
         Ok(generations)
@@ -260,28 +262,25 @@ impl Vault for KeychainVault {
         Ok(())
     }
     fn delete_locked(&mut self, name: &str, generation: u64) -> Result<(), String> {
-        // Reconciliation may have kept an unconfirmed newer candidate.
-        // Do not retire a readable generation while that probe still fails.
-        for candidate in self.kv.keys(INDEX).map_err(|e| format!("{e:?}"))? {
-            let newer = candidate
-                .strip_prefix(name)
-                .and_then(|a| a.strip_prefix('#'))
-                .and_then(|g| g.parse::<u64>().ok())
-                .is_some_and(|g| g > generation);
-            if newer {
-                call(
-                    3,
-                    serde_json::json!({ "service": self.service, "account": candidate }),
-                    &[],
-                )?;
-            }
-        }
         let account = Self::account(name, generation);
         let request = serde_json::json!({ "service": self.service, "account": account });
         call(2, request, &[])?;
         self.kv
             .delete(INDEX, &account)
             .map_err(|e| format!("{e:?}"))
+    }
+    fn delete_all_locked(&mut self, name: &str) -> Result<(), String> {
+        let accounts = self.kv.keys(INDEX).map_err(|e| format!("{e:?}"))?;
+        for account in accounts {
+            if let Some(generation) = account
+                .strip_prefix(name)
+                .and_then(|a| a.strip_prefix('#'))
+                .and_then(|g| g.parse().ok())
+            {
+                self.delete_locked(name, generation)?;
+            }
+        }
+        Ok(())
     }
     fn read_locked(&mut self, _: &str, _: u64) -> Result<Option<Vec<u8>>, String> {
         // The host reads with the context the sheet evaluated (`Checked::Read`).

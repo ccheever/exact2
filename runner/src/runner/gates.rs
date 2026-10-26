@@ -107,6 +107,7 @@ impl<D: DataSource> Runner<D> {
             .map(|(timer, _)| timer.next_ms)
             .chain(self.wake_due())
             .chain(self.call_due())
+            .chain(self.presence_due_ms())
             .chain(self.then_due.iter().copied())
             // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())
