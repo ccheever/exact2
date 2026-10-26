@@ -429,6 +429,17 @@ with no dock menu, status item or Windows menu bar.
 **Expanded (Charlie, 2026-10-23, Windows at full speed):** Windows presents
 the declared menu bar as a painted Fluent menu row (LLP 1021 §5.3.2). The
 dock menu and status item stay out.
+**Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", waived; LLP
+1133.025 §15 question 8):** a status item and a Dock menu as presentations
+of a `button` (`-exact-menu="status"`, `"dock"`), the window's `focus()`,
+an accessory Mac app and a launch with no window, `keepRunning` and one
+instance on Windows; a login item, global shortcuts and attention as
+`@exact/login-item`, `@exact/global-shortcuts` and `@exact/dock`, on macOS
+and Windows, absent elsewhere. Consumers: the T3 Code clone's SnapShot
+shortcut, Excord on Windows and macOS, Agents' New Conversation. Take:
+waived: no doing-list item is in this area, and the move retires the
+clone's Carbon registration. Still refused: helper daemons, jump lists
+(quick-actions'), Linux cells until a desktop host.
 
 ## Surfaces
 
