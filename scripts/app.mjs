@@ -2,7 +2,7 @@ import { compilerPaths, unitDepInfo, cargoBakeInputs, sourcePath } from './cargo
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
 import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
-import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory } from '../host/apple/assets.mjs';
+import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory, launchImageInventory, iosPrivacyManifest } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
 // normally belong to the root workspace and build into `target/`; an explicit
 // package.workspace uses that workspace's lock and target. Outside it (weird-castle:
@@ -1157,6 +1157,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     }
   }
   const nativeResources = platform === 'macos' ? macResourceInventory(app) : [];
+  const privacyManifest = platform === 'ios' ? iosPrivacyManifest(app) : null;
+  if (privacyManifest) add(resolve(app.dir, privacyManifest.src));
   const assetCatalogApp = ['macos', 'ios'].includes(platform) ? { dir: app.dir, platform: target.includes('-tvos') ? 'tvos' : platform, manifest: { host: app.manifest.host } } : null;
   const appleAssetCatalogs = assetCatalogApp ? appleAssetCatalogInventory(assetCatalogApp, assetCatalogApp.platform) : [];
   if (assetCatalogApp) for (const path of [resolve(app.dir, platform, 'modules'), resolve(app.dir, 'modules/apple')]) {
@@ -1167,7 +1169,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   // The launch screen's picture: its bytes are the binary's, and packaging draws the ones recorded.
   const launchImage = platform === 'ios' ? launchImageInventory(app) : null;
   if (launchImage) add(resolve(app.dir, launchImage.src));
-  const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(launchImage ? {launchImage} : {}),...(nativeResources.length ? {nativeResources} : {}),...nativeManifestMetadata(app.manifest, platform),delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
+  const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(launchImage ? {launchImage} : {}),...(privacyManifest ? {privacyManifest} : {}),...(nativeResources.length ? {nativeResources} : {}),...nativeManifestMetadata(app.manifest, platform),delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};

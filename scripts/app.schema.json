@@ -661,6 +661,11 @@
               "type": "boolean",
               "description": "Opt in to Apple's managed default-browser role for the iOS app. Requires http and https in protocol_handlers and Apple's approval of com.apple.developer.web-browser in its provisioning profile. Extensions, App Clips and tvOS never inherit this role. distribution_only on the pair also limits the entitlement to distributed builds. Absent or false: no browser entitlement and no HTTP/HTTPS registration on iOS."
             },
+            "privacyManifest": {
+              "type": "string",
+              "minLength": 1,
+              "description": "An .xcprivacy property list inside the app, relative to app.json. Baked into the app's binary identity and copied before signing, with Exact's own required-reason declarations. Native modules carry the app's declarations in their framework; audit all app and third-party code. Changing this file requires a new binary."
+            },
             "icon": {
               "type": "string",
               "minLength": 1,
