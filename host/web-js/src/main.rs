@@ -549,6 +549,11 @@ fn main() -> ExitCode {
             if exact_runner::wakelock::bound(&plan) {
                 let _ = std::fs::write(dir.join("wakelock.flag"), "");
             }
+            // `orientationlock` (orientationlock.js, LLP 1133.029 D7).
+            let _ = std::fs::remove_file(dir.join("orientationlock.flag"));
+            if exact_runner::wakelock::bound_prop(&plan, exact_kernel::PropId::Orientationlock) {
+                let _ = std::fs::write(dir.join("orientationlock.flag"), "");
+            }
             // Every portable symbol role, which symbols.js loads when a bound
             // source names one the plan's strings don't (ledger diary F10).
             let roles = symbols::every();

@@ -19,4 +19,4 @@ softbuffer = { version = "0.4", default-features = false }
 tiny-skia = "0.12"
 unicode-segmentation = "1.13"
 windows = { version = "0.62", features = ["UI_ViewManagement", "Foundation"] }
-windows-sys = { version = "0.61", features = ["Win32_UI_Input_XboxController", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Input_Ime", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_UI_WindowsAndMessaging", "Win32_UI_Accessibility", "Win32_UI_Shell", "Win32_Graphics_Gdi"] }
+windows-sys = { version = "0.61", features = ["Win32_Devices_Display", "Win32_UI_Input_XboxController", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Input_Ime", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_UI_WindowsAndMessaging", "Win32_UI_Accessibility", "Win32_UI_Shell", "Win32_Graphics_Gdi"] }

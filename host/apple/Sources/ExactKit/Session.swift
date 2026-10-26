@@ -998,12 +998,12 @@ public final class ExactSession {
 
     /// A batch that changes nothing the presenter shows: no ops, no error,
     /// no control's viewless contents (`controls`, LLP 1069.011 §9), no
-    /// page facts the app moved (`setMode`, `setRootFontSize`) or wake lock,
+    /// page facts the app moved (`setMode`, `setRootFontSize`), wake or orientation lock,
     /// and the motion, spatial, frame-task, canvas and owed-draw state as
     /// they stand. Its timer deadline is the caller's to compare.
     func changesNothing(_ batch: Batch) -> Bool {
         batch.ops.isEmpty && !batch.controls && batch.error == nil && batch.canvasImages.isEmpty
-            && !batch.facts && batch.wakelock == nil
+            && !batch.facts && batch.wakelock == nil && batch.orientation == nil
             && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.canvasOwed == canvasOwed
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }

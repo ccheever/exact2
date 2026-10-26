@@ -133,6 +133,21 @@ macro_rules! canvas_jni_extensions {
             with(|h| h.presence_reply(&answer));
         }
 
+        /// What the activity asked for the orientation lock (`Orientation.kt`,
+        /// LLP 1133.029 D6): JSON, a conflict, and a line to journal or null.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_orientationApplied(
+            env: *mut JNIEnv,
+            _class: jclass,
+            applied: jstring,
+            conflict: jboolean,
+            line: jstring,
+        ) {
+            let applied = $crate::canvas::field::text(env, applied);
+            let line = (!line.is_null()).then(|| $crate::canvas::field::text(env, line));
+            with(|h| h.orientation_applied(&applied, conflict == JNI_TRUE, line.as_deref()));
+        }
+
         /// The activity started (`false`) or stopped (`true`): the page's
         /// `visibilityState` (LLP 1133.010 §9).
         #[no_mangle]

@@ -372,6 +372,69 @@ pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostEr
 #[path = "app_fs_windows_tests.rs"]
 mod tests;
 
+/// An app file written in pieces beside its target and put in its place
+/// whole (Exact local patch 19): the staging file is removed unless
+/// [`Staged::publish`] renames it over the target.
+pub struct Staged {
+    parent: Directory,
+    leaf: String,
+    temp: String,
+    file: Option<File>,
+}
+impl AppDirectories {
+    /// Admit `fs.write` on `path` and create its staging file in the pinned
+    /// parent. A missing parent, or a target that is not a regular file, is
+    /// refused before anything is written.
+    pub fn stage(&self, grants: &GrantSet, path: &str) -> Result<Staged, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.parent(path)?;
+        match parent.kind(&leaf) {
+            Ok(kind) if !kind.regular => return Err(error("write needs a regular file")),
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(error(e)),
+            _ => {}
+        }
+        let temp = format!(".exact-{}.partial", token().map_err(error)?);
+        let file = parent
+            .file(&temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)
+            .map_err(error)?;
+        Ok(Staged {
+            parent,
+            leaf,
+            temp,
+            file: Some(file),
+        })
+    }
+}
+impl Staged {
+    pub fn write_all(&mut self, bytes: &[u8]) -> Result<(), HostError> {
+        match self.file.as_mut() {
+            Some(file) => file.write_all(bytes).map_err(error),
+            None => Err(error("staged file already published")),
+        }
+    }
+    /// Sync the staging file and rename it over the target.
+    pub fn publish(mut self) -> Result<(), HostError> {
+        let file = self
+            .file
+            .take()
+            .ok_or_else(|| error("staged file already published"))?;
+        file.sync_all().map_err(error)?;
+        self.parent.rename(&file, &self.leaf).map_err(error)?;
+        drop(file);
+        self.temp.clear();
+        Ok(())
+    }
+}
+impl Drop for Staged {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        if !self.temp.is_empty() {
+            let _ = self.parent.unlink(&self.temp);
+        }
+    }
+}
+
 pub(crate) struct AtomicTarget {
     parent: Directory,
     leaf: String,
