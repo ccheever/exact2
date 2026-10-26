@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { DRIVEN, ROOT, lines, proxied, signals, toolTurns } from './design-tool-harness.mjs';
+import { DRIVEN, ROOT, drive, lines, proxied, signals, toolTurns } from './design-tool-harness.mjs';
 import { spawnOwned } from './test-children.mjs';
 
 toolTurns();
@@ -93,6 +93,38 @@ test('a peer\'s write is read again as only the tokens it moved, a package\'s de
     // A token added: read whole, the new one among them.
     expect(resolved(3)).toEqual([...all, 'filler.new'].sort());
     expect(cell(added, 'filler.new')).toBe('#303030ff');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('a batch whose reply passes a fetch\'s default 1 MiB is read whole: each read one resolve, every row shown', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-batch-big-'));
+  cpSync(resolve(ROOT, 'apps/theme-fixture/app.json'), join(app, 'app.json'));
+  // 180 families near the value bound (about 3.9 KB each, twice that in an answer): describe under 1 MiB, the batch's answers past it.
+  const stack = n => Array.from({ length: 550 }, (_, i) => `f${n}x${i}`).join(', ').slice(0, 3900).replace(/, [^,]*$/, '');
+  const faces = Array.from({ length: 180 }, (_, n) => `face${n}`);
+  writeFileSync(join(app, 'app.tamber'), `tamber t\n\ntheme\n  ink = #111111\n${faces.map((f, n) => `  ${f}: family = ${stack(n)}\n`).join('')}`);
+  writeFileSync(join(app, 'app.contract'), `component App\n  view\n    column background-color="ink"\n${faces.map(f => `      text "x" font-family="${f}"\n`).join('')}`);
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  const asked = [], sizes = [];
+  const tool = await proxied(app, request => { if (request.method) asked.push({ method: request.method, tokens: request.tokens ?? [request.token] }); });
+  try {
+    const token = (await (await fetch(`${tool.origin}/__tamber/token`)).json()).token;
+    const reply = await (await fetch(`${tool.origin}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify({ method: 'resolve', tokens: ['ink', ...faces] }) })).text();
+    sizes.push(reply.length);
+    expect(reply.length).toBeGreaterThan(1 << 20);
+    // (Two cells' subtrees: the whole tree of 180 rows of 4 KB stacks is past what a reply prints.)
+    const replies = await drive(tool.url, `design-tool-batch-big-${process.pid}`, ['type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'tree cell-face179-0-light', 'tree cell-ink-0-light']);
+    const [face, ink] = replies.filter(r => r.nodes).map(t => t.nodes.map(n => n.props.text).filter(Boolean).join(' '));
+    expect(face).toContain('f179x0');
+    expect(ink).toContain('#111111ff');
+    // Each read one resolve of them all, never by name (a reply the fetch refused would fail the read).
+    const resolves = asked.filter(r => r.method === 'resolve');
+    expect(resolves.length).toBeGreaterThan(0);
+    expect(resolves.every(r => r.tokens.length === 181)).toBe(true);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
