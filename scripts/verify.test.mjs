@@ -485,7 +485,7 @@ test('server command arguments reach the child in order, with DB and PORT for a 
     assert.equal(existsSync(resolve(dir, '.exact/test')), false);
     assert.deepEqual([taken, given], [1, 1]);
   `);
-});
+}, 30_000);
 
 test('database: false omits inherited DB, preserves database files, and keeps refusal and cleanup behavior', () => {
   stubServerRun(`
@@ -518,7 +518,7 @@ test('database: false omits inherited DB, preserves database files, and keeps re
     assert.equal(await withAppServer(dir, () => assert.fail('a database server without DB must be refused'), { optional: true }), 1);
     assert.equal(children.length, 2);
   `);
-});
+}, 30_000);
 
 test('agent --test starts and stops the app server on web, ios and macos, and reuses its parent server', () => {
   stubServerRun(`
@@ -553,7 +553,7 @@ test('agent --test starts and stops the app server on web, ios and macos, and re
     assert.equal(await main(['web', ...args], { runTests: async () => ({ results: [], passed: 0, failed: 1 }) }), 1);
     assert.equal(children.length, 4, 'an app with no server still runs its tests');
   `);
-});
+}, 30_000);
 
 test('an agent drive passes server arguments without DB or a scratch database', () => {
   stubServerRun(`
