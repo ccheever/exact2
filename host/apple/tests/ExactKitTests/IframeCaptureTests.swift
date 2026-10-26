@@ -142,11 +142,12 @@ final class IframeCaptureTests: XCTestCase {
     }
 
     nonisolated(unsafe) private static var server: CapturePages?
+    private var baseURL: String { "http://127.0.0.1:\(Self.server!.port)" }
     override func setUpWithError() throws {
         #if os(macOS)
         _ = NSApplication.shared
         #endif
-        if Self.server == nil { Self.server = try CapturePages(port: 16630) }
+        if Self.server == nil { Self.server = try CapturePages() }
     }
 
     private func capture(_ arm: Arm, _ handle: UnsafeMutableRawPointer, _ seen: Seen, file: URL?, clip: [Double]? = nil) -> [String: Any]? {
@@ -189,7 +190,7 @@ final class IframeCaptureTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "WebKit paints a snapshot only in an app's window scene") }
         #endif
         let arm = try arm(), seen = Seen()
-        let handle = try mount(arm, seen, configuration: ["partition": "memory-shot"], src: "http://127.0.0.1:16630/target")
+        let handle = try mount(arm, seen, configuration: ["partition": "memory-shot"], src: "\(baseURL)/target")
         defer { arm.destroy(handle) }
         spin { seen.records.contains { $0.event == "navigatesuccess" } }
         pause(0.3)
@@ -218,7 +219,7 @@ final class IframeCaptureTests: XCTestCase {
         guard hostedWindowScene() != nil else { throw missing("scene", "WebKit paints a snapshot only in an app's window scene") }
         #endif
         let arm = try arm(), seen = Seen()
-        let handle = try mount(arm, seen, configuration: ["partition": "memory-pinch", "allowsMagnification": true], src: "http://127.0.0.1:16630/target")
+        let handle = try mount(arm, seen, configuration: ["partition": "memory-pinch", "allowsMagnification": true], src: "\(baseURL)/target")
         defer { arm.destroy(handle) }
         spin { seen.records.contains { $0.event == "navigatesuccess" } }
         pause(0.3)
@@ -394,7 +395,7 @@ final class IframeCaptureTests: XCTestCase {
     /// What the arm owns that a hatch changed, said by name in a development build (RFC §9).
     func testAChangedDelegateIsSaidByName() throws {
         let arm = try arm(), seen = Seen()
-        let handle = try mount(arm, seen, configuration: ["partition": "memory-owned"], src: "http://127.0.0.1:16630/target")
+        let handle = try mount(arm, seen, configuration: ["partition": "memory-owned"], src: "\(baseURL)/target")
         defer { arm.destroy(handle) }
         let web = try XCTUnwrap(current(arm, handle) as? WKWebView)
         let pipe = Pipe(), saved = dup(STDERR_FILENO)
@@ -422,19 +423,9 @@ final class IframeCaptureTests: XCTestCase {
 final class CapturePages {
     private let listener: NWListener
 
-    init(port: UInt16) throws {
-        let parameters = NWParameters.tcp
-        parameters.allowLocalEndpointReuse = true
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
-        listener = try NWListener(using: parameters)
-        listener.newConnectionHandler = { connection in CapturePages.serve(connection) }
-        var state: NWListener.State = .setup
-        listener.stateUpdateHandler = { state = $0 }
-        listener.start(queue: .main)
-        let deadline = Date(timeIntervalSinceNow: 5)
-        while Date() < deadline { if case .ready = state { return }; RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
-        throw NSError(domain: "IframeCaptureTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "port \(port) did not listen: \(state)"])
-    }
+    var port: UInt16 { listener.port!.rawValue }
+
+    init() throws { listener = try loopbackListener(Self.serve) }
 
     static let target = """
     <!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Target</title>
