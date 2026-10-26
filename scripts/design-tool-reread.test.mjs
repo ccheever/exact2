@@ -99,7 +99,7 @@ test('a peer\'s write is read again as only the tokens it moved, a package\'s de
   }
 }, 900_000);
 
-test('a batch whose reply passes a fetch\'s default 1 MiB is read whole: each read one resolve, every row shown', async () => {
+test('a batch whose reply passes 1 MiB (a native fetch\'s default; the web\'s is 64 MiB) is read whole: each read one resolve, every row shown', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-batch-big-'));
   cpSync(resolve(ROOT, 'apps/theme-fixture/app.json'), join(app, 'app.json'));
   // 180 families near the value bound (about 3.9 KB each, twice that in an answer): describe under 1 MiB, the batch's answers past it.
