@@ -866,8 +866,8 @@ reading. Nothing that isn't HTML is added by it.
   steering in a game without app Swift or a commit per sample. Take: none
   named. Still out, each until a consumer asks (LLP 1133.013 §12): motion
   in the background or while the app is closed, and wake-up sensors;
-  steps, activity, floors, altitude, pressure, light and proximity as
-  tier 1; fall detection, water submersion and movement disorder; a
+  activity, light and proximity as tier 1 (steps, floors, altitude and
+  pressure moved to LLP 1133.026's record below); fall detection, water submersion and movement disorder; a
   Contract reader faster than the poll's floor, and a package view that
   draws from samples below the runner; `populateMatrix` and other
   conversions as names; `deviceOrientation` and the sensor sources on
@@ -998,6 +998,31 @@ reading. Nothing that isn't HTML is added by it.
   large grid; the picker's Android arm (LLP 1069.002's); filters and
   adjustments, metadata read as values, and RAW; and the tvOS, visionOS,
   Windows and Linux cells.
+- **Expanded (Charlie, 2026-10-25, "Waive both (Recommended)", on LLP
+  1133.026 §16 question 8):** the person's health store, read
+  (`healthStatus`, `requestHealthAuthorization`, `healthStatistics` and
+  `healthWorkouts` from `@exact/health`), over HealthKit and Health
+  Connect; steps since a moment (`pedometerStatus`,
+  `requestPedometerPermission`, `pedometer` from `@exact/pedometer`), over
+  `CMPedometer` and Android's Recording API with its step counter; and air
+  pressure and a change of height (`altimeterStatus`,
+  `requestAltimeterPermission`, `barometer`, `altimeter` from
+  `@exact/altimeter`), over `CMAltimeter` and the pressure sensor. Each on
+  iOS and Android; the web, macOS, Linux and tvOS a visible absence, and
+  Windows' pedometer and altimeter `later`. A type's read is `unknown`
+  where HealthKit hides it, every answer names the moment it can see from
+  (`since`), the pedometer and altimeter share one Motion & Fitness
+  decision on Apple, and no tool or wake reads any of the three. With the
+  seam additions of LLP 1133.026 D19. Consumers: the Calendar example's
+  Show my activity and Fieldnotes' walk. Unblocks a person's steps,
+  workouts and climb without app Swift. Take: none named. Still out, each
+  until a consumer asks (LLP 1133.026 §14): writing Health samples and
+  workouts, and workout sessions; Health background delivery and reads in
+  the background; clinical records and required read types; samples,
+  characteristics and routes as tier 1; a tool or an agent reading these
+  modules, until LLP 1133.002 D12's delegation; a closed range of steps on
+  Android, and motion activity; ambient light; and the Windows, visionOS,
+  watchOS and Linux cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
