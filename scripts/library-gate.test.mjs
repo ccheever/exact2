@@ -150,7 +150,18 @@ test("the restyle cases name every stage 13 C token and param and every exported
   expect([...new Set([...own, ...passed])].sort()).toEqual([...EXPORTED_TOKENS].sort());
   const exportsCase = all.find(c => c.name === 'Avatar and VerifiedBadge tokens');
   expect(exportsCase.set.map(s => s.name).sort()).toEqual([...EXPORTED_TOKENS].sort());
-  for (const n of EXPORTED_TOKENS) expect([n, readsOf(n).every(r => ['Avatar', 'VerifiedBadge'].includes(r.component))]).toEqual([n, true]);
+  // Each is read on the exports' own cells, only there, and by every one of
+  // the two that draws with it (cards.badge-mark: Avatar's figure and
+  // VerifiedBadge's check), so a read dropped from one fails here.
+  const drawnBy = n => ['Avatar', 'VerifiedBadge'].filter(c => {
+    const body = exportsBody.slice(exportsBody.indexOf(`component ${c}`)).split(/\n(?=component )/)[0];
+    return body.includes(`"${n}"`) || [...app.matchAll(new RegExp(`^\\s+${c}\\((.*)\\)\\s*$`, 'gm'))].some(([, a]) => a.includes(`"${n}"`));
+  });
+  for (const n of EXPORTED_TOKENS) {
+    const reads = readsOf(n);
+    expect([n, reads.length > 0 && reads.every(r => ['Avatar', 'VerifiedBadge'].includes(r.component))]).toEqual([n, true]);
+    expect([n, [...new Set(reads.map(r => r.component))].sort()]).toEqual([n, drawnBy(n).sort()]);
+  }
   // The "" badge's cell is library-gate's.
   expect(EMPTY.every(id => placements(app, ['VerifiedBadge']).some(p => p.id === id && option(p.values.badge) === ''))).toBe(true);
   // The cases' components and instances are library-gate's.

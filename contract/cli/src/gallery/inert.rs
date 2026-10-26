@@ -316,7 +316,9 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
 
 /// What a string prop the view writes as a style row's value is shown
 /// with, by the row's kind: a colour row's `currentcolor` (the text's
-/// colour, a CSS colour every host reads), a length row's `24px`, where the
+/// colour, a CSS colour every host reads; a row that takes one colour
+/// alone, never a shadow, gradient or filter that holds one, which keeps
+/// the prop's name, a token's it may be), a length row's `24px`, where the
 /// prop's name would be no colour, token or length (Avatar's `width=size`,
 /// VerifiedBadge's `color=ink`, LLP 1121 stage 15 B); a length row is one
 /// whose every row is a dimension (a width, a padding), so a font's family
@@ -344,7 +346,6 @@ fn styled(
 ) -> (bool, bool) {
     use contract_lower::tags::AttrTarget;
     use exact_kernel::generated::StyleCodec;
-    use exact_kernel::style::theme::{admits, Kind};
     let key = (c.name.clone(), prop.to_string());
     if seen.contains(&key) {
         return (false, false);
@@ -362,7 +363,16 @@ fn styled(
                     if let Some(AttrTarget::Styles(rows)) =
                         contract_lower::style_names::lookup(&a.name)
                     {
-                        colour |= !rows.is_empty() && rows.iter().all(|r| admits(Kind::Color, *r));
+                        colour |= !rows.is_empty()
+                            && rows.iter().all(|r| {
+                                matches!(
+                                    r.codec(),
+                                    StyleCodec::Rgba8
+                                        | StyleCodec::ColorValue
+                                        | StyleCodec::KeywordColor
+                                        | StyleCodec::Paint
+                                )
+                            });
                         length |= !rows.is_empty()
                             && rows
                                 .iter()

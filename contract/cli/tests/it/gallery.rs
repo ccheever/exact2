@@ -960,27 +960,40 @@ component Ring
     tint: string
   view
     Dot(size=edge, ink=tint, label="ring")
+
+component Glow
+  props
+    glow: string
+  view
+    text "g" text-shadow=glow
 "#;
 
-const STYLED_APP: &str = r#"use Dot, Ring from "@acme/lib"
+const STYLED_APP: &str = r#"use Dot, Ring, Glow from "@acme/lib"
 
 component App
   view
     column
       Dot(size="4px", ink="red", label="a")
       Ring(edge="4px", tint="red")
+      Glow(glow="glow")
 "#;
 
 /// A string prop written as a style row's value, directly or through a
 /// component it is passed to, gets a value of that row's kind, not its name,
 /// which no row reads (LLP 1121 stage 15 B: Avatar's `width=size`,
 /// VerifiedBadge's `color=ink`): a length row `24px`, a colour row
-/// `currentcolor`; a label keeps its name.
+/// `currentcolor`; a label keeps its name, and so does a shadow (a row that
+/// holds a colour but takes no colour alone; its name may be a token's).
 #[test]
 fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
     let dir = fixture("styled");
     let lib = dir.join("node_modules/@acme/lib");
     std::fs::write(lib.join("index.contract"), STYLED).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber app\n\ntheme\n  lib.pad = 6px\n  glow: text-shadow = 0 1px 2px #000000\n",
+    )
+    .unwrap();
     std::fs::write(dir.join("app.contract"), STYLED_APP).unwrap();
     let out = dir.join("node_modules/.cache/exact-gallery");
     let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
@@ -1003,5 +1016,10 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         .expect("a Ring cell");
     assert!(ring.contains(r#"edge="24px""#), "{ring}");
     assert!(ring.contains(r#"tint="currentcolor""#), "{ring}");
+    let glow = text
+        .lines()
+        .find(|l| l.contains("Glow("))
+        .expect("a Glow cell");
+    assert!(glow.contains(r#"glow="glow""#), "{glow}");
     let _ = std::fs::remove_dir_all(&dir);
 }
