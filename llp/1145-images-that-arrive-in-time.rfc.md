@@ -114,9 +114,9 @@ change of its own.
 
 ## 4. Plan
 
-D3 is built. D2 is built on Apple. LLP 1144's report runs on Excord, with cold and
-warm caches. D1, or fetching bytes at page arrival, follows from what it shows. D4
-then lands with a conformance case.
+D2 (Apple), D3 and D4 are built. LLP 1144's report runs on Excord, with cold and
+warm caches. D1, or fetching bytes at page arrival, follows from what it shows. D4's
+conformance case is in `QUEUE.md`.
 
 ## Open questions
 

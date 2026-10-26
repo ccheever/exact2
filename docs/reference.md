@@ -2443,6 +2443,12 @@ window reaches the first or last supplied row. An empty collection fires neither
 event. A plain list lays out all its children and has no collection window;
 the Contract compiler refuses either handler there, on every target.
 
+`reach-margin` on such a list sets how far ahead of an edge they fire: the edge
+row may be up to that far past the port. It is a literal, one or two nonnegative
+px or % lengths (before and after; a percentage is of the list's port along its
+axis), and defaults to one port, `"100%"`. `reach-margin="200%"` asks for the
+next page when the last row is two ports away (LLP 1145 D4).
+
 For a plain feed or masonry, use `intersect=` on a marker at the end of the
 content, after the columns, inside the same scroller:
 
