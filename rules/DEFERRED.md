@@ -199,9 +199,22 @@ held to Chrome. The reader app's diary is the consumer: pagination and a
 two-page spread from one flow. Unblocks book pagination without a polled
 height or a duplicated chapter. Take: LLP 1043.000 stage 5
 (`shape-outside: <image>`, the dancer's traced silhouette) moves behind
-LLP 1093 stage 2. Still out: `column-span`, regions, paged media and `@page`,
-`box-decoration-break: clone`, and slicing decorated, fixed-height, flex-row
-and grid boxes (LLP 1093 §5).
+LLP 1093 stage 2. Still out: `column-span`, regions, `@page` (page size,
+margins and page-margin boxes), `box-decoration-break: clone`, and slicing
+decorated, fixed-height, flex-row and grid boxes (LLP 1093 §5); printing an
+element is LLP 1133.024.
+
+**Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", waived; LLP
+1133.024 §19 question 6):** printing one element through the platform's
+print UI (`print` from `@exact/print`): a print layout of the element at
+the page's width and the kernel's cut over pages of the platform's paper,
+with `break-*`'s `page` and `avoid-page` values, which do nothing on
+screen. Consumer: Fieldnotes' Print note. Unblocks printing and Save as
+PDF of a view made for paper without app Swift or Kotlin. Take: none
+named; the ruling is its own waiver. Still out (LLP 1133.024 §18):
+`@page`, a PDF export without the print UI, slicing a monolithic box
+across pages, a multi-column box continued across pages, and repeated
+fixed boxes.
 
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
 across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown

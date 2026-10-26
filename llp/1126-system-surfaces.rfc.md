@@ -399,6 +399,14 @@ surface's inputs it reloads that surface's timelines. The answer stays a pull
 widget's write reaches the app when it next comes to the front, or at once
 if it is running (§0, question 6).
 
+**Amended (Charlie, 2026-10-26; LLP 1133.024 D4, §19 question 1).** A share
+extension that links no Exact runtime (no `ExactCore`, kernel or Hermes) and
+opens neither the store nor the update store is outside the cohort. It ships
+inside the app's bundle, built and signed with it, and writes only an inbox
+in the App Group, under names it chooses, that the app claims; the app stays
+the store's only writer. Its one contract with the app is the inbox record's
+versioned shape, which LLP 1133.024 owns.
+
 **The render touches no secret, and account content is private by default.**
 A Lock Screen widget can render before first unlock, when the Keychain's
 usual class (`AfterFirstUnlockThisDeviceOnly`, LLP 1018 D7) and protected
@@ -506,6 +514,11 @@ when an app needs it. An App Clip is an app. A SwiftUI-only system view in
 the running app (Swift Charts, `Gauge`, StoreKit's views, Translation's
 modifiers, an ornament on a visionOS UIKit window) is a native module, as
 Expo Services' number transition is today.
+
+**Amended (Charlie, 2026-10-26; LLP 1133.024 D4).** A share extension whose
+compose sheet is the system's (iOS) or the host's AppKit one (macOS) is
+admitted without the presenter-free composition (D8's amendment). A share
+UI the app authors still takes this path.
 
 ### D13 — Android has the same questions, answered by its own RFC
 
