@@ -1351,8 +1351,8 @@ export async function toolCommand(argv) {
     // `--via` names the design server the tool goes through: the tool
     // there is reused only when it forwards to that server's run (the same
     // epoch), never its own server or another loop's.
-    const through = target ? await reach() : null;
-    if (target && through.answer?.epoch !== there.epoch) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves this design, not through ${target}${through.answer ? '' : ` (it does not answer${after(through)})`}; stop it first`); return 1; }
+    // (Probed once, never waited for: the tool here answered and that loop does not, so it isn't going through it.)
+    if (target && (await toolAnswers(target, 5))?.epoch !== there.epoch) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves this design, not through ${target}; stop it first`); return 1; }
     // And this checkout's tool, as just built: another checkout's server
     // serves its own.
     // Its page, module and plan (whose names carry no digest) as built here.

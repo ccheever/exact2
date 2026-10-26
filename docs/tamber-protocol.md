@@ -1837,7 +1837,8 @@ The tool drives no input into an app; a command changes only what `prefer` would
   A loop that doesn't answer yet (refused while its first build runs, or reset, one restarting, or its design server
   starting, its `hello` held past 120 s) is waited for, probed every 2 s, saying why in one line per reason, for at most 20 minutes
   (`EXACT_TAMBER_VIA_WAIT_MS` shortens it, read only under `EXACT_TAMBER_TEST_TIMING=1`, as the server's clocks
-  are); an answer that is another app's, or no design server, still fails at once. Port 7740 is taken only once
+  are); an answer that is another app's, or no design server, still fails at once, and so does a
+  second `tamber tool --via` when port 7740 already serves this design (that loop is probed once, not waited for). Port 7740 is taken only once
   the loop answers.
   See `apps/design-tool/README.md`.
 
