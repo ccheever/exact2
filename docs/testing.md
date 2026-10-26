@@ -146,9 +146,14 @@ minute for SpringBoard to idle before tapping, so the native call has a 150-seco
 check multi-entry Back in primary and presented stacks. It asserts the retained
 controllers and the router's chosen visit, including return to the sheet root
 without changing the background stack. It also checks that header search commits
-and blurs once before dispatch, newer app navigation wins during a pop (including
-navigation from blur), and an unmapped destination restores the declared stack.
-A test sends UIKit's registered search-cancellation action and checks the live query and native bar state.
+and blurs once before dispatch and keeps the typed query, newer app navigation
+wins during a pop (including navigation from blur), and an unmapped destination
+restores the declared stack.
+A test exercises UIKit's registered search-cancellation action and the controller
+dismissal used by Duo's inner-display Close, including dismissal in a presented stack.
+It checks that cancellation clears the live and committed query, commits once and
+keeps the route. It repeats cancellation after the Search key dismisses the keyboard
+and checks that no second blur is sent.
 The runner tests distinguish visits with the same URL and reject stale or
 cross-tab jumps. These tests use UIKit's public stack API; they do not establish
 activation of its Back-history menu.
