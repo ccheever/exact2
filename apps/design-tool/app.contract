@@ -218,7 +218,8 @@ component DesignTool
   state returnTo = ""
   // Text typed in the value field and not yet committed (it commits on change: Enter, or leaving it) is pending too.
   state typing = false
-  derive closable = selToken != "" and editKind == "" and not scrubShown and not typing
+  // A rename typed and not proposed is pending too.
+  derive closable = selToken != "" and editKind == "" and not scrubShown and not typing and renameTo.trim() == ""
   task focusEditor when branchShown and focusedPress != pressed key=pressed
     after(1, enterEditor)
   state historyPages = 1
@@ -573,6 +574,12 @@ component DesignTool
     selToken = token
     selColumn = column
     selPlace = place
+    // (No grid cell pressed: none to give the focus back to, no press's focus still to move, and no typed text or
+    // rename of the last carried.)
+    returnTo = ""
+    focusedPress = pressed
+    typing = false
+    renameTo = ""
     pinning = false
     scopeOwn = false
     focusDial = ""
@@ -594,7 +601,9 @@ component DesignTool
       returnTo = `cell-${token}-${column}`
     else
       returnTo = ""
+      focusedPress = pressed
     typing = false
+    renameTo = ""
     // A scrub open is of another edit: it ends first.
     if scrubShown
       scrubTick = scrubTick + 1
@@ -628,6 +637,7 @@ component DesignTool
       selColumn = ""
       selPlace = ""
       returnTo = ""
+      focusedPress = pressed
   // Escape in the dock (from its field or any control in it) closes it as Close does; with anything pending (a typed
   // value, a draft, a scrub) it does nothing.
   action dockKey(key: string)
@@ -638,6 +648,7 @@ component DesignTool
       selColumn = ""
       selPlace = ""
       returnTo = ""
+      focusedPress = pressed
   action showDial(name: string, group: string, more: bool)
     if more and not opened.includes(group)
       opened = opened.concat([group])
@@ -696,6 +707,8 @@ component DesignTool
     editWhen = branch.own
   action pin
     pinning = true
+    // The pressed Pin goes and the value field comes in its place, in this commit: the focus moves into it.
+    focus("branch-value")
   action editNewName(v: string)
     newName = v
   action editNewValue(v: string)
@@ -798,6 +811,9 @@ component DesignTool
     scopeOwn = false
     rawFor = ""
     partFor = ""
+    // The pressed Cancel is gone: the focus stays in the dock (its editor), where Escape still reaches it.
+    if selToken != ""
+      focus("edit-dock")
   action startScrub
     if not scrub.live and not pending(written)
       scrubAsk = scrubAsk + 1
@@ -1280,11 +1296,6 @@ component DesignTool
                             text "Rename"
                           button commandfor="confirm-remove" command="show-modal" disabled=(not canPropose or branch.readOnly != "") destructive=true testId="remove"
                             text "Remove"
-                      dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
-                        button press=removeToken disabled=(not canPropose or branch.readOnly != "") destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
-                          text "Remove"
-                        button commandfor="confirm-remove" command="close"
-                          text "Cancel"
                   if not branch.ok
                     text branch.error color="-exact-system-red" testId="branch-error"
                   if editKind == "promote-param" or editKind == "promote-token" or editKind == "detach-param"
@@ -1345,6 +1356,13 @@ component DesignTool
                             text "Cancel"
                         if (editKind == "set-dial" or editKind == "set-token" or editKind == "set-param") and proposal.ok and proposal.active and proposal.chip != "live"
                           text (hello.live ? "This edit rebuilds the app, so it can't be scrubbed: Apply writes it." : "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via).") color="-exact-secondary-label" font="-exact-footnote" testId="scrub-unavailable"
+              // The Remove confirmation outside the dock, so its own Escape (which closes it) never reaches the dock's.
+              if branchShown and not branch.param
+                dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
+                  button press=removeToken disabled=(not canPropose or branch.readOnly != "") destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                    text "Remove"
+                  button commandfor="confirm-remove" command="close"
+                    text "Cancel"
               column gap=8 testId="add"
                 text "Add a token" role="heading" aria-level=3
                 row gap=8
