@@ -811,6 +811,8 @@ component DesignTool
     scopeOwn = false
     rawFor = ""
     partFor = ""
+    // (A rename's typed name goes with it.)
+    renameTo = ""
     // The pressed Cancel is gone: the focus stays in the dock (its editor), where Escape still reaches it.
     if selToken != ""
       focus("edit-dock")

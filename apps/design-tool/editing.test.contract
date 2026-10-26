@@ -866,6 +866,13 @@ test "the edit dock: a cell's editor and its edit's proposal in one dock; Close 
   expect tree missing "edit-dock-close"
   type "rename-to" ""
   expect tree has "edit-dock-close"
+  // A rename proposed, then cancelled: its name goes with it, and Close is back.
+  type "rename-to" "surface.cardy"
+  tap "rename"
+  clock data
+  tap "cancel-edit"
+  clock data
+  expect tree has "edit-dock-close"
   // Escape in the Remove confirmation closes it, never the dock (it is outside it).
   tap "remove"
   type "confirm-remove-yes" key "Escape"
