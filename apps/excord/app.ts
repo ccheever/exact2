@@ -10,6 +10,7 @@ import { applyEvent, at, call, clock, connect, context, createLive, digest, disp
 import { emojiChoices, resolveMentions, suggest, switchTargets } from './compose';
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { avatarUrl, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
+import { messageLanguage } from './language';
 
 export const appId = 'com.exact.excord';
 // Where Discord is: the fixture (app.json's `commands.server`) unless the bake says otherwise.
@@ -341,6 +342,7 @@ function newest(channel: string): string | null {
 
 const sources: Sources = {
   loadSession: (_args, secrets, storage) => loadSession(live, secrets, storage),
+  messageLanguage: ([text]) => messageLanguage(text),
   signIn: ([text], secrets) => { const error = signIn(live, secrets, text); return error ? { ok: false, error } : OK; },
   signOut: (_args, secrets) => { signOut(live, secrets); return OK; },
   unlockSession: (_args, secrets) => unlockSession(live, secrets),

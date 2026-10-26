@@ -199,9 +199,22 @@ held to Chrome. The reader app's diary is the consumer: pagination and a
 two-page spread from one flow. Unblocks book pagination without a polled
 height or a duplicated chapter. Take: LLP 1043.000 stage 5
 (`shape-outside: <image>`, the dancer's traced silhouette) moves behind
-LLP 1093 stage 2. Still out: `column-span`, regions, paged media and `@page`,
-`box-decoration-break: clone`, and slicing decorated, fixed-height, flex-row
-and grid boxes (LLP 1093 §5).
+LLP 1093 stage 2. Still out: `column-span`, regions, `@page` (page size,
+margins and page-margin boxes), `box-decoration-break: clone`, and slicing
+decorated, fixed-height, flex-row and grid boxes (LLP 1093 §5); printing an
+element is LLP 1133.024.
+
+**Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", waived; LLP
+1133.024 §19 question 6):** printing one element through the platform's
+print UI (`print` from `@exact/print`): a print layout of the element at
+the page's width and the kernel's cut over pages of the platform's paper,
+with `break-*`'s `page` and `avoid-page` values, which do nothing on
+screen. Consumer: Fieldnotes' Print note. Unblocks printing and Save as
+PDF of a view made for paper without app Swift or Kotlin. Take: none
+named; the ruling is its own waiver. Still out (LLP 1133.024 §18):
+`@page`, a PDF export without the print UI, slicing a monolithic box
+across pages, a multi-column box continued across pages, and repeated
+fixed boxes.
 
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
 across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown
@@ -952,11 +965,30 @@ reading. Nothing that isn't HTML is added by it.
   for a store lane; development builds and the stores' test environments
   need none. Still out, each until a consumer asks (LLP 1133.015 §11):
   StoreKit's merchandising views as package views; External Purchase, the
-  link-out entitlements and Play's alternative billing as tier 1; payments
-  for physical goods; the web cell inside a TWA or a Microsoft Store PWA;
+  link-out entitlements and Play's alternative billing as tier 1; the web
+  cell inside a TWA or a Microsoft Store PWA;
   a receipt-validation or entitlement server of exact2's, and relaying the
   stores' server notifications; and the Windows, tvOS, visionOS and
   watchOS cells.
+- **Expanded (Charlie, 2026-10-26, "Accept r5, build (Recommended)",
+  waived; LLP 1133.034 §13 question 9):** payment for physical goods and
+  services by Payment Request's names (`showPaymentRequest`,
+  `paymentRequestStatus` and the wallet's button `exact-payment-button`,
+  from `@exact/payments`), through Apple Pay and Google Pay on the web,
+  iOS, macOS and Android, the payment token reaching the app's data code
+  alone; Wallet passes as tier 2, designed and built when a consumer asks.
+  Consumer: the photo editor's Order a Print, against a fixture print
+  server that charges nothing. Unblocks selling a physical good with the
+  device's wallet without app Swift or Kotlin. Take: none named; the
+  ruling is its own waiver. Real wallet drives wait for the Apple merchant
+  ID and the Google test account (question 7). Still out, each until a
+  consumer asks (LLP 1133.034 §11): card entry without a wallet and any
+  processor's SDK; a payment server of exact2's; Apple Pay's in-app
+  provisioning, Tap to Pay on iPhone, disbursements, identity
+  verification with Wallet and Apple Pay Later's merchandising views;
+  Secure Payment Confirmation and the web's payment handlers; native
+  merchant session updates; an Add to Apple Wallet button view; and the
+  tvOS, Windows, Linux, watchOS and visionOS cells.
 - **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
   1133.016 §14 question 9):** the device's own language model by the
   Prompt API's names (`languageModelAvailability`, `createLanguageModel`,
@@ -997,10 +1029,27 @@ reading. Nothing that isn't HTML is added by it.
   app that is not running on macOS, Linux and Windows; Android's
   long-running workers and foreground services beyond a person-started
   transfer's; resuming an interrupted upload on Android; an app's own
-  `beginBackgroundTask`; background location, geofencing, Bluetooth
-  restoration and HealthKit delivery, each its own module over this seam;
-  Background Fetch's `icons` and `updateUI`; and continued processing's
-  GPU resource.
+  `beginBackgroundTask`; continuous background location (geofencing
+  moved in, below), Bluetooth restoration and HealthKit delivery, each its
+  own module over this seam; Background Fetch's `icons` and `updateUI`;
+  and continued processing's GPU resource.
+- Maps, geocoding and geofencing were never on the doing list. **Expanded
+  (Charlie, 2026-10-26, "Accept, with Play services (Recommended)",
+  waived; LLP 1133.021 §15 question 8):** maps as the `exact-map` package
+  view (web, iOS, macOS, Android, tvOS), geocoding by the platform's
+  geocoder (iOS, macOS, Android, tvOS), and geofencing as wakes, from a
+  region carrier the host keeps on Apple and the package's receivers over
+  the host's store on Android, with Play services' geofencing there (iOS,
+  macOS, Android), with the seam additions of LLP 1133.021 §9. Background
+  location is admitted only as the grant geofencing requires
+  (`device.geolocation-background`). Consumers: map-demo, Weatherlight,
+  Caltrain. Unblocks one map on every target with a map, a followed
+  position named by its city, and an arrival that wakes a closed app.
+  Take: none named; the ruling is its own waiver, and the expansion
+  deletes map-demo's own native module (its Swift and JavaScript). Still
+  refused (LLP 1133.021 §11): continuous background location, beacons,
+  visits and significant-change launches, overlays, directions, search, a
+  default web tile source and a web geocoder.
 - **Expanded (Charlie, 2026-10-26, "Accept r5, services first
   (Recommended)", waived; LLP 1133.033 §13 question 9):** a foreground
   service the host keeps on Android, claimed by a package for a capture
