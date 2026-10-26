@@ -1,6 +1,6 @@
 // Shelf's data: the library, kept as one JSON file under app:/data/shelf, and
-// Open Library's subjects. The view (app.contract) says what it wants; this
-// file answers.
+// Open Library's subjects and ISBNs. The view (app.contract) says what it
+// wants; this file answers.
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 
 export const appId = 'com.exact.shelf';
@@ -8,6 +8,8 @@ export const grants = [
   'fs.read app:/data/shelf',
   'fs.write app:/data/shelf',
   'net.fetch https://openlibrary.org',
+  'device.camera scanPurpose',
+  'fs.read app:/tmp/picked',
 ].join('\n');
 
 type Book = Result<'library'>['books'][number];
@@ -17,9 +19,9 @@ const DIR = 'app:/data/shelf';
 const FILE = `${DIR}/library.json`;
 
 const SEED: Book[] = [
-  { id: 'seed-1', title: 'The Left Hand of Darkness', author: 'Ursula K. Le Guin', pages: 304, currentPage: 304, status: 'done', rating: 5, notes: 'Re-read every few years.', addedAt: 1700000000000, coverUrl: '', sourceKey: '' },
-  { id: 'seed-2', title: 'Piranesi', author: 'Susanna Clarke', pages: 272, currentPage: 120, status: 'reading', rating: 0, notes: '', addedAt: 1700000100000, coverUrl: '', sourceKey: '' },
-  { id: 'seed-3', title: 'The Dispossessed', author: 'Ursula K. Le Guin', pages: 387, currentPage: 0, status: 'want', rating: 0, notes: '', addedAt: 1700000200000, coverUrl: '', sourceKey: '' },
+  { id: 'seed-1', title: 'The Left Hand of Darkness', author: 'Ursula K. Le Guin', pages: 304, currentPage: 304, status: 'done', rating: 5, notes: 'Re-read every few years.', addedAt: 1700000000000, coverUrl: '', sourceKey: '', quotes: 0 },
+  { id: 'seed-2', title: 'Piranesi', author: 'Susanna Clarke', pages: 272, currentPage: 120, status: 'reading', rating: 0, notes: '', addedAt: 1700000100000, coverUrl: '', sourceKey: '', quotes: 0 },
+  { id: 'seed-3', title: 'The Dispossessed', author: 'Ursula K. Le Guin', pages: 387, currentPage: 0, status: 'want', rating: 0, notes: '', addedAt: 1700000200000, coverUrl: '', sourceKey: '', quotes: 0 },
 ];
 
 type Saved = { books: Book[]; goal: number };
@@ -42,6 +44,7 @@ function normalize(raw: Partial<Book>): Book {
     addedAt: Number(raw.addedAt ?? 0) || 0,
     coverUrl: String(raw.coverUrl ?? ''),
     sourceKey: String(raw.sourceKey ?? ''),
+    quotes: Number(raw.quotes ?? 0) || 0,
   };
 }
 
@@ -162,6 +165,7 @@ const sources: Sources = {
         addedAt: at,
         coverUrl,
         sourceKey,
+        quotes: 0,
       };
       return { ...s, books: [book, ...s.books] };
     }),
@@ -171,7 +175,37 @@ const sources: Sources = {
   setPage: ([id, page], _store, storage) => patchBook(storage, id, { currentPage: page }),
   setRating: ([id, rating], _store, storage) => patchBook(storage, id, { rating }),
   setNotes: ([id, notes], _store, storage) => patchBook(storage, id, { notes }),
+  // A quote goes after the notes as its own paragraph; `quotes` counts them,
+  // so the view starts its draft again from the notes it now has.
+  appendQuote: ([id, quote], _store, storage) =>
+    change(storage, (s) => ({
+      ...s,
+      books: s.books.map((b) => (b.id === id ? { ...b, notes: b.notes.trim() === '' ? quote : `${b.notes.trimEnd()}\n\n${quote}`, quotes: b.quotes + 1 } : b)),
+    })),
   setGoal: ([n], _store, storage) => change(storage, (s) => ({ ...s, goal: Math.max(1, Math.min(365, n)) })),
+
+  // An ISBN's edition and its first author, from Open Library's Books API
+  // (https://openlibrary.org/dev/docs/api/books): `/isbn/{isbn}.json`
+  // redirects to the edition, whose `authors` are keys of author records.
+  bookByIsbn: async ([isbn]) => {
+    const none = { isbn, found: false, title: '', author: '', pages: 0 };
+    if (isbn === '') return none;
+    try {
+      const res = await fetch(`https://openlibrary.org/isbn/${isbn}.json`);
+      if (!res.ok) return none;
+      const edition = (await res.json()) as { title?: string; number_of_pages?: number; authors?: Array<{ key?: string }>; by_statement?: string };
+      let author = edition.by_statement ?? '';
+      const key = edition.authors?.[0]?.key;
+      if (key) {
+        const who = await fetch(`https://openlibrary.org${key}.json`);
+        if (who.ok) author = String(((await who.json()) as { name?: string }).name ?? author);
+      }
+      return { isbn, found: Boolean(edition.title), title: String(edition.title ?? ''), author: author || 'Unknown author', pages: Number(edition.number_of_pages ?? 0) || 0 };
+    } catch (e) {
+      if ((e as { code?: string }).code === 'bake') throw e;
+      return none;
+    }
+  },
 
   subjectWorks: async ([subject]) => {
     try {
