@@ -37,8 +37,7 @@ const SCOPES = ['read', 'propose', 'write'];
 // The long poll's reply ceiling: 16 MiB, room for a held import's diffs (a native host counts twice that running).
 const LONG_POLL_MAX = 16 * 1024 * 1024;
 // A batched resolve's reply (`tokens`, tamber/1.17): the server's bound on its answers (16 MiB) and its `files`, said
-// rather than left to a host's default (a native fetch's is 1 MiB, which 2,800 of the clone's tokens would pass; the
-// web's, where the tool runs, 64 MiB).
+// rather than left to a host's default (a fetch's is 64 MiB, a stream's 1 MiB).
 const BATCH_MAX = 17 * 1024 * 1024;
 /** What a request needs, as the server reads it: inspect other than a
  * refresh is `write` (it moves the builds), and so is a drop or an edit of another
