@@ -379,7 +379,7 @@ pub fn library(app: &AppParams, design: Option<&exact_tamber::Design>) -> Value 
     // design and its packages' (what the server re-checks on a write).
     let folding =
         contract_lower::with_package_designs(design.cloned(), &app.packages).and_then(|d| {
-            exact_tamber::check_design(laid(&d, app), &contract_lower::tamber_vocab()).ok()
+            exact_tamber::check_design_cached(laid(&d, app), &contract_lower::tamber_vocab()).ok()
         });
     let reaches = |value: &str| -> Vec<String> {
         let value = value.trim();
@@ -457,7 +457,7 @@ pub fn components(
 ) -> Value {
     let all = app.tokens.as_slice();
     let design = design.cloned().unwrap_or_default();
-    let folding = exact_tamber::check_design(laid(&design, app), vocab).ok();
+    let folding = exact_tamber::check_design_cached(laid(&design, app), vocab).ok();
     // What each param's default reaches (stage 12 B2-levels, *1.15*).
     let designs = crate::tamber_levels::Designs::parsed("", Some(design.clone()), app, vocab);
     let mut out: Vec<Value> = Vec::new();

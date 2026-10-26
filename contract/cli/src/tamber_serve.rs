@@ -882,7 +882,9 @@ impl Server {
             .find(|(f, _, _)| *f == file)
             .ok_or_else(|| json!({"message": format!("`{file}` is no file of this design")}))?
             .1;
-        let folding = exact_tamber::check(text, &self.vocab).map_err(|all| refused(&file, all))?;
+        let folding = exact_tamber::parse(text)
+            .and_then(|d| exact_tamber::check_design_cached(d, &self.vocab))
+            .map_err(|all| refused(&file, all))?;
         Ok((snap, folding))
     }
 
