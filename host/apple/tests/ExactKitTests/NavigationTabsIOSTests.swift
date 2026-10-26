@@ -304,6 +304,29 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("cover leaves top protection to the author") { p.navigation.covers[list.id] == nil }
     }
 
+    func testAdoptingTabsWhileCSSHiddenKeepsTheirLabelsHiddenWhenShown() throws {
+        let session = try fixture("hidden-tabs-adoption")
+        let p = session.presenter, list = try node(session, "tabs")
+        try authoredTabs(session, true)
+        try tapNode(session, "toggle-choosing")
+        until("CSS hides the authored tablist") { list.style["display"]?.string == "none" }
+        XCTAssertFalse(list.hiddenByHost, "only CSS hides the list before adoption")
+        try authoredTabs(session, false)
+        try tapNode(session, "toggle-choosing")
+        until("CSS shows the tablist again") { list.style["display"]?.string != "none" }
+        XCTAssertTrue(list.isHidden, "the native bar keeps the authored labels out of the page")
+        XCTAssertTrue(list.hiddenByHost)
+        XCTAssertFalse(tabBarHidden(try XCTUnwrap(p.navigation.tabController)))
+        try tapNode(session, "toggle-choosing")
+        until("CSS hides the adopted tablist") { list.style["display"]?.string == "none" }
+        try authoredTabs(session, true)
+        XCTAssertTrue(list.isHidden, "CSS hiding survives the end of native ownership")
+        XCTAssertFalse(list.hiddenByHost)
+        try tapNode(session, "toggle-choosing")
+        until("CSS reveals the authored tabs") { list.style["display"]?.string != "none" }
+        XCTAssertFalse(list.isHidden, "CSS shows the authored tabs once the native bar no longer owns them")
+    }
+
     func testHiddenAuthoredTabsRestoreTheWholeViewport() throws {
         let session = try fixture("hidden-authored-tabs")
         let p = session.presenter, view = try XCTUnwrap(session.view)
