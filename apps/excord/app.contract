@@ -192,8 +192,9 @@ component Excord
   derive here = categories.filter(g => g.channels.map(c => c.guild).includes(guild.id))
   derive channels = here.map(g => g.channels).flat()
   // A browser window wide enough to show the channel beside the list (the web's split, from 900
-  // points) opens the server's last channel, or its first, as Discord's web app does. The Mac's split
-  // gives the list its own column's width, and Windows and Android push, so they show the list first.
+  // points) opens the server's last channel, or its first, as Discord's web app does, and hides Back,
+  // which would only reopen it (the browser's Back still presses it, keeping the place). The Mac's
+  // split gives the list its own column's width; Windows and Android push, showing the list first.
   derive wide = viewport.displayMode == "browser" and viewport.width >= 900
   derive listed = dmsShown ? dms : channels
   derive remembered = draftOf(lastChannels, dmsShown ? "@me" : guild.id)
@@ -257,8 +258,7 @@ component Excord
   // A window still lacking the page that holds its anchor (or its tail) answers nothing yet.
   derive current = win.channel == open and (win.anchor == anchor or win.pin == anchor) and win.need != "around" and win.need != "latest"
   derive pageKey = `${win.channel}/${win.need}/${win.cursor}`
-  // Asks count as well as failures: a page whose answer the host refused (a window it could not read)
-  // runs no `afterPage`, or leaves the window as it was, and would otherwise be asked again for good.
+  // Asks count too: a page whose window the host refused runs no `afterPage` and would be asked for good.
   derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and (pageTries >= 3 or (pageAsks >= 3 and not pending(paged)))
   derive historyLoading = pending(win) or win.channel != open or win.need != ""
   // The transcript is on screen, not the channel list or a picture over it.
@@ -1242,7 +1242,7 @@ component Excord
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
-              button id="back" press=back aria-label="Back" testId="back"
+              button id="back" press=back aria-label="Back" testId="back" display=(wide ? "none" : "flex")
                 image "symbol:back"
               h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
               if chan.guild != ""
