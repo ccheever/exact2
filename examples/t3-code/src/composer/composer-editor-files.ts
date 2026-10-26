@@ -25,10 +25,9 @@ import { composerFieldOwner } from './auto-balance-owner';
 export const PASTED_TEXT_THRESHOLD_BYTES = 32 * 1024;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 /**
- * The largest dropped or pasted (`doc:`) file staging can take. The host copies no `doc:` file, so staging reads it
- * through JavaScript, and `storage.fs.readFile` answers base64 within the runner's 16 MiB host work limit
- * (runner/src/request.rs MAX_HOST_WORK_BYTES): a read past about 12 MiB fails. A picked file is an `app:` copy the host
- * copies, up to MAX_FILE_BYTES as in the reference.
+ * The largest attachment staging reads through JavaScript (an image's header, a video's display size):
+ * `storage.fs.readFile` answers base64 within the runner's 16 MiB host work limit (runner/src/request.rs
+ * MAX_HOST_WORK_BYTES), so a read past about 12 MiB fails. The host copies and uploads the file itself at any size.
  */
 export const HOST_READ_BYTES = 11 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 100;

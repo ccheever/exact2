@@ -1,6 +1,6 @@
 // The app's storage (Exact's `storage.fs`) in memory, for the attachment staging tests (not a test file): `released`
 // names the staged copies removed. It refuses
-// what the host refuses: copyFile and compressImage from a `doc:` path. compressImage "encodes" a 4×3 PNG, or fails
+// what the host refuses: copyFile from a `doc:` path to anything but an `app:` one, and compressImage from a `doc:` path. compressImage "encodes" a 4×3 PNG, or fails
 // `undecodable` for bytes that start with "X" (no image).
 import type { Obj } from '../../src/client/domain';
 import { adoptAppFiles } from '../../src/media/save-file';
@@ -53,7 +53,7 @@ export function memoryFiles(entries: Record<string, Uint8Array | 'folder'> = {})
       if (folders.has(path)) return { size: 0, isFile: false, isDirectory: true, modifiedMs: 0 };
       return { size: read(path).byteLength, isFile: true, isDirectory: false, modifiedMs: 0 };
     },
-    async copyFile(from: string, to: string) { if (from.startsWith('doc:')) throw failure('failed'); store.set(to, read(from)); },
+    async copyFile(from: string, to: string) { if (from.startsWith('doc:') && !to.startsWith('app:/')) throw failure('failed'); store.set(to, read(from)); },
     async compressImage(from: string, to: string, options: Obj) {
       compressed.push({ from, to, ...options });
       if (!from.startsWith('app:/')) throw failure('failed');
