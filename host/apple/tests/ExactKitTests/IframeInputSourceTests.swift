@@ -31,7 +31,7 @@ final class IframeInputSourceTests: XCTestCase {
 
     override func setUpWithError() throws {
         _ = NSApplication.shared
-        if Self.server == nil { Self.server = try AutomationPages(port: 16661) }
+        if Self.server == nil { Self.server = try AutomationPages() }
     }
 
     override func tearDown() {
@@ -87,7 +87,7 @@ final class IframeInputSourceTests: XCTestCase {
         window.contentView!.addSubview(web)
         window.makeKeyAndOrderFront(nil)
         self.window = window
-        Array("http://127.0.0.1:16661/input".utf8).withUnsafeBufferPointer { setSrc(handle, $0.baseAddress, UInt32($0.count), 1) }
+        Array("http://127.0.0.1:\(Self.server!.port)/input".utf8).withUnsafeBufferPointer { setSrc(handle, $0.baseAddress, UInt32($0.count), 1) }
         var focused = false
         spin(until: {
             web.evaluateJavaScript("field.focus(); document.activeElement === field") { value, _ in focused = value as? Bool == true }
