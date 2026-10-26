@@ -17,7 +17,7 @@ import { pairingSources } from './pairing';
 import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { heldTitle, opWords, whenText } from './optext';
 import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, heard, keep, resolveAll, type Kept } from './reread';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
-import { carriedChoice, startsChosen } from './choice';
+import { carriedChoice, chosenOf, heldChoice, startsChosen } from './choice';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
@@ -284,7 +284,7 @@ let session = 0;
 const forgotRuns = new Set<string>();
 function forget(run: string, still = false) {
   if (run && forgotRuns.has(run) && !still) return;
-  undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1; reviewed.end();
+  undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1; reviewed.end(); heldChoice.forget();
   if (run) forgotRuns.add(run);
 }
 const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '', carried: [] as string[], rescope: undoStack.at(-1)?.rescope?.text ?? '' });
@@ -420,7 +420,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     }
     heldDesign = design;
     heldOps = new Map(heldRaw.map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
-    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review]));
+    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review])); heldChoice.saw(heldRaw); // (each card's base, the server's choice: choice.ts)
     held = heldRaw.map(p => ({
       proposal: String(p.proposal), client: String(p.client ?? ''), editedBy: String(p.editedBy ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
       tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], title: heldTitle((p.ops ?? []).map((o: { op: unknown }) => o.op), (p.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file ?? ''), token: String(c.token) })), designFile), replaces: String(p.replaces ?? ''),
@@ -644,31 +644,24 @@ function reviewOf(p: any) {
         return { index, kind: 'other', name, text: opText(op), modes: [] };
     }
   });
-  const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept, on = startsChosen(p, r);
+  const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept, on = startsChosen(p, r), chose = heldChoice.base(String(p.proposal)), base = chose && new Set(chose);
   return {
-    importer: String(r.importer), mapped, from: String(r.from ?? ''), kept: on,
+    importer: String(r.importer), mapped: mapped.map(m => ({ ...m, on: !base || base.has(m.index) })), from: String(r.from ?? ''), kept: base ? true : on,
     // Off until ticked; in a recomputed import, the ones it kept were
     // ticked already, so they are on. One with no items is one
     // the importer could not make, its note saying why; in a recomputed
     // import, one with neither was not chosen, and is left out.
-    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: on && (o.items ?? []).length > 0 })),
+    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: (o.items ?? []).length > 0 && (base ? (o.items as number[]).every(i => base.has(i)) : on) })),
     // Each with where it came from (a file, a CSS block), so two of one
     // name in two modes are told apart.
     unmapped: (r.unmapped ?? []).map((u: any, i: number) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? '') + (u.block === '(derived)' ? ' (derived: outside the count)' : ''), derived: u.block === '(derived)', block: String(u.block ?? ''), key: `${i}` })),
     counted: `${recomputed ? 'the source import: ' : ''}${c.source} source values = ${c.mapped} mapped + ${c.reported} reported`, countOk: c.source === c.mapped + c.reported,
   };
 }
-/** An import's items its card has chosen: the mapped tokens unless
- * unticked, the role overrides only if ticked (LLP 1121 D1), or, on a
- * recomputed import (`startsChosen`), on unless unticked.
- * `picked`: the view's flipped items, `<proposal>:<i[,j]>` joined by `;`. */
-function chosen(proposal: string, picked: string): number[] {
-  const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
-  const recomputed = startsChosen(held.find(h => h.proposal === proposal), r);
-  const flipped = new Set(picked.split(';').filter(x => x.startsWith(`${proposal}:`)).flatMap(x => x.slice(proposal.length + 1).split(',').map(Number)));
-  const tokens = Number(r?.tokens ?? 0);
-  return ops.map((_, i) => i).filter(i => (i < tokens || recomputed ? !flipped.has(i) : flipped.has(i)));
-}
+/** An import's items its card has chosen (choice.ts `chosenOf`); `picked`, the view's flips joined by `;`. */
+const chosen = (proposal: string, picked: string): number[] => chosenOf(proposal, picked, heldReview.get(proposal), heldOps.get(proposal) ?? [], held.find(h => h.proposal === proposal));
+/** A held proposal's choice recorded (1.17 `choose`): its answer, or null. */
+const askChoose = (client: string, proposal: string) => async (items: number[]) => { const { error, reply } = await call('/__tamber', { method: 'choose', client, proposal, items }, 15000, heldToken || undefined); return error ? null : reply.ok as { choiceAt?: number }; };
 /** An operation in plain words (optext.ts), and the file it edits (the design's when it names none): two items may
  * differ only there. */
 const opText = (o: any): string => `${opWords(o)} (${o?.file || designFile || 'the design'})`;
@@ -1302,7 +1295,7 @@ const sources: Sources = {
     const at = session, some = items ? items.split(',').map(Number) : undefined, ops = (heldOps.get(proposal) ?? []) as Record<string, unknown>[];
     const proposer = held.find(h => h.proposal === proposal)?.client;
     // To the server run that listed it.
-    const { error, reply, used } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}) }, WRITE_WAIT, heldToken || undefined);
+    const { error, reply, used } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}), ...(byCursor ? { choiceAt: heldChoice.at(proposal) } : {}) }, WRITE_WAIT, heldToken || undefined); // (the choice it saw: another client's since is 409, choice.ts)
     if (error === RESTARTED) forget(used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '' };
     if (error) return { ...stacks(false, error, ''), note: '' };
@@ -1342,16 +1335,15 @@ const sources: Sources = {
   acceptImport: async ([client, proposal, picked]) => {
     const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
     if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
+    await heldChoice.flush(proposal); // (its own choose landed first, so its choiceAt is current)
     const items = chosen(proposal, picked);
     if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
     return sources.acceptHeld([client, proposal, items.length === ops.length ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
   },
   editImport: async ([client, proposal, index, mode, value, picked]) => {
-    // A mapped token's value in one mode changed before accepting: the import held again (on the same server run)
-    // whole, with the edit, the old one dropped. Every role override is still offered, ticked or not, and the new one
-    // begins as a fresh import does (tokens in, overrides off), what the card had chosen carried to it: so editing
-    // before or after ticking ends with the same held proposal and the same choice, and a page loaded again later
-    // never finds an override on that no one ticked.
+    // A mapped token's value in one mode changed before accepting: the import held again whole, with the edit, the old
+    // one dropped, every role override still offered and the card's choice carried: on 1.17 recorded first, so the
+    // server carries it (choice.ts); before, by the page's flips on the new one (#6).
     const at = session;
     const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o, whens: o.whens?.map((w: any) => ({ ...w })) }));
     const op = ops[index];
@@ -1365,15 +1357,22 @@ const sources: Sources = {
     const tokens = Number(r.tokens ?? 0);
     const review = { ...r, kept: false, from: proposal };
     // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step.)
+    if (byCursor) await heldChoice.send(proposal, [...was].sort((a, b) => a - b), askChoose(client, proposal));
     const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim() } : { method: 'propose', hold: true, client, ops, review }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget(made.used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
     const dropped = byCursor ? { error: '' } : await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
-    const carried = carriedChoice(fresh, tokens, r.offers ?? [], was);
+    const carried = byCursor ? [] : carriedChoice(fresh, tokens, r.offers ?? [], was);
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
+  },
+  sendChoices: async ([client, picked]) => {
+    // Each import card's choice, sent as it is ticked (1.17, choice.ts): a card the page has flipped, or sent before.
+    const flips = picked.split(';').filter(Boolean);
+    if (byCursor) for (const h of held) if (heldReview.get(h.proposal)?.importer && (flips.some(f => f.startsWith(`${h.proposal}:`)) || heldChoice.sentFor(h.proposal))) void heldChoice.send(h.proposal, chosen(h.proposal, picked), askChoose(client, h.proposal));
+    return { ok: true, answer: heldChoice.answer(), drop: heldChoice.drop(flips) };
   },
   loadAppAxes: async ([file]) => {
     // The running app's axes while another file is open: its own design's,

@@ -1110,7 +1110,7 @@ operations are chosen, and answers `{proposal, choice, choiceBy, choiceAt}`. It 
   `accept` of those `items` does; nothing chosen is 400, and the proposal stays held. An explicit `items` always wins.
   An `accept` may name the `choiceAt` it saw: another choice since answers 409 `{stale: true, choice, choiceBy,
   choiceAt}` and takes nothing out, so a client never accepts a choice it hasn't seen; a client's own `choose` answers
-  the `choiceAt` to send.
+  the `choiceAt` to send. The check is optional: an `accept` naming no `choiceAt` is not checked, as before 1.17.
 - `edit-held` carries the choice to the proposal it holds (the chosen operations it keeps, renumbered; `choiceAt` 1);
   a recompute at `accept` holds only chosen operations, so its proposal has no choice.
 

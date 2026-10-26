@@ -132,6 +132,14 @@ test('an accept that saw an older choice is refused naming who chose since; one\
   const ok = await post({ method: 'accept', client: 'design-tool:Ada', proposal: id, items: [1], choiceAt: again.ok.choiceAt });
   expect([ok.status, ok.ok.recomputed]).toEqual([200, true]);
   await post({ method: 'drop', client: 'agent:codex', proposal: ok.ok.proposal });
+  // An accept naming no choiceAt is not checked: it takes the choice as it is, whoever made it.
+  const free = await hold();
+  await post({ method: 'choose', client: 'design-tool:Ada', proposal: free, items: [0, 1] });
+  await post({ method: 'choose', client: 'design-tool:Bo', proposal: free, items: [2] });
+  const unchecked = await post({ method: 'accept', client: 'design-tool:Ada', proposal: free });
+  expect([unchecked.status, unchecked.ok.recomputed]).toEqual([200, true]);
+  expect(unchecked.ok.ops.map(o => o.op.name)).toEqual(['glow']);
+  await post({ method: 'drop', client: 'agent:codex', proposal: unchecked.ok.proposal });
 }, 60_000);
 
 test('edit-held carries the choice: all of it with no items, the kept ones renumbered with items', async () => {

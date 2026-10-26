@@ -44,7 +44,7 @@ component Proposals
             text `Tokens (${h.mapped.length})` role="heading" aria-level=3
             for m in h.mapped key=`${m.index}`
               row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`
-                input type="checkbox" disabled=(writing or not canWrite) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
+                input type="checkbox" disabled=(writing or not canWrite) checked=(m.on != picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`, m.on) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
                 text m.name width=200 flex-shrink=0 font="-exact-footnote"
                 if m.kind != "token"
                   text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`

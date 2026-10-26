@@ -145,6 +145,14 @@ shape Mapped
   name: string
   text: string
   modes: ModeValue[]
+  // In to begin with (the server's choice can leave it out); a picked id flips it.
+  on: bool
+
+// What the card's choices sent answered (tamber/1.17 `choose`): the flips to drop, on cards another client chose on.
+shape Choices
+  ok: bool
+  answer: number
+  drop: string[]
 
 shape Offer
   role: string

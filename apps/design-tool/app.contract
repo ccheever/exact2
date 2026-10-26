@@ -2,7 +2,7 @@
 // files, served by the app's Tamber server at its own local URL
 // (`bun exact.mjs tamber tool <app>`). app.ts is the protocol client; this
 // view keeps no design state of its own: the files are the design.
-use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted from "./shapes.contract"
+use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted, Choices from "./shapes.contract"
 use Pairing from "./pairing.contract"
 use Inspector from "./inspector.contract"
 use Builds from "./builds.contract"
@@ -171,6 +171,9 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
+  // Each import card's choice, sent to the server as it is ticked (tamber/1.17 `choose`), so a reload or another
+  // client starts from it; and the flips another client's choice since makes stale.
+  resource choices = sendChoices(client, picked.join(";"), changes.answer) as shape Choices else empty(ok=true)
   resource scope = loadScope(client, changes.committable) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
@@ -306,6 +309,8 @@ component DesignTool
   derive applyReady = applyAnswer and not pending(proposal) and not pending(written)
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
+  task dropChoices when choices.drop.length > 0 key=choices.answer
+    after(1, takeChoices)
   task retry when not pending(changes) and not changes.ok key=changes.answer
     after(3000, advance)
   // A newer design read under a held list on the long poll by cursor: asked once again (at once, from where it is),
@@ -917,9 +922,12 @@ component DesignTool
   action editImportValue(proposal: string, index: number, mode: number, v: string)
     if not pending(written)
       send written = editImport(client, proposal, index, mode, v, picked.join(";"))
-  // A mapped token is in until unticked: its id is picked when left out.
-  action toggleLeaveOut(id: string, checked: bool)
-    picked = checked ? picked.filter(p => p != id) : picked.filter(p => p != id).concat([id])
+  // A mapped token's id is picked when it differs from where it began (in, unless the server's choice leaves it out).
+  action toggleLeaveOut(id: string, on: bool, checked: bool)
+    picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
+  // Flips on a card another client chose on since: dropped, its choice the card's now (tamber/1.17).
+  action takeChoices
+    picked = picked.filter(p => not choices.drop.includes(p))
   // An offer's id is picked when it differs from where it began.
   action toggleOffer(id: string, on: bool, checked: bool)
     picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
