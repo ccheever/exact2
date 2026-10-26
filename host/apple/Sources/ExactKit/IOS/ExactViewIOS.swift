@@ -294,8 +294,12 @@ public final class ExactView: UIView {
         guard session.state != .destroyed else { return }
         let presenter = session.presenter
         // A native callback served for the owner cannot resize the runtime
-        // yet. Keep the latest geometry pending until that callback returns.
-        if Owner.shared.isServingMain {
+        // yet. Keep the latest geometry pending until that callback returns;
+        // nor can a restart's reset (a keyboard it ends). While a restart holds
+        // the runtime (its own reset or another session's), the fit is owed,
+        // the last-told geometry untouched: ResetGate replays it after the batch.
+        if session.runtime.holds("view(_:)") { return }
+        if Owner.shared.isServingMain || presenter.resetting {
             if !fitPending {
                 fitPending = true
                 DispatchQueue.main.async { [weak self] in

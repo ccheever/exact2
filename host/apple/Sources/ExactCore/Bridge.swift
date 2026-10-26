@@ -21,6 +21,8 @@ public struct Batch {
     public let error: String?
     /// Re-entry reached no runner turn; the presenter keeps its scheduling state.
     public let busy: Bool
+    /// Held over a restart's reset (`Runtime.held`): reached no runtime, and nothing applies it.
+    public var held = false
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     /// Store refresh acknowledged no runner commit; keep the current timers.
@@ -140,7 +142,21 @@ package final class Runtime {
     package static let busy = Batch(ops: [], timers: false, motion: false, clock: nil,
         error: "busy: the owner is waiting on this callback (LLP 1072 T5)", busy: true)
     package static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
-    package func on(_ body: () -> Batch) -> Batch {
+    /// While a restart's reset tears the old tree's views down (Session `presentCommitted`): the one entry every
+    /// batch-answering call takes, so this runtime, which replaces that tree, takes none of them before its committed
+    /// batch lands. Each answers an empty batch, the runtime untouched, and is named in `heldCalls` (its method, by
+    /// `#function`), which ExactKit's ResetGate drops or replays once the batch is in.
+    package var held = false
+    package private(set) var heldCalls: [String] = []
+    /// The batch-answering calls `on` let through on main: a test's spy on what reached the runtime.
+    package private(set) var entered = 0
+    package static let heldBatch = { var batch = Batch(ops: [], timers: false, motion: false, clock: nil, error: nil); batch.held = true; return batch }()
+    package func takeHeldCalls() -> [String] { defer { heldCalls = [] }; return heldCalls }
+    /// Whether held; if so, `caller` is named in `heldCalls` (a call held outside `on`: `selection`, a notice's `later`).
+    package func holds(_ caller: String = #function) -> Bool { if held { heldCalls.append(caller) }; return held }
+    package func on(_ body: () -> Batch, caller: String = #function) -> Batch {
+        if holds(caller) { return Runtime.heldBatch }
+        if Thread.isMainThread { entered &+= 1 } // (`later` calls on the owner: the spy counts main's)
         let (open, modal) = topLayer?() ?? ([], nil)
         return Owner.shared.sync({
             installTopLayer(open, modal: modal)
@@ -330,6 +346,7 @@ package final class Runtime {
     package func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
     /// Capture native presentation on the caller before parsing replies on the owner.
     package func pumpAsync(now: Double, done: @escaping (Batch?) -> Void) {
+        if holds() { Owner.shared.post { done(nil) }; return } // (held: answered on the owner as a cancelled reply, `held`)
         let (open, modal) = topLayer?() ?? ([], nil)
         Owner.shared.post { [self] in
             guard !destroyed else { done(nil); return }
@@ -414,6 +431,7 @@ package final class Runtime {
     /// D1): posted, never waited for, since AppKit calls from inside its
     /// scroll synchronizer.
     package func scrolled(_ view: UInt32?, left: Double, top: Double) {
+        if holds() { return }
         Owner.shared.notify { [self] in
             guard !destroyed else { return }
             exact_scrolled(rt, view == nil ? 1 : 0, view ?? 0, left, top)
@@ -439,6 +457,7 @@ package final class Runtime {
     /// A build-only report on the owner, not waited for (LLP 1072 §3):
     /// `done` runs on the owner with the decoded batch.
     package func collectionFeedbackAsync(_ bytes: Data, now: Double, done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return } // (held: answered on the owner, so what waits on it ends)
         Owner.shared.post { [self] in
             guard !destroyed else { return }
             let n = write(bytes)
@@ -451,6 +470,7 @@ package final class Runtime {
     package func canvasDefer(_ deferred: Bool) { on { exact_canvas_defer(rt, deferred ? 1 : 0) } }
     /// The owed canvas draws on the owner, not waited for (LLP 1072 §8.5).
     package func canvasDrawAsync(done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
         Owner.shared.post { [self] in
             guard !destroyed else { return }
             done(read(exact_canvas_draw(rt)))
@@ -461,6 +481,7 @@ package final class Runtime {
     /// `calls`, in order, on the owner and not waited for: each batch goes to
     /// `done` there (LLP 1027.007 P1).
     package func later(_ calls: [(Runtime) -> Batch], done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { for _ in calls { done(Runtime.heldBatch) } }; return }
         Owner.shared.post { [self] in
             for call in calls {
                 guard !destroyed else { return }
@@ -469,6 +490,7 @@ package final class Runtime {
         }
     }
     package func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
         Owner.shared.post { [self] in
             guard !destroyed else { return }
             done(read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)))
@@ -566,6 +588,7 @@ package final class Runtime {
     }
     /// Shared Markdown selection facts; the editor retains its own range.
     package func selection(_ view: UInt32, json: String, now: Double) -> Batch? {
+        if holds() { return nil } // (the Batch barrier's, above)
         return on(busy: nil) {
             guard let data = json.data(using: .utf8),
                   let state = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
