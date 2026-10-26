@@ -919,6 +919,9 @@ test "the edit dock: Escape during a scrub leaves the scrub and the selection; a
   expect tree has "scrub"
   expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
   expect state selToken == "surface.card"
+  // Cancel scrub stays a press a keyboard reaches: an enabled button, named by its text (theme2's 06:01 condition).
+  expect enabled "scrub-cancel"
+  expect text "scrub-cancel" == "Cancel scrub"
   tap "scrub-cancel"
   clock data
   tap "cancel-edit"
