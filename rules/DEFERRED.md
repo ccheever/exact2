@@ -965,11 +965,30 @@ reading. Nothing that isn't HTML is added by it.
   for a store lane; development builds and the stores' test environments
   need none. Still out, each until a consumer asks (LLP 1133.015 §11):
   StoreKit's merchandising views as package views; External Purchase, the
-  link-out entitlements and Play's alternative billing as tier 1; payments
-  for physical goods; the web cell inside a TWA or a Microsoft Store PWA;
+  link-out entitlements and Play's alternative billing as tier 1; the web
+  cell inside a TWA or a Microsoft Store PWA;
   a receipt-validation or entitlement server of exact2's, and relaying the
   stores' server notifications; and the Windows, tvOS, visionOS and
   watchOS cells.
+- **Expanded (Charlie, 2026-10-26, "Accept r5, build (Recommended)",
+  waived; LLP 1133.034 §13 question 9):** payment for physical goods and
+  services by Payment Request's names (`showPaymentRequest`,
+  `paymentRequestStatus` and the wallet's button `exact-payment-button`,
+  from `@exact/payments`), through Apple Pay and Google Pay on the web,
+  iOS, macOS and Android, the payment token reaching the app's data code
+  alone; Wallet passes as tier 2, designed and built when a consumer asks.
+  Consumer: the photo editor's Order a Print, against a fixture print
+  server that charges nothing. Unblocks selling a physical good with the
+  device's wallet without app Swift or Kotlin. Take: none named; the
+  ruling is its own waiver. Real wallet drives wait for the Apple merchant
+  ID and the Google test account (question 7). Still out, each until a
+  consumer asks (LLP 1133.034 §11): card entry without a wallet and any
+  processor's SDK; a payment server of exact2's; Apple Pay's in-app
+  provisioning, Tap to Pay on iPhone, disbursements, identity
+  verification with Wallet and Apple Pay Later's merchandising views;
+  Secure Payment Confirmation and the web's payment handlers; native
+  merchant session updates; an Add to Apple Wallet button view; and the
+  tvOS, Windows, Linux, watchOS and visionOS cells.
 - **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
   1133.016 §14 question 9):** the device's own language model by the
   Prompt API's names (`languageModelAvailability`, `createLanguageModel`,
