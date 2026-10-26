@@ -943,6 +943,22 @@ reading. Nothing that isn't HTML is added by it.
   conversions as names; `deviceOrientation` and the sensor sources on
   macOS; and the Windows, visionOS and watchOS cells, and Linux through
   IIO.
+- **Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", waived; LLP
+  1133.031 §14 question 8):** the device's battery, network type, data
+  saving and power state (`getBattery`, `connection` and `powerState` from
+  `@exact/device`), by the Battery Status and Network Information APIs'
+  names, on the web, iOS, macOS, tvOS and Android, and on Linux and
+  Windows over the desktop package builder: live facts with no permission,
+  read from any origin. Consumers: Weatherlight's sky, which rests in Low
+  Power Mode and under heat, and its refresh, which waits in Low Power Mode
+  and Low Data Mode; Expose's real battery. Unblocks an app that does what
+  Low Power Mode and Low Data Mode ask without app Swift or Kotlin. Take:
+  none named; the ruling is its own waiver. Still out, each until a
+  consumer asks (LLP 1133.031 §11): device and app identity;
+  `chargingTime` and `dischargingTime`; `effectiveType`, `downlink` and
+  `rtt`; ultra-constrained paths and a path's unsatisfied reason; battery
+  health, cycle count, temperature and voltage; Android's thermal
+  headroom; `prefers-reduced-data`; and a Linux or Windows thermal state.
 - **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
   1133.014 §13 question 8):** signing in with an identity provider by
   FedCM's names: an `identity` member on `@exact/passkeys`'
