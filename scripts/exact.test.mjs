@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
-import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile } from '../host/apple/assets.mjs';
+import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile, wrapFramework } from '../host/apple/assets.mjs';
 import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
 import { packageWidgets } from '../host/apple/widgets.mjs';
@@ -153,6 +153,59 @@ test.skipIf(!tools)('release preserves baked GPU signatures and rejects changed 
   const changed = readFileSync(gpu); changed[64] ^= 1;
   writeFileSync(gpu, changed);
   assert.throws(() => signingOrder(app, compat), /baked code.*digest/);
+}), 60000);
+
+test.skipIf(!tools)('signed GPU framework upgrades refresh metadata before archive capture', () => inDir(dir => {
+  const run = (command, args) => {
+    const result = spawnSync(command, args, { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout;
+  };
+  const app = { id: 'test.gpu', manifest: {} }, name = 'ExactGpu';
+  const source = resolve(dir, 'gpu.c'), product = resolve(dir, 'gpu.dylib');
+  writeFileSync(source, 'int gpu_fixture(void){return 42;}\n');
+  run('xcrun', ['--sdk', 'iphoneos', 'clang', '-target', 'arm64-apple-ios17.0', '-dynamiclib', source, '-o', product]);
+  const hash = file => createHash('sha256').update(readFileSync(file)).digest('hex');
+  const sourceDigest = hash(product), options = { app, framework: name, platform: 'iPhoneOS' };
+  const frameworks = resolve(dir, 'signed/frameworks/gpu.dylib'), container = resolve(frameworks, `${name}.framework`);
+  mkdirSync(frameworks, { recursive: true });
+  cpSync(product, resolve(frameworks, 'gpu.dylib'));
+  wrapFramework(frameworks, 'gpu.dylib', name, app, options.platform);
+  const info = resolve(container, 'Info.plist'), record = `${container}.source`;
+  const oldInfo = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', info]));
+  delete oldInfo.UIRequiredDeviceCapabilities;
+  writeFileSync(info, plistFile(oldInfo));
+  run('codesign', ['--force', '--sign', '-', '--timestamp=none', container]);
+  run('codesign', ['--verify', '--strict', container]);
+  // The pre-capability cache key had no framework metadata revision.
+  const oldKey = JSON.stringify([sourceDigest, '-', false, name,
+    [app.id, '17.0', options.platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0']]);
+  writeFileSync(record, oldKey);
+  const code = codeDigest(readFileSync(resolve(container, name)));
+  const signed = signedGpuProduct(product, options);
+  assert.equal(signed, resolve(container, name));
+  const updated = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', info]));
+  assert.deepEqual(updated, { ...oldInfo, UIRequiredDeviceCapabilities: ['arm64'] });
+  assert.notEqual(readFileSync(record, 'utf8'), oldKey);
+  assert.equal(hash(product), sourceDigest, 'a packaging upgrade leaves Cargo output unchanged');
+  assert.equal(codeDigest(readFileSync(signed)), code, 'a packaging upgrade preserves the baked code digest');
+  run('codesign', ['--verify', '--strict', container]);
+  const digest = hash(signed), inode = statSync(signed).ino;
+  assert.equal(signedGpuProduct(product, options), signed);
+  assert.equal(statSync(signed).ino, inode, 'the upgraded warm cache reuses the signed file');
+  assert.equal(hash(signed), digest);
+  const capture = resolve(dir, 'capture'), captured = resolve(capture, `${name}.framework`, name);
+  cpSync(container, dirname(captured), { recursive: true });
+  rmSync(captured);
+  captureAppleProduct({ products: [{ path: signed, bytes: statSync(signed).size, sha256: digest }] }, signed, captured);
+  const packaged = resolve(dir, 'Payload/Fixture.app/Frameworks');
+  mkdirSync(packaged, { recursive: true });
+  copyAppleGpuProducts(capture, packaged, [{ framework: name }], true);
+  assertArchiveFrameworks(packaged);
+  const copied = resolve(packaged, `${name}.framework`);
+  assert.deepEqual(JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', resolve(copied, 'Info.plist')])), updated);
+  assert.equal(hash(resolve(copied, name)), digest, 'the archive keeps the captured signed bytes');
+  run('codesign', ['--verify', '--deep', '--strict', copied]);
 }), 60000);
 
 test('--archive --embed does not stop after embed staging; plain --embed builds no Swift', () => {
