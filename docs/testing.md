@@ -125,6 +125,14 @@ its time counts too.
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.
 
+A real drag with `during` ops fails when the touch runner finishes before a
+dispatch-log read sees the touch begin. The failure carries the aim, the injection
+result and the log, and says whether the touch began and lifted. The log's `t` and
+`dispatched` are seconds on the mach clock of `UITouch.timestamp`; the injection's
+`end` is wall-clock milliseconds, so do not subtract one from the other. A dispatch-log
+read, operation or clock step still pending a second after the runner finishes stops
+the app's carrier, and the failure names it.
+
 With an iOS session using `touch: 'platform'`, `await session.back({ native: true })`
 locates UIKit's Back button through XCTest inside the active navigation container
 and taps it. Embedded sessions target their own container. The driver refuses missing
