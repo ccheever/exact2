@@ -119,7 +119,7 @@ test "Up is offered while the page still holds the selection (a pin moved) and n
   type "name" "Ada"
   tap "save-name"
   clock data
-  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "plan": "generation-1", "planDigest": "1111111111111111111111111111111111111111111111111111111111111111"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
   clock +1
   clock data
   tap "inspect-toggle"
@@ -130,21 +130,27 @@ test "Up is offered while the page still holds the selection (a pin moved) and n
   clock +1
   clock data
   expect tree missing "selection-up-note"
+  expect enabled "selection-up-1"
   // A pin moved: the page still holds it, so Up stays offered.
-  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": {"scheme": "dark"}, "pinRevision": 1}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": {"scheme": "dark"}, "pinRevision": 1, "plan": "generation-1", "planDigest": "1111111111111111111111111111111111111111111111111111111111111111"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
   clock +1
   clock data
   expect enabled "selection-up-1"
-  // A dev generation that keeps the plan (its digest the same, an asset one): the page still holds it.
-  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "plan": "generation-2"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  // A dev generation that keeps the plan (its digest the same, an asset one): still held.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "plan": "generation-2", "planDigest": "1111111111111111111111111111111111111111111111111111111111111111"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
   clock +1
   clock data
   expect enabled "selection-up-1"
   // Rebuilt (another plan digest): not current, no Up.
-  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "plan": "generation-3", "planDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "plan": "generation-3", "planDigest": "2222222222222222222222222222222222222222222222222222222222222222"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
   clock +1
   clock data
   expect disabled "selection-up-1"
+  // Selected again: current, Up offered.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect enabled "selection-up-1"
   // Changes missed (an exit from inspect mode may be among them): not current until selected again, though Inspect
   // is turned on once more.
   request POST "/__stub/miss" {} as ada
@@ -155,8 +161,13 @@ test "Up is offered while the page still holds the selection (a pin moved) and n
   clock +1
   clock data
   expect disabled "selection-up-1"
+  // Selected again: current, Up offered.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": [{"file": "/stub/row.contract", "line": 6, "col": 3, "end_col": 9, "component": "Row"}, {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App"}]}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "text_color", "value": "#f7f9f9ff", "source": "inherited", "from": 1, "origin": null, "editable": {"rung": null, "reason": "inherited from #1: the token is that node's to edit", "link": "text.primary"}}, {"name": "padding", "value": "12px", "source": "authored", "origin": "class:Panel", "editable": {"rung": null, "reason": "a style's row (Panel): comes with template editing (T5)"}}]} as ada
+  clock +1
+  clock data
+  expect enabled "selection-up-1"
   // Its page loaded again (registered again, no status): not current, no Up, and said.
-  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": null, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": null, "pin": null, "pinRevision": 0, "plan": "generation-3", "planDigest": "2222222222222222222222222222222222222222222222222222222222222222"}, {"id": "ios-1", "host": "ios", "capabilities": ["pin"], "status": null, "pin": null, "pinRevision": 0}]} as ada
   clock +1
   clock data
   expect disabled "selection-up-1"
