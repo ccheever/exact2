@@ -1,49 +1,188 @@
-// The recorder (LLP 1067.000): one native object, the microphone, with a view
-// and functions around it. `<waveform-view>` draws the recorder's own levels
-// as they arrive: nothing it shows crosses the TypeScript source or Contract
-// state. The source asks the same object to start, stop (which writes the
-// take) and list the takes, and watches it for changes.
+// The recorder (LLP 1133.009 §11, LLP 1133.012 §10): the microphone through
+// the standard packages, as any app's would be. `getUserMedia` opens a track
+// and `startMediaRecorder` records it to a file at app:/data/takes; the
+// waveform is @exact/recording's view of the track's level, and the elapsed
+// time is the recorder's own. Where the on-device recognizer takes a track,
+// a recognition on the same track writes the take's transcript beside it as
+// it records; where it takes a file, an older take is transcribed on request.
+// app.ts lists the takes and keeps each one's length, level and whether its
+// transcript is complete.
+use getUserMedia, stopTrack, microphoneStatus, MediaStream, MediaStreamTrack, MicrophoneStatus from "@exact/media-capture"
+use startMediaRecorder, stopMediaRecorder, pauseMediaRecorder, resumeMediaRecorder, mediaRecorderState, audioLevel, MediaRecorderInfo, RecordedMedia, AudioLevel from "@exact/recording"
+use startSpeechRecognition, stopSpeechRecognition, abortSpeechRecognition, speechRecognitionState, speechRecognitionStatus, speechRecognitionAvailability, installSpeechRecognition, SpeechRecognitionInfo, SpeechRecognitionState, SpeechRecognitionStatus, SpeechRecognitionAvailability, SpeechRecognitionInstall from "@exact/speech-recognition"
 
-shape Status
-  available: bool
-  recording: bool
-  message: string
 shape Take
   name: string
   label: string
+  path: string
+  transcript: string
+  complete: bool
 shape Takes
   takes: Take[]
-shape Saved
+  next: number
+shape Kept
   name: string
   message: string
 
 component Recorder
-  resource status = recorderStatus() as shape Status
-  resource library = takes() as shape Takes
-  mutation started as shape Status
-  mutation saved as shape Saved
-  derive busy = pending(started) or pending(saved)
+  state trackId = ""
+  state recorderId = ""
+  state recognitionId = ""
+  // The take a file recognition is transcribing, while it runs.
+  state transcribing = ""
+  resource mic = microphoneStatus() as shape MicrophoneStatus else empty()
+  resource library = takes() as shape Takes else empty()
+  // Once a second, for the take's level: the bars are the waveform view's own, read below the runner (D13).
+  resource level = audioLevel(track=trackId, interval=1000) as shape AudioLevel else empty()
+  resource rec = mediaRecorderState(recorder=recorderId, interval=100) as shape MediaRecorderInfo else empty()
+  // Room audio stays on the device (LLP 1133.012 §14 question 5): every recognition here asks for it.
+  resource speech = speechRecognitionStatus(processLocally=true) as shape SpeechRecognitionStatus else empty()
+  resource language = speechRecognitionAvailability(langs=[], processLocally=true) as shape SpeechRecognitionAvailability else empty()
+  resource heard = speechRecognitionState(recognition=recognitionId) as shape SpeechRecognitionState else empty()
+  mutation opened as shape MediaStream then arm
+  mutation started as shape MediaRecorderInfo then begun
+  mutation saved as shape RecordedMedia then filed
+  mutation paused as shape MediaRecorderInfo
+  mutation stopped as shape MediaStreamTrack
+  mutation kept as shape Kept refreshes library
+  mutation listening as shape SpeechRecognitionInfo then listened
+  mutation transcribed as shape SpeechRecognitionInfo then noted
+  mutation fileStarted as shape SpeechRecognitionInfo then fileBegun
+  mutation fileDone as shape SpeechRecognitionInfo then fileNoted
+  mutation transcriptKept as shape Kept refreshes library
+  mutation installed as shape SpeechRecognitionInstall
+  derive recording = recorderId != ""
+  derive busy = pending(opened) or pending(started) or pending(saved)
+  derive denied = mic.state == "denied"
+  derive speechOff = speech.state == "denied"
+  // A live transcript where the recognizer shares the take's track; Transcribe where it reads a file; neither
+  // where it must own the microphone (D8).
+  derive live = speech.available and speech.local and not speechOff and speech.inputs.includes("track")
+  derive fromFile = speech.available and speech.local and not speechOff and speech.inputs.includes("file")
+  derive lastHeard = heard.results.slice(-2).map(r => r.alternatives.slice(0, 1).map(a => a.transcript).join("")).join(" ")
+  derive interimHeard = match heard.interim { case some(i) => i.alternatives.slice(0, 1).map(a => a.transcript).join(""), case none => "" }
   action toggle
-    if status.recording
-      send saved = stopRecording()
+    if recording
+      send saved = stopMediaRecorder(recorder=recorderId)
+      if recognitionId != ""
+        send transcribed = stopSpeechRecognition(recognition=recognitionId)
+      else
+        // Supersedes a start still in flight: its recognition is aborted when its answer comes (D7).
+        send listening = abortSpeechRecognition(recognition="")
     else
-      send started = startRecording()
+      send opened = getUserMedia(audio=true)
+  // Supersedes the microphone's request, whatever stage it is at.
+  action cancelRecord
+    send opened = getUserMedia(audio=false)
+  action arm
+    match opened
+      case some(s)
+        trackId = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
+        send started = startMediaRecorder(stream=s.id, path=`app:/data/takes/take-${library.next}`)
+      case none
+        trackId = ""
+  action begun
+    match started
+      case some(r)
+        recorderId = r.id
+        if live
+          send listening = startSpeechRecognition(track=trackId, continuous=true, interimResults=true, processLocally=true, transcript=`app:/data/takes/take-${library.next}.transcript`)
+      case none
+        recorderId = ""
+  action listened
+    match listening
+      case some(r)
+        recognitionId = r.id
+      case none
+        recognitionId = ""
+  action pause
+    if rec.state == "paused"
+      send paused = resumeMediaRecorder(recorder=recorderId)
+    else
+      send paused = pauseMediaRecorder(recorder=recorderId)
+  action filed
+    match saved
+      case some(m)
+        send kept = keepTake(m.path, m.duration, level.totalAudioEnergy, level.totalSamplesDuration)
+        send stopped = stopTrack(track=trackId)
+        trackId = ""
+        recorderId = ""
+      case none
+        recorderId = recorderId
+  // The live transcript is complete when it ended by this stop, not aborted or by an error.
+  action noted
+    recognitionId = ""
+    match transcribed
+      case some(t)
+        send transcriptKept = keepTranscript(t)
+      case none
+        transcribing = transcribing
+  action transcribe(path: string, name: string)
+    transcribing = name
+    send fileStarted = startSpeechRecognition(path=path, processLocally=true, transcript=`app:/data/takes/${name}.transcript`)
+  // A file is recognised to its end: its stop answers once it has been.
+  action fileBegun
+    match fileStarted
+      case some(r)
+        send fileDone = stopSpeechRecognition(recognition=r.id)
+      case none
+        transcribing = ""
+  action fileNoted
+    transcribing = ""
+    match fileDone
+      case some(t)
+        send transcriptKept = keepTranscript(t)
+      case none
+        recognitionId = recognitionId
+  action install
+    send installed = installSpeechRecognition(langs=[], processLocally=true)
+  action openSettings
+    openURL("app-settings:")
   view
     column testId="recorder" width="100%" height="100%" gap=16 padding=20 box-sizing="border-box" background-color="-exact-background" color="-exact-label" accent-color="light-dark(#0b66d6, #68a5fe)" font-family="system-ui"
       text "Recorder" font-size=24 font-weight=600
-      waveform-view testId="waveform" width="100%" height=140 flex-shrink=0
+      audio-waveform track=trackId tint=(recording ? "#d1242f" : "#0b66d6") testId="waveform" width="100%" height=140 flex-shrink=0 padding=8 box-sizing="border-box" border-radius=12 background-color="-exact-secondary-background"
+      if recording and recognitionId != ""
+        text (lastHeard + (interimHeard == "" ? "" : " " + interimHeard)) testId="live-transcript" font-size=14 color="-exact-secondary-label"
       row gap=12 align-items="center"
         // System red and AccentColorText do not guarantee 4.5:1 on every host.
-        button press=toggle disabled=(busy or not status.available) testId="toggle" padding=12 border-radius=24 background-color=(status.recording ? "light-dark(#b91c1c, #ff4245)" : "AccentColor")
-          text (status.recording ? "Stop" : "Record") color="light-dark(#ffffff, #000000)" font-weight=600
-        text status.message testId="status" font-size=14 color="-exact-secondary-label"
-      match saved
-        case some(s)
-          text s.message testId="saved-message" font-size=13 color="light-dark(#166534, #7ee2a8)"
+        button press=toggle disabled=(busy or denied or not mic.available) testId="toggle" padding=12 border-radius=24 background-color=(recording ? "light-dark(#b91c1c, #ff4245)" : "AccentColor")
+          text (recording ? "Stop" : "Record") color="light-dark(#ffffff, #000000)" font-weight=600
+        if recording
+          button press=pause testId="pause" padding=12 border-radius=24 background-color="-exact-secondary-background"
+            text (rec.state == "paused" ? "Resume" : "Pause") font-weight=600
+          text (rec.state == "paused" ? "Paused " : "● ") + formatDecimal(round(rec.duration / 100), 1) + " s" testId="elapsed" font-size=14 color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+        else
+          text (mic.available ? "Ready" : "Recording is not available here.") testId="status" font-size=14 color="-exact-secondary-label"
+      if pending(opened)
+        button press=cancelRecord testId="cancel-record"
+          text "Cancel"
+      if denied
+        text "The microphone is off for Recorder. Turn it on in Settings to record." testId="denied" font-size=13 color="-exact-secondary-label"
+        button press=openSettings testId="open-settings"
+          text "Open Settings"
+      if speechOff
+        text "Speech recognition is off for Recorder, so takes record without transcripts." testId="speech-denied" font-size=13 color="-exact-secondary-label"
+        button press=openSettings testId="speech-settings"
+          text "Open Settings"
+      if speech.available and not speech.local and not speechOff
+        text "Transcripts need an on-device language." testId="speech-local" font-size=13 color="-exact-secondary-label"
+        if language.availability == "downloadable"
+          button press=install testId="speech-install"
+            text "Download"
+      match kept
+        case some(k)
+          text k.message testId="saved-message" font-size=13 color="light-dark(#166534, #7ee2a8)"
         case none
           text "" font-size=13
       text (library.takes.length == 0 ? "No takes yet." : "Takes") font-size=16 font-weight=600 testId="takes-heading"
       column gap=6 testId="takes"
         for take in library.takes key=take.name
-          row gap=8 padding=10 border-radius=8 background-color="-exact-secondary-background" testId=("take-" + take.name)
+          column gap=6 padding=10 border-radius=8 background-color="-exact-secondary-background" testId=("take-" + take.name)
             text take.label font-size=14
+            audio src=take.path controls=true preload="metadata" width="100%" testId=("play-" + take.name)
+            if take.transcript != ""
+              text take.transcript testId=("transcript-" + take.name) font-size=13 color="-exact-secondary-label"
+            if fromFile and not take.complete and not recording
+              button press=transcribe(take.path, take.name) disabled=(transcribing != "") testId=("transcribe-" + take.name)
+                text (transcribing == take.name ? "Transcribing…" : "Transcribe")

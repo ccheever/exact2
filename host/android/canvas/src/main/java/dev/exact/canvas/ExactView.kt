@@ -171,7 +171,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         } else {
             val dir = context.filesDir.absolutePath
             try { Native.hardwarePictures(hwbuf) } catch (e: UnsatisfiedLinkError) { }
-            started = Native.start(window.first, window.second, resources.displayMetrics.density, dir, live)
+            started = Native.start(window.first, window.second, Device.scale(context), dir, live)
         }
         // Executor replies and decoded images wake the main looper; poll drains them. A wake with no turn to take
         // still owes the next timer (a dev loop's next poll among them). The GPU module's acquisitions wake it too.
@@ -437,6 +437,9 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
         keys?.down(event)?.also { if (it) pump() } ?: super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        if (keys?.up(event) == true) { pump(); true } else super.onKeyUp(keyCode, event)
 
     override fun onKeyMultiple(keyCode: Int, repeatCount: Int, event: android.view.KeyEvent): Boolean =
         keys?.multiple(event)?.also { if (it) pump() } ?: super.onKeyMultiple(keyCode, repeatCount, event)
@@ -1106,7 +1109,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                     val id = b.get(i + 1); val kind = b.get(i + 2) and 255; val len = b.get(i + 15)
                     val bytes = ByteArray(len)
                     for (k in 0 until len) bytes[k] = (b.get(i + 16 + k / 4) ushr (8 * (k % 4))).toByte()
-                    val scale = resources.displayMetrics.density
+                    val scale = Device.scale(context)
                     val w = Math.round(f(b, i + 5) * scale); val h = Math.round(f(b, i + 6) * scale)
                     if (ingestRow == 0) unrowedSeen.add(id)
                     // A hosted text field (kind 4) is not the stream's to make: exact2 says its fields apart ([Fields]),

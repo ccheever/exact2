@@ -172,6 +172,8 @@ export function goTo(location) {
 }
 export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;
+/** Whether `location` names a declared route, never only the notfound fallback: the runner's `route_matches`. */
+export const routeMatches = location => { const m = matchRoute(canonical(location)); return m !== null && !Routes[m[0]].notfound; };
 // ---------------------------------------------------------------- validity
 const int = n => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 9007199254740991, str = s => typeof s === "string";
 /** Whether `r` is a valid router (runner/src/runner/router.rs `router`): its shape; tabs of distinct names, each stack

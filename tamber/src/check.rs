@@ -2,6 +2,11 @@
 //! mode key, the `under scheme=dark` rules and completeness, folding every
 //! token for every full app tuple as it goes.
 
+#[cfg(test)]
+mod influence_tests;
+mod pairs;
+
+use crate::bound::Walk;
 use crate::fold::{self, FoldError, Folded, Half, Named, Names};
 use crate::measure::{self, Kind, Length, Value};
 use crate::syntax::{role_spelling, At, Design, DialKind, Token};
@@ -57,14 +62,6 @@ pub(crate) enum DialValue {
     Length(f64),
 }
 
-/// The tokens [`Checker::kind_of`] is following (`on`), the kinds it has
-/// found that met no cycle (`known`), and the cycles it has met.
-struct Walk {
-    on: Vec<bool>,
-    known: Vec<Option<Kind>>,
-    cycles: usize,
-}
-
 struct Checker<'a> {
     design: &'a Design,
     errors: Vec<Diagnostic>,
@@ -76,6 +73,9 @@ struct Checker<'a> {
     /// Axis index and value index by name.
     axes: HashMap<&'a str, (usize, HashMap<&'a str, usize>)>,
     radix: Vec<usize>,
+    /// Each tuple's [`Checker::digits`], made once: axes are many where each
+    /// has one value.
+    table: Vec<std::rc::Rc<[usize]>>,
     /// Folded (token, tuple), or `None` when it refused.
     memo: HashMap<(usize, usize), Option<Value>>,
     /// Per token, its kind: written, or inferred from its value.
@@ -102,6 +102,8 @@ struct Checker<'a> {
     /// Per token and tuple, the tokens and unset base names its value
     /// there named as it folded ([`Checked::by_tuple`]).
     tuple_refs: HashMap<(usize, usize), (Vec<u32>, Vec<String>)>,
+    /// The icons' names (D10), each a row's `symbol:`, no value's.
+    icons: HashSet<&'a str>,
     /// Tokens refused as declared, which are not folded.
     refused: Vec<bool>,
     /// Names of refused tokens and dials: a use says nothing more.
@@ -120,9 +122,13 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
     // kept as written, each host's (stage 11 B). One the design sets is its
     // token, folded as any is, so its value wins everywhere and its edits
     // re-fold what reads it.
-    let unset = |w: &str| {
-        vocab.bases.iter().any(|b| b == w) && !design.tokens.iter().any(|t| t.name.value == w)
-    };
+    let unset_bases: Vec<&str> = vocab
+        .bases
+        .iter()
+        .map(String::as_str)
+        .filter(|b| !design.tokens.iter().any(|t| t.name.value == *b))
+        .collect();
+    let unset = |w: &str| unset_bases.contains(&w);
     let named_length = |w: &str| {
         vocab
             .named_lengths
@@ -139,6 +145,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
         dials: HashMap::new(),
         axes: HashMap::new(),
         radix: Vec::new(),
+        table: Vec::new(),
         memo: HashMap::new(),
         kinds: vec![Kind::Color; design.tokens.len()],
         named_length: &named_length,
@@ -150,6 +157,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
         stack: Vec::new(),
         at: Vec::new(),
         tuple_refs: HashMap::new(),
+        icons: design.icons.iter().map(|i| i.name.value.as_str()).collect(),
         refused: vec![false; design.tokens.len()],
         refused_names: HashSet::new(),
         selected: vec![BTreeSet::new(); design.tokens.len()],
@@ -166,7 +174,14 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
     let tuples = c.axes();
     c.dials();
     c.declare();
-    c.kinds();
+    // A chain of names past the bound, met inferring kinds: refused there,
+    // and nothing folded (each fold would follow it again).
+    if let Some(i) = c.kinds() {
+        let (id, why) = crate::bound::too_deep();
+        c.at(&design.tokens[i].name, id, why);
+        let kinds = c.kinds.clone();
+        return Err((c.finish(), kinds));
+    }
     let Some(tuples) = tuples else {
         let kinds = c.kinds.clone();
         return Err((c.finish(), kinds));
@@ -347,75 +362,6 @@ impl<'a> Checker<'a> {
         true
     }
 
-    /// What `t` (token `i`) says it is drawn on (`pair=`, comma-separated,
-    /// once or more): each a colour token or a role, and never `t` itself
-    /// (`tamber-pair`). Every token is a colour today, so a token is one.
-    fn pairs(&mut self, i: usize, t: &Token) -> Vec<String> {
-        let mut out = Vec::new();
-        let named: Vec<&str> = t
-            .meta
-            .iter()
-            .filter(|(k, _)| k == "pair")
-            .flat_map(|(_, v)| v.split(','))
-            .map(str::trim)
-            .collect();
-        if !named.is_empty() && self.kinds[i] != Kind::Color {
-            self.at(
-                &t.name,
-                "tamber-pair",
-                format!(
-                    "`{}` is a {}: `pair=` says what a colour is drawn on",
-                    t.name.value,
-                    self.kinds[i].name()
-                ),
-            );
-            return out;
-        }
-        // An empty list, or an empty name in one, names nothing.
-        if named.iter().any(|n| n.is_empty()) {
-            self.at(&t.name, "tamber-pair", format!("`{}` has an empty `pair=` name: `pair=` names what it is drawn on, `pair=surface.page` or several, comma-separated", t.name.value));
-        }
-        for name in named.into_iter().filter(|n| !n.is_empty()) {
-            let token = self.names.get(name).copied().or_else(|| {
-                let (_, row) = self.role_key(name)?;
-                self.names.get(&row.to_ascii_lowercase()).copied()
-            });
-            let found = match token {
-                Some(j) if j == i => {
-                    self.at(&t.name, "tamber-pair", format!("`{}` says it is drawn on itself: `pair=` names what it is drawn on, another token or a role", t.name.value));
-                    continue;
-                }
-                Some(j) if self.kinds[j] != Kind::Color => {
-                    self.at(
-                        &t.name,
-                        "tamber-pair",
-                        format!(
-                            "`pair={name}` names a {}: `pair=` names the colour `{}` is drawn on",
-                            self.kinds[j].name(),
-                            t.name.value
-                        ),
-                    );
-                    continue;
-                }
-                Some(j) => {
-                    let name = &self.design.tokens[j].name.value;
-                    self.role_key(name).map_or(name.clone(), |(_, row)| row)
-                }
-                None => match self.role_key(name) {
-                    Some((_, row)) => row,
-                    None => {
-                        self.at(&t.name, "tamber-pair", format!("`pair={name}` names no colour token or role of this design: `pair=` names what `{}` is drawn on", t.name.value));
-                        continue;
-                    }
-                },
-            };
-            if !out.contains(&found) {
-                out.push(found);
-            }
-        }
-        out
-    }
-
     fn finish(mut self) -> Vec<Diagnostic> {
         self.errors
             .sort_by(|a, b| (a.line, a.col, a.id).cmp(&(b.line, b.col, b.id)));
@@ -512,6 +458,7 @@ impl<'a> Checker<'a> {
             );
             return None;
         }
+        self.table = (0..tuples).map(|n| self.digits_of(n).into()).collect();
         Some(tuples)
     }
 
@@ -531,7 +478,7 @@ impl<'a> Checker<'a> {
                 DialKind::Color => {
                     let folded = css::parse(&d.value.value)
                         .map_err(|m| FoldError {
-                            id: "tamber-syntax",
+                            id: css::refusal_id(&d.value.value, &m),
                             message: m,
                         })
                         .and_then(|items| fold::color(&items, &mut Literal { roles: &self.roles }));
@@ -734,15 +681,19 @@ impl<'a> Checker<'a> {
 
     /// Each token's kind: written, else inferred from its default value
     /// (§3), a lone name taking the kind of what it names; else a colour.
-    fn kinds(&mut self) {
+    fn kinds(&mut self) -> Option<usize> {
         let design = self.design;
         let mut walk = Walk {
             on: vec![false; design.tokens.len()],
             known: vec![None; design.tokens.len()],
-            cycles: 0,
+            depth: 0,
+            deep: None,
         };
         for i in 0..design.tokens.len() {
             self.kinds[i] = self.kind_of(i, &mut walk);
+            if walk.deep.is_some() {
+                return walk.deep;
+            }
             let t = &design.tokens[i];
             if !self.refused[i]
                 && matches!(self.kinds[i], Kind::Duration | Kind::Easing)
@@ -798,11 +749,15 @@ impl<'a> Checker<'a> {
                 );
             }
         }
+        walk.deep
     }
 
     /// Token `i`'s kind; `walk` holds the names followed to it, so a cycle
-    /// (refused when it folds) ends as a colour, and each kind found without
-    /// meeting one, so a chain is followed once however many tokens read it.
+    /// (refused when it folds) ends as a colour, and each kind found, so a
+    /// chain is followed once however many tokens read it, a cycle's too (its
+    /// design is refused, and the walk's order is the build's and the
+    /// check's alike: no 2^n over a cycle read twice a level). A chain past
+    /// [`crate::bound::MAX_REFERENCE_DEPTH`] stops where it passes (`Walk::deep`).
     fn kind_of(&self, i: usize, walk: &mut Walk) -> Kind {
         let t = &self.design.tokens[i];
         if let Some(k) = t.kind.as_deref().and_then(Kind::parse) {
@@ -811,16 +766,17 @@ impl<'a> Checker<'a> {
         if let Some(k) = walk.known[i] {
             return k;
         }
-        if std::mem::replace(&mut walk.on[i], true) {
-            walk.cycles += 1;
+        if walk.on[i] {
             return Kind::Color;
         }
-        let cycles = walk.cycles;
-        let kind = self.inferred_kind(i, walk);
-        walk.on[i] = false;
-        if walk.cycles == cycles {
-            walk.known[i] = Some(kind);
+        if !walk.enter(i) {
+            return Kind::Color;
         }
+        walk.on[i] = true;
+        let kind = self.inferred_kind(i, walk);
+        walk.depth -= 1;
+        walk.on[i] = false;
+        walk.known[i] = Some(kind);
         kind
     }
 
@@ -874,7 +830,8 @@ impl<'a> Checker<'a> {
     }
 
     /// Whether a function's items hold a length: a dimension, or a name of
-    /// a length token or dial, at any depth.
+    /// a length token or dial, at any depth (each function a level of
+    /// [`crate::bound::MAX_REFERENCE_DEPTH`], as each name followed is).
     fn measures<'i>(
         &self,
         items: impl Iterator<Item = &'i css::Item>,
@@ -887,7 +844,14 @@ impl<'a> Checker<'a> {
                 css::Item::Ident(name) => {
                     (self.named_length)(name) || self.named_kind(name, i, walk) == Kind::Length
                 }
-                css::Item::Func(_, args, _) => self.measures(args.iter().flatten(), i, walk),
+                css::Item::Func(_, args, _) => {
+                    if !walk.enter(i) {
+                        return false;
+                    }
+                    let length = self.measures(args.iter().flatten(), i, walk);
+                    walk.depth -= 1;
+                    length
+                }
                 _ => false,
             };
             if length {
@@ -930,7 +894,12 @@ impl<'a> Checker<'a> {
     }
 
     /// The value index of each axis in `tuple` (first axis slowest).
-    fn digits(&self, mut tuple: usize) -> Vec<usize> {
+    fn digits(&self, tuple: usize) -> std::rc::Rc<[usize]> {
+        let made = self.table.get(tuple).cloned();
+        made.unwrap_or_else(|| self.digits_of(tuple).into())
+    }
+
+    fn digits_of(&self, mut tuple: usize) -> Vec<usize> {
         let mut out = vec![0; self.radix.len()];
         for (i, r) in self.radix.iter().enumerate().rev() {
             out[i] = tuple % r;
@@ -1000,6 +969,10 @@ impl<'a> Checker<'a> {
                 .map(|&s| design.tokens[s].name.value.as_str())
                 .collect();
             chain.push(&t.name.value);
+            // (a long one said by its ends: its words stay short)
+            if chain.len() > 12 {
+                chain.splice(6..chain.len() - 6, ["…"]);
+            }
             self.at(
                 &t.name,
                 "tamber-cycle",
@@ -1007,6 +980,14 @@ impl<'a> Checker<'a> {
             );
             return None;
         }
+        // Each name followed recurses: a chain past the bound is refused
+        // where it passes, before the stack would run out.
+        let Some(_level) = crate::bound::deeper() else {
+            let (id, why) = crate::bound::too_deep();
+            self.at(&t.name, id, why);
+            self.memo.insert((i, tuple), None);
+            return None;
+        };
         self.stack.push(i);
         self.at.push(self.traced.then_some(tuple));
         let digits = self.digits(tuple);
@@ -1074,7 +1055,35 @@ impl<'a> Checker<'a> {
         let design = self.design;
         let baseline = self.memo.clone();
         let errors = self.errors.len();
+        // Only a token that reads a dial, or names one that does, can move
+        // with it (the names each fold read): refolded alone, each probe
+        // (the checker's work in dial counts: every token at every dial
+        // was dials x tokens).
+        let n = design.tokens.len();
+        let mut named_by = vec![Vec::new(); n];
+        let mut readers = vec![Vec::new(); design.dials.len()];
+        for i in 0..n {
+            self.refs[i].iter().for_each(|&j| named_by[j].push(i));
+            self.reads[i].iter().for_each(|&d| readers[d].push(i));
+        }
+        // (each dial's visit marked by its number, so nothing is cleared per
+        // dial: round 1 of the counts' review)
+        let mut moving = vec![usize::MAX; n];
         for (d, dial) in design.dials.iter().enumerate() {
+            #[cfg(test)]
+            let readers = &influence_tests::every_token(&readers, n);
+            let mut todo = readers[d].clone();
+            let mut reach = Vec::new();
+            while let Some(i) = todo.pop() {
+                if std::mem::replace(&mut moving[i], d) != d {
+                    reach.push(i);
+                    todo.extend(&named_by[i]);
+                }
+            }
+            // Refolded in the design's order, as every token was: a token's
+            // names folded before it (Astra's round 1: a chain read from its
+            // far end passed the depth bound).
+            reach.sort_unstable();
             let Some((_, value)) = self.dials.get(dial.name.value.as_str()).cloned() else {
                 continue;
             };
@@ -1115,8 +1124,12 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 self.dials.insert(dial.name.value.as_str(), (d, other));
-                self.memo.clear();
-                for i in 0..design.tokens.len() {
+                for &i in &reach {
+                    for tuple in 0..tuples {
+                        self.memo.remove(&(i, tuple));
+                    }
+                }
+                for &i in &reach {
                     if self.refused[i] {
                         continue;
                     }
@@ -1130,6 +1143,14 @@ impl<'a> Checker<'a> {
                 }
             }
             self.dials.insert(dial.name.value.as_str(), (d, value));
+            for &i in &reach {
+                for tuple in 0..tuples {
+                    match baseline.get(&(i, tuple)) {
+                        Some(v) => drop(self.memo.insert((i, tuple), v.clone())),
+                        None => drop(self.memo.remove(&(i, tuple))),
+                    }
+                }
+            }
         }
         self.memo = baseline;
         self.errors.truncate(errors);
@@ -1150,7 +1171,7 @@ impl<'a> Checker<'a> {
             Ok(items) => items,
             Err(_) if shadow => Vec::new(),
             Err(m) => {
-                self.at(value, "tamber-syntax", m);
+                self.at(value, css::refusal_id(&value.value, &m), m);
                 return None;
             }
         };
@@ -1212,7 +1233,7 @@ impl<'a> Checker<'a> {
         let items = match css::parse(&value.value) {
             Ok(items) => items,
             Err(m) => {
-                self.at(value, "tamber-syntax", m);
+                self.at(value, css::refusal_id(&value.value, &m), m);
                 return None;
             }
         };
@@ -1297,11 +1318,12 @@ impl<'a> Checker<'a> {
 
     fn completeness(&mut self) {
         let design = self.design;
+        let moving: BTreeSet<usize> = self.used.iter().flatten().copied().collect();
         for d in &design.dials {
             let Some(&(i, _)) = self.dials.get(d.name.value.as_str()) else {
                 continue;
             };
-            if !self.used.iter().any(|u| u.contains(&i)) {
+            if !moving.contains(&i) {
                 self.at(
                     &d.name,
                     "tamber-dial-inert",
@@ -1323,7 +1345,7 @@ impl<'a> Checker<'a> {
                 .role_key(&e.value)
                 .map_or(e.value.clone(), |(_, row)| row.to_ascii_lowercase());
             // An icon may be exported too: generated bindings name it (D12).
-            let icon = self.design.icons.iter().any(|i| i.name.value == e.value);
+            let icon = self.icons.contains(e.value.as_str());
             if !self.names.contains_key(&key) && !icon {
                 self.at(
                     e,
@@ -1455,7 +1477,7 @@ impl Names for Scope<'_, '_> {
             return Err(quiet());
         }
         // An icon (D10) is a row's `symbol:`, no value's.
-        if c.design.icons.iter().any(|i| i.name.value == name) {
+        if c.icons.contains(name) {
             return Err(FoldError {
                 id: "tamber-kind",
                 message: format!("`{name}` is an icon: a `symbol:` source names it, not a value"),

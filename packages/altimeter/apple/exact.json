@@ -1,0 +1,28 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/altimeter@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleAltimeterStatus": {
+      "authorizationStatus": "enum<notDetermined|restricted|denied|authorized>",
+      "absoluteAltitude": "bool"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [
+    "altimeter"
+  ],
+  "sources": {
+    "swift": [
+      "Altimeter.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "AltimeterModule"
+}

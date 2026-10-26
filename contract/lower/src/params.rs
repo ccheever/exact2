@@ -227,14 +227,70 @@ pub fn add_to(design: &mut exact_tamber::Design, params: &[ParamToken], componen
 /// `message` with each param's token name written as its full name: what
 /// an author reads never names the hash.
 pub fn shown(message: &str, params: &[ParamToken]) -> String {
-    let mut out = message.to_string();
-    // Longest first, so a name that prefixes another does not split it.
-    let mut by_len: Vec<&ParamToken> = params.iter().collect();
-    by_len.sort_by_key(|p| std::cmp::Reverse(p.token.len()));
-    for p in by_len {
-        out = out.replace(&p.token, &p.full);
+    // (a message naming no param builds no index: a literal is most)
+    if !message.contains(PREFIX) {
+        return message.to_string();
     }
-    out
+    Shown::new(params).text(message)
+}
+
+/// [`shown`]'s index of the params' token names, built once for many
+/// messages (a component list's, or a reply's diagnostics: rebuilt per
+/// message it was the params x the messages, Astra's round 3).
+#[derive(Debug, Clone, Default)]
+pub struct Shown {
+    full: std::collections::HashMap<String, String>,
+    /// Each token name's length, longest first.
+    lengths: Vec<usize>,
+}
+
+impl Shown {
+    /// The index of `params`' token names.
+    pub fn new(params: &[ParamToken]) -> Shown {
+        let mut full = std::collections::HashMap::new();
+        for p in params.iter().rev() {
+            full.insert(p.token.clone(), p.full.clone());
+        }
+        let mut lengths: Vec<usize> = full.keys().map(String::len).collect();
+        lengths.sort_unstable_by(|a, b| b.cmp(a));
+        lengths.dedup();
+        Shown { full, lengths }
+    }
+
+    /// `message` with each param's token name written as its full name.
+    pub fn text(&self, message: &str) -> String {
+        // Only where a token can start (each begins with `PREFIX`), the
+        // longest token there, so a name that prefixes another does not
+        // split it: the tokens looked up by name, not a replace over the
+        // text per param (the checker's work in param counts, Astra's round
+        // 2).
+        if !message.contains(PREFIX) {
+            return message.to_string();
+        }
+        let mut out = String::with_capacity(message.len());
+        let mut at = 0;
+        while let Some(found) = message[at..].find(PREFIX) {
+            let start = at + found;
+            out.push_str(&message[at..start]);
+            let hit = self.lengths.iter().find_map(|&n| {
+                let end = start + n;
+                let word = message.get(start..end)?;
+                self.full.get(word).map(|f| (end, f.as_str()))
+            });
+            match hit {
+                Some((end, f)) => {
+                    out.push_str(f);
+                    at = end;
+                }
+                None => {
+                    out.push_str(PREFIX);
+                    at = start + PREFIX.len();
+                }
+            }
+        }
+        out.push_str(&message[at..]);
+        out
+    }
 }
 
 /// The kinds a param may be (D3's, and an icon).
@@ -353,18 +409,52 @@ pub fn folded(
     overridden: &[(String, Span)],
     written: Option<Span>,
 ) -> Vec<LowerError> {
+    folded_in(params, &Folded::new(folding), overridden, written)
+}
+
+/// A folding's tokens by name, each the first, for [`folded_in`]: made once
+/// per folding (the checker's work in param counts: a scan of the tokens per
+/// param was params x tokens).
+pub struct Folded<'f> {
+    tokens: std::collections::HashMap<&'f str, &'f exact_tamber::Checked>,
+    icons: std::collections::HashSet<&'f str>,
+}
+
+impl<'f> Folded<'f> {
+    /// The tokens of `folding`.
+    pub fn new(folding: &'f exact_tamber::Folding) -> Self {
+        let mut tokens = std::collections::HashMap::new();
+        for c in folding.tokens.iter().rev() {
+            tokens.insert(c.name.as_str(), c);
+        }
+        let icons = folding.icons.iter().map(|i| i.name.as_str()).collect();
+        Folded { tokens, icons }
+    }
+}
+
+/// [`folded`] over a folding's tokens found by name.
+pub fn folded_in(
+    params: &[ParamToken],
+    folding: &Folded,
+    overridden: &[(String, Span)],
+    written: Option<Span>,
+) -> Vec<LowerError> {
     use exact_tamber::{Length, Value};
     let mut errors = Vec::new();
+    let mut set_by: std::collections::HashMap<&str, &Span> = std::collections::HashMap::new();
+    for (token, span) in overridden.iter().rev() {
+        set_by.insert(token.as_str(), span);
+    }
     for t in params {
         let p = &t.param;
-        let set = overridden.iter().find(|(token, _)| *token == t.token);
+        let set = set_by.get(t.token.as_str()).map(|s| ((), *s));
         let span = written.or(set.map(|(_, s)| *s)).unwrap_or(p.default_span);
         let refuse = |id: &'static str, message: String| LowerError { id, message, span };
         // A value the design sets is checked as written, each at its line
         // ([`written_ranges`]).
         let ranged = written.is_some() || set.is_none();
         if let (true, Some(Ok((low, high)))) = (ranged, range(p)) {
-            let Some(token) = folding.tokens.iter().find(|c| c.name == t.token) else {
+            let Some(token) = folding.tokens.get(t.token.as_str()).copied() else {
                 continue;
             };
             for v in &token.values {
@@ -441,16 +531,8 @@ pub fn folded(
         if let Some(options) = p.attr("options") {
             for name in options.text().split('|').map(str::trim) {
                 let kind = match p.kind.as_str() {
-                    "icon" => folding
-                        .icons
-                        .iter()
-                        .any(|i| i.name == name)
-                        .then_some("icon"),
-                    _ => folding
-                        .tokens
-                        .iter()
-                        .find(|c| c.name == name)
-                        .map(|c| c.kind.name()),
+                    "icon" => folding.icons.contains(name).then_some("icon"),
+                    _ => folding.tokens.get(name).map(|c| c.kind.name()),
                 };
                 match kind {
                     Some(k) if k == p.kind => {}
@@ -487,37 +569,183 @@ pub fn written_ranges(
     identities: &[String],
     vocab: &exact_tamber::Vocab,
 ) -> Vec<(u32, u32, LowerError)> {
-    let mut out = Vec::new();
-    for (index, entry) in design.params.iter().enumerate() {
-        let Ok(t) = resolve(params, identities, &entry.name.value) else {
-            continue;
-        };
-        if range(&t.param).is_none() {
-            continue;
+    let resolver = Resolver::new(params, identities);
+    // Each ranged line: its index, its param, and its values.
+    let ranged: Vec<(usize, &ParamToken, Vec<&exact_tamber::At<String>>)> = design
+        .params
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            let t = resolver.resolve(&entry.name.value).ok()?;
+            let _ = range(&t.param)?;
+            let values = std::iter::once(&entry.value).chain(entry.whens.iter().map(|w| &w.value));
+            Some((index, t, values.collect()))
+        })
+        .collect();
+    // The dial readers' stem: the first `exact.probe{n}` that starts no
+    // name of the design (a token's, an icon's, a param line's, a dial's or
+    // an axis's).
+    let taken = |stem: &str| {
+        let below = format!("{stem}.");
+        design
+            .tokens
+            .iter()
+            .chain(&design.icons)
+            .chain(&design.params)
+            .map(|t| &t.name.value)
+            .chain(design.dials.iter().map(|d| &d.name.value))
+            .chain(design.axes.iter().map(|a| &a.name.value))
+            .any(|n| n == stem || n.starts_with(&below))
+    };
+    let stem = (0..)
+        .map(|n| format!("exact.probe{n}"))
+        .find(|stem| !taken(stem))
+        .expect("some stem is free");
+    // One value of a line folded in its param's place, the rest of the
+    // design as written: the range errors at it.
+    let probe = |at: &[(usize, &exact_tamber::At<String>)]| {
+        let mut probe = design.clone();
+        for (index, v) in at {
+            probe.params[*index].value = (*v).clone();
+            probe.params[*index].whens.clear();
         }
-        let values = std::iter::once(&entry.value).chain(entry.whens.iter().map(|w| &w.value));
-        for v in values {
-            let mut probe = design.clone();
-            probe.params[index].value = v.clone();
-            probe.params[index].whens.clear();
-            add_to(&mut probe, params, identities);
-            crate::theme::stand_in_profiles(&mut probe);
-            let Ok(folding) = exact_tamber::check_design(probe, vocab) else {
-                continue;
-            };
-            let span = Span {
-                line: v.line,
-                col: v.col,
-                end_col: v.col,
-                source_id: 0,
-            };
-            for e in folded(std::slice::from_ref(t), &folding, &[], Some(span)) {
-                if matches!(e.id, "tamber-param-range" | "tamber-range-unit") {
-                    out.push((v.line, v.col, e));
+        // Each dial read once beside them, so a probe that clears the `when`
+        // lines reading one doesn't leave it moving no token (Astra's round
+        // 2: `tamber-dial-inert` failed the batch, and each value folded
+        // alone again).
+        if at.len() > 1 {
+            for (k, d) in design.dials.iter().enumerate() {
+                // (under a stem no name of the design starts with: a reader
+                // never takes an authored token's place, Astra's round 3)
+                let at = |value: String| exact_tamber::At {
+                    value,
+                    line: u32::MAX - k as u32,
+                    col: 1,
+                };
+                probe.tokens.push(exact_tamber::Token {
+                    name: at(format!("{stem}.dial{k}")),
+                    kind: None,
+                    value: at(d.name.value.clone()),
+                    whens: Vec::new(),
+                    meta: Vec::new(),
+                });
+            }
+        }
+        add_to(&mut probe, params, identities);
+        crate::theme::stand_in_profiles(&mut probe);
+        exact_tamber::check_design(probe, vocab).ok()
+    };
+    let errors = |t: &ParamToken, v: &exact_tamber::At<String>, folding: &Folded| {
+        let span = Span {
+            line: v.line,
+            col: v.col,
+            end_col: v.col,
+            source_id: 0,
+        };
+        folded_in(std::slice::from_ref(t), folding, &[], Some(span))
+            .into_iter()
+            .filter(|e| matches!(e.id, "tamber-param-range" | "tamber-range-unit"))
+            .map(|e| (v.line, v.col, e))
+            .collect::<Vec<_>>()
+    };
+    let one = |index: usize, t: &ParamToken, v: &exact_tamber::At<String>| {
+        probe(&[(index, v)]).map_or(Vec::new(), |f| errors(t, v, &Folded::new(&f)))
+    };
+    // A line whose value names a param, or a token that reads one, folds
+    // with what that holds, so each of its values is folded alone; the
+    // others (literals, dials and tokens reading no param) fold together,
+    // each line's k-th value in one probe, since none reads another line
+    // (the checker's work in param counts: a fold of the design per value
+    // was values x the design).
+    // (a design token can read a param in turn, Grok's round 2: the tokens
+    // that do, directly or through another, found once from the params'
+    // names out, Astra's and Grok's round 3; a dial reads none)
+    fn words(text: &str) -> impl Iterator<Item = &str> {
+        let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '#');
+        text.split(move |c: char| !word(c))
+            .filter(|w| !w.is_empty())
+    }
+    let param_lines: std::collections::HashSet<&str> = design
+        .params
+        .iter()
+        .map(|e| e.name.value.as_str())
+        .collect();
+    let param_word = |w: &str| resolver.names_a_param(w) || param_lines.contains(w);
+    // Each design token by each word its value and `when` values hold.
+    let mut readers: std::collections::HashMap<&str, Vec<usize>> = std::collections::HashMap::new();
+    let mut reading: Vec<usize> = Vec::new();
+    let mut reads = vec![false; design.tokens.len()];
+    for (i, t) in design.tokens.iter().enumerate() {
+        let texts = std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
+        for w in texts.flat_map(|text| words(text)) {
+            if param_word(w) {
+                if !reads[i] {
+                    reads[i] = true;
+                    reading.push(i);
                 }
+            } else {
+                readers.entry(w).or_default().push(i);
             }
         }
     }
+    while let Some(i) = reading.pop() {
+        for &j in readers
+            .get(design.tokens[i].name.value.as_str())
+            .into_iter()
+            .flatten()
+        {
+            if !reads[j] {
+                reads[j] = true;
+                reading.push(j);
+            }
+        }
+    }
+    let reading_tokens: std::collections::HashSet<&str> = design
+        .tokens
+        .iter()
+        .zip(&reads)
+        .filter(|(_, r)| **r)
+        .map(|(t, _)| t.name.value.as_str())
+        .collect();
+    let reads_a_param = |v: &exact_tamber::At<String>| {
+        words(&v.value).any(|w| param_word(w) || reading_tokens.contains(w))
+    };
+    let (alone, together): (Vec<_>, Vec<_>) = ranged
+        .iter()
+        .partition(|(_, _, values)| values.iter().any(|v| reads_a_param(v)));
+    let mut out = Vec::new();
+    for (index, t, values) in &alone {
+        for v in values {
+            out.extend(one(*index, t, v));
+        }
+    }
+    let most = together
+        .iter()
+        .map(|(_, _, values)| values.len())
+        .max()
+        .unwrap_or(0);
+    for k in 0..most {
+        let at: Vec<(usize, &ParamToken, &exact_tamber::At<String>)> = together
+            .iter()
+            .filter_map(|(index, t, values)| Some((*index, *t, *values.get(k)?)))
+            .collect();
+        let placed: Vec<(usize, &exact_tamber::At<String>)> =
+            at.iter().map(|(i, _, v)| (*i, *v)).collect();
+        match probe(&placed) {
+            Some(folding) => {
+                let folding = Folded::new(&folding);
+                at.iter()
+                    .for_each(|(_, t, v)| out.extend(errors(t, v, &folding)))
+            }
+            // One of them does not fold: each alone, as written (a value
+            // that does not fold is the fold's to say).
+            None => at
+                .iter()
+                .for_each(|(index, t, v)| out.extend(one(*index, t, v))),
+        }
+    }
+    // In the lines' order, each line's values in order, as before.
+    out.sort_by_key(|(line, col, _)| (*line, *col));
     out
 }
 
@@ -530,12 +758,13 @@ pub fn entry_errors(
     params: &[ParamToken],
     identities: &[String],
 ) -> Vec<(u32, u32, LowerError)> {
-    let mut seen: Vec<&str> = Vec::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut out = Vec::new();
+    let resolver = Resolver::new(params, identities);
     for entry in &design.params {
         let at = (entry.name.line, entry.name.col);
-        match resolve(params, identities, &entry.name.value) {
-            Ok(p) if seen.contains(&p.token.as_str()) => out.push((
+        match resolver.resolve(&entry.name.value) {
+            Ok(p) if seen.contains(p.token.as_str()) => out.push((
                 at.0,
                 at.1,
                 LowerError {
@@ -547,7 +776,7 @@ pub fn entry_errors(
                     span: Span::default(),
                 },
             )),
-            Ok(p) => seen.push(&p.token),
+            Ok(p) => drop(seen.insert(&p.token)),
             Err(e) if e.id == "tamber-param-ambiguous" => out.push((at.0, at.1, e)),
             Err(_) => {}
         }
@@ -565,10 +794,11 @@ pub fn unknown(
     identities: &[String],
     source_id: u32,
 ) -> Vec<LowerError> {
+    let resolver = Resolver::new(params, identities);
     design
         .params
         .iter()
-        .filter_map(|entry| match resolve(params, identities, &entry.name.value) {
+        .filter_map(|entry| match resolver.resolve(&entry.name.value) {
             Err(e) if e.id == "tamber-param-unknown" => Some(LowerError {
                 id: "tamber-param-unknown",
                 message: format!(
@@ -598,35 +828,88 @@ pub fn resolve<'a>(
     identities: &[String],
     name: &str,
 ) -> Result<&'a ParamToken, LowerError> {
-    use exact_tamber::params::{called, named, Unnamed};
-    let refuse = |id: &'static str, message: String| LowerError {
-        id,
-        message,
-        span: Span::default(),
-    };
-    let folds = folds(params, identities);
-    match named(&folds, name) {
-        Ok(p) => Ok(params
-            .iter()
-            .find(|q| q.token == p.token)
-            .expect("folds are params'")),
-        Err(Unnamed::Unknown) => Err(refuse(
-            "tamber-param-unknown",
-            format!("`{name}` is no component's param"),
-        )),
-        Err(Unnamed::Ambiguous) => {
-            let component = name.rsplit_once('.').map_or(name, |(c, _)| c);
-            Err(refuse(
+    Resolver::new(params, identities).resolve(name)
+}
+
+/// [`resolve`] for many names over one app's params: the folds, the
+/// names' index and the tokens by name made once (the checker's work in
+/// param counts: a fold of every param per name was params x names).
+pub struct Resolver<'a> {
+    folds: exact_tamber::params::Params,
+    index: exact_tamber::params::Index,
+    by_token: std::collections::HashMap<&'a str, &'a ParamToken>,
+}
+
+impl<'a> Resolver<'a> {
+    /// The resolver of `params` among the app's components (`identities`).
+    pub fn new(params: &'a [ParamToken], identities: &[String]) -> Self {
+        let mut by_token = std::collections::HashMap::new();
+        for q in params {
+            by_token.entry(q.token.as_str()).or_insert(q);
+        }
+        let folds = folds(params, identities);
+        Resolver {
+            index: exact_tamber::params::Index::new(&folds),
+            folds,
+            by_token,
+        }
+    }
+
+    /// Each param's first line in the design's `params` block, by its token
+    /// (one pass, where a scan of the lines per param was params x lines).
+    pub fn lines<'d>(
+        &self,
+        design: &'d exact_tamber::Design,
+    ) -> std::collections::HashMap<&'a str, &'d exact_tamber::Token> {
+        let mut out = std::collections::HashMap::new();
+        for e in &design.params {
+            if let Ok(p) = self.resolve(&e.name.value) {
+                out.entry(p.token.as_str()).or_insert(e);
+            }
+        }
+        out
+    }
+
+    /// Whether `name` names a param, by its full name or a short one
+    /// (ambiguous or not): [`Resolver::resolve`]'s question, no error made.
+    pub fn names_a_param(&self, name: &str) -> bool {
+        use exact_tamber::params::Unnamed;
+        self.by_token.contains_key(name)
+            || !matches!(self.index.named(&self.folds, name), Err(Unnamed::Unknown))
+    }
+
+    /// As [`resolve`] answers.
+    pub fn resolve(&self, name: &str) -> Result<&'a ParamToken, LowerError> {
+        use exact_tamber::params::{called, Unnamed};
+        let refuse = |id: &'static str, message: String| LowerError {
+            id,
+            message,
+            span: Span::default(),
+        };
+        let folds = &self.folds;
+        match self.index.named(folds, name) {
+            Ok(p) => Ok(*self
+                .by_token
+                .get(p.token.as_str())
+                .expect("folds are params'")),
+            Err(Unnamed::Unknown) => Err(refuse(
+                "tamber-param-unknown",
+                format!("`{name}` is no component's param"),
+            )),
+            Err(Unnamed::Ambiguous) => {
+                let component = name.rsplit_once('.').map_or(name, |(c, _)| c);
+                Err(refuse(
                 "tamber-param-ambiguous",
                 format!(
                     "`{name}`: more than one component is called `{component}` ({}): name the param in full",
-                    called(&folds, component)
+                    called(folds, component)
                         .iter()
                         .map(|o| format!("`{o}`"))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
             ))
+            }
         }
     }
 }
@@ -703,5 +986,57 @@ mod tests {
             collisions(&[token(&a), token(&a)]).is_empty(),
             "one file twice is one identity"
         );
+    }
+
+    /// `shown` by lookup at each token's start gives what a replace per param,
+    /// longest first, gave: tokens that prefix others, repeats, a token twice
+    /// in the list, text around and between (Astra's round 2 on the counts).
+    #[test]
+    fn shown_by_lookup_is_the_replace_per_param() {
+        let old = |message: &str, params: &[ParamToken]| {
+            let mut out = message.to_string();
+            let mut by_len: Vec<&ParamToken> = params.iter().collect();
+            by_len.sort_by_key(|p| std::cmp::Reverse(p.token.len()));
+            for p in by_len {
+                out = out.replace(&p.token, &p.full);
+            }
+            out
+        };
+        let token = |identity: &str, name: &str| ParamToken {
+            token: token_name(identity, name),
+            full: full_name(identity, name),
+            identity: identity.into(),
+            param: ComponentParam {
+                name: name.into(),
+                kind: "length".into(),
+                default: "1px".into(),
+                default_span: Span::default(),
+                attrs: Vec::new(),
+                span: Span::default(),
+            },
+            package: None,
+            root: None,
+        };
+        let params = vec![
+            token("a.contract#Card", "gap"),
+            token("a.contract#Card", "gap2"),
+            token("a.contract#Card", "g"),
+            token("b.contract#Row", "gap"),
+            token("a.contract#Card", "gap"),
+        ];
+        let t = |i: usize| params[i].token.clone();
+        for message in [
+            String::from("no params here"),
+            format!("`{}` and `{}`", t(0), t(1)),
+            format!("{}{}{} param. {}", t(2), t(1), t(0), t(3)),
+            format!("calc({} + {}) param.x {}", t(0), t(0), t(2)),
+            format!("param.{}", t(3)),
+        ] {
+            assert_eq!(
+                shown(&message, &params),
+                old(&message, &params),
+                "{message}"
+            );
+        }
     }
 }

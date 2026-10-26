@@ -217,8 +217,13 @@ fn toward(s: FieldSelection, focus: u32, extend: bool) -> FieldSelection {
     }
 }
 
-/// Linux word arrows cross one word or a run of punctuation and symbols, skipping whitespace.
+/// Windows uses Rich Edit's word boundaries; the other readers cross words
+/// or runs of punctuation and symbols, skipping whitespace.
 fn word_step(text: &str, at: u32, forward: bool) -> u32 {
+    #[cfg(windows)]
+    if let Some(at) = super::word::step(text, at, forward) {
+        return at;
+    }
     let mut words: Vec<(usize, usize, bool)> = Vec::new();
     for (start, part) in text.split_word_bound_indices() {
         if part.chars().all(char::is_whitespace) {
@@ -267,6 +272,7 @@ impl<D: DataSource> Presenter<D> {
         let changed = self.host.values.take_fields();
         let kernel = self.host.kernel();
         self.fields.retain(|id, _| kernel.node(*id).is_some());
+        self.field_history.retain(|id| kernel.node(id).is_some());
         for key in changed {
             let Some(node) = self.host.kernel().node_by_key(key) else {
                 continue;
@@ -282,6 +288,7 @@ impl<D: DataSource> Presenter<D> {
                 None if markdown => after,
                 None => FieldSelection::caret(0),
             };
+            self.field_history.invalidate(id);
             self.mark_field_from(id, &value, before, after, false);
         }
     }
@@ -344,6 +351,7 @@ impl<D: DataSource> Presenter<D> {
         if before != selection {
             self.field_change_tasks.insert(id);
         }
+        self.field_reveal |= self.focus == Some(id);
         self.fields.insert(
             id,
             FieldMark {
@@ -402,7 +410,7 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    fn current_field(
+    pub(super) fn current_field(
         &mut self,
         id: ViewId,
         value: &str,
@@ -423,6 +431,23 @@ impl<D: DataSource> Presenter<D> {
             // Keep the acknowledged placement, but never index newer text
             // with the paragraph from a picture still waiting for its flip.
             Some(Rc::new(field.for_value(&mut self.text.borrow_mut(), value)))
+        }
+    }
+
+    pub(super) fn mark_pointer_selection(
+        &mut self,
+        id: ViewId,
+        value: &str,
+        selection: FieldSelection,
+        upstream: bool,
+    ) {
+        let changed = self.field_selection(id) != selection;
+        self.mark_field(id, value, selection, false);
+        if let Some(mark) = self.fields.get_mut(&id) {
+            mark.upstream = upstream;
+        }
+        if changed && selection.start != selection.end && !self.field_select_tasks.contains(&id) {
+            self.field_select_tasks.push(id);
         }
     }
 
@@ -474,7 +499,11 @@ impl<D: DataSource> Presenter<D> {
         };
         let mut preferred_x = None;
         let (to, upstream) = if modifiers.ctrl {
-            let at = word_step(value, cursor.offset, key == "ArrowRight");
+            let at = match key {
+                "Home" => 0,
+                "End" => utf16_len(value),
+                _ => word_step(value, cursor.offset, key == "ArrowRight"),
+            };
             (toward(selection, at, modifiers.shift), false)
         } else if let Some(field) = field
             .as_ref()
@@ -914,8 +943,23 @@ impl<D: DataSource> Presenter<D> {
         now_ms: f64,
         edit: InputDetails,
     ) -> Option<String> {
+        if !self.ime_owns(id) && !matches!(edit.input_type.as_str(), "historyUndo" | "historyRedo")
+        {
+            let value = self.field_text(id);
+            let selection = self.field_selection(id);
+            self.field_history.record(
+                id,
+                &value,
+                selection,
+                &next,
+                after,
+                &edit.input_type,
+                now_ms,
+            );
+        }
         self.edited = Some(id);
         self.mark_field(id, &next, after, false);
+        self.ime_edited(id, &next);
         self.host.values.watch(id, Some(bound.clone()));
         // The input handler sees the edited field. An unchanged binding
         // must not reset its selection while that handler commits.
@@ -943,18 +987,29 @@ impl<D: DataSource> Presenter<D> {
     /// firing `select` when it is a range), a character is typed — each
     /// edit at the selection.
     pub(crate) fn field_key(&mut self, id: ViewId, name: &str, now_ms: f64) {
-        let (textarea, limit) = {
+        if self.history_key(id, name, now_ms) {
+            return;
+        }
+        if self
+            .host
+            .kernel()
+            .node(id)
+            .is_some_and(|n| n.node_type == NodeType::TextInput)
+            && self.clipboard_key(id, name, now_ms)
+        {
+            return;
+        }
+        let (textarea, limit, readonly) = {
             let Some(node) = self.host.kernel().node(id) else {
                 return;
             };
-            if node.node_type != NodeType::TextInput
-                || node.props.bool(PropId::Editable) == Some(false)
-            {
+            if node.node_type != NodeType::TextInput {
                 return;
             }
             (
                 node.props.str(PropId::SemanticTag) == Some("textarea"),
                 exact_kernel::control::text_maxlength(node.props),
+                node.props.bool(PropId::Editable) == Some(false),
             )
         };
         // What earlier commits replaced goes first: this edit starts from what shows.
@@ -963,6 +1018,22 @@ impl<D: DataSource> Presenter<D> {
         let selection = self.field_selection(id);
         // A Control or Meta chord types nothing, as in a browser.
         let chord = self.held & 0b1100_1100 != 0;
+        if matches!(
+            name,
+            "ArrowLeft" | "ArrowRight" | "Home" | "End" | "ArrowUp" | "ArrowDown"
+        ) && (!chord
+            || (self.modifiers().ctrl
+                && !self.modifiers().alt
+                && !self.modifiers().meta
+                && matches!(name, "ArrowLeft" | "ArrowRight" | "Home" | "End")))
+        {
+            self.move_field(id, name, &value, selection, textarea);
+            return;
+        }
+        if readonly {
+            return;
+        }
+        let word = self.modifiers().ctrl && !self.modifiers().alt && !self.modifiers().meta;
         let (next, after) = match name {
             "Enter" if !textarea => {
                 if let Some(Some(e)) = self.commit_text(id, now_ms) {
@@ -973,17 +1044,21 @@ impl<D: DataSource> Presenter<D> {
                 }
                 return;
             }
-            "ArrowLeft" | "ArrowRight" | "Home" | "End" | "ArrowUp" | "ArrowDown"
-                if !chord
-                    || (self.modifiers().ctrl
-                        && !self.modifiers().meta
-                        && matches!(name, "ArrowLeft" | "ArrowRight")) =>
-            {
-                self.move_field(id, name, &value, selection, textarea);
-                return;
-            }
             "Enter" => replace(&value, selection, "\n"),
             "Backspace" | "Delete" => {
+                let selection = if word && selection.start == selection.end {
+                    let at = word_step(&value, selection.start, name == "Delete");
+                    if at == selection.start {
+                        return;
+                    }
+                    FieldSelection {
+                        start: at.min(selection.start),
+                        end: at.max(selection.end),
+                        direction: SelectionDirection::None,
+                    }
+                } else {
+                    selection
+                };
                 match delete(&value, selection, name == "Delete", self.field_boundary(id)) {
                     Some(edit) => edit,
                     None => return,
@@ -1000,6 +1075,8 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         let (input_type, data) = match name {
+            "Backspace" if word => ("deleteWordBackward", None),
+            "Delete" if word => ("deleteWordForward", None),
             "Backspace" => ("deleteContentBackward", None),
             "Delete" => ("deleteContentForward", None),
             "Enter" => ("insertLineBreak", None),

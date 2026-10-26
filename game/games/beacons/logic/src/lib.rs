@@ -28,7 +28,13 @@ impl Game for Beacons {
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
-            .stick("move", Stick::wasd().or_arrows().or_pad(Pad::Left))
+            .stick(
+                "move",
+                Stick::wasd().or_arrows().or_pad(Pad::Left).or_tilt(Tilt {
+                    max_degrees: 20.0,
+                    dead_zone: 2.0,
+                }),
+            )
             .button("jump", &["Space", "GamepadSouth"])
             // Held 200 ms, Shift runs; a tap of it does nothing.
             .hold("sprint", &["ShiftLeft", "GamepadL1"], 0.2)
@@ -129,6 +135,17 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
+        // Set level: the app posts the gravity it read (`tilt x y z`), the
+        // level of tilt to move from the next tick.
+        for m in input.messages() {
+            let level: Vec<f32> = (m.strip_prefix("tilt ").into_iter())
+                .flat_map(str::split_whitespace)
+                .filter_map(|n| n.parse().ok())
+                .collect();
+            if let [x, y, z] = level[..] {
+                w.set_tilt_neutral("move", Vec3::new(x, y, z));
+            }
+        }
         // Set before the step, every tick: the table tunes walking, a held
         // sprint scales it, and a sprint released while paused (no edge) walks
         // again from the first tick on resume.
@@ -136,7 +153,11 @@ impl Game for Beacons {
             let tuning = w.table::<Movement>("movement.json").unwrap();
             let walk = tuning.speed.at(input.stick_xz("move").length());
             let mut player = w.require_mut::<Character>("player");
-            player.speed = if input.held("sprint") { walk * SPRINT } else { walk };
+            player.speed = if input.held("sprint") {
+                walk * SPRINT
+            } else {
+                walk
+            };
             player.jump = tuning.jump;
         }
         w.character("player")

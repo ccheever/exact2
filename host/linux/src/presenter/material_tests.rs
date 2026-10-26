@@ -232,6 +232,7 @@ fn materials_radio_and_touch_target_reach_past_the_drawn_control() {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     };

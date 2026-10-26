@@ -357,7 +357,8 @@ function inlineSource(value: string, lines: Line[], frame: Frame): { source: Sou
 const fenceRule = /^```(?:([\w+.#-]+)[ \t]*\n)?([\s\S]*?)```/;
 
 /** Parse message content without performing I/O or resolving Discord identifiers. */
-export function parse(content: string): Block[] {
+/** `headings: false` reads `# x` as text, as Discord does in an embed's field values. */
+export function parse(content: string, { headings = true } = {}): Block[] {
   const blocks: Block[] = [];
   if (!content.trim()) return blocks;
   const value = content.replace(/\r\n?/g, '\n');
@@ -445,7 +446,7 @@ export function parse(content: string): Block[] {
         continue;
       }
       const tail = value.slice(line.at, line.end);
-      const heading = /^(#{1,3})[ \t]+([^\n]*)/.exec(tail);
+      const heading = headings ? /^(#{1,3})[ \t]+([^\n]*)/.exec(tail) : null;
       const subtext = /^-#[ \t]+([^\n]*)/.exec(tail);
       if (heading || subtext) {
         flush(frame);

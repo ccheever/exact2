@@ -1,7 +1,7 @@
 //! Desktop Neutral confirmations. Admission shares the windowed shape reader;
 //! layout and action order remain the authored tree (LLP 1115.000 D13.4, D17).
 use super::*;
-use exact_kernel::{BlockAxis, HostBlock, NodeKey, StyleMask};
+use exact_kernel::{BlockAxis, HostBlock, NodeKey};
 
 pub(super) struct Open {
     serial: u32,
@@ -131,7 +131,21 @@ impl<D: DataSource> Presenter<D> {
             return false;
         }
         self.dirty = true;
-        if let Some(e) = self.move_focus(false, now) {
+        // An attached display still has the page's previous boxes. Initial
+        // dialog focus follows its new layout before that picture is acknowledged.
+        let boxed = self
+            .host
+            .preorder()
+            .into_iter()
+            .filter(|id| self.alert_allows(*id) && !self.alert_message(*id))
+            .filter(|id| {
+                self.host
+                    .kernel()
+                    .node(*id)
+                    .is_some_and(|n| n.frame.width > 0. && n.frame.height > 0.)
+            })
+            .collect();
+        if let Some(e) = self.move_focus_in(false, now, &boxed) {
             self.host.log(e);
         }
         self.back_changed();
@@ -239,17 +253,9 @@ impl<D: DataSource> Presenter<D> {
         let k = self.host.kernel();
         let node = k.node(id).ok_or("alert removed during layout")?;
         let key = node.key;
-        let mut style = node.computed_style(StyleMask::INHERITED);
+        let style = node.alert_title_style();
         let prefix = k.alert_prefix_frame(id);
         let title = label.filter(|label| !label.is_empty()).map(|label| {
-            style.font_size = exact_kernel::style::metrics::length_in(
-                exact_kernel::generated::metric::ALERT_TITLE,
-                exact_kernel::style::metrics::Column::Neutral,
-                style.font_size,
-                k.root_font_size(),
-            )
-            .unwrap();
-            style.font_weight = 600;
             let shown = style.hyphens.shown(style.text_transform.apply(&label, ""));
             let p = self.text.borrow_mut().paragraph(
                 &crate::paint::text_spec(&style, &shown),
@@ -310,6 +316,61 @@ impl<D: DataSource> Presenter<D> {
             scroll: self.alert_scroll(id),
         })
     }
+    pub(crate) fn alert_message(&self, id: ViewId) -> bool {
+        self.alert_root().is_some_and(|root| {
+            self.host.kernel().node(id).is_some_and(|node| {
+                node.parent == Some(root) && node.props.str(PropId::AlertPart) == Some("message")
+            })
+        })
+    }
+
+    pub(crate) fn alert_message_overflows(&self, id: ViewId) -> bool {
+        self.alert_message(id)
+            && self.host.kernel().node(id).is_some_and(|node| {
+                let bounds = self.brush.scroll_bounds(
+                    self.host.kernel(),
+                    self.host.content_region(),
+                    &node,
+                    None,
+                );
+                bounds.max.0 > 0. || bounds.max.1 > 0.
+            })
+    }
+
+    fn alert_message_key(&mut self, name: &str) -> bool {
+        let Some(id) = self.focus.filter(|id| self.alert_message(*id)) else {
+            return false;
+        };
+        self.restore_scroll_anchors();
+        let kernel = self.host.kernel();
+        let Some(node) = kernel.node(id) else {
+            return false;
+        };
+        let bounds = self
+            .brush
+            .scroll_bounds(kernel, self.host.content_region(), &node, None);
+        let border = node
+            .computed_style(exact_kernel::StyleMask::EMPTY)
+            .border_widths_in(&kernel.env());
+        // Chrome 151: arrows move 40 CSS px; Page and Space move 87.5% of
+        // clientHeight (200 -> 175, 400 -> 350, 669 -> 585, 800 -> 700).
+        let page = (node.frame.height - border[0] - border[2]).max(0.) * 0.875;
+        let (dx, dy) = match name {
+            "ArrowLeft" => (-40., 0.),
+            "ArrowRight" => (40., 0.),
+            "ArrowUp" => (0., -40.),
+            "ArrowDown" => (0., 40.),
+            "PageUp" => (0., -page),
+            "PageDown" => (0., page),
+            " " => (0., if self.modifiers().shift { -page } else { page }),
+            "Home" => (0., -bounds.max.1),
+            "End" => (0., bounds.max.1),
+            _ => return false,
+        };
+        self.scroll_container_by(id, bounds, dx, dy);
+        true
+    }
+
     pub(super) fn alert_key(&mut self, name: &str, now: f64) -> bool {
         let Some(_) = self.alert_root() else {
             return false;
@@ -332,6 +393,9 @@ impl<D: DataSource> Presenter<D> {
         {
             return true;
         }
+        if self.alert_message_key(name) {
+            return true;
+        }
         match name {
             "Escape" => {
                 self.alert_close_request(now);
@@ -342,7 +406,10 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
             "Enter" | " " => {
-                if let Some(id) = self.focus.filter(|id| self.alert_allows(*id)) {
+                if let Some(id) = self
+                    .focus
+                    .filter(|id| self.alert_allows(*id) && !self.alert_message(*id))
+                {
                     self.invoke(id, now, false);
                 }
             }

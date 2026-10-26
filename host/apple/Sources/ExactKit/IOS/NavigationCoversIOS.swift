@@ -47,9 +47,12 @@ extension NavigationHost {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in (c.lifted.map({ [$0] }) ?? c.barNodes) + [c.scoped].compactMap({ $0 }) { wanted[node.id] = .whole }
-            // A held stack's route (HeldStackIOS) as a navigation controller's that hides its bar.
+            // Include the departing route until UIKit finishes its transition
             let nav = c.navigationController
-            guard nav?.viewControllers.contains(c) ?? (c.parent is HeldStack) else { continue }
+            let held = nav.map {
+                $0.viewControllers.contains(c) || $0.transitionCoordinator?.viewController(forKey: .from) === c
+            } ?? (c.parent is HeldStack)
+            guard held else { continue }
             // A presented route's controller takes its sheet's whole view, and
             // the document's insets (`env()`) are not the sheet's: its route is
             // covered for its own safe area whatever the document's fit (LLP
@@ -186,14 +189,10 @@ extension NavigationHost {
 
     /// Whether this build checks what Exact owns: every build but a
     /// production bake.
-    static let checksOwnership: Bool = {
-        let trust = ((BakedCompatibility.json["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
-        return trust != "production"
-    }()
+    static let checksOwnership = !ExactEnv.productionBake
 
     /// Record the controllers Exact set on a stack.
     func recordOwned(_ nav: UINavigationController) {
-        guard NavigationHost.checksOwnership else { return }
         stacks[ObjectIdentifier(nav)]?.written = nav.viewControllers.map(ObjectIdentifier.init)
     }
 
@@ -201,7 +200,7 @@ extension NavigationHost {
     /// back button, the edge swipe) leaves a prefix of what Exact wrote, and
     /// is recorded; any other change is not Exact's and stays to be reported.
     func recordPop(_ nav: UINavigationController) {
-        guard NavigationHost.checksOwnership, let stack = stacks[ObjectIdentifier(nav)] else { return }
+        guard let stack = stacks[ObjectIdentifier(nav)] else { return }
         let now = nav.viewControllers.map(ObjectIdentifier.init)
         if now.count <= stack.written.count, Array(stack.written.prefix(now.count)) == now { stack.written = now }
     }
@@ -229,7 +228,7 @@ extension NavigationHost {
             #endif
         }
         for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
-            if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.view { say("route \(c.key)", "view") }
+            if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.contentMount { say("route \(c.key)", "view") }
             guard let node = c.ownedScroll, let scroll = node.scrollView else { continue }
             for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node) { say("route \(c.key)", property) }
         }

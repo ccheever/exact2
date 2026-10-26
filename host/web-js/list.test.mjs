@@ -401,3 +401,92 @@ test('relative corrections and drop eligibility survive later commits', async ()
     {mode:'landed-group', offset:180, pending:false},
   ]);
 }, 60_000);
+
+// Rows of 100.3 px: a keyed jump to row 18 asks for 1805.4, which the
+// browser rounds to the device pixel at 1805. The 0.4 px of row 17 above
+// the port's start is painted nowhere (edges snap to device pixels), so the
+// first visible row is 18, as the reader sees it.
+test('a jump reports the row it put at the start, not a sliver above it', async () => {
+  const result = await evaluate(`(async () => {
+    const port = document.createElement('div'); port.id = 'sliver-feed';
+    port.style.cssText = 'height:300px;width:200px;overflow:auto';
+    document.getElementById('exact-root').append(port);
+    let heard;
+    rt.onScroll(port, 'scroll', (x, y, e) => { heard = e; }, (kind, f) => port.addEventListener(kind, f));
+    const own = rt.scope(() => list.vl(port, () => Array.from({length:100}, (_, i) => i), i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '100.3px'; w.append(row);
+    }, {est:100.3, pw:[], ph:[300]}));
+    await exact.lists.pending(); await exact.lists.settle();
+    rt.Hosts.scrollIntoView('sliver-feed', 18, 'start', 'nearest', 'instant', null, null);
+    await exact.lists.settle();
+    port.dispatchEvent(new Event('scroll'));
+    const top = port.scrollTop, row = port.querySelector('[data-listitemkey="n:18"]');
+    const drawn = row.getBoundingClientRect().top - port.getBoundingClientRect().top;
+    rt.end(own); port.remove(); rt.settled();
+    return {top, drawn, key:heard[6], offset:heard[7]};
+  })()`);
+  expect(result.top).toBe(1805);
+  expect(result.key).toBe('18');
+  expect(result.offset).toBe(0);
+}, 60_000);
+
+// Rows 150 px tall under an estimate of 100: lists opened at their ends
+// are first placed at the ends their estimates give; each one's rows are
+// measured, and the port moved to their end, before the next frame, whose
+// scroll events therefore hear the ends (collection-glue.js `commit`).
+// Three open at once, as one budget a frame would not reach them all.
+test('lists opened at their ends report only their ends while their rows measure', async () => {
+  const result = await evaluate(`(async () => {
+    const lists = Array.from({length:3}, () => {
+      const port = document.createElement('div');
+      port.style.cssText = 'height:300px;width:200px;overflow:auto';
+      document.getElementById('exact-root').append(port);
+      const heard = [];
+      rt.onScroll(port, 'scroll', (x, y, e) => { heard.push(Math.round(e[3] - e[1] - e[5])); }, (kind, f) => port.addEventListener(kind, f));
+      const own = rt.scope(() => list.vl(port, () => Array.from({length:100}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '150px'; w.append(row);
+      }, {est:100, pw:[], ph:[300], atEnd:true}));
+      return {port, heard, own};
+    });
+    rt.settled();
+    for (let f = 0; f < 10; f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    const out = lists.map(({port, heard}) => ({heard, gap: port.scrollHeight - port.scrollTop - port.clientHeight}));
+    for (const {port, own} of lists) { rt.end(own); port.remove(); }
+    rt.settled();
+    return out;
+  })()`);
+  for (const {heard, gap} of result) {
+    expect(gap).toBe(0);
+    expect(heard.length).toBeGreaterThan(0);
+    expect(heard).toEqual(heard.map(() => 0));
+  }
+}, 60_000);
+
+// @ref LLP 1145 D4 — `reach-margin` sets how far ahead of the last row `reachend` fires, as the runner's reach.rs.
+test('reach-margin moves reachend earlier or later; the default is one port', async () => {
+  const result = await evaluate(`(async () => {
+    const lists = [undefined, '300%', '0PX 960px', '0px'].map(reach => {
+      const el = document.createElement('div');
+      el.style.cssText = 'height:320px;width:400px;overflow:auto';
+      document.getElementById('exact-root').append(el);
+      const l = { el, ends: 0, at: null };
+      l.own = rt.scope(() => list.vl(el, () => Array.from({length:200}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+      }, {est:32, pw:[], ph:[320], end: () => { l.ends++; }, reach}));
+      return l;
+    });
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    // The last row starts at 6368; the port ends 320 past its offset.
+    for (const top of [1000, 5128, 5768, 6080]) {
+      await Promise.all(lists.map(({el}) => new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = top; })));
+      await exact.lists.settle();
+      for (let f = 0; f < 3; f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+      for (const l of lists) if (l.ends && l.at === null) l.at = top;
+    }
+    for (const {el, own} of lists) { rt.end(own); el.remove(); }
+    rt.settled();
+    return lists.map(l => l.at);
+  })()`);
+  expect(result).toEqual([5768, 5128, 5128, 6080]);
+}, 60_000);

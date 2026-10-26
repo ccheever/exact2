@@ -339,7 +339,7 @@ impl<D: DataSource> Host<D> {
     fn retire_layout(&self, retired: Vec<NodeKey>, batch: &mut Batch) {
         for key in retired {
             if let Some(&view) = self.keys.get(&key) {
-                batch.present4(view, "layout", [0.0, 0.0, 1.0, 1.0]);
+                batch.present4(view, "layout", [0.0; 4]);
             }
         }
     }
@@ -438,8 +438,8 @@ impl<D: DataSource> Host<D> {
         batch: &mut Batch,
     ) {
         // A layout box is presented as its offset from the laid-out
-        // origin and its scale of the laid-out size; identity is
-        // `0 0 1 1`. The other three are one or two numbers.
+        // origin and its size's difference from the laid-out size;
+        // identity is `0 0 0 0`. The other three are one or two numbers.
         let values = match property {
             Property::Layout => layout_presented(&self.engine, node, value),
             Property::Translate => [value.x, value.y, value.z, value.w],
@@ -447,7 +447,7 @@ impl<D: DataSource> Host<D> {
         };
         let identity = match property.identity() {
             Some(identity) => identity == value,
-            None => values == [0.0, 0.0, 1.0, 1.0],
+            None => values == [0.0; 4],
         };
         if (boot && identity) || (identity && batch.creates(view)) {
             return;

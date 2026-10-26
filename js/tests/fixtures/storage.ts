@@ -182,6 +182,22 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
+  // LLP 1069.010 D1 (2026-10-26): a chosen file copied by the host into an
+  // app file, its size read back, and the copies still refused.
+  if (op === "doc-copy") {
+    const out: string[] = [], folder = value.slice(0, value.lastIndexOf("/"));
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.copyFile(value, "app:/data/copied").then(() => storage.fs.stat("app:/data/copied")).then((s) => "copied " + s.size),
+      () => storage.fs.copyFile(value, "app:/cache/ungranted"),
+      () => storage.fs.copyFile(value, folder + "/copy"),
+      () => storage.fs.copyFile("app:/data/copied", folder + "/copy"),
+      () => storage.fs.rename(value, "app:/data/moved"),
+    ];
+    for (const step of steps) {
+      try { const r = await step(); out.push(typeof r === "string" ? r : "ok"); } catch (e: any) { out.push(e.kind + " " + e.code); }
+    }
+    return {text: out.join(" ")};
+  }
   // Ledger's shape (ledger F12): every answer queued on one chain, a listing
   // that reads, and a save that refuses bad input before touching storage.
   if (op === "count" || op === "invalid") {
@@ -299,6 +315,28 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
     try { await storage.fs.compressImage(data + "/in.png", data + "/x.webp", { maxDimension: 8, maxBytes: 100, type: "image/webp" as any }); out.push("ok"); }
     catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    return {text: out.join("\n")};
+  }
+  // `fs.transformImage` and `compressImage`'s edit (LLP 1133.019 D14, D15):
+  // each record, then each refusal's name and code, in one answer.
+  if (op === "transform") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    const steps: (() => Promise<any>)[] = [
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/turned", { rotate: 90 }),
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/private", { flip: "horizontal", metadata: "no-location", type: "image/png", resizeWidth: 24 }),
+      () => storage.fs.compressImage(data + "/in.jpg", data + "/crop.jpg", { maxDimension: 100, maxBytes: 2_000_000, rotate: 90, crop: { x: 0, y: 0, width: 64, height: 24 } }),
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/x.jpg", { crop: { x: 100, y: 0, width: 4, height: 4 } }),
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/x.webp", { type: "image/webp" }),
+      () => storage.fs.transformImage(data + "/in.jpg", "app:/tmp/x.jpg"),
+      () => storage.fs.transformImage(data + "/in.jpg", data + "/x.jpg", { flip: "both" as any }),
+      () => storage.fs.compressImage(data + "/in.jpg", data + "/x.jpg", { maxDimension: 10, maxBytes: 10_000, crop: { x: 0, y: 0, width: 0, height: 1 } }),
+    ];
+    for (const step of steps) {
+      try {
+        const r = await step();
+        out.push([r.path, r.type, r.size, r.width, r.height, r.colorSpace, r.hdr, r.metadata, (await storage.fs.readFile(r.path)).byteLength].join(" "));
+      } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    }
     return {text: out.join("\n")};
   }
   // A compression the wait gives up on, then a write to the same path: the

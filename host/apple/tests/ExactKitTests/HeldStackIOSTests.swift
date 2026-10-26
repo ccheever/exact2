@@ -132,6 +132,33 @@ final class HeldStackIOSTests: XCTestCase {
         XCTAssertEqual(root.view.convert(root.view.bounds, to: nil), frame, "the root is where it was")
     }
 
+    /// A warm deep link into a tab built earlier (Brooks): one update selects
+    /// Plain, held, and pushes Detail onto it. Plain builds its navigation
+    /// controller with Detail on top, which shows, not Plain's root.
+    func testATabSelectedWithAPushOntoItsHeldStackShowsThePush() throws {
+        let session = try fixture("held-select-push")
+        let navigation = session.presenter.navigation
+        let (tabs, _, root) = try held(session)
+        try press(session, "tab-titled")
+        until("Titled is selected") { tabs.selectedIndex == 1 && !navigation.inTransition }
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        try press(session, "open-from-titled")
+        until("Plain shows Detail") {
+            let nav = tabs.viewControllers?.first as? UINavigationController
+            return tabs.selectedIndex == 0 && nav?.viewControllers.count == 2 && nav?.transitionCoordinator == nil && !navigation.inTransition
+        }
+        let nav = try XCTUnwrap(tabs.viewControllers?.first as? UINavigationController)
+        let top = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertEqual(top.node.props["testId"], "route-detail")
+        XCTAssertTrue(nav.viewControllers.first === root, "the root moved in under it")
+        XCTAssertTrue(tabs.selectedViewController === nav)
+        XCTAssertTrue(navigation.primaryNavigation === nav)
+        XCTAssertTrue(navigation.activeRoute === top)
+        XCTAssertNotNil(top.view.window, "Detail is in the window")
+        XCTAssertNil(root.view.window, "Plain's root is under it")
+    }
+
     func testABarBecomingVisibleBuildsIt() throws {
         let session = try fixture("held-title")
         let navigation = session.presenter.navigation

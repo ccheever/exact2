@@ -27,6 +27,7 @@ package final class PlainView: UIView {
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
 package class ScrollView: UIScrollView {
+    var scrollingNode: NodeView? { (superview as? NodeView) ?? (self as? Viewport)?.documentNode }
     package override func layoutSubviews() {
         super.layoutSubviews()
         keepPlatformViewsOver()
@@ -68,11 +69,14 @@ package class ScrollView: UIScrollView {
     /// from there.
     var remoteStepTarget: (offset: CGPoint, at: CFTimeInterval)?
     #endif
-    /// A pan cancels a touch in progress, as it does a custom button's; UIKit
-    /// would leave a `UIControl` its touch, so a native button (LLP 1069.011
-    /// D4) is named. A canvas that owns its input keeps it.
+    /// Let native body buttons (LLP 1069.011 D4) and tap-only invoker overlays
+    /// yield to scrolling; UIKit normally keeps a UIControl's touch. Input-owning
+    /// surfaces and other controls keep their existing rules.
     package override func touchesShouldCancel(in view: UIView) -> Bool {
-        !CanvasInputs.owns(view) && (view is NativeButtonIOS || super.touchesShouldCancel(in: view))
+        guard !CanvasInputs.owns(view) else { return false }
+        if view is NativeButtonIOS { return true }
+        if let button = view as? InvokerButton, !button.showsMenuAsPrimaryAction { return true }
+        return super.touchesShouldCancel(in: view)
     }
     package override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === panGestureRecognizer {
@@ -99,7 +103,7 @@ package class ScrollView: UIScrollView {
             if current === self { break }
             view = current.superview
         }
-        if let owner = superview as? NodeView, !owner.allowsTouchPan(direction) { return false }
+        if let owner = scrollingNode, !owner.allowsTouchPan(direction) { return false }
         return !handsOff(direction)
     }
     /// CSS's scroll chaining at a gesture's start (LLP 1070 G1, Q4 as ruled
@@ -110,7 +114,7 @@ package class ScrollView: UIScrollView {
     /// view actually scrolls; `contain` keeps the band, `none` keeps the
     /// gesture with no band. Never mid-gesture: UIKit asks once, at begin.
     func handsOff(_ velocity: CGPoint) -> Bool {
-        guard velocity != .zero, let owner = superview as? NodeView else { return false }
+        guard velocity != .zero, let owner = scrollingNode else { return false }
         let horizontal = abs(velocity.x) > abs(velocity.y)
         let behavior = owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto"
         // One flag for both axes, written each gesture so a style that leaves
@@ -124,7 +128,7 @@ package class ScrollView: UIScrollView {
     /// `velocity` begun now chains to an enclosing scroller (a descendant's
     /// recognizer asks it, LLP 1057.001 rule 2).
     package func chains(_ velocity: CGPoint) -> Bool {
-        guard velocity != .zero, let owner = superview as? NodeView else { return false }
+        guard velocity != .zero, let owner = scrollingNode else { return false }
         let horizontal = abs(velocity.x) > abs(velocity.y)
         guard (owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto") == "auto" else { return false }
         let i = adjustedContentInset
@@ -146,6 +150,8 @@ package class ScrollView: UIScrollView {
                     ? (outer.contentOffset.x, -o.left, outer.contentSize.width + o.right - outer.bounds.width, (outer as? ScrollView)?.scrollsX ?? false)
                     : (outer.contentOffset.y, -o.top, outer.contentSize.height + o.bottom - outer.bounds.height, (outer as? ScrollView)?.scrollsY ?? (outer.superview as? NodeView)?.scrollsVertically ?? false)
                 if scrolls && high > low && (toward > 0 ? at > low + 0.5 : at < high - 0.5) { return true }
+                if scrolls, let node = (outer as? ScrollView)?.scrollingNode ?? (outer.superview as? NodeView),
+                   (node.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto") != "auto" { return false }
             }
             up = current.superview
         }

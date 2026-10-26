@@ -432,6 +432,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // seek moves when the platform gives none.
         "metadata" => AttrTarget::MediaMetadata,
         "decorations" => AttrTarget::Prop(PropId::Decorations),
+        // LLP 1045.000 D3: a Markdown node's atom kinds and faces (the
+        // lowerer's `bind_atoms` and `bind_atom_faces` read them first).
+        "atoms" => AttrTarget::Prop(PropId::Atoms),
+        "atomFaces" => AttrTarget::Prop(PropId::AtomFaces),
         "alertPart" => AttrTarget::Prop(PropId::AlertPart),
         "defaultSurface" => AttrTarget::Prop(PropId::DefaultSurface),
         "seekbackward" => AttrTarget::Handler("seekbackward"),
@@ -494,6 +498,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "drop" => AttrTarget::Handler("drop"),
         "dragenter" => AttrTarget::Handler("dragenter"),
         "dragleave" => AttrTarget::Handler("dragleave"),
+        // A press on an inline atom (LLP 1045.000 D7).
+        "atompress" => AttrTarget::Handler("atompress"),
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),
@@ -510,6 +516,18 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pan" => AttrTarget::Handler("pan"),
         "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
+        // @ref LLP 1020.002 D2 — an iframe's guest, by the Navigation API's
+        // event names (an iframe's `navigate=` is its guest's too).
+        "currententrychange" => AttrTarget::Handler("currententrychange"),
+        "navigatesuccess" => AttrTarget::Handler("navigatesuccess"),
+        "navigateerror" => AttrTarget::Handler("navigateerror"),
+        // @ref LLP 1020.002 D5 — a guest's window request and its downloads.
+        "newwindow" => AttrTarget::Handler("newwindow"),
+        "download" => AttrTarget::Handler("download"),
+        // @ref LLP 1020.002 D7 — the answer to a frame's `captureScreenshot`.
+        "capture" => AttrTarget::Handler("capture"),
+        // @ref LLP 1020.002 D9 — an agent-controlled frame's dialog.
+        "userpromptopened" => AttrTarget::Handler("userpromptopened"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),
         "transformrelease" => AttrTarget::Handler("transformrelease"),
@@ -576,6 +594,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
         // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
         "wakelock" => AttrTarget::Prop(p("wakelock")),
+        // @ref LLP 1133.029 D1 — the Screen Orientation API's lock types, on any element.
+        "orientationlock" => AttrTarget::Prop(p("orientationlock")),
         // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
         // `none` for a full-bleed screen.
         "navigationBar" => AttrTarget::Prop(p(name)),
@@ -654,6 +674,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // Where a virtualized list opens: at its start, or at its end (a
         // transcript), CSS Scroll Snap 2's container-level `scroll-start`.
         "scroll-start" => AttrTarget::Prop(p("scrollStart")),
+        // @ref LLP 1145 D4 — how far ahead a virtualized list's edges fire.
+        "reach-margin" => AttrTarget::Prop(p("reachMargin")),
         // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
@@ -679,6 +701,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
         "sandbox" => AttrTarget::Prop(p("sandbox")),
+        // @ref LLP 1020.002 D1, §9 — a top-level guest's own storage, and
+        // `WKWebView`'s words under the platform's key (`frames.rs`).
+        "partition" => AttrTarget::Prop(p("partition")),
+        "apple.allowsBackForwardNavigationGestures" => {
+            AttrTarget::Prop(p("appleAllowsBackForwardNavigationGestures"))
+        }
+        "apple.allowsMagnification" => AttrTarget::Prop(p("appleAllowsMagnification")),
+        "apple.inactiveSchedulingPolicy" => AttrTarget::Prop(p("appleInactiveSchedulingPolicy")),
         // The Popover API, by its own names (LLP 1021 D1): a container with `popover` is
         // hidden until its invoker — a `button` whose `popovertarget` names the container's
         // `id` — toggles it; open state is the host's, never the plan's (D2). `aria-checked`
@@ -814,6 +844,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "fontStyle" => "font-style",
         "fontStretch" => "font-stretch",
         "fontVariationSettings" => "font-variation-settings",
+        "fontOpticalSizing" => "font-optical-sizing",
         "fontFamily" => "font-family",
         "background" | "backgroundColor" => "background-color",
         "letterSpacing" => "letter-spacing",
@@ -888,6 +919,13 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "keepScreenOn" | "keep-screen-on" | "idleTimerDisabled" | "keepAwake" | "wakeLock" => {
             "wakelock"
         }
+        // The web's call, Android's activity attribute, UIKit's (LLP 1133.029 D1).
+        "screenOrientation"
+        | "screen-orientation"
+        | "lockOrientation"
+        | "orientation"
+        | "requestedOrientation"
+        | "supportedInterfaceOrientations" => "orientationlock",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
@@ -1289,44 +1327,6 @@ pub(crate) fn host_transform_recipients(
         }
     }
     recipients
-}
-
-/// @ref LLP 1116.019 D6 — a `color` the author wrote on a symbol `image`
-/// (or its class) is the symbol's colour, as an inline SVG icon drawn in
-/// `currentcolor` follows `color` on the web: the row this returns,
-/// `-exact-tint-color: currentcolor`, said as the `color` was. `None` where
-/// the image names its `-exact-tint-color`, writes no `color`, or is no
-/// symbol (a raster given a tint paints as a silhouette). `rows` are the
-/// author's, its classes' included, without the sheet's.
-pub(crate) fn symbol_ink(
-    tag: &str,
-    positional: &[contract_syntax::Expr],
-    rows: &[contract_syntax::Attr],
-) -> Option<contract_syntax::Attr> {
-    use contract_syntax::{Expr, TemplatePart};
-    fn symbol(source: &Expr) -> bool {
-        match source {
-            Expr::Str(s, _) => s.starts_with("symbol:"),
-            Expr::Template(parts, _) => {
-                matches!(parts.first(), Some(TemplatePart::Text(t)) if t.starts_with("symbol:"))
-            }
-            Expr::Ternary(_, a, b, _) => symbol(a) && symbol(b),
-            _ => false,
-        }
-    }
-    if tag != "image" || !positional.first().is_some_and(symbol) {
-        return None;
-    }
-    if rows.iter().any(|a| a.name == "-exact-tint-color") {
-        return None;
-    }
-    let color = rows.iter().rev().find(|a| a.name == "color")?;
-    Some(contract_syntax::Attr {
-        name: "-exact-tint-color".into(),
-        value: Expr::Str("currentcolor".into(), color.span),
-        span: color.span,
-        written: color.written,
-    })
 }
 
 /// How an element is a flex or grid container, if it is: its tag, or a

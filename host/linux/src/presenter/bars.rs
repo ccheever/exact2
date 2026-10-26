@@ -81,6 +81,9 @@ pub(super) struct State {
     bottom: Option<Shown<Bottom>>,
     /// The target a finger holds: the bar, and its place among the targets.
     pressed: Option<(i32, usize)>,
+    /// The target a TV remote's focus is on, lit as a held one is (LLP
+    /// 1115.001.003 D4): the bar, and its place among the targets.
+    focused: Option<(i32, usize)>,
     /// Moved on whenever a bar's picture or frame changes.
     revision: u32,
     /// The revision the shell was last told.
@@ -135,7 +138,10 @@ impl<D: DataSource> Presenter<D> {
         let frame = self.chrome().frame;
         match self.window() {
             Some(w) => {
-                let safe: [f32; 4] = std::array::from_fn(|i| w.bars[i].max(w.cutout[i]));
+                // A TV's overscan margin too, as the page's (LLP 1115.001.003 D7).
+                let overscan = self.tv_margin(w.size);
+                let safe: [f32; 4] =
+                    std::array::from_fn(|i| w.bars[i].max(w.cutout[i]).max(overscan[i]));
                 (w.size, safe, frame)
             }
             None => (self.viewport, [0.0; 4], frame),
@@ -143,7 +149,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn bar_font_scale(&self) -> f32 {
-        let scale = self.device().map_or(1.0, |d| d.font_scale);
+        let scale = self.text_scale;
         if scale.is_finite() && scale > 0.0 {
             scale
         } else {
@@ -384,6 +390,7 @@ impl<D: DataSource> Presenter<D> {
         if changed {
             // A target measured again is another target: nothing is held.
             self.bars.pressed = None;
+            self.bars.focused = None;
             self.bars.revision += 1;
         }
     }
@@ -436,12 +443,13 @@ impl<D: DataSource> Presenter<D> {
     pub fn reader_bars(&mut self, scale: f32) -> Option<Vec<i32>> {
         self.bars.painter.as_ref()?;
         self.sync_bars();
+        self.sync_bar_focus();
         if self.bars.told == Some(self.bars.revision) {
             return None;
         }
         self.bars.told = Some(self.bars.revision);
         let text = self.text.clone();
-        let pressed = self.bars.pressed;
+        let pressed = self.bars.pressed.or(self.bars.focused);
         let lit = |which: i32| pressed.filter(|p| p.0 == which).map(|p| p.1);
         let px = |v: f32| (v * scale).round() as i32;
         let painter = self.bars.painter.as_mut()?;
@@ -552,7 +560,7 @@ impl<D: DataSource> Presenter<D> {
     /// button or a tab by its own node (or a node inside it), and the Up
     /// arrow by the Back control it stands for on a pushed route (the item
     /// of the header that is in neither of the bar's lists).
-    fn bar_target(&self, id: ViewId) -> Option<(i32, Target)> {
+    pub(super) fn bar_target(&self, id: ViewId) -> Option<(i32, Target)> {
         let stands = |node: ViewId| node == id || self.is_inside(id, node);
         let up = (self.bars.top.as_ref())
             .filter(|s| s.plan.up)
@@ -579,7 +587,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Whether `id` shows in a bar and not in the page: the agent's
     /// `reveal` has nothing to scroll into view before a tap on it.
-    pub(super) fn bar_node(&mut self, id: ViewId) -> bool {
+    pub(crate) fn bar_node(&mut self, id: ViewId) -> bool {
         self.sync_bars();
         self.bar_target(id).is_some()
     }
@@ -592,6 +600,45 @@ impl<D: DataSource> Presenter<D> {
         let (_, frame) = self.bar_targets(which)?;
         let (x, y, w, h) = target.rect;
         Some((frame[0] + x, frame[1] + y, w, h))
+    }
+
+    /// The bars' targets a TV remote can move the focus to (LLP 1115.001.003
+    /// D4): each enabled header button and destination, by its authored
+    /// node, with its box in the page's coordinates. The Up arrow has no
+    /// node; Back does what it does.
+    pub(super) fn bar_stops(&mut self) -> Vec<(ViewId, Rect4)> {
+        self.sync_bars();
+        let page = self.page_origin();
+        let mut stops = Vec::new();
+        for which in [TOP, BOTTOM] {
+            let Some((targets, frame)) = self.bar_targets(which) else {
+                continue;
+            };
+            for t in targets.iter().filter(|t| t.enabled) {
+                if let What::Item(node) | What::Tab(node) = t.what {
+                    let (x, y, w, h) = t.rect;
+                    stops.push((node, (frame[0] + x - page.0, frame[1] + y - page.1, w, h)));
+                }
+            }
+        }
+        stops
+    }
+
+    /// Light the bar target the focus is on, and tell the shell the bar
+    /// again when that changed.
+    fn sync_bar_focus(&mut self) {
+        let focused = self.focus.filter(|_| self.remote()).and_then(|id| {
+            [TOP, BOTTOM].into_iter().find_map(|which| {
+                let (targets, _) = self.bar_targets(which)?;
+                (targets.iter())
+                    .position(|t| matches!(t.what, What::Item(n) | What::Tab(n) if n == id))
+                    .map(|index| (which, index))
+            })
+        });
+        if focused != self.bars.focused {
+            self.bars.focused = focused;
+            self.bars.revision += 1;
+        }
     }
 
     /// The agent's `tap` on a node a bar stands for: its target is chosen,

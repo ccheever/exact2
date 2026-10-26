@@ -600,7 +600,7 @@ pub(super) fn given(app: &Arc<str>, n: u64) -> bool {
 }
 
 /// A relaunch: the process forgets `app`'s set.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) fn drop_store(app: &str) {
     stores().remove(app);
 }

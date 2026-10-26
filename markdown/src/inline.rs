@@ -3,6 +3,8 @@
 //! One scan over a block's content produces marks (what to draw), the marker
 //! ranges to hide, and the constructs an editing command toggles.
 
+use std::borrow::Cow;
+
 use crate::block::B;
 use crate::{BOLD, CODE, IMAGE, ITALIC, LINK, STRIKE};
 
@@ -179,6 +181,76 @@ pub(crate) fn scan(source: &str, content: &[B], out: &mut Out) {
 
 fn punctuation(c: char) -> bool {
     c.is_ascii_punctuation() || (!c.is_alphanumeric() && !c.is_whitespace() && !c.is_ascii())
+}
+
+pub(crate) fn angle_destination(
+    cs: &[(usize, char)],
+    start: usize,
+    hi: usize,
+) -> Option<(usize, B)> {
+    // CommonMark 0.31.2 §6.3: parentheses and spaces inside <…> are literal.
+    // Stopping at the next unescaped '<' also bounds failed scans across links.
+    let mut end = start + 1;
+    while end < hi {
+        match cs[end].1 {
+            '<' | '\n' | '\r' => return None,
+            '>' => break,
+            '\\' if end + 1 < hi && cs[end + 1].1.is_ascii_punctuation() => end += 1,
+            _ => {}
+        }
+        end += 1;
+    }
+    if end == hi {
+        return None;
+    }
+    let target = cs[start + 1].0..cs[end].0;
+    let mut close = end + 1;
+    while close < hi && matches!(cs[close].1, ' ' | '\t' | '\n' | '\r') {
+        close += 1;
+    }
+    if close < hi && close > end + 1 && cs[close].1 != ')' {
+        let delimiter = match cs[close].1 {
+            '\'' => '\'',
+            '"' => '"',
+            '(' => ')',
+            _ => return None,
+        };
+        close += 1;
+        while close < hi && cs[close].1 != delimiter {
+            match cs[close].1 {
+                '(' if delimiter == ')' => return None,
+                '\\' if close + 1 < hi && cs[close + 1].1.is_ascii_punctuation() => {
+                    close += 1;
+                }
+                _ => {}
+            }
+            close += 1;
+        }
+        if close == hi {
+            return None;
+        }
+        close += 1;
+        while close < hi && matches!(cs[close].1, ' ' | '\t' | '\n' | '\r') {
+            close += 1;
+        }
+    }
+    (close < hi && cs[close].1 == ')').then_some((close, target))
+}
+
+pub(crate) fn decode_destination(target: &str) -> Cow<'_, str> {
+    if !target.contains('\\') {
+        return Cow::Borrowed(target);
+    }
+    let mut decoded = String::with_capacity(target.len());
+    let mut chars = target.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek().is_some_and(|c| c.is_ascii_punctuation()) {
+            decoded.push(chars.next().unwrap());
+        } else {
+            decoded.push(c);
+        }
+    }
+    Cow::Owned(decoded)
 }
 
 impl Scanner<'_> {
@@ -379,8 +451,36 @@ impl Scanner<'_> {
         if !linked {
             return None;
         }
+        let mut start = j + 2;
+        while start < hi && matches!(self.ch(start), ' ' | '\t' | '\n' | '\r') {
+            start += 1;
+        }
+        let (k, href) = if start < hi && self.ch(start) == '<' {
+            let (k, target) = angle_destination(&self.cs, start, hi)?;
+            (k, &self.source[target])
+        } else {
+            let k = self.destination_end(j + 1, hi)?;
+            let target = self.source[self.pos(j + 2)..self.pos(k)].trim();
+            (k, target.split_whitespace().next().unwrap_or(""))
+        };
+        let href = decode_destination(href).into_owned();
+        let start = if image { i - 1 } else { i };
+        if !image {
+            self.scan(i + 1, j, depth + 1);
+        }
+        let outer = self.pos(start)..self.pos(k + 1);
+        self.construct(
+            if image { IMAGE } else { LINK },
+            outer,
+            self.pos(i + 1)..self.pos(j),
+            Some(href),
+        );
+        Some(k + 1)
+    }
+
+    fn destination_end(&mut self, open: usize, hi: usize) -> Option<usize> {
         // Index raw parentheses once. Code ticks are literal in destinations;
-        // escaped parentheses do not balance, exactly as in the old scan.
+        // escaped parentheses do not balance. Failed links must not rescan the suffix.
         let destinations = self.destinations.get_or_insert_with(|| {
             let mut ends = vec![usize::MAX; self.cs.len()];
             let mut opens = Vec::new();
@@ -400,38 +500,8 @@ impl Scanner<'_> {
             }
             ends
         });
-        let k = destinations[j + 1];
-        if k >= hi {
-            return None;
-        }
-        let target = self.source[self.pos(j + 2)..self.pos(k)].trim();
-        let target = target.split_whitespace().next().unwrap_or("");
-        let href = target
-            .strip_prefix('<')
-            .and_then(|t| t.strip_suffix('>'))
-            .unwrap_or(target);
-        let mut decoded = String::with_capacity(href.len());
-        let mut chars = href.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == '\\' && chars.peek().is_some_and(|c| c.is_ascii_punctuation()) {
-                decoded.push(chars.next().unwrap());
-            } else {
-                decoded.push(c);
-            }
-        }
-        let href = decoded;
-        let start = if image { i - 1 } else { i };
-        if !image {
-            self.scan(i + 1, j, depth + 1);
-        }
-        let outer = self.pos(start)..self.pos(k + 1);
-        self.construct(
-            if image { IMAGE } else { LINK },
-            outer,
-            self.pos(i + 1)..self.pos(j),
-            Some(href),
-        );
-        Some(k + 1)
+        let close = destinations[open];
+        (close < hi).then_some(close)
     }
 
     fn delimiter(&self, i: usize, len: usize, lo: usize, hi: usize) -> Delim {

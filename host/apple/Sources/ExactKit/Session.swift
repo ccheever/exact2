@@ -18,24 +18,21 @@ import QuartzCore
 /// (LLP 1012 — the driver owns the clock), a smoke run prints and exits.
 public enum ExactEnv {
     /// The process's environment. A production bake never enters agent mode
-    /// (LLP 1069.007 D2, ruled): its `EXACT_AGENT` and `EXACT_AGENT_*`
-    /// variables are dropped here, from the process too, before this host
-    /// or its library reads one.
+    /// (LLP 1069.007 D2, ruled) and takes no module override (LLP 1024 D5):
+    /// its `EXACT_AGENT`, `EXACT_AGENT_*`, `EXACT_HATCHES` and
+    /// `EXACT_MODULES` variables are dropped here, from the process too,
+    /// before this host or its library reads one.
     public static let environment: [String: String] = {
         var environment = ProcessInfo.processInfo.environment
-        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0 == "EXACT_HATCHES" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
+        let agent = environment.keys.filter { ["EXACT_AGENT", "EXACT_HATCHES", "EXACT_MODULES"].contains($0) || $0.hasPrefix("EXACT_AGENT_") }.sorted()
         guard !agent.isEmpty, productionBake else { return environment }
-        FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2)\n".utf8))
+        FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2, LLP 1024 D5)\n".utf8))
         for key in agent { environment[key] = nil; unsetenv(key) }
         return environment
     }()
-    /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`:
-    /// its own `compat.json`'s `inputs.trust`.
-    static var productionBake: Bool {
-        let bytes = Runtime.bakedCompat()
-        let json = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
-        return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
-    }
+    /// Whether this binary was baked with `EXACT_UPDATE_TRUST=production`
+    /// (`BakedCompatibility.production`).
+    static let productionBake = BakedCompatibility.production(BakedCompatibility.json)
     public static let agentMode = environment["EXACT_AGENT"] == "1"
     /// `EXACT_AGENT_BIND` (`--bind`, LLP 1133.001 D7): extensions answered by their implementations under the agent.
     static let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
@@ -216,6 +213,7 @@ public final class ExactApp {
             let resolver = candidate.assets
             return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, module: candidate.module, letGo: letGo, commit: { true })
         })
+        connection?.onDevStatus = { [weak self] in self?.showDevStatus($0) } // the old one's went at its close
     }
 
     public func disconnect() {
@@ -226,7 +224,7 @@ public final class ExactApp {
     /// The connection's page URL, when connected (what a deck's `//` source resolves against).
     public var connectedPage: URL? { connection?.page }
     /// The connection's status line for a dev menu, or nil.
-    public var connectionStatus: String? { connection.map { "\($0.page)\($0.terminal != nil ? " (rebuild the host)" : generationPending ? " (preparing Rust update)" : " (live)")" } }
+    public var connectionStatus: String? { connection.map { "\($0.page)\($0.devStatus.map { " (\($0.said))" } ?? ($0.terminal != nil ? " (rebuild the host)" : generationPending ? " (preparing Rust update)" : " (live)"))" } }
     /// Re-resolve the connection (the menu's Reload; clears a `{rebuilt}` stop).
     public func reloadConnection() { connection?.reload() }
 
@@ -288,7 +286,7 @@ public final class ExactApp {
         lastModule = module
         selectedToken = token
         if let shaderSources { surfaces?.replaceShaders(shaderSources) }
-        for (session, _) in batches { session.awaitingTree = true } // each report waits for its own tree: one tree may retint the window
+        for (session, _) in batches { session.awaitingTree = true; session.runtime.held = true } // each report waits for its own tree: one tree may retint the window; each runtime held till its own reset ends (ResetGate)
         MainActor.assumeIsolated { HeldState.swap() } // the hold let go unsaid before the old tree goes, real input none till after (HeldState.swift)
         for (session, batch) in batches { session.presentCommitted(batch, label: label) }
         for session in participants { session.apply(session.runtime.deliverySync()) }
@@ -349,7 +347,7 @@ public final class ExactSession {
     /// The generation whose data source `prepareData` activated on the owner, and whether it still runs there.
     var preparedGeneration: Int?, dataPreparing = false
     var nativesOpened: Int? // the generation whose native views may attach (LLP 1024 D3)
-    private var updateToken: UInt64 = 0, receipt: DrawReceipt?
+    private(set) var updateToken: UInt64 = 0; private var receipt: DrawReceipt?
     package let core: SessionCore
     package var runtime: Runtime { core.runtime }
     /// This session's file roots, captured outside a native module callback.
@@ -364,6 +362,7 @@ public final class ExactSession {
     package let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     var pendingLaunchLocations: [String] = []
+    var heldModuleEvents: [String] = [] // module events before first pixel (SessionActivation.swift)
     var protocolHandlers: [[String: String]] = ExactEnv.appMetadata["ExactProtocolHandlers"] as? [[String: String]] ?? []
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
@@ -484,6 +483,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         let runtime = Runtime()
+        PresenceKeychain.install() // before the first boot reads the backend (LLP 1133.010 D6)
         if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
@@ -653,7 +653,7 @@ public final class ExactSession {
             case .notice: noticesInFlight -= 1
             case .reply, .cancelledReply: submitted = retireReply()
             }
-            if case .cancelledReply = next.kind { continue }
+            if case .cancelledReply = next.kind { continue }; if next.batch.held { if case .fill(let view) = next.kind { landedFill(view, stale: true) }; continue } // (held over a reset: as stale, ResetGate replays its work)
             guard state != .destroyed, next.generation == generation else {
                 if case .reply = next.kind { retryActivation(generation: next.generation) }
                 if case .fill(let view) = next.kind { landedFill(view, stale: true) }
@@ -853,7 +853,7 @@ public final class ExactSession {
             // A fresh boot over a running app (the dev menu's reload from the baked plan) starts the views over; the library already replaced its host.
             routerOp = nil
             generation += 1
-            if booted { awaitingTree = true; presenter.reset(); viewsEpoch += 1; forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
+            if booted { awaitingTree = true; resetHeld(); viewsEpoch += 1; forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true; app.liveBooted(self)
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
@@ -957,7 +957,7 @@ public final class ExactSession {
         let restart = booted, kept = keptFocus
         keptFocus = nil
         awaitingTree = true // the tint a reset gives back is reported with the new tree
-        presenter.reset(); viewsEpoch += 1
+        resetHeld(); viewsEpoch += 1 // the teardown reaches no runtime; what it set off waits for `treeIsIn` (ResetGate)
         forgetAppearances()
         booted = true; app.liveBooted(self)
         app.lifecycle?.generationStarted(app, token: updateToken)
@@ -998,12 +998,12 @@ public final class ExactSession {
 
     /// A batch that changes nothing the presenter shows: no ops, no error,
     /// no control's viewless contents (`controls`, LLP 1069.011 §9), no
-    /// page facts the app moved (`setMode`, `setRootFontSize`) or wake lock,
+    /// page facts the app moved (`setMode`, `setRootFontSize`), wake or orientation lock,
     /// and the motion, spatial, frame-task, canvas and owed-draw state as
     /// they stand. Its timer deadline is the caller's to compare.
     func changesNothing(_ batch: Batch) -> Bool {
         batch.ops.isEmpty && !batch.controls && batch.error == nil && batch.canvasImages.isEmpty
-            && !batch.facts && batch.wakelock == nil
+            && !batch.facts && batch.wakelock == nil && batch.orientation == nil
             && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.canvasOwed == canvasOwed
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
@@ -1020,7 +1020,7 @@ public final class ExactSession {
     /// before it land first (T4), and it is asked again (a fling's fills).
     /// `timer`: a clock advance's, which `timersQuiet` counts.
     func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, timer: Bool = false) {
-        guard !batch.busy else { return }
+        guard !batch.busy, !batch.held else { return }
         guard !applying else { apply(batch); return }
         if !landing, ownerInFlight, hasPublished {
             // What the slices leave owed is asked after this batch, as in `apply`.
@@ -1029,7 +1029,7 @@ public final class ExactSession {
         }
         guard !fillInFlight, !tickInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
-        sampler?.batch(batch.seq, ms: 0)
+        sampler?.batch(batch.seq, ms: 0); logAlerts(batch.alerts); logJournal(batch.journal)
         if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
         if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
         timerDue = batch.timerDueMs
@@ -1046,7 +1046,12 @@ public final class ExactSession {
         if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
         while !holdingReports, !pendingViewDark.isEmpty {
             let (id, dark) = pendingViewDark.removeFirst()
-            apply(runtime.viewScheme(id, dark: dark))
+            let batch = runtime.viewScheme(id, dark: dark)
+            // Appearance already changed natively; retain its transaction accounting without rescheduling.
+            if !ownerInFlight, changesNothing(batch), batch.timerDueMs == timerDue {
+                sampler?.batch(batch.seq, ms: 0)
+                if let q = batch.seq { natives.hatchClock.seq = q.1 }
+            } else { apply(batch) }
         }
     }
 
@@ -1059,10 +1064,10 @@ public final class ExactSession {
     func oweColorsForTests() { colorsOwed = true }
     #endif
 
-    /// Batches that reached `apply` (`IdleTickTests` read it).
+    /// Batches that reached `apply` (`IdleTickTests` read it, and painted popovers keep their measures for one: `PositionArea.MeasureCache`).
     private(set) var appliedBatches = 0
     package func apply(_ batch: Batch) {
-        guard state != .destroyed, !batch.busy else { return }
+        guard state != .destroyed, !batch.busy, !batch.held else { return }
         appliedBatches += 1
         quietTimerAdvances = 0
         // A slice the owner committed before this batch applies first (T4).
@@ -1074,11 +1079,11 @@ public final class ExactSession {
         }
         let outermost = !applying
         // After the batch's own accounting below, which a later defer runs first
-        defer { if outermost { advanceIfDue() } }
+        defer { if outermost { advanceIfDue(); rasters.readmitPictures() } }
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
         let began = sampler == nil ? 0 : CACurrentMediaTime()
-        defer { sampler?.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0); if let q = batch.seq { natives.hatchClock.seq = q.1 } }
+        defer { sampler?.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0); if let q = batch.seq { natives.hatchClock.seq = q.1 }; logAlerts(batch.alerts); logJournal(batch.journal) }
         if batch.facts { app.scheduleStatus() } // the app's own `setMode` or `setRootFontSize` (LLP 1122 D4)
         // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
@@ -1101,9 +1106,9 @@ public final class ExactSession {
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
         if !ExactEnv.agentMode { for op in batch.ops where op.op == .sound || op.op == .midi { if op.op == .sound { sound.apply(op.payload) } else { midi.apply(op.payload) } } } // LLP 1096 D8, LLP 1125 D7: the voice table's and the MIDI queue's ops, never under the agent's clock
         // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
-        for op in batch.ops where op.op == .auth {
-            let payload = op.payload
-            DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { authOp(payload) } }
+        for op in batch.ops where op.op == .auth || op.op == .presence {
+            let (payload, auth) = (op.payload, op.op == .auth)
+            DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { if auth { authOp(payload) } else { presenceOp(payload) } } }
         }
         // Each presenter takes its boot's table, a second one with the same too.
         ThemeRoles.apply(batch, root: presenter.root); if batch.ops.contains(where: { $0.op == .roles }) { presenter.applyThemeTint() }
@@ -1157,12 +1162,13 @@ public final class ExactSession {
                     #endif
                     continue
                 }
-                if name == "reload" {
+                if name == "reload" && args.isEmpty {
                     // The dev menu's Reload, from the app, in a release build too (a Mac one has no menu, LLP 1115.000 D7.8); `EXACT_DEV_MENU=0`, at build or launch, refuses it.
                     guard ExactEnv.devMenu != false else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
                     app.deliver { DevMenu.reload() }
                     continue
                 }
+                if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7)
                 if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
@@ -1357,7 +1363,7 @@ public final class ExactSession {
     private var pendingViewDark: [(UInt32, Bool)] = []
     var colorsOwed = false
     fileprivate(set) var awaitingTree = false // committed to a new runner whose tree is not in: a report would reach the old views
-    private func treeIsIn() { awaitingTree = false; if colorsOwed { colorsOwed = false; reportColors() } } // only the replacement batch, not a reset's cleanup
+    private func treeIsIn() { awaitingTree = false; replayHeld(); if colorsOwed { colorsOwed = false; reportColors() } } // only the replacement batch, not a reset's cleanup
     /// A view painting motion: when its own appearance is not the one its node's colours resolve by, say so after
     /// the batch (LLP 1062 D4).
     func noteAppearance(_ view: NodeView) { noteAppearance(view.id, dark: view.drawsDark) }
@@ -1453,8 +1459,6 @@ public final class ExactSession {
         #endif
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
     }
-    /// The scene became active (iOS): the canvases follow.
-    public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
     #if os(iOS) || os(tvOS)
     /// A hardware keyboard's Tab (or Shift-Tab) when no node of this session
     /// holds the focus: an app's last responder forwards it here, as macOS's
@@ -1481,10 +1485,12 @@ public final class ExactSession {
         #if os(macOS)
         colorObserver.map(NotificationCenter.default.removeObserver)
         #endif
-        presenter.reset(); viewsEpoch += 1
+        endModuleEvents()
+        runtime.held = true; presenter.reset(); runtime.held = false; _ = runtime.takeHeldCalls(); viewsEpoch += 1; presenter.showDevStatus(nil); app.refreshDevPills() // its pill to another session in its window; the dying runtime told nothing its teardown sets off (ResetGate, none replayed)
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()
         rasters.shutdown(); sound.shutdown(); midi.shutdown() // the sound arm stopped and let go, its session claim given back (LLP 1096 D8)
+        webviews.endSession() // its frames and in-memory partitions (LLP 1020.002 D1)
         textPressure?.cancel(); textPressure = nil
         runtime.destroy()
         natives.destroyModule()

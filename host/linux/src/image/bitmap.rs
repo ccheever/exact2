@@ -55,6 +55,17 @@ impl Bitmap {
             _source: None,
         }
     }
+    /// Pixels a package's implementation decoded (`package.rs`), charged
+    /// to the session as a decode is.
+    pub(super) fn decoded(pixels: Pixmap, natural: (u32, u32), charge: AllocationCharge) -> Self {
+        Self {
+            pixels: pixels.into(),
+            natural,
+            crop: exact_raster::Crop::default(),
+            _charge: charge,
+            _source: None,
+        }
+    }
     pub(super) fn from_source(
         pixels: Pixels,
         natural: (u32, u32),
@@ -75,6 +86,8 @@ impl Bitmap {
     pub fn animation_file(&self) -> Option<std::path::PathBuf> {
         let source = self._source.as_ref()?;
         let name = source.name().to_ascii_lowercase();
+        // A URL's path, not its query.
+        let name = name.split(['?', '#']).next().unwrap_or_default();
         if !(name.ends_with(".gif") || name.ends_with(".webp")) {
             return None;
         }

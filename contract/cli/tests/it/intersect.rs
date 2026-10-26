@@ -380,7 +380,7 @@ fn native_intersect_reads_a_block_where_its_host_shows_it() {
     // In place, at half size: the scroller shows 20 of the target's 100 points
     let (mut r, route) = boot();
     let page = id(&r, "page");
-    r.place_blocks(&[(route, Some(([0.0, 0.0, 150.0, 250.0], page)))]);
+    r.place_blocks(&[(route, Some(([0.0, 0.0, 150.0, 250.0], page, None)))]);
     let (inside, ratio) = first(&mut r);
     assert!(inside);
     assert!((ratio - 0.2).abs() < 1e-9, "{ratio}");
@@ -396,4 +396,180 @@ fn native_intersect_reads_a_block_where_its_host_shows_it() {
         (true, 1.0),
         "the page's scrolling does not reach a presented block"
     );
+}
+
+#[test]
+fn native_intersect_margin_expands_the_routes_scrollport() {
+    let below = "box id=\"target\" position=\"absolute\" top=600 width=100 height=100 intersect=seen intersect-margin=\"200px\"";
+    let clipped = "column height=100 overflow=\"clip\" position=\"relative\"\n          box id=\"target\" position=\"absolute\" top=120 width=100 height=40 intersect=seen intersect-margin=\"200px\"";
+    let clipped_x = clipped.replace("overflow=\"clip\"", "overflow-x=\"clip\"");
+    let nested = "scroll height=100 width=100 position=\"absolute\" top=600\n          box id=\"target\" height=40 flex-shrink=0 intersect=seen intersect-margin=\"200px\"";
+    for (name, children, offset, presented, expected, authored_scroll) in [
+        (
+            "scrollport at rest",
+            below,
+            Some([0.0, 0.0]),
+            false,
+            (true, 1.0),
+            false,
+        ),
+        (
+            "scrolled scrollport",
+            below,
+            Some([0.0, 150.0]),
+            false,
+            (true, 1.0),
+            false,
+        ),
+        (
+            "negative offset",
+            below,
+            Some([0.0, -50.0]),
+            false,
+            (true, 0.5),
+            false,
+        ),
+        (
+            "edge contact",
+            below,
+            Some([0.0, 900.0]),
+            false,
+            (true, 0.0),
+            false,
+        ),
+        ("fixed pane", below, None, false, (false, 0.0), false),
+        (
+            "clip below root",
+            clipped,
+            Some([0.0, 0.0]),
+            false,
+            (false, 0.0),
+            false,
+        ),
+        (
+            "only x is clipped",
+            clipped_x.as_str(),
+            Some([0.0, 0.0]),
+            false,
+            (true, 1.0),
+            false,
+        ),
+        (
+            "scrollport above CSS root",
+            nested,
+            Some([0.0, 0.0]),
+            false,
+            (true, 1.0),
+            false,
+        ),
+        (
+            "pane above CSS root",
+            nested,
+            None,
+            false,
+            (true, 1.0),
+            false,
+        ),
+        (
+            "presented root ignores stale placement",
+            below,
+            Some([0.0, 150.0]),
+            true,
+            (false, 0.0),
+            false,
+        ),
+        (
+            "authored route scrolls inside native viewport",
+            below,
+            Some([0.0, 0.0]),
+            false,
+            (true, 1.0),
+            true,
+        ),
+    ] {
+        let overflow = if authored_scroll { "auto" } else { "visible" };
+        let (mut r, route, page) = native_intersect_fixture(children, overflow);
+        r.place_blocks(&[(route, Some(([0.0, 0.0, 300.0, 500.0], page, offset)))]);
+        if presented {
+            r.top_layer_frames(
+                &[(
+                    route,
+                    [0.0, 0.0, 300.0, 500.0],
+                    Some([0.0, 0.0, 300.0, 500.0]),
+                )],
+                Some(0),
+            );
+        }
+        let due = r.intersect_due();
+        assert_eq!(due.len(), 1, "{name}");
+        assert_eq!(
+            (due[0].is_intersecting, due[0].intersection_ratio),
+            expected,
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn native_scrollport_mount_keeps_the_implicit_observation() {
+    let (mut r, route, page) = native_intersect_fixture(
+        "box position=\"absolute\" top=100 width=100 height=100 intersect=seen intersect-margin=\"200px\"",
+        "visible",
+    );
+    let initial = r.intersect_due();
+    assert_eq!(initial.len(), 1);
+    assert!(initial[0].is_intersecting);
+    assert!(r.intersect_delivered(&initial[0]));
+    r.place_blocks(&[(
+        route,
+        Some(([0.0, 0.0, 300.0, 500.0], page, Some([0.0; 2]))),
+    )]);
+    assert!(
+        r.intersect_due().is_empty(),
+        "publishing the native viewport does not repeat the initial entry"
+    );
+    r.place_blocks(&[(route, None)]);
+    assert!(
+        r.intersect_due().is_empty(),
+        "removing the native placement keeps the implicit observation too"
+    );
+}
+
+fn native_intersect_fixture(children: &str, overflow: &str) -> (Runner<NoData>, u32, u32) {
+    let source = format!(
+        r#"component App
+  action seen(e: IntersectionObserverEntry)
+    let _ = e.isIntersecting
+  view
+    column id="page" width=400 height=800
+      column id="route" position="absolute" top=0 left=0 right=0 bottom=0 overflow="{overflow}"
+        {children}
+"#
+    );
+    let mut r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let view = |r: &Runner<NoData>, name: &str| {
+        r.kernel()
+            .arena()
+            .local_id(r.kernel().find_by_id(name)[0].index)
+    };
+    let route = view(&r, "route");
+    r.kernel_mut()
+        .set_host_block(
+            route,
+            Some(exact_kernel::HostBlock {
+                width: exact_kernel::BlockAxis::Is(300.0),
+                height: exact_kernel::BlockAxis::Is(500.0),
+            }),
+        )
+        .unwrap();
+    lay_out(&mut r);
+    let page = view(&r, "page");
+    (r, route, page)
 }

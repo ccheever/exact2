@@ -50,6 +50,7 @@ pub(crate) fn emit(
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",
         "EXACT_BAKE_OUTPUT",
+        "EXACT_BAKE_INPUTS",
         "EXACT_BAKE_ANALYSIS",
         "EXACT_RUST_BUNDLE",
         "EXACT_GPU_PRODUCT",
@@ -105,8 +106,8 @@ pub(crate) fn emit(
     let graph = artifact_graph(&plan, &compat.inputs, &assets, pictures, target)?;
     std::fs::write(out.join("artifacts.json"), graph.to_string()).map_err(|e| e.to_string())?;
     compat.target = target.into();
-    compat.embedded =
-        json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
+    compat.embedded = json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,
+        "genesis":true,"trust":trust});
     if plans.as_object().is_some_and(|p| !p.is_empty()) {
         compat.embedded["plans"] = plans;
     }
@@ -181,8 +182,8 @@ pub(crate) fn emit(
 }
 
 /// The GPU module's baked identity. `trust` is the build's resolved trust
-/// (unset is development), never the cohort input: a no-delivery (store L=0)
-/// cohort omits trust, and the hosts read the explicit build trust here.
+/// (unset is development, as `embedded.trust` records it), never the cohort
+/// input: a no-delivery (store L=0) cohort omits trust.
 /// gpu-dev authenticates the independently completed module receipt at load;
 /// production always embeds the exact GPU digest.
 fn gpu_card(

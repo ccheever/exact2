@@ -8,7 +8,8 @@
 //! edit that only reformats a line is no edit.
 
 use crate::edit::{meta_word, Op};
-use crate::syntax::{Axis, Design, Dial, Token};
+use crate::syntax::{conds_key, same_conds, Axis, Design, Dial, Token};
+use std::collections::{HashMap, HashSet};
 
 /// What an edit is to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,11 +82,7 @@ pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Result<Vec<Edit>, St
         };
     let named = |d: &Design| (!d.name.is_empty()).then(|| d.name.clone());
     other(&mut out, "name".into(), named(a), named(b));
-    for axis in union(&a.axes, &b.axes, |x| &x.name.value) {
-        let (x, y) = (
-            find(&a.axes, axis, |x| &x.name.value),
-            find(&b.axes, axis, |x| &x.name.value),
-        );
+    for (axis, x, y) in union(&a.axes, &b.axes, |x| &x.name.value) {
         let (before, after) = (x.map(axis_text), y.map(axis_text));
         if before != after {
             out.push(Edit {
@@ -97,11 +94,7 @@ pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Result<Vec<Edit>, St
             });
         }
     }
-    for dial in union(&a.dials, &b.dials, |d| &d.name.value) {
-        let (x, y) = (
-            find(&a.dials, dial, |d| &d.name.value),
-            find(&b.dials, dial, |d| &d.name.value),
-        );
+    for (dial, x, y) in union(&a.dials, &b.dials, |d| &d.name.value) {
         let value = |d: &Dial| d.value.value.trim().to_string();
         if x.map(value) != y.map(value) {
             out.push(Edit {
@@ -121,11 +114,7 @@ pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Result<Vec<Edit>, St
             );
         }
     }
-    for token in union(&a.tokens, &b.tokens, |t| &t.name.value) {
-        let (x, y) = (
-            find(&a.tokens, token, |t| &t.name.value),
-            find(&b.tokens, token, |t| &t.name.value),
-        );
+    for (token, x, y) in union(&a.tokens, &b.tokens, |t| &t.name.value) {
         for when in branches(x, y) {
             let (before, after) = (branch(x, &when), branch(y, &when));
             if before != after {
@@ -157,14 +146,9 @@ pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Result<Vec<Edit>, St
     };
     other(&mut out, "exports".into(), exports(a), exports(b));
     // An icon is no operation's to write (D10): a change to one is reported.
-    for icon in union(&a.icons, &b.icons, |t| &t.name.value) {
+    for (icon, x, y) in union(&a.icons, &b.icons, |t| &t.name.value) {
         let value = |t: &crate::Token| t.value.value.trim().to_string();
-        other(
-            &mut out,
-            format!("icon {icon}"),
-            find(&a.icons, icon, |t| &t.name.value).map(value),
-            find(&b.icons, icon, |t| &t.name.value).map(value),
-        );
+        other(&mut out, format!("icon {icon}"), x.map(value), y.map(value));
     }
     Ok(out)
 }
@@ -173,22 +157,32 @@ pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Result<Vec<Edit>, St
 /// it, but a past version is read unchecked.
 fn ambiguous(d: &Design) -> Option<String> {
     let twice = |names: Vec<&String>, what: &str| {
+        let mut seen = HashSet::new();
         names
-            .iter()
-            .enumerate()
-            .find(|(i, n)| names[..*i].contains(n))
-            .map(|(_, n)| format!("declares the {what} `{n}` twice"))
+            .into_iter()
+            .find(|n| !seen.insert(*n))
+            .map(|n| format!("declares the {what} `{n}` twice"))
     };
     twice(d.axes.iter().map(|x| &x.name.value).collect(), "axis")
         .or_else(|| twice(d.dials.iter().map(|x| &x.name.value).collect(), "dial"))
         .or_else(|| twice(d.tokens.iter().map(|x| &x.name.value).collect(), "token"))
         .or_else(|| twice(d.icons.iter().map(|x| &x.name.value).collect(), "icon"))
         .or_else(|| {
+            // A `when` naming an axis twice reads as no set of conditions.
             d.tokens.iter().find_map(|t| {
+                let twice = t.whens.iter().find(|w| {
+                    let mut axes = HashSet::new();
+                    !w.conds.iter().all(|(a, _)| axes.insert(a))
+                });
+                twice.map(|_| format!("names an axis twice in one `when` of `{}`", t.name.value))
+            })
+        })
+        .or_else(|| {
+            d.tokens.iter().find_map(|t| {
+                let mut seen = HashSet::new();
                 t.whens
                     .iter()
-                    .enumerate()
-                    .any(|(i, w)| t.whens[..i].iter().any(|v| same_conds(&v.conds, &w.conds)))
+                    .any(|w| !seen.insert(conds_key(&w.conds)))
                     .then(|| format!("gives the token `{}` one `when` twice", t.name.value))
             })
         })
@@ -246,6 +240,24 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
             return out;
         }
     };
+    // Each version's entries by name, made once (linear: the checker
+    // bound's sweep).
+    let new_axes = ByName::new(&new.axes, |x| &x.name.value);
+    let new_tokens = ByName::new(&new.tokens, |x| &x.name.value);
+    let now_axes = ByName::new(&now.axes, |x| &x.name.value);
+    let now_dials = ByName::new(&now.dials, |x| &x.name.value);
+    let now_tokens = ByName::new(&now.tokens, |x| &x.name.value);
+    let old_axes = ByName::new(&old.axes, |x| &x.name.value);
+    let old_dials = ByName::new(&old.dials, |x| &x.name.value);
+    let old_tokens = ByName::new(&old.tokens, |x| &x.name.value);
+    let old_at: HashMap<&str, usize> = old
+        .tokens
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(i, t)| (t.name.value.as_str(), i))
+        .collect();
+    let old_next = next_present(&old.tokens, &now_tokens);
     for edit in all {
         let conflict = |out: &mut Revert, now: Option<String>, why: &str| {
             out.conflicts.push(Conflict {
@@ -261,7 +273,8 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
                 "no operation changes a kind, a range, metadata, the design's name or its exports",
             ),
             What::Dial => {
-                let current = find(&now.dials, &edit.name, |d| &d.name.value)
+                let current = now_dials
+                    .get(&edit.name)
                     .map(|d| d.value.value.trim().to_string());
                 match (&edit.before, &edit.after) {
                     (Some(before), Some(_)) if current == edit.after => middle.push(Op::SetDial {
@@ -275,9 +288,8 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
                     // with another declaration, which no operation changes.
                     (Some(_), None)
                         if current == edit.before
-                            && find(&now.dials, &edit.name, |d| &d.name.value).map(dial_shape)
-                                == find(&old.dials, &edit.name, |d| &d.name.value)
-                                    .map(dial_shape) =>
+                            && now_dials.get(&edit.name).map(dial_shape)
+                                == old_dials.get(&edit.name).map(dial_shape) =>
                     {
                         out.already.push(edit.clone())
                     }
@@ -290,11 +302,8 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
                 }
             }
             What::Axis => {
-                let current = find(&now.axes, &edit.name, |x| &x.name.value);
-                let (x, y) = (
-                    find(&old.axes, &edit.name, |x| &x.name.value),
-                    find(&new.axes, &edit.name, |x| &x.name.value),
-                );
+                let current = now_axes.get(&edit.name);
+                let (x, y) = (old_axes.get(&edit.name), new_axes.get(&edit.name));
                 if current.map(axis_text) == edit.before {
                     out.already.push(edit.clone());
                     continue;
@@ -382,11 +391,8 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
                 }
             }
             What::Token => {
-                let (x, y) = (
-                    find(&old.tokens, &edit.name, |t| &t.name.value),
-                    find(&new.tokens, &edit.name, |t| &t.name.value),
-                );
-                let current = find(&now.tokens, &edit.name, |t| &t.name.value);
+                let (x, y) = (old_tokens.get(&edit.name), new_tokens.get(&edit.name));
+                let current = now_tokens.get(&edit.name);
                 match (x, y) {
                     // The commit removed the token: it comes back whole, once
                     // (its `when` lines are this one op's).
@@ -408,7 +414,10 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
                                     })
                                     .collect(),
                                 comment: None,
-                                before: next_present(&old.tokens, &edit.name, now),
+                                before: old_at
+                                    .get(edit.name.as_str())
+                                    .and_then(|&i| old_next[i])
+                                    .map(str::to_string),
                             }),
                             Some(c) if same_token(c, x) => out.already.push(edit.clone()),
                             Some(c) => conflict(
@@ -468,27 +477,42 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
     out
 }
 
-/// Names in `a`'s order, then those only `b` has.
-fn union<'a, T>(a: &'a [T], b: &'a [T], name: impl Fn(&T) -> &String) -> Vec<&'a str> {
-    let mut out: Vec<&str> = a.iter().map(|x| name(x).as_str()).collect();
-    for y in b {
-        if !out.contains(&name(y).as_str()) {
-            out.push(name(y).as_str());
-        }
-    }
-    out
+/// Names in `a`'s order, then those only `b` has, each with its entry in
+/// either (the first of the name), by maps (linear: the checker bound's
+/// sweep).
+type Paired<'a, T> = Vec<(&'a str, Option<&'a T>, Option<&'a T>)>;
+
+fn union<'a, T>(a: &'a [T], b: &'a [T], name: impl Fn(&T) -> &String) -> Paired<'a, T> {
+    let (x, y) = (ByName::new(a, &name), ByName::new(b, &name));
+    let mut seen = HashSet::new();
+    a.iter()
+        .chain(b)
+        .map(|e| name(e).as_str())
+        .filter(|n| seen.insert(*n))
+        .map(|n| (n, x.get(n), y.get(n)))
+        .collect()
 }
 
-fn find<'a, T>(all: &'a [T], wanted: &str, name: impl Fn(&T) -> &String) -> Option<&'a T> {
-    all.iter().find(|x| name(x) == wanted)
+/// A list's entries by name, the first of each.
+struct ByName<'a, T>(HashMap<&'a str, &'a T>);
+
+impl<'a, T> ByName<'a, T> {
+    fn new(all: &'a [T], name: impl Fn(&T) -> &String) -> Self {
+        ByName(all.iter().rev().map(|e| (name(e).as_str(), e)).collect())
+    }
+
+    fn get(&self, n: &str) -> Option<&'a T> {
+        self.0.get(n).copied()
+    }
 }
 
 /// The default (no conditions) and every `when` either version has, in
 /// order; conditions the same in any order are one branch.
 fn branches(a: Option<&Token>, b: Option<&Token>) -> Vec<Vec<(String, String)>> {
     let mut out = vec![Vec::new()];
+    let mut seen = HashSet::from([Vec::new()]);
     for w in a.into_iter().chain(b).flat_map(|t| &t.whens) {
-        if !out.iter().any(|c| same_conds(c, &w.conds)) {
+        if seen.insert(conds_key(&w.conds)) {
             out.push(w.conds.clone());
         }
     }
@@ -507,10 +531,6 @@ fn branch(t: Option<&Token>, when: &[(String, String)]) -> Option<String> {
         .map(|w| w.value.value.trim().to_string())
 }
 
-fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
-    a.len() == b.len() && a.iter().all(|c| b.contains(c))
-}
-
 /// The same declaration: kind, metadata and the value on every branch.
 fn same_token(a: &Token, b: &Token) -> bool {
     token_shape(a) == token_shape(b)
@@ -527,15 +547,18 @@ fn same_order(a: &[String], b: &[String]) -> bool {
     shared(a, b) == shared(b, a)
 }
 
-/// The first token after `name` in `old` that `now` has: where a removed
-/// token goes back.
-fn next_present(old: &[Token], name: &str, now: &Design) -> Option<String> {
-    let at = old.iter().position(|t| t.name.value == name)?;
-    old[at + 1..]
-        .iter()
-        .map(|t| &t.name.value)
-        .find(|n| now.tokens.iter().any(|t| t.name.value == **n))
-        .cloned()
+/// For each of `old`'s tokens, the first after it that `now` has: where a
+/// removed token goes back. One pass from the end.
+fn next_present<'a>(old: &'a [Token], now: &ByName<'_, Token>) -> Vec<Option<&'a str>> {
+    let mut out = vec![None; old.len()];
+    let mut next = None;
+    for (i, t) in old.iter().enumerate().rev() {
+        out[i] = next;
+        if now.get(&t.name.value).is_some() {
+            next = Some(t.name.value.as_str());
+        }
+    }
+    out
 }
 
 fn axis_text(a: &Axis) -> String {

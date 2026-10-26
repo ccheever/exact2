@@ -12,9 +12,13 @@ fn sim(seed: u64) -> Sim<Beacons> {
     sim
 }
 fn tables(sim: &mut Sim<Beacons>) {
-    let rows = std::collections::BTreeMap::from([("movement.json".to_owned(), include_str!("../../movement.json").to_owned())]);
+    let rows = std::collections::BTreeMap::from([(
+        "movement.json".to_owned(),
+        include_str!("../../movement.json").to_owned(),
+    )]);
     let bytes = exact_game::json::to_string(&rows).unwrap();
-    sim.asset(exact_game::asset::TABLE_ASSET, Some(bytes.as_bytes())).unwrap();
+    sim.asset(exact_game::asset::TABLE_ASSET, Some(bytes.as_bytes()))
+        .unwrap();
 }
 #[test]
 fn movement_seed_jump_and_save() {
@@ -128,4 +132,50 @@ fn a_sprint_ended_while_paused_walks_on_resume() {
         assert_eq!(speed, 4., "{end} while paused");
         assert!(velocity < 7., "{end}: the first tick slows ({velocity})");
     }
+}
+
+/// Tilt to move (LLP 1133.013 §10): the level the app posts, a held tilt at
+/// 60 Hz walking the player along x at the stick the engine's map gives, and
+/// the input's end bringing the player to rest.
+#[test]
+fn tilt_walks_from_the_level_and_stops_at_the_end() {
+    use exact_game::{tilt_stick, InputEvent, SensorKind, Tilt, Vec3};
+    let mut a = sim(7);
+    a.run(0.0);
+    a.post("tilt 0 4.9 8.49");
+    a.run(1000.0 / 60.0);
+    let start = a.get::<Transform>("player").unwrap().position;
+    let mut at = a.world().tick() as f64 * 1000.0 / 60.0;
+    for _ in 0..60 {
+        a.input(InputEvent::Sensor {
+            sensor: SensorKind::Gravity,
+            values: [3.0, 4.9, 7.9, 0.0],
+            dropped: 0,
+            at_ms: at,
+            player: 0,
+        });
+        at += 1000.0 / 60.0;
+        a.run(1000.0 / 60.0);
+    }
+    let stick = tilt_stick(
+        Vec3::new(3.0, 4.9, 7.9),
+        Vec3::new(0.0, 4.9, 8.49),
+        Tilt {
+            max_degrees: 20.0,
+            dead_zone: 2.0,
+        },
+    );
+    assert!((stick.x - 0.88).abs() < 0.01, "{stick}");
+    let walked = a.get::<Transform>("player").unwrap().position - start;
+    assert!(walked.x > 1.0 && walked.z.abs() < 0.05, "{walked}");
+    a.input(InputEvent::SensorEnded {
+        sensor: SensorKind::Gravity,
+        at_ms: at,
+        player: 0,
+    });
+    a.run(500.0);
+    let rest = a.get::<Transform>("player").unwrap().position;
+    a.run(500.0);
+    assert_eq!(a.get::<Transform>("player").unwrap().position, rest);
+    assert!(rest.x - start.x - walked.x < 0.3, "{rest}");
 }

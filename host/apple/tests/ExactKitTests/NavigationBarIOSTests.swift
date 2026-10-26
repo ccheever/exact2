@@ -123,13 +123,180 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(item.scrollEdgeAppearance, NavigationHost.clearScrollEdge)
     }
 
+    func testPoppingAnEditingRouteRestoresTheFullViewport() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "the system keyboard needs the hosted iOS test app")
+        }
+        let session = try fixture("keyboard-pop", module: false)
+        let p = session.presenter
+        let view = try XCTUnwrap(session.view)
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let returning = try XCTUnwrap(nav.topViewController as? RouteController)
+        let returningSize = returning.node.bounds.size
+        let full = p.viewport.frame
+        p.press(try node(session, "open-focused-plain").id)
+        let field = try XCTUnwrap(try node(session, "plain-first").field)
+        until("the pushed field has the system keyboard") {
+            field.isFirstResponder && p.keyboardInset > 0 && view.keyboardLayoutGuide.layoutFrame.height > 0 && nav.transitionCoordinator == nil
+        }
+        XCTAssertLessThan(try XCTUnwrap(nav.topViewController as? RouteController).node.bounds.height, full.height)
+        XCTAssertEqual(p.viewportSize, full.size, "avoiding one route's keyboard must not resize its application root")
+        XCTAssertEqual(p.viewport.frame, full, "native navigation retains its physical area while the document avoids the keyboard")
+        nav.popViewController(animated: true)
+        until("both routes are in the transition") { returning.view.window != nil && nav.transitionCoordinator != nil }
+        XCTAssertTrue(field.isFirstResponder, "UIKit keeps the outgoing editor focused while its keyboard travels")
+        XCTAssertEqual(p.viewport.frame, view.bounds, "the viewport must not clip the returning route below the moving keyboard")
+        XCTAssertEqual(returning.node.bounds.size, returningSize, "the returning route fills the area exposed beside the moving keyboard")
+        until("the pop and keyboard hide finish") {
+            nav.viewControllers.count == 1 && nav.transitionCoordinator == nil &&
+                !p.hasKeyboardEditor && p.keyboardGuideTop(in: view) == nil && p.keyboardInset == 0
+        }
+        XCTAssertEqual(p.viewport.frame, full, "the returning route takes back the area the keyboard covered")
+        XCTAssertEqual(p.viewportSize, full.size)
+        XCTAssertNil(p.keyboardTop)
+    }
+
+    func testBackGestureEligibilityDoesNotDismissTheEditorsKeyboard() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "the system keyboard needs the hosted iOS test app")
+        }
+        let session = try fixture("keyboard-gesture-ownership", module: false)
+        let p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        p.press(try node(session, "open-focused-plain").id)
+        let field = try XCTUnwrap(try node(session, "plain-first").field)
+        until("the outgoing editor is focused") { field.isFirstResponder && p.keyboardInset > 0 && nav.transitionCoordinator == nil }
+        let recognizer = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(p.navigation.popMayBegin(recognizer, from: nil, in: nil, velocity: CGPoint(x: 200, y: 0)))
+        XCTAssertTrue(field.isFirstResponder, "recognizing a swipe must leave responder decisions to the screens and UIKit")
+        XCTAssertGreaterThan(p.keyboardInset, 0)
+    }
+
+    func testNativeRouteKeyboardInsetPreservesRoomAddedForPinnedContent() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "native keyboard insets need the hosted app responder lifecycle")
+        }
+        let session = try fixture("keyboard-inset-contributions", module: false)
+        let p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let shown = expectation(forNotification: UIResponder.keyboardDidShowNotification, object: nil)
+        p.press(try node(session, "open-focused-plain").id)
+        let field = try XCTUnwrap(try node(session, "plain-first").field)
+        wait(for: [shown], timeout: 10)
+        until("the editing route settles") { field.isFirstResponder && p.keyboardInset > 0 && nav.transitionCoordinator == nil }
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let scroll = try XCTUnwrap(route.contentViewport)
+        let keyboard = scroll.contentInset.bottom
+        p.pinnedRoom.grow(scroll, by: 24)
+        route.view.setNeedsLayout()
+        route.view.layoutIfNeeded()
+        scroll.contentOffset.y += 1
+        XCTAssertEqual(scroll.contentInset.bottom, keyboard + 24, accuracy: 0.5,
+                       "layout and scrolling preserve the other writer's contribution")
+        let hidden = expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil)
+        field.resignFirstResponder()
+        wait(for: [hidden], timeout: 10)
+        until("both inset contributions are released") { p.keyboardInset == 0 && scroll.contentInset.bottom == 0 }
+        XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, 0)
+    }
+
+    func testScreenResponderDecisionsSurviveCompletedAndCancelledPops() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "the system keyboard needs the hosted iOS test app")
+        }
+        for (decision, legacy) in [("retain", false), ("dismiss", false), ("handoff", false), ("handoff", true)] {
+            let session = try fixture("keyboard-screen-\(decision)", module: false)
+            let p = session.presenter
+            let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+            let opener = try node(session, "open-focused-plain").id
+            let firstShown = expectation(forNotification: UIResponder.keyboardDidShowNotification, object: nil)
+            p.press(opener)
+            let returning = try XCTUnwrap(nav.topViewController as? RouteController)
+            let target = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "plain-first" && $0.isDescendant(of: returning.node) })
+            let destination = try XCTUnwrap(target.field)
+            until("the first screen finishes appearing") { destination.isFirstResponder && nav.transitionCoordinator == nil }
+            wait(for: [firstShown], timeout: 5)
+            let firstHidden = expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil)
+            p.blurElement([])
+            wait(for: [firstHidden], timeout: 5)
+            until("the first screen releases its keyboard") { p.keyboardInset == 0 }
+            destination.keyboardType = .numberPad
+            let full = returning.view.bounds.size
+            let sourceShown = expectation(forNotification: UIResponder.keyboardDidShowNotification, object: nil)
+            p.press(try node(session, "plain-push").id)
+            let source = try XCTUnwrap(nav.topViewController as? RouteController)
+            let outgoingNode = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "plain-first" && $0.isDescendant(of: source.node) })
+            let outgoing = try XCTUnwrap(outgoingNode.field)
+            until("the second screen finishes appearing") { nav.viewControllers.count == 3 && nav.transitionCoordinator == nil }
+            p.focusNode(outgoingNode)
+            wait(for: [sourceShown], timeout: 5)
+            until("the outgoing editor has its keyboard") { outgoing.isFirstResponder && p.keyboardInset > 0 }
+            let occupiedSize = source.node.bounds.size
+            let app = Transitions()
+            app.usesLegacyAnimator = legacy
+            app.onWillShow = { controller in
+                if controller === returning {
+                    if decision == "dismiss" { p.blurElement([]) }
+                    if decision == "handoff" { p.focusNode(target) }
+                } else if controller === source {
+                    p.focusNode(outgoingNode)
+                }
+            }
+            p.navigation.setAppDelegate(nav, app)
+            app.interactive = true
+            nav.popViewController(animated: true)
+            until("the interactive pop begins") { nav.transitionCoordinator?.isInteractive == true && app.animatorStarted }
+            // UIKit's legacy setup withdraws early focus. Claim again after setup,
+            // as in the native reference; interruptible animators retain willShow focus.
+            if legacy { p.focusNode(target) }
+            app.interaction.update(0.35)
+            if decision == "retain" {
+                XCTAssertTrue(outgoing.isFirstResponder)
+                XCTAssertEqual(source.node.bounds.size, occupiedSize, "the outgoing editor keeps its keyboard allocation during the swipe")
+                XCTAssertLessThan(occupiedSize.height, full.height)
+                until("the returning route fills what the outgoing keyboard exposes") { returning.node.bounds.size == full }
+            } else if decision == "dismiss" {
+                until("the screen's explicit resignation clears avoidance") { p.keyboardInset == 0 && returning.node.bounds.size == full }
+                XCTAssertFalse(p.hasKeyboardEditor)
+            } else {
+                let view = try XCTUnwrap(session.view)
+                until("the destination's editor and keyboard own the layout") {
+                    destination.isFirstResponder && p.keyboardInset > 0 &&
+                        abs(returning.node.bounds.height - view.keyboardLayoutGuide.layoutFrame.minY) < 0.5
+                }
+                XCTAssertEqual(p.viewportSize, full, "a focus handoff leaves the native container's size unchanged")
+                XCTAssertNil(p.pendingFocusNode, "the focus request is delivered during the transition")
+                XCTAssertLessThan(returning.node.bounds.height, full.height)
+            }
+            app.interaction.cancel()
+            until("the cancelled pop returns to its source") { nav.transitionCoordinator == nil && nav.viewControllers.count == 3 }
+            guard nav.viewControllers.count == 3 else { return }
+            until("the source's focus claim wins after cancellation") { outgoing.isFirstResponder && p.keyboardInset > 0 }
+            app.interactive = false
+            app.usesAnimator = false
+            nav.popViewController(animated: true)
+            until("the native pop finishes") { nav.transitionCoordinator == nil && nav.viewControllers.count == 2 }
+            if decision == "handoff" {
+                until("the returning editor keeps the keyboard") { destination.isFirstResponder && p.keyboardInset > 0 }
+            } else {
+                until("the returning screen has no keyboard") { !p.hasKeyboardEditor && p.keyboardInset == 0 && returning.node.bounds.size == full }
+            }
+            window?.endEditing(true)
+            window?.isHidden = true
+            session.destroy()
+        }
+    }
+
     func testAPushAfterKeyboardDismissalInstallsTheDestinationBeforeReturning() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let session = try fixture("synchronous-push", module: false)
         let presenter = session.presenter
         let nav = try XCTUnwrap(presenter.navigation.primaryNavigation)
         // The hide notification can follow the press that ended editing. A
         // remaining keyboard inset must not postpone UIKit's stack change.
-        presenter.applyKeyboard(top: 540, duration: 0, curve: 0)
+        setKeyboard(presenter, top: 540)
         let button = try node(session, "open-plain")
         presenter.press(button.id)
         XCTAssertTrue((nav.topViewController as? RouteController)?.node === (try node(session, "route-plain")),
@@ -298,7 +465,7 @@ final class NavigationBarIOSTests: XCTestCase {
     }
 
     func testHeaderOptOutRetiresAnActiveSearchProjection() throws {
-        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+        guard hostedWindowScene() != nil else {
             throw missing("scene", "a search presentation completes only in a scene’s window")
         }
         let session = try fixture("authored-header-search", module: false)
@@ -547,7 +714,7 @@ final class NavigationBarIOSTests: XCTestCase {
         header.applyHiding()
         XCTAssertTrue(top.navigationItem.hidesSearchBarWhenScrolling)
         search.searchBar.text = "abc"
-        search.searchResultsUpdater?.updateSearchResults(for: search)
+        search.searchBar.delegate?.searchBar?(search.searchBar, textDidChange: "abc")
         until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
         XCTAssertFalse(top.navigationItem.hidesSearchBarWhenScrolling, "a search in effect keeps its field in view, as UIKit keeps an active search's")
         // LLP 1115.000 D9.2: the keyboard's Search key puts the keyboard
@@ -559,6 +726,10 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertFalse(field.isFirstResponder, "Search puts the keyboard away")
         XCTAssertEqual(search.searchBar.text, "abc")
         XCTAssertEqual(state(session, "query") as? String, "abc")
+        search.searchBar.text = ""
+        XCTAssertEqual(state(session, "query") as? String, "abc", "programmatic text projection is not user input")
+        search.searchBar.delegate?.searchBar?(search.searchBar, textDidChange: "")
+        until("clearing the search field reaches its input handler") { state(session, "query") as? String == "" }
     }
 
     /// A search colour changes only the ink; clearing it restores UIKit's placeholder.
@@ -862,6 +1033,23 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(phase(), "completed")
     }
 
+    func testHatchOwnershipAcceptsTheContentViewportAndDetectsARemovedRoute() throws {
+        let session = try fixture("hatch-content-mount", module: true)
+        let navigation = session.presenter.navigation
+        until("the route hatch is connected") { journal(session).contains("hatch route 0: built") }
+        _ = Agent(session: session).clock(["settle": true])
+        let route = try XCTUnwrap(navigation.primaryNavigation?.topViewController as? RouteController)
+        let mount = try XCTUnwrap(route.contentViewport)
+        XCTAssertTrue(route.node.superview === mount)
+        let violation = "route 0: view changed outside Exact, which owns it"
+        navigation.checkOwned()
+        XCTAssertFalse(journal(session).contains(violation), "Exact's own content mount is valid")
+        defer { mount.addSubview(route.node) }
+        route.node.removeFromSuperview()
+        navigation.checkOwned()
+        XCTAssertTrue(journal(session).contains(violation), "the first real ownership violation is still reported")
+    }
+
     func testTheModulesHatchesRunAtTheirMomentsAndActThroughAuthoredControls() throws {
         let session = try fixture("bar-hatches", module: true)
         let log = { self.journal(session) }
@@ -947,29 +1135,61 @@ final class NavigationBarIOSTests: XCTestCase {
 
 }
 
-/// An app's delegate: a cross-fade, interactive when asked.
-private final class Transitions: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
-    var interactive = false, animated = false, shown = 0
-    let interaction = UIPercentDrivenInteractiveTransition()
-    func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
-                              from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? { self }
-    func navigationController(_ nav: UINavigationController,
-                              interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
-        interactive ? interaction : nil
-    }
-    func navigationController(_ nav: UINavigationController, didShow controller: UIViewController, animated: Bool) { shown += 1 }
+/// The block-based UIKit animator remains supported alongside interruptible animators.
+private final class LegacyFade: NSObject, UIViewControllerAnimatedTransitioning {
+    var animated = false
     func transitionDuration(using context: UIViewControllerContextTransitioning?) -> TimeInterval { 0.2 }
     func animateTransition(using context: UIViewControllerContextTransitioning) {
-        animated = true
         guard let to = context.viewController(forKey: .to), let view = context.view(forKey: .to) else { return context.completeTransition(false) }
         view.frame = context.finalFrame(for: to)
         view.alpha = 0
         context.containerView.addSubview(view)
+        animated = true
         UIView.animate(withDuration: transitionDuration(using: context), animations: { view.alpha = 1 }) { _ in
             context.completeTransition(!context.transitionWasCancelled)
         }
     }
+}
 
-
+/// An app's delegate: a cross-fade, interactive when asked.
+private final class Transitions: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
+    var interactive = false, animated = false, shown = 0
+    var usesAnimator = true, usesLegacyAnimator = false
+    private let legacyAnimator = LegacyFade()
+    var animatorStarted: Bool { animated || legacyAnimator.animated }
+    var onWillShow: ((UIViewController) -> Void)?
+    let interaction = UIPercentDrivenInteractiveTransition()
+    private var animator: UIViewPropertyAnimator?
+    func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
+                              from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        guard usesAnimator else { return nil }
+        return usesLegacyAnimator ? legacyAnimator : self
+    }
+    func navigationController(_ nav: UINavigationController,
+                              interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
+        interactive ? interaction : nil
+    }
+    func navigationController(_ nav: UINavigationController, willShow controller: UIViewController, animated: Bool) { onWillShow?(controller) }
+    func navigationController(_ nav: UINavigationController, didShow controller: UIViewController, animated: Bool) { shown += 1 }
+    func transitionDuration(using context: UIViewControllerContextTransitioning?) -> TimeInterval { 0.2 }
+    func animateTransition(using context: UIViewControllerContextTransitioning) {
+        interruptibleAnimator(using: context).startAnimation()
+    }
+    func interruptibleAnimator(using context: UIViewControllerContextTransitioning) -> UIViewImplicitlyAnimating {
+        if let animator { return animator }
+        animated = true
+        let to = context.viewController(forKey: .to)!
+        let view = context.view(forKey: .to)!
+        view.frame = context.finalFrame(for: to)
+        view.alpha = 0
+        context.containerView.addSubview(view)
+        let animator = UIViewPropertyAnimator(duration: transitionDuration(using: context), curve: .linear) { view.alpha = 1 }
+        animator.addCompletion { [weak self] _ in
+            self?.animator = nil
+            context.completeTransition(!context.transitionWasCancelled)
+        }
+        self.animator = animator
+        return animator
+    }
 }
 #endif

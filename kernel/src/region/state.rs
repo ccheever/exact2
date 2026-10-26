@@ -476,6 +476,7 @@ impl RegionState {
                         .ok_or(LayoutError::ContentRegion("paragraph lacks stamp"))?;
                     let paragraph = arena.paragraph(slot);
                     let request = TextMeasureRequest {
+                        atoms: Default::default(),
                         exclusions: &[],
                         runs: &runs,
                         paragraph,

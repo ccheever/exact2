@@ -282,7 +282,7 @@ impl Catalog {
     /// upright family. `serif`: the configured one, else a list.
     fn settle_generics(&mut self, generics: &fonts::Generics) {
         let c = &mut self.fonts.collection;
-        let sans = sans_family(c, &generics.sans);
+        let sans = sans_family(c, &generics.sans, sans_preference(std::env::consts::OS));
         if let Some(name) = &sans {
             fonts::set_generic(c, GenericFamily::SansSerif, name);
             fonts::set_generic(c, GenericFamily::SystemUi, name);
@@ -805,9 +805,12 @@ fn face_count(source: &SourceInfo) -> Option<usize> {
 
 /// The installed family `sans-serif` should mean: `EXACT_FONT`, else the
 /// configured default when it is installed, else the first present of
-/// fontconfig's preference list for `sans-serif` (60-latin.conf) with the
-/// platform's own families after it.
-fn sans_family(c: &mut fontique::Collection, configured: &str) -> Option<String> {
+/// `preferred`.
+fn sans_family(
+    c: &mut fontique::Collection,
+    configured: &str,
+    preferred: &[&str],
+) -> Option<String> {
     if let Ok(name) = std::env::var("EXACT_FONT") {
         if fonts::installed_family(c, &name) {
             return Some(name);
@@ -817,10 +820,31 @@ fn sans_family(c: &mut fontique::Collection, configured: &str) -> Option<String>
     if fonts::installed_family(c, configured) {
         return Some(configured.to_owned());
     }
-    let preferred: &[&str] = if cfg!(target_os = "macos") {
-        &["Helvetica Neue", "Helvetica", "Arial", "Verdana"]
-    } else {
-        &[
+    preferred
+        .iter()
+        .find(|n| fonts::installed_family(c, n))
+        .map(|n| n.to_string())
+}
+
+/// The families `sans-serif` prefers on `os` (`std::env::consts::OS`), first
+/// present wins. Windows: its UI font, Segoe UI Variable on Windows 11 and
+/// Segoe UI on Windows 10 (LLP 1115.004 D6.1), whose `opsz` then follows the
+/// size as for any face with the axis (`shaping.rs`). The file's typographic
+/// family is "Segoe UI Variable"; "Segoe UI Variable Text" is its text
+/// instance's legacy family, should a face carry only that. Elsewhere,
+/// fontconfig's preference list for `sans-serif` (60-latin.conf) with the
+/// platform's own families after it.
+fn sans_preference(os: &str) -> &'static [&'static str] {
+    match os {
+        "windows" => &[
+            "Segoe UI Variable",
+            "Segoe UI Variable Text",
+            "Segoe UI",
+            "Arial",
+            "Verdana",
+        ],
+        "macos" => &["Helvetica Neue", "Helvetica", "Arial", "Verdana"],
+        _ => &[
             "Noto Sans",
             "DejaVu Sans",
             "Verdana",
@@ -831,12 +855,8 @@ fn sans_family(c: &mut fontique::Collection, configured: &str) -> Option<String>
             "Ubuntu",
             "Roboto",
             "Segoe UI",
-        ]
-    };
-    preferred
-        .iter()
-        .find(|n| fonts::installed_family(c, n))
-        .map(|n| n.to_string())
+        ],
+    }
 }
 
 /// Keep a configured monospace generic when installed and fixed-pitch.
@@ -848,6 +868,10 @@ fn monospace_family(c: &mut fontique::Collection, configured: &str) -> Option<St
         return Some(configured.to_owned());
     }
     [
+        #[cfg(windows)]
+        "Cascadia Mono",
+        #[cfg(windows)]
+        "Consolas",
         "Noto Sans Mono",
         "DejaVu Sans Mono",
         "Liberation Mono",
@@ -903,4 +927,28 @@ fn glyph_top(data: &[u8], index: u32, ch: char) -> Option<f32> {
         skrifa::instance::LocationRef::default(),
     );
     metrics.bounds(glyph).map(|b| b.y_max).filter(|y| *y > 0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const INTER: &[u8] = include_bytes!("../../tests/fonts/Inter-Regular.ttf");
+
+    #[test]
+    fn windows_sans_is_its_ui_font_before_arial() {
+        let windows = sans_preference("windows");
+        let at = |name| windows.iter().position(|n| *n == name).unwrap();
+        assert_eq!(windows[0], "Segoe UI Variable");
+        assert!(at("Segoe UI") < at("Arial"));
+        assert_eq!(sans_preference("linux")[0], "Noto Sans");
+    }
+
+    #[test]
+    fn sans_is_the_first_installed_preference_when_none_is_configured() {
+        let mut c = fonts::empty_collection();
+        c.register_fonts(Blob::new(Arc::new(INTER.to_vec())), None);
+        let sans = sans_family(&mut c, "", &["Segoe UI Variable", "Inter", "Arial"]);
+        assert_eq!(sans.as_deref(), Some("Inter"));
+    }
 }

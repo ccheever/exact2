@@ -1,5 +1,8 @@
 //! Inline background fragments use character ownership, independent of shaping.
-use super::Paragraph;
+use super::{
+    inline::{Ownership, Piece},
+    Paragraph,
+};
 use crate::paint::{border::resolve_radii, Shape};
 use exact_kernel::{Dimension, Direction, Env, ViewId};
 use std::collections::BTreeMap;
@@ -39,12 +42,6 @@ fn endpoints_in(
     }
 }
 
-struct Piece {
-    lo: f32,
-    hi: f32,
-    run: usize,
-}
-
 impl Paragraph {
     /// CSS 2 §8.6 and `box-decoration-break: slice`: a box's first and last
     /// characters select lines; the paragraph direction selects each line's
@@ -75,38 +72,9 @@ impl Paragraph {
         }
         // Built only for rounded paint, never part of the paragraph's shape key.
         let flow = self.flow.as_ref().filter(|f| !f.incomplete);
-        let text: String = self
-            .source
-            .spec
-            .runs
-            .iter()
-            .map(|r| r.text.as_str())
-            .collect();
-        let mut offset = 0;
-        let runs: Vec<_> = self
-            .source
-            .spec
-            .runs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, run)| {
-                let start = offset;
-                offset += run.text.len();
-                (start != offset).then_some((start..offset, i))
-            })
-            .collect();
-        let mut offset = 0;
-        let hard_ranges: Vec<_> = self
-            .source
-            .data
-            .lines
-            .iter()
-            .map(|line| {
-                let start = offset + text[offset..].find(&line.text).expect("source hard line");
-                offset = start + line.text.len();
-                start..offset
-            })
-            .collect();
+        let ownership = Ownership::new(self);
+        let runs = &ownership.runs;
+        let hard_ranges = &ownership.hard;
         let mut boxes: BTreeMap<ViewId, Range<usize>> = BTreeMap::new();
         let mut add = |range: Range<usize>, run: usize| {
             if let Some(background) = backgrounds.get(run).copied().flatten() {
@@ -120,7 +88,7 @@ impl Paragraph {
             }
         };
         if flow.is_some() {
-            for (range, run) in &runs {
+            for (range, run) in runs.iter().filter(|(r, _)| !r.is_empty()) {
                 add(range.clone(), *run);
             }
         } else {
@@ -131,7 +99,9 @@ impl Paragraph {
                     if range.start >= hard.end {
                         break;
                     }
-                    add(range.start.max(hard.start)..range.end.min(hard.end), *run);
+                    if !range.is_empty() {
+                        add(range.start.max(hard.start)..range.end.min(hard.end), *run);
+                    }
                 }
             }
         }
@@ -191,28 +161,12 @@ impl Paragraph {
                 if g.w <= 0.0 || local.start >= trim {
                     continue;
                 }
-                let chars = text[range.clone()].chars().count() as f32;
-                // A ligature can cross canonical runs. Divide its advance by
-                // characters in its bidi direction, without reshaping it.
-                let from = runs.partition_point(|(owner, _)| owner.end <= range.start);
-                let mut near = 0.0;
-                for (owner, run) in &runs[from..] {
-                    if owner.start >= range.end {
-                        break;
-                    }
-                    let a = owner.start.max(range.start);
-                    let z = owner.end.min(range.end);
-                    let far = near + text[a..z].chars().count() as f32 / chars * g.w;
-                    if backgrounds.get(*run).copied().flatten().is_some() {
-                        let (lo, hi) = if g.level % 2 == 1 {
-                            (g.x + g.w - far, g.x + g.w - near)
-                        } else {
-                            (g.x + near, g.x + far)
-                        };
-                        spans.push(Piece { lo, hi, run: *run });
-                    }
-                    near = far;
-                }
+                spans.extend(
+                    ownership
+                        .pieces(g, range)
+                        .into_iter()
+                        .filter(|piece| backgrounds.get(piece.run).copied().flatten().is_some()),
+                );
             }
             spans.sort_by(|a, b| a.lo.total_cmp(&b.lo));
             let mut merged: Vec<Piece> = Vec::new();

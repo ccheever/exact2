@@ -86,7 +86,7 @@ impl Parser {
     /// Whether the next clause is `word`, on this line or on a continued
     /// one: the first continued line opens an indented block (`continued`
     /// records it), each later one is a line of that block.
-    fn clause_ahead(&mut self, word: &str, continued: &mut bool) -> bool {
+    pub(super) fn clause_ahead(&mut self, word: &str, continued: &mut bool) -> bool {
         if self.at_ident(word) {
             return true;
         }

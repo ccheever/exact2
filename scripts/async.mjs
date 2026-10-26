@@ -80,8 +80,8 @@ const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player
 // rust-src (webToolchainEnv names their install); tvOS uses Caltrain (its TypeScript-free build needs no
 // Hermes) and installs it on an Apple TV simulator, which the first lane's
 // compile does not; Linux and Windows compile their target-only branches:
-// Windows with Windows Desk, Linux with every app (`*-linux` is the host and
-// each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too. Android
+// Windows with Windows Desk, on x64 and ARM64 (LLP 1115.004 D0.3), Linux with every app (`*-linux` is the
+// host and each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too. Android
 // builds Weatherlight's APK, which compiles the Android target's Rust, the
 // reader's Kotlin and a module's (LLP 1133.002 stage 4, Charlie's say-so).
 export function tierTwoChecks() {
@@ -90,6 +90,8 @@ export function tierTwoChecks() {
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
     ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
+    // Rust has no GNU MinGW target for ARM64; LLVM's (`gnullvm`) stands in for MSVC here as GNU's does for x64.
+    ['windows-arm64', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_aarch64_pc_windows_gnullvm=zig cc -target aarch64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'aarch64-pc-windows-gnullvm', '-p', 'exact-windows', '-p', 'windows-desk']],
     ['android', 'bun', ['scripts/agent-android.mjs', 'build', 'weatherlight', '--apk']],
   ];
 }
@@ -111,7 +113,7 @@ export function glueTests(root) {
   const files = ['host/web', 'host/web-js'].flatMap(dir => [...new Bun.Glob(`${dir}/**/*.test.{mjs,js}`).scanSync({ cwd: root, onlyFiles: true })])
     .filter(file => !LEFT_OUT.test(file)).sort().map(file => `./${file}`);
   // The glue lane is macOS: link.test reads Mach-O load commands with Apple tools.
-  return [...files, './host/apple/link.test.mjs', './host/apple/cloak.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'push', 'agent', 'agent-launch', 'agent-drag', 'tamber-server', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-scrub', 'tamber-dtcg', 'design-tool-levels', 'tamber-tool-answers', 'design-tool', 'design-tool-ops', 'design-tool-canvas', 'design-tool-scrub', 'design-tool-scale', 'library-gate', 'stage12-gate', 'position-reads', 'wasm-check', 'tamber-body-limit', 'tamber-upstream', 'harmony-seed', 'design-tool-harness', 'agent-held'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
+  return [...files, './host/apple/link.test.mjs', './host/apple/cloak.test.mjs', ...['app-workspace', 'app-bake', 'app-apple', 'app-keychain', 'app-manifest', 'exact', 'check-watchdog', 'push', 'agent', 'agent-launch', 'agent-drag', 'tamber-server', 'tamber-events-get', 'tamber-edit-held', 'test-children', 'scale-check', 'tool-drive', 'help-parity', 'tamber-builds', 'tamber-inspect', 'tamber-select-walk', 'tamber-scrub', 'tamber-dtcg', 'design-tool-levels', 'tamber-tool-answers', 'design-tool', 'design-tool-ops', 'design-tool-library', 'design-tool-canvas', 'design-tool-scrub', 'design-tool-kinds', 'design-tool-inspect', 'design-tool-commit', 'design-tool-fields', 'design-tool-dock', 'design-tool-edit-dock', 'design-tool-poll', 'design-tool-scale', 'library-gate', 'stage12-gate', 'position-reads', 'wasm-check', 'tamber-body-limit', 'tamber-upstream', 'tamber-request', 'tamber-tool-via', 'harmony-seed', 'design-tool-harness', 'tamber-timing', 'agent-clock-until', 'agent-held'].map(name => `./scripts/${name}.test.mjs`), './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();

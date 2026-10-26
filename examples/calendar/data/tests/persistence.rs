@@ -16,6 +16,8 @@ const TODAY: i32 = 20_697; // 2026-09-01, days since 1970-01-01.
 
 #[path = "persistence/desktop.rs"]
 mod desktop;
+#[path = "persistence/guests.rs"]
+mod guests;
 #[path = "persistence/stickers.rs"]
 mod stickers;
 

@@ -16,6 +16,7 @@ extension Runtime {
     }
 
     func holdBegin(_ view: UInt32, property: UInt32, now: Double) -> (NativeHold?, Batch) {
+        if holds() { return (nil, Runtime.heldBatch) } // (`on(busy:)` doesn't hold: ResetGate)
         return on(busy: (nil, Runtime.busy)) {
             let batch = read(exact_hold_begin(rt, view, property, now))
             let start = batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }
@@ -23,6 +24,7 @@ extension Runtime {
         }
     }
     package func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
+        if holds() { return (nil, Runtime.heldBatch) }
         return on(busy: (nil, Runtime.busy)) {
             let batch = read(exact_height_drag_begin(rt, handleKey, targetKey, now))
             return (batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }, batch)
@@ -54,7 +56,7 @@ extension Runtime {
         on { read(exact_dispatch(rt, view, 42, write(selection.payload(value)), now)) }
     }
     /// The wall clock owns time, or the agent's clock does (the timers RFC, D1).
-    func liveClock(_ yes: Bool) { on { () -> Void in _ = exact_set_live_clock(rt, yes ? { ExactEnv.wall() } : nil) } }
+    func liveClock(_ yes: Bool) { setLiveClock(yes ? { ExactEnv.wall() } : nil) }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {

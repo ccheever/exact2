@@ -39,6 +39,8 @@
 //! **A hosted text field** is the reader's own view (D8) and reports
 //! itself: its node here says only where it stands in the order and what
 //! its author named it.
+mod surface;
+
 use super::requests::string;
 use super::scrollers::Scroller;
 use super::top::shape::Plan;
@@ -218,7 +220,7 @@ struct Key {
     boxes: u64,
     scroll: Vec<(ViewId, i32, i32)>,
     page: (i32, i32),
-    surface: Option<(u32, usize)>,
+    surface: Option<(u32, u32)>,
     bars: u32,
     frame: [i32; 4],
 }
@@ -386,7 +388,7 @@ impl<D: DataSource> Presenter<D> {
     fn access_words(&self, node: &NodeRef<'_>, all: bool) -> String {
         let kernel = self.host.kernel();
         match node.node_type {
-            NodeType::Text => return kernel.bar_text(node.id).unwrap_or_default(),
+            NodeType::Text => return self.access_inline_words(node),
             NodeType::Image | NodeType::Svg => {
                 let label = node.props.str(PropId::AccessibilityLabel);
                 return label.unwrap_or_default().to_string();
@@ -414,11 +416,84 @@ impl<D: DataSource> Presenter<D> {
             .join(" ")
     }
 
+    fn access_inline_words(&self, node: &NodeRef<'_>) -> String {
+        if node.props.str(PropId::Text).is_some() {
+            return self.host.kernel().bar_text(node.id).unwrap_or_default();
+        }
+        type RunLabel<'a> = (bool, Option<(ViewId, &'a str)>);
+        fn collect<'a>(
+            node: &NodeRef<'a>,
+            hidden: bool,
+            label: Option<(ViewId, &'a str)>,
+            out: &mut Vec<RunLabel<'a>>,
+        ) {
+            let hidden = hidden
+                || node.style.display == Display::None
+                || node.props.bool(PropId::AccessibilityElementsHidden) == Some(true);
+            let label = label.or_else(|| {
+                node.props
+                    .str(PropId::AccessibilityLabel)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| (node.id, s))
+            });
+            if node.props.str(PropId::Text).is_some() {
+                out.push((hidden, label));
+            } else {
+                for child in node.child_nodes().filter(|n| n.node_type == NodeType::Text) {
+                    collect(&child, hidden, label, out);
+                }
+            }
+        }
+        let mut semantics = Vec::new();
+        collect(node, false, None, &mut semantics);
+        let runs = node.text_runs();
+        let mut said = BTreeSet::new();
+        let words: Vec<&str> = runs
+            .iter()
+            .zip(semantics)
+            .map(|(run, (hidden, label))| {
+                if hidden {
+                    return "";
+                }
+                match label {
+                    Some((id, label)) if said.insert(id) => label,
+                    Some(_) => "",
+                    None => &run.text,
+                }
+            })
+            .collect();
+        match exact_textflow::collapse(&words, node.paragraph().white_space.model()) {
+            Some(collapsed) => collapsed.runs.concat(),
+            None => words.concat(),
+        }
+    }
+
+    fn access_inline_controls(&self, b: &mut Build, node: &NodeRef<'_>, scope: Scope) {
+        if node.props.str(PropId::Text).is_some() {
+            return;
+        }
+        for child in node.child_nodes().filter(|n| n.node_type == NodeType::Text) {
+            if child.style.display == Display::None
+                || child.props.bool(PropId::AccessibilityElementsHidden) == Some(true)
+            {
+                continue;
+            }
+            if self.access_pressable(&child) {
+                self.access_walk(b, child.id, scope);
+            } else {
+                self.access_inline_controls(b, &child, scope);
+            }
+        }
+    }
+
     /// A node's accessible name: its label, else a button's face, else its
     /// words.
     fn access_name(&self, node: &NodeRef<'_>) -> String {
         if let Some(label) = self.access_label(node) {
             return label;
+        }
+        if node.node_type == NodeType::Text {
+            return self.access_inline_words(node);
         }
         let face = self.host.kernel().press_face(node.id);
         if let Some(title) = face.and_then(|face| face.title.or(face.label)) {
@@ -460,7 +535,11 @@ impl<D: DataSource> Presenter<D> {
         if !self.display.allows(kernel, node.id) {
             return None;
         }
-        let painted = *b.boxes.get(&node.id)?;
+        let painted = b
+            .boxes
+            .get(&node.id)
+            .copied()
+            .or_else(|| self.inline_box(node.id))?;
         let rect = (
             painted.rect.0 + scope.shift.0,
             painted.rect.1 + scope.shift.1,
@@ -673,7 +752,7 @@ impl<D: DataSource> Presenter<D> {
             let label = self.access_label(&node);
             let text = node.node_type == NodeType::Text;
             let name = label.unwrap_or_else(|| match text {
-                true => kernel.bar_text(id).unwrap_or_default(),
+                true => self.access_inline_words(&node),
                 false => String::new(),
             });
             // @ref LLP 1115.000 D12.5 — a heading by its role, never by an
@@ -685,7 +764,14 @@ impl<D: DataSource> Presenter<D> {
                 _ => role::IMAGE,
             };
             if !name.trim().is_empty() {
-                self.access_emit(b, &scope, &node, role, 0, [0.0; 3], (name, String::new()));
+                if let Some(own) =
+                    self.access_emit(b, &scope, &node, role, 0, [0.0; 3], (name, String::new()))
+                {
+                    scope.parent = own;
+                }
+            }
+            if text {
+                self.access_inline_controls(b, &node, scope);
             }
             return;
         } else if let Some(now) =
@@ -916,62 +1002,6 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// The open surface's nodes, in its own window's points: an alert's
-    /// headline, its supporting text and its buttons; a menu's items.
-    fn access_surface(&self, b: &mut Build) -> u32 {
-        let Some(shown) = self.surface() else {
-            return 0;
-        };
-        let whole = [0.0, 0.0, shown.size.0, shown.size.1];
-        if let Plan::Alert { title, message, .. } = shown.plan {
-            let words = [
-                (HEADLINE, role::HEADING, title),
-                (SUPPORTING, role::TEXT, message),
-            ];
-            let mut texts = shown.texts.iter().filter(|(node, _)| *node == shown.node);
-            for (id, role, text) in words {
-                let (Some(text), Some((_, rect))) = (text, texts.next()) else {
-                    continue;
-                };
-                let id = b.unique(id);
-                b.out.push(Node {
-                    id,
-                    parent: 0,
-                    view: 0,
-                    role,
-                    flags: 0,
-                    rect: [rect.0, rect.1, rect.2, rect.3],
-                    range: [0.0; 3],
-                    set: (0, 0),
-                    name: text.clone(),
-                    value: String::new(),
-                    hint: String::new(),
-                });
-            }
-        }
-        for (row, target) in shown.plan.rows().zip(shown.targets) {
-            let mut flags = if row.enabled {
-                flag::CLICK
-            } else {
-                flag::DISABLED
-            };
-            if row.checked {
-                flags |= flag::CHECKABLE | flag::CHECKED;
-            }
-            let place = (target.rect, whole);
-            self.access_bar_node(
-                b,
-                row.node,
-                0,
-                role::BUTTON,
-                flags,
-                row.title.clone(),
-                place,
-            );
-        }
-        shown.serial
-    }
-
     /// Each `tablist`'s tabs are counted and placed among themselves.
     fn access_sets(nodes: &mut [Node]) {
         let lists: Vec<i32> = (nodes.iter())
@@ -997,9 +1027,7 @@ impl<D: DataSource> Presenter<D> {
     /// What the tree is built from, read cheaply.
     fn access_key(&mut self) -> Key {
         let ten = |v: f32| (v * 10.0).round() as i32;
-        let surface = self
-            .surface()
-            .map(|s| (s.serial, s.pressed.map_or(0, |p| p + 1)));
+        let surface = self.surface().map(|s| (s.serial, s.revision));
         let bars = self.bars_revision();
         Key {
             epoch: self.host.kernel().epoch(),
@@ -1332,6 +1360,13 @@ impl<D: DataSource> Presenter<D> {
                 self.long_press(x, y, now_ms)
             }
             (act::FORWARD | act::BACKWARD, role::SCROLLER) => {
+                if self
+                    .surface()
+                    .is_some_and(|s| s.node == node.view && s.scroll.is_some())
+                {
+                    let step = (node.rect[3] - 48.).max(node.rect[3] / 2.).max(1.);
+                    return self.overlay_scroll(if action == act::FORWARD { step } else { -step });
+                }
                 let view = if id == PAGE_NODE { PAGE } else { node.view };
                 let limits = self.collection_scroll_limits();
                 let Some(s) = self.scroller(view, &limits) else {

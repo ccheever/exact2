@@ -327,7 +327,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
 
 /// A header's search field as UIKit's search controller (LLP 1075.003
 /// §9.6): text, focus and blur go to the authored field's handlers.
-final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UISearchControllerDelegate, UITextFieldDelegate {
+final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDelegate, UITextFieldDelegate {
     let controller = UISearchController(searchResultsController: nil)
     weak var host: NavigationHost?
     /// The field's placeholder is drawn in an authored colour, not UIKit's.
@@ -367,10 +367,10 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         }
     }
     private weak var textDelegate: UITextFieldDelegate?
+    private var editingCompletion: (value: String, finish: () -> Void)?
     init(host: NavigationHost) {
         self.host = host
         super.init()
-        controller.searchResultsUpdater = self
         controller.searchBar.delegate = self
         controller.delegate = self
         #if os(iOS)
@@ -404,11 +404,15 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         showScopes()
         #endif
     }
-    func updateSearchResults(for search: UISearchController) {
-        let text = search.searchBar.text ?? ""
+    func searchBar(_ bar: UISearchBar, textDidChange text: String) {
         guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
         field.typedText(text)
     }
+    #if os(iOS)
+    func searchBarCancelButtonClicked(_ bar: UISearchBar) {
+        searchBar(bar, textDidChange: "")
+    }
+    #endif
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
         guard field?.textField(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true else { return false }
         return textDelegate?.textField?(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true
@@ -444,9 +448,27 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         bar.resignFirstResponder()
     }
     func searchBarTextDidEndEditing(_ bar: UISearchBar) {
-        guard let field else { return }
-        host?.presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
-        host?.presenter.blur(field.id)
+        let completion = editingCompletion
+        editingCompletion = nil
+        if let field, let presenter = host?.presenter, presenter.views[field.id] === field {
+            // UIKit can clear a dismissed bar before delivering its end-of-editing callback
+            let value = completion?.value ?? bar.text ?? ""
+            presenter.commitEdit(field.id, value, change: field.handlers.contains("change"))
+            presenter.blur(field.id)
+        }
+        if let completion { host?.presenter.afterBatch(completion.finish) }
+    }
+
+    /// Keep the authored field alive until UIKit delivers its final edit and blur.
+    func endEditing(completion: @escaping () -> Void) -> Bool {
+        guard let field, let presenter = host?.presenter, presenter.views[field.id] === field,
+              let editor = field.headerField, editor.isEditing else { return false }
+        if editingCompletion == nil {
+            editingCompletion = (editor.text ?? "", completion)
+            controller.isActive = false
+            controller.searchBar.endEditing(true)
+        }
+        return true
     }
 }
 
@@ -524,8 +546,7 @@ final class BarPress: NSObject {
 
 /// One stack Exact built: its delegate, whether its routes may show the bar
 /// (they may unless the app's `navigation` hatch says no; which of them
-/// shows it is each route's, LLP 1115.000 D5.3), and what the development
-/// check last saw.
+/// shows it is each route's, LLP 1115.000 D5.3), and its last written controllers.
 final class NavigationStack {
     let proxy = NavigationDelegateProxy()
     var showsBar: Bool
@@ -701,6 +722,7 @@ extension NavigationHost {
         followTablist(routes, in: stack)
         let stackShows = nav.map(barShows) ?? !ExactEnv.authoredChrome
         let back = container?.props["navigationBack"]
+        let presented = nav.map { nav in presentedNavigations.contains { $0 === nav } } ?? false
         for (index, c) in routes.enumerated() {
             // The bar is each route's (LLP 1115.000 D5.2, D5.3): its header,
             // the system Back alone on a pushed route with none of its own
@@ -730,7 +752,7 @@ extension NavigationHost {
             #endif
             collapse(c, shape: shape, shows: shows, scroller: scroller)
             showReadouts(shows ? shape : nil, in: c)
-            reachBottom(c)
+            reachBottom(c, presented: presented)
             c.paintBackdrop()
             searchField(shows ? shape?.search : nil, in: c)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
@@ -1089,15 +1111,17 @@ extension NavigationHost {
     /// UIKit insets the scroller (`reportCovers`, `scroller_insets_bottom`),
     /// so an absolutely positioned footer still rests on the bars. A footer under
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
-    /// whose own `env()` insets would be added to UIKit's, and a transparent
-    /// bar's scroller, which UIKit insets nothing (`collapse`).
-    private func reachBottom(_ c: RouteController) {
+    /// whose own `env()` insets would be added to UIKit's, though not a
+    /// sheet's route, which is covered for the sheet's whole safe area
+    /// whatever the document's fit (`reportCovers`); and so does a
+    /// transparent bar's scroller, which UIKit insets nothing (`collapse`).
+    private func reachBottom(_ c: RouteController, presented: Bool) {
         // Until a scroller reaches the bottom edge the route's bottom cover
         // pads its in-flow content above the bars, and its content box is
         // the authored one: a scroller there ends that far above it. The
         // cover it has without one, so a scroller that does not grow as the
         // cover goes is at the edge either way.
-        let found = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
+        let found = presented || presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
         let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
         c.safeArea.releaseBottom()
@@ -1268,6 +1292,13 @@ extension NavigationHost {
             return element(named: name, in: c.node).flatMap { $0.scrollView == nil ? nil : $0 }
         }
         return Presenter.firstVerticalScroller(under: c.node)
+    }
+
+    /// The authored content scroller, or the route's document viewport when none was named.
+    func contentScrollView(of route: RouteController) -> UIScrollView? {
+        if let node = contentScroller(of: route) { return shownScroll(node) }
+        if let name = route.node.props["navigationScroll"], !name.isEmpty { return nil }
+        return route.contentViewport
     }
 
     private func element(named name: String, in route: NodeView) -> NodeView? {

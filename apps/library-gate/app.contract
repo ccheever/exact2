@@ -4,9 +4,8 @@
 // condition or a style row's ?: or match reads), one varied at a time (the
 // others at their first value; a bool's first is false), and a component
 // with none once. Cells whose id starts `sample-` show other states (a
-// context line, a dimmed reply, a saved post, the Post button replying or
-// disabled), which drive structure or attributes, not a recipe, so are no
-// variants. Each cell names its component's parts by its id (the packages'
+// context line, a dimmed reply, the Post button replying or disabled),
+// which drive structure or attributes, not a recipe, so are no variants. Each cell names its component's parts by its id (the packages'
 // testIds); every PostCard's slot holds a fixed-size marker, a box that
 // switches the glyph when pressed (a tap also scrolls it into view), so the
 // gate can see the slot render both.
@@ -63,7 +62,7 @@ component App
           ActionRow(id="ar-reposted", big=false, haptics=false, replyDisabled=false, reposted=true, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
           ActionRow(id="ar-liked", big=false, haptics=false, replyDisabled=false, reposted=false, liked=true, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
           ActionRow(id="sample-ar-replydisabled", big=false, haptics=false, replyDisabled=true, reposted=false, liked=false, saved=false, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
-          ActionRow(id="sample-ar-saved", big=false, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=true, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
+          ActionRow(id="ar-saved", big=false, haptics=false, replyDisabled=false, reposted=false, liked=false, saved=true, replies="3", replyN=3, reposts="6", repostN=6, likes="13", likeN=13, reply=press, repost=press, like=press, save=press, share=press, shareNow=press, more=press)
         // The Post buttons at their own width, which a column would stretch
         // (the gate's restyle line reads it).
         row gap=12 align-items="flex-start"

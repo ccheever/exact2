@@ -4,6 +4,9 @@ node_modules/
 *.swp
 # Built web artifacts: the wasm and its copies, never committed.
 host/web/dist/
+# Its swap's siblings: the lock, a stage, the kept builds by generation, their leases and the reaped list
+# (serve.mjs replaceBuild, host/web/generations.mjs).
+host/web/dist.*
 # The Apple package's SwiftPM build products.
 host/apple/.build/
 # The harness's subagent worktrees: never committed.
@@ -17,6 +20,8 @@ game/.shells/
 apps/*/app.contract.d.ts
 # The design server's lock and journal (contract tamber serve, LLP 1121 D13).
 apps/*/.exact/
+# The Windows package host/windows/build.mjs writes (game/ ignores its own).
+apps/*/dist-windows/
 
 # What the Messages app's bake wrote before its rewrite (87997f0d), and the
 # removed Snapback-backed Messages Legacy app's generated files: a checkout

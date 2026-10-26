@@ -1,0 +1,30 @@
+{
+  "kind": "interface",
+  "name": "@fixture/swatch",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "SwatchReports": {
+      "text": "string",
+      "count": "number"
+    }
+  },
+  "views": {
+    "swatch-box": {
+      "props": {
+        "tint": { "type": "string", "binds": true },
+        "caption": "option<string>"
+      },
+      "events": ["message"],
+      "displayed": true
+    }
+  },
+  "names": [
+    {
+      "source": "swatchReports",
+      "live": true,
+      "answers": "SwatchReports",
+      "substitute": { "default": { "text": "", "count": 0 } }
+    }
+  ]
+}

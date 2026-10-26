@@ -49,6 +49,8 @@ mod build_channel;
 #[cfg(any(target_os = "android", test))]
 pub mod canvas;
 mod canvas2d;
+#[cfg(windows)]
+pub mod com;
 pub mod content_region;
 pub mod delivery;
 #[cfg(target_os = "linux")]
@@ -68,9 +70,11 @@ pub mod image;
 pub mod input;
 mod media_session;
 pub mod navigation;
+pub mod package;
 pub mod paint;
 pub mod picker;
 mod placement;
+pub mod presence_secrets;
 pub mod presenter;
 pub mod raster;
 mod scroll_anchor;
@@ -93,7 +97,7 @@ pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
     wake::install(waker);
 }
 
-pub use app::{run, run_with_hatches};
+pub use app::{run, run_composed, run_with_hatches, Composed};
 pub use hatches::Hatches;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;

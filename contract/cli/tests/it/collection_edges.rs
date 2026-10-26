@@ -820,3 +820,32 @@ fn an_edge_on_a_live_clock_reports_when_its_callback_ended() {
     assert_eq!(result.now_ms, 4500.);
     assert_eq!(result.receipts.last().unwrap().at_ms, 4500.);
 }
+
+// @ref LLP 1145 D4 — `reach-margin` is a virtualized list's literal: one or
+// two nonnegative px or % lengths.
+#[test]
+fn reach_margin_is_a_virtualized_lists_literal() {
+    let list = |attrs: &str| SOURCE.replace("height=320", &format!("height=320{attrs}"));
+    for margin in ["0px", "200%", "100px 50%", "1.5e2PX", " 0px  800px "] {
+        contract::compile(&list(&format!(" reach-margin={margin:?}"))).unwrap();
+    }
+    for margin in ["", "10", "10em", "-1px", "1px 2px 3px", "auto", "1e999px"] {
+        let error =
+            contract::compile(&list(&format!(" reach-margin={margin:?}"))).expect_err(margin);
+        assert_eq!(error.id, "lower-reach-margin", "{margin}: {error}");
+    }
+    let computed = list(" reach-margin=margin").replace(
+        "  state start = 0",
+        "  state margin = \"10px\"\n  state start = 0",
+    );
+    let error = contract::compile(&computed).unwrap_err();
+    assert_eq!(error.id, "lower-reach-margin", "{error}");
+    for node in ["list", "list virtualized=false", "view", "scroll"] {
+        let source = format!(
+            "component App\n  view\n    {node} height=320 reach-margin=\"200%\"\n      for x in [1, 2] key=x\n        text `${{x}}`\n"
+        );
+        let error = contract::compile(&source).expect_err(node);
+        assert_eq!(error.id, "lower-list-virtualized", "{node}: {error}");
+        assert!(error.message.contains("virtualized=true"), "{error}");
+    }
+}

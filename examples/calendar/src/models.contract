@@ -5,6 +5,7 @@ shape Time
   epochAtZero: number
   utcOffset: number
   seed: number
+  timeZone: string
 shape Viewport
   width: number
   height: number
@@ -118,6 +119,62 @@ shape Result
   message: string
   id: string
   day: number
+// The person's calendars beside the app's own (@exact/calendar, LLP 1133.018
+// §11): the selected day's events and the days of the six weeks shown that
+// have one, read through the module by the data crate while the switch is on.
+// `error` is the module's error code, "" once read, or "unread" before a read
+// has answered, so an empty calendar is not reported before it is read.
+shape DeviceEvent
+  id: string
+  title: string
+  time: string
+  color: string
+shape DeviceAgenda
+  error: string
+  events: DeviceEvent[]
+shape DeviceDays
+  error: string
+  days: number[]
+// The person's activity (@exact/health, LLP 1133.026 §12), read by the data
+// crate while Show my activity is on: each day of the six weeks shown with a
+// step count, and the selected day's workouts. A day Health showed nothing
+// for is absent, never 0. `since` is the first moment Health shares (0 for
+// none named), and `from` its local date ("1 October"); `complete` is false wherever the platform will not say the
+// read reaches everything (every Apple answer). `error` is as above.
+shape ActivityDay
+  day: number
+  steps: number
+shape ActivityDays
+  error: string
+  days: ActivityDay[]
+  since: number
+  from: string
+  complete: bool
+shape ActivityWorkout
+  id: string
+  title: string
+  time: string
+  distance: string
+shape ActivityAgenda
+  error: string
+  workouts: ActivityWorkout[]
+  complete: bool
+// An item's guests, picked from the person's contacts and kept in the app's
+// own storage (a pick is the app's copy, LLP 1133.018 D4).
+shape Guest
+  name: string
+  email: string
+shape GuestList
+  guests: Guest[]
+shape GuestsAdded
+  added: number
+  message: string
+// An item as the system's calendar editor takes it: a LocalDateTime and an
+// ISO 8601 duration (RFC 8984 §1.4.5, §1.4.6), all day or not.
+shape Export
+  start: string
+  duration: string
+  allDay: bool
 
 fn monthIndex(month: number): number = month - floor(month / 12) * 12
 fn monthName(month: number): string = (monthIndex(month) == 0 ? "Jan" : (monthIndex(month) == 1 ? "Feb" : (monthIndex(month) == 2 ? "Mar" : (monthIndex(month) == 3 ? "Apr" : (monthIndex(month) == 4 ? "May" : (monthIndex(month) == 5 ? "Jun" : (monthIndex(month) == 6 ? "Jul" : (monthIndex(month) == 7 ? "Aug" : (monthIndex(month) == 8 ? "Sep" : (monthIndex(month) == 9 ? "Oct" : (monthIndex(month) == 10 ? "Nov" : "Dec")))))))))))

@@ -137,3 +137,31 @@ theme
   cards.alert-icon: length = 14px
   // The divider, the link's frame and split, and the avatar's ring.
   cards.hairline: length = -exact-hairline
+
+// The cards' one-colour icons, as templates every host draws from the same
+// path (theme2's path-icons ruling): no `sf`, so Apple draws the path, not
+// an SF Symbol. Each SVG's `d` is the path function's or inline path's it
+// replaced, byte for byte, except the verified ground, whose circle is drawn
+// as two arcs. The Attie mark and the badges' paths were drawn even-odd, but
+// each one's holes wind against its outline, so nonzero fills it the same and
+// they are written nonzero (theme2's stage 14 C ruling: no marker, so no new
+// compat id). Each badge is two one-colour templates stacked, its ground in
+// `ink` and its check in `mark` (theme2's Q5), so both colours stay tokens
+// and params.
+icons
+  // The post card's context line (pinned, reposted) and reply line.
+  cards.repost = icon(svg "repost.svg")
+  cards.pin = icon(svg "pin.svg")
+  cards.corner-down-right = icon(svg "corner-down-right.svg")
+  // The profile header's moderation pills.
+  cards.ban = icon(svg "ban.svg")
+  cards.eye-slash = icon(svg "eye-slash.svg")
+  cards.warning = icon(svg "warning.svg")
+  cards.circle-info = icon(svg "circle-info.svg")
+  // AtCard's visit button.
+  cards.attie = icon(svg "attie.svg")
+  // VerifiedBadge: each badge's ground and its check.
+  cards.verified = icon(svg "verified.svg")
+  cards.verified-check = icon(svg "verified-check.svg")
+  cards.verifier = icon(svg "verifier.svg")
+  cards.verifier-check = icon(svg "verifier-check.svg")

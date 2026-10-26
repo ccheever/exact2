@@ -140,6 +140,9 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       // Snapshot input bytes before the caller can mutate its buffers.
       let captured;
       try { captured = structuredClone(args); } catch (e) { return failed(e); }
+      // A document copied into an app file needs both (documents-glue.js `copyFile`).
+      if (method === 'copyFile' && typeof captured[0] === 'string' && captured[0].startsWith('doc:/') && typeof captured[1] === 'string' && captured[1].startsWith('app:/'))
+        return enqueue(async active => { await documentFiles(); const backend = await fileSystem(); active(); return globalThis.exact.documents.copyFile(captured[0], captured[1], admitted.grantSet, backend); }, clone, () => {}, true, method);
       if (captured.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/')))
         return enqueue(async active => { const backend = await documentFiles(); active(); return backend[method](...captured); }, clone, () => {}, false);
       // A refused read answers as an empty store would, in its answer's turn (storage-environment.js `emptyRead`).
@@ -147,11 +150,14 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); }, clone, () => {}, true, method);
     };
   }
-  // The prelude hands `compressImage` its options as two numbers and the
-  // media type (LLP 1069.002 A1, A1.11); app files only, so never the
+  // The prelude hands `compressImage` its options as two numbers, the media
+  // type and its edit's JSON (LLP 1069.002 A1, A1.11; LLP 1133.019 D15), and
+  // `transformImage` its options' JSON (D14); app files only, so never the
   // documents' backend.
-  files.compressImage = (from, to, maxDimension, maxBytes, type) =>
-    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {maxDimension, maxBytes, type}); }, clone, () => {}, true, 'compressImage');
+  files.compressImage = (from, to, maxDimension, maxBytes, type, edit) =>
+    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {...(edit ? JSON.parse(edit) : {}), maxDimension, maxBytes, type}); }, clone, () => {}, true, 'compressImage');
+  files.transformImage = (from, to, options) =>
+    enqueue(async active => { const backend = await fileSystem(); active(); return backend.transformImage(from, to, JSON.parse(options)); }, clone, () => {}, true, 'transformImage');
   return {
     reserve, abandon,
     capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(async active => {

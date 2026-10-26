@@ -303,6 +303,7 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, dispatch);
                 }
             }
+            presenter.presences(h.runner_mut().take_presence_asks());
             h.runner_mut().publish_sockets(|batch| x.socket(batch)); // LLP 1016.000 D7
             presenter.prepend_to(&mut s);
         }
@@ -494,9 +495,7 @@ impl<D: DataSource> Bridge<D> {
         }
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
-                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_symbol(hooks.symbol)
-                    .with_time_format(hooks.time_format)
+                CallbackMeasurer::of(f, &hooks)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -519,6 +518,7 @@ impl<D: DataSource> Bridge<D> {
             snapshot,
             secrets,
             unbound,
+            presence,
         } = match self.links.io {
             Some(io) => (io.endow)(data.grants(), data.app_id(), true),
             None => crate::store::Endowed::none(),
@@ -558,6 +558,9 @@ impl<D: DataSource> Bridge<D> {
             Ok((mut host, batch)) => {
                 if let Some(why) = unbound {
                     host.log(&format!("{why}; every request is refused"));
+                }
+                if let Some((backend, keystore)) = presence {
+                    host.runner_mut().install_presence(backend, keystore);
                 }
                 host.commit_boot();
                 let executor = self.links.io.map(|io| {
@@ -825,9 +828,7 @@ impl<D: DataSource> Bridge<D> {
         let carried = carried.or_else(|| self.host.as_ref().map(Host::carry));
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
-                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_symbol(hooks.symbol)
-                    .with_time_format(hooks.time_format)
+                CallbackMeasurer::of(f, &hooks)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -846,6 +847,7 @@ impl<D: DataSource> Bridge<D> {
             snapshot,
             secrets,
             unbound,
+            presence,
         } = match self.links.io {
             Some(io) => (io.endow)(data.grants(), data.app_id(), carried.is_none()),
             None => crate::store::Endowed::none(),
@@ -885,6 +887,9 @@ impl<D: DataSource> Bridge<D> {
             Ok((mut host, batch)) => {
                 if let Some(why) = unbound {
                     host.log(&format!("{why}; every request is refused"));
+                }
+                if let Some((backend, keystore)) = presence {
+                    host.runner_mut().install_presence(backend, keystore);
                 }
                 self.output = batch.as_bytes().to_vec();
                 self.prepared = Some(PreparedHost {
@@ -1029,8 +1034,8 @@ impl<D: DataSource> Bridge<D> {
             // `change` and `select` with its selection (x2apps codeedit #2),
             // replacement input (48), a key's down (6), up (43) and capture (44) with its code and repeat
             // toggle (50), focusin (46) and focusout (47) with their targets, scrollend (51),
-            // a file drag's dragenter (55) and dragleave (56), and a paste with files (57) (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50..=57 => {
+            // a file drag's enter (55) and leave (56), a paste with files (57), an iframe's record (58), an atom's press (59) (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50..=59 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.refuse(error),

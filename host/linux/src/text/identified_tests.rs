@@ -108,6 +108,7 @@ fn request(k: &Kernel, engine: Shared, id: u32, width: AxisOffer) -> TextMetrics
     let n = k.node(id).unwrap();
     let runs = n.text_runs();
     let req = TextMeasureRequest {
+        atoms: Default::default(),
         exclusions: &[],
         runs: &runs,
         paragraph: exact_kernel::text::Paragraph::from_style(
@@ -192,6 +193,7 @@ fn identified_exact_offers_share_anonymous_geometry_without_hot_source_work() {
         let n = k.node(2).unwrap();
         let runs = n.text_runs();
         let req = TextMeasureRequest {
+            atoms: Default::default(),
             exclusions: &[],
             runs: &runs,
             paragraph: exact_kernel::text::Paragraph::from_style(
@@ -566,6 +568,7 @@ mod owned_spec {
             italic: false,
             stretch: 100.,
             variations: Default::default(),
+            optical_sizing: true,
             line_height: None,
             letter_spacing: 0.,
             font_variant_numeric: 0,
@@ -574,6 +577,7 @@ mod owned_spec {
             mark: 0,
             href: String::new(),
             bold_text: false,
+            inline: None,
         }
     }
     fn spec(text: &str) -> Spec {
@@ -671,6 +675,7 @@ mod owned_spec {
         let stamp = n.paragraph_stamp().unwrap();
         let runs = n.text_runs();
         let req = TextMeasureRequest {
+            atoms: Default::default(),
             exclusions: &[],
             runs: &runs,
             paragraph: exact_kernel::text::Paragraph::from_style(

@@ -247,7 +247,13 @@ impl<D: DataSource> Host<D> {
         crate::picker::know_roots(data.app_id());
         // A named drive's secrets, read before the runner takes the source.
         // A carried reload keeps its memory store and does not touch the files.
-        let store_snapshot = store_snapshot(data.app_id(), carried.is_some());
+        let mut store_snapshot = store_snapshot(data.app_id(), carried.is_some());
+        // Locked secrets' backend, reconciled before boot (LLP 1133.010 D4).
+        let presence = crate::presence_secrets::backend(data.app_id(), data.grants());
+        presence
+            .iter()
+            .filter(|_| carried.is_none())
+            .for_each(|p| store_snapshot.extend(p.snapshot.clone()));
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -259,6 +265,9 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        if let Some(p) = presence {
+            runner.install_presence(p.backend, p.keystore);
+        }
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
@@ -914,48 +923,6 @@ impl<D: DataSource> Host<D> {
             at = node.parent;
         }
         true
-    }
-
-    pub(crate) fn dispatch_retained(
-        &mut self,
-        key: NodeKey,
-        binding: &exact_runner::runner::ActionBinding,
-        kind: exact_plan::EventKind,
-        now_ms: f64,
-    ) -> Result<bool, String> {
-        let event = match kind {
-            exact_plan::EventKind::Press => Event::Press,
-            exact_plan::EventKind::Swiperight => Event::Swiperight,
-            _ => return Ok(false),
-        };
-        // BEFORE host clock/focus/commit. Runner repeats its opaque binding check
-        // at dispatch; a refusal takes neither the sample nor an ordinary action.
-        if !now_ms.is_finite()
-            || now_ms < self.now_ms
-            || !self.retained_action_eligible(key)
-            || self.runner.validate_action_binding(binding, kind).is_err()
-        {
-            return Ok(false);
-        }
-        let result = self.runner.dispatch_bound(binding, event);
-        if matches!(
-            result,
-            Err(exact_runner::runner::ActionBindingError::Refused(_))
-        ) {
-            return Ok(false);
-        }
-        self.now_ms = now_ms;
-        let error = match result {
-            Ok(receipt) => self.commit(
-                &[Timed {
-                    at_ms: now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
-        };
-        error.map_or(Ok(true), Err)
     }
 
     /// Move the clock: every timer due fires at its own due time (LLP 1012

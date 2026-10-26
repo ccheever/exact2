@@ -71,7 +71,7 @@ fn player(r: &Runner<NoData>) -> Option<u32> {
 
 fn state(r: &Runner<NoData>) -> String {
     let mut s = String::new();
-    super::state(r.kernel(), &mut s);
+    super::state(r, &mut s);
     s
 }
 
@@ -79,7 +79,7 @@ fn state(r: &Runner<NoData>) -> String {
 fn held_while_displayed_and_released_when_hidden_or_unmounted() {
     let mut r = boot();
     let id = player(&r).unwrap();
-    assert_eq!(super::holders(r.kernel()), vec![id]);
+    assert_eq!(super::holders(&r), vec![id]);
     assert_eq!(
         state(&r),
         format!(",\"wakelock\":{{\"held\":true,\"by\":[{id}]}}")
@@ -90,27 +90,27 @@ fn held_while_displayed_and_released_when_hidden_or_unmounted() {
     // An ancestor's `display: none` releases it; the node stays mounted.
     press(&mut r, "hide");
     assert_eq!(player(&r), Some(id));
-    assert!(super::holders(r.kernel()).is_empty());
+    assert!(super::holders(&r).is_empty());
     assert_eq!(state(&r), ",\"wakelock\":{\"held\":false,\"by\":[]}");
     press(&mut r, "hide");
-    assert_eq!(super::holders(r.kernel()), vec![id]);
+    assert_eq!(super::holders(&r), vec![id]);
     // Unmounting releases it.
     press(&mut r, "unmount");
     assert_eq!(player(&r), None);
-    assert!(super::holders(r.kernel()).is_empty());
+    assert!(super::holders(&r).is_empty());
     press(&mut r, "unmount");
-    assert_eq!(super::holders(r.kernel()).len(), 1);
+    assert_eq!(super::holders(&r).len(), 1);
 }
 
 #[test]
 fn none_and_a_computed_word_outside_the_two_hold_nothing() {
     let mut r = boot();
     press(&mut r, "none");
-    assert!(super::holders(r.kernel()).is_empty());
+    assert!(super::holders(&r).is_empty());
     press(&mut r, "screen");
-    assert_eq!(super::holders(r.kernel()).len(), 1);
+    assert_eq!(super::holders(&r).len(), 1);
     press(&mut r, "dim");
-    assert!(super::holders(r.kernel()).is_empty());
+    assert!(super::holders(&r).is_empty());
     let id = player(&r).unwrap();
     assert!(
         r.journal()
@@ -119,7 +119,7 @@ fn none_and_a_computed_word_outside_the_two_hold_nothing() {
         r.journal().collect::<Vec<_>>()
     );
     press(&mut r, "screen");
-    assert_eq!(super::holders(r.kernel()), vec![id]);
+    assert_eq!(super::holders(&r), vec![id]);
 }
 
 #[test]
@@ -194,13 +194,13 @@ component App
 fn a_tab_not_selected_holds_nothing() {
     let mut r = boot_source(TABS);
     assert_eq!(player(&r), None, "the second tab waits for its selection");
-    assert!(super::holders(r.kernel()).is_empty());
+    assert!(super::holders(&r).is_empty());
     press(&mut r, "tab-second");
     let id = player(&r).expect("the second tab is built");
-    assert_eq!(super::holders(r.kernel()), vec![id]);
+    assert_eq!(super::holders(&r), vec![id]);
     press(&mut r, "tab-first");
     assert_eq!(player(&r), Some(id));
-    assert!(super::holders(r.kernel()).is_empty());
+    assert!(super::holders(&r).is_empty());
 }
 
 const STACK: &str = r#"routes nav
@@ -243,21 +243,14 @@ component App
 fn a_covered_screen_holds_nothing_but_one_under_a_sheet_does() {
     let mut r = boot_source(STACK);
     let id = player(&r).unwrap();
-    assert_eq!(super::holders(r.kernel()), vec![id]);
+    assert_eq!(super::holders(&r), vec![id]);
     press(&mut r, "open");
     assert_eq!(player(&r), Some(id));
-    assert!(
-        super::holders(r.kernel()).is_empty(),
-        "a pushed route covers it"
-    );
+    assert!(super::holders(&r).is_empty(), "a pushed route covers it");
     press(&mut r, "back");
-    assert_eq!(super::holders(r.kernel()), vec![id]);
+    assert_eq!(super::holders(&r), vec![id]);
     press(&mut r, "add");
-    assert_eq!(
-        super::holders(r.kernel()),
-        vec![id],
-        "a sheet leaves it shown"
-    );
+    assert_eq!(super::holders(&r), vec![id], "a sheet leaves it shown");
 }
 
 fn view(r: &Runner<NoData>, id: &str) -> u32 {
@@ -274,10 +267,10 @@ fn a_splits_list_beside_its_detail_holds_under_a_sheet_too() {
     let mut r = boot_source(STACK);
     let id = player(&r).unwrap();
     press(&mut r, "open");
-    assert!(super::holders(r.kernel()).is_empty(), "no pane: covered");
+    assert!(super::holders(&r).is_empty(), "no pane: covered");
     press(&mut r, "item-add");
     assert!(
-        super::holders(r.kernel()).is_empty(),
+        super::holders(&r).is_empty(),
         "no pane: covered under a sheet"
     );
     press(&mut r, "close");
@@ -287,10 +280,10 @@ fn a_splits_list_beside_its_detail_holds_under_a_sheet_too() {
         height: BlockAxis::Is(400.0),
     };
     r.kernel_mut().set_host_block(detail, Some(pane)).unwrap();
-    assert_eq!(super::holders(r.kernel()), vec![id], "beside the pane");
+    assert_eq!(super::holders(&r), vec![id], "beside the pane");
     press(&mut r, "item-add");
     assert_eq!(
-        super::holders(r.kernel()),
+        super::holders(&r),
         vec![id],
         "beside the pane, under a sheet"
     );
@@ -306,7 +299,23 @@ fn a_whole_host_cover_holds_nothing() {
     r.kernel_mut()
         .set_host_cover(parent, Some(exact_kernel::HostCover::Whole))
         .unwrap();
-    assert!(super::holders(r.kernel()).is_empty());
+    assert!(super::holders(&r).is_empty());
     r.kernel_mut().set_host_cover(parent, None).unwrap();
-    assert_eq!(super::holders(r.kernel()), vec![id]);
+    assert_eq!(super::holders(&r), vec![id]);
+}
+
+/// A `dialog` or popover holds nothing until its host reports it open: a
+/// host other than iOS and tvOS lays a closed box out and hides it only in
+/// its views (LLP 1133.029 §12).
+#[test]
+fn a_closed_dialog_holds_nothing_until_its_host_opens_it() {
+    let mut r = boot_source(
+        "component App\n  view\n    column\n      dialog id=\"d\" testId=\"d\"\n        text \"Player\" testId=\"player\" wakelock=\"screen\"\n",
+    );
+    assert!(super::holders(&r).is_empty(), "closed");
+    let dialog = view(&r, "d");
+    r.top_layer(&[dialog]);
+    assert_eq!(super::holders(&r), vec![view(&r, "player")], "open");
+    r.top_layer(&[]);
+    assert!(super::holders(&r).is_empty(), "closed again");
 }

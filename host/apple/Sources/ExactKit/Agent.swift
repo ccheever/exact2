@@ -216,8 +216,18 @@ public final class Agent {
             // A picker's answer is delivered once the library took it (LLP 1069.002 D9).
             session.picker.answered(answer, request: req)
             session.picker.saveAnswered(answer, request: req)
-            session.picker.documentAnswered(answer, request: req)
+            // An iframe guest's `open-file` and `save-file` are the arm's, not a document picker's (LLP 1020.002 §10).
+            if !session.webviews.answered(answer, request: req) { session.picker.documentAnswered(answer, request: req) }
             ShareSheet.answered(answer, in: session)
+            listedAnswered(answer)
+            Agent.reply(tagged(answer))
+            return
+        }
+        // A relaunch handed a listed entry (`--notification '<entry>'`, LLP 1133.004 §7).
+        if op == "launchEntry" {
+            let data = Data(session.agent(line).utf8)
+            let answer = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]
+            listedAnswered(answer)
             Agent.reply(tagged(answer))
             return
         }
@@ -324,12 +334,22 @@ public final class Agent {
             var forward = req
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            presenter.reportOrientationLock() // the scene's orientation now, after a turn
             var reply = session.agent(json)
             var nativeSections = stateSections()
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["decorations"] = presenter.views.values.sorted { $0.id < $1.id }.compactMap { node -> [String: Any]? in
                 guard let decorations = (node.textArea as? TextArea)?.decorations else { return nil }
                 return ["id": Int(node.id), "applied": decorations.state]
+            }
+            // A Markdown editor's inline atoms, each pill's frame from its node's top left (LLP 1045.000 D9).
+            nativeSections["atoms"] = presenter.views.values.sorted { $0.id < $1.id }.flatMap { node -> [[String: Any]] in
+                guard let field = node.textArea as? TextArea, let storage = field.textStorage as NSAttributedString? else { return [] }
+                return field.atomFrames().map { range, atom, frame in
+                    let box = field.convert(frame, to: node)
+                    return ["id": Int(node.id), "kind": atom.kind, "source": (storage.string as NSString).substring(with: range), "start": range.location,
+                            "end": NSMaxRange(range), "label": atom.label, "frame": [box.minX, box.minY, box.width, box.height].map { ($0 * 100).rounded() / 100 }]
+                }
             }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
@@ -361,7 +381,12 @@ public final class Agent {
             Agent.reply(session.hatchPerf())
         // `perf frames` is this host's (LLP 1079 D4); `perf <target>` is the runner's, below.
         case "perf" where req["frames"] as? Bool == true:
-            Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20) ?? ["unavailable": true])
+            // `hold`/`release` (LLP 1144 D1) keep a segment open across a fling, then let it go.
+            if let hold = req["hold"] as? Bool, session.clock == nil {
+                session.sampler?.held = hold
+                if hold, let id = req["track"] as? Int { session.sampler?.tracked = scrollProbe(id) }
+            }
+            Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20, all: req["records"] as? Bool == true) ?? ["unavailable": true])
         default:
             // The library's operations take the request without the
             // carrier's routing field.
@@ -378,6 +403,14 @@ public final class Agent {
     /// (LLP 1035.002 D3) — read after the operation, so a reply's tags name
     /// the world it left behind; a reply's own `clock` (where a `clock` call
     /// landed) is kept. An error is left alone.
+    /// A listed entry's click under the agent (LLP 1133.004 §7): its location
+    /// opened, or the event the runner queued heard now.
+    func listedAnswered(_ answer: [String: Any]) {
+        guard answer["ref"] != nil else { return }
+        if let location = answer["navigate"] as? String { session.openLocation(location) }
+        else if answer["event"] != nil { session.deliverModuleEvents() }
+    }
+
     func tagged(_ r: [String: Any]) -> [String: Any] {
         let r = session.canvases.restoreReply(r)
         guard r["error"] == nil,
@@ -563,6 +596,7 @@ public final class Agent {
             case ("can-share-files", "true"), ("can-share-files", "false"): facts.canShareFiles = value == "true"
             case ("can-share-pictures", "true"), ("can-share-pictures", "false"): facts.canSharePictures = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
+            case ("iframe-partition", "true"), ("iframe-partition", "false"): facts.iframePartition = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
             // The fact, and each module's tier: its renderers are made again at the new rung (LLP 1139.003 D2).
             case ("gpu-tier", "high"), ("gpu-tier", "mid"), ("gpu-tier", "low"):
@@ -603,7 +637,7 @@ public final class Agent {
         }
         var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                                        "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-share-files": PageFacts.canShareFiles,
-                                       "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles,
+                                       "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles, "iframe-partition": PageFacts.iframePartition,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
                                        "display-scale": PageFacts.displayScale(session.presenter.viewport),
                                        "gpu-tier": ["high", "mid", "low", "low"][Int(PageFacts.tier & 3)],
@@ -709,6 +743,18 @@ public final class Agent {
 
     private func clockStep(_ req: [String: Any]) -> [String: Any] {
         session.natives.hatchClock.beginCommand()
+        // The end of an input under platform timing before any `clock`: its
+        // `then`s land at the wall's now and the clock stays the wall's, so
+        // the frame sampler keeps the display's cadence (LLP 1144 D1). Only
+        // an explicit `clock` takes it over.
+        if req["land"] as? Bool == true, session.clock == nil, !ExactEnv.agentFreezes {
+            let batch = session.runtime.landThen()
+            session.apply(batch)
+            let now = session.now()
+            session.apply(session.runtime.tick(now: now))
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": now] }
+            return completingInput(["clock": now, "wall": true])
+        }
         // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
         // host has run on the wall's time (motion and holds included) while
         // the runner's clock stood behind it. The clock is taken over at the
@@ -762,6 +808,10 @@ public final class Agent {
         var wallDeadline: Date?, scrollDeadline: Date?
         #endif
         var world = WorldClock()
+        // A canvas's sensor input steps the worlds a frame at a time (AgentSensors.swift).
+        if let e = sensorFrames(to: to, deadline: deadline, floor: from)?.error {
+            return ["error": "clock: \(e)", "clock": session.clock ?? from]
+        }
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
             out["clock"] = landed
@@ -796,8 +846,10 @@ public final class Agent {
             world = session.canvases.clock(settle: settle)
             // A jump does not wait for what is still in flight on real time
             // (a store's, a worker's, the network's): the reply names how much,
-            // as the web hosts' do (calendar F10, workout F6).
+            // as the web hosts' do (calendar F10, workout F6). A polled module
+            // source's ask it made lands first (LLP 1133.009 D10 item 7).
             guard settle else {
+                waitForPolls(until: deadline)
                 #if os(iOS) || os(tvOS)
                 // The app's own native motion on the wall clock has as long as
                 // the whole jump (`jump`: the driver's seek in steps), up to
@@ -1077,6 +1129,14 @@ public final class Agent {
     /// queue is drained here directly, the run loop turning in between for
     /// the executor's thread to make progress.
     @discardableResult
+    /// Run until no polled module source's ask is in flight, or the deadline.
+    func waitForPolls(until deadline: Date) {
+        while session.agent("{\"op\":\"polls\"}").contains("\"asking\":true"), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+            session.apply(session.runtime.pump(now: session.now()))
+        }
+    }
+
     func waitForReplies(until deadline: Date) -> Bool {
         while pendingCount() > 0 {
             if Date() >= deadline { return false }

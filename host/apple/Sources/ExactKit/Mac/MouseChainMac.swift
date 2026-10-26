@@ -483,6 +483,24 @@ extension Presenter {
         link.add(to: .main, forMode: .common)
         followLink = link
     }
+    /// A scroll moved content under a resting pointer: its hover follows once
+    /// the scroll rests, `scrollRestInterval` after its last move, as a
+    /// browser's does (WebKit fires its fake mouse move once per scroll, at its
+    /// end: https://trac.webkit.org/r134150; Chromium keeps that timer). One a
+    /// frame was a hit-test and a round trip to the runner for every row a
+    /// fling carried under the pointer.
+    static let scrollRestInterval: TimeInterval = 0.1
+    func followPointerAfterScroll() {
+        // A drive's frozen clock has no wall time to wait out: its hover follows at the frame.
+        if ExactEnv.agentFreezes { followPointer(); return }
+        scrollRestFollow?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.scrollRestFollow = nil
+            self?.followPointer()
+        }
+        scrollRestFollow = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollRestInterval, execute: work)
+    }
     /// Whether a hit-test waits for the next frame.
     var followPending: Bool { followLink?.isPaused == false }
     /// The pointer in window points while it rests over this window's
@@ -503,8 +521,11 @@ extension Presenter {
     /// A move and a resting-pointer layout update share the same hit test.
     /// Ancestor tracking exits cannot evict a child under visible overflow.
     func hoverAt(_ point: NSPoint) -> NodeView? {
+        // The page, or a split's detail pane beside it (LLP 1115.002 D4).
+        let pane = navigation.split.active ? navigation.split.controller?.detailPane : nil
+        let ports = [viewport] + [pane].compactMap { $0 }
         guard let content = viewport.window?.contentView,
-              viewport.bounds.contains(viewport.convert(point, from: nil)) else {
+              ports.contains(where: { $0.bounds.contains($0.convert(point, from: nil)) }) else {
             setHoverPath([]); pointerCursor(over: nil, at: point); return nil
         }
         // What is under the pointer, a table's row included (the table takes its clicks, not its hover).
@@ -512,13 +533,14 @@ extension Presenter {
         var path: [NodeView] = []
         var leaf: NodeView?
         var region = false
-        var view = hit?.isDescendant(of: viewport) == true ? hit : nil
+        var view = hit.flatMap { hit in ports.contains { hit.isDescendant(of: $0) } ? hit : nil }
         while let current = view {
             if let node = current as? NodeView, !node.inert {
                 if leaf == nil { leaf = node }
                 path.append(node)
             } else if leaf == nil, current is RegionSurfaceMac { region = true }
-            view = current.superview
+            // A subtree in the pane is its authored parent's, out in the page.
+            view = pane != nil && current.superview === pane ? authoredSuperview(of: current) : current.superview
         }
         let run = leaf.flatMap { $0.inlineTarget(at: $0.local(point), handler: "hover") }
         setHoverPath(path, inline: run?.id)
@@ -527,11 +549,17 @@ extension Presenter {
     }
     func trackPointer(_ event: NSEvent) {
         guard trackedPointerEvent !== event else { return }
-        trackedPointerEvent = event
-        trackedCanvas = nil
         // A move in a popover's or a sheet's own window is that window's
         // (`BlockView.pointerTracking`); the page's hover is left as it is.
         let apart = event.window.map { $0 !== viewport.window && hosts($0) } ?? false
+        // Rows sliding under a still pointer enter and exit their tracking areas: while a scroll
+        // runs, its hover waits for the scroll to rest (`followPointerAfterScroll`), as a
+        // browser's does, since each was a hit-test the next scrolled frame replaced. A move is
+        // the person's and is heard at once, and a pointer leaving the content, or crossing into
+        // a window in front of it (a popover), ends hover.
+        if !apart, scrollRestFollow != nil, event.type == .mouseEntered || event.type == .mouseExited && restingPointer(frontmost: true) != nil { return }
+        trackedPointerEvent = event
+        trackedCanvas = nil
         // A held contact owns move delivery, but leaving the window still
         // ends hover. Other tracking areas may exit inside the window; hit
         // testing there keeps the subtree currently under the pointer.

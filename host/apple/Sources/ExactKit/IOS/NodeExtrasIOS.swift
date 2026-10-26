@@ -23,7 +23,8 @@ struct AimedGradient {
 final class TextSpecs {
     var rasterKey: TextRasterKey?
     var rasterSpec: Spec?
-    var cached: Spec?
+    var cached: Spec? { didSet { headroom = nil } }
+    var headroom: Float?
     var raster: CGImage?
     var rasterLayer: CALayer?
     /// The view whose layer `rasterLayer` is when the ink is one colour.
@@ -81,7 +82,8 @@ final class NodeExtras {
     /// How far its scroller's scroll moves a sticky box (LLP 1083, `Sticky.swift`).
     var stickyOffset: CGPoint = .zero
     var keyboardLift: CGFloat = 0
-    var layoutScale = CGPoint(x: 1, y: 1)
+    /// How far its surface's size stands from the laid-out size (LLP 1063).
+    var layoutResize: CGSize = .zero
     /// Its surface at a layout transition's size (`Surface.swift`).
     var surface: SurfaceLayer?
     var layoutPanRecognizer: UIPanGestureRecognizer?
@@ -204,6 +206,7 @@ extension NodeView {
     /// have left behind since (`invalidateText` keeps the old pixels up).
     var textRasterSpec: Spec? { get { specs?.rasterSpec } set { if newValue != nil || specs != nil { textMore.rasterSpec = newValue } } }
     var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
+    var cachedTextHeadroom: Float? { get { specs?.headroom } set { if newValue != nil || specs != nil { textMore.headroom = newValue } } }
     var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
     var textRasterTint: TintInk? { get { specs?.rasterTint } set { if newValue != nil || specs != nil { textMore.rasterTint = newValue } } }
@@ -272,7 +275,7 @@ extension NodeView {
     var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
     /// How far a keyboard toolbar rides up with the keyboard (KeyboardToolbarIOS).
     var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }
-    var layoutScale: CGPoint { get { extras?.layoutScale ?? CGPoint(x: 1, y: 1) } set { if newValue != CGPoint(x: 1, y: 1) || extras != nil { more.layoutScale = newValue } } }
+    var layoutResize: CGSize { get { extras?.layoutResize ?? .zero } set { if newValue != .zero || extras != nil { more.layoutResize = newValue } } }
     var surface: SurfaceLayer? { get { extras?.surface } set { if newValue != nil || extras != nil { more.surface = newValue } } }
     var layoutPanRecognizer: UIPanGestureRecognizer? { get { extras?.layoutPanRecognizer } set { if newValue != nil || extras != nil { more.layoutPanRecognizer = newValue } } }
     var layoutPanOrigin: CGPoint { get { extras?.layoutPanOrigin ?? .zero } set { if newValue != .zero || extras != nil { more.layoutPanOrigin = newValue } } }

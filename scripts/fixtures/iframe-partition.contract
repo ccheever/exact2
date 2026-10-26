@@ -1,0 +1,26 @@
+// A partitioned iframe's records reaching actions, driven by IframePartitionSessionTests (LLP 1020.002 D2).
+component App
+  state title = ""
+  state url = ""
+  state events = 0
+  state error = ""
+  action landed(e: FrameNavigation)
+    title = e.title
+    url = e.url
+    events = events + 1
+  action moved(e: FrameNavigation)
+    title = e.title
+  action failed(e: FrameNavigation)
+    error = e.error
+  action toB
+    navigate("guest", "http://127.0.0.1:16585/b")
+  action never
+    traverseHistory("guest", -9)
+  view
+    column
+      iframe id="guest" src="http://127.0.0.1:16585/a" partition="fixture" navigatesuccess=landed currententrychange=moved navigateerror=failed width=300 height=180 testId="guest"
+      button press=toB testId="to-b"
+        text "B"
+      button press=never testId="never"
+        text "Never"
+      text `${title}|${url}|${events}|${error}` testId="seen"

@@ -183,7 +183,7 @@ final class FieldSelectionIOSTests: XCTestCase {
         // Deliver the keyboard's permission callback before applying the allowed edit.
         XCTAssertTrue(editor.delegate?.textField?(editor, shouldChangeCharactersIn: range, replacementString: "Z") ?? true)
         editor.insertText("Z")
-        search.updateSearchResults(for: search.controller)
+        bar.delegate?.searchBar?(bar, textDidChange: editor.text ?? "")
         XCTAssertEqual(editor.text, "heZllo")
         XCTAssertEqual(values, ["heZllo"])
         XCTAssertEqual(p.fieldSelections.input(node.id)?.inputType, "insertText")

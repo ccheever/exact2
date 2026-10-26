@@ -1,0 +1,91 @@
+use Control, LevelRow, ParamRow from "./shapes.contract"
+
+// One dial's control. A dial with no metadata has its kind's: a colour's
+// field and swatch, a ranged number's slider.
+component DialControl
+  props
+    c: Control
+    focused: bool
+    // Below propose (a paired reader, T6): not editable.
+    locked: bool
+    onNumber: action
+    onText: action
+    onStep: action
+    onRelease: action
+  view
+    column id=`dial-${c.name}` gap=4 padding=4 border-radius=6 background-color=(focused ? "-exact-tertiary-background" : "transparent") testId=`dial-${c.name}`
+      row gap=8 align-items="center"
+        text c.label flex=1
+        text c.value color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-value`
+      if c.control == "color"
+        row gap=8 align-items="center" testId=`dial-${c.name}-color`
+          view width=28 height=28 border-radius=6 background-color=c.swatch border="1px solid -exact-separator"
+          input value=c.value change=onText disabled=(locked) aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
+      else if c.control == "slider"
+        // Each value while it is dragged; let go, a scrub open on it is kept.
+        input type="range" min=c.min max=c.max step=c.step value=c.number input=onNumber change=onRelease disabled=(locked) aria-label=c.label testId=`dial-${c.name}-slider`
+      else if c.control == "stepper"
+        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onStep disabled=(locked) aria-label=c.label testId=`dial-${c.name}-stepper`
+      else if c.control == "select"
+        select value=c.value change=onText disabled=(locked) aria-label=c.label testId=`dial-${c.name}-select`
+          for o in c.options key=o
+            option o value=o
+      else if c.control == "token"
+        // A param's own default: a token's name or a literal, typed.
+        input value=c.value change=onText disabled=(locked) aria-label=c.label testId=`dial-${c.name}-field`
+      if c.bounds != ""
+        text c.bounds color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-bounds`
+      if c.help != ""
+        text c.help color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-help`
+
+// A param's row in the component panel: its control (the dials panel's),
+// whether the app sets it or the default applies, Reset, and D14's mark.
+component ParamControl
+  props
+    r: ParamRow
+    // Its winning level, when read for the design shown (`levels`: none or one).
+    won: LevelRow[]
+    focused: bool
+    // Below propose (a paired reader, T6): not editable.
+    locked: bool
+    onNumber: action
+    onText: action
+    onStep: action
+    onRelease: action
+    onReset: action
+    // A package component's param whose default names a token: open that token instead (its every use).
+    onToken: action
+    // Its package token's own line in the app removed: the token follows the package's line again.
+    onBackToPackage: action
+  view
+    column gap=2 testId=`param-${r.short}`
+      DialControl(c=r.c, locked=locked, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
+      // Its colour per grid column, each with its value as words (not colour alone), and the chain to it.
+      if r.swatches.length > 0
+        row gap=6 align-items="center" flex-wrap="wrap" padding="0 4px" testId=`param-${r.short}-swatches`
+          for s in r.swatches key=s.label
+            row gap=4 align-items="center" testId=`param-${r.short}-swatch-${s.label}`
+              view width=18 height=18 border-radius=4 background-color=s.css border="1px solid -exact-separator" role="img" aria-label=`${s.label}: ${s.css}`
+              text `${s.label} ${s.css}` color="-exact-secondary-label" font="-exact-caption2"
+      // (The words with no swatch too: a role the page alone paints.)
+      if r.words != ""
+        text r.words color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-words`
+      row gap=8 align-items="center" padding="0 4px"
+        text (r.package ? (r.set ? `set for this app · the package's default ${r.default}` : `the package's default ${r.default}: a change here is set for this app`) : r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
+        if r.set
+          button press=onReset disabled=(locked) testId=`param-${r.short}-reset`
+            text (r.package ? "Back to the default" : "Reset")
+      for l in won key=l.name
+        text l.text title=l.level color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-level`
+      if r.set
+        text `${r.package ? "Back to the default" : "Reset"} removes the app's line${r.whens > 0 ? ` and its ${r.whens} when ${r.whens == 1 ? "branch" : "branches"} with it` : ""}.` color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-whens`
+      if r.package and r.packageToken != "" and r.appSet
+        row gap=8 align-items="center" padding="0 4px"
+          button press=onBackToPackage disabled=(locked) testId=`param-${r.short}-package`
+            text "Back to the package"
+          text `removes the app's line for ${r.packageToken}, with any when branches it has: the token follows the package's line${r.levelSelf ? "; the app's own value of this param still wins over it" : r.set ? "; the app's own line for this param stays" : ""}.` color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-package-note`
+      if r.package and r.token != ""
+        button press=onToken disabled=(locked) testId=`param-${r.short}-token`
+          text (r.tokenPackage != "" ? `Edit the package token ${r.token} instead` : r.tokenBase ? `Edit Exact's base ${r.token} instead` : `Edit the token ${r.token} instead`)
+      if r.pinned.length > 0
+        text `pinned: no longer follows ${r.pinned.join(", ")}` color="-exact-system-orange" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-pinned`

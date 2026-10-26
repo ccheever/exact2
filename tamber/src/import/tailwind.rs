@@ -287,6 +287,18 @@ pub fn import_with(
     design: &Design,
     vocab: &crate::Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    // Its work charged to one import's budget, as DTCG's and Pencil's is.
+    let _work = crate::budget::Work::begin(crate::budget::IMPORT);
+    super::bounded(import_with_unbounded(css, prefix, design, vocab))
+}
+
+/// [`import_with`] before the checker's bound at import (`super::bounded`).
+fn import_with_unbounded(
+    css: &str,
+    prefix: &str,
+    design: &Design,
+    vocab: &crate::Vocab,
+) -> Result<Import, Vec<Diagnostic>> {
     let mut source = 0;
     let mut unmapped = Vec::new();
     let report = |unmapped: &mut Vec<Unmapped>,
@@ -318,6 +330,7 @@ pub fn import_with(
     let mut first_theme = None;
     let custom_dark = custom_variant(css);
     let (blocks, deep) = css_read(css);
+    super::source_read(&blocks, &deep)?;
     // A rule the reader did not read: one value, reported with its line.
     for d in &deep {
         source += 1;

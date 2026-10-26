@@ -16,6 +16,36 @@ fn boot(source: &str) -> Presenter<()> {
     p
 }
 
+#[test]
+fn recycling_a_frame_preserves_other_readers_and_reuses_released_storage() {
+    let mut p = boot(
+        r##"component App
+  state changed = false
+  action change
+    changed = true
+  view
+    box width="100%" height="100%" background-color=(changed ? "#204060" : "#a02040") press=change testId="change"
+"##,
+    );
+    let first = p.frame();
+    let address = first.data().as_ptr();
+    let old_pixels = first.data().to_vec();
+    p.recycle_frame(first.clone());
+    let key = p.host.kernel().find_by_test_id("change")[0];
+    p.tap(p.host.kernel().node_by_key(key).unwrap().id).unwrap();
+    let second = p.frame();
+    assert_ne!(second.data().as_ptr(), address);
+    assert!(first.data() == old_pixels);
+    assert!(second
+        .data()
+        .chunks_exact(4)
+        .all(|pixel| pixel == [32, 64, 96, 255]));
+    p.recycle_frame(first);
+    let reused = p.frame();
+    assert_eq!(reused.data().as_ptr(), address);
+    assert!(reused.data() == second.data());
+}
+
 /// A phone's window: a status bar under a cutout, a gesture bar below.
 fn phone() -> Window {
     Window {
@@ -314,4 +344,56 @@ fn an_authored_swipe_yields_the_edges_the_systems_gesture_starts_from() {
     };
     assert!(p.set_window(buttons).is_none());
     assert_eq!(swiped(&mut p, 5., 0.), "1");
+}
+
+/// A TV's window: no bars, no cutout, at 1080 points tall (LLP 1115.001.003 D6).
+fn tv_window() -> Window {
+    Window {
+        size: (1920., 1080.),
+        ..Window::default()
+    }
+}
+
+fn device(tv: bool) -> Device {
+    Device {
+        night: false,
+        font_scale: 1.0,
+        locale: "en-US".into(),
+        rtl: false,
+        hour24: false,
+        reduced_motion: false,
+        bold_text: false,
+        high_contrast: false,
+        touch: !tv,
+        tv,
+        touch_slop: 8.0,
+        dates: String::new(),
+    }
+}
+
+#[test]
+fn a_tv_keeps_the_page_five_percent_in_from_each_edge() {
+    let mut p = boot(&page("viewport-fit=\"cover\""));
+    assert!(p.set_device(&device(true)).is_none());
+    assert!(p.set_window(tv_window()).is_none());
+    let env = env(&mut p);
+    assert_eq!(env["safe-area-inset-top"], 54);
+    assert_eq!(env["safe-area-inset-right"], 96);
+    assert_eq!(env["safe-area-inset-bottom"], 54);
+    assert_eq!(env["safe-area-inset-left"], 96);
+    // A page that does not ask for the edges is laid out inside the margin.
+    let mut p = boot(&page(""));
+    assert!(p.set_device(&device(true)).is_none());
+    assert!(p.set_window(tv_window()).is_none());
+    assert_eq!(p.chrome().frame, [96., 54., 1728., 972.]);
+}
+
+#[test]
+fn a_phone_with_no_bars_has_no_margin() {
+    let mut p = boot(&page("viewport-fit=\"cover\""));
+    assert!(p.set_device(&device(false)).is_none());
+    assert!(p.set_window(tv_window()).is_none());
+    let env = env(&mut p);
+    assert_eq!(env["safe-area-inset-top"], 0);
+    assert_eq!(env["safe-area-inset-left"], 0);
 }

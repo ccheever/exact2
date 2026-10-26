@@ -260,7 +260,12 @@ impl<'a> Layout<'a> {
                 self.ty(ty);
             }
         }
-        for style in file.styles.iter().chain(&file.decorations) {
+        for style in file
+            .styles
+            .iter()
+            .chain(&file.decorations)
+            .chain(&file.atoms)
+        {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
         }
         if let Some(theme) = &file.theme {
@@ -308,7 +313,7 @@ impl<'a> Layout<'a> {
                 }
             }
         }
-        for component in &file.components {
+        for component in file.components.iter().chain(&file.members) {
             // A part's name, lifted from its node by the parser, keeps its
             // `=` tight as any attribute's (LLP 1139 D2).
             self.attributes

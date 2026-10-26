@@ -20,7 +20,7 @@ use exact_plan::BindingsRow;
 /// `host/web-js`'s row tests check the names their Rust writers emit; the
 /// markers the JS glue writes (`agent.js`, `modes.js`, `gpu-refusal.js`)
 /// and the render host's `audio-session` are kept here by hand.
-const HOST_WORDS: [&str; 115] = [
+const HOST_WORDS: [&str; 121] = [
     "accept",
     "accessibilitybusy",
     "accessibilitydisabled",
@@ -33,6 +33,11 @@ const HOST_WORDS: [&str; 115] = [
     "alertpart",
     "app-poster",
     "app-src",
+    "atom-faces",
+    "atom-styles",
+    "atomfaces",
+    "atoms",
+    "atomstyles",
     "audio-session",
     "autofocus",
     "bitmapheight",
@@ -101,6 +106,7 @@ const HOST_WORDS: [&str; 115] = [
     "num",
     "pressed",
     "quote",
+    "reachmargin",
     "refreshing",
     "reorderfor",
     "reordergroup",
@@ -388,7 +394,8 @@ mod tests {
             "decorations",
             "decoration-styles",
             "decorationstyles",
-            "scroll",
+            "safearea",
+    "scroll",
         ] {
             assert!(reserved(taken), "{taken}");
         }

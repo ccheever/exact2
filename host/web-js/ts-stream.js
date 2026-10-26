@@ -3,7 +3,8 @@
 // snapshot for every protocol frame. Loaded only for a streaming source.
 import { streamed } from './http-body.js';
 import { answering, SOCKET_AND_FETCH } from './ts-fetch.js';
-import { clock, journal } from './rt.js';
+import { rt } from './rt-link.js'; // (rt.js's own, as a lazy chunk takes them: rt-link.js)
+const { clock, journal } = rt;
 import { failureCode, failureReason } from './shape.js';
 import { bodyFromRefusal, methodOf, readBodyFile } from './ts-body-from.js';
 

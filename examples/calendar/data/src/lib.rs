@@ -4,11 +4,19 @@
 
 #![forbid(unsafe_code)]
 
+mod activity;
 mod dates;
+mod device;
 mod drag;
+mod guests;
 mod layout;
 mod model;
 mod storage;
+
+/// The module binding `build.rs` generates from the app's plan.
+pub mod modules {
+    include!(concat!(env!("OUT_DIR"), "/modules.rs"));
+}
 
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
@@ -17,8 +25,13 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Identity shared by the Contract bake, browser store and Apple app.
 pub const APP: &str = "com.exact.calendar";
-/// The app needs only its own SQLite file, never the device's calendar database.
-pub const GRANTS: &str = "sqlite.open app:/data/calendar.db";
+/// The app's own SQLite file, and the person's calendars, read only while
+/// "Show my calendars" is on (LLP 1133.018 §11), and the person's steps and
+/// workouts, read only while "Show my activity" is on (LLP 1133.026 §12).
+/// Contacts need no line: the guests are picked, and a pick is the app's
+/// copy (D4).
+pub const GRANTS: &str =
+    "sqlite.open app:/data/calendar.db\ndevice.calendar calendarPurpose\ndevice.health-read healthPurpose";
 
 /// A local calendar. Wrap this in `exact_data_host::Storage` in native hosts.
 /// Loading summaries is asynchronous; settled month and agenda queries do no I/O.
@@ -34,6 +47,8 @@ pub struct Calendar {
     ready: bool,
     load: Option<storage::Load>,
     mutation: Option<storage::PendingMutation>,
+    walks: device::Walks,
+    activity: activity::Walks,
 }
 
 impl Calendar {
@@ -137,6 +152,16 @@ impl Calendar {
             self.pages.pop_front();
         }
         page
+    }
+
+    fn has_event(&self, id: &str) -> bool {
+        self.events.contains_key(id)
+    }
+
+    /// An item's days and minutes: all day, first and last day, start and end minute.
+    fn span(&self, id: &str) -> Option<(bool, i32, i32, u16, u16)> {
+        let e = self.events.get(id)?;
+        Some((e.all_day, e.start, e.last_day(), e.start_time, e.end_time))
     }
 
     fn agenda(&self, day: i32, today: i32) -> Value {
@@ -329,6 +354,15 @@ impl Calendar {
                 whole(args, 2).map_err(invalid)?,
             )),
             "calendarTheme" => Ok(Value::Number(f64::from(self.theme))),
+            "calendarExport" => Ok(guests::export(self, text(args, 0).map_err(invalid)?)),
+            // What the build and a first frame show: nothing read yet.
+            "calendarDeviceDays" | "calendarDeviceAgenda" => Ok(Value::record(vec![
+                Value::str("unread"),
+                Value::list(Vec::new()),
+            ])),
+            "calendarActivityDays" | "calendarActivityAgenda" => Ok(activity::unread(source)),
+            "calendarGuests" => Ok(Value::record(vec![Value::list(Vec::new())])),
+            "addGuests" => Ok(Value::record(vec![Value::Number(0.0), Value::str("")])),
             "loadCalendar" => Ok(self.library("")),
             "calendarEvent" => Ok(self.opened(text(args, 0).map_err(invalid)?, "", "")),
             _ => Err(DataError::UnknownSource(source.into())),
@@ -385,6 +419,21 @@ impl DataSource for Calendar {
                 // pending read as well instead of waiting for it.
                 Ok(self.start_load(source, storage::AfterLoad::Library, today, true))
             }
+            "calendarDeviceDays" | "calendarDeviceAgenda" => {
+                Ok(device::answer(&mut self.walks, source, args))
+            }
+            "calendarActivityDays" | "calendarActivityAgenda" => {
+                Ok(activity::answer(&mut self.activity, source, args))
+            }
+            "calendarGuests" => {
+                store.observe_external_read();
+                Ok(guests::read(text(args, 0).map_err(DataError::Unavailable)?))
+            }
+            "addGuests" => {
+                store.observe_external_read();
+                let at = |i| text(args, i).map_err(DataError::Unavailable);
+                Ok(guests::add(self, at(0)?, at(1)?, at(2)?))
+            }
             "calendarEvent" => {
                 let id = text(args, 0).map_err(DataError::Unavailable)?;
                 if !self.events.contains_key(id) {
@@ -413,6 +462,14 @@ impl DataSource for Calendar {
             return Ok(self.parse_load(outcome));
         }
         match source {
+            "calendarDeviceDays" | "calendarDeviceAgenda" => {
+                Ok(device::parse(&mut self.walks, source, args, outcome))
+            }
+            "calendarActivityDays" | "calendarActivityAgenda" => {
+                Ok(activity::parse(&mut self.activity, source, args, outcome))
+            }
+            "calendarGuests" => Ok(guests::parse_read(outcome)),
+            "addGuests" => Ok(guests::parse_add(outcome)),
             "calendarEvent" => {
                 let id = text(args, 0).map_err(DataError::Unavailable)?;
                 let result = exact_data::storage::response(outcome).and_then(|reply| {

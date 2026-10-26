@@ -14,8 +14,7 @@ import UIKit
 
 final class MenuHost {
     private(set) weak var presenter: Presenter?
-    /// What hears a touch that dismisses a light popover (`observeTouches`).
-    var touchObserver: PopoverTouch?
+    private var touchObserver: PopoverTouch?
     private var overlays: [UInt32: UIButton] = [:]
     /// The target and press shape each overlay's menu was built for.
     private var menuShapes: [UInt32: String] = [:]
@@ -65,13 +64,13 @@ final class MenuHost {
     /// Whether a confirmation's button was chosen and its press has not yet
     /// landed: it lands once UIKit has dismissed the alert.
     var choosing: Bool { confirmation?.finishing == true }
-    /// Whether an open prompt's field (UIKit's, in the alert) is being edited.
-    var promptEditing: Bool { confirmation?.fields.contains { $0.editing } == true }
     var nativeConfirmation: NodeView? { pendingConfirmation?.popover ?? (confirmation?.finishing == false ? confirmation?.popover : nil) }
     /// How many popovers the agent has opened: each one's place in the stack.
     private var opened = 0
     private final class Lifted {
         var placement = PositionArea.History()
+        /// The region its option sized it in, as the kernel was told it (`PositionArea.place`).
+        var block: HostBlock?
         /// Anchored to its opener at least once.
         var placed = false
         let source: UInt32?
@@ -126,10 +125,14 @@ final class MenuHost {
     /// they are ranked (a positioned chip), and yields only to one that is
     /// interactive itself (`InvokerButton`).
     func sync() {
-        // Ordinary menus retain LLP 1021 D4's existing agent presentation.
-        // Confirmations use the same UIKit owner under either input carrier.
+        // Paint ordinary menus for the agent; confirmations use UIKit with either input carrier (LLP 1021 D4).
         guard let presenter else { return }
-        observeTouches(on: presenter.modals.coordinateView ?? presenter.documentPort)
+        let surface = presenter.modals.coordinateView ?? presenter.viewport
+        if touchObserver?.view !== surface {
+            if let observer = touchObserver { observer.view?.removeGestureRecognizer(observer) }
+            let observer = PopoverTouch(host: self)
+            surface.addGestureRecognizer(observer); touchObserver = observer
+        }
         if let owner = confirmation, !owner.fields.isEmpty { followPrompt(owner) }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
         sheets.sync()
@@ -758,19 +761,17 @@ final class MenuHost {
             return
         }
         let anchorView: UIView = source.isNativeButton ? presenter.controls.controls[source.id] ?? source : source
-        var anchor = anchorView.convert(anchorView.bounds, to: entry.layer)
+        var anchor = anchorView.convert(anchorView.bounds, to: entry.layer), scroll = presenter.anchorScroll(anchorView, outside: entry.layer)
         // A bar item's popover opens from the item, not its hidden button (`agentOpen(barItem:)`).
-        if case .success(let (bar, item))? = presenter.navigation.barItem(source) { anchor = bar.convert(item, to: entry.layer) }
-        let size = pop.bounds.size
-        let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
-                                    margins: PositionArea.margins(of: pop),
-                                    fallbacks: pop.style["position_try_fallbacks"]?.string ?? "none",
-                                    // The page's document less the bands past its area (status bar, home indicator).
-                                    overflow: PositionArea.overflow(of: pop, page: presenter.viewport.convert(CGRect(origin: .zero, size: presenter.viewport.contentSize).inset(by: presenter.pageMargins), to: entry.layer)),
-                                    rtl: presenter.documentDirection == "rtl",
-                                    history: &entry.placement, in: placement)
-        let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
+        if case .success(let (bar, item))? = presenter.navigation.barItem(source) { (anchor, scroll) = (bar.convert(item, to: entry.layer), .zero) }
+        // Sized in its option's region, as the web's (PopoverRegion.swift). The overflow's page: the
+        // document less the bands past its area (status bar, home indicator).
+        let at = presenter.placePainted(pop, laid: pop.bounds.size, anchor: anchor, scroll: scroll, pageScroll: presenter.viewport.contentOffset, overflow: PositionArea.overflow(of: pop, page: presenter.viewport.convert(CGRect(origin: .zero, size: presenter.viewport.contentSize).inset(by: presenter.pageMargins), to: entry.layer)),
+                                        history: &entry.placement, told: &entry.block, in: placement)
+        let center = CGPoint(x: at.origin.x + at.size.width / 2, y: at.origin.y + at.size.height / 2)
         entry.placed = true
+        // The size it was placed at, now: the region's frame comes with the layout its tell starts.
+        if pop.bounds.size != at.size { pop.bounds.size = at.size }
         if pop.center != center { pop.center = center }
     }
     /// Out of the top layer, hidden, back where it was; the popovers nested
@@ -778,6 +779,7 @@ final class MenuHost {
     func drop(_ name: String) {
         for (nested, entry) in agentOpen where entry.ancestor == name { drop(nested) }
         guard let entry = agentOpen.removeValue(forKey: name) else { return }
+        if let pop = entry.popover { presenter?.tellRegion(pop.id, nil, told: &entry.block) }
         coverClosed()
         entry.popover?.endEditing(true)
         entry.layer.removeFromSuperview()

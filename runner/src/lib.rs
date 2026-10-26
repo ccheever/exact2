@@ -43,6 +43,7 @@
 pub mod agent;
 pub mod auth;
 pub mod bridge;
+pub use bridge::icon_of;
 pub mod commands;
 pub mod compare;
 mod conform;
@@ -61,8 +62,10 @@ pub mod held;
 pub mod instance;
 pub mod lists;
 pub mod notify;
+pub mod orientation;
 pub mod page;
 pub mod perf;
+pub mod presence;
 pub mod request;
 pub mod runner;
 pub mod save_file;
@@ -79,6 +82,7 @@ pub mod stream_timing;
 pub mod strings;
 pub mod surface_record;
 pub mod time;
+pub mod tools;
 pub mod transport;
 pub mod uses;
 pub mod viewport;
@@ -118,7 +122,8 @@ pub use runner::{
     Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
     TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
-pub use runner::{LiveApplied, LiveRefusal, Place, Tamber};
+pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
+pub use runner::{CallHow, WakeHow};
 /// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
 pub mod tamber {

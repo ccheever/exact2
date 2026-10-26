@@ -1,7 +1,10 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
 use crate::anatomy::{Anatomy, Mark, PartDecl};
+use crate::members::{Deferred, Members, MembersLine};
 use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
+use crate::parser::SyntaxError;
+use crate::tool::{Consequence, Tool};
 use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
 
 /// Visit every source range, without changing the AST's non-location fields.
@@ -70,8 +73,22 @@ macro_rules! leaves {
     )* };
 }
 leaves!(
-    String, bool, f64, u16, [u16; 2], u32, usize, BinOp, UnOp, TaskKind, TapForm, ParamValue,
-    ModuleKind
+    String,
+    bool,
+    f64,
+    u16,
+    [u16; 2],
+    u32,
+    usize,
+    BinOp,
+    UnOp,
+    TaskKind,
+    TapForm,
+    ParamValue,
+    ModuleKind,
+    Consequence,
+    crate::members::Splice,
+    &'static str
 );
 
 macro_rules! structs {
@@ -86,7 +103,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components, members, deferred }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
@@ -100,7 +117,7 @@ structs! {
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }
     FnDecl { name, params, ret, body, span }
-    ModuleDecl { name, declared, package, extension, kind, options, words, answers, live, request, sync, substitute, span }
+    ModuleDecl { name, declared, package, extension, kind, options, words, answers, args, raised, hold, budget, handler, live, request, sync, data_only, substitute, span }
     PlatformWords { platform, package, words }
     UseDecl { names, path, span }
     UseName { name, alias, span }
@@ -108,7 +125,13 @@ structs! {
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
-        mutations, actions, tasks, sequences, view, params, anatomy, span }
+        mutations, actions, tools, tasks, sequences, view, params, anatomy, members, span }
+    Tool { name, consequence, additive, idempotent, closed, description, action, returns, fails,
+        available, span }
+    Members { lines, props, outer }
+    Deferred { name, if_action, in_block, error }
+    SyntaxError { id, message, span }
+    MembersLine { path, at, span }
     Anatomy { parts, marks }
     PartDecl { name, groups, span }
     Mark { part, span, node, own }
@@ -148,7 +171,7 @@ record_variants! {
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
-        Midi { step, span },
+        Midi { step, span }, ExpectWakelock { held, span },
     }
 }
 // MIDI's test steps carry no spans of their own.
@@ -291,6 +314,7 @@ impl Step {
             | Step::ExpectDisabled { span, .. }
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
+            | Step::ExpectWakelock { span, .. }
             | Step::ExpectSound { span, .. }
             | Step::Midi { span, .. }
             | Step::ExpectMediaSession { span, .. }

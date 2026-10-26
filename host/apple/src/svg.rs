@@ -361,8 +361,18 @@ impl SvgState {
 
 /// An SVG file's scene as the `svg` op carries one (LLP 1011.001 D4): no
 /// animation runs in a picture, so the engine is empty and nothing presses.
-pub(crate) fn image_scene(kernel: &Kernel, node: &NodeRef<'_>, bx: (f32, f32, f32, f32)) -> String {
-    scene(kernel, &Engine::new(), &IdSet::default(), node, bx)
+/// `Err` names the cost limit a scene passed (D2).
+pub(crate) fn image_scene(
+    kernel: &Kernel,
+    node: &NodeRef<'_>,
+    bx: (f32, f32, f32, f32),
+) -> Result<String, String> {
+    let engine = Engine::new();
+    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(&engine));
+    match resolved.over {
+        Some(limit) => Err(limit.to_string()),
+        None => Ok(serialize(&resolved, &engine, &IdSet::default(), bx)),
+    }
 }
 
 /// `{"box":[x,y,w,h],"t":[a,b,c,d,e,f]|null,"els":[…]}`: `t` null renders
@@ -379,6 +389,16 @@ fn scene(
     // A sampled animation's value now; a lowered one is Core Animation's,
     // so the scene carries its underlying value and the spec.
     let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(engine));
+    serialize(&resolved, engine, press, bx)
+}
+
+/// A resolved scene as [`scene`] sends it.
+fn serialize(
+    resolved: &exact_kernel::svg::Scene,
+    engine: &Engine,
+    press: &IdSet<ViewId>,
+    bx: (f32, f32, f32, f32),
+) -> String {
     let mut s = String::new();
     let _ = write!(
         s,

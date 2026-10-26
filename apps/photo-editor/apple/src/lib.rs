@@ -1,12 +1,14 @@
-//! The photo editor on Apple platforms: the host's C exports over the app's
-//! (empty) data source and its baked plan.
+//! The photo editor on Apple: its TypeScript saves an edit and lists the
+//! recent photos through @exact/photos; `<photo-editor>` is the app's module
+//! in `modules/apple` (LLP 1067.000).
 
-#![deny(missing_docs)]
+include!(concat!(env!("OUT_DIR"), "/module.rs"));
+include!(concat!(env!("OUT_DIR"), "/baked.rs"));
 
-/// The baked plan, written by `build.rs`.
-pub const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-
-/// The compatibility id and its inputs (LLP 1030 D3a), written beside it.
-pub const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
-
-include!(concat!(env!("OUT_DIR"), "/entry.rs"));
+type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
+fn embedded_data() -> ExactEmbeddedData {
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS).placed(TYPESCRIPT_PLACEMENT)
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+include!(concat!(env!("OUT_DIR"), "/linked.rs"));
+exact_apple::host!(AppData, exact_plan(), exact_compat(), None, std::ptr::null(), app_data; linked = EXACT_LINKED);

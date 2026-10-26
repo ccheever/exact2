@@ -301,7 +301,7 @@ bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exac
 cd ../hello
 bun exact.mjs contract types app.contract -o app.contract.d.ts   # first run builds the compiler
 bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
-bun exact.mjs test web tests/*.test.contract # app.test.contract, or the test files named
+bun exact.mjs test web tests/*.test.contract # the app's *.test.contract, or the files named
 bun exact.mjs mac --run                     # this Mac
 bun exact.mjs ios --run                     # an iOS Simulator
 ```
@@ -534,7 +534,7 @@ and paint their own colours and sizes, so take their structure, not their style:
 | [Caltrain](apps/caltrain) | A Rust data crate, authored tests, routes, an optional GPU module |
 | [Weatherlight](apps/weatherlight) | TypeScript with `fetch` and grants |
 | [Fieldnotes](apps/fieldnotes) | Storage: SQLite, files, backup and restore |
-| [Recorder](apps/recorder) | Localized strings and native modules |
+| [Recorder](apps/recorder) | The microphone through `@exact/media-capture` and `@exact/recording` |
 
 <table>
   <tr>
@@ -604,7 +604,7 @@ and paint their own colours and sizes, so take their structure, not their style:
 | [Fieldnotes](apps/fieldnotes) | A local notebook with pins, search, SQLite storage, and JSON backup and restore | TypeScript + Rust |
 | [Messages](apps/messages) | A port of Expo's chat demo, talking to models through OpenRouter | Needs `bun apps/messages/service.ts` and an OpenRouter key |
 | [Type Tour](apps/typetour) | Phone-OS screens as a type specimen for the Expose fonts | No JavaScript at all |
-| [Recorder](apps/recorder), [Map Demo](apps/map-demo) | Native modules: a microphone waveform, MapKit on Apple and OpenStreetMap on the web | |
+| [Map Demo](apps/map-demo) | Native modules: MapKit on Apple and OpenStreetMap on the web | |
 | [Carousel](apps/carousel) | A horizontal virtualized list of 25,000 cards | |
 | [Motion Gallery](apps/motion-gallery) | Animated GIF and WebP images and CSS keyframes, compared across hosts | |
 | [Update Lab](apps/update-lab) | Live replacement of Contract, TypeScript, and Rust in a running app | Hand-testing lab |

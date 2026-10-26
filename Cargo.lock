@@ -3,6 +3,81 @@
 version = 4
 
 [[package]]
+name = "accesskit"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad442f58ee04714aaa0ba0a2768c1ea1935b29507bb22ddece8cbbc76db02932"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
+name = "accesskit_consumer"
+version = "0.39.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a45e2bb300bea6d5f33a82c3e051c3ddc6f41c209750f68a0acbe991a284344"
+dependencies = [
+ "accesskit",
+ "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "accesskit_ios"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28e539d64b27fd4c14de8f78ada8f7c944c092f52f7e49fb63316507a57f6937"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "hashbrown 0.17.1",
+ "objc2 0.5.2",
+ "objc2-foundation 0.2.2",
+ "objc2-ui-kit",
+]
+
+[[package]]
+name = "accesskit_macos"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5701624bf6a11efb6d4c8e922bf44126ed96250e5faa9a7a0468c979635839a4"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "hashbrown 0.17.1",
+ "objc2 0.5.2",
+ "objc2-app-kit",
+ "objc2-foundation 0.2.2",
+]
+
+[[package]]
+name = "accesskit_windows"
+version = "0.35.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce63f35d6bdcf59f26b76b3379063f738e6412cef46999cc772d46aa3de35adb"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "hashbrown 0.17.1",
+ "static_assertions",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
+name = "accesskit_winit"
+version = "0.34.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee96dd150375c05912d8a473f98c2fb155fb3234fac88292d396548a2460fa77"
+dependencies = [
+ "accesskit",
+ "accesskit_ios",
+ "accesskit_macos",
+ "accesskit_windows",
+ "raw-window-handle",
+ "winit",
+]
+
+[[package]]
 name = "activity-fixture-apple"
 version = "0.1.0"
 dependencies = [
@@ -26,6 +101,18 @@ name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[package]]
+name = "agents-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
 
 [[package]]
 name = "agents-apple"
@@ -183,6 +270,18 @@ name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+
+[[package]]
+name = "auth-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
 
 [[package]]
 name = "auth-fixture-apple"
@@ -376,6 +475,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 name = "calendar-data"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-data",
  "exact-data-host",
  "exact-plan",
@@ -754,6 +854,24 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "contacts-calendar-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contacts-calendar-fixture-data",
+ "contract",
+ "exact-bake",
+ "exact-linux",
+]
+
+[[package]]
+name = "contacts-calendar-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
 
 [[package]]
 name = "contract"
@@ -1502,6 +1620,7 @@ dependencies = [
  "url",
  "vello",
  "wgpu 29.0.4",
+ "windows",
  "windows-sys 0.61.2",
 ]
 
@@ -1872,10 +1991,15 @@ dependencies = [
 name = "exact-windows"
 version = "0.1.0"
 dependencies = [
+ "accesskit",
+ "accesskit_winit",
  "exact-kernel",
  "exact-linux",
  "exact-runner",
  "softbuffer",
+ "tiny-skia",
+ "unicode-segmentation",
+ "windows",
  "windows-sys 0.61.2",
  "winit",
 ]
@@ -1890,6 +2014,7 @@ dependencies = [
  "exact-linux",
  "exact-logic",
  "exact-plan",
+ "serde_json",
 ]
 
 [[package]]
@@ -1921,6 +2046,7 @@ dependencies = [
  "exact-js-bake",
  "exact-logic",
  "exact-windows",
+ "serde_json",
 ]
 
 [[package]]
@@ -3949,6 +4075,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "orientation-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "orientation-fixture-data",
+]
+
+[[package]]
+name = "orientation-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "orientation-fixture-data",
+]
+
+[[package]]
+name = "orientation-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "orientation-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "orientation-fixture-data",
+]
+
+[[package]]
+name = "orientation-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "orientation-fixture-data",
+]
+
+[[package]]
 name = "p256"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4065,42 +4243,49 @@ dependencies = [
 name = "photo-editor-apple"
 version = "0.1.0"
 dependencies = [
- "contract",
  "exact-apple",
- "exact-bake",
+ "exact-js",
+ "exact-js-bake",
  "exact-logic",
- "photo-editor-data",
-]
-
-[[package]]
-name = "photo-editor-data"
-version = "0.1.0"
-dependencies = [
- "exact-plan",
- "exact-runner",
 ]
 
 [[package]]
 name = "photo-editor-linux"
 version = "0.1.0"
 dependencies = [
- "contract",
- "exact-bake",
+ "exact-js",
+ "exact-js-bake",
  "exact-linux",
  "exact-logic",
- "photo-editor-data",
 ]
 
 [[package]]
 name = "photo-editor-web"
 version = "0.1.0"
 dependencies = [
- "contract",
- "exact-bake",
+ "exact-js-bake",
+ "exact-js-web",
  "exact-logic",
  "exact-web",
  "exact-web-capabilities",
- "photo-editor-data",
+]
+
+[[package]]
+name = "photos-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "photos-fixture-data",
+]
+
+[[package]]
+name = "photos-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
 ]
 
 [[package]]
@@ -4321,6 +4506,18 @@ dependencies = [
  "exact-render",
  "exact-web",
  "exact-web-capabilities",
+]
+
+[[package]]
+name = "recorder-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]
@@ -4643,6 +4840,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "select-walk-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "select-walk-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "select-walk-fixture-data",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4768,6 +4985,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "shelf-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
 name = "shelf-web"
 version = "0.1.0"
 dependencies = [
@@ -4776,6 +5003,16 @@ dependencies = [
  "exact-logic",
  "exact-web",
  "exact-web-capabilities",
+]
+
+[[package]]
+name = "shelf-windows"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+ "exact-windows",
 ]
 
 [[package]]
@@ -5722,6 +5959,12 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "uuid"
+version = "1.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
 
 [[package]]
 name = "variable-type-android"

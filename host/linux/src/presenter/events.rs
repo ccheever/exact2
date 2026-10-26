@@ -6,6 +6,39 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// A desktop window's activation preserves the focused allocation for
+    /// its return. Explicit focus changes while inactive take precedence.
+    pub fn set_window_active(&mut self, active: bool) {
+        if self.window_active == active {
+            return;
+        }
+        self.window_active = active;
+        if !active {
+            self.window_focus = self
+                .focus
+                .and_then(|id| self.host.kernel().node(id).map(|n| n.key));
+            self.held = 0;
+            self.shortcut_keys.clear();
+            self.blur();
+            return;
+        }
+        let Some(key) = self.window_focus.take().filter(|_| self.focus.is_none()) else {
+            return;
+        };
+        let Some(id) = self
+            .host
+            .kernel()
+            .node_by_key(key)
+            .map(|n| n.id)
+            .filter(|&id| self.focusable(id) && self.focus_refusal(id).is_none())
+        else {
+            return;
+        };
+        if let Some(error) = self.set_focus(Some(id), self.host.now()) {
+            self.host.log(error);
+        }
+    }
+
     /// A native module may only answer for the node allocation its painted view represents.
     #[cfg(any(target_os = "android", test))]
     pub(crate) fn reader_module_event(
@@ -99,6 +132,12 @@ impl<D: DataSource> Presenter<D> {
             return (false, None);
         };
         if self.host.kernel().node(id).is_some() && !self.host.route_visibility(id).1 {
+            self.focus_out = self.host.runner().focus_bubble(id, None, false);
+            return (false, None);
+        }
+        // A TV remote's focus on a bar's target: its node is inert under the
+        // route the bar lifted it from, and keeps the focus (LLP 1115.001.003 D4).
+        if self.host.kernel().node(id).is_some() && self.remote() && self.bar_node(id) {
             self.focus_out = self.host.runner().focus_bubble(id, None, false);
             return (false, None);
         }
@@ -276,6 +315,7 @@ impl<D: DataSource> Presenter<D> {
             .map(|id| self.host.runner().focus_bubble(id, previous, true))
             .unwrap_or_default();
         self.focus = next;
+        self.field_reveal = true;
         if next.is_some() {
             self.pads_follow_focus();
         }
@@ -361,7 +401,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// A modifier key went down or up, by its code (`ShiftLeft`…): what
     /// the next key's event says is held.
-    pub(crate) fn hold_modifier(&mut self, code: &str, down: bool) {
+    pub fn hold_modifier(&mut self, code: &str, down: bool) {
         let bit = match code {
             "ShiftLeft" => 1,
             "ShiftRight" => 2,
@@ -444,6 +484,8 @@ impl<D: DataSource> Presenter<D> {
                 key: name.to_owned(),
                 code: code.to_owned(),
                 repeat: repeat && kind == EventKind::Key,
+                // No input method composes text here (LLP 1005).
+                is_composing: false,
                 held: self.modifiers(),
             };
             let event = if phase == EventKind::Keycapture {

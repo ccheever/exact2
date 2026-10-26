@@ -1,0 +1,13 @@
+{
+  "kind": "implementation",
+  "implements": "@fixture/swatch@^1.0",
+  "platform": "web",
+  "targets": ["web"],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": ["swatch-box"],
+  "hatches": [],
+  "sources": { "javascript": ["index.js"] },
+  "artifacts": []
+}

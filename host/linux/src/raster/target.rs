@@ -161,6 +161,40 @@ mod tests {
     use super::super::*;
 
     #[test]
+    fn recycled_frames_keep_storage_but_clear_old_ink_and_resize() {
+        let mut raster = Raster::new();
+        raster.begin(40., 24., 1.);
+        raster.fill(
+            &Shape::rect((4., 2., 20., 16.)),
+            [210, 20, 40, 255],
+            Transform::identity(),
+        );
+        let first = raster.finish().unwrap();
+        let address = first.data().as_ptr();
+        raster.recycle_frame(first);
+        raster.page([30, 80, 120, 255]);
+        raster.begin(40., 24., 1.);
+        let second = raster.finish().unwrap();
+        assert_eq!(second.data().as_ptr(), address);
+        assert!(second
+            .data()
+            .chunks_exact(4)
+            .all(|p| p == [30, 80, 120, 255]));
+        raster.recycle_frame(second);
+        raster.begin(60., 32., 1.5);
+        let resized = raster.finish().unwrap();
+        assert_eq!((resized.width(), resized.height()), (90, 48));
+        assert!(resized
+            .data()
+            .chunks_exact(4)
+            .all(|p| p == [30, 80, 120, 255]));
+        raster.recycle_frame(resized);
+        raster.transparent = true;
+        raster.begin(60., 32., 1.5);
+        assert!(raster.finish().unwrap().data().iter().all(|&v| v == 0));
+    }
+
+    #[test]
     fn overlay_rows_cover_ink_and_reset_for_reuse_and_unbounded_draws() {
         for scale in [1., 1.25, 1.5, 2.] {
             for y in [-10.25, 16.75, 210.] {

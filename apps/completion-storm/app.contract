@@ -245,7 +245,7 @@ component CompletionStorm
             text "All succeed"
           button press=setErrors("50") testId="errors-50" padding=9 background-color="#dfebf7" border-radius=6
             text "50% mixed errors"
-        text `Next: ${settings.count} independent lanes, ${settings.errors}% error threshold (deterministic mix).` font-size=12 color="#52667c"
+        text `Next: ${settings.count} independent ${settings.count == 1 ? "lane" : "lanes"}, ${settings.errors}% error threshold (deterministic mix).` font-size=12 color="#52667c"
         button press=startWave testId="start-wave" padding=12 background-color="#244f79" border-radius=8
           text "Start / replace / remount wave" color="#ffffff" font-weight=600
         if pending(wave)
@@ -269,7 +269,7 @@ component CompletionStorm
         match fixture
           case some(f)
             text f.message font-size=13 testId="fixture-message"
-            text `Fixture snapshot: ${f.received} received · ${f.issued} responses issued · ${f.held} held` font-size=12 testId="fixture-counts"
+            text `Fixture snapshot: ${f.received} received · ${f.issued} ${f.issued == 1 ? "response" : "responses"} issued · ${f.held} held` font-size=12 testId="fixture-counts"
           case none
             text "Inspect for a server-side snapshot; counters are separate from accepted results." font-size=12
       column padding=16 gap=10 background-color="#ffffff" border-radius=12 flex-shrink=0
@@ -277,15 +277,15 @@ component CompletionStorm
         input appearance="none" value=note input=editNote testId="stress-input" aria-label="Type during completions" placeholder="Type here while replies land" padding=10 background-color="#edf2f7" width="100%" box-sizing="border-box"
         text note testId="stress-echo" font-size=16
         button press=interact testId="interact" padding=10 background-color="#dfebf7" border-radius=6
-          text `Still interactive: ${clicks} clicks` testId="interaction-count"
+          text `Still interactive: ${clicks} ${clicks == 1 ? "click" : "clicks"}` testId="interaction-count"
         button press=navigateAway testId="navigate-away" padding=10 background-color="#f7e0cf" border-radius=6
           text "Navigate away / unmount result views"
         text "Start a held wave → navigate away → start again → release all. Old replies must not populate the remounted results." font-size=12 color="#52667c"
       column padding=16 gap=7 background-color="#14263d" color="#ffffff" border-radius=12 flex-shrink=0
-        text `${pendingCount} pending lanes` testId="pending-count" font-size=21 font-weight=600
-        text `${validCount} valid successes in this wave` testId="valid-count" font-size=15
-        text `${failedCount} failed or invalid replies in this wave` testId="failed-count" font-size=15
-        text `Lifetime: ${counters.emitted} requests emitted · ${counters.accepted} current-ticket replies parsed` testId="lifetime-counts" font-size=12
+        text `${pendingCount} pending ${pendingCount == 1 ? "lane" : "lanes"}` testId="pending-count" font-size=21 font-weight=600
+        text `${validCount} valid ${validCount == 1 ? "success" : "successes"} in this wave` testId="valid-count" font-size=15
+        text `${failedCount} failed or invalid ${failedCount == 1 ? "reply" : "replies"} in this wave` testId="failed-count" font-size=15
+        text `Lifetime: ${counters.emitted} ${counters.emitted == 1 ? "request" : "requests"} emitted · ${counters.accepted} current-ticket ${counters.accepted == 1 ? "reply" : "replies"} parsed` testId="lifetime-counts" font-size=12
         text "Pending uses runner flags. Valid success checks wave + lane + exact payload. Parsed includes failures, excludes dropped stale tickets; lifetime counts refresh every 500ms." font-size=12 color="#c4d5e4"
       if mounted
         column testId="results" gap=5 flex-shrink=0

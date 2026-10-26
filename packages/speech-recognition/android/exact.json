@@ -1,0 +1,39 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/speech-recognition@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidRecognitionStatus": {
+      "service": "option<string>",
+      "onDeviceAvailable": "bool"
+    }
+  },
+  "options": {
+    "startSpeechRecognition": {
+      "languageModel": "enum<freeForm|webSearch>",
+      "preferOffline": "bool",
+      "recognitionService": "string",
+      "completeSilenceLengthMillis": "number",
+      "minimumLengthMillis": "number",
+      "maskOffensiveWords": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "recognizerIntent"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.speechrecognition.SpeechRecognitionModule",
+  "queries": [
+    "android.speech.RecognitionService"
+  ]
+}

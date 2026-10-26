@@ -3,26 +3,90 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg(windows)]
+mod accessibility;
+#[cfg(windows)]
+mod appearance;
+#[cfg(windows)]
+mod caret;
+#[cfg(windows)]
+mod clicks;
+#[cfg(windows)]
+mod clipboard;
+#[cfg(windows)]
+mod edit_menu;
+#[cfg(windows)]
+mod ime;
+#[cfg(windows)]
+mod keyboard;
+#[cfg(windows)]
+mod orientation;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod pad_poll;
 #[cfg(windows)]
 mod pads;
 #[cfg(windows)]
+mod placement;
+#[cfg(windows)]
+mod url;
+#[cfg(windows)]
+mod wheel;
+#[cfg(windows)]
 mod window;
 
-/// Run a Windows app with its display name, baked plan and product identity.
+/// The window an app opens in, in logical pixels: `host.windows.window` in
+/// its `app.json`, which the bake writes as `WINDOW`. `EXACT_SIZE` overrides
+/// the size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Window {
+    /// The width it opens at.
+    pub width: f32,
+    /// The height it opens at.
+    pub height: f32,
+    /// The narrowest a person can make it; 0 sets no minimum.
+    pub min_width: f32,
+    /// The shortest a person can make it; 0 sets no minimum.
+    pub min_height: f32,
+}
+
+impl Default for Window {
+    fn default() -> Self {
+        Self {
+            width: 1280.0,
+            height: 720.0,
+            min_width: 0.0,
+            min_height: 0.0,
+        }
+    }
+}
+
+/// Run a Windows app with its display name, window, baked plan and product identity.
 pub fn run<D: exact_runner::DataSource + Default + 'static>(
     name: &str,
+    window: Window,
     plan: &[u8],
     compat: &str,
 ) -> i32 {
+    run_composed::<D>(name, window, plan, compat, Default::default())
+}
+
+/// [`run`] with what the app's build composed: its hatches and its
+/// packages' Windows implementations (`exact_linux::package`, LLP 1133.022
+/// D10 item 5), whose calls run on the window's thread.
+pub fn run_composed<D: exact_runner::DataSource + Default + 'static>(
+    name: &str,
+    window: Window,
+    plan: &[u8],
+    compat: &str,
+    composed: exact_linux::Composed,
+) -> i32 {
     #[cfg(windows)]
     {
-        window::run::<D>(name, plan, compat, None)
+        window::run::<D>(name, window, plan, compat, composed)
     }
     #[cfg(not(windows))]
     {
-        let _ = (name, plan, compat);
+        let _ = (name, window, plan, compat, composed);
         refuse()
     }
 }
@@ -38,20 +102,16 @@ pub fn run_with_hatches<
     H: exact_linux::Hatches,
 >(
     name: &str,
+    window: Window,
     plan: &[u8],
     compat: &str,
     words: &'static [&'static str],
 ) -> i32 {
-    #[cfg(windows)]
-    {
-        let hatches = exact_linux::hatches::install::<H>(words);
-        window::run::<D>(name, plan, compat, Some(hatches))
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (name, plan, compat, words);
-        refuse()
-    }
+    let composed = exact_linux::Composed {
+        hatches: Some(exact_linux::hatches::install::<H>(words)),
+        ..Default::default()
+    };
+    run_composed::<D>(name, window, plan, compat, composed)
 }
 
 #[cfg(not(windows))]

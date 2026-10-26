@@ -330,11 +330,23 @@ final class PopoverMacTests: XCTestCase {
         p.press(2)
         XCTAssertTrue(p.menus.presented.isEmpty, "a command captured before replacement must be dropped")
     }
+    /// A painted popover with no authored placement whose invoker is at the
+    /// bottom-left opens above it from its left edge (the web's default flip),
+    /// as Harmony's emoji picker does over its composer.
+    func testAPopoverFromTheBottomLeftOpensAboveItsInvoker() {
+        let p = fixture(), pop = p.views[3]!
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 10, "y": 360, "w": 80, "h": 30]]))
+        p.press(2)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertEqual(pop.frame.origin, NSPoint(x: 10, y: 210), "above, from its left edge")
+    }
     func testLayoutClampsAndRetainedBatchesKeepTheEditor() {
         let p = fixture(), pop = p.views[3]!, window = p.viewport.window!
         p.press(2)
         let editor = window.firstResponder
-        XCTAssertEqual(pop.frame.origin, NSPoint(x: 260, y: 250))
+        // Its invoker at the bottom-right: the web's default flips above and
+        // leftward rather than holding the popover over its invoker.
+        XCTAssertEqual(pop.frame.origin, NSPoint(x: 240, y: 190))
         p.apply(wireBatch([
             ["op": "children", "id": 1, "ids": [2, 3, 6]],
             ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 260, "h": 160],

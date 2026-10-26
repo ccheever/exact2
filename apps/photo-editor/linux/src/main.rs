@@ -1,14 +1,15 @@
-//! The photo editor on Linux: the host's entry over the app's data source and its
-//! baked plan.
+//! The photo editor on Linux, where `<photo-editor>` has no implementation
+//! and @exact/photos answers its absence.
 
-#![deny(missing_docs)]
-
-/// The baked plan, written by `build.rs`.
+include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
-
-/// The compatibility id and its inputs (LLP 1030 D3a), written by
-/// `build.rs` beside the plan; the runner answers the `delivery` resource
-/// and `state.delivery` from it (LLP 1030 D7).
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
-include!(concat!(env!("OUT_DIR"), "/entry.rs"));
+type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
+fn embedded_data() -> ExactEmbeddedData {
+    exact_js::Module::new(APP_BYTECODE, APP, GRANTS).placed(TYPESCRIPT_PLACEMENT)
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+fn main() {
+    std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT));
+}

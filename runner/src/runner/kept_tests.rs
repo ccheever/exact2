@@ -3,6 +3,8 @@ use super::*;
 
 #[path = "kept_identity_tests.rs"]
 mod identity;
+#[path = "kept_presence_tests.rs"]
+mod presence;
 #[path = "kept_secrets_tests.rs"]
 mod secrets;
 #[path = "kept_time_tests.rs"]
@@ -19,8 +21,9 @@ struct Source {
     value: Value,
     asks: Vec<Vec<Value>>,
     parses: Vec<Vec<Value>>,
-    /// Grants Health (LLP 1069.008.000 D7).
-    health: bool,
+    /// A device line whose app keeps no answers: Health's (LLP 1069.008.000
+    /// D7), the contacts' or a calendar's (LLP 1133.018 D8).
+    private: Option<&'static str>,
 }
 
 impl Default for Source {
@@ -33,7 +36,7 @@ impl Default for Source {
             value: Value::str("fresh"),
             asks: Vec::new(),
             parses: Vec::new(),
-            health: false,
+            private: None,
         }
     }
 }
@@ -89,10 +92,12 @@ impl DataSource for Source {
     }
 
     fn grants(&self) -> &str {
-        if self.health {
-            "secret.keep token\nnet.fetch https://example.test\ndevice.health-read purpose.health"
-        } else {
-            "secret.keep token\nnet.fetch https://example.test"
+        match self.private {
+            Some("health-read") => "secret.keep token\nnet.fetch https://example.test\ndevice.health-read purpose.p",
+            Some("contacts") => "secret.keep token\nnet.fetch https://example.test\ndevice.contacts purpose.p",
+            Some("calendar") => "secret.keep token\nnet.fetch https://example.test\ndevice.calendar purpose.p",
+            Some(_) => "secret.keep token\nnet.fetch https://example.test\ndevice.calendar-write-only purpose.p",
+            None => "secret.keep token\nnet.fetch https://example.test",
         }
     }
 }
@@ -652,35 +657,39 @@ fn a_cold_boot_forgets_kept_answers_no_declared_reader_seeds() {
 }
 
 #[test]
-fn an_app_granting_health_neither_seeds_nor_keeps_answers() {
+fn an_app_granting_a_private_store_neither_seeds_nor_keeps_answers() {
     // A reader's answer kept before the grant (or by an older build) is
     // forgotten on disk and does not paint the first frame; the fresh answer
-    // is never kept (LLP 1069.008.000 D7).
-    let source = Source {
-        health: true,
-        ..Source::default()
-    };
-    let mut r = boot(
-        plan(2, false),
-        source,
-        entry(&[Value::str("A")], &Value::str("kept")),
-    );
-    shows(&r, "loading");
-    assert!(!state(&r).kept_seed);
-    assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
-    let removed: Vec<_> = r
-        .store
-        .writes()
-        .iter()
-        .filter(|w| w.value.is_none())
-        .map(|w| w.name.clone())
-        .collect();
-    assert_eq!(removed, [kept::kept_name("answer")]);
-    r.data.ready = true;
-    assert!(r.data_ready().unwrap().is_some());
-    shows(&r, "fresh");
-    assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
-    assert_eq!(answer_writes(&r), 1, "only the removal");
+    // is never kept: Health's rule (LLP 1069.008.000 D7), and the contacts'
+    // and calendars' (LLP 1133.018 D8). The source loads after first pixel,
+    // as an app's TypeScript does.
+    for line in ["health-read", "contacts", "calendar", "calendar-write-only"] {
+        let source = Source {
+            private: Some(line),
+            ..Source::default()
+        };
+        let mut r = boot(
+            plan(2, false),
+            source,
+            entry(&[Value::str("A")], &Value::str("kept")),
+        );
+        shows(&r, "loading");
+        assert!(!state(&r).kept_seed, "{line}");
+        assert_eq!(r.store.kept(&kept::kept_name("answer")), None, "{line}");
+        let removed: Vec<_> = r
+            .store
+            .writes()
+            .iter()
+            .filter(|w| w.value.is_none())
+            .map(|w| w.name.clone())
+            .collect();
+        assert_eq!(removed, [kept::kept_name("answer")], "{line}");
+        r.data.ready = true;
+        assert!(r.data_ready().unwrap().is_some());
+        shows(&r, "fresh");
+        assert_eq!(r.store.kept(&kept::kept_name("answer")), None, "{line}");
+        assert_eq!(answer_writes(&r), 1, "{line}: only the removal");
+    }
 }
 
 /// The sources this runner answers are the plan's list, the one the web

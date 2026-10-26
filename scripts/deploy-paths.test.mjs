@@ -90,7 +90,7 @@ test('async compiles tvOS per commit with no simulator, and tier 2 installs it',
 test('tier 2 checks platform host and app crates for their actual target', () => {
   const checks = asyncLane.tierTwoChecks();
   expect(checks.find(([name]) => name === 'watchos')).toEqual(['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']]);
-  for (const name of ['linux', 'windows']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
+  for (const name of ['linux', 'windows', 'windows-arm64']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('x86_64-unknown-linux-gnu');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('--keep-going');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu');
@@ -114,6 +114,7 @@ test('tier 2 checks platform host and app crates for their actual target', () =>
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('--keep-going');
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('windows-desk');
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu');
+  expect(checks.find(([name]) => name === 'windows-arm64')?.[2]).toEqual(expect.arrayContaining(['aarch64-pc-windows-gnullvm', '--keep-going', 'exact-windows', 'windows-desk', 'CC_aarch64_pc_windows_gnullvm=zig cc -target aarch64-windows-gnu']));
 });
 
 test('async game step checks the separate workspace with its lockfile', () => {

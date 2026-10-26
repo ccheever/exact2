@@ -40,21 +40,29 @@ mod arrive;
 mod back;
 pub mod bars;
 mod build_channel;
+pub mod clipboard;
 mod clock;
 mod collection;
 mod commands;
 mod contact;
 mod control;
 mod delivery;
+#[cfg(windows)]
+pub mod desktop_access;
 mod device;
 mod display_frame;
+pub mod edit_menu;
 mod events;
 mod feedback;
 mod field;
+mod field_pointer;
+mod field_scroll;
 #[cfg(test)]
 mod field_tests;
 mod group;
 mod hatch;
+mod history;
+pub mod ime;
 mod painter;
 mod pan_release;
 mod picker;
@@ -74,6 +82,7 @@ mod content_region_tests;
 #[cfg(test)]
 #[path = "content_region/wide_tests.rs"]
 mod content_region_wide_tests;
+pub(crate) mod contrast;
 #[cfg(any(target_os = "android", test))]
 mod feed;
 mod height;
@@ -85,12 +94,14 @@ mod images;
 mod links;
 mod palette;
 pub mod preferences;
+pub(crate) mod remote;
 mod requests;
 mod retained_action;
 mod reveal;
 #[cfg(test)]
 mod scroll_anchor_tests;
 mod scroll_end;
+mod scrollbar;
 mod scrollers;
 mod wheel;
 use scroll_end::Completion;
@@ -105,6 +116,8 @@ mod transform;
 mod transform_geometry;
 mod typing;
 mod window;
+#[cfg(windows)]
+mod word;
 
 #[cfg(test)]
 mod collection_tests;
@@ -128,7 +141,7 @@ use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
 pub(crate) use palette::reported_accent;
-pub use palette::{material, Material, Palette, MATERIAL_ROLES};
+pub use palette::{material, ContrastPalette, Material, Palette, MATERIAL_ROLES};
 pub use pointer::PointerKind;
 pub use requests::{Haptic, Pick, Request};
 pub use scrollers::{Scroller, Under, PAGE};
@@ -137,8 +150,9 @@ pub use window::{Chrome, Window};
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     /// Scrolled lists whose collection turn waits for the frame (see
-    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
-    deferred_collections: Option<Vec<ViewId>>,
+    /// [`Presenter::set_deferred_collections`]), with whether input moved the
+    /// acknowledged offset; `None` when turns run at once.
+    deferred_collections: Option<Vec<(ViewId, bool)>>,
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
@@ -161,8 +175,7 @@ pub struct Presenter<D: DataSource> {
     page: (f32, f32),
     images: Images,
     pub(crate) assets: Assets,
-    /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
-    /// reload boots a fresh runner, which is told again.
+    /// The binary's `compat.json`, also given to a fresh runner on reload (LLP 1030 D3a).
     pub(crate) compat: String,
     /// How many hosts this presenter has had: a frame sampler starts over
     /// when another replaces the one it measured (LLP 1079 D3).
@@ -178,6 +191,15 @@ pub struct Presenter<D: DataSource> {
     /// Each text field's selection (x2apps codeedit #2), kept for the value
     /// it indexes, focused or not: the next key there edits at it.
     pub(crate) fields: BTreeMap<ViewId, field::FieldMark>,
+    field_history: history::Histories,
+    field_drag: Option<field_pointer::Drag>,
+    ime: Option<ime::Composition>,
+    ime_epoch: u64,
+    field_reveal: bool,
+    window_active: bool,
+    window_focus: Option<exact_kernel::NodeKey>,
+    clipboard: Option<Box<dyn clipboard::Clipboard>>,
+    url_opener: Option<links::UrlOpener>,
     /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
     /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
     pub(crate) held: u8,
@@ -226,6 +248,7 @@ pub struct Presenter<D: DataSource> {
     pub(crate) scheme: (Option<bool>, bool),
     /// The device's settings as its shell last told them (LLP 1115.001 D3.1).
     device: Option<Device>,
+    text_scale: f32,
     /// Pointer kind and drag slop: mouse and shared slop until a shell says (D7.4).
     pointer_kind: PointerKind,
     slop: f64,
@@ -270,8 +293,7 @@ pub struct Presenter<D: DataSource> {
     transform_geometry: transform_geometry::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
-    /// The commands the last commits' actions asked for, for the loop that
-    /// runs them (`run_commands`).
+    /// Commands from the last commits, consumed by `run_commands`.
     commands: Vec<exact_runner::Command>,
     /// Range replacement selects wait until the action's commands finish.
     field_select_tasks: Vec<ViewId>,
@@ -470,6 +492,15 @@ impl<D: DataSource> Presenter<D> {
             autofocus_from: None,
             edited: None,
             fields: BTreeMap::new(),
+            field_history: Default::default(),
+            field_drag: None,
+            ime: None,
+            ime_epoch: 0,
+            field_reveal: false,
+            window_active: true,
+            window_focus: None,
+            clipboard: None,
+            url_opener: None,
             held: 0,
             shortcut_keys: Default::default(),
             controls: BTreeMap::new(),
@@ -495,6 +526,7 @@ impl<D: DataSource> Presenter<D> {
             live_clock: None,
             scheme: (None, false),
             device: None,
+            text_scale: 1.0,
             pointer_kind: PointerKind::Mouse,
             slop: exact_motion::gesture::SLOP,
             window: Default::default(),
@@ -576,14 +608,23 @@ impl<D: DataSource> Presenter<D> {
             self.host.runner().delivery(),
             let_go,
         )?;
-        let (mut host, error) = Host::boot_with(
-            plan,
-            data,
-            Box::new(Measurer(candidate_text.clone())),
-            self.viewport.0,
-            self.viewport.1,
-            Some(&carried),
-            Some(self.host.runner().delivery().clone()),
+        let (mut host, error) = exact_runner::time::launching_with(
+            exact_runner::time::Launch {
+                time: Some(self.host.runner().wall_time()),
+                place: Some(self.host.runner().place().clone()),
+                ..exact_runner::time::Launch::NONE
+            },
+            || {
+                Host::boot_with(
+                    plan,
+                    data,
+                    Box::new(Measurer(candidate_text.clone())),
+                    self.viewport.0,
+                    self.viewport.1,
+                    Some(&carried),
+                    Some(self.host.runner().delivery().clone()),
+                )
+            },
         )?;
         if let Some(error) = error {
             return Err(HostError::Layout(error));
@@ -713,6 +754,7 @@ impl<D: DataSource> Presenter<D> {
             return error;
         }
         let geometry_changed = self.viewport != (width, height);
+        self.field_reveal |= geometry_changed;
         self.dirty |= geometry_changed;
         self.viewport = (width, height);
         self.images.fit(self.viewport, self.brush.scale);
@@ -733,7 +775,9 @@ impl<D: DataSource> Presenter<D> {
     fn finish_commit(&mut self) -> Option<String> {
         let error = self.service_commit();
         self.size_controls();
-        self.queue_collections();
+        // This turn consumes the reports now. Only refinement left over may
+        // wake another turn; waking here makes an idle list redraw forever.
+        self.schedule_collections();
         let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
         self.sync_surface();
@@ -747,6 +791,12 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn service_commit(&mut self) -> Option<String> {
+        // A resource refused, a request or a send failed (LLP 1142 D4): on
+        // stderr as well as in the journal. The runner queues none unless it
+        // measures, so a production binary prints none.
+        for line in self.host.runner().take_alerts() {
+            eprintln!("exact: {line}");
+        }
         self.restore_scroll_anchors();
         self.alert_sync();
         // What the commit asked the host to run goes to the executor (LLP
@@ -804,6 +854,19 @@ impl<D: DataSource> Presenter<D> {
         for (token, dispatch) in self.host.release_work() {
             if let Some(r) = self.parked.remove(&token) {
                 self.run_dispatch(r, dispatch);
+            }
+        }
+        // The platform's checks for presence calls: the shell's (LLP 1133.010 D8).
+        for ask in self.host.runner_mut().take_presence_asks() {
+            match self.has_shell() {
+                true => _ = self.request(requests::Request::Presence(ask.json())),
+                false => self.host.runner_mut().presence_answer(
+                    ask.id,
+                    exact_runner::presence::PresenceAnswer::Failed(
+                        "NotSupportedError".into(),
+                        "this host has no shell to check the person".into(),
+                    ),
+                ),
             }
         }
         // Socket frames of the commits that stood (LLP 1016.000 D7).
@@ -894,6 +957,16 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         for id in &renewed {
+            self.ime_forget(*id);
+            self.field_history.invalidate(*id);
+            if self.window_focus.is_some_and(|key| {
+                self.host
+                    .kernel()
+                    .node_by_key(key)
+                    .is_some_and(|n| n.id == *id)
+            }) {
+                self.window_focus = None;
+            }
             self.scroll_end.forget(*id);
             self.dirty |= self.scroll.remove(id).is_some();
         }
@@ -971,6 +1044,10 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .find(|b| b.id == id && self.display.allows(self.host.kernel(), id))
             .copied()
+            .or_else(|| {
+                self.inline_box(id)
+                    .filter(|_| self.display.allows(self.host.kernel(), id))
+            })
     }
 
     /// How far scroll container `id`'s offset travels on each axis (LLP 1012 `rx`/`ry`): the bounds its offset is
@@ -1171,6 +1248,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.boxes();
         self.painted_hit(x, y, current)
+            .map(|id| self.inline_hit(id, x, y).unwrap_or(id))
     }
 
     /// The deepest box of the latest paint under a point, as [`Self::hit`]
@@ -1316,13 +1394,17 @@ impl<D: DataSource> Presenter<D> {
         self.controls.clear();
         self.edited = None;
         self.fields.clear();
+        self.field_drag = None;
+        self.field_history = Default::default();
+        self.ime = None;
+        self.window_focus = None;
         self.menu = None;
         self.hovered.clear();
         self.pointer_held = None;
         self.pointer_path.clear();
         self.hatch_reset();
         self.top_replaced();
-        self.wakelock_replaced();
+        self.holds_changed();
         self.hosts += 1;
         self.measure();
     }
@@ -1388,22 +1470,6 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(error);
         }
         self.dirty |= animating;
-    }
-
-    /// The pixels, as a PNG at `path`.
-    pub fn screenshot(&mut self, path: &str) -> Result<String, String> {
-        let frame = self.frame();
-        let png = frame.encode_png().map_err(|e| format!("png: {e}"))?;
-        std::fs::write(path, png).map_err(|e| format!("write {path}: {e}"))?;
-        let mut s = String::from("{\"screenshot\":");
-        quote(path, &mut s);
-        let _ = write!(
-            s,
-            ",\"w\":{},\"h\":{}}}",
-            num(r2(self.viewport.0)),
-            num(r2(self.viewport.1))
-        );
-        Ok(s)
     }
 
     /// The box of a node, if painted.

@@ -5,8 +5,18 @@
 //! @ref LLP 1015 §2
 
 mod backdrop;
+mod border;
 mod canvas;
+mod geometry;
+mod image;
+#[cfg(target_arch = "x86_64")]
+mod image_sample;
+pub use geometry::rounded_rect;
+#[cfg(test)]
+mod geometry_tests;
 mod mask;
+use mask::intersect_mask;
+mod reach;
 #[cfg(target_arch = "x86_64")]
 mod solid_rect;
 mod target;
@@ -42,7 +52,7 @@ struct ClipKey {
 pub struct Raster {
     target: Target,
     window_underlay: Option<WindowLayer>,
-    window_background: Option<Pixmap>,
+    frame_storage: Option<Pixmap>,
     window_overlay: Option<(Pixmap, std::ops::Range<u32>)>,
     transparent: bool,
     /// The page's colour ([`Backend::page`]); white until one is told.
@@ -56,6 +66,8 @@ pub struct Raster {
     layers: Vec<(Pixmap, f32)>,
     first_clip_used: bool,
     cached_clip: Option<(ClipKey, Rc<Mask>)>,
+    #[cfg(target_arch = "x86_64")]
+    image_samples: Vec<image_sample::Sample>,
     #[cfg(test)]
     pub(crate) clip_allocations: std::cell::Cell<usize>,
     #[cfg(test)]
@@ -257,111 +269,12 @@ impl Raster {
         );
         (x, y, (right - x).max(0.0), (bottom - y).max(0.0))
     }
-
-    /// The current clip intersected with more shapes, as a mask of its own.
-    fn mask_with(&self, shapes: &[Shape], ts: Transform) -> Option<Mask> {
-        let dev = self.device(ts);
-        let mut m = match self.active_clip() {
-            Some(c) => {
-                if let Some((depth, rect)) = self.rectangular_damage {
-                    if depth == self.clips.len() {
-                        let mut paths = shapes.iter().filter_map(rounded_rect);
-                        if let Some(first) = paths.next() {
-                            // A proven integer damage rectangle has only 0/255
-                            // coverage. Build the child once and clear outside it.
-                            let mut mask = self.new_clip_mask()?;
-                            mask.fill_path(&first, FillRule::Winding, true, dev);
-                            let width = self.width as usize;
-                            let (left, top, right, bottom) = (
-                                rect.left() as usize,
-                                rect.top() as usize,
-                                rect.right() as usize,
-                                rect.bottom() as usize,
-                            );
-                            let data = mask.data_mut();
-                            data[..top * width].fill(0);
-                            data[bottom * width..].fill(0);
-                            for row in data[top * width..bottom * width].chunks_exact_mut(width) {
-                                row[..left].fill(0);
-                                row[right..].fill(0);
-                            }
-                            for path in paths {
-                                mask.intersect_path(&path, FillRule::Winding, true, dev);
-                            }
-                            return Some(mask);
-                        }
-                    }
-                }
-                (**c).clone()
-            }
-            None => {
-                let mut m = self.new_clip_mask()?;
-                if !self.clips.is_empty() {
-                    m.data_mut().fill(255);
-                    for path in shapes.iter().filter_map(rounded_rect) {
-                        m.intersect_path(&path, FillRule::Winding, true, dev);
-                    }
-                    return Some(m);
-                }
-                let first = rounded_rect(shapes.first()?)?;
-                m.fill_path(&first, FillRule::Winding, true, dev);
-                return Some(
-                    shapes[1..]
-                        .iter()
-                        .filter_map(rounded_rect)
-                        .fold(m, |mut m, p| {
-                            m.intersect_path(&p, FillRule::Winding, true, dev);
-                            m
-                        }),
-                );
-            }
-        };
-        for p in shapes.iter().filter_map(rounded_rect) {
-            m.intersect_path(&p, FillRule::Winding, true, dev);
-        }
-        Some(m)
-    }
 }
 
-// A new path mask is zero outside its control bounds. Include AA slack;
-// tiny-skia tiles above 8191 pixels, so retain full-mask work beyond that range.
 /// `mask` times `other`, coverage by coverage: an intersection.
 fn multiply(mask: &mut Mask, other: &Mask) {
     for (a, b) in mask.data_mut().iter_mut().zip(other.data()) {
         *a = ((*a as u16 * *b as u16 + 127) / 255) as u8;
-    }
-}
-
-fn intersect_mask(mask: &mut Mask, parent: &Mask, path: &Path, dev: Transform) {
-    let (width, height) = (mask.width() as usize, mask.height() as usize);
-    let bounds = if width <= 8191 && height <= 8191 {
-        path.clone().transform(dev).and_then(|p| {
-            let b = p.bounds();
-            let edges = [b.left(), b.top(), b.right(), b.bottom()];
-            edges
-                .iter()
-                .all(|v| v.is_finite() && v.abs() <= 8191.0)
-                .then(|| {
-                    [
-                        (b.left().floor() - 2.0).clamp(0.0, width as f32) as usize,
-                        (b.top().floor() - 2.0).clamp(0.0, height as f32) as usize,
-                        (b.right().ceil() + 2.0).clamp(0.0, width as f32) as usize,
-                        (b.bottom().ceil() + 2.0).clamp(0.0, height as f32) as usize,
-                    ]
-                })
-        })
-    } else {
-        None
-    };
-    let [left, top, right, bottom] = bounds.unwrap_or([0, 0, width, height]);
-    for y in top..bottom {
-        let span = y * width + left..y * width + right;
-        for (a, b) in mask.data_mut()[span.clone()]
-            .iter_mut()
-            .zip(&parent.data()[span])
-        {
-            *a = (u16::from(*a) * u16::from(*b) / 255) as u8;
-        }
     }
 }
 
@@ -386,20 +299,6 @@ fn tiny_path(ops: &[PathOp]) -> Option<Path> {
     b.finish()
 }
 
-/// A shape as a path: a rectangle, or rounded corners as cubic arcs.
-pub fn rounded_rect(shape: &Shape) -> Option<Path> {
-    let (x, y, w, h) = shape.rect;
-    if w <= 0.0 || h <= 0.0 {
-        return None;
-    }
-    if !shape.rounded() {
-        return Some(PathBuilder::from_rect(Rect::from_xywh(x, y, w, h)?));
-    }
-    let mut ops = Vec::new();
-    crate::paint::border::shape_path(&mut ops, shape);
-    tiny_path(&ops)
-}
-
 /// The largest frame side, in device pixels, either painter draws.
 pub(crate) const MAX_FRAME_SIDE: u32 = 16384;
 
@@ -420,7 +319,7 @@ impl Backend for Raster {
         let fits = self.width <= MAX_FRAME_SIDE && self.height <= MAX_FRAME_SIDE;
         let pixels = fits
             .then(|| {
-                self.window_background
+                self.frame_storage
                     .take()
                     .filter(|p| p.width() == self.width && p.height() == self.height)
                     .or_else(|| Pixmap::new(self.width, self.height))
@@ -433,6 +332,10 @@ impl Backend for Raster {
             Color::from_rgba8(r, g, b, a)
         };
         self.target = Target::cleared(pixels, color);
+    }
+
+    fn recycle_frame(&mut self, pixels: Pixmap) {
+        self.frame_storage = Some(pixels);
     }
 
     fn begin_damage(
@@ -752,7 +655,9 @@ impl Backend for Raster {
                         } else {
                             FillRule::Winding
                         };
-                        t.fill_path(&path, &p, rule, dev, mask.as_deref());
+                        if reach::within(&path, 0.0, dev) {
+                            t.fill_path(&path, &p, rule, dev, mask.as_deref());
+                        }
                     }
                 }
                 1 => {
@@ -777,7 +682,9 @@ impl Backend for Raster {
                             .then(|| tiny_skia::StrokeDash::new(s.dash.clone(), s.phase))
                             .flatten(),
                     };
-                    t.stroke_path(&path, &p, &stroke, dev, mask.as_deref());
+                    if reach::within(&path, reach::stroke(s.width, s.miter), dev) {
+                        t.stroke_path(&path, &p, &stroke, dev, mask.as_deref());
+                    }
                 }
                 _ => {}
             }
@@ -785,6 +692,7 @@ impl Backend for Raster {
     }
 
     fn fill_gradient(&mut self, shape: &Shape, gradient: &GradientPaint, ts: Transform) {
+        let dev = self.device(ts);
         let Some(path) = rounded_rect(shape) else {
             return;
         };
@@ -835,7 +743,6 @@ impl Backend for Raster {
             anti_alias: true,
             ..Paint::default()
         };
-        let dev = self.device(ts);
         let mask = self.active_clip().cloned();
         if let Some(t) = self.target.path_pixels(&path, dev) {
             t.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
@@ -843,10 +750,13 @@ impl Backend for Raster {
     }
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
+        let dev = self.device(ts);
         let Some(region) = tiny_path(&part.region) else {
             return;
         };
-        let dev = self.device(ts);
+        if self.fill_square_border(part, &region, dev) {
+            return;
+        }
         let parent = self.active_clip().cloned();
         // A clipped part: its quadrilaterals as a mask, under whatever clip
         // is already in force. Only rounded multicolour borders have one.
@@ -905,10 +815,14 @@ impl Backend for Raster {
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
         }
-        let mask = self.mask_with(clips, ts);
         let dev = self
             .device(ts)
             .pre_concat(Transform::from_translate(dst.0, dst.1).pre_scale(dst.2 / nw, dst.3 / nh));
+        let mask = if self.image_inside_clips(nw, nh, dev, clips, ts) {
+            self.active_clip().cloned()
+        } else {
+            self.mask_with(clips, ts).map(Rc::new)
+        };
         let paint = PixmapPaint {
             quality: FilterQuality::Bilinear,
             ..PixmapPaint::default()
@@ -922,7 +836,19 @@ impl Backend for Raster {
             }
         }
         if let Some(t) = self.target.pixels() {
-            t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_ref());
+            #[cfg(target_arch = "x86_64")]
+            let drawn = image_sample::draw(
+                t,
+                image.pixels(),
+                dev,
+                mask.as_deref(),
+                &mut self.image_samples,
+            );
+            #[cfg(not(target_arch = "x86_64"))]
+            let drawn = false;
+            if !drawn {
+                t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_deref());
+            }
             if let Some(tint) = tint {
                 let mut ink = solid(tint);
                 ink.blend_mode = tiny_skia::BlendMode::SourceIn;
@@ -1003,7 +929,7 @@ impl Backend for Raster {
         above: Option<Pixmap>,
         rows: Option<(u32, u32)>,
     ) {
-        self.window_background = Some(below);
+        self.frame_storage = Some(below);
         self.window_overlay = above.map(|p| {
             let (start, end) = rows.unwrap_or((0, p.height()));
             (p, start..end)
@@ -1158,7 +1084,7 @@ impl Backend for Raster {
                         exact_kernel::svg::Seg::Close => b.close(),
                     }
                 }
-                if let Some(path) = b.finish() {
+                if let Some(path) = b.finish().filter(|p| reach::within(p, 0.0, dev)) {
                     let rule = if shape.even_odd {
                         FillRule::EvenOdd
                     } else {

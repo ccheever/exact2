@@ -101,13 +101,28 @@ impl<D: DataSource> Host<D> {
     /// Material look a button's with it, whose title is label-large in sp.
     /// Laid out again when a field read it; whether anything changed.
     pub fn set_field_font_size(&mut self, px: f32) -> Result<bool, String> {
-        let kernel = self.runner.kernel_mut();
         let mut styles = crate::paint::control::control_text_styles();
         styles.field.size = px;
         styles.textarea.size = px;
         if crate::paint::look::material() {
             styles.button.size = px;
         }
+        self.set_control_text_styles(styles)
+    }
+
+    pub(crate) fn set_control_text_scale(&mut self, scale: f32) -> Result<bool, String> {
+        let mut styles = crate::paint::control::control_text_styles();
+        for font in [&mut styles.field, &mut styles.textarea, &mut styles.button] {
+            font.size *= scale;
+        }
+        self.set_control_text_styles(styles)
+    }
+
+    pub(crate) fn set_control_text_styles(
+        &mut self,
+        styles: exact_kernel::ControlTextStyles,
+    ) -> Result<bool, String> {
+        let kernel = self.runner.kernel_mut();
         let env = exact_kernel::Env {
             control_text_styles: Some(styles),
             ..kernel.env().clone()

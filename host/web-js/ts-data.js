@@ -141,10 +141,14 @@ const watch = topic => (watched.get(topic) ?? watched.set(topic, new Set()).get(
 // Its source's readers are the answers' that read it last: each answer's own
 // reads replace the last's, as the runner's `watching` does.
 const moduleWatched = new Map(); // module key -> sources
+// Whether the answer that made the call still wants its reply is its call's `wanted`, its ticket's `held` (rt.js
+// `reply`), which a registration's reply reads (LLP 1133.011 D11).
 globalThis.__exact_module = body => {
-  const key = `${body.extension}.${body.source}`;
+  const key = `${body.extension}.${body.source}`, call = answering.call;
   if (body.source && watching) (moduleWatched.get(key) ?? moduleWatched.set(key, new Set()).get(key)).add(watching);
-  return ordinary(() => globalThis.exact?.extensions?.call?.(body) ?? Promise.resolve({ error: 'NotSupportedError' }));
+  // A tool handler's call carries its origin (`data.tool`); every other is the app's.
+  const origin = call?.origin ?? 'app';
+  return ordinary(() => globalThis.exact?.extensions?.call?.({ ...body, origin }, () => call?.wanted?.() ?? true) ?? Promise.resolve({ error: 'NotSupportedError' }));
 };
 (globalThis.exact ??= {}).announceModule = topic => announce(topic, 'module');
 globalThis.exact.moduleReaders = key => Resources.filter(r => moduleWatched.get(key)?.has(r.source)).map(r => r.name);
@@ -259,6 +263,8 @@ function storageOf(grants) {
   let docs;
   const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.files(grants));
   const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
+  // A document copied into an app file needs both (documents-glue.js `copyFile`).
+  const copiesIn = (m, args) => m === 'copyFile' && typeof args[0] === 'string' && args[0].startsWith('doc:/') && typeof args[1] === 'string' && args[1].startsWith('app:/');
   const denied = (op, document = false) => (document ? Promise.resolve() : key()).then(() => {
     throw Object.assign(new Error(`denied: ${op}`), { kind: 'Unavailable', code: 'denied' });
   });
@@ -279,8 +285,26 @@ function storageOf(grants) {
     } });
   };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
-  // `compressImage` (LLP 1069.002 A1): its options are checked before it is
-  // queued, as the native prelude checks them; app files only.
+  // `compressImage` (LLP 1069.002 A1) and `transformImage` (LLP 1133.019
+  // D14): their options are checked before either is queued, as the native
+  // prelude checks them (binary.js `imageOptions`); app files only.
+  const image = (method, from, to, options, limits) => {
+    const api = `storage.fs.${method}()`, out = { ...limits }, o = options ?? {};
+    const finite = n => typeof n === 'number' && Number.isFinite(n), side = n => Number.isInteger(n) && n >= 1 && n <= 16384;
+    const checks = { rotate: [finite, 'a finite number of degrees'], flip: [w => w === 'horizontal' || w === 'vertical', '"horizontal" or "vertical"'],
+      crop: [c => c && typeof c === 'object' && [c.x, c.y, c.width, c.height].every(finite) && c.width > 0 && c.height > 0, '{x, y, width, height}, finite, with a positive width and height'] };
+    if (method === 'transformImage') Object.assign(checks, { resizeWidth: [side, 'an integer from 1 to 16384'], resizeHeight: [side, 'an integer from 1 to 16384'],
+      resizeQuality: [w => ['pixelated', 'low', 'medium', 'high'].includes(w), '"pixelated", "low", "medium" or "high"'], type: [t => typeof t === 'string' && /^image\/[a-z0-9.+-]+$/.test(t), 'a media type such as "image/jpeg"'],
+      quality: [q => typeof q === 'number' && q >= 0 && q <= 1, 'a number from 0 to 1'], metadata: [w => ['keep', 'no-location', 'none'].includes(w), '"keep", "no-location" or "none"'] });
+    if (typeof from !== 'string' || typeof to !== 'string') return Promise.reject(new TypeError(`${api}: from and to must be app:/ paths`));
+    if (typeof o !== 'object') return Promise.reject(new TypeError(`${api}: options must be an object`));
+    for (const [name, [ok, says]] of Object.entries(checks)) {
+      if (o[name] === undefined) continue;
+      if (!ok(o[name])) return Promise.reject(new TypeError(`${api}: ${name} must be ${says}`));
+      out[name] = o[name];
+    }
+    return (admitted ? queued(`${method} ${from}`, () => files().then(f => f[method](from, to, out))) : denied(`fs.${method}`)).catch(refused);
+  };
   const compressImage = (from, to, options) => {
     const api = 'storage.fs.compressImage()', d = options?.maxDimension, b = options?.maxBytes;
     if (typeof from !== 'string' || typeof to !== 'string') return Promise.reject(new TypeError(`${api}: from and to must be app:/ paths`));
@@ -289,8 +313,7 @@ function storageOf(grants) {
     if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
     const type = options.type === undefined ? 'image/jpeg' : options.type;
     if (type !== 'image/jpeg' && type !== 'image/png') return Promise.reject(new TypeError(`${api}: type must be "image/jpeg" or "image/png"`));
-    const limits = { maxDimension: d, maxBytes: b, type };
-    return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(refused);
+    return image('compressImage', from, to, options, { maxDimension: d, maxBytes: b, type });
   };
   // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends
   // on a document the person chose; the page's FileSystemObserver announces
@@ -308,12 +331,14 @@ function storageOf(grants) {
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
       compressImage: (...a) => ordinary(() => compressImage(...a)), watch: watchDocument,
+      transformImage: (from, to, options) => ordinary(() => image('transformImage', from, to, options, {})),
       ...Object.fromEntries(methods.map(m => [m, (...args) => ordinary(() => {
         // A write's `expect` (LLP 1069.010.000 D2a) is the glue's, documents only.
         if (expecting(m, args) && !isDocument(args)) return Promise.reject(new TypeError(`storage.fs.${m}(): expect is for doc:/ paths`));
         const captured = structuredClone(args);
-        const run = () => isDocument(captured) ? documents().then(f => f[m](...captured)) : files().then(f => f[m](...captured), orEmpty(m, captured[0]));
-        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(refused);
+        const run = () => copiesIn(m, captured) ? documents().then(files).then(f => globalThis.exact.documents.copyFile(captured[0], captured[1], grants, f))
+          : isDocument(captured) ? documents().then(f => f[m](...captured)) : files().then(f => f[m](...captured), orEmpty(m, captured[0]));
+        return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured) && !copiesIn(m, captured))).catch(refused);
       })])) }),
     sqlite: Object.freeze({ open: path => ordinary(() => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(refused); }) }),
     work: promise => Promise.resolve(promise),
@@ -424,6 +449,19 @@ export function install(data, mixed = false, modules = null) {
     } finally { overlaying.on = false; }
   });
   data.ts = ts;
+  // A module calling the app back (LLP 1133.016 D9, D15 item 1): the handler `tools` exports under `name`, run as a
+  // fresh answer that fills no slot, with the call's origin on it, so a module call it makes is admitted with that
+  // origin (`__exact_module`). Its answer, or null for a name `tools` does not export.
+  data.tool = (name, args, store, origin) => {
+    const handler = source.tools?.[name];
+    if (typeof handler !== 'function') return null;
+    const call = answering.call = { stream: null, mutation: true, name, turn: true, origin };
+    asking = name;
+    let r;
+    try { r = handler(args, createSecretFacade(store, tsGrantSet, kept), storage); }
+    finally { call.turn = false; asking = ''; answering.call = null; }
+    return Promise.resolve(r).finally(() => { call.settled = true; });
+  };
   // A resource's source that sent and then threw: what it sent, which rt.js `ask` queues with the commit.
   data.thrown = () => { const t = thrown ?? []; thrown = null; return t; };
   for (const f of data.q.splice(0)) f();

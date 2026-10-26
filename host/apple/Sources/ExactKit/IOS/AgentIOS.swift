@@ -58,6 +58,7 @@ extension Agent {
                 DispatchQueue.main.async { observers.forEach(notifications.removeObserver) }
                 out = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
                 reply(announcement)
+                DispatchQueue.main.async { watchForeground() }
                 serve(fd: fd)
             }.start()
             return
@@ -91,6 +92,7 @@ extension Agent {
             guard client >= 0 else { FileHandle.standardError.write(Data("exact: accept: \(String(cString: strerror(errno)))\n".utf8)); return }
             out = FileHandle(fileDescriptor: client, closeOnDealloc: false)
             reply(ready)
+            DispatchQueue.main.async { watchForeground() }
             serve(fd: client)
         }.start()
     }
@@ -138,7 +140,7 @@ extension Agent {
     /// Native transitions, keyboard work and an agent-issued caret reveal
     /// must finish before `clock settle` returns (LLP 1035.003 D5).
     func nativeInFlight() -> Bool {
-        if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
+        if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || nativeGeometryInFlight() { return true }
         // A smooth correction (a list following its end, a smooth
         // `scrollIntoView`) and an element reveal are UIKit's scroll
         // animation under platform timing (LLP 1070.000 §11, §14): the fixed
@@ -184,7 +186,7 @@ extension Agent {
                   let property = path.split(separator: ".").first else { return false }
             return ["bounds", "position", "transform", "sublayerTransform", "anchorPoint", "zPosition"].contains(String(property))
         }
-        var pending = [presenter.viewport, presenter.documentMount] + presenter.presentations(includingRetiring: true)
+        var pending = [presenter.viewport] + presenter.presentations(includingRetiring: true)
         let now = CACurrentMediaTime()
         var moving = false
         Agent.pruneUnbegun(now: now)
@@ -236,7 +238,7 @@ extension Agent {
             keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.pageOrigin.y)
         }
         #if !os(tvOS)
-        if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
+        if let view = presenter.session?.view, view.hasKeyboardGuide { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
         #endif
         var navigation = presenter.navigation.observation()
         navigation["presentation"] = presenter.modals.presentation ?? NSNull()
@@ -398,7 +400,7 @@ extension Agent {
         var inertBy: String? = host.isUserInteractionEnabled ? nil : describe(host)
         var clipped = b.isEmpty
         var chain: [[String: Any]] = []
-        var clippers: [(NodeView, String)] = []
+        var clippers: [(UIView, UInt32, String)] = []
         var canvas: NodeView? = nil
         var above = host.superview
         while let s = above {
@@ -412,23 +414,29 @@ extension Agent {
             }
             if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
+            if let sv = s as? ScrollView, let route = sv.superview?.next as? RouteController, route.contentViewport === sv {
+                let port = box(sv, region: sv.bounds.inset(by: sv.adjustedContentInset))
+                chain.append(["route": Int(route.node.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y),
+                              "port": [port.minX, port.minY, port.width, port.height].map(Agent.r2)].merging(Agent.range(of: sv)) { a, _ in a })
+                clippers.append((sv, route.node.id, "viewport"))
+            }
             if let n = s as? NodeView {
                 if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv)), "port": port(of: n, sv)].merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
                 else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]) }
-                if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
-                if n.clipPath != nil { clippers.append((n, "clip-path")) }
+                if n.clipsToBounds || n.clipBox != nil { clippers.append((n, n.id, "overflow")) }
+                if n.clipPath != nil { clippers.append((n, n.id, "clip-path")) }
             }
             above = s.superview
         }
         // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
         let popoverLayer = PopoverLayer.containing(host)
-        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) || $0.isDescendant(of: presenter.documentMount) } ?? (presenter.port(of: host) === vp)
+        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) } ?? (presenter.port(of: host) === vp)
         var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)].merging(Agent.range(of: vp)) { a, _ in a }
                                                   : ["presentation": true, "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]]
         scroll.append(contentsOf: chain.reversed())
         var clip: [[String: Any]] = []
-        for (n, kind) in clippers.reversed() {
-            clip.append(["id": Int(n.id), "kind": kind])
+        for (n, id, kind) in clippers.reversed() {
+            clip.append(["id": Int(id), "kind": kind])
             if let w = host.window, !host.convert(host.bounds, to: w).intersects(n.convert(n.bounds, to: w)) { clipped = true }
         }
         node["scroll"] = scroll
@@ -451,6 +459,16 @@ extension Agent {
         if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
         host.glassAgentFields(&native)
         if presenter.leaves.isPending(host) { native["pending"] = true }
+        // Read the owned bar's geometry independently of its accessibility representation
+        let navigation = presenter.navigation
+        let tabs = navigation.adopts(tablist: host) ? navigation.tabController : nil
+        let projectedBar = presenter.segments.bar(of: host.id)
+        if tabs != nil || projectedBar != nil {
+            let shown = tabs?.shownTabBar ?? NavigationHost.shownBar(projectedBar)
+            var observation: [String: Any] = ["visible": shown != nil]
+            if let shown { observation["frame"] = rect(box(shown)) }
+            native["tabBar"] = observation
+        }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let grouped = presenter.groupedLists?.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
@@ -622,7 +640,7 @@ extension Agent {
             Agent.scroll(from: list, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             return ["tapped": id, "wheel": wheel]
         }
-        guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), let win = v.window else { return miss(req) }
         var b = v.tapBox(box(v))
         // A run is touched on a fragment it paints (the web's driver taps
         // the span's), not at its paragraph's middle.
@@ -973,7 +991,7 @@ extension Agent {
                         return
                     }
                 }
-                if let owner = sv.superview as? NodeView,
+                if let owner = (sv as? ScrollView)?.scrollingNode ?? (sv.superview as? NodeView),
                    (dx != 0 && owner.style["overscroll_behavior_x"]?.string ?? "auto" != "auto")
                     || (dy != 0 && owner.style["overscroll_behavior_y"]?.string ?? "auto" != "auto") { return }
             }
@@ -1015,7 +1033,7 @@ extension Agent {
     /// Set an input's text as typing does: the field focused, all selected,
     /// the text inserted — the field sends one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
-        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), v.window != nil else { return miss(req) }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         // An inert view takes no input, as a person cannot reach it (HTML inert; a modal presentation's background)
         guard !v.inert else { return ["error": "view \(v.id) is inert"] }
@@ -1086,7 +1104,7 @@ extension Agent {
             let phase = req["phase"] as? String
             if phase != "up" {
                 if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
-                else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+                else if let f = v.selectionField { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
                 else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             }
             // With nothing focused the first root hears it, as a keyboard's key reaches it (`ExactView`).
@@ -1141,11 +1159,11 @@ extension Agent {
                 } else if name == "Enter", let prompt = focus.headerField, let field = prompt.delegate as? PromptField {
                     // A prompt's field is UIKit's, standing in for this one: its Return.
                     _ = field.returnHeard(prompt)
-                } else if let f = focus.field as? TextField {
-                    f.heard = name
-                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) }
+                } else if let f = focus.selectionField {
+                    (f as? TextField)?.heard = name
+                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = f.delegate?.textFieldShouldReturn?(f) }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
-                    f.heard = nil
+                    (f as? TextField)?.heard = nil
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
                 } else {
                     #if os(iOS)
@@ -1166,9 +1184,8 @@ extension Agent {
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
-        // A prompt's field is UIKit's in the alert while it shows (`PromptField`).
-        let prompted = presenter.menus.nativeConfirmation.map { v.isDescendant(of: $0) } == true
-        guard let f = prompted ? v.selectionField : v.field else { return ["error": "view \(v.id) is not an input"] }
+        // Header search and prompts edit UIKit's displayed field, not their authored copy
+        guard let f = v.selectionField else { return ["error": "view \(v.id) is not an input"] }
         let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)
@@ -1256,10 +1273,7 @@ extension Agent {
             $0.window != nil && !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0
         }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
-            let drawn = CGRect(origin: CGPoint(x: -margins.left, y: -margins.top), size: captureView.bounds.size)
-            captureView.drawHierarchy(in: drawn, afterScreenUpdates: true)
-            // The document standing beside the viewport, in its space (`mountDocument`)
-            if captureView === vp, presenter.documentPort !== vp { presenter.documentMount.drawHierarchy(in: drawn, afterScreenUpdates: true) }
+            captureView.drawHierarchy(in: CGRect(origin: CGPoint(x: -margins.left, y: -margins.top), size: captureView.bounds.size), afterScreenUpdates: true)
             UIColor.systemRed.setStroke()
             for node in unshown {
                 let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1).offsetBy(dx: -captureView.bounds.minX - margins.left, dy: -captureView.bounds.minY - margins.top)

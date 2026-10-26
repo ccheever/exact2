@@ -14,7 +14,17 @@
 //                                   with Accept: application/json it answers
 //                                   {location} instead, for a drive's `type @t`
 //   GET /fixture/log                 what the server checked, for a smoke
+//   POST /passkey/…                  the passkey relying party (relying-party.mjs)
+//   POST /attest/challenge           a single-use challenge for @exact/attestation (LLP 1133.028 §8.1)
+//   POST /attest/verify              {format, token, keyId, clientData} → {ok, message, error}
+//
+// `--substitute` accepts the agent's attestation tokens, which its drives
+// start it with; `--team <id>` is the team an App Attest key's RP ID names
+// (`EXACT_APPLE_TEAM`); `EXACT_PLAY_INTEGRITY_KEY` names the service
+// account's key file Play's tokens are decoded with, kept outside the repo.
 import { createServer } from 'node:http';
+import { said, verifier } from '../../packages/attestation/test/verify.mjs';
+import { relyingParty } from './relying-party.mjs';
 
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf('--port') + 1] || 4331) || 4331;
@@ -30,6 +40,12 @@ const requests = new Map(), codes = new Map(), tokens = new Map(), jtis = new Se
 const nonce = () => crypto.randomUUID();
 let authNonce = nonce(), resourceNonce = nonce(), coop = false, auto = false;
 const log = { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] };
+const passkeys = relyingParty(log);
+const team = args.includes('--team') ? args[args.indexOf('--team') + 1] : process.env.EXACT_APPLE_TEAM ?? 'TEAMID';
+const attestations = verifier({ appId: `${team}.com.exact.authfixture`, packageName: 'com.exact.authfixture', substitute: args.includes('--substitute') });
+log.attestation = attestations.log;
+// Each attestation challenge, single use, five minutes (§8.1).
+const challenges = new Map();
 
 const b64 = s => Buffer.from(s, 'base64url');
 const sha64 = text => Buffer.from(Bun.CryptoHasher.hash('sha256', text)).toString('base64url');
@@ -149,6 +165,26 @@ export const server = createServer(async (req, res) => {
       log.resource++;
       return send(res, 200, { did: held.sub, handle: HANDLE });
     }
+    const passkey = req.method === 'POST' && passkeys.route(url.pathname);
+    if (passkey) {
+      let text = '';
+      for await (const chunk of req) text += chunk;
+      return send(res, 200, await passkey(JSON.parse(text || '{}')));
+    }
+    if (url.pathname === '/attest/challenge' && req.method === 'POST') {
+      const challenge = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
+      challenges.set(challenge, Date.now() + 5 * 60_000);
+      return send(res, 200, { challenge });
+    }
+    if (url.pathname === '/attest/verify' && req.method === 'POST') {
+      let text = '';
+      for await (const chunk of req) text += chunk;
+      const proof = JSON.parse(text || '{}'), expires = challenges.get(proof.clientData);
+      challenges.delete(proof.clientData); // spent whatever follows
+      if (!expires || expires < Date.now()) return send(res, 200, { ok: false, error: 'challenge', message: 'Refused: challenge' });
+      const verdict = await attestations.verify(proof);
+      return send(res, 200, { ok: verdict.ok, error: verdict.error ?? null, message: said(verdict) });
+    }
     if (url.pathname === '/fixture/log') return send(res, 200, log);
     // `/fixture/auto?on=1`: approve without a page (a real session driven
     // with no hands on the sheet, `EXACT_DEVICE=real`).
@@ -157,6 +193,8 @@ export const server = createServer(async (req, res) => {
     if (url.pathname === '/fixture/reset') {
       requests.clear(); codes.clear(); tokens.clear(); jtis.clear(); authNonce = nonce(); resourceNonce = nonce(); coop = false; auto = false;
       Object.assign(log, { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] });
+      passkeys.reset();
+      attestations.reset(); challenges.clear();
       return send(res, 200, { ok: true });
     }
     send(res, 404, { error: 'not_found' });

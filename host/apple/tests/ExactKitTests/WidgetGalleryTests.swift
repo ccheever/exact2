@@ -229,6 +229,7 @@ final class WidgetGalleryTests: XCTestCase {
     }
 
     func testGivenPropsSkipARefusingRefresh() throws {
+        try caltrainArchive() // the entry's refresh is `nextTrains`
         let plan = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_REFUSING_PLAN"]))
         let assets = AssetResolver(root: plan.deletingLastPathComponent(), names: ["plans/refusing.plan"], generation: "refusing") { _ in try? Data(contentsOf: plan) }
         let entry = WidgetEntry(kind: "refusing", families: ["systemSmall"], preview: ["title":"Preview"], assets: assets)
@@ -243,6 +244,7 @@ final class WidgetGalleryTests: XCTestCase {
         XCTAssertTrue(try preview.session.snapshot().nodes.values.contains { $0.props["text"] == "Given" })
     }
     func testReadsUseTheRefreshAtTheAppClockAndTheCurrentGeneration() throws {
+        try caltrainArchive()
         #if os(macOS)
         _ = NSApplication.shared
         #endif

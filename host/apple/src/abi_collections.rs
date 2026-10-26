@@ -8,21 +8,26 @@ impl<D: DataSource> Bridge<D> {
     /// bottom) — and f32 top, right, bottom, left), one layout. And the
     /// containing blocks they give subtrees (LLP 1115.002 D8.2): kind 4
     /// with f32 width, height and, for each, 0 for a size, 1 for a maximum,
-    /// or 2 for a content-fit limit that an authored size may exceed;
-    /// kind 5 takes a block back. Kind 6 says where a block is shown in
-    /// place (LLP 1123 D2): f32 x, y, width, height in the local
-    /// coordinates of a u32 view after them, which makes its record 28
-    /// bytes; kind 7 forgets it. Kind 8 is the margins UIKit's own list gives
-    /// a grouped list's cards and cells: f32 the card's left and right
+    /// 2 for a content-fit limit that an authored size may exceed, or 3 for a
+    /// position-area's region (`BlockAxis::Region`);
+    /// kind 5 takes a block back. Kinds 6 and 13 place a block (LLP 1123 D2):
+    /// f32 x, y, width, height, then the u32 containing view and f32 content
+    /// offsets x and y (36 bytes). Kind 6 is a fixed allocation and ignores
+    /// the offsets; kind 13 is a scrollport, including at offset zero.
+    /// Kind 7 forgets either placement. Kind 8 reports UIKit's grouped-list
+    /// card and cell margins: f32 the card's left and right
     /// insets, then the cell's left and right margins; kind 9 clears them.
     /// Kind 12 reports scrollbar gutters in the right and bottom fields.
+    /// Kind 14 shows a split's own placeholder (LLP 1116.006 D2,
+    /// `Runner::show_split_placeholder`) and kind 15 hides it again; their
+    /// four floats are unused.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let mut records = Vec::new();
         let mut rest = bytes;
         while rest.len() >= 8 {
-            let size = if rest[4..8] == 6u32.to_le_bytes() {
-                28
+            let size = if rest[4..8] == 6u32.to_le_bytes() || rest[4..8] == 13u32.to_le_bytes() {
+                36
             } else {
                 24
             };
@@ -35,17 +40,19 @@ impl<D: DataSource> Bridge<D> {
         let out = if !rest.is_empty() {
             self.refusal("covers: truncated record")
         } else {
-            let (mut covers, mut blocks, mut placements, mut margins, mut lists) =
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            let (mut covers, mut blocks, mut placements, mut margins, mut lists, mut shows) = (
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
             for r in records {
                 let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                 let edge = |i: usize| f32::from_le_bytes(word(i));
                 let (view, kind) = (u32::from_le_bytes(word(0)), u32::from_le_bytes(word(4)));
-                let axis = |length: usize, policy: usize| match edge(policy) {
-                    0.0 => exact_kernel::BlockAxis::Is(edge(length)),
-                    2.0 => exact_kernel::BlockAxis::Fit(edge(length)),
-                    _ => exact_kernel::BlockAxis::AtMost(edge(length)),
-                };
+                let axis = |length: usize, policy: usize| block_axis(edge(length), edge(policy));
                 match kind {
                     4 | 5 => {
                         let block = exact_kernel::HostBlock {
@@ -57,9 +64,20 @@ impl<D: DataSource> Bridge<D> {
                             placements.push((view, None));
                         }
                     }
-                    6 => {
+                    6 | 13 => {
                         let rect = [8, 12, 16, 20].map(|i| f64::from(edge(i)));
-                        placements.push((view, Some((rect, u32::from_le_bytes(word(24))))));
+                        let offset = [f64::from(edge(28)), f64::from(edge(32))];
+                        if !offset.iter().all(|value| value.is_finite()) {
+                            continue;
+                        }
+                        placements.push((
+                            view,
+                            Some((
+                                rect,
+                                u32::from_le_bytes(word(24)),
+                                (kind == 13).then_some(offset),
+                            )),
+                        ));
                     }
                     7 => placements.push((view, None)),
                     8 => margins.push((
@@ -70,6 +88,7 @@ impl<D: DataSource> Bridge<D> {
                         }),
                     )),
                     9 => margins.push((view, None)),
+                    14 | 15 => shows.push((view, kind == 14)),
                     10 => lists.push((view, Some([edge(8), edge(12)]))),
                     11 => lists.push((view, None)),
                     1 => {
@@ -89,10 +108,40 @@ impl<D: DataSource> Bridge<D> {
                 }
             }
             self.host.as_mut().map_or_else(not_booted, |h| {
-                h.set_claims(&covers, &blocks, &placements, &margins, &lists)
+                h.set_claims(&covers, &blocks, &placements, &margins, &lists, &shows)
             })
         };
         self.emit(out)
+    }
+
+    /// What `view`'s subtree would measure in a block (`Kernel::measure_block`,
+    /// a popover's position-area option): the border box's width and height,
+    /// then the margins, top, right, bottom and left, as the layout resolved
+    /// them, six LE f32s in the output buffer, and 24; 0 when refused. Each axis is a
+    /// length and a policy as `covers`' kind 4 takes them, 3 being a region.
+    /// No batch: nothing is laid out, published or sent.
+    pub fn measure_block(&mut self, view: u32, lengths: [f32; 2], policies: [u32; 2]) -> u32 {
+        let block = exact_kernel::HostBlock {
+            width: block_axis(lengths[0], policies[0] as f32),
+            height: block_axis(lengths[1], policies[1] as f32),
+        };
+        let used = self
+            .host
+            .as_mut()
+            .and_then(|h| h.measure_block(view, block));
+        self.output = used.map_or_else(Vec::new, |m| {
+            let [top, right, bottom, left] = m.margin;
+            [m.border.0, m.border.1, top, right, bottom, left]
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect()
+        });
+        self.output.len() as u32
+    }
+
+    /// The kernel's layout stamp (`Host::layout_stamp`); 0 before a boot.
+    pub fn layout_stamp(&self) -> u64 {
+        self.host.as_ref().map_or(0, |h| h.layout_stamp())
     }
 
     /// Copy one current immutable region request; stale IDs return an error object.
@@ -219,5 +268,16 @@ impl<D: DataSource> Bridge<D> {
             host.scroll_into_view(view, key, block, inline)
         });
         self.emit(out)
+    }
+}
+
+/// One axis of a host block from its wire length and policy: 0 a size, 1 a
+/// maximum, 2 a content-fit limit, 3 a position-area's region.
+fn block_axis(length: f32, policy: f32) -> exact_kernel::BlockAxis {
+    match policy {
+        0.0 => exact_kernel::BlockAxis::Is(length),
+        2.0 => exact_kernel::BlockAxis::Fit(length),
+        3.0 => exact_kernel::BlockAxis::Region(length),
+        _ => exact_kernel::BlockAxis::AtMost(length),
     }
 }

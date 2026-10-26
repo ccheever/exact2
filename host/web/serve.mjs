@@ -13,11 +13,13 @@ import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
+import { withLock } from './build-lock.mjs';
 import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
+import { keepGeneration, reapGenerations, servedFile } from './generations.mjs';
 
 const PUBLIC_FILES = new Set([
   ...INSTALL_PUBLIC,
@@ -695,37 +697,25 @@ export const buildFileCards = (dist) => listBuildFiles(dist).map((name) => {
  * build in a stage of their own and swap here in turn, under `dist.lock`, so none deletes or overwrites the files
  * another is writing (app farm round 1: two of three concurrent builds failed and the third lost `app.css`). */
 export function replaceBuild(stage, dist) {
-  const lock = `${dist}.lock`, started = Date.now(), nap = new Int32Array(new SharedArrayBuffer(4));
-  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-  for (;;) {
-    try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      let owner = 0, age = 0;
-      try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
-      // A swap takes milliseconds: a lock whose owner is gone, or that names none after a second, is left over.
-      if (Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000) { rmSync(lock, { force: true }); continue; }
-      if (Date.now() - started > 30000) throw new Error(`${lock}: process ${owner} has held it for 30 s; remove it if that process is not a build`);
-      Atomics.wait(nap, 0, 0, 10);
-    }
-  }
-  try {
+  mkdirSync(dirname(dist), { recursive: true });
+  withLock(`${dist}.lock`, () => {
     // Before `.previous` goes: it may be the only tree left by a swap that
     // was killed between its renames.
     if (!realDirectory(stage)) throw new Error(`${stage}: no build to put in place`);
     // No dist (that swap's state): the stage in place first, then `.previous` gone.
-    if (!existsSync(dist)) { renameSync(stage, dist); rmSync(`${dist}.previous`, { recursive: true, force: true }); return; }
+    if (!existsSync(dist)) { renameSync(stage, dist); keepGeneration(`${dist}.previous`, dist); reapGenerations(dist); return; }
     rmSync(`${dist}.previous`, { recursive: true, force: true });
     // One step where the system has one: dist is the new tree from one
     // instant to the next, never absent, and the old tree is left at the
     // stage's path. Else two renames, between which a reader falls back to
     // `.previous`.
-    if (realDirectory(dist) && exchangeDirectories(stage, dist)) { rmSync(stage, { recursive: true, force: true }); return; }
+    // The build replaced is kept by its generation while its pages may still ask for its files (generations.mjs).
+    if (realDirectory(dist) && exchangeDirectories(stage, dist)) { keepGeneration(stage, dist); reapGenerations(dist); return; }
     renameSync(dist, `${dist}.previous`);
     try { renameSync(stage, dist); }
     catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
-    rmSync(`${dist}.previous`, { recursive: true, force: true });
-  } finally { rmSync(lock, { force: true }); }
+    keepGeneration(`${dist}.previous`, dist); reapGenerations(dist);
+  });
 }
 
 const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
@@ -806,13 +796,17 @@ function* treeFile(dist, pathname, accept) {
   }
   return null;
 }
-export async function serveBuildTree(dist, req, res) {
+/** A JS-target build's file for a request, from the build the page booted (generations.mjs): a document names its
+ * generation in its base, and a path under one, or any path for a drive's `pinned` one, is read from that build. A
+ * generation kept no more is 410, which the page's glue answers by loading the page again. */
+export async function serveBuildTree(dist, req, res, { pinned = null } = {}) {
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
-  const found = target && await buildTreeFileAsync(dist, target.pathname, req.headers.accept);
-  if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-  sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
+  const r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
+  if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
+  if (r.status !== 200) { res.writeHead(r.status, { 'cache-control': 'no-store' }); res.end(); return; }
+  sendStaticBody(req, res, r.body, { 'content-type': webContentType(r.route), 'cache-control': 'no-store' });
 }
 
 const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities', ...(rust ? ['rust'] : [])];

@@ -288,7 +288,7 @@ impl<D: DataSource> Presenter<D> {
         } else {
             self.scroll.insert(id, next);
             self.scroll_end_input(id, s.offset, completion);
-            self.collection_scrolled(id);
+            self.collection_scroll_input(id, s.offset);
         }
         self.dirty = true;
         if let Some(error) = self.refresh_transform_geometry() {

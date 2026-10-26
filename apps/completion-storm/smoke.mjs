@@ -13,7 +13,7 @@ const positional=outputIndex<0?args:args.filter((_,i)=>i!==outputIndex && i!==ou
 const host=positional[0] ?? 'web';
 const lanes=Number(positional[1] ?? (host==='web'?128:6));
 assert.ok(['web','macos','linux'].includes(host),'host: web, macos, linux');
-assert.ok([6,32,128].includes(lanes),'lanes: 6, 32, 128');
+assert.ok([1,6,32,128].includes(lanes),'lanes: 1, 6, 32, 128');
 mkdirSync(output,{recursive:true});
 const acknowledgements=[];
 const app = await open({host,app:'completion-storm',...(host==='web'?{url:process.env.EXACT_STORM_WEB_URL ?? 'http://127.0.0.1:4320'}:{}),size:[1000,2000]});
@@ -40,14 +40,20 @@ async function until(predicate, label) {
   throw Error('timeout: '+label+' '+JSON.stringify({slots:state.slots,pending:state.pending,logs:await app.logs()}));
 }
 try {
-  await app.tap(`count-${lanes}`);
+  assert.equal((await app.find('interaction-count')).props.text,'Still interactive: 0 clicks');
+  if (lanes===1) await app.type('concurrency','1');
+  else await app.tap(`count-${lanes}`);
   await app.tap('start-wave');
   const first=await until(s=>s.derives.pendingCount===lanes,'first pending');
+  assert.equal((await app.find('pending-count')).props.text,`${lanes} pending ${lanes===1?'lane':'lanes'}`);
   assert.equal(first.derives.validCount,0);
   const firstId=first.derives.waveId;
   await typeAndAcknowledge(`typing while ${lanes} logical requests are pending`,'held');
   await app.tap('interact');
   assert.equal((await app.state()).slots.clicks,1);
+  assert.equal((await app.find('interaction-count')).props.text,'Still interactive: 1 click');
+  await app.tap('interact');
+  assert.equal((await app.find('interaction-count')).props.text,'Still interactive: 2 clicks');
   await app.tap('navigate-away');
   assert.equal((await app.state()).derives.pendingCount,0);
   assert.equal((await app.tree()).nodes.filter(n=>n.props.testId==='lane-0').length,0);
@@ -64,7 +70,7 @@ try {
       if(Date.now()>deadline) throw Error('forgotten reads were not aborted: '+JSON.stringify(oldRelease));
       await Bun.sleep(10);
     }
-    assert.ok(oldRelease.abandoned>=2,'the held reads should be aborted');
+    assert.ok(oldRelease.abandoned>=Math.min(lanes,2),'the held reads should be aborted');
     assert.equal((await app.clock('settle')).settled,true);
   }
   await app.tap('start-wave');
@@ -76,6 +82,7 @@ try {
   const complete=await until(s=>s.derives.pendingCount===0,'completed');
   assert.equal(complete.derives.validCount,lanes);
   assert.equal(complete.derives.failedCount,0);
+  assert.equal((await app.find('valid-count')).props.text,`${lanes} valid ${lanes===1?'success':'successes'} in this wave`);
   assert.equal((await app.find('stress-echo')).props.text,'input during real completion settlement');
   for (let lane=0;lane<lanes;lane++) {
     assert.equal(complete.resources['r'+lane].wave,second.derives.waveId);
@@ -93,6 +100,7 @@ try {
   const failed=Array.from({length:lanes},(_,lane)=>lane).filter(lane=>(lane*37)%100<50).length;
   assert.equal(mixed.derives.failedCount,failed);
   assert.equal(mixed.derives.validCount,lanes-failed);
+  assert.equal((await app.find('failed-count')).props.text,`${failed} failed or invalid ${failed===1?'reply':'replies'} in this wave`);
   const report={passed:true,host,os:platform(),lanes,execution:host==='linux'&&platform()!=='linux'?'Linux host executed on '+platform()+'; not actual Linux':host,acknowledgements,measurement:'agent command to echoed Contract state acknowledgement; not hardware key latency, display presentation, or FPS',fixtureRelease:{method:'in-app control request',afterForget:oldRelease,heldBeforeFresh:freshRelease},firstWave:firstId,remountedWave:second.derives.waveId,validAfterRemount:complete.derives.validCount,mixedValid:mixed.derives.validCount,mixedFailed:mixed.derives.failedCount,staleDropLinesInBoundedJournal:dropped,echo:complete.slots.note,hostErrors:logs.host.filter(x=>x.includes('exception:'))};
   await app.screenshot(resolve(output,`${host}-check.png`));
   writeFileSync(resolve(output,`${host}-check.json`),JSON.stringify(report,null,2)+'\n');

@@ -166,6 +166,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     /// The segmented control a tablist or radio group projects to, if any:
     /// a hatched node's platform object (LLP 1075.003.000 §3.2).
     func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
+    func bar(of id: UInt32) -> UITabBar? { bars[id] }
     /// Whether `id` is drawn as UIKit's segmented control or tab bar, its own tabs hidden behind it.
     func projects(_ id: UInt32) -> Bool { controls[id] != nil || bars[id] != nil }
     /// The image segment `index` of `id`'s control was drawn from.

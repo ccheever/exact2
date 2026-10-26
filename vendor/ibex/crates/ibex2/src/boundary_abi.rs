@@ -880,14 +880,19 @@ pub unsafe extern "C" fn ibex2_async_begin(
     };
     if op == AsyncOp::FsCompressImage {
         // Exact patch 9 (exact2 LLP 1069.002 A1.11): a fifth, the media type.
-        if !(4..=5).contains(&raw.len()) {
+        // Patch 9a (exact2 LLP 1133.019 D17): a sixth, the edit's JSON; or
+        // `transformImage`'s three, its options' JSON third.
+        let transform = raw.len() == 3;
+        if !(3..=6).contains(&raw.len()) {
             return 1;
         }
         for (index, value) in raw.iter().enumerate() {
             match (index, value.borrow()) {
                 (0 | 1, Ok(HostArg::Str(text))) if text.len() <= 32_768 => {}
-                (2 | 3, Ok(HostArg::Number(_))) => {}
+                (2, Ok(HostArg::Str(text))) if transform && text.len() <= 4096 => {}
+                (2 | 3, Ok(HostArg::Number(_))) if !transform => {}
                 (4, Ok(HostArg::Str(text))) if text.len() <= 32 => {}
+                (5, Ok(HostArg::Str(text))) if text.len() <= 4096 => {}
                 _ => return 1,
             }
         }
@@ -937,7 +942,14 @@ pub unsafe extern "C" fn ibex2_async_begin(
     let work = move || {
         let result = match image_job {
             Some(Ok(job)) => job.execute().map(|image| {
-                HostValue::Str(format!("{}\t{}\t{}", image.width, image.height, image.size))
+                let (w, h, size) = (image.width, image.height, image.size);
+                HostValue::Str(match (image.path, image.report) {
+                    // Exact patch 9a: a transform's path and report follow.
+                    (Some(path), report) => {
+                        format!("{w}\t{h}\t{size}\t{path}\t{}", report.unwrap_or_default())
+                    }
+                    (None, _) => format!("{w}\t{h}\t{size}"),
+                })
             }),
             Some(Err(error)) => Err(error),
             None => match fetch_headers {
@@ -964,6 +976,31 @@ fn prepare_image_args(
     grants: std::sync::Arc<GrantSet>,
     task_id: u64,
 ) -> Result<crate::stdlib::fs_image::ImageJob, HostError> {
+    // Exact patch 9a (exact2 LLP 1133.019 D17): one JSON value of options,
+    // which the codec reads. `transformImage` is (from, to, options);
+    // `compressImage` may add its edit after its type.
+    let options = |value: Option<&HostValue>| match value {
+        None | Some(HostValue::Undefined | HostValue::Null) => Ok(None),
+        Some(HostValue::Str(json)) if json.len() <= 4096 => Ok(Some(json.as_str().into())),
+        Some(_) => Err(HostError::InvalidArgument(
+            "image options must be one JSON string of at most 4096 bytes".into(),
+        )),
+    };
+    if let (Some(HostValue::Str(from)), Some(HostValue::Str(to)), Some(HostValue::Str(_))) =
+        (args.first(), args.get(1), args.get(2))
+    {
+        return state.prepare_image(
+            task_id,
+            grants,
+            from,
+            to,
+            crate::stdlib::fs_image::ImageRequest {
+                options: options(args.get(2))?,
+                transform: true,
+                ..Default::default()
+            },
+        );
+    }
     let (
         Some(HostValue::Str(from)),
         Some(HostValue::Str(to)),
@@ -1006,6 +1043,8 @@ fn prepare_image_args(
             max_dimension: *dimension as u32,
             max_bytes: *bytes as u64,
             format,
+            options: options(args.get(5))?,
+            transform: false,
         },
     )
 }

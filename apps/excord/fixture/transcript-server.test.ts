@@ -97,7 +97,8 @@ function serverForTest(sockets: boolean, options: FixtureOptions = {}) {
     expect(reply.dispatches.every((frame: any) => active.some(peer => peer.sessionId === frame.session_id))).toBe(true);
     return reply.dispatches as any[];
   };
-  return { fixture, request, control, state, connect, inject, barrier,
+  const raw = (request: Request): Promise<Response> => sockets ? fetch(request) : handle(request, {});
+  return { fixture, request, raw, control, state, connect, inject, barrier,
     async close() { await Promise.all(peers.map(peer => peer.close())); await fixture.close(); },
   };
 }
@@ -315,5 +316,25 @@ for (const sockets of [false, true]) describe(sockets ? 'with sockets' : 'withou
       expect((await r.request(path)).status).toBe(404);
     }
     expect((await r.request('/media/harbor.png', {}, 'POST')).status).toBe(404);
+  });
+
+  test('a file goes up as Discord takes it: a slot, a PUT without credentials, then the message names it', async () => {
+    const r = start(), channel = r.fixture.world.generalChannelId;
+    const png = new Uint8Array(await Bun.file(`${import.meta.dir}/../assets/media/cafe.png`).arrayBuffer());
+    const slots = await (await r.request(`/api/v9/channels/${channel}/attachments`,
+      { files: [{ id: '0', filename: 'cafe.png', file_size: png.length, is_clip: false }] })).json();
+    const [slot] = slots.attachments;
+    expect(slot).toMatchObject({ id: '0', upload_filename: '00000001/cafe.png' });
+    const put = (headers: Record<string, string>) => r.raw(new Request(slot.upload_url, { method: 'PUT', headers, body: png }));
+    expect((await put({ Authorization: r.fixture.world.token })).status).toBe(400);
+    expect((await r.request(`/api/v9/channels/${channel}/messages`, { content: '', nonce: '9',
+      attachments: [{ id: '0', filename: 'cafe.png', uploaded_filename: slot.upload_filename }] })).status).toBe(400);
+    expect((await put({})).status).toBe(200);
+    const sent = await (await r.request(`/api/v9/channels/${channel}/messages`, { content: '', nonce: '10',
+      attachments: [{ id: '0', filename: 'cafe.png', uploaded_filename: slot.upload_filename }] })).json();
+    expect(sent.attachments[0]).toMatchObject({ filename: 'cafe.png', size: png.length, content_type: 'image/png', width: 640, height: 640 });
+    const served = await r.request(new URL(sent.attachments[0].url).pathname);
+    expect(new Uint8Array(await served.arrayBuffer())).toEqual(png);
+    expect((await r.request(`/api/v9/channels/${channel}/messages`, { content: ' ', nonce: '11' })).status).toBe(400);
   });
 });

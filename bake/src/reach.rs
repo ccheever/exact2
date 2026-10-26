@@ -25,7 +25,12 @@ use std::path::Path;
 /// Fill `compat.reach` and, for an app with device grants, the
 /// `grantPurposes` input (moving the id). Refuses a malformed device line and
 /// a purpose key the base strings table lacks, each reported.
-pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Result<(), String> {
+pub(crate) fn derive(
+    app_dir: &Path,
+    platform: &str,
+    plan: Option<&exact_plan::Plan>,
+    compat: &mut Compat,
+) -> Result<(), String> {
     let Some(ceiling) = compat.inputs["grantCeiling"].as_str().map(str::to_owned) else {
         return Ok(());
     };
@@ -41,7 +46,8 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
                 .join("\n"));
         }
     };
-    let strings = if devices.is_empty() {
+    privacy_policy(app_dir, platform, &devices)?;
+    let strings = if devices.iter().all(|g| !g.device.purpose) {
         None
     } else {
         contract::strings_tables(app_dir)?
@@ -50,7 +56,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     // Key → locale → text, a translation lacking a key falling back to the
     // base as `t` does.
     let mut purposes: BTreeMap<&str, BTreeMap<String, String>> = BTreeMap::new();
-    for grant in &devices {
+    for grant in devices.iter().filter(|g| g.device.purpose) {
         let base = strings
             .as_ref()
             .and_then(|s| s.base_table().get(grant.purpose));
@@ -145,6 +151,8 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
     let mut flags: Vec<&str> = Vec::new();
+    // iOS's background modes and task identifiers (LLP 1133.017 D14).
+    let (mut modes, mut tasks): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     // Android's permissions: the Canvas host on Android bakes as Linux.
     let mut android: Vec<&str> = Vec::new();
     let keys_of = |device: &Device| match platform {
@@ -152,8 +160,23 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "macos" => device.macos,
         _ => &[],
     };
+    // A key two granted rows write takes the text of the row whose own
+    // prompt it is, the one listing it first (LLP 1133.019 D4: on macOS both
+    // photo lines write `NSPhotoLibraryUsageDescription`, which takes
+    // `device.photos`'s purpose), never whichever line came last; `shared`
+    // names the line each such key took its text from.
+    let mut writers: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
+    let mut shared = Map::new();
     for grant in &devices {
-        for key in keys_of(grant.device) {
+        for (at, key) in keys_of(grant.device).iter().enumerate() {
+            if let Some(&(first, by)) = writers.get(key) {
+                let line = if first <= at { by } else { grant.device.name };
+                shared.insert((*key).into(), json!(format!("device.{line}")));
+                if first <= at {
+                    continue;
+                }
+            }
+            writers.insert(key, (at, grant.device.name));
             usage.insert((*key).into(), json!(purposes[grant.purpose]));
         }
         // The platform's signing entitlements: macOS's hardened-runtime ones,
@@ -165,6 +188,8 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
             "ios" => {
                 entitlements.extend(grant.device.ios_entitlements);
                 flags.extend(grant.device.ios_flags);
+                modes.extend(grant.device.ios_modes);
+                tasks.extend(grant.device.ios_tasks);
             }
             "linux" => android.extend(grant.device.android),
             _ => {}
@@ -184,6 +209,26 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
                 .or_insert_with(|| json!(purposes[grant.purpose]));
         }
     }
+    // A usage key the app's use of a module name derives (`derives`, LLP
+    // 1133.026 D19 item 4: `NSMotionUsageDescription` for a pedometer or an
+    // altimeter name), written with its grant line's purpose; a line not on
+    // TV drops it there.
+    let mut derived_off_tv: Vec<String> = Vec::new();
+    if let (Some(plan), "ios") = (plan, platform) {
+        let text = contract::native::app_text(app_dir);
+        for (line, key) in contract::native::derived(plan, &text, "ios") {
+            let name = line.strip_prefix("device.").unwrap_or(&line);
+            let Some(grant) = devices.iter().find(|g| g.device.name == name) else {
+                continue;
+            };
+            if grant.device.purpose && !usage.contains_key(&key) {
+                usage.insert(key.clone(), json!(purposes[grant.purpose]));
+                if !grant.device.tvos {
+                    derived_off_tv.push(key);
+                }
+            }
+        }
+    }
     // A runtime exception (D9) is macOS's alone, signed onto the one helper
     // it names and never joining the app's own entitlements.
     let mut helpers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -198,6 +243,10 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     }
     entitlements.sort_unstable();
     entitlements.dedup();
+    for list in [&mut modes, &mut tasks] {
+        list.sort_unstable();
+        list.dedup();
+    }
     // tvOS bakes the iOS plan; what a row not on TV derives there, the tvOS
     // build drops (D5): every key and entitlement no TV row also needs.
     let tv_omits = if platform == "ios" {
@@ -220,6 +269,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
             })
             .filter(|key| !on_tv(key))
             .collect();
+        omit.extend(derived_off_tv.iter().map(String::as_str));
         omit.sort_unstable();
         omit.dedup();
         omit
@@ -241,6 +291,43 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "tvOmits": tv_omits,
         "auth": auth,
     });
+    if !modes.is_empty() {
+        compat.reach["backgroundModes"] = json!(modes);
+        compat.reach["tasks"] = json!(tasks);
+    }
+    if !shared.is_empty() {
+        compat.reach["sharedKeys"] = Value::Object(shared);
+    }
+    Ok(())
+}
+
+/// An app granting Health names its privacy policy (`privacy_policy`, LLP
+/// 1133.026 D4): HealthKit requires one, and Health Connect shows its
+/// permission screen only beside one. Refused where Android bakes (as
+/// `linux`); a warning on iOS, where App Store review asks for it.
+fn privacy_policy(
+    app_dir: &Path,
+    platform: &str,
+    devices: &[exact_runner::device::DeviceGrant<'_>],
+) -> Result<(), String> {
+    let health = devices.iter().any(|g| g.device.name.starts_with("health-"));
+    if !health || !matches!(platform, "linux" | "ios") {
+        return Ok(());
+    }
+    let manifest: Value = std::fs::read_to_string(app_dir.join("app.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    if (manifest["privacy_policy"].as_str()).is_some_and(|u| u.starts_with("https://")) {
+        return Ok(());
+    }
+    let why = "grant-privacy-policy: an app granting `device.health-read` or `device.health-write` names its privacy policy in app.json, `\"privacy_policy\": \"https://…\"` (LLP 1133.026 D4)";
+    if platform == "linux" {
+        return Err(why.into());
+    }
+    if std::env::var_os("OUT_DIR").is_some() {
+        println!("cargo:warning={why}");
+    }
     Ok(())
 }
 
@@ -267,12 +354,63 @@ pub(crate) fn parsed(
                 .into_iter()
                 .map(move |e| format!("grant-parse: {source}: {e}"))
         })
+        .chain(presence(app_dir, &sources))
         .collect();
     if errors.is_empty() {
         Ok(())
     } else {
         Err(errors.join("\n"))
     }
+}
+
+/// A presence line's refusals (LLP 1133.010 D4, D13): a name whose sources
+/// keep it under two policies (`grant-policy-conflict`); a presence line in
+/// an app that grants no `device.local-auth`, which Face ID will not run
+/// without (`grant-missing`); and one in an app that does not depend on
+/// `@exact/local-auth`, whose implementation shows the sheet.
+fn presence(app_dir: &Path, sources: &[(Option<&str>, &str); 2]) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut lines: BTreeMap<String, (String, &str)> = BTreeMap::new();
+    let mut device = false;
+    for (spec, source) in sources {
+        let Some(Ok(set)) = spec.map(exact_runner::grants::parse) else {
+            continue;
+        };
+        device |= set
+            .lines()
+            .iter()
+            .any(|l| l.starts_with("device.local-auth "));
+        for (name, policy) in set.presence() {
+            let words = policy.line_words();
+            match lines.get(name) {
+                Some((other, at)) if *other != words => errors.push(format!(
+                    "grant-policy-conflict: `secret.keep {name}` is `{other}` in {at} and `{words}` in {source}; a name is kept under one policy"
+                )),
+                Some(_) => {}
+                None => {
+                    lines.insert(name.to_owned(), (words, source));
+                }
+            }
+        }
+    }
+    let Some((name, (words, _))) = lines.iter().next() else {
+        return errors;
+    };
+    if !device {
+        errors.push(format!(
+            "grant-missing: `secret.keep {name} {words}` needs `device.local-auth <purposeKey>` beside it: the strings key whose text says why the app asks for Face ID"
+        ));
+    }
+    let manifest = std::fs::read_to_string(app_dir.join("package.json")).unwrap_or_default();
+    let depends = serde_json::from_str::<Value>(&manifest)
+        .is_ok_and(|m| !m["dependencies"]["@exact/local-auth"].is_null());
+    if !depends {
+        errors.push(format!(
+            "grant-missing: `secret.keep {name} {words}` needs `\"@exact/local-auth\"` in package.json's dependencies, whose implementation shows the check: `bun scripts/exact.mjs add local-auth {}`",
+            app_dir.display()
+        ));
+    }
+    errors
 }
 
 /// `auth.*` through the same table (LLP 1069.006 D2; LLP 1069.008 D2's
@@ -311,11 +449,57 @@ fn auth(ceiling: &str, platform: &str, compat: &Compat) -> Result<Value, String>
         })
         .map(|host| format!("webcredentials:{host}"))
         .collect();
+    let passkeys = passkey_rp_ids(ceiling)?;
+    let mut webcredentials = webcredentials;
+    for rp in passkeys.iter().filter(|rp| *rp != "localhost") {
+        let domain = format!("webcredentials:{rp}");
+        if !webcredentials.contains(&domain) {
+            webcredentials.push(domain);
+        }
+    }
     Ok(json!({
         "sessions": sessions,
         "callbacks": callbacks,
+        "passkeys": passkeys,
         "associatedDomains": if matches!(platform, "ios" | "macos") { webcredentials } else { Vec::new() },
     }))
+}
+
+/// The RP IDs `auth.passkey <rp id>` grants (LLP 1133.011 D6): each a
+/// domain (`example.com`, `login.example.com`) or `localhost`, which only the
+/// web admits. A scheme, port, path, IP address or uppercase letter refuses,
+/// since WebAuthn compares the RP ID with the origin's effective domain as
+/// written (§5.1.3 step 7).
+fn passkey_rp_ids(ceiling: &str) -> Result<Vec<String>, String> {
+    let mut ids = Vec::new();
+    for line in ceiling.lines().map(str::trim) {
+        let mut words = line.split_whitespace();
+        if words.next() != Some("auth.passkey") {
+            continue;
+        }
+        let (Some(rp), None) = (words.next(), words.next()) else {
+            return Err(format!("grant-auth: `{line}`: `auth.passkey` takes one RP ID, a domain such as `example.com`, or `localhost` (LLP 1133.011 D6)"));
+        };
+        let label = |l: &str| {
+            !l.is_empty()
+                && l.len() <= 63
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        };
+        let labels: Vec<&str> = rp.split('.').collect();
+        let numeric = labels
+            .last()
+            .is_some_and(|l| l.bytes().all(|b| b.is_ascii_digit()));
+        if rp != "localhost" && (labels.len() < 2 || numeric || !labels.iter().all(|l| label(l))) {
+            return Err(format!("grant-auth: `{line}`: an RP ID is a domain in lowercase with no scheme, port or path (`example.com`, `login.example.com`), or `localhost`; an IP address is not one (LLP 1133.011 D6)"));
+        }
+        if !ids.iter().any(|i| i == rp) {
+            ids.push(rp.to_owned());
+        }
+    }
+    Ok(ids)
 }
 
 /// Who enforces a device line: the OS's prompt (from the key the build
@@ -340,6 +524,9 @@ fn family_enforcement(line: &str) -> &'static str {
         "surface.read" | "surface.write" => "presenter",
         "auth.session" | "auth.callback" => {
             "the host's exact-auth: arm (Apple, web; Linux answers 501)"
+        }
+        "auth.passkey" => {
+            "the runner's admission (the RP ID); the platform's association check (Apple, Android)"
         }
         "doc.keep" => "the host's kept documents (macOS; Linux and the web keep nothing yet)",
         _ => "runtime",
@@ -397,7 +584,7 @@ mod tests {
     fn a_missing_purpose_refuses_every_one_in_one_run() {
         let dir = app(&[("en", r#"{"purpose.mic": "Records."}"#)]);
         let mut c = compat("device.microphone purpose.mic\ndevice.geolocation purpose.where\ndevice.camera purpose.eye");
-        let error = derive(&dir.0, "ios", &mut c).unwrap_err();
+        let error = derive(&dir.0, "ios", None, &mut c).unwrap_err();
         assert_eq!(error.lines().count(), 2, "{error}");
         assert!(
             error.lines().all(|l| l.starts_with("grant-purpose: ")),
@@ -405,9 +592,9 @@ mod tests {
         );
         assert!(error.contains("strings/en.json has no \"purpose.where\""));
         let bare = tempdir::Dir::new();
-        let error = derive(&bare.0, "ios", &mut compat("device.microphone p")).unwrap_err();
+        let error = derive(&bare.0, "ios", None, &mut compat("device.microphone p")).unwrap_err();
         assert!(error.contains("no strings/ directory"), "{error}");
-        let error = derive(&bare.0, "ios", &mut compat("device.lidar p")).unwrap_err();
+        let error = derive(&bare.0, "ios", None, &mut compat("device.lidar p")).unwrap_err();
         assert!(error.starts_with("grant-device: "), "{error}");
     }
 
@@ -419,7 +606,7 @@ mod tests {
                 ("fr", fr),
             ]);
             let mut c = compat("net.fetch https://x/\ndevice.microphone purpose.mic");
-            derive(&dir.0, "macos", &mut c).unwrap();
+            derive(&dir.0, "macos", None, &mut c).unwrap();
             (
                 c.inputs["grantPurposes"].as_str().unwrap().to_string(),
                 c.id,
@@ -438,7 +625,7 @@ mod tests {
             ("fr", r#"{"purpose.mic": "Enregistre."}"#),
         ]);
         let mut c = compat("net.fetch https://x/\ndevice.microphone purpose.mic");
-        derive(&dir.0, "macos", &mut c).unwrap();
+        derive(&dir.0, "macos", None, &mut c).unwrap();
         assert_eq!(c.inputs["grantPurposes"], a);
         assert_eq!(
             reach["usage"]["NSMicrophoneUsageDescription"],
@@ -464,18 +651,42 @@ mod tests {
     fn an_app_without_device_grants_keeps_its_id() {
         let dir = tempdir::Dir::new();
         let mut c = compat("net.fetch https://x/");
-        derive(&dir.0, "ios", &mut c).unwrap();
+        derive(&dir.0, "ios", None, &mut c).unwrap();
         assert_eq!(c.id, "old");
         assert!(c.inputs.get("grantPurposes").is_none());
         assert_eq!(c.reach["usage"], json!({}));
         let mut ios = compat("device.speech-recognition p");
         let dir = app(&[("en", r#"{"p": "Transcribes."}"#)]);
-        derive(&dir.0, "ios", &mut ios).unwrap();
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
         assert_eq!(
             ios.reach["usage"],
             json!({"NSSpeechRecognitionUsageDescription": {"en": "Transcribes."}})
         );
         assert_eq!(ios.reach["entitlements"], json!([]));
+    }
+
+    #[test]
+    fn background_lines_derive_ios_modes_and_the_task_identifiers() {
+        // LLP 1133.017 D14: `fetch` and the refresh identifier for a periodic
+        // line, `processing` and two processing identifiers too for a sync
+        // one, each once; the Mac needs none.
+        let dir = app(&[("en", "{}")]);
+        let mut periodic = compat("device.periodic-background-sync");
+        derive(&dir.0, "ios", None, &mut periodic).unwrap();
+        assert_eq!(periodic.reach["backgroundModes"], json!(["fetch"]));
+        assert_eq!(periodic.reach["tasks"], json!(["refresh"]));
+        let grants = "device.background-sync\ndevice.periodic-background-sync";
+        let mut ios = compat(grants);
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
+        assert_eq!(ios.reach["backgroundModes"], json!(["fetch", "processing"]));
+        assert_eq!(
+            ios.reach["tasks"],
+            json!(["processing.network", "processing.network-power", "refresh"])
+        );
+        assert_eq!(ios.reach["usage"], json!({}));
+        let mut mac = compat(grants);
+        derive(&dir.0, "macos", None, &mut mac).unwrap();
+        assert!(mac.reach.get("backgroundModes").is_none());
     }
 
     #[test]
@@ -490,7 +701,7 @@ mod tests {
         ]);
         let derive_for = |grants: &str, platform: &str| {
             let mut c = compat(grants);
-            derive(&dir.0, platform, &mut c).unwrap();
+            derive(&dir.0, platform, None, &mut c).unwrap();
             c.reach
         };
         let (share, update) = (
@@ -545,6 +756,77 @@ mod tests {
     }
 
     #[test]
+    fn health_on_android_names_a_privacy_policy() {
+        // LLP 1133.026 D4.
+        let dir = app(&[("en", r#"{"read": "Reads your steps."}"#)]);
+        let mut android = compat("device.health-read read");
+        let refused = derive(&dir.0, "linux", None, &mut android).unwrap_err();
+        assert!(refused.starts_with("grant-privacy-policy"), "{refused}");
+        let mut ios = compat("device.health-read read");
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
+        let named = r#"{"name": "Steps", "app": {"id": "a.b", "name": "Steps"}, "privacy_policy": "https://example.com/privacy"}"#;
+        std::fs::write(dir.0.join("app.json"), named).unwrap();
+        let mut android = compat("device.health-read read");
+        derive(&dir.0, "linux", None, &mut android).unwrap();
+    }
+
+    #[test]
+    fn both_photo_lines_write_the_read_key_once_with_the_read_purpose() {
+        // LLP 1133.019 D4.
+        let dir = app(&[(
+            "en",
+            r#"{"recents": "Shows recent photos.", "save": "Saves edits."}"#,
+        )]);
+        let derive_for = |grants: &str, platform: &str| {
+            let mut c = compat(grants);
+            derive(&dir.0, platform, None, &mut c).unwrap();
+            c.reach
+        };
+        let (read, add) = (
+            "NSPhotoLibraryUsageDescription",
+            "NSPhotoLibraryAddUsageDescription",
+        );
+        let recents = json!({"en": "Shows recent photos."});
+        let save = json!({"en": "Saves edits."});
+        for grants in [
+            "device.photos-add save\ndevice.photos recents",
+            "device.photos recents\ndevice.photos-add save",
+        ] {
+            let mac = derive_for(grants, "macos");
+            assert_eq!(mac["usage"], json!({read: recents, add: save}));
+            assert_eq!(mac["sharedKeys"], json!({read: "device.photos"}));
+            let ios = derive_for(grants, "ios");
+            assert_eq!(ios["usage"], json!({read: recents, add: save}));
+            assert_eq!(
+                ios["flags"],
+                json!(["PHPhotoLibraryPreventAutomaticLimitedAccessAlert"])
+            );
+        }
+        // The add line alone on macOS: the read key with the add's text.
+        let mac = derive_for("device.photos-add save", "macos");
+        assert_eq!(mac["usage"], json!({add: save, read: save}));
+        assert_eq!(
+            mac["entitlements"],
+            json!(["com.apple.security.personal-information.photos-library"])
+        );
+        // Android: adding asks nothing; reading is a permission per API range,
+        // the one that ends at 32 with its end.
+        assert_eq!(
+            derive_for("device.photos-add save", "linux")["android"],
+            json!([])
+        );
+        assert_eq!(
+            derive_for("device.photos-add save\ndevice.photos recents", "linux")["android"],
+            json!([
+                "android.permission.ACCESS_MEDIA_LOCATION",
+                "android.permission.READ_EXTERNAL_STORAGE maxSdkVersion=32",
+                "android.permission.READ_MEDIA_IMAGES",
+                "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+            ])
+        );
+    }
+
+    #[test]
     fn local_network_writes_its_purpose_on_apple_hosts_only() {
         let dir = app(&[
             ("en", r#"{"lan": "Finds servers nearby."}"#),
@@ -553,7 +835,7 @@ mod tests {
         let text = json!({"en": "Finds servers nearby.", "fr": "Trouve les serveurs proches."});
         for platform in ["ios", "macos"] {
             let mut c = compat("device.local-network lan");
-            derive(&dir.0, platform, &mut c).unwrap();
+            derive(&dir.0, platform, None, &mut c).unwrap();
             assert_eq!(
                 c.reach["usage"],
                 json!({"NSLocalNetworkUsageDescription": text})
@@ -563,10 +845,54 @@ mod tests {
         }
         for platform in ["web", "linux"] {
             let mut c = compat("device.local-network lan");
-            derive(&dir.0, platform, &mut c).unwrap();
+            derive(&dir.0, platform, None, &mut c).unwrap();
             assert_eq!(c.reach["usage"], json!({}));
             assert_eq!(c.reach["android"], json!([]));
         }
+    }
+
+    #[test]
+    fn a_presence_line_needs_its_permission_line_its_module_and_one_policy() {
+        let dir = app(&[("en", r#"{"purpose.lock": "Unlocks your session."}"#)]);
+        let line = "secret.keep token user-presence optional";
+        let refused = parsed(&dir.0, Some(line), None).unwrap_err();
+        assert!(
+            refused.contains("grant-missing: `secret.keep token user-presence optional` needs `device.local-auth"),
+            "{refused}"
+        );
+        assert!(refused.contains("\"@exact/local-auth\""), "{refused}");
+        std::fs::write(
+            dir.0.join("package.json"),
+            r#"{"dependencies":{"@exact/local-auth":"file:../packages/local-auth"}}"#,
+        )
+        .unwrap();
+        let both = format!("{line}\ndevice.local-auth purpose.lock");
+        parsed(&dir.0, Some(&both), None).unwrap();
+        let rust = "secret.keep token biometry-any\ndevice.local-auth purpose.lock";
+        let conflict = parsed(&dir.0, Some(&both), Some(rust)).unwrap_err();
+        assert!(
+            conflict.starts_with("grant-policy-conflict: "),
+            "{conflict}"
+        );
+        let unknown = parsed(&dir.0, Some("secret.keep token face-id"), None).unwrap_err();
+        assert!(unknown.contains("grant-policy-unknown"), "{unknown}");
+        // Face ID's usage key on iOS, nothing on macOS, the biometric permission on Android.
+        let text = json!({"en": "Unlocks your session."});
+        let mut ios = compat(&both);
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
+        assert_eq!(
+            ios.reach["usage"],
+            json!({"NSFaceIDUsageDescription": text})
+        );
+        let mut mac = compat(&both);
+        derive(&dir.0, "macos", None, &mut mac).unwrap();
+        assert_eq!(mac.reach["usage"], json!({}));
+        let mut android = compat(&both);
+        derive(&dir.0, "linux", None, &mut android).unwrap();
+        assert_eq!(
+            android.reach["android"],
+            json!(["android.permission.USE_BIOMETRIC"])
+        );
     }
 
     #[test]
@@ -575,7 +901,7 @@ mod tests {
         let grants = "runtime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation Helpers/node/bin/node\nruntime.allow-unsigned-executable-memory Helpers/tool/run\nnet.fetch https://x/";
         let dir = tempdir::Dir::new();
         let mut mac = compat(grants);
-        derive(&dir.0, "macos", &mut mac).unwrap();
+        derive(&dir.0, "macos", None, &mut mac).unwrap();
         assert_eq!(mac.id, "old", "no purpose, no id move");
         assert_eq!(mac.reach["entitlements"], json!([]), "never the app's");
         assert_eq!(
@@ -593,12 +919,13 @@ mod tests {
             .unwrap()
             .starts_with("hardened runtime (a macOS release signs Helpers/node/bin/node with com.apple.security.cs.allow-jit)"));
         let mut ios = compat(grants);
-        derive(&dir.0, "ios", &mut ios).unwrap();
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
         assert_eq!(ios.reach["entitlements"], json!([]));
         assert_eq!(ios.reach["helperEntitlements"], json!({}));
         let error = derive(
             &dir.0,
             "macos",
+            None,
             &mut compat("runtime.allow-jit MacOS/Exact\ndevice.lidar p\nruntime.allow-jit app"),
         )
         .unwrap_err();
@@ -615,7 +942,7 @@ mod tests {
         let grants = "auth.session https://bsky.social\nauth.callback social.exact.x:/oauth\nauth.callback https://app.example/.exact/auth/callback\nauth.callback http://127.0.0.1:9/cb";
         let dir = tempdir::Dir::new();
         let mut ios = compat(grants);
-        derive(&dir.0, "ios", &mut ios).unwrap();
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
         assert_eq!(ios.id, "old", "no purpose, no id move");
         assert_eq!(
             ios.reach["auth"]["associatedDomains"],
@@ -627,16 +954,46 @@ mod tests {
             .unwrap()
             .contains("exact-auth:"));
         let mut web = compat(grants);
-        derive(&dir.0, "web", &mut web).unwrap();
+        derive(&dir.0, "web", None, &mut web).unwrap();
         assert_eq!(web.reach["auth"]["associatedDomains"], json!([]));
+        let passkeys = format!(
+            "{grants}\nauth.passkey app.example\nauth.passkey login.test\nauth.passkey localhost"
+        );
+        let mut ios = compat(&passkeys);
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
+        assert_eq!(
+            ios.reach["auth"]["associatedDomains"],
+            json!(["webcredentials:app.example", "webcredentials:login.test"])
+        );
+        assert_eq!(
+            ios.reach["auth"]["passkeys"],
+            json!(["app.example", "login.test", "localhost"])
+        );
+        for bad in [
+            "https://a.test",
+            "a.test:443",
+            "127.0.0.1",
+            "A.test",
+            "test",
+            "a.test b",
+        ] {
+            let error = derive(
+                &dir.0,
+                "ios",
+                None,
+                &mut compat(&format!("auth.passkey {bad}")),
+            )
+            .unwrap_err();
+            assert!(error.starts_with("grant-auth: "), "{bad}: {error}");
+        }
         web.inputs["typescriptPlacement"] = json!("worker");
-        assert!(derive(&dir.0, "web", &mut web)
+        assert!(derive(&dir.0, "web", None, &mut web)
             .unwrap_err()
             .starts_with("grant-auth: "));
         let mut native = compat(grants);
         native.inputs["typescriptPlacement"] = json!("worker");
         assert!(
-            derive(&dir.0, "macos", &mut native).is_ok(),
+            derive(&dir.0, "macos", None, &mut native).is_ok(),
             "a native worker opens its sheet"
         );
     }

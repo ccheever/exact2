@@ -697,3 +697,55 @@ impl exact_runner::DataSource for ManyItems {
         ))
     }
 }
+
+/// theme2 2026-10-23 (after `lower-symbol-tint`): on this target too a symbol's own `-exact-tint-color` is no paint of
+/// it: its class says `currentcolor`, a state's row folded under it, which symbols.js's mask paints in its `color`; a native
+/// button's face keeps its tint (LLP 1115 D4), as a raster does.
+#[test]
+fn a_symbols_own_tint_is_its_colour_here_too_a_states_as_well() {
+    let plan = contract::compile(
+        "component App\n  state off = false\n  action go\n  view\n    column color=\"#0000ff\"\n      image \"symbol:search\" testId=\"symbol\" -exact-tint-color=\"#ff0000\"\n      button press=go testId=\"drawn\" appearance=\"none\"\n        image \"symbol:star\" testId=\"stated\" disabled=off -exact-tint-color=\"#ff0000\"\n          :disabled\n            -exact-tint-color=\"#00ff00\"\n      button press=go testId=\"lock\"\n        image \"symbol:lock\" testId=\"face\" -exact-tint-color=\"#ff0000\"\n        text \"Lock\"\n      image \"assets/mark.png\" testId=\"raster\" -exact-tint-color=\"#ff0000\"\n",
+    )
+    .unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let by = |id: &str| {
+        parts
+            .iter()
+            .flatten()
+            .find(|p| p.props.get("data-testid").map(String::as_str) == Some(id))
+            .unwrap_or_else(|| panic!("{id}"))
+            .clone()
+    };
+    let symbol = by("symbol");
+    assert!(
+        symbol.css.contains("--exact-tint:currentcolor"),
+        "{}",
+        symbol.css
+    );
+    assert!(!symbol.css.contains("255,0,0"), "{}", symbol.css);
+    // Its `:disabled` row, live on the image, folds into a binding whose disabled arm the answer takes first
+    // (`disabled ? currentcolor : …`): the program's first arm for it is `currentcolor` (its value at run time
+    // is proven in contract's symbol_ink.rs).
+    let emitted = crate::emit::emit(&plan, false, false).unwrap();
+    let stated = emitted
+        .js
+        .find("\"data-testid\":\"stated\"")
+        .expect("stated");
+    let chain = &emitted.js[stated..];
+    let first = chain.find("s0=\"").map(|i| &chain[i..i + 18]).unwrap_or("");
+    assert_eq!(
+        first,
+        "s0=\"currentcolor\";",
+        "{}",
+        &chain[..chain.len().min(600)]
+    );
+    for kept in ["face", "raster"] {
+        let made = by(kept);
+        assert!(
+            made.css.contains("--exact-tint:rgba(255,0,0,1)"),
+            "{kept}: {}",
+            made.css
+        );
+    }
+}

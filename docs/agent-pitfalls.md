@@ -13,6 +13,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **An unknown-size image stays blank after disclosure.** On Windows, an auto-height
+  wrapper around a percentage-width image can leave the image at zero height before
+  decoding. The lazy loader then sees no visible area to load. Give the image a fallback
+  ratio, such as `aspect-ratio="auto 16 / 9"`: it reserves space until the image's
+  natural ratio arrives. (Excord image spoilers, 2026-10-24.)
+
 - **`link "Title" href="/item"` is refused as zero-sized.** Only a `button`'s
   positional title becomes a text child; a `link` needs explicit children. Write:
 
@@ -104,7 +110,8 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A `symbol:` image's `-exact-tint-color` does nothing.** A symbol is drawn in its
   computed `color` on every host (LLP 1081 stage 2); `-exact-tint-color` colours a
   raster image only, and a native button's face symbol. Write
-  `image "symbol:forward-chevron" color="-exact-tertiary-label"`.
+  `image "symbol:forward-chevron" color="-exact-tertiary-label"`. The build warns
+  (`lower-symbol-tint`).
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
   Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
   it follows its text (in a button, tab or bar item, its title's font; give it a
@@ -898,6 +905,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   it in a `key=` handler. And Shift is part of the shortcut: `n` is the unshifted
   key, a capital `N` is `Shift+N`, so write `aria-keyshortcuts="Shift+N"` for it (in
   a terminal too, where a typed capital is reported as `Shift+N`).
+- **A `Meta` shortcut does nothing on Windows.** Every host matches a chord as
+  written, and on Windows `Meta` is the Windows key, whose chords the shell takes
+  (Win+N is Notification Center), so `"Meta+N"` alone never fires there. List the
+  Control chord beside it, `aria-keyshortcuts="Meta+N Control+N"`. In an app with
+  a Windows host (`host.windows` in `app.json`, or a `windows/` crate) the build
+  warns: `analyze-shortcut-meta-only` names the chord to add, and
+  `analyze-shortcut-windows-reserved` a chord Windows keeps for itself (Alt+Tab,
+  Alt+F4, Alt+Space, Control+Escape, Control+Shift+Escape, Control+Alt+Delete).
+  (LLP 1115.004 D9.6.)
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
   state change replaced during the hold; the up is not delivered to a node that no
@@ -1069,6 +1085,21 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
+- **A build's refusals do not say "error".** A compile refusal prints as
+  `app.contract:5:13 [lower-attr-value] symbol \`warning\` is not a role; …` and the
+  build exits 1, so a check that greps the output for `error` passes a build that
+  failed. Judge a build by its exit status (`bun host/web/build.mjs`, `bun
+  host/apple/build.mjs`). (Excord port, `symbol:warning`, LLP 1142 D7, 2026-10-25.)
+
+- **A host timing bug on iOS is chased with `NSLog` and rebuilds of exact2.** A
+  development build already journals what the host did: `logs` has `host:` lines for
+  navigation (`willShow`, `didShow`, and whether the app, UIKit's Back or the edge swipe
+  started it), sheets presented and dismissed, autofocus applied or skipped with what holds
+  the focus, the keyboard, and the status bar's style. A run driven by hand prints them to
+  `xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "dev.exact"
+  AND category == "host"'`, and the rest of the journal under `subsystem == "com.exact.app"
+  AND category == "journal"` (`--level info`). Read them before patching the host (LLP 1143).
+
 - **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
   string form sets the whole textarea: AppKit selects all, then inserts the supplied
   value. Even one character per call is replacement, so `" suffix"` does not append
@@ -1224,6 +1255,48 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   three), and treat a service worker as optional. Untrusted content belongs at its
   own URL, or under a `sandbox` without `allow-same-origin`. (LLP 1020.001 D5;
   Exact Draw, 2026-10-15.)
+
+- **A browser tab's title comes after its load.** On Apple a partitioned
+  `iframe`'s `navigatesuccess` usually carries the old or an empty `title`: WebKit
+  reports the new one a moment later, as its own `currententrychange`. Show the last
+  record's fields, not the ones `navigatesuccess` had. The commands (`navigate`,
+  `traverseHistory`, `reload(id)`, `stopLoading`) move only a frame with
+  `partition=` on Apple; without one they fire `navigateerror` with
+  `NotSupportedError`. `clearSiteData` from data code answers `NotSupportedError`
+  unless the Contract also names the send (`use clearSiteData from
+  "@exact/browser"` and a `send` of it): a module call is admitted only by name
+  (LLP 1133.002 D14). (LLP 1020.002, stage 1, 2026-10-23.)
+
+- **A frame without `newwindow=` opens nothing.** On Apple a guest's
+  `target=_blank`, ⌘-click and `window.open` reach the app only through
+  `newwindow=`; without it they are refused, and an OAuth sign-in that opens a
+  popup waits forever. A tab disposition opens nothing even with it: the action
+  opens the tab. Under the agent, a guest `tap` whose click opens `alert`,
+  `confirm` or `prompt` answers at once with `held=<ticket>`; the page waits until
+  `tap @<ticket> ok` (or `cancel`, or `type @<ticket> <text>` for a prompt).
+  (LLP 1020.002, stage 2, 2026-10-25.)
+
+- **Driving a browser tab from data code needs a Contract send.** The calls of
+  `@exact/browser-automation` (`evaluate`, `performActions`, …) are data code's,
+  but a package reaches the plan only through a name the Contract sends: without
+  `use handleUserPrompt from "@exact/browser-automation"` and a send of it (or of
+  `releaseActions`), every call answers `NotSupportedError` and the journal says
+  `not a module this app's plan names`. Without `browser.automation` in the
+  grants each answers `NotAllowedError`; a frame without `partition=` answers
+  `NotSupportedError`. An `evaluate` that opens `alert`, `confirm` or `prompt`
+  answers only once the dialog is answered, so call `handleUserPrompt` (after
+  `userpromptopened=`) without awaiting it first. `expression` is one expression;
+  statements go in `callFunction`'s body. `result` is typed as a record;
+  narrow it (`as unknown as string`). (LLP 1020.002, stage 4, 2026-10-25.)
+
+- **A local PDF in an `iframe` is no web page on Apple.** An unsandboxed,
+  unpartitioned frame of an `app:/` or `assets/` PDF shows PDFKit's view: `tree`
+  gives it `pdf` and `pages` and no guest outline, a guest `tap` or `type` fails, and
+  the frame commands answer `NotSupportedError`. `captureScreenshot` still works,
+  its `clip` in the view's points. A `sandbox` keeps WebKit's PDF view. A capture's
+  answer is the frame's `capture=`: a path that is not an `app:/data`, `app:/cache`
+  or `app:/tmp` file answers `SyntaxError`, and the web always `NotSupportedError`.
+  (LLP 1020.002, stage 3, 2026-10-25.)
 
 - **A local server behind an `iframe` is loaded from the frame's parent, not the
   app.** On macOS an `iframe` of an `http(s)` URL with no `sandbox` is the web view's

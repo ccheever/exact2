@@ -101,6 +101,7 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
         dev_plan: None,
         dev_url: None,
         dev_identity: None,
+        dev_said: None,
         card: String::new(),
         vnc: None,
         compat: UPDATE_COMPAT.into(),
@@ -110,6 +111,7 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
         module: Ok(None),
         updates: None,
         hatches: None,
+        packages: Vec::new(),
         clock_started: None,
     };
     config.use_updates(Box::new(Updates::from_client(client).unwrap()), baked);
@@ -164,6 +166,7 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
         dev_plan: None,
         dev_url: None,
         dev_identity: None,
+        dev_said: None,
         card: String::new(),
         vnc: None,
         compat: r#"{"id":"fixture00000000","inputs":{"store":{"L":"0"}}}"#.into(),
@@ -173,6 +176,7 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
         module: Ok(None),
         updates: None,
         hatches: None,
+        packages: Vec::new(),
         clock_started: None,
     };
     let size = config.size;
@@ -235,6 +239,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
         dev_plan: Some(PathBuf::from("app.plan")),
         dev_url: None,
         dev_identity: None,
+        dev_said: None,
         card: String::new(),
         vnc: None,
         compat: compat.into(),
@@ -244,6 +249,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
         module: Ok(None),
         updates: None,
         hatches: None,
+        packages: Vec::new(),
         clock_started: None,
     };
     config.use_updates(Box::new(updates), &baked);

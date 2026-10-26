@@ -50,6 +50,24 @@ pub fn under_agent(name: &str) -> bool {
     agent() && !bound.split(',').any(|b| b == name)
 }
 
+/// A package's sample for a canvas input (`Native.sensorInput`, LLP 1133.013
+/// D6): whether none waited before it.
+pub fn sensor_input(
+    surface: &str,
+    sensor: &str,
+    values: &[f64],
+    dropped: i32,
+    at: f64,
+    ended: bool,
+) -> bool {
+    crate::surfaces::sensors::write(surface, sensor, values, dropped.max(0) as u32, at, ended)
+}
+
+/// Whether the page places a canvas of surface `name` (`Native.surfaceHas`).
+pub fn surface_has(name: &str) -> bool {
+    crate::surfaces::sensors::has(name)
+}
+
 /// `Native.changed` and `Native.bindExtensions`, expanded inside
 /// `canvas_jni!`'s module, whose `with` and `string` they use.
 #[macro_export]
@@ -76,6 +94,21 @@ macro_rules! canvas_jni_extensions {
             $crate::canvas::jni::jni_extensions::now()
         }
 
+        /// The file an `app:/` path names (`ExtensionContext.file`, LLP
+        /// 1133.009 D10 item 4), or null.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_appFile(
+            env: *mut JNIEnv,
+            _class: jclass,
+            path: jstring,
+        ) -> jstring {
+            let path = $crate::canvas::field::text(env, path);
+            match $crate::picker::resolve(&path) {
+                Some(file) => $crate::canvas::field::java(env, &file.to_string_lossy()),
+                None => std::ptr::null_mut(),
+            }
+        }
+
         /// Whether extension `name` is told it runs under the agent.
         #[no_mangle]
         pub unsafe extern "system" fn Java_dev_exact_canvas_Native_underAgent(
@@ -86,6 +119,114 @@ macro_rules! canvas_jni_extensions {
             flag($crate::canvas::jni::jni_extensions::under_agent(&string(
                 env, name,
             )))
+        }
+
+        /// How a presence check the reader made ended (`Presence.kt`, LLP
+        /// 1133.010 D13): on the store's completion path, never journaled.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_presence(
+            env: *mut JNIEnv,
+            _class: jclass,
+            answer: jstring,
+        ) {
+            let answer = $crate::canvas::field::text(env, answer);
+            with(|h| h.presence_reply(&answer));
+        }
+
+        /// What the activity asked for the orientation lock (`Orientation.kt`,
+        /// LLP 1133.029 D6): JSON, a conflict, and a line to journal or null.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_orientationApplied(
+            env: *mut JNIEnv,
+            _class: jclass,
+            applied: jstring,
+            conflict: jboolean,
+            line: jstring,
+        ) {
+            let applied = $crate::canvas::field::text(env, applied);
+            let line = (!line.is_null()).then(|| $crate::canvas::field::text(env, line));
+            with(|h| h.orientation_applied(&applied, conflict == JNI_TRUE, line.as_deref()));
+        }
+
+        /// The activity started (`false`) or stopped (`true`): the page's
+        /// `visibilityState` (LLP 1133.010 §9).
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_hidden(
+            _env: *mut JNIEnv,
+            _class: jclass,
+            hidden: jboolean,
+        ) {
+            with(|h| h.page_hidden(hidden == JNI_TRUE));
+        }
+
+        /// Whether the page places a canvas of surface `name`. Any thread.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_surfaceHas(
+            env: *mut JNIEnv,
+            _class: jclass,
+            name: jstring,
+        ) -> jboolean {
+            flag($crate::canvas::jni::jni_extensions::surface_has(&string(
+                env, name,
+            )))
+        }
+
+        /// A package's sample for surface `surface`'s canvas input, or its
+        /// end: x, y, z and w of `values`. Any thread; whether none waited.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_sensorInput(
+            env: *mut JNIEnv,
+            _class: jclass,
+            surface: jstring,
+            sensor: jstring,
+            values: $crate::canvas::jni_sys::jdoubleArray,
+            dropped: jint,
+            at: jdouble,
+            ended: jboolean,
+        ) -> jboolean {
+            let mut v = [0f64; 4];
+            let n = ((**env).GetArrayLength.expect("jni"))(env, values).clamp(0, 4);
+            ((**env).GetDoubleArrayRegion.expect("jni"))(env, values, 0, n, v.as_mut_ptr());
+            flag($crate::canvas::jni::jni_extensions::sensor_input(
+                &string(env, surface),
+                &string(env, sensor),
+                &v[..n as usize],
+                dropped,
+                at,
+                ended == JNI_TRUE,
+            ))
+        }
+
+        /// A package's picture for request `id` (`Exact.picture`, LLP
+        /// 1133.019 D11 item 1): `bitmap`, or `error` when it is null.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_picture(
+            env: *mut JNIEnv,
+            _class: jclass,
+            id: jint,
+            bitmap: jobject,
+            error: jstring,
+        ) {
+            let answer = if bitmap.is_null() {
+                Err($crate::canvas::field::text(env, error))
+            } else {
+                $crate::canvas::jni::jni_picture::pixels(env, bitmap)
+                    .ok_or_else(|| "EncodingError".to_owned())
+            };
+            with(|h| h.picture_answer(id as u32, answer));
+        }
+
+        /// Picture `source` changed (asked again) or was revoked
+        /// (`ExtensionContext.changedPicture`, `revokePicture`).
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_pictureChanged(
+            env: *mut JNIEnv,
+            _class: jclass,
+            source: jstring,
+            revoked: jboolean,
+        ) {
+            let source = string(env, source);
+            with(|h| h.picture_changed(&source, revoked == JNI_TRUE));
         }
 
         /// The extensions the APK carries, one a line, bound at the host's next turn.

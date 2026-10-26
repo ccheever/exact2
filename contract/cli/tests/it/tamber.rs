@@ -1240,7 +1240,7 @@ fn a_batch_sets_a_running_builds_rows_without_a_plan() {
     assert_eq!(design::Edit::parse(&batch.json()), Some(batch.clone()));
     let mut r = booted(a.clone());
     // A release build takes none.
-    r.admit_live(Some(r#"{"inputs":{"trust":"production"}}"#));
+    r.admit_live(Some(r#"{"embedded":{"trust":"production"}}"#));
     assert!(matches!(r.apply_live(&batch), Err(LiveRefusal::Refused(_))));
     r.admit_live(None);
     let mix_before = row(&r, "mix", StyleId::TextColor);

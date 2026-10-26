@@ -1,4 +1,4 @@
-import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js";
+import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
 import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
@@ -154,7 +154,7 @@ export const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
 export function W(s, v) { Writes.push([s.n, v]); }
 /** A host command inside an action: run after the commit. */
-export function C(name, args) { Commands.push([name, args]); Rev++; }
+export function C(name, args) { Commands.push([name, args, Origin.now()]); Rev++; } export const Origin = { now: () => "app" }; // who caused the commit (modules.js, LLP 1133.002 D12), taken as a command is queued, so a deferred tail runs it under its own commit's origin
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
 export function R(r) { Refresh.push(r.r ?? r); }
 /** A topic its resource watched changed while ticket `t` was in flight (`t.again`, ts-data.js `changed`, LLP 1016.002 D4): its reply landed or failed, so the resource is asked again. */
@@ -270,11 +270,11 @@ export const Hosts = {
 };
 let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess"]), gate: null, stood: null, seq: null, midi: null, midiApply: null, beatAt: null }; // The voice table's and the MIDI queue's commands (LLP 1096 D5, LLP 1125 D7): the runtime's own, never a host's; sounds.js and midi.js apply a commit's once it stood, and transport.js reads the sequences in the gate step and plays them once it stood (LLP 1125 D2).
-function command(name, args) {
+function command(name, args, origin) {
   const f = Hosts[name];
   say(`command ${name}`);
   if (Sounds.own.has(name)) return;
-  if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
+  if (Origin.refused?.(name, origin)) return; if (f) f.origin ? f(origin, ...args) : f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
@@ -300,7 +300,7 @@ export function every(ms, action, once, name) {
 // agent's seekable clock, a virtual frame every 1000/60 ms after it last fired.
 // The kth virtual frame after `base`, the product first, as the runner's
 // `virtual_frame`: sixty frames are exactly a second.
-const vf = (base, k) => base + k * 1000 / 60;
+const vf = (base, k) => base + k * 1000 / 60; Object.assign(Link, { clock, every, commit, journal }); // (for lazy chunks: rt-link.js)
 /** `every(frame, action)`. */
 export function frames(action, name) {
   clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
@@ -318,7 +318,7 @@ export function advance(to, wall, stop, timers = true) {
   for (;;) {
     let next = null, then = null, head = null;
     // A hatch's instant (hatches.js, LLP 1075.003.000.001 §2.4) comes after the timers and frame tasks due at the same time.
-    if (timers) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && next.hatch && !t.hatch)) next = t;
+    if (timers && !clock.stopped) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && next.hatch && !t.hatch)) next = t;
     // An answer's `then` goes before a timer due at the same time: the answer landed first; a queue's `next` between them (LLP 1092 D3).
     for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
     for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= next.due) && (!then || m.next < then.due)) head = m;
@@ -346,7 +346,7 @@ let driving = 0, start = 0, painting = 0;
 export function drive() {
   clearTimeout(driving);
   let next = Infinity;
-  for (const t of [...clock.timers, ...Mutations]) if (!t.frame && t.due < next) next = t.due;
+  for (const t of [...(clock.stopped ? [] : clock.timers), ...Mutations]) if (!t.frame && t.due < next) next = t.due; // no timer while a wake runs unseen (wakes.js)
   for (const m of Mutations) if (m.next < next) next = m.next;
   if (!isFinite(next)) return;
   driving = setTimeout(() => { advance(performance.now() - start, true); drive(); }, Math.max(0, next - (performance.now() - start)));
@@ -435,13 +435,14 @@ function closeLetGo() {
 function ask(source, args, name, mutation = false) {
   if (["startActivity", "updateActivity", "endActivity"].includes(source)) throw new Refusal(`${source} is not linked into this artifact`);
   let a; try { a = data.reserved?.[source] ? (v => v?.then ? v : { v })(data.reserved[source](source, args, name)) : data.answer(source, args, Store, name, mutation); } catch (e) { Out.push(...(data.thrown?.() ?? [])); throw e; } // what a resource's source sent before it threw goes if the commit stands (ts-data.js)
-  return a && a.then ? { promise: a } : a;
+  return a && a.then ? (a.then(undefined, e => globalThis.exact?.generationGone?.(e)), { promise: a }) : a; // (a reaped build's lazy chunk fails here: the page loads again, generation-reload.js)
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
  * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
  * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
 function reply(t, name, source, held, f, next, gone) {
   t.held = held;
+  if (t.call) t.call.wanted = held; // what the answer's module calls read (ts-data.js `__exact_module`); not `call.held`, held.js's count of its held fetches
   return o => {
     if (commit(() => {
       if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
@@ -450,7 +451,7 @@ function reply(t, name, source, held, f, next, gone) {
       catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e), failureCode(e), failureReason(e)); }
       f(p, o); Out.push(...(o.effects ?? [])); // a socket frame's replies from its mapper, sent once this commit stands (LLP 1016.000 D7)
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed || !t.r) || !held()) return; // a mutation's reply is spent whatever refused it
-    say(`request ${t.id} (${name}) failed and is no longer pending: ${next}: ${Refused?.message ?? Refused}`); // why, on the line a test failure quotes (sb4 farm wave 6, E3: a mutation's refused reply named nowhere)
+    const failed = `request ${t.id} (${name}) failed and is no longer pending: ${next}: ${Refused?.message ?? Refused}`; say(failed); if (DEVELOPMENT_STORE) console.error(`exact: ${failed}`); // why, on the line a test failure quotes (sb4 farm wave 6, E3: a mutation's refused reply named nowhere); a development page's console too (LLP 1142 D4)
     gone(Refused.message, Refused.code, Refused.reason); recommit(() => { if (t.r) again(t); }, "a failed request");
   };
 }
@@ -617,7 +618,7 @@ export function h(p, tag, cls, attrs, text, ns) {
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); if (tag === "button") oneActivation(e); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
+  if (attrs) { for (const k in attrs) if (NOT_DOM.test(k)) e["$" + k] = attrs[k]; else e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
   if (tag === "iframe") frame(e, attrs?.["data-app-src"]);
   if (tag === "button") oneActivation(e);
@@ -656,7 +657,7 @@ function adopt(p, tag, cls, attrs) {
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
   if (attrs?.["data-exact-own-isolation"] === undefined && !e.hasAttribute("data-exact-own-isolation") && !e.hasAttribute("data-exact-policy") && e.style.isolation) e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
+  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (NOT_DOM.test(k)) e["$" + k] = v; else if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
   Paint?.list(e); return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
@@ -672,7 +673,7 @@ export function adoptRow(w, f) {
   w.textContent = ""; w.$n = undefined;
   return unadopted(f);
 }
-const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback|autofocus)$/; // present means true: a bound `autofocus` false is no attribute (rows.rs writes the static one so)
+const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback|autofocus)$/, NOT_DOM = /^(partition|appleAllowsBackForwardNavigationGestures|appleAllowsMagnification|appleInactiveSchedulingPolicy)$/i; // NOT_DOM: an iframe's partition and Apple words, kept on the element, never DOM attributes (a browser has neither, LLP 1020.002 Q4) // present means true: a bound `autofocus` false is no attribute (rows.rs writes the static one so)
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
 if (typeof addEventListener === "function") for (const [type, on] of [["compositionstart", true], ["compositionend", false]]) addEventListener(type, ev => { ev.target.exactComposing = on; }, true); /* which field composes, for a piece loaded later (LLP 1114.007) */ const Composing = new WeakSet(), Held = new WeakMap(), HeldTask = new WeakMap(); function writeValue(e, v) { if (!HeldTask.has(e) && (e.localName === "input" || e.localName === "textarea")) { HeldTask.set(e, 0); e.addEventListener("compositionstart", () => { clearTimeout(HeldTask.get(e)); Composing.add(e); }); e.addEventListener("compositionend", () => { HeldTask.set(e, setTimeout(() => { Composing.delete(e); if (Held.has(e)) writeValue(e, Held.get(e)); e.exactDecorations?.sync(); }, 0)); }); } if (e.value !== v && Composing.has(e)) return Held.set(e, v); Held.delete(e); if (e.value !== v) e.value = v; } // the app's `value` never ends a composition (LLP 1115.000 §5, ruling 6; the wasm host's `writeValue`, glue.js): another value written while a field's text composes is held, the last one, and written when the composition has ended and its last `input` was heard.
@@ -681,7 +682,7 @@ const navigable = (v, e) => { try { const p = new URL(v, document.baseURI).proto
 function frame(e, v) {
   commitGuestOrigin(e);
   if (v?.startsWith("app:/")) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return !!v?.startsWith("app:/");
-  if (!e.$frame) { e.$frame = true; e.addEventListener("load", ev => { if (e.exactAppFrame && !e.exactAppFrame.url) ev.stopImmediatePropagation(); }, true); onEnd(() => e.exactAppFrame?.dispose()); }
+  if (!e.$frame) { e.$frame = true; e.addEventListener("load", ev => { if (e.exactAppFrame && !e.exactAppFrame.url) ev.stopImmediatePropagation(); else e.exactLoaded = e.getAttribute("src"); /* the src that loaded, for the agent's tree, which loads after boot and cannot read another origin's readiness */ }, true); onEnd(() => e.exactAppFrame?.dispose()); }
   if (e.exactAppFrame?.path === v) return true; e.exactAppFrame?.dispose(); e.exactAppFrame = null; if (!v?.startsWith("app:/")) return false;
   const s = e.exactAppFrame = { path: v, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; e.removeAttribute("src"); inflight.n++;
   globalThis.exact ??= {}; import(new URL("./picker-glue.js", import.meta.url).href).then(m => m.appFrame(e, s, data.appId, () => commitGuestOrigin(e))).finally(() => inflight.n--); return true;
@@ -696,7 +697,7 @@ export function P(e, name, f) {
     // `frameURL`): a refused link loses its `href`, an iframe shows about:blank and keeps its source for its sandbox to decide.
     if (name === "src" && e.localName === "iframe") { e.$src = v; if (frame(e, v)) return; if (v != null && !navigable(v, e)) v = "about:blank"; } else if (name === "href" && v != null && (!navigable(v) || v === "")) v = null;
     if (name === "backgroundMaterial" && v === "none") v = null; // no material, cleared as the runner clears it (bridge.rs `prop_value`)
-    if (PropHooks[name]?.(e, v)) return;
+    if (PropHooks[name]?.(e, v)) return; if (NOT_DOM.test(name)) return void (e["$" + name] = v);
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); e.exactDecorations?.sync(); }
@@ -713,25 +714,27 @@ export function P(e, name, f) {
  * into spans by the web host's own `renderMarkup`; the pieces come from the
  * web host's Markdown, a wasm fetched at the first such node (a loaded
  * capability). A rendered page's spans stand until the source changes. */
-let Markdown = null;
+let Markdown = null, Atoms = null;
 export function md(e, f) {
-  let first = Adopt && e.childElementCount > 0;
-  effect(() => {
+  let first = Adopt && e.childElementCount > 0 && !e.querySelector("[data-exact-atom]"); // a page rendered at build is drawn again where it has atoms, which it renders as their labels
+  // Its inline atoms (LLP 1045.000 D6): the kinds and faces are attributes, read at each render and followed as they change; a press on one is the node's `atompress`.
+  const render = v => { inflight.n++; Promise.all([Markdown ??= markdown(), e.hasAttribute("data-atoms") && (Atoms ??= import("./atoms.js"))]).then(([pieces]) => { if (e.$source === v) renderMarkup(e, pieces(v, e.getAttribute("data-atoms") ?? "", e.getAttribute("data-atom-faces") ?? "")); }).finally(() => inflight.n--); };
+  if (typeof MutationObserver === "function") new MutationObserver(() => render(e.$source)).observe(e, { attributes: true, attributeFilter: ["data-atoms", "data-atom-faces", "data-atom-styles"] }); effect(() => {
     const v = f() ?? "";
     e.$source = v;
     if (first) { first = false; return; }
     if (!Markdown) e.textContent = v;
-    inflight.n++;
-    (Markdown ??= markdown()).then(pieces => { if (f() === v) renderMarkup(e, pieces(v)); }).finally(() => inflight.n--);
+    render(v);
   });
 }
 async function markdown() {
   const bytes = globalThis.__files ? globalThis.__files("markdown.wasm") : await fetch("./markdown.wasm").then(r => r.arrayBuffer());
   const made = await WebAssembly.instantiate(bytes, {}), x = (made.instance ?? made).exports;
-  return source => {
-    const b = new TextEncoder().encode(source), p = x.alloc(b.length);
+  return (source, atoms, faces) => {
+    const enc = new TextEncoder(), s = enc.encode(source), a = enc.encode(atoms), f = enc.encode(faces), b = new Uint8Array(s.length + a.length + f.length), p = x.alloc(b.length);
+    b.set(s); b.set(a, s.length); b.set(f, s.length + a.length);
     new Uint8Array(x.memory.buffer, p, b.length).set(b);
-    const n = x.pieces(p, b.length);
+    const n = x.pieces(p, b.length, a.length, f.length);
     return new TextDecoder().decode(new Uint8Array(x.memory.buffer, x.output(), n));
   };
 }
@@ -809,8 +812,8 @@ export function nm(e) {
   onEnd(() => { st.destroyed = true; Native?.then(h => h.destroy(e), () => {}); });
   // In flight until the module is attached and its first events are in (`clock settle` waits for them).
   inflight.n++;
-  (Native ??= painted().then(() => import("./native.js")).then(m => m.viewHost(say)))
-    .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
+  (Native ??= painted().then(() => import("./native.js")).then(m => m.viewHost(say, () => data.appId)))
+    .then(h => h.attach(e), err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
 export const blank = v => typeof v === "string" && !v.trim() ? null : v;
@@ -886,10 +889,10 @@ export function Sm(e, prop, unit, f) {
 export const OnHooks = {};
 // An image's `load` and `error` (LLP 1011 §2) as HTML `<img>` fires them, once per source, the error with its message (glue.js `imageEvents`); a symbol fires neither. A tinted raster paints
 // through its CSS mask (element.rs `host_css`), a CORS fetch: from an origin that sends no CORS headers it paints nothing, so a CORS probe of the source decides. An adopted page's image may have settled before this attached.
-const IMAGE_ERROR = "the image did not load", CORS_ERROR = "a tinted image from another origin needs CORS (Access-Control-Allow-Origin)", Probes = new Map();
+const IMAGE_ERROR = "the image did not load", CORS_ERROR = "a tinted image from another origin needs CORS (Access-Control-Allow-Origin)", Probes = new Map(), srcOf = e => e.$why != null ? `why:${e.$why}` : e.currentSrc; // `$why`: a package picture's refusal (pictures.js), which an image's `error` says
 function imageEvent(e, kind, f) {
   const probe = src => Probes.get(src) ?? (inflight.n++, Probes.set(src, new Promise(ok => { Object.assign(new Image(), { crossOrigin: "anonymous", onload: () => ok(true), onerror: () => ok(false) }).src = src; }).finally(() => inflight.n--)).get(src));
-  const settle = failed => { const src = e.currentSrc; if (!e.isConnected || e.hasAttribute("data-symbol-path") || e.$settled?.[kind] === src) return; (failed || !getComputedStyle(e).maskImage?.includes("url(") || /^(data|blob):/.test(src) || new URL(src, location.href).origin === location.origin ? Promise.resolve(!failed) : probe(src)).then(ok => { if (e.currentSrc !== src || !e.isConnected || (e.$settled ??= {})[kind] === src) return; e.$settled[kind] = src; if (ok ? kind === "load" : kind === "error") ok ? f() : f(failed ? IMAGE_ERROR : CORS_ERROR); }); };
+  const settle = failed => { const src = srcOf(e); if (!e.isConnected || e.hasAttribute("data-symbol-path") || e.$settled?.[kind] === src) return; (failed || !getComputedStyle(e).maskImage?.includes("url(") || /^(data|blob):/.test(src) || new URL(src, location.href).origin === location.origin ? Promise.resolve(!failed) : probe(src)).then(ok => { if (srcOf(e) !== src || !e.isConnected || (e.$settled ??= {})[kind] === src) return; e.$settled[kind] = src; if (ok ? kind === "load" : kind === "error") ok ? f() : f(failed ? (e.$why ?? IMAGE_ERROR) : CORS_ERROR); }); };
   e.addEventListener("load", () => settle(false)); e.addEventListener("error", () => settle(true)); if (e.complete && e.getAttribute("src")) setTimeout(() => e.complete && settle(!e.naturalWidth));
 }
 export function on(e, kind, f, bind) {
@@ -922,14 +925,14 @@ export const onValue = (e, kind, f, l) => { return l(kind, ev => {
 export const onBeforeInput = (e, kind, f, l) => l(kind, ev => { const outer = KeyEvent; KeyEvent = ev; try { f(inputRecord(e, e.value, false, ev)); } finally { KeyEvent = outer; } });
 export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); return l("pointerleave", () => f(false)); };
 export const onFocusWithin = (e, kind, f, l) => l(kind, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f([ev.target?.exactExitId ?? ev.target?.id ?? "", ev.relatedTarget?.exactExitId ?? ev.relatedTarget?.id ?? null]); } finally { KeyEvent = outer; } });
-// `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last). With nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is `<body>` or `<html>` (`atBody`; never a copy a flow forwards to a detached node), on `<html>` as it bubbles, so after the shortcuts (input-glue's capture listener) and before the document's defaults (a sheet's Escape, a list's ⌘A), its `keycapture` before its `key`.
+// `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code, repeat and isComposing last; a keyCode-229 keydown, one an input method processed, is composing, as web code takes it: WebKit's Enter that commits a composition comes after `compositionend`, isComposing false). With nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is `<body>` or `<html>` (`atBody`; never a copy a flow forwards to a detached node), on `<html>` as it bubbles, so after the shortcuts (input-glue's capture listener) and before the document's defaults (a sheet's Escape, a list's ⌘A), its `keycapture` before its `key`.
 let BodyHeard; const atBody = (e, kind, g) => { (e.$body ??= {})[kind] = g; if (!globalThis.document?.documentElement) return g; BodyHeard ??= ["keydown", "keyup", "copy", "cut", "paste"].map(t => document.documentElement.addEventListener(t, ev => { const root = document.getElementById("exact-root"), h = root?.firstElementChild?.$body; if (!h || (ev.target !== document.body && ev.target !== document.documentElement)) return; if (t === "keydown") { h.keycapture?.(ev); h.key?.(ev); } else h[t]?.(ev); })); return g; };
-export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, atBody(e, kind, ev => { if (ev.$stopped || kind === "keycapture" && ev.exactFlowCapture && !ev.exactFlowCapture.includes(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }), kind === "keycapture"); };
+export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, atBody(e, kind, ev => { if (ev.$stopped || kind === "keycapture" && ev.exactFlowCapture && !ev.exactFlowCapture.includes(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat, !!(ev.isComposing || ev.keyCode === 229 || ev.key === "Process")]); } finally { KeyEvent = outer; } }), kind === "keycapture"); };
 export const onMIDI = (e, kind, f) => { (Sounds.midi ??= new Set()).add([e, f]); }; // a MIDI input's message (LLP 1125 D8), heard by every connected element whose `midiinputs` lists the input (midi.js)
 // The window's, heard by every connected element that declares it (studio diary R17).
 export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
 // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)
-export const onSubmit = (e, kind, f, l) => { return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w !== ev || ev.defaultPrevented) return; const run = () => { if (run.done) return; run.done = true; e.removeEventListener("keydown", run, true); e.removeEventListener("beforeinput", run, true); f(); }; e.addEventListener("keydown", run, true); if (ev.target.localName !== "textarea" && !ev.target.isContentEditable) e.addEventListener("beforeinput", run, true); setTimeout(run); }, { once: true }); } }); };
+export const onSubmit = (e, kind, f, l) => { return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && ev.keyCode !== 229 && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w !== ev || ev.defaultPrevented) return; const run = () => { if (run.done) return; run.done = true; e.removeEventListener("keydown", run, true); e.removeEventListener("beforeinput", run, true); f(); }; e.addEventListener("keydown", run, true); if (ev.target.localName !== "textarea" && !ev.target.isContentEditable) e.addEventListener("beforeinput", run, true); setTimeout(run); }, { once: true }); } }); };
 // Only from the origin of the src the app committed (glue.js `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is not heard; an opaque sandbox's origin is "null".
 export const onMessage = (e, kind, f, l) => { return addEventListener("message", ev => { if (ev.source === e.contentWindow && guestMessageAuthorized(e, ev.origin)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
 // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.
@@ -950,7 +953,8 @@ export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); }; e
 export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isConnected && !own?.gone && f(); return l(kind, () => Flushing ? FocusQueue.push(run) : run()); };
 // the nearest handler hears the ClipboardEvent record, a paste's files minted `doc:` handles (files.js); the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { if (kind === "paste") OnHooks.pasteWarm?.(); return l(kind, atBody(e, kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? "", kind === "paste" ? OnHooks.pasted?.(ev) ?? [] : []]); } finally { KeyEvent = outer; } })); };
-export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
+export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState])); export const onFrameCapture = (e, kind, f, l) => l("exactcapture", ev => f(["path", "width", "height", "error", "message"].map(k => ev.detail[k]))); /* a capture's `FrameCapture`, always the refusal (frame-navigation.js, LLP 1020.002 D7) */ export const onFrameNavigation = (e, kind, f) => { inflight.n++; import("./frame-navigation.js").then(m => m.watch(e, (name, r) => { if (name === kind) f(m.positional(r)); })).finally(() => inflight.n--); }; // an iframe's navigation records, the subset a page sees (frame-navigation.js, LLP 1020.002 D2)
+export const onAtompress = (e, kind, f, l) => l(kind, ev => { if (Array.isArray(ev.detail)) f(ev.detail); }); // a press on an inline atom (LLP 1045.000 D7), its `AtomEvent` record the event's detail (atoms.js, markup-editor.js)
 export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own presence-glue.js, fetched after the first
@@ -1090,7 +1094,7 @@ function geoRead(op, id) {
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
 export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Geo ? Geo.range(liveById(id), start, end, out) : 0;
   return bits & 1 ? [...out, !!(bits & 2), false] : [0, 0, 0, 0, false, true]; };
-export { decorationRecord } from './shape.js'; import { startDecoration } from './editor.js';
+export { decorationRecord, atomFacesRecord } from './shape.js'; import { startDecoration } from './editor.js';
 export const decorate = e => startDecoration(e, {own:Owner, onEnd, inflight, say});
 /** `elementFromPoint(x,y)` (LLP 1094 D10): nearest front-most untransformed id at a viewport point; none before loading. `elementsFromPoint` returns every one. */
 export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };
@@ -1114,13 +1118,13 @@ export function mde(e) {
       replace(n) {
         Ids.set(n, id); Views.set(id, n);
         Object.defineProperties(e, { value: { configurable: true, get: () => n.value, set: v => { n.value = v; } }, ...Object.fromEntries(["selectionStart", "selectionEnd", "selectionDirection"].map(k => [k, { configurable: true, get: () => n[k] }])) });
-        for (const t of ["input", "beforeinput", "selectionchange", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
+        for (const t of ["input", "beforeinput", "selectionchange", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click", "atompress"]) n.addEventListener(t, ev => {
           const forwarded = new ev.constructor(t, ev); forwarded.$stopped = ev.$stopped; if (ev.defaultPrevented) forwarded.preventDefault();
           if (!e.dispatchEvent(forwarded)) ev.preventDefault(); if (forwarded.$stopped) ev.$stopped = true;
         }, t === "keydown"); // before the editor applies its own key default
         new MutationObserver(ms => { for (const m of ms) { const v = e.getAttribute(m.attributeName); v == null ? n.removeAttribute(m.attributeName) : n.setAttribute(m.attributeName, v); } n.exactMarkup?.sync(); }).observe(e, { attributes: true });
       },
-      select: (n, p) => { const [formats, mixed, unavailable, link] = p.split("\n"); e.$select?.([formats, mixed === "1", link ?? "", unavailable]); },
+      select: (n, p) => { const [formats, mixed, unavailable, atom, ...link] = p.split("\n"); e.$select?.([formats, mixed === "1", link.join("\n"), unavailable, atom ?? ""]); },
     });
   }).catch(err => say(`markup editor: ${err.message}`)).finally(() => inflight.n--);
 }
@@ -1389,7 +1393,7 @@ export function mount(f) {
     if (!(t.closest?.("input, textarea, select") || t.isContentEditable) && t.closest?.('[retainFocus="true"]')) ev.preventDefault();
   });
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
-  clock.agent = agentMode();
+  clock.agent = agentMode(); if (!clock.agent && typeof window !== "undefined") reloadOnGone(window); // (a build kept no more: the page again, once)
   Store.load();
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);

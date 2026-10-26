@@ -64,12 +64,10 @@ pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
     .map_err(BakeError)
 }
 
-/// What `build` writes to OUT_DIR, written by a process outside Cargo
-/// (`exact-js-bake --cargo`, with OUT_DIR and TARGET set). Each file is
-/// rewritten only when its bytes change, so the ones Rust compiles keep their
-/// times across a bake that changed only the plan or the module's code. The
-/// `cargo:rerun-if` lines go to stdout: the inputs whose change calls for
-/// another bake.
+/// What `build` writes to OUT_DIR, written by a process outside Cargo (`exact-js-bake --cargo`,
+/// with OUT_DIR and TARGET set). Each file is rewritten only when its bytes change, so the ones
+/// Rust compiles keep their times across a bake that changed only the plan or the module's code.
+/// The `cargo:rerun-if` lines go to stdout: the inputs whose change calls for another bake.
 pub fn bake_outside(app: &Path, platform: &str) -> Result<(), BakeError> {
     build_sources(app, platform, None, None, true).map_err(BakeError)
 }
@@ -462,6 +460,12 @@ fn build_sources(
             .as_str()
             .is_some_and(|module| !module.is_empty());
     let mut metadata = module_constants(&meta, rust_updates, platform, outside)?;
+    if platform == "windows" {
+        metadata.push_str(&format!(
+            "/// The window the app opens in (`host.windows.window`).\npub fn window() -> exact_windows::Window {{ {} }}\n",
+            manifest.windows_window()?
+        ));
+    }
     // The module's Canvas 2D roster (LLP 1056 D1), known before it loads.
     metadata.push_str("#[allow(dead_code)]\npub const CANVAS_SURFACES: &[(&str, usize)] = &[");
     for (name, arity) in meta["surfaces"].as_object().into_iter().flatten() {
@@ -488,6 +492,7 @@ fn build_sources(
         ));
     }
     replace_changed(&out.join("module.rs"), metadata.as_bytes())?;
+    contract::native::write_desktop_packages(platform, app, &baked.plan, &target, &out)?;
     {
         let mode = compat.inputs["rustMode"]
             .as_str()
@@ -889,6 +894,9 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 return Err("__exact_build.tsbuildinfo is reserved for the producer".into());
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
+                // The Windows package (`host/windows/build.mjs`) is the bake's
+                // output: captured, its compat.json made every build stale.
+                || (at == root && name == "dist-windows")
                 || name.starts_with(".exact-js-bake-")
                 // The app's dot directories hold what no build reads: `.exact/`
                 // keeps an agent's diary, evidence, logs and runtime files
@@ -1175,16 +1183,18 @@ fn bake_in(
         )?;
     }
     write_changed(&stage.join(DECLARATIONS), declarations.as_bytes())?;
-    // And beside app.ts, so an editor type-checks the module against the plan
-    // it will run with. Never captured as a source, never committed; written
-    // only when it changes, so a watcher sees one event per contract change.
+    // And beside app.ts, so an editor type-checks the module against its plan: never captured or
+    // committed, written only when it changes, so a watcher sees one event per contract change.
     if development {
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
     let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
-    // An overlay shows writes over the resources they change.
+    // An overlay shows writes over what they change; `tools`, the handlers a package calls (LLP 1133.016 D9).
     if exports(&app_ts, "overlay") {
         entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
+    }
+    if exports(&app_ts, "tools") {
+        entry.push_str("export const tools = app.tools;\n");
     }
     if draws {
         entry.push_str(CANVAS_ENTRY);

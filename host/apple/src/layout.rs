@@ -24,6 +24,10 @@ impl<D: DataSource> Host<D> {
         }
         batch.facts = self.facts_moved();
         batch.wakelock = self.wakelock_moved();
+        batch.orientationlock = self.orientation_moved();
+        // A package view's displayed state, by the same rule, now the
+        // presenter's covers are set (LLP 1133.008 D8 item 2).
+        self.runner.report_views();
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),
@@ -44,6 +48,8 @@ impl<D: DataSource> Host<D> {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
         batch.seq = self.runner.seq_range();
+        batch.alerts = self.runner.take_alerts();
+        batch.journal = self.runner.take_journal();
         batch.canvas_frames(self.runner.canvas_wants_frame());
         self.canvas_owed_onto(batch);
     }

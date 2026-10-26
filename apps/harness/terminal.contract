@@ -443,7 +443,7 @@ component EntryView
               for b, i in e.blocks key=i
                 BlockView(b=b, first=i == 0)
               if e.more > 0
-                text `… +${e.more} lines` color="#6c6c6c"
+                text `… +${e.more} ${e.more == 1 ? "line" : "lines"}` color="#6c6c6c"
       else if e.kind == "banner"
         column border="thin solid #d78700" border-radius="1ch" padding="0 1ch"
           for b, i in e.blocks key=i

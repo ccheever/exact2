@@ -36,6 +36,13 @@ pub struct Batch {
     /// The kernel transactions this batch carries, `"seq":[first,last]`,
     /// when the runner measures (LLP 1079 D3): the frame sampler's join.
     pub seq: Option<(u64, u64)>,
+    /// Failure lines for the platform's log, `"alerts":[…]`, each carried
+    /// once (LLP 1142 D4: [`exact_runner::Runner::take_alerts`]).
+    pub alerts: Vec<String>,
+    /// The journal's other lines, `"journal":[…]`, for the platform's log at
+    /// a lower level (LLP 1143 open question 1:
+    /// [`exact_runner::Runner::take_journal`]).
+    pub journal: Vec<String>,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
@@ -54,6 +61,9 @@ pub struct Batch {
     /// Whether a displayed element holds the wake lock, when that changed
     /// (`Host::wakelock_moved`, LLP 1125 D11).
     pub wakelock: Option<bool>,
+    /// The session's orientation lock, JSON, when it changed
+    /// (`Host::orientation_moved`, LLP 1133.029 D3).
+    pub orientationlock: Option<String>,
 }
 
 pub use exact_runner::agent::quote;
@@ -444,6 +454,18 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"presence","call":N,"name":…,"account":…,"service":…,"policy":…,
+    /// "reason":…,"origin":…}`: the platform's check for a presence call
+    /// (LLP 1133.010 D13), and, with a `service`, the item the host reads
+    /// after it, one op per ask. Nothing secret: the value comes back by
+    /// `exact_presence`.
+    pub fn presences(&mut self, asks: Vec<exact_runner::presence::PresenceAsk>) {
+        for ask in asks {
+            self.ops
+                .push(format!("{{\"op\":\"presence\",{}", &ask.json()[1..]));
+        }
+    }
+
     /// A reserved activity send, dispatched to the demand-loaded arm.
     pub fn activity(&mut self, ticket: u64, request: &str) {
         self.ops.push(format!(
@@ -777,8 +799,8 @@ impl Batch {
     }
 
     /// `{"op":"present","id":…,"property":"layout","x":…,"y":…,"w":…,"h":…}`
-    /// — a layout transition's offset and scale of the laid-out box (LLP
-    /// 1063).
+    /// — a layout transition's offset from the laid-out box and its size's
+    /// difference from it (LLP 1063).
     pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
@@ -849,6 +871,9 @@ impl Batch {
         if let Some(held) = self.wakelock {
             let _ = write!(s, ",\"wakelock\":{held}");
         }
+        if let Some(lock) = &self.orientationlock {
+            let _ = write!(s, ",\"orientationlock\":{lock}");
+        }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");
             for (i, src) in self.images.iter().enumerate() {
@@ -867,6 +892,19 @@ impl Batch {
         }
         if let Some((first, last)) = self.seq {
             let _ = write!(s, ",\"seq\":[{first},{last}]");
+        }
+        for (key, lines) in [("alerts", &self.alerts), ("journal", &self.journal)] {
+            if lines.is_empty() {
+                continue;
+            }
+            let _ = write!(s, ",\"{key}\":[");
+            for (i, line) in lines.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(line, &mut s);
+            }
+            s.push(']');
         }
         let _ = write!(
             s,

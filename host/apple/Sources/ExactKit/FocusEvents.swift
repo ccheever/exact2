@@ -28,6 +28,9 @@ extension Presenter {
         tabStart = nil
         #endif
         focusEvents.focus(id)
+        #if os(iOS)
+        session?.view?.setNeedsLayout()
+        #endif
         MainActor.assumeIsolated { HeldState.focusMoved(to: textHost(id)) } // the focus coming into a held focus's node or leaving it lets it go (HeldState.swift)
     }
     func blur(_ id: UInt32) {
@@ -35,6 +38,9 @@ extension Presenter {
         if menus.preservesFocus(id) { return }
         #endif
         focusEvents.blur(id)
+        #if os(iOS)
+        session?.view?.setNeedsLayout()
+        #endif
         // (After the turn: the focus that comes next, so one moving within the node keeps its hold.)
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated { HeldState.focusMoved(to: self?.focusedNode) }
@@ -88,7 +94,8 @@ final class FocusEvents {
         let kind = entering ? "focusin" : "focusout"
         let path = entering ? state.inbound : state.outbound
         presenter.afterBatch { [weak presenter] in
-            guard let presenter else { return }
+            // (A focus a reset moves, a sheet it dismisses giving it back, is the old tree's: never the runtime replacing it.)
+            guard let presenter, !presenter.resetting else { return }
             let enclosingStopped = presenter.propagationStopped
             defer { presenter.propagationStopped = enclosingStopped }
             presenter.propagationStopped = false
@@ -105,14 +112,15 @@ final class FocusEvents {
 
     private func direct(_ id: UInt32, entering: Bool) {
         presenter?.afterBatch { [weak presenter] in
-            guard let presenter,
+            guard let presenter, !presenter.resetting,
                   (presenter.inlineText(id)?.handlers ?? presenter.views[id]?.handlers ?? []).contains(entering ? "focus" : "blur") else { return }
             if entering { presenter.onFocus?(id) } else { presenter.onBlur?(id) }
         }
     }
 
+    // (Nothing a reset moves is kept: the old tree's focus, never the replacing tree's to blur or skip.)
     func focus(_ id: UInt32) {
-        guard let next = snapshot(id) else { return }
+        guard presenter?.resetting != true, let next = snapshot(id) else { return }
         if current?.node == id, pending == nil { return }
         let old = (pending ?? current).map { named($0) }
         pending = nil
@@ -125,7 +133,7 @@ final class FocusEvents {
     }
 
     func blur(_ id: UInt32) {
-        guard current?.node == id, let old = current else { return }
+        guard presenter?.resetting != true, current?.node == id, let old = current else { return }
         current = nil
         pending = named(old)
         direct(id, entering: false)
@@ -136,7 +144,7 @@ final class FocusEvents {
         // Blur already began this transition. Wait for its related responder,
         // or flush, even if its handler removes the old views in the meantime.
         if pending?.path.contains(id) == true { return }
-        guard let old = current, old.path.contains(id) else { return }
+        guard presenter?.resetting != true, let old = current, old.path.contains(id) else { return }
         current = nil
         pending = nil
         emit(named(old), entering: false, related: nil)

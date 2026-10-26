@@ -21,7 +21,9 @@ use crate::{BoxGenerationMode, BoxSizing, Dimension, Direction, RequestedAxis};
 
 use super::common::alignment::apply_alignment_fallback;
 #[cfg(feature = "content_size")]
-use super::common::scrollable_overflow::compute_scrollable_overflow_contribution;
+use super::common::scrollable_overflow::{
+    compute_scrollable_overflow_contribution, margin_box_contribution, with_end_padding,
+};
 use super::common::sizing_keyword::{
     resolve_sizing_keyword, SizingKeywordResolution,
 };
@@ -544,6 +546,19 @@ fn compute_preliminary(tree: &mut impl LayoutFlexboxContainer, node: NodeId, inp
     // 15. Determine the flex container’s used cross size.
     debug_log!("determine_container_cross_size");
     let total_line_cross_size = determine_container_cross_size(&flex_lines, known_dimensions, &mut constants);
+
+    // EXACT PATCH 61: a column learns its intrinsic width during cross sizing.
+    // Regenerate items against that width's ratio height, retaining the input
+    // definiteness and allowing content to exceed the percentage basis.
+    // The known width bounds the repeat even when the height remains automatic.
+    if constants.is_column && known_dimensions.width.is_none() && known_dimensions.height.is_none()
+        && tree.get_flexbox_container_style(node).aspect_ratio().is_some()
+    {
+        let known_dimensions = Size { width: Some(constants.container_size.width), ..known_dimensions };
+        drop(flex_lines);
+        drop(flex_items);
+        return compute_preliminary(tree, node, LayoutInput { known_dimensions, ..inputs });
+    }
 
     // We have the container size.
     // If our caller does not care about performing layout we are done now.
@@ -2187,11 +2202,20 @@ fn determine_hypothetical_cross_size(
         let transferred_max_cross =
             transfer_into_unsized(child.max_size, ratio, sized).cross(constants.dir);
 
-        let child_cross = child
-            .size
-            .cross(constants.dir)
-            .maybe_clamp(transferred_min_cross, transferred_max_cross)
-            .maybe_max(padding_border_sum);
+        // EXACT PATCH 65: a single-line row's definite stretch also applies
+        // during measurement (Flexbox §9.8). Overflow inside that item must
+        // not enlarge the container's content-based ratio height minimum.
+        let child_cross = if constants.is_row && !constants.is_wrap && constants.has_definite_cross_size
+            && constants.node_outer_size.height.is_none()
+            && child.align_self == AlignSelf::STRETCH && child.size_style.height.is_auto()
+            && !child.margin_is_auto.top && !child.margin_is_auto.bottom
+        {
+            constants.node_inner_size.height
+                .maybe_sub(child.margin.vertical_axis_sum())
+                .maybe_clamp(child.min_size.height, child.max_size.height)
+        } else {
+            child.size.cross(constants.dir).maybe_clamp(transferred_min_cross, transferred_max_cross)
+        }.maybe_max(padding_border_sum);
 
         let child_available_cross = available_space
             .cross(constants.dir)
@@ -2845,6 +2869,7 @@ fn calculate_flex_item(
     total_offset_cross: f32,
     line_offset_cross: f32,
     #[cfg(feature = "content_size")] total_overflow_rect: &mut Rect<f32>,
+    #[cfg(feature = "content_size")] margin_box_rect: &mut Rect<f32>,
     #[cfg(feature = "content_size")] border: Rect<f32>,
     constants: &AlgoConstants,
 ) {
@@ -2972,6 +2997,24 @@ fn calculate_flex_item(
             item.contain,
             constants.is_scroll_container,
         ));
+        // EXACT PATCH 67: the margin box where the item sits before its relative offset.
+        let main_shift = if is_rtl_row { -main_relative_inset } else { main_relative_inset };
+        let shift = if direction.is_row() {
+            Point { x: main_shift, y: cross_relative_inset }
+        } else {
+            Point { x: cross_relative_inset, y: main_shift }
+        };
+        let static_location = if layout_direction.is_rtl() {
+            Point { x: contribution_location.x + shift.x, y: contribution_location.y - shift.y }
+        } else {
+            Point { x: contribution_location.x - shift.x, y: contribution_location.y - shift.y }
+        };
+        *margin_box_rect = margin_box_rect.union(margin_box_contribution(
+            static_location,
+            size,
+            item.margin,
+            layout_direction.is_rtl(),
+        ));
     }
 }
 
@@ -2982,6 +3025,7 @@ fn calculate_layout_line(
     line: &mut FlexLine,
     total_offset_cross: &mut f32,
     #[cfg(feature = "content_size")] overflow_rect: &mut Rect<f32>,
+    #[cfg(feature = "content_size")] margin_box_rect: &mut Rect<f32>,
     #[cfg(feature = "content_size")] border: Rect<f32>,
     constants: &AlgoConstants,
 ) {
@@ -3012,6 +3056,8 @@ fn calculate_layout_line(
                 #[cfg(feature = "content_size")]
                 overflow_rect,
                 #[cfg(feature = "content_size")]
+                margin_box_rect,
+                #[cfg(feature = "content_size")]
                 border,
                 constants,
             );
@@ -3026,6 +3072,8 @@ fn calculate_layout_line(
                 line_offset_cross,
                 #[cfg(feature = "content_size")]
                 overflow_rect,
+                #[cfg(feature = "content_size")]
+                margin_box_rect,
                 #[cfg(feature = "content_size")]
                 border,
                 constants,
@@ -3053,6 +3101,8 @@ fn final_layout_pass(
 
     #[cfg_attr(not(feature = "content_size"), allow(unused_mut))]
     let mut overflow_rect = Rect::ZERO;
+    #[cfg(feature = "content_size")]
+    let mut margin_box_rect = Rect::ZERO;
 
     if constants.is_wrap_reverse {
         for line in flex_lines.iter_mut().rev() {
@@ -3062,6 +3112,8 @@ fn final_layout_pass(
                 &mut total_offset_cross,
                 #[cfg(feature = "content_size")]
                 &mut overflow_rect,
+                #[cfg(feature = "content_size")]
+                &mut margin_box_rect,
                 #[cfg(feature = "content_size")]
                 constants.border,
                 constants,
@@ -3076,24 +3128,28 @@ fn final_layout_pass(
                 #[cfg(feature = "content_size")]
                 &mut overflow_rect,
                 #[cfg(feature = "content_size")]
+                &mut margin_box_rect,
+                #[cfg(feature = "content_size")]
                 constants.border,
                 constants,
             );
         }
     }
 
-    // A scroll container's own padding at the end of the content is part of its scrollable
-    // overflow region, so it is included in the overflow rect. Boxes that are not scroll
-    // containers do not extend their overflow region by their own padding.
+    // A scroll container's own padding at the end of its items is part of its scrollable
+    // overflow region. Boxes that are not scroll containers do not extend their overflow region
+    // by their own padding.
     #[cfg(feature = "content_size")]
     if constants.is_scroll_container {
-        overflow_rect.right += if constants.layout_direction.is_rtl() {
-            constants.content_box_inset.left - constants.border.left - constants.scrollbar_gutter.x
-        } else {
-            constants.content_box_inset.right - constants.border.right - constants.scrollbar_gutter.x
+        let end_padding = Size {
+            width: if constants.layout_direction.is_rtl() {
+                constants.content_box_inset.left - constants.border.left - constants.scrollbar_gutter.x
+            } else {
+                constants.content_box_inset.right - constants.border.right - constants.scrollbar_gutter.x
+            },
+            height: constants.content_box_inset.bottom - constants.border.bottom - constants.scrollbar_gutter.y,
         };
-        overflow_rect.bottom +=
-            constants.content_box_inset.bottom - constants.border.bottom - constants.scrollbar_gutter.y;
+        overflow_rect = with_end_padding(overflow_rect, margin_box_rect, end_padding);
     }
 
     overflow_rect

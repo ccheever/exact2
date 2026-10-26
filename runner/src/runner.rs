@@ -18,7 +18,7 @@ pub mod foresee;
 pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
 mod pointer;
-pub use pointer::{DropEvent, PointerEvent, WheelEvent};
+pub use pointer::{AtomEvent, DropEvent, PointerEvent, WheelEvent};
 mod intersect;
 mod reorder;
 mod reorder_codec;
@@ -97,7 +97,7 @@ mod apply;
 mod live_time;
 pub mod midi;
 mod modules;
-pub use modules::CallOrigin;
+pub use modules::{AppState, CallHow, CallOrigin, PresenceAnswer, PresenceAsk, WakeHow};
 mod split;
 mod surface_record;
 mod text_axes;
@@ -416,6 +416,7 @@ pub struct Runner<D: DataSource> {
     /// A grouped drop's source while its `reorderdrop` runs (D2).
     dropping_from: Option<exact_kernel::NodeKey>,
     ids: Ids,
+    pub(crate) orientation: crate::orientation::Said, // the host's readback, what was journaled (LLP 1133.029)
     now_ms: f64,
     timers: Vec<Timer>,
     clock: advance::Clock,
@@ -897,6 +898,7 @@ impl<D: DataSource> Runner<D> {
             reorder_session: None,
             dropping_from: None,
             ids: Ids::default(),
+            orientation: Default::default(),
             now_ms,
             timers: Vec::new(),
             clock: Default::default(),
@@ -1033,36 +1035,7 @@ impl<D: DataSource> Runner<D> {
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
         if !ready {
-            for (i, &taken) in seeded.iter().enumerate() {
-                if !runner.plan.resources[i].reader
-                    || exact_plan::runner_owned_source(
-                        runner.plan.str(runner.plan.resources[i].source),
-                    )
-                {
-                    continue;
-                }
-                // An answer the runtime already has isn't asked again when
-                // the module loads, unless the device's store may change it.
-                if taken && !device_state {
-                    continue;
-                }
-                runner.stale[i] = true;
-                if runner.resources[i].is_some() {
-                    continue;
-                }
-                let seed = runner.kept_seed(i);
-                if let Some((args, value)) = seed {
-                    runner.resources[i] = Some(ResourceState {
-                        args,
-                        value: crate::held::Held::new(value),
-                        store_revision: runner.store.revision(),
-                        placeholder: false,
-                        kept_seed: true,
-                        answered_for: None,
-                        origin: 0,
-                    });
-                }
-            }
+            runner.seed_kept(&seeded, device_state);
         }
         if ready && device_state {
             // … and asked now when it can answer, showing the rendered
@@ -1123,6 +1096,7 @@ impl<D: DataSource> Runner<D> {
         runner.ids = ids;
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
+        runner.samples_stood();
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
@@ -1161,6 +1135,17 @@ impl<D: DataSource> Runner<D> {
     /// layout refusal) so one read sees everything in order.
     pub fn log(&mut self, line: impl Into<String>) {
         let line = line.into();
+        // While measuring, a development host also writes it to its
+        // platform's log (LLP 1143 open question 1).
+        if !self.ids.work.sites.is_empty() {
+            crate::perf::queue(&self.ids.work.journal, line.clone());
+        }
+        self.journal_only(line);
+    }
+
+    /// Append a line to the journal and nowhere else: an alert, which its
+    /// own queue carries to the platform's log.
+    pub(crate) fn journal_only(&mut self, line: String) {
         self.journal.push_back(lines::stamped(self.now_ms, &line));
         if self.journal.len() > JOURNAL_RING {
             self.journal.pop_front();
@@ -1400,13 +1385,27 @@ impl<D: DataSource> Runner<D> {
     /// The store's writes since the last take, in order, for the host to
     /// persist (LLP 1018 D1) — only from commits that applied.
     pub fn take_store_writes(&mut self) -> Vec<StoreWrite> {
-        self.store.take_writes()
+        let writes = self.store.take_writes();
+        self.presence_writes(writes)
     }
 
     /// The names the store holds a value for — never the values (LLP 1018
     /// D5: a token is not the agent's to see).
+    /// A presence name is listed with its occupancy, `token: locked,
+    /// user-presence`, `pending`, `plain` or `absent` (LLP 1133.010 §7).
     pub fn store_names(&self) -> Vec<String> {
-        self.store.names().into_iter().map(str::to_string).collect()
+        let presence = self.presence_list();
+        let mut names: Vec<String> = (self.store.names().into_iter())
+            .filter(|n| !n.starts_with(Store::PRESENCE) && !presence.iter().any(|(p, _)| p == n))
+            .map(str::to_string)
+            .collect();
+        names.extend(
+            presence
+                .into_iter()
+                .map(|(name, said)| format!("{name}: {said}")),
+        );
+        names.sort();
+        names
     }
 
     /// The store, for a test that reads what an action kept.

@@ -12,13 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-/// Chosen documents use the selected directory's owned Windows handle.
-pub(crate) fn document(
-    root: &File,
-    path: &str,
-    op: FsOp,
-    data: Option<&[u8]>,
-) -> io::Result<FsResult> {
+fn document_parts(path: &str) -> io::Result<Vec<&str>> {
     let parts: Vec<_> = if path.is_empty() {
         Vec::new()
     } else {
@@ -27,6 +21,29 @@ pub(crate) fn document(
     for part in &parts {
         windows_directory::validate_name(part)?;
     }
+    Ok(parts)
+}
+/// A chosen document's regular file at `path` beneath `root`, opened for
+/// reading as `readFile` opens it.
+pub(crate) fn document_file(root: &File, path: &str) -> io::Result<File> {
+    let parts = document_parts(path)?;
+    let (leaf, ancestors) = parts
+        .split_last()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::IsADirectory, "EISDIR"))?;
+    let mut parent = Directory::selected(root)?;
+    for part in ancestors {
+        parent = parent.child(part, false)?;
+    }
+    parent.document_file(leaf)
+}
+/// Chosen documents use the selected directory's owned Windows handle.
+pub(crate) fn document(
+    root: &File,
+    path: &str,
+    op: FsOp,
+    data: Option<&[u8]>,
+) -> io::Result<FsResult> {
+    let parts = document_parts(path)?;
     let mut parents = vec![Directory::selected(root)?];
     if op == FsOp::Mkdir {
         for part in parts {
@@ -206,6 +223,35 @@ impl AppDirectories {
         validate_sqlite_location(&physical)?;
         Ok(physical)
     }
+    /// `copyFile` into the app file `destination` from a file `source` opens
+    /// outside the app's directories, a chosen document's: `destination` is
+    /// admitted under `fs.write` before `source` runs, and `source`'s guard
+    /// lives until the copy is done.
+    pub(crate) fn copy_in<G>(
+        &self,
+        grants: &GrantSet,
+        destination: &str,
+        source: impl FnOnce() -> Result<(File, G), HostError>,
+    ) -> Result<FsResult, HostError> {
+        self.parse(destination)?;
+        crate::boundary::admit(
+            grants,
+            &Operation::FsWrite {
+                path: destination.into(),
+            },
+        )?;
+        let (parent, leaf) = self.parent(destination)?;
+        let (mut source, _guard) = source()?;
+        let mut target = parent
+            .file(&leaf, libc::O_WRONLY | libc::O_CREAT)
+            .map_err(error)?;
+        if identity(&source).map_err(error)? == identity(&target).map_err(error)? {
+            return Err(error("copy requires distinct regular files"));
+        }
+        target.set_len(0).map_err(error)?;
+        io::copy(&mut source, &mut target).map_err(error)?;
+        Ok(FsResult::Done)
+    }
     pub(crate) fn run(
         &self,
         grants: &GrantSet,
@@ -335,5 +381,12 @@ impl AtomicTarget {
         self.parent
             .write(&self.leaf, data, &token().map_err(error)?)
             .map_err(error)
+    }
+    /// The same file with `.extension` appended, in the directory already pinned.
+    pub(crate) fn extended(self, extension: &str) -> Self {
+        AtomicTarget {
+            leaf: format!("{}.{extension}", self.leaf),
+            ..self
+        }
     }
 }

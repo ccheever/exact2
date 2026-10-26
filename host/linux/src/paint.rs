@@ -31,21 +31,31 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod backend;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+mod presentation;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+pub(crate) use presentation::Presentation;
 pub mod border;
 pub(crate) mod button;
 mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
 pub(crate) mod dates;
+mod dialog_shadow;
+pub(crate) use dialog_shadow::DialogShadow;
 pub mod gradient;
 mod grouped;
+mod overlay;
+pub(crate) mod scrollbar;
 pub use gradient::GradientPaint;
+pub(crate) use overlay::TopSurface;
 pub(crate) mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
 mod alert;
 pub(crate) mod inline;
+pub(crate) mod inline_frame;
 mod layer;
 mod lift;
 pub(crate) mod look;
@@ -232,10 +242,16 @@ impl BoxPaint {
                 s.border_style_left,
             ],
             colors: colors.map(|c| rgba(c.resolve(dark))),
-            background: match material {
+            background: match (look::contrast(), material) {
+                (Some(palette), _)
+                    if !s.written.has(StyleId::BackgroundColor)
+                        && s.background_color.is_some_and(|c| c.resolve(dark).a() != 0) =>
+                {
+                    palette.window
+                }
                 // The material's tint where the author painted no background,
                 // as the web's rule sits under an inline one (LLP 1053.000 D4).
-                Some(m) if s.background_color.unwrap_or(current).resolve(dark).a() == 0 => {
+                (_, Some(m)) if s.background_color.unwrap_or(current).resolve(dark).a() == 0 => {
                     if dark {
                         m.dark
                     } else {
@@ -525,6 +541,8 @@ pub struct Painter {
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
     /// Each hatched node's overlay as last published (LLP 1075.003.000.001 §2.2.1).
     pub(crate) overlays: BTreeMap<ViewId, Arc<Pixmap>>,
+    pub(crate) top_surface: Option<TopSurface>,
+    pub(crate) scrollbars: scrollbar::State,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
     /// What a reorder lifts: a row in its list, or a ghost over everything.
@@ -532,6 +550,9 @@ pub struct Painter {
     // Accepted owners retain their paragraph leases while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     pub(crate) field_text: HashMap<ViewId, Rc<field::PaintedField>>,
+    pub(crate) caret_hidden: bool,
+    pub(crate) composition: Option<Rc<field::Composition>>,
+    pub(crate) inline_text: HashMap<ViewId, Rc<inline_frame::PaintedInline>>,
     region_picture: Option<Rc<region::Picture>>,
     region_frame: Option<region::Published>,
     damage: damage::Retained,
@@ -566,22 +587,12 @@ pub struct Painter {
     pub(crate) labels: material::Labels,
 }
 
-// O(painted owners) references and numeric publication metadata, not copied
-// glyphs/commands or a new render graph. The display retains acknowledged A
-// here while one submitted B owns its corresponding leases.
-#[cfg(any(target_os = "linux", target_os = "android", test))]
-pub(crate) struct Presentation {
-    text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
-    fields: HashMap<ViewId, Rc<field::PaintedField>>,
-    picture: Option<Rc<region::Picture>>,
-    frame: Option<region::Published>,
-}
-
 struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     fields: HashMap<ViewId, Rc<field::PaintedField>>,
+    inline: HashMap<ViewId, Rc<inline_frame::PaintedInline>>,
     skip: Option<exact_kernel::NodeKey>,
     replay: Option<&'b region::Replay<'b>>,
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
@@ -615,26 +626,6 @@ impl Painter {
         std::mem::take(&mut self.materials.1)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "android", test))]
-    pub(crate) fn presentation(&self) -> Presentation {
-        Presentation {
-            text: self.accepted_text.clone(),
-            fields: self.field_text.clone(),
-            picture: self.region_picture.clone(),
-            frame: self.region_frame.as_ref().map(|f| region::Published {
-                incarnation: f.incarnation.clone(),
-                selection: f.selection.clone(),
-            }),
-        }
-    }
-    #[cfg(any(target_os = "linux", target_os = "android", test))]
-    pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
-        std::mem::swap(&mut self.accepted_text, &mut state.text);
-        std::mem::swap(&mut self.field_text, &mut state.fields);
-        std::mem::swap(&mut self.region_picture, &mut state.picture);
-        std::mem::swap(&mut self.region_frame, &mut state.frame);
-        state
-    }
     /// A painter over a backend.
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {
@@ -662,6 +653,8 @@ impl Painter {
             placements: BTreeMap::new(),
             canvases: BTreeMap::new(),
             overlays: BTreeMap::new(),
+            top_surface: None,
+            scrollbars: Default::default(),
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
@@ -671,6 +664,9 @@ impl Painter {
             clipped: None,
             field_content: HashMap::new(),
             field_text: HashMap::new(),
+            caret_hidden: false,
+            composition: None,
+            inline_text: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
@@ -682,6 +678,12 @@ impl Painter {
     /// The backend's name.
     pub fn backend(&self) -> &'static str {
         self.backend.name()
+    }
+
+    pub(crate) fn recycle_frame(&mut self, pixels: Arc<Pixmap>) {
+        if let Ok(pixels) = Arc::try_unwrap(pixels) {
+            self.backend.recycle_frame(pixels);
+        }
     }
 
     #[cfg(windows)]
@@ -838,12 +840,9 @@ impl Painter {
         let started = std::time::Instant::now();
         self.viewport = viewport;
         self.backend.page(page_color(self.dark));
-        let partial = if let Some(previous) = self
-            .damage
-            .pixels
-            .as_ref()
-            .filter(|_| !self.damage.next.is_empty())
-        {
+        let partial = if let Some(previous) = self.damage.pixels.as_ref().filter(|_| {
+            !self.damage.next.is_empty() && self.top_surface.is_none() && !self.scrollbars.enabled
+        }) {
             self.backend.begin_damage(
                 viewport.0,
                 viewport.1,
@@ -875,6 +874,7 @@ impl Painter {
             boxes: Vec::with_capacity(self.boxes_hint),
             text: BTreeMap::new(),
             fields: HashMap::new(),
+            inline: HashMap::new(),
             skip,
             replay,
             ranks: self.ranks.clone(),
@@ -888,9 +888,11 @@ impl Painter {
         self.paint_ghost(&mut walk);
         self.paint_alert(&mut walk);
         self.rows_end();
+        self.paint_scrollbars(&walk);
         if let Some(menu) = &scene.menu {
             self.menu(menu);
         }
+        self.paint_top_surface(viewport);
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
@@ -906,6 +908,7 @@ impl Painter {
         if finished.is_ok() {
             self.accepted_text = walk.text;
             self.field_text = walk.fields;
+            self.inline_text = walk.inline;
         } else {
             drop(walk.text);
         }
@@ -1245,7 +1248,8 @@ impl Painter {
         // LLP 1104 D6: native buttons ring their own chrome; a bare
         // button rings its outer box even without a press handler.
         if paints_self
-            && node.node_type == NodeType::Pressable
+            && (node.node_type == NodeType::Pressable
+                || self.alert.is_some() && node.props.str(PropId::AlertPart) == Some("message"))
             && node.props.str(PropId::Href).is_none()
             && walk.scene.focus == Some(node.id)
             && self.ringless != Some(node.id)
@@ -1347,37 +1351,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
     .collapse_white_space()
 }
 
-/// A node's effective overflow per axis — the kernel's own rule: a
-/// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
-/// unset axis beside a non-visible one is scrollable (CSS Overflow §3). A
-/// neutral alert and its part boxes read the alert's defaults too
-/// (kernel/src/arena/alert.rs): its message box scrolls.
-pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
-    let resolved;
-    let s = if look::neutral()
-        && (node.props.get(PropId::AlertPart).is_some()
-            || node.props.str(PropId::SemanticTag) == Some("dialog")
-                && node.props.str(PropId::AccessibilityRole) == Some("alertdialog"))
-    {
-        resolved = node.computed_style(StyleMask::EMPTY);
-        &resolved
-    } else {
-        node.style
-    };
-    let y = if s.mask.has(StyleId::OverflowY) {
-        s.overflow_y
-    } else if node.node_type.scrolls_by_default() {
-        Overflow::Auto
-    } else {
-        Overflow::Visible
-    };
-    let x = if s.mask.has(StyleId::OverflowX) {
-        s.overflow_x
-    } else {
-        Overflow::Visible
-    };
-    (x.computed(y), y.computed(x))
-}
+pub use field::effective_overflow;
 
 /// A scroll container's content extent: the kernel's scrollable overflow,
 /// floored with its children's extent plus the end padding (Taffy's block
@@ -1456,6 +1430,8 @@ pub const POINTER: [(f32, f32); 7] = [
     (11.5, 11.5),
 ];
 
+#[cfg(test)]
+mod inline_image_tests;
 #[cfg(test)]
 mod paragraph_tests;
 

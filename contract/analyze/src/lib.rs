@@ -19,7 +19,9 @@ mod rereads;
 mod sends;
 mod shortcuts;
 
-pub use shortcuts::{check_shortcut_keys, chord_codes, declares_shortcuts};
+pub use shortcuts::{
+    check_shortcut_keys, check_windows_shortcuts, chord_codes, declares_shortcuts,
+};
 
 pub use contract_types::handler_arity_message;
 
@@ -358,7 +360,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 71] = [
+pub const HANDLERS: [&str; 79] = [
     "press",
     "change",
     "input",
@@ -417,6 +419,9 @@ pub const HANDLERS: [&str; 71] = [
     "drop",
     "dragenter",
     "dragleave",
+    // A press on an inline atom of a Markdown text or field (LLP 1045.000
+    // D7); it may hand its action an `AtomEvent`.
+    "atompress",
     "swiperight",
     "refresh",
     "scroll",
@@ -450,6 +455,21 @@ pub const HANDLERS: [&str; 71] = [
     "nexttrack",
     "stop",
     "navigate",
+    // An iframe's guest, by the Navigation API's names (LLP 1020.002 D2):
+    // each may hand its action a `FrameNavigation`.
+    "currententrychange",
+    "navigatesuccess",
+    "navigateerror",
+    // A guest's window request and its downloads (LLP 1020.002 D5), with a
+    // `FrameNewWindow` or a `FrameDownload`.
+    "newwindow",
+    "download",
+    // A frame's `captureScreenshot` answered (LLP 1020.002 D7), with a
+    // `FrameCapture`.
+    "capture",
+    // An agent-controlled frame's dialog (LLP 1020.002 D9), with a
+    // `FrameUserPrompt`.
+    "userpromptopened",
     "heightrelease",
     "transformgeometry",
     "transformrelease",
@@ -464,10 +484,12 @@ pub const HANDLERS: [&str; 71] = [
 
 /// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
 /// with anything but an action (an `Ident` or a `Call`, never valid CSS
-/// there), which is CSS's `resize` property.
+/// there), which is CSS's `resize` property, and `capture` with anything
+/// but an action, which is a file input's attribute (refused by lowering).
 pub fn is_handler(name: &str, value: &Expr) -> bool {
     HANDLERS.contains(&name)
-        && (name != "resize" || matches!(value, Expr::Ident(..) | Expr::Call(..)))
+        && (!matches!(name, "resize" | "capture")
+            || matches!(value, Expr::Ident(..) | Expr::Call(..)))
 }
 
 /// What a handler's event carries as its action's last argument: `input`
@@ -677,11 +699,7 @@ fn check_handler(
     let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if let Ref::Action(index) = r {
-        let checked_attr = if attr == "selectionchange" && contract_syntax::edits_text(control) {
-            "beforeinput"
-        } else {
-            attr
-        };
+        let checked_attr = contract_syntax::typed_event(attr, control);
         let valid = handler_accepts(checked_attr, given, params);
         if !valid {
             let declared = view.actions.actions.get(index as usize);

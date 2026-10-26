@@ -93,8 +93,8 @@ word.
 
 ```ebnf
 file          = { declaration } ;
-declaration   = use | shape | function | style | decoration | keyframes | font | sound
-              | theme | routes | component | test ;
+declaration   = use | shape | function | style | decoration | atom | keyframes | font
+              | sound | theme | routes | component | members-block | test ;
 use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
 shape         = "shape" IDENT block(field) ;
@@ -105,6 +105,7 @@ typed-params  = typed-param { "," typed-param } [ "," ] ;
 typed-param   = IDENT ":" type ;
 style         = "style" IDENT block(style-line | part) ;
 decoration    = "decoration" IDENT ( style-line | block(style-line) ) ;
+atom          = "atom" IDENT style-line ;
 style-line    = { FIELD "=" style-literal } NL ;
 part          = "::" "placeholder" NL block(style-line) ;
 style-literal = STRING | NUMBER | "-" NUMBER | "true" | "false" ;
@@ -242,6 +243,17 @@ platform, and each platform's words as dotted keywords
 platform's implementation declares (`contract-module-positional`,
 `contract-module-argument`, `call-argument-twice`). The device answers it, never
 the build: its placeholder is `else empty()` (`contract-module-placeholder`).
+A send that answers nothing (`"answers": null`, LLP 1133.004 D5) is a statement
+in an action, as a host command is (`showNotification(title="Done", tag=t)`);
+a `send` to one is refused (`contract-module-answers`), and so is a statement
+calling a send that answers something (`contract-module-kind`). A module's
+event (D6) is heard with an attribute on the root component's outermost node,
+`column notificationclick=opened`, naming an action of the root that takes a
+prefix of the event's arguments (an untyped parameter takes the event's type;
+`contract-event-handler`); anywhere else, or a second time, it is refused
+(`contract-event-root`). Each event is delivered once, in order, as its own
+commit; a host raises one only once the app has drawn its first frame, so one
+that starts the app is held until then.
 Fonts are app-wide. A used file cannot declare routes. The root file's first
 component remains the root. A name both declared and used
 (`contract-use-shadows`), one name used from two declarations
@@ -263,7 +275,12 @@ section       = "props" block(field)
               | "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
               | "derive" IDENT "=" expr NL
               | resource | mutation | action | task | sequence
+              | "members" STRING NL
               | "view" block(node) ;
+members-block = "members" IDENT block(member) ;
+member        = "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
+              | "derive" IDENT "=" expr NL
+              | resource | mutation | action | task | sequence ;
 provider      = FIELD [ "=" expr ] NL ;
 resource      = "resource" IDENT "=" source-call
                 [ "with" expr { "," expr } ] "as" "shape" type
@@ -293,6 +310,23 @@ statement-case  = "case" "some" "(" IDENT ")" block(statement)
                 | "case" "none" block(statement) ;
 source-call   = IDENT "(" [ arguments ] ")" ;
 ```
+
+A component may write some of its members in other files (LLP 1091.002), so a
+large root can be split by feature under the line cap. `members
+"./composer.contract"` in its body stands for the members that file declares
+under `members Name`, as if they were written at that line: the program, and
+the plan, are the one-file program's. The path is a relative `use` path
+(`contract-use-path`). A members file holds one `members` block, named for the
+component that lists it (`contract-members-owner`), listed by one line
+(`contract-members-twice`, `contract-members-unlisted`); the block holds
+`state`, `derive`, `resource`, `mutation`, `action`, `task` and `sequence`,
+and the once-only sections and `members` lines stay in the component's own
+body (`syntax-members-section`). Every file of a component sees all its
+members, props and injects; a name declared in two of its files is refused
+naming both (`contract-members-duplicate`). Any other name a members file
+calls (a shape, a `fn`, a component) comes from its own `use` lines. The
+component's rules hold for its members wherever they are written: a child's
+members file declares no resource.
 
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks, except that
@@ -783,6 +817,10 @@ else a field's value. `expect state name.field` reads a field of a record at any
 depth, and `name.0` a list index (a whole number from 0); a missing field fails
 naming the fields there. The value is a number, including a negative (`== -3`),
 a string, a bool, `none`, or `[]` — not an expression (`-1 + 2` is refused).
+`expect wakelock held` and `expect wakelock released` compare `state.wakelock.held`.
+This is the runner's holder record: displayed elements requesting the lock, not
+whether the OS or browser granted it. A failure names the holding view ids and
+their testIds when present, or says nothing holds it.
 `expect sound has "assets/x.wav"`
 passes when the runner's record of voices (every host's, under the driver's
 clock) holds one of that source matching each clause given: its start (`at`,
@@ -893,17 +931,24 @@ says. Every roster function has a row and an example, and each example written
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
-| `rangeFrame(id, start, end)` | `Geometry`, actions only; a textarea's UTF-16 range as `Range.getBoundingClientRect()`: collapsed, the caret's rectangle; unavailable past the text, while composing, or with no host reader ([decorations](#plain-textarea-decorations), LLP 1114.007) | `rangeFrame("composer", caret, caret)`, in an action, is where a mention popover goes |
+| `rangeFrame(id, start, end)` | `Geometry`, actions only; a textarea's UTF-16 range as `Range.getBoundingClientRect()` (on a `text markup="markdown"`, the union of the atom pills the range meets, [inline atoms](#inline-atoms-atom-atoms-atomfaces-atompress)): collapsed, the caret's rectangle; unavailable past the text, while composing, or with no host reader ([decorations](#plain-textarea-decorations), LLP 1114.007) | `rangeFrame("composer", caret, caret)`, in an action, is where a mention popover goes |
 | `measure("id")` | `Geometry`, actions only; literal id, the border box as if `height` were `auto`, other styles kept (padding, border, `min-height`, `max-height`, insets): 0 for a bare box whose children are all absolutely positioned (a navigation root); `frame` is the laid-out box | `measure("note").height`, in an action, is the note's natural height |
 | `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
 | `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
 | `querySelectorAll(selector)` | `string[]`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
 
-On Apple, `frame` of an inline `text` run returns the viewport-space union of
-its line fragments, using the run's own font metrics and excluding hanging
-wrap spaces. An empty run has a zero-width rectangle at its insertion point
-with its font's height. Scrolling moves this rectangle; clipping does not trim
-it. Other native hosts currently report inline runs unavailable.
+On Apple, Linux and Windows, `frame` of an inline `text` run returns the
+viewport-space union of its line fragments, using the run's own font ascent
+and descent and excluding collapsible spaces at a soft wrap. Preserved spaces
+and tabs remain in the rectangle, including at a soft wrap. An empty run has a
+zero-width rectangle at its insertion point with its font's height. Scrolling
+moves this rectangle; clipping does not trim it. Linux and Windows read the acknowledged
+paragraph, including multi-column placement and affine transforms; a
+perspective-projected paragraph is unavailable. These readers give a cross-run
+ligature's advance to its first character's run; later runs have zero-width
+rectangles at its end, as in Chrome. Windows shares the Linux presenter;
+runtime verification was on Linux. Android and the terminal have no inline-run
+reader.
 
 For `elementsFromPoint`, an id-less hit outside a named ancestor's own box
 includes that ancestor once before lower layers. This keeps its first entry
@@ -1221,9 +1266,10 @@ The editor's `select` hands its action a `MarkdownSelection` when the selection
 or the source changes: `formats`, space-separated (the inline command names,
 `heading1` to `heading6`, `bullet`, `ordered`, `task`, `quote`, `codeblock`);
 `mixed`, true when the selection spans different formats or links; `link`, the
-common link target or `""`; and `unavailable`, the commands that cannot apply
-there, space-separated (most of them, inside a code block). It carries no
-offsets. A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
+common link target or `""`; `unavailable`, the commands that cannot apply
+there, space-separated (most of them, inside a code block); and `atom`, the
+selected atom's source when the selection is exactly one [atom](#inline-atoms-atom-atoms-atomfaces-atompress),
+else `""`. It carries no offsets. A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
 [Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
 link sheet.
 
@@ -1238,6 +1284,69 @@ both are refused while an input method composes. On the web, where hidden
 syntax is not drawn, a caret put inside it is drawn at its visible edge and
 reads back there ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D6).
 
+### Inline atoms: `atom`, `atoms`, `atomFaces`, `atompress`
+
+An atom is a span of a Markdown source that the editor and the reader show as
+one pill: a label that is not its source, an optional icon, a tooltip
+([LLP 1045.000](../llp/1045.000-inline-atoms.rfc.md)). A caret cannot stand
+inside it, a selection takes it whole, Backspace at its end (Delete at its start)
+removes its whole source as one undo step, ⌥⌫ takes it with the spaces before
+the caret, and a press selects it and then is the node's `atompress`. The value
+stays the source; copy takes the source, ⌘⇧C the labels.
+
+```text
+atom citation link="cite:"
+atom file link="relative"
+atom mention prefix="@"
+atom skill prefix="$" background-color="light-dark(#efe7ff, #2c2340)"
+
+component Composer
+  state draft = ""
+  derive faces = [AtomFace(source="@src/main.rs", label="main.rs", icon="assets/file.svg", title="src/main.rs")]
+  action pressed(e: AtomEvent)
+    open = e.source
+  view
+    textarea value=draft input=edit markup="markdown" atoms="citation file mention skill" atomFaces=faces atompress=pressed
+    text draft markup="markdown" atoms="citation" atompress=pressed
+```
+
+- `atom <name>` takes one form: `link="scheme:"`, any `[text](dest)` or
+  `![text](dest)` whose destination has that scheme (compared without case);
+  `link="relative"`, such a link whose destination has no scheme, between white
+  space; or `prefix="@"`, one of the characters at the start of a word, then a
+  bare run or a `"…"` string, followed by white space. A relative link and a
+  prefix token are atoms only when a face names their source; a scheme link
+  always is. It may take `role="link"` (a button by default) and `color` and
+  `background-color`; the pill's other metrics are the platform's
+  (`lower-atom-style`). It is scoped and imported as `style` is.
+- `atoms="a b"` on a `text` or `textarea` with `markup="markdown"` lists the
+  kinds it recognizes (`lower-atom-field`, `lower-atom-unknown`); two kinds with
+  one scheme, a shared prefix character, or both relative are refused
+  (`lower-atom-duplicate`).
+- `atomFaces` takes `AtomFace(source, label, icon, title)` records, keyed by an
+  atom's whole source: equal source is one atom, and new text is a new key. An
+  empty label is a link's text or a token without its prefix and quotes; the
+  icon is an image source (the web draws a URL or asset, not yet a `symbol:`).
+- `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
+  `href` (a link's destination as written), `start`, `end` (UTF-16) and the
+  modifiers. It never navigates. In the reader an atom is a tab stop that
+  Return or Space presses (a link atom, Return only); in the editor it is not.
+  `rangeFrame` over its range is its pill, in the editor and the reader alike,
+  where a popover anchors; elsewhere in a reader's text it is unavailable, as
+  it is in a macOS paragraph that lays out off the main thread (LLP 1072): 64
+  KB of text, or 16 KB in 256 runs or more, a Markdown text being one run per
+  piece.
+
+The web, macOS and iOS draw atoms in the editor and the reader (on Apple an
+icon draws only for `symbol:sf/<name>`, and UIKit's smart delete takes one of
+the two spaces an atom's deletion leaves). VoiceOver on macOS and iOS reads
+an atom's label in place and its role only from its own element, which the
+next-item command passes over on macOS and reaches after the field on iOS
+(LLP 1045.000 §10 Q10). Linux, Windows and Android show the source in the
+editor and the link text in the reader, with no `atompress`. The driver's
+`state atoms` lists each one: its node, kind, source, range, label and frame from the node's top
+left, where `tap <node> at <x> <y>` presses it.
+
 ### Keep-awake: `wakelock`
 
 `wakelock` on any element takes `"screen"` or `"none"` (the default), literal
@@ -1250,6 +1359,24 @@ two); a computed one is journaled and holds nothing. `keepScreenOn`,
 `idleTimerDisabled` and `keepAwake` are refused with this name. The agent
 reads `state.wakelock` (`{held, by}`); [the reference](reference.md#keep-the-screen-awake)
 has each host's lock.
+
+### Orientation lock: `orientationlock`
+
+`orientationlock` on any element takes a Screen Orientation API lock type
+(`"portrait"`, `"landscape"`, `"portrait-primary"`, `"portrait-secondary"`,
+`"landscape-primary"`, `"landscape-secondary"`, `"natural"`, `"any"`),
+`"current"` or `"none"` (the default), literal or bound
+([LLP 1133.029](../llp/1133.029-screen.rfc.md)). It holds while the element
+is displayed, by `wakelock`'s rule, and outside every `dialog` and popover.
+Any other literal is refused (`lower-attr-value`, naming the words); a
+computed one is journaled and holds nothing. The bake refuses a lock inside
+a `dialog` or popover (`orientationlock-in-top-layer`) and a literal type
+that shares no orientation with the manifest's `orientation`
+(`orientationlock-outside-manifest`). `screenOrientation`, `lockOrientation`,
+`orientation`, `requestedOrientation` and `supportedInterfaceOrientations` are
+refused with this name. The agent reads `state.orientationlock`;
+[the reference](reference.md#lock-the-screen-orientation) has the rules
+and each host's lock.
 
 ## Events
 
@@ -1915,19 +2042,33 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   Chrome's mousedown ends one, where AppKit would leave it marked: a Send
   button's action reads committed text, and no syllable stays with the
   input method once the action clears the field. On the web, Chrome hands
-  the `key` handlers every key while composing (`isComposing`, which
-  Contract does not carry) and commits nothing before a chord's handlers.
+  the `key` handlers every key while composing, each `isComposing` (below),
+  and commits nothing before a chord's handlers.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
   bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
-  bool }`, the DOM's fields (`altKey` is Option and `metaKey` Command on a
-  Mac). A key typed with Control or Meta held is a shortcut: it types
+  bool, isComposing: bool }`, the DOM's fields (`altKey` is Option and
+  `metaKey` Command on a Mac). A key typed with Control or Meta held is a shortcut: it types
   nothing. `code` is the physical key, whatever the layout or input source
   types there (`"KeyB"`, `"Digit1"`, `"Space"`, `"MetaLeft"`), so a shortcut
   can match the key under a Korean or Russian layout; `""` where the host
   cannot tell (a software keyboard's key). `repeat` is true on the keydowns
   the platform repeats while a key is held, so an action can act once per
   press (iOS reports none: UIKit's presses carry no auto-repeat).
+  `isComposing` is true on a key that comes while an input method composes
+  text, between its `compositionstart` and `compositionend` (UI Events). On
+  the web that is every such key, the Enter that picks a candidate
+  included, so an Enter or Escape handler skips it with `not e.isComposing`,
+  as web code does. A keydown an input method processed, `keyCode` 229 in
+  the DOM, is composing there too, as web code's `e.keyCode === 229` test
+  takes it: Safari sends the Enter that commits a composition after
+  `compositionend`. On macOS and iOS the only composing keys a handler hears
+  are a modifier's own press and release, which are `isComposing` as
+  Chrome's are; a ⌘ chord is not, and neither are the keys after it, ⌘'s
+  release included, since its keydown has committed the text (Chrome's
+  stay composing).
+  Linux, Windows, the terminal and Android hand handlers no composing key,
+  and it is always false there.
 - **Release.** `keyup` hears the key coming up, at the focus, bubbling as
   `key` does (`stopPropagation()` stops it the same way), with the same
   name and record (`repeat` is false). A modifier's release is one too
@@ -2181,6 +2322,7 @@ argument validation. Use the working implementation when selecting arguments:
 | Operation | Starting point |
 | --- | --- |
 | `postMessage(text, target)`: ordered messages to a canvas by literal surface name, or string replies and host updates to a live iframe by `id` on Apple and both web executors; iframe targets may compute. Missing, ambiguous, replaced or navigation-revoked iframe targets are dropped without entering the canvas queue. | [LLP 1020 §11](../llp/1020-webview.rfc.md#11-addressed-string-replies-and-host-updates-2026-10-19), [iframe fixture](../scripts/fixtures/iframe-post-messages.contract), [compiler tests](../contract/cli/tests/it/post_message.rs) |
+| `navigate(id, url)`, `traverseHistory(id, delta)`, `reload(id)` or `reload(id, ignoreCache=true)`, `stopLoading(id)`: move the mounted `iframe` with that `id`, by the Navigation API's and WebDriver BiDi's names; bare `reload()` stays the development host's reboot. The frame reports with `navigate=`, `currententrychange=`, `navigatesuccess=` and `navigateerror=`, each with a `FrameNavigation` record as the action's optional last parameter. On Apple a frame with `partition=` is a top-level page in that partition's own storage (`persist:` names last across launches) and takes them all; an unpartitioned frame refuses the commands (`navigateerror`, `NotSupportedError`). The web honours no `partition` (`exactPage().iframePartition` is false) and gives a same-origin frame what the browser lets a page see. A literal id no `iframe` carries is refused here; `partition` beside `sandbox` (`lower-iframe-partition-sandbox`), beside `message=` or a `postMessage` to it (`lower-iframe-partition-message`), or with a literal `src` that is not a web page (`lower-iframe-partition-src`) is refused. A partition is cleared with `clearSiteData` from `@exact/browser`: `send m = clearSiteData(partition=…, types=[…])`, or from data code `await clearSiteData({ partition, types })` once the Contract names the send (LLP 1133.002 D14). On Apple any frame that handles `newwindow=` asks for windows, with a `FrameNewWindow`: a `new-window` (`window.open` with features) has already opened as the platform's popup in the same partition, a `foreground-tab` or `background-tab` (`target=_blank`, ⌘-click) opened nothing and is the app's; `download=` reports a download with a `FrameDownload`. Dialogs, file inputs, a download's destination and another app's scheme are the platform's sheets and panels, and `requests` under the agent (`dialog`, `open-file`, `save-file`). `captureScreenshot(id, "app:/tmp/shot.png")` writes a PNG of any frame's guest, and `clip=DOMRect(x=…, y=…, width=…, height=…)` a part of it in the guest's CSS pixels, as a pinch or pan leaves it; the frame answers with `capture=` and a `FrameCapture` (`path`, `width`, `height`, or `error` and `message`); a literal path outside `app:/data`, `app:/cache` and `app:/tmp` is refused here (`lower-frame-capture-path`); the web answers `NotSupportedError`. On Apple an unpartitioned, unsandboxed frame of a local PDF (`app:/` or `assets/`) shows it in PDFKit's `PDFView`, `#page=N` opening at that page. Data code that holds the grant `browser.automation` drives a partitioned frame with `@exact/browser-automation` (WebDriver BiDi's `evaluate`, `callFunction`, `addPreloadScript`, `performActions`, `handleUserPrompt`, `setDownloadBehavior`, `captureScreenshot`); while it drives one, the frame's dialogs fire `userpromptopened=` with a `FrameUserPrompt` instead of showing a sheet, until a person's input takes the frame back | [LLP 1020.002](../llp/1020.002-a-browser-shell.rfc.md), [fixture](../scripts/fixtures/iframe-partition.contract), [windows](../scripts/fixtures/iframe-windows.contract) |
 | `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |

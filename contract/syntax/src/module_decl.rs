@@ -4,14 +4,18 @@
 
 use crate::{Field, Span, TypeExpr};
 
-/// Whether a module name is read, as a resource reads a source, or sent,
-/// as a mutation's `send` is.
+/// Whether a module name is read, as a resource reads a source, sent, as a
+/// mutation's `send` is, or heard, as an event on the app's root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
     /// A source: `resource r = name(…)`.
     Source,
-    /// A send: `send m = name(…)`.
+    /// A send: `send m = name(…)`, or a statement when it answers nothing
+    /// (LLP 1133.004 D5).
     Send,
+    /// An event (LLP 1133.004 D6): `name=action` on the root component's
+    /// outermost node.
+    Event,
 }
 
 /// One source or send a module declares.
@@ -34,8 +38,23 @@ pub struct ModuleDecl {
     pub options: Vec<Field>,
     /// Each platform's words for it, by the key a call writes (`apple`).
     pub words: Vec<PlatformWords>,
-    /// What it answers.
-    pub answers: TypeExpr,
+    /// What it answers; `None` for a send that answers nothing, which is a
+    /// statement (LLP 1133.004 D5), and for an event.
+    pub answers: Option<TypeExpr>,
+    /// An event's arguments, in order; its handler takes a prefix of them.
+    pub args: Vec<TypeExpr>,
+    /// An event's origin rule: `activation`, a person's act on the
+    /// platform's UI that only the host raises; `emit`, the device's; or
+    /// `wake`, raised by the host at the platform's call (LLP 1133.017 D5).
+    pub raised: String,
+    /// How many of an event's deliveries are held before a handler hears
+    /// them; past it the oldest is dropped.
+    pub hold: u32,
+    /// A wake event's milliseconds from the wake's first delivery to its
+    /// deadline; 0 for any other event.
+    pub budget: u32,
+    /// The action an event is bound to, set once its root attribute is read.
+    pub handler: Option<String>,
     /// A live source: the module announces when its answer changes.
     pub live: bool,
     /// Whether a call may show the platform's prompt: `always`,
@@ -43,6 +62,10 @@ pub struct ModuleDecl {
     pub request: String,
     /// Its synchronous form's name, where it has one (LLP 1133 D6 rule 4).
     pub sync: Option<String>,
+    /// Callable from data code alone (`"contract": false`, LLP 1133.011
+    /// D10 item 1): a Contract `use` of it is refused, so its answer never
+    /// becomes a mutation's value in `state`.
+    pub data_only: bool,
     /// The agent's substitute as the package declares it, a JSON object
     /// (LLP 1133.002 §6): `default`, `from`, `ticket`, `short`, `fill`,
     /// `cancel`, `timeout`, and the interface's `permission`.

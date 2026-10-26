@@ -983,6 +983,7 @@ impl<D: DataSource> Runner<D> {
             }
             None => updates,
         };
+        self.fed_canvases(&rest);
         self.surfaces.extend(rest);
     }
 

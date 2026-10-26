@@ -109,6 +109,11 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 >   `min-width: 0`). A percentage-wide range shrinks below its 129 there too, which is
 >   CSS's own rule for a form control (Sizing 3 §5.2.2) and no deviation (LLP 1115.000
 >   D10.2);
+> - `font-weight` on a platform face draws the platform's named weight at each hundred
+>   (Charlie, 2026-10-24; LLP 1019 §13 D11): on Apple `600` is UIKit's and AppKit's
+>   semibold, San Francisco's `wght` 590, where Chrome and WebKit set the axis to 600,
+>   so its text is about 0.2% narrower than the browser's; a declared face keeps the
+>   number;
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
 > - a custom pressable that declares no press feedback dims while held on iOS;
@@ -1123,9 +1128,10 @@ no block lays out exactly as before. Refused: a block for a root, for an
 inline run, and beside a registered content region.
 
 `SetChildren` rejects: duplicate children, self-child, a root as a child, a cycle
-(child is an ancestor of the parent), children on a leaf type, a non-`Text`
-child under a `Text` (a text node's children are its inline runs; anything else
-would be a node the engine never lays out — `InlineRunNotText`), and a node
+(child is an ancestor of the parent), children on a leaf type, a child under a
+`Text` that is neither a `Text` nor an `Image` (a text node's children are its
+inline runs and the images in its text, LLP 1011.002; anything else would be a
+node the engine never lays out — `InlineRunNotText`), and a node
 more than `MAX_DEPTH` (128) levels below the top of its tree, inline runs
 included (`TooDeep`, 2026-09-23). Layout recurses once per level: release
 Taffy takes up to ~3.5 KiB of stack a level (flex; block 1.9, inline runs

@@ -611,8 +611,12 @@ to LLP 1126.001 §5 Q6's pending ruling.
 
 `bun host/apple/build.mjs --watchos --no-install` builds a watch simulator
 companion inside the iOS bundle. `--watchos --run --sim <iPhone udid>
---watch-sim <watch udid>` installs it on an existing, booted pair and opens its
-placeholder gallery. Add a complication through the watch face's editor.
+--watch-sim <watch udid>` installs it on an existing, booted pair and opens it.
+An app whose `app.json` declares a `watch` entry (`{"source", "component"}`:
+its own Contract file and root component, LLP 1126.002 D4) runs that entry live
+on the watch; the bake refuses what the watch does not draw. An app with none
+opens its complications' placeholders. Add a complication through the watch
+face's editor.
 The watch extension keeps the accessory families (`accessoryCircular`,
 `accessoryRectangular`, `accessoryInline`, `accessoryCorner`); iOS drops
 `accessoryCorner`. An optional `watchFamilies` on an entry overrides its watchOS
@@ -620,7 +624,7 @@ families; `families` still names its iOS families. An app with `app.ts` has all
 watch entries omitted with a message, including its Rust refreshes, until the
 watch Hermes gate passes (LLP 1126.001 §5 Q3). Rust-only apps' entries
 refresh against the watch's own App Group and store. No account transfer is
-performed. The watch app is a placeholder gallery until the live driver lands.
+performed.
 For `accessoryInline`, emit exactly one `text` or `time` leaf plus at most one
 optional image. Only that leaf and image survive the inline archive; a
 container's background and layout do not. The bake evaluates the preview at
@@ -1585,9 +1589,11 @@ the platform would call (`delivery: "substituted"`).
 `wakelock="screen"` on any element keeps the display from dimming or locking
 for idleness while that element is mounted and displayed: neither it nor an
 ancestor is `display: none` (or laid out so by its host, as an unopened tab
-is), and it is under no tab the navigation leaves unselected and no screen a
-stack keeps under its top, so a screen kept mounted in a hidden tab panel
-holds nothing; the screen a sheet covers is still shown, and holds. An exit
+is), inside no `dialog` or popover its host has not opened, and under no tab
+the navigation leaves unselected and no screen a stack keeps under its top,
+so a screen kept mounted in a hidden tab panel holds nothing; the page a
+sheet covers, and every sheet between it and the top, is still shown, and
+holds. An exit
 animation's ghost holds nothing ([LLP 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md)
 D11). Natively an element the host shows as its own control (a header in the
 navigation bar, a confirmation as a native alert, a menu as a native menu)
@@ -1609,6 +1615,57 @@ unset`) and holds nothing. The runner decides which elements hold it
 
 `state.wakelock` is `{held, by}`: whether any element holds it and their view
 ids, on every host's driver.
+
+### Lock the screen orientation
+
+`orientationlock` on any element keeps the window to the orientations it
+names while that element is displayed, by the wake lock's rule above, and
+outside every `dialog` and popover ([LLP 1133.029](../llp/1133.029-screen.rfc.md)).
+The words are the Screen Orientation API's lock types, `portrait`,
+`landscape`, `portrait-primary`, `portrait-secondary`, `landscape-primary`,
+`landscape-secondary`, `natural` and `any`, and `current`, the orientation
+the window has when the lock begins; `"none"`, the default, holds nothing.
+Bind it to what needs it: a game steered by tilting the phone keeps the
+orientation the player holds while tilt is on,
+`orientationlock=(tilt ? "current" : "none")`.
+
+When several displayed elements hold a lock, three rules decide which
+count. The topmost sheet that holds wins over the routes beneath it, so a
+sheet can turn a locked screen and a sheet that holds nothing leaves the
+lock beneath it. A holder with a holder among its descendants is replaced
+by it, as an inherited CSS property is: a portrait app's root says
+`orientationlock="portrait"` and one screen under it says `"landscape"`;
+`"any"` frees a subtree. The holders left intersect, and holders that share
+no orientation hold none: the journal says `orientationlock: conflict: view
+12 "portrait", view 30 "landscape"; none held`.
+
+A type narrows the manifest's `orientation` and never widens it: iOS refuses
+a screen whose orientations fall outside the app's Info.plist. So a literal
+type that shares no orientation with the manifest's (`"landscape"` in a
+`"portrait"` app) is refused at bake (`orientationlock-outside-manifest`):
+widen the manifest and lock the screens that need portrait. A literal or
+computed lock inside a `dialog` or popover is refused too
+(`orientationlock-in-top-layer`): whether a box is open is the host's
+state, and a dialog over a locked screen leaves its lock. A computed word
+outside the table is journaled (`view N: invalid orientationlock value …;
+unset`) and holds nothing.
+
+| host | held through |
+| --- | --- |
+| iOS | the root and every presented controller's `supportedInterfaceOrientations`, turned by `requestGeometryUpdate`; `current` is `prefersInterfaceOrientationLocked` from iOS 26 and the scene's orientation before |
+| iPadOS | `current` alone, in full screen (iPadOS 26 and later): a multitasking app supports every orientation, so iPadOS asks no controller for a type |
+| Android | the activity's `requestedOrientation` (request kind 13): the manifest's mapping for a type, `locked` for `current`; on a screen 600 dp wide or wider Android 16 ignores a type, and `current` holds |
+| web (both targets) | `screen.orientation.lock()`, where the browser locks: in fullscreen, on Android's Chrome and Firefox; asked again on entering fullscreen and on becoming visible. `orientationlock: unavailable: <DOMException name>` is journaled once where it refuses (desktop Chrome, Safari) |
+| Windows | the process's `SetDisplayAutoRotationPreferences`, which a convertible or a tablet follows |
+| macOS, tvOS, Linux, the terminal | none: `orientationlock: this host has no screen orientation`, journaled once |
+
+`state.orientationlock` is `{held, by, words, lock, conflict, applied}`: the
+counted holders' views and words, the lock the host is told, the holders of
+a conflict, whichever side found it, and `applied`, what the host asked the
+platform for and whether it holds (`"unavailable"` where there is none). A
+request is not an effect: a drive judges a lock by the orientation the
+window keeps (`layout`'s `screen.orientation` on iOS), and reads `applied`
+for why.
 
 ### Pick a file of any type
 
@@ -1659,6 +1716,54 @@ Linux, Windows and Android have no image encoder and answer `unsupported`, so
 upload the original when it already fits. Under the agent it runs for real with
 `--storage <name>`.
 
+`rotate`, `flip` and `crop` edit the picture before the search, with
+`transformImage`'s meanings (below), so an avatar cropped from a turned photo
+is one call; a crop that misses the picture rejects with `code` `outside`
+([LLP 1133.019](../llp/1133.019-photos-image.rfc.md) D15).
+
+### Save an edit of a photo (`storage.fs.transformImage`)
+
+`storage.fs.transformImage(from, to, options)` decodes the image at `from`
+once, makes the edit and encodes it once at `to`, with no search. The order is
+fixed: the picture upright (its orientation applied), then `rotate` (degrees
+clockwise, about its centre), then `flip` (`'horizontal'` or `'vertical'`, in
+the turned frame, so `'horizontal'` mirrors what the person sees), then `crop`
+(`{x, y, width, height}` in the turned frame's pixels, clipped to it and its
+edges rounded), then the size (`resizeWidth`, `resizeHeight` and
+`resizeQuality` as `createImageBitmap` takes them; one side keeps the aspect),
+then the encoding (`type` and `quality`, 0 to 1, as `convertToBlob` takes
+them; `quality` is 0.9 unsaid). A quarter turn resamples nothing; any other
+angle turns the picture into its bounding box, clear where the type keeps
+alpha and white in a JPEG. `type` unsaid is the source's where the host writes
+it, else JPEG; a type the host does not write rejects with `unsupported`, never
+another silently. A `to` with no extension gains the type's.
+
+Unlike `compressImage`, which is for uploads, it keeps what the camera made where
+the host can: the source's colour space (a Display P3 photo stays P3), an HDR
+photo's gain map (JPEG and HEIC on macOS and iOS), and, by `metadata`, the
+source's EXIF, TIFF, GPS, IPTC and XMP with the orientation reset (`'keep'`,
+unsaid), the capture's standard tags and the IPTC rights with no GPS, maker
+note or XMP (`'no-location'`), or nothing (`'none'`). It resolves `{path, type,
+size, width, height, colorSpace, hdr, metadata}`, the last three what was
+written ([LLP 1133.019](../llp/1133.019-photos-image.rfc.md) D14, D15):
+
+```ts
+export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';
+// the editor's angle, and the crop in the turned photo's pixels
+const saved = await storage.fs.transformImage(photo, `app:/tmp/edits/${n}`,
+  { rotate: edit.angle, crop: edit.crop });
+// saved.path ends in .jpg or .heic, the camera's own type
+```
+
+Its grants, queue, atomic write and refusals are `compressImage`'s, with
+`outside` for a crop that misses and no `unfit`. macOS and iOS encode JPEG, PNG
+and HEIC; the web encodes PNG, and JPEG and WebP where the browser does, and a
+canvas keeps no metadata, colour space but sRGB or gain map, so there the
+record says `colorSpace: 'srgb'`, `hdr: false` and `metadata: 'none'` whatever
+was asked. The iOS simulator's ImageIO writes no gain map, so there an HDR
+photo is saved as SDR and says `hdr: false`. Linux, Windows and Android answer
+`unsupported`.
+
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
@@ -1684,7 +1789,8 @@ for (const name of await storage.fs.readdir(folder)) {
 | `writeFile`, `atomicWriteFile`, `appendFile` | `fs.write doc:/` | Creates a file beneath a chosen folder |
 | `mkdir` | `fs.write doc:/` | Makes the folders above it too |
 | `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
-| `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
+| `copyFile(from, to)`, `from` a `doc:` file, `to` an `app:/` path | `fs.read` covering `from`, `fs.write` covering `to` | The host copies the bytes; they never enter JavaScript, so a file past `readFile`'s 16 MiB result copies too. A regular file only, with `readFile`'s refusals |
+| `rename`, `realpath`, and `copyFile` to a `doc:` path | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
 refused. Native folder handles retain the selected directory even if its
@@ -1692,7 +1798,7 @@ pathname moves. Descendant symlinks and Windows reparse points are refused,
 including in intermediate folders; explicitly choosing a file through a
 symlink still selects its target. A native selection whose filename is not
 valid Unicode is refused rather than addressing a lossy spelling. A document needs no app storage: a drive without `--storage` reaches
-it. On the web the paths are the `FileSystemHandle`s the page's picker
+it, though a `copyFile` into an `app:/` path needs app storage as any app file does. On the web the paths are the `FileSystemHandle`s the page's picker
 returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
 on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
 and iOS they are security-scoped URLs held for the session; Linux opens no
@@ -1815,8 +1921,14 @@ top-level literal `const origin`, after `EXACT_BACKEND_ORIGIN` or
 `.exact/backend-origin` overrides it, and refuses a missing entry, listing the
 origin and keys. Before type-checking, it replaces only the captured initializer
 with a string of the selected lines joined by `\n`, so web and native read the
-same grants. Authored source stays unchanged; keyed grants are never moved to
-another origin.
+same grants. Authored source stays unchanged. Keyed grants move to another
+origin in one case: in a development build (`EXACT_UPDATE_TRUST` unset or
+`development`), an origin at a private-network address (RFC 1918 or link-local
+IPv4, `fc00::/7` or `fe80::/10` IPv6) with no entry takes the entry of the same
+server at loopback (`127.0.0.1`, `localhost` or `[::1]` with the same scheme and
+port), its `net.fetch` and `net.websocket` lines moved to that address with their
+paths. This is how a phone reaches a fixture server on the Mac's LAN address. A
+production build refuses it, as it refuses any missing entry.
 
 The producer captures local imports, type-checks, bundles with Rolldown, compiles HBC, and
 bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
@@ -1975,6 +2087,16 @@ the presenter's placement and order for open top-layer content.
 | The app: its facts, by the web's names, and the root node's `data-*` words as `data` (each in `app.json` `data`, which `hatch --app` adds; Swift reads `data-booted` as `app.data[.booted]`) | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
 | The window the session presents into | `window(_:)`, `windowEnded(_:)` | `window(w)`, `windowEnded(w)` |
 
+An `iframe` marked `hatch="word"` hands `element.platform` its `WKWebView` on
+macOS and iOS, or the `PDFView` of a local PDF it shows, after the arm set its
+data store, preferences, delegates and content worlds; `changed` hands the new
+one when the arm replaces it (a new `partition`, a PDF to HTML). The arm owns
+`navigationDelegate`, `uiDelegate`, `pageZoom`, the appearance, the user
+scripts of its content controller and a PDF view's `delegate`, and a
+development build names one the hatch changed (LLP 1020.002 §9); a script
+message handler a hatch adds is not detected. The moment before construction, with the `WKWebViewConfiguration`, is not
+built.
+
 **Linux, Windows and Android paint their own pixels**, so there is no platform
 object to hand over. A hatch there is Rust: one type that implements
 `exact_linux::Hatches` in `modules/linux/*.rs` (or `modules/android/`,
@@ -2080,7 +2202,8 @@ JSON result or the host's message. The operations:
 | `"sqlite.transaction"` | the same, `execute` commands only | the executes' results, all or none |
 | `"fs.readFile"`, `"fs.atomicWriteFile"`, `"fs.writeFile"`, `"fs.appendFile"` | `{"path"}`, and `"text"` (or `"bytes"`) to write | read: `{"base64"}`; write: `null` |
 | `"fs.mkdir"`, `"fs.rm"`, `"fs.stat"`, `"fs.readdir"`, `"fs.rename"`, `"fs.copyFile"` | `{"path"}`, and `"destination"` to move or copy | as `storage.fs` answers |
-| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`; absent or `null` is JPEG) | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
+| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}`, and `"type"` (`"image/png"`; absent or `null` is JPEG), `"rotate"`, `"flip"`, `"crop"` | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
+| `"fs.transformImage"` | `{"path", "destination"}` and `storage.fs.transformImage`'s options beside them (`"rotate"`, `"crop"`, `"metadata"`, …; `null` is absent) | `{"path", "type", "size", "width", "height", "colorSpace", "hdr", "metadata"}`, as it answers |
 
 Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 `fs.write app:/data`. Storage is asynchronous and starts after first pixel. It
@@ -2179,8 +2302,8 @@ bundle built and signed, installed on nothing, so it needs the tvOS SDK and
 Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
 `--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
 host and every Linux app (`-p '*-linux'`: each `apps/<app>/linux` crate is a
-workspace member named `<app>-linux`) and for the Windows host and Windows Desk. Install
-`x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
+workspace member named `<app>-linux`) and for the Windows host and Windows Desk, on x64 and ARM64. Install
+`x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu` and `aarch64-pc-windows-gnullvm` with `rustup target add`
 and provide `zig` on the Mac: it compiles C, and C++ for the Linux target
 (Hermes's JSI bindings). The check runs offline, so install the pinned Linux
 Hermes bundle once per Hermes pin (again whenever the pin changes): `cargo run
@@ -2374,6 +2497,12 @@ window reaches the first or last supplied row. An empty collection fires neither
 event. A plain list lays out all its children and has no collection window;
 the Contract compiler refuses either handler there, on every target.
 
+`reach-margin` on such a list sets how far ahead of an edge they fire: the edge
+row may be up to that far past the port. It is a literal, one or two nonnegative
+px or % lengths (before and after; a percentage is of the list's port along its
+axis), and defaults to one port, `"100%"`. `reach-margin="200%"` asks for the
+next page when the last row is two ports away (LLP 1145 D4).
+
 For a plain feed or masonry, use `intersect=` on a marker at the end of the
 content, after the columns, inside the same scroller:
 
@@ -2397,6 +2526,10 @@ after resize callbacks and authored scrolling. `intersect-margin="200px 0px"`
 is a literal rootMargin (one to four case-insensitive px/% lengths, default 0px).
 Numbers follow CSS syntax: `.5px` and `1e2px` are valid; `1.px` is refused at compile time.
 Percentages use the corresponding root dimension.
+A native route's scrollport can be the root, including at offset zero.
+`overflow: clip` clips descendants without becoming a root. The margin expands
+only the root; clips between the target and root keep their original bounds.
+Ancestors above an explicit root only map its coordinates.
 This can keep T3 sidebar subscriptions active near the viewport and track timeline turns.
 Removal cancels observation without a leave callback. Both web targets use the
 browser's IntersectionObserver after first paint. AppKit, UIKit and Linux use

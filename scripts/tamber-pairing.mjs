@@ -9,7 +9,7 @@
 // - `read`: what reads the design, its history and the running builds'
 //   reports, and the change stream.
 // - `propose`: what only offers a change for someone else to accept (a held
-//   proposal: `propose` with `hold`, `import`, `revert`; `drop` of one's own).
+//   proposal: `propose` with `hold`, `import`, `revert`; `drop` and `edit-held` of one's own).
 // - `write`: what writes the design, or changes what the developer's screens
 //   show (`pin`, `preview`, `outline`, `hold`: the lead's ruling 5), or drives
 //   the running builds (a scrub).
@@ -42,6 +42,7 @@ export const METHOD_SCOPE = Object.freeze({
   import: 'propose',
   revert: 'propose',
   drop: 'propose',
+  'edit-held': 'propose',
   transaction: 'write',
   undo: 'write',
   commit: 'write',
@@ -70,7 +71,7 @@ export function allows(scope, needs, local = false) {
 }
 
 /** What `request` needs: its method's entry (an own property only: no
- * inherited name is a method), `drop` of another client's held proposal
+ * inherited name is a method), `drop` or `edit-held` of another client's held proposal
  * `write` (theme2's ruling (a)), and `inspect` other than `refresh` `write`
  * (ruling 5). `owner(id)` is a held proposal's client. Null for a method
  * with no entry. */
@@ -78,7 +79,7 @@ export function needs(request, owner = () => null) {
   if (!Object.hasOwn(METHOD_SCOPE, String(request.method))) return null;
   const base = METHOD_SCOPE[request.method];
   if (request.method === 'inspect' && request.refresh !== true) return 'write';
-  if (request.method === 'drop') {
+  if (request.method === 'drop' || request.method === 'edit-held') {
     const by = owner(request.proposal);
     return by !== null && by !== request.client ? 'write' : 'propose';
   }

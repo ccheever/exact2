@@ -189,6 +189,18 @@ fn css_text_in(
                     push_text!(&mut out, "--exact-layout-transition:{};", text);
                 }
             }
+            // @ref LLP 1011.002 D3 — CSS's `vertical-align` is one
+            // property: the keyword, or the length when one shifts the box.
+            (StyleId::VerticalAlign, _) if shifted(style) => {}
+            (StyleId::BaselineShift, RowValue::Dimension(d)) => {
+                if shifted(style) {
+                    out.push_str("vertical-align:");
+                    if !authored(&mut out, id) {
+                        dimension(&mut out, *d);
+                    }
+                    out.push(';');
+                }
+            }
             // @ref LLP 1077 D1 — Apple's continuous curve is no CSS keyword:
             // the web's stand-in is `superellipse(K)` over the radius scaled
             // to the same reach (kernel `APPLE_ON_THE_WEB`, declared in LLP
@@ -540,6 +552,11 @@ pub(crate) fn css_string(value: &str) -> String {
     out
 }
 
+/// Whether `vertical-align` is a length: the box is shifted.
+fn shifted(style: &StyleProps) -> bool {
+    style.mask.has(StyleId::BaselineShift) && style.rare.baseline_shift != Dimension::Points(0.0)
+}
+
 /// Whether the corner a radius row sizes is `-exact-continuous` (LLP 1077 D1).
 fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
     let i = match id {
@@ -781,6 +798,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::Orphans
             | StyleId::FontWeight
             | StyleId::Scale
+            // CSS `zoom`, an iframe's alone (LLP 1020.002 D6).
+            | StyleId::Zoom
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
             | StyleId::FillOpacity
             | StyleId::StrokeOpacity
@@ -1045,7 +1064,8 @@ mod writer_tests {
         assert_eq!(
             names.join(" "),
             "opacity 1s ease 0s,stroke-dashoffset r color background-color fill stroke cx cy x y \
-             rx ry border-color --exact-tint box-shadow font-weight font-stretch d "
+             rx ry border-color --exact-tint box-shadow font-weight font-stretch \
+             font-variation-settings d "
         );
     }
 }

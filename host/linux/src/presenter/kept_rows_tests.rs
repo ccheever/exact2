@@ -230,3 +230,80 @@ fn a_row_whose_padding_alone_changed_is_recorded_again() {
         assert_eq!(again, [Some(first.begun[0].0)], "the padded row alone");
     }
 }
+
+#[test]
+fn inline_frame_retained_rows_keep_initial_and_scrolled_viewport_origins() {
+    use exact_runner::geometry::InlineGeometry;
+
+    for transform in ["", "scale=1.25 transform-origin=\"0 0\""] {
+        let source = format!(
+            r#"component App
+  view
+    column padding-left=30 padding-top=100 {transform}
+      scroll testId="port" width=200 height=200
+        column
+          text height=80
+            text "first" testId="first"
+          text height=80
+            text "second" testId="second"
+          box height=400
+"#
+        );
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            (),
+            (400., 500.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.frame();
+        let id = |name: &str| {
+            let k = p.host.kernel();
+            k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+        };
+        let port = id("port");
+        let runs = [id("first"), id("second")];
+        let ordinary = runs.map(|id| p.ranges.frame(id));
+        assert!(ordinary
+            .iter()
+            .all(|r| !r.unavailable && r.x >= 30. && r.y >= 100.));
+        let heard = Rc::new(RefCell::new(Heard::default()));
+        p.reader_replaced(Box::new(Keeps {
+            heard: heard.clone(),
+            row: 0,
+        }));
+        p.frame();
+        assert_eq!(heard.borrow().begun.len(), 3, "each child is recorded");
+        let recorded = runs.map(|id| p.ranges.frame(id));
+        heard.borrow_mut().begun.clear();
+        p.scroll_to(port, (0., 20.)).unwrap();
+        p.frame();
+        assert!(
+            heard.borrow().begun.is_empty(),
+            "scroll replays the recordings"
+        );
+        let replayed = runs.map(|id| p.ranges.frame(id));
+        let shift = if transform.is_empty() { 20. } else { 25. };
+        for ((expected, got), moved) in ordinary.into_iter().zip(recorded).zip(replayed) {
+            assert!(!got.unavailable && !moved.unavailable);
+            assert_eq!(
+                (got.x, got.y, got.width, got.height),
+                (expected.x, expected.y, expected.width, expected.height),
+                "recorded {transform}"
+            );
+            assert_eq!(
+                (moved.x, moved.y, moved.width, moved.height),
+                (
+                    expected.x,
+                    expected.y - shift,
+                    expected.width,
+                    expected.height
+                ),
+                "replayed {transform}"
+            );
+        }
+    }
+}

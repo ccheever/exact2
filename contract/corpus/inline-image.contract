@@ -1,0 +1,29 @@
+// LLP 1011.002: an image in a paragraph's text, between words, as `<img>`
+// in a `<p>`. A component's runs may be images too, as a chat message's
+// custom emoji are.
+component App
+  state pieces: Piece[] = [Piece(id="a", kind="text", text="hello ", src=""), Piece(id="b", kind="emoji", text=":wave:", src="app:/wave.png"), Piece(id="c", kind="text", text=" there", src="")]
+  view
+    column width=400
+      text testId="message"
+        Pieces(pieces=pieces)
+      text font-size=20 testId="middle"
+        text "a"
+        image "app:/dot.png" height=10 width=10 vertical-align="middle" testId="dot"
+        text "b"
+
+shape Piece
+  id: string
+  kind: string
+  text: string
+  src: string
+
+component Pieces
+  props
+    pieces: Piece[]
+  view
+    for p in pieces key=p.id
+      if p.kind == "emoji"
+        image p.src height="1.375em" width="1.375em" object-fit="contain" vertical-align="-0.2em" aria-label=p.text testId=`emoji-${p.id}`
+      else
+        text p.text

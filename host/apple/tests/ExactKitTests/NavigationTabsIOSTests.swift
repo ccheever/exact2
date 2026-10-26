@@ -553,6 +553,28 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
     }
 
+    /// A warm deep link into a tab built earlier (Brooks): from Second, one
+    /// update selects Home and pushes Detail onto its stack, which shows
+    /// Detail, not Home's root.
+    func testATabSelectedWithAPushOntoItsStackShowsThePush() throws {
+        let session = try fixture("tabs-select-push")
+        let navigation = session.presenter.navigation
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 && !navigation.inTransition }
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        session.presenter.press(try node(session, "open-detail").id)
+        until("Home shows Detail") { tabs.selectedIndex == 0 && home.viewControllers.count == 2 && home.transitionCoordinator == nil && !navigation.inTransition }
+        let top = try XCTUnwrap(home.topViewController as? RouteController)
+        XCTAssertEqual(top.node.props["testId"], "route-detail")
+        XCTAssertTrue(navigation.primaryNavigation === home)
+        XCTAssertTrue(navigation.activeRoute === top)
+        XCTAssertNotNil(top.view.window, "Detail is in the window")
+        XCTAssertNil(home.viewControllers[0].viewIfLoaded?.window, "Home's root is under it")
+    }
+
     /// A native button tab's face is the runner's (`Runtime.buttonFace`), a
     /// synchronous read on the owner thread. A batch that changes nothing a
     /// tab shows reads no tab's face; one that changes a tab's text still
@@ -614,6 +636,43 @@ final class NavigationTabsIOSTests: XCTestCase {
         UIView.setAnimationsEnabled(false)
         tapTab(tabs, 0)
         until("Home popped to its root again") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
+    }
+
+    func testATabFollowedAfterItsPopStartsCompletesNavigation() throws {
+        let session = try fixture("tabs-follow-mid-pop")
+        let navigation = session.presenter.navigation
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
+        try tapNode(session, "detail")
+        until("Home holds its pushed route") { home.viewControllers.count == 2 }
+        tapTab(tabs, 1)
+        until("Exact follows the other tab") { tabs.selectedIndex == 1 && navigation.primaryNavigation !== home }
+        let second = try XCTUnwrap(navigation.primaryNavigation)
+        let root = try XCTUnwrap(home.viewControllers.first)
+        let detail = try XCTUnwrap(home.topViewController)
+
+        // UIKit shows the selection before Exact's delayed selection batch follows it
+        tabs.selectedIndex = 0
+        tabs.view.layoutIfNeeded()
+        XCTAssertNotNil(home.view.window, "Home is visible before its pop starts")
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        home.popViewController(animated: true)
+        let transition = try XCTUnwrap(home.transitionCoordinator)
+        XCTAssertTrue(transition.isAnimated)
+        XCTAssertTrue(transition.viewController(forKey: .from) === detail)
+        XCTAssertTrue(transition.viewController(forKey: .to) === root)
+        XCTAssertTrue(navigation.primaryNavigation === second, "the pop starts before Exact follows Home")
+        try tapNode(session, "tab-home")
+        XCTAssertTrue(navigation.primaryNavigation === home)
+        XCTAssertNotNil(home.transitionCoordinator, "Exact follows Home before the native pop finishes")
+
+        // didShow supplies completion when willShow ran before Exact followed Home
+        until("the completed pop releases navigation and reaches the router") {
+            home.transitionCoordinator == nil && !navigation.inTransition
+                && home.viewControllers.count == 1
+                && navigation.selectedKey == (home.topViewController as? RouteController)?.key
+        }
     }
 
     /// The same in a container the app owns (the tabs hatch).

@@ -1093,3 +1093,40 @@ fn a_press_on_an_svg_element_reaches_its_button_on_an_attached_display() {
     assert_eq!(p.press_at(x, y, 1.), Some(icon));
     assert_eq!(count(&p), "1");
 }
+
+#[test]
+fn inline_frame_failed_submission_keeps_the_acknowledged_paragraph() {
+    use exact_runner::geometry::InlineGeometry;
+    let source = r#"component App
+  state large = false
+  action change
+    large = true
+  view
+    column
+      button testId="change" press=change
+        text "change"
+      text width=300
+        text "Hi" testId="run" font-size=(large ? 32 : 16)
+"#;
+    let (mut p, _, fail) = boot_app(source);
+    let first = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &first));
+    let run = id(&p, "run");
+    let before = p.ranges.frame(run);
+    assert!(!before.unavailable);
+    let change = id(&p, "change");
+    assert!(p.host.dispatch_at(change, Event::Press, 1.).is_none());
+    assert!(p.after_commit().is_none());
+    fail.set(true);
+    let failed = submit(&mut p).unwrap();
+    assert!(!p.last_frame_succeeded);
+    assert_eq!(p.ranges.frame(run), before);
+    assert!(complete(&mut p, &failed));
+    assert_eq!(p.ranges.frame(run), before);
+    fail.set(false);
+    let next = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &next));
+    let after = p.ranges.frame(run);
+    assert!(!after.unavailable);
+    assert!((after.height - before.height * 2.).abs() < 0.001);
+}

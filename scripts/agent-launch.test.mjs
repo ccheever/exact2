@@ -520,6 +520,30 @@ test('keyed grants select an exact origin and become the string native evaluatio
   }
 });
 
+// A phone reaches the fixture on this Mac's LAN address: a development build takes the loopback entry of the same
+// server for it, and a production build refuses it as any origin without an entry.
+test('a development build takes the loopback entry for the same server at a private-network address', async () => {
+  const {injectBackendOrigin, staticFacts, privateNetwork} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const paths = backendGrants.replace("'net.fetch http://127.0.0.1:4790', ", "'net.fetch http://127.0.0.1:4790/api/', 'net.fetch http://127.0.0.1:47900', ");
+  for (const env of [{}, {EXACT_UPDATE_TRUST: 'development'}]) {
+    for (const lan of ['http://10.0.0.73:4790', 'http://172.20.1.2:4790', 'http://192.168.1.5:4790', 'http://169.254.3.4:4790', 'http://[fd12::1]:4790', 'http://[fe80::1]:4790']) {
+      const host = new URL(lan).host;
+      expect(staticFacts(injectBackendOrigin(paths, lan, parseSync, env), parseSync).grants.split('\n'))
+        .toEqual([`net.fetch http://${host}/api/`, 'net.fetch http://127.0.0.1:47900', `net.websocket ws://${host}`, 'secret.keep fixture-token']);
+    }
+    // Not the same server (another port or scheme), or not a private address: refused as before.
+    for (const other of ['http://10.0.0.73:4791', 'https://10.0.0.73:4790', 'http://8.8.8.8:4790', 'http://172.32.0.1:4790', 'http://[2001:db8::1]:4790', 'http://lan.example:4790'])
+      expect(() => injectBackendOrigin(backendGrants, other, parseSync, env)).toThrow(`no entry for origin "${new URL(other).origin}"`);
+  }
+  for (const env of [{EXACT_UPDATE_TRUST: 'production'}, {EXACT_UPDATE_TRUST: 'other'}])
+    expect(() => injectBackendOrigin(backendGrants, 'http://10.0.0.73:4790', parseSync, env))
+      .toThrow('app.ts:2:23: grants: no entry for origin "http://10.0.0.73:4790"; keys: "http://127.0.0.1:4790", "https://discord.com", "https://offline.example"');
+  const both = backendGrants.replace("  'https://offline.example'", "  'http://localhost:4790': 'secret.keep other',\n  'https://offline.example'");
+  expect(() => injectBackendOrigin(both, 'http://10.0.0.73:4790', parseSync, {})).toThrow('is the server of more than one loopback key');
+  expect([privateNetwork('http://10.255.0.1'), privateNetwork('http://172.15.0.1'), privateNetwork('http://[fc00::1]'), privateNetwork('http://[::1]')]).toEqual([true, false, true, false]);
+});
+
 test('keyed grants name each origin once, as written canonically, and any spelling of the origin finds it', async () => {
   const {injectBackendOrigin, staticFacts} = await import('../js/bake/src/typescript.mjs');
   const {parseSync} = await import('rolldown/utils');

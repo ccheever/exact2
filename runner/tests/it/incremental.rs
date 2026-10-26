@@ -63,6 +63,11 @@ impl Fake {
         match row.kind {
             TypeKind::Number => Value::Number((n % 997) as f64),
             TypeKind::Bool => Value::Bool(n % 3 == 0),
+            // An enum's members are its fields: one of them.
+            TypeKind::String if !row.fields.is_empty() => {
+                let f = row.fields.iter().nth((n % row.fields.len as u64) as usize);
+                Value::str(plan.str(plan.field(f.expect("a member")).name))
+            }
             TypeKind::String => Value::str(&format!("#{:06x}", n & 0xff_ffff)),
             TypeKind::Unit => Value::Unit,
             TypeKind::Option if depth < 4 && n % 2 == 0 => {
@@ -222,6 +227,7 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
             mixed: rng.below(2) == 0,
             link: String::new(),
             unavailable: String::new(),
+            atom: String::new(),
         },
         EventKind::Heightrelease => Event::HeightRelease {
             height: (rng.below(5) * 50) as f64,

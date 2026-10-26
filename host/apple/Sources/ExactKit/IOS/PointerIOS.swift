@@ -447,7 +447,7 @@ extension NodeView {
         }
         if let href = linkPressed {
             linkPressed = nil
-            if let touch = touches.first, inlineLink(at: local(touch.location(in: nil))) == href { presenter?.session?.follow(href) }
+            if let touch = touches.first, inlineLink(at: local(touch.location(in: nil))) == href, !pressReaderAtom(href) { presenter?.session?.follow(href) }
             return
         }
         // Resolve before focus changes, as `activate` does: the field losing

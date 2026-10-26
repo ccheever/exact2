@@ -765,7 +765,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
       expect(hello.page).toBe(base);
       const page = await fetch(`${base}/`, { headers: { accept: 'text/html' } });
       expect(page.status).toBe(200);
-      expect(page.headers.get('content-security-policy')).toBe("frame-ancestors 'self' http://127.0.0.1:7740");
+      expect(page.headers.get('content-security-policy')).toBe(FRAME_ANCESTORS);
       expect(page.headers.get('x-frame-options')).toBe(null);
       // Every other HTML the loop answers: an install page (the fixture has
       // no auth callback, nor a resident loop for `/__dev/open`; the wasm

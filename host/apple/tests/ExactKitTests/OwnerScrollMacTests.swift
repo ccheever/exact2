@@ -13,6 +13,7 @@ final class OwnerScrollMacTests: XCTestCase {
     override func tearDown() { window?.close(); window = nil; ExactSession.asyncFills = false }
 
     func testAListScrolledWithSlicesOnTheOwnerKeepsItsRows() throws {
+        try caltrainArchive()
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

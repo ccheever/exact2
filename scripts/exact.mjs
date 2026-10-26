@@ -140,7 +140,8 @@ function build(app, { quiet = false, distribution = false, identity = null } = {
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(distribution ? ['--distribution'] : [])], {
     cwd: ROOT,
     stdio: quiet ? ['inherit', 'ignore', 'inherit'] : 'inherit',
-    env: { EXACT_UPDATE_TRUST: 'development', ...process.env, ...(identity ? { EXACT_DEVELOPER_ID: identity, EXACT_RUST_SIGN_IDENTITY: identity } : {}) },
+    // What is distributed bakes production trust (host/apple/build.mjs); a local build, development.
+    env: { ...(distribution ? {} : { EXACT_UPDATE_TRUST: 'development' }), ...process.env, ...(identity ? { EXACT_DEVELOPER_ID: identity, EXACT_RUST_SIGN_IDENTITY: identity } : {}) },
   });
   if (r.status !== 0) process.exit(r.status ?? 1);
   const bundle = bundleOf(app);
@@ -572,13 +573,15 @@ export function contract(args, env = process.env) {
 
 /** `app.ts` against the plan just built, by the type check every host's build runs (the web JS
  * target's `--check`), so a TypeScript error surfaces at the build an author runs most, not at an
- * iOS build. Its report goes to stderr, or is returned as `report` when `capture` (`--json`). */
-function checkTypes(dir, {capture = false} = {}) {
+ * iOS build. Its report goes to stderr, or is returned as `report` when `capture` (`--json`). Supervised
+ * (scripts/check-supervise.mjs): a check that outlasts its bound, or outlives its caller, is stopped, its process
+ * group with it. `builder`: the check's script (a test's stand-in). */
+export function checkTypes(dir, {capture = false, builder = resolve(ROOT, 'host/web-js/build.mjs')} = {}) {
   // An app's directory alone: the check is the app build's, which reads its app.json.
   if (!existsSync(resolve(dir, 'app.ts')) || !existsSync(resolve(dir, 'app.json'))) return {status: 0, report: ''};
   const out = mkdtempSync(resolve(tmpdir(), 'exact-check-'));
   try {
-    const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web-js/build.mjs'), basename(dir), '--check', '--out', out], { stdio: ['ignore', capture ? 'pipe' : 2, capture ? 'pipe' : 2], encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, EXACT_APP_DIR: dir } });
+    const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/check-supervise.mjs'), String(process.pid), builder, basename(dir), '--check', '--out', out], { stdio: ['ignore', capture ? 'pipe' : 2, capture ? 'pipe' : 2], encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, EXACT_APP_DIR: dir } });
     return {status: r.status ?? 1, report: `${r.stdout ?? ''}${r.stderr ?? ''}`};
   } finally { rmSync(out, { recursive: true, force: true }); }
 }

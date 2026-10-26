@@ -10,5 +10,9 @@ component App
     column testId="root" padding=8 gap=4
       button testId="flip" press=flip "Flip"
       text testId="heading" role="heading" aria-level=(big ? 1 : 5) "Section heading"
+      text testId="heading-font" role="heading" aria-level=2 font="-exact-headline" "Authored heading font"
+      text testId="heading-font-shadow" role="heading" aria-level=(big ? 3 : 1) font=(match some("-exact-headline") { case some(big) => none, case none => "-exact-headline" }) "Shadowed heading font"
+      text testId="heading-font-authored" role="heading" aria-level=1 font=(big ? "-exact-subheadline" : "-exact-headline") font-weight=500 "Authored heading weight"
+      text testId="heading-font-bound" role="heading" aria-level=1 font=(big ? none : "-exact-headline") "Bound heading font"
       text testId="bound" font=(big ? "-exact-body" : "-exact-headline") font-weight=(big ? 300 : none) "Bound shorthand"
       text testId="static" font="-exact-headline" font-weight=(big ? 300 : none) "Static shorthand"

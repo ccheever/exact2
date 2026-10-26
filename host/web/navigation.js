@@ -137,7 +137,7 @@ export function historyURL(path) { // (exported for its test)
   return url.href;
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
-/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationRules.backControl); another route's is that route's. */
+/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationBack.control); another route's is that route's. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
 // @ref LLP 1116.000 D4 — a pushed route's bar draws Back as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`),
 // with no Back control too: not on a stack's root, a sheet (whose Cancel is its Back) or a route with no bar, nor for a
@@ -234,7 +234,7 @@ function appBack(route) {
   if (!known || navigate(entry.url) === false) hostBack?.(id);
 }
 const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
-/** Press the Back control wherever it is, shown or not, as UIKit's Back presses it (NavigationRules.swift `backControl`),
+/** Press the Back control wherever it is, shown or not, as UIKit's Back presses it (NavigationBack.swift `control`),
  * unless it is disabled, or inert (the web's choice: iOS's Back reads no inert); else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
@@ -287,7 +287,7 @@ function popped({ j, state, url }) {
   const nav = root.querySelector("[navigationBack]");
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
   // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
-  // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationRules.back): the route's
+  // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationBack.way): the route's
   // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3).
   const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   let back = beneath && !!backControl(nav), own = false, why = null;
@@ -461,7 +461,7 @@ export const navigation = {
     }
     pendingRow = null;
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7); the wake lock, which follows what shows (LLP 1125 D11).
-    globalThis.exact?.onProject?.(root); globalThis.exact?.wakeLockGlue?.projected(root); pageTitle();
+    globalThis.exact?.onProject?.(root); globalThis.exact?.wakeLockGlue?.projected(root); globalThis.exact?.orientationLockGlue?.projected(root); pageTitle();
   },
   observation(root) {
     const nav = root.querySelector("[navigationBack]");
@@ -730,10 +730,9 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate${name === "src" ? ", and data: in a sandbox without allow-same-origin" : ""}`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
-// A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the item's indent as `padding-left`; its marker
-// (flags 32) is a 40 px box pulled into the gutter by the block's negative `text-indent`, the marker's end at the
-// indent (`flex-end`, overflowing leftwards as the browser's outside marker does): `<ul>`/`<ol>`'s layout, the one
-// native hosts copy with a head indent. 40 is exact-markdown's `LIST_INDENT`.
+// A list item's paragraph (indent > 0, LLP 1045 D4) is a block padded by the item's indent; its marker (flags 32), a 40 px
+// box pulled into the gutter by the block's negative `text-indent`, ends at the indent (`flex-end`, overflowing leftwards as
+// the outside marker does): `<ul>`/`<ol>`'s layout, which native hosts copy with a head indent (exact-markdown's `LIST_INDENT`).
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
@@ -743,7 +742,8 @@ export function renderMarkup(el, json) {
     if (start) { start = false; box = el; if (indent > 0) { box = document.createElement("span"); box.style.display = "block"; box.style.paddingLeft = `${indent}px`; el.appendChild(box); } }
     return box;
   };
-  for (const [text, scale, weight, flags, href, indent = 0] of pieces) {
+  for (const [text, scale, weight, flags, href, indent = 0, atom] of pieces) {
+    if (atom && globalThis.exact?.atoms?.readerAtom) { paragraph(indent).appendChild(globalThis.exact.atoms.readerAtom(el, text, atom, scale, weight, flags)); continue; } // an inline atom's pill (LLP 1045.000 D6, atoms.js); until atoms.js is here, its label
     const destination = flags & 8 && href ? navigableURL(href) : null;
     const make = () => {
       const span = document.createElement(destination ? "a" : "span");
@@ -988,7 +988,7 @@ export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventL
 // bits 5–6 Navigation Timing's `type` (runner/src/page.rs `NAVIGATION_TYPES`; a prerender's is `navigate`), bit 8 `navigator.canShare({files})` for a
 // small text file, bit 9 a picture of an element in a share, which the web never takes and only `prefer` sets (LLP 1125 D12), bit 10 from a `pagehide` with `persisted` until its `pageshow`, bits 11–12 the GPU tier, 0 high, 1 mid, 2 low (LLP 1139.003 D2), bits 16–31 those `pageshow` events (the back/forward cache, LLP 1069.000 D2). Under the agent the drive's values stand in (visible, online, a share sheet, the pickers, focus, a `navigate`, GPU tier `high`: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
 export function pageReporter(agent, platform = globalThis) {
-  const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-share-files": true, "can-share-pictures": false, "can-open-files": true, "has-focus": true, "root-font-size": 16, "gpu-tier": "high" }, cache = { persisted: false, restores: 0 }; // cache: the drive's page is never put away
+  const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-share-files": true, "can-share-pictures": false, "can-open-files": true, "has-focus": true, "root-font-size": 16, "gpu-tier": "high", "iframe-partition": false }, cache = { persisted: false, restores: 0 }; // cache: the drive's page is never put away
   let sharesFiles; const canShareFiles = () => sharesFiles ??= (() => { try { return typeof platform.navigator.canShare === "function" && platform.navigator.canShare({ files: [new platform.File([""], "a.txt", { type: "text/plain" })] }) === true; } catch { return false; } })();
   // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
   // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
@@ -996,14 +996,14 @@ export function pageReporter(agent, platform = globalThis) {
   const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16), displayScale = () => platform.devicePixelRatio > 0 ? platform.devicePixelRatio : 1; // @ref LLP 1115.000 D10.3 — the display's scale is the page's own `devicePixelRatio`, read under the agent too: the drive sets it through the browser's emulation (`prefer display-scale`), never by a substitute, and a zoom fires `resize`, which tells it again
   const loaded = agent ? "" : platform.performance?.getEntriesByType?.("navigation")?.[0]?.type; let told; const gpuTier = () => told ?? (handheld(platform) ? "low" : "high"); // @ref LLP 1139.003 D2 — the GPU tier: the adapter's, told by gpu-glue.js before the device is made (gpu-tier.js), else the screen's class; the agent's is `high` until `prefer gpu-tier`
   const navigationType = ["reload", "back_forward"].includes(loaded) ? loaded : "navigate";
-  const read = () => agent ? { ...facts, "navigation-type": navigationType, ...cache } : { ...cache, "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-share-files": canShareFiles(), "can-share-pictures": false, "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus(), "navigation-type": navigationType, "gpu-tier": gpuTier() };
-  const bits = () => { const f = read(); return ((f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16) | (f["can-share-files"] ? 256 : 0) | (f["can-share-pictures"] ? 512 : 0) | (["navigate", "reload", "back_forward"].indexOf(f["navigation-type"]) + 1) << 5 | (f.persisted ? 1024 : 0) | Math.max(0, ["high", "mid", "low"].indexOf(f["gpu-tier"])) << 11 | ((f.restores & 0xFFFF) << 16)) >>> 0; };
+  const read = () => agent ? { ...facts, "navigation-type": navigationType, ...cache } : { ...cache, "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-share-files": canShareFiles(), "can-share-pictures": false, "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus(), "navigation-type": navigationType, "gpu-tier": gpuTier(), "iframe-partition": false }; // iframe-partition: a browser never honours an iframe's `partition` (LLP 1020.002 Q4)
+  const bits = () => { const f = read(); return ((f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16) | (f["can-share-files"] ? 256 : 0) | (f["can-share-pictures"] ? 512 : 0) | (["navigate", "reload", "back_forward"].indexOf(f["navigation-type"]) + 1) << 5 | (f.persisted ? 1024 : 0) | Math.max(0, ["high", "mid", "low"].indexOf(f["gpu-tier"])) << 11 | (f["iframe-partition"] ? 8192 : 0) | ((f.restores & 0xFFFF) << 16)) >>> 0; };
   const prefer = (page) => {
     const next = { ...facts };
     for (const [name, raw] of Object.entries(page ?? {})) {
       const value = String(raw);
       if ((name === "visibility-state" && (value === "visible" || value === "hidden")) || (name === "gpu-tier" && ["low", "mid", "high"].includes(value))) next[name] = value;
-      else if ((name === "online" || name === "can-share" || name === "can-share-files" || name === "can-share-pictures" || name === "can-open-files" || name === "has-focus") && (value === "true" || value === "false")) next[name] = value === "true";
+      else if ((name === "online" || name === "can-share" || name === "can-share-files" || name === "can-share-pictures" || name === "can-open-files" || name === "has-focus" || name === "iframe-partition") && (value === "true" || value === "false")) next[name] = value === "true";
       else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value); else if (name === "display-scale" && Number(value) > 0 && Number.isFinite(Number(value))) { if (Math.abs(displayScale() - Number(value)) > 0.01) throw new Error(`prefer: display-scale: ${value}: the page's is ${displayScale()}, which the browser sets (its own emulation, or the device)`); }
       else throw Object.assign(new Error(`prefer: ${name}: ${value} is not a page fact this host sets`), name === "keyboard-navigation" || name === "bold-text" ? {} : { malformed: true }); // keyboard-navigation and bold-text are real page facts this host does not set: a refusal
     }
@@ -1322,7 +1322,7 @@ const sourceTuple = source => {
       } catch { return null; }
     }
   }
-  if (words.length !== 2) return null;
+  if (words.length !== 2 && !(capability === 'secret.keep' && /^(user-presence|biometry-any|biometry-current-set|device-credential)( optional)?( (apple\.accessible=when(PasscodeSet|Unlocked)ThisDeviceOnly|apple\.or(Watch|Companion)|android\.strongBox))*$/.test(words.slice(2).join(' ')))) return null; // a presence policy (LLP 1133.010 D4), which Rust's parser checks whole
   const target = words[1];
   const scheme = (capability === 'net.fetch' || capability === 'net.websocket') && /^[a-z][a-z0-9+.-]*:$/i.test(target) ? target.slice(0, -1).toLowerCase() : null;
   if (scheme != null) {
@@ -1339,7 +1339,7 @@ const sourceTuple = source => {
   if (capability === 'storage.kv') return ['storage-kv', target];
   return null;
 };
-const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|doc\.keep$)/.test(source);
+const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|doc\.keep$|browser\.automation$)/.test(source);
 const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);

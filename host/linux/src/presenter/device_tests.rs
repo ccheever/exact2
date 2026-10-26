@@ -1,6 +1,7 @@
 //! The device's settings reach the app through the presenter's doors
 //! (LLP 1115.001 D3.1, D3.2): what a shell tells with [`Presenter::set_device`].
 use super::*;
+use exact_kernel::StyleId;
 
 /// An app that reads every preference a device sets, and sizes a box in `rem`.
 const READS: &str = "shape Media\n  prefersColorScheme: string\n  prefersReducedMotion: bool\n  prefersContrast: string\n  pointer: string\n  hover: string\ncomponent App\n  resource media = exactViewport() as shape Media\n  view\n    column width=300 height=300\n      text `${media.prefersColorScheme} ${media.prefersReducedMotion} ${media.prefersContrast} ${media.pointer} ${media.hover}` testId=\"facts\"\n      box testId=\"rem\" width=\"10rem\" height=\"1rem\"\n";
@@ -31,6 +32,7 @@ fn phone() -> Device {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     }
@@ -59,6 +61,60 @@ fn a_host_that_is_told_nothing_reports_a_light_system_and_a_mouse() {
     assert_eq!(facts(&p), "light false no-preference fine hover");
     assert_eq!(width(&p, "rem"), 160.0);
     assert!(p.device().is_none() && !p.dark());
+}
+
+#[test]
+fn text_scaling_reflows_default_fields_and_preserves_authored_fonts_and_drafts() {
+    let source = r#"component App
+  view
+    column width=350
+      text "Readable text" testId="body"
+      textarea value="Keep this draft" rows=1 width=300 testId="field"
+      textarea value="Fixed author font" rows=1 width=300 font-size=12 testId="fixed"
+      button testId="button"
+        text "Action"
+      box width="10rem" height=1 testId="rem"
+"#;
+    let mut p = boot(source);
+    let height = |p: &Presenter<()>, name: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(name)[0])
+            .unwrap()
+            .frame
+            .height
+    };
+    let original = (height(&p, "body"), height(&p, "field"), height(&p, "fixed"));
+    assert!(p.set_text_scale(2.0).is_none());
+    assert!(height(&p, "body") > original.0 * 1.5);
+    assert!(
+        height(&p, "field") > original.1,
+        "field: {} -> {}",
+        original.1,
+        height(&p, "field")
+    );
+    assert_eq!(height(&p, "fixed"), original.2);
+    assert_eq!(width(&p, "rem"), 320.0);
+    let k = p.host().kernel();
+    let field = k.node_by_key(k.find_by_test_id("field")[0]).unwrap();
+    assert_eq!(field.props.str(PropId::Value), Some("Keep this draft"));
+    for (name, size) in [("field", 32.0), ("fixed", 12.0), ("button", 32.0)] {
+        let node = k.node_by_key(k.find_by_test_id(name)[0]).unwrap();
+        assert_eq!(node.computed_row(StyleId::FontSize, |s| s.font_size), size);
+    }
+    let epoch = k.epoch();
+    assert!(p.set_text_scale(2.0).is_none());
+    assert_eq!(p.host().kernel().epoch(), epoch);
+    let mut replacement = boot(source);
+    p.restore_time(&mut replacement.host).unwrap();
+    assert_eq!(height(&replacement, "field"), height(&p, "field"));
+    for invalid in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        assert!(p.set_text_scale(invalid).is_none());
+        assert_eq!(width(&p, "rem"), 320.0);
+    }
+    assert!(p.set_text_scale(1.0).is_none());
+    assert_eq!(height(&p, "body"), original.0);
+    assert_eq!(height(&p, "field"), original.1);
+    assert_eq!(width(&p, "rem"), 160.0);
 }
 
 #[test]
@@ -220,6 +276,59 @@ fn bold_text_weights_the_system_font() {
     assert_eq!(weight(&p), 600);
     assert!(p.set_device(&phone()).is_none());
     assert_eq!(weight(&p), 400);
+}
+
+#[test]
+fn bold_text_weights_material_glyphs_and_symbols() {
+    for (family, steps) in [("system-ui", true), ("Georgia, serif", false)] {
+        for (element, field, stroked) in [
+            ("input type=\"time\"", true, true),
+            ("input type=\"date\"", true, true),
+            ("select", true, false),
+            ("image \"symbol:calendar\"", false, true),
+        ] {
+            let source = format!(
+                "component App\n  view\n    column font-family=\"{family}\" font-weight=500\n      {element} width=200 height=56 testId=\"icon\"\n"
+            );
+            let mut p = boot(&source);
+            let mut pictures = Vec::new();
+            for bold_text in [false, true, false] {
+                assert!(p
+                    .set_device(&Device {
+                        bold_text,
+                        ..phone()
+                    })
+                    .is_none());
+                let k = p.host().kernel();
+                let frame = k.node_by_key(k.find_by_test_id("icon")[0]).unwrap().frame;
+                let shot = p.frame();
+                // Crop only the 24 dp glyph, excluding the value and indicator.
+                let (x, y, w, h) = if field {
+                    (
+                        frame.x + frame.width - 36.,
+                        frame.y + (frame.height - 24.) / 2.,
+                        24,
+                        24,
+                    )
+                } else {
+                    (frame.x, frame.y, frame.width as u32, frame.height as u32)
+                };
+                let mut pixels = Vec::new();
+                for row in 0..h {
+                    for col in 0..w {
+                        pixels.push(shot.pixel(x as u32 + col, y as u32 + row).unwrap());
+                    }
+                }
+                pictures.push(pixels);
+            }
+            assert_eq!(pictures[0], pictures[2], "restored {element}, {family}");
+            assert_eq!(
+                pictures[0] != pictures[1],
+                steps && stroked,
+                "{element}, {family}"
+            );
+        }
+    }
 }
 
 #[test]

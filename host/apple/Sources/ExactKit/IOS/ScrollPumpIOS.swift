@@ -124,6 +124,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         // Nor is a smooth correction's frame (`OffsetDriver`).
         if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) { sample(node, now: lastScroll) }
         p.leaves.scrolled()
+        p.menus.rehostPopovers()
         // What this frame shows has its text before it commits. A pass
         // follows only for work owed: a paragraph still without all its
         // pixels, or a list's rows. A screen painted up front scrolls with
@@ -135,6 +136,11 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
+        if let p = presenter, p.navigation.pinsPrimaryViewport {
+            // Apply frame-guide movement before sampling placements and popover anchors
+            if !p.applying { p.navigation.fitOwner() }
+            p.owners.publish()
+        }
         presenter?.stickies.scrolled(nil); scrolled(nil)
     }
     // The page's element reveals (`IntoView.swift`).
@@ -235,14 +241,14 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         let deadline = now + sliceBudget
         if !p.collections.fillPending.isEmpty {
             let post = Presenter.signposts.beginInterval("pump-collection")
-            let rows = fillCollections(deadline: deadline)
+            let rows = HostPhases.shared.measure(.rows) { fillCollections(deadline: deadline) }
             Presenter.signposts.endInterval("pump-collection", post, "rows=\(rows)")
         }
         if textPending {
             let post = Presenter.signposts.beginInterval("pump-text")
             // Lead the fastest list's travel.
             let fastest = p.listViews.keys.map { velocity($0) }.max { abs($0) < abs($1) } ?? 0
-            textPending = p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval)
+            textPending = HostPhases.shared.measure(.text) { p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval) }
             Presenter.signposts.endInterval("pump-text", post)
         }
         // One image decode at a time while a list travels fast.

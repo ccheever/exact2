@@ -46,7 +46,9 @@ extension ExactSession {
         }
     }
 
-    private func activateData(_ drawnGeneration: Int, token: UInt64) {
+    func activateData(_ drawnGeneration: Int, token: UInt64) {
+        // A restart holding the runtime: the activation waits as a pending one does, retried after (ResetGate).
+        if runtime.holds("activateData(_:token:)") { pendingActivation = (drawnGeneration, token); return }
         let batch = runtime.dataReady()
         if batch.pending {
             pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
@@ -62,6 +64,7 @@ extension ExactSession {
         }
         storeRefresh.record(batch)
         retryStoreActivation()
+        deliverModuleEvents() // a launching activation, once the module and the data are up (LLP 1133.004 D6)
         canvases.loadIfNeeded()
         openNativeViews(drawnGeneration)
         drainSurfaceWorkNow()
@@ -76,5 +79,53 @@ extension ExactSession {
         guard nativesOpened != drawnGeneration else { return }
         nativesOpened = drawnGeneration
         natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false }
+    }
+}
+
+extension ExactSession {
+    /// The scene became active (iOS): the canvases follow.
+    public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
+
+    /// How many module events the session holds before its runner can (the
+    /// runner then holds each event to its own bound).
+    static let heldModuleEventBound = 256
+
+    /// A module event the platform reported for this session (LLP 1133.004
+    /// D6): held from launch until first pixel and the data's activation,
+    /// then raised into the runner and heard in order, once. `activation` is
+    /// true only for a platform callback that reports a person's act on its
+    /// own UI.
+    func raiseModuleEvent(extension name: String, event: String, args: String, activation: Bool) {
+        guard state != .destroyed else { return }
+        let body: [String: Any] = ["extension": name, "event": event, "args": (try? JSONSerialization.jsonObject(with: Data(args.utf8))) ?? [],
+                                   "activation": activation, "deliver": false]
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        if heldModuleEvents.count >= Self.heldModuleEventBound {
+            heldModuleEvents.removeFirst()
+            log("\(name).\(event): dropped (held before the session could hear it)")
+        }
+        heldModuleEvents.append(String(decoding: data, as: UTF8.self))
+        if dataGeneration != nil { deliverModuleEvents() }
+    }
+
+    /// Each held module event raised into the runner, which bounds each
+    /// event's own; then everything the runner queued is heard, once (an
+    /// agent's tap of a listed entry too).
+    func deliverModuleEvents() {
+        guard state != .destroyed, booted, firstDrawMs != nil, !runtime.holds("deliverModuleEvents()") else { return } // (kept for after: ResetGate)
+        let held = heldModuleEvents
+        heldModuleEvents = []
+        for json in held { apply(runtime.moduleEvent(json)) }
+        apply(runtime.moduleEvent("{}"))
+    }
+
+    /// The session ends: each event no handler heard is journaled (D6).
+    func endModuleEvents() {
+        for json in heldModuleEvents {
+            let v = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] ?? [:]
+            log("\(v["extension"] as? String ?? "").\(v["event"] as? String ?? ""): unheard at the session's end")
+        }
+        heldModuleEvents = []
+        if booted { _ = runtime.moduleEvent("{\"unheard\":true}") }
     }
 }

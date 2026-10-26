@@ -479,10 +479,20 @@ export function parseFlags(argv) {
     else if (argv[i] === '--keep-storage') flags.keepStorage = true;
     else if (argv[i] === '--reset-storage') flags.resetStorage = true;
     else if (argv[i] === '--port') flags.port = argv[++i];
+    // `trace --pid <pid>` asks a running development app for its trace; `trace --out <file>` writes it with its map joined (LLP 1142 D2, D5).
+    else if (argv[i] === '--pid') flags.pid = argv[++i];
+    else if (argv[i] === '--out') flags.out = resolve(argv[++i]);
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
     else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
+    // A relaunch whose platform hands it a listed entry (LLP 1133.004 §7): `--notification '<entry>'`, the
+    // entry as `state.notifications` printed it, delivered as its tap would be before the first op.
+    else if (argv[i] === '--notification') (flags.launchEntries ??= []).push({ launch: 'notification', entry: argv[++i] });
+    // A cold wake (LLP 1133.017 §10): `--wake '<entry>'`, a registration as `state` printed it, raised before the first op.
+    else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: argv[++i] });
+    // A cold tool call (LLP 1133.023 §10): `--call '<tool> <json>'`, delivered once the data module is ready, as a system's call that started the app.
+    else if (argv[i] === '--call') (flags.launchEntries ??= []).push({ launch: 'call', entry: argv[++i] });
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
@@ -754,7 +764,9 @@ export function traceLocators(appName) {
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-const NOT_INPUT = /^(target|dist|dist.previous|dist-windows|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
+// A dist's swap siblings (`dist.gen`, `dist.gen.reaped`, `dist.leases`, `dist.lock`, `dist.previous`,
+// host/web/generations.mjs) are written by builds, never read by one: a later build's reap is no change.
+const NOT_INPUT = /^(target|(web-)?dist(\.(gen|gen\.reaped|leases|lock|previous|stage-[^/]*))?|dist-windows|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.test\.contract$|\.md$/;
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];
@@ -1187,4 +1199,14 @@ export function proofProductChanges(receipt, bin, app, root = ROOT) {
   for (const [path,hash] of Object.entries(record.products))
     if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== hash) changed.push(path);
   return changed;
+}
+
+/** Each `--notification '<entry>'` (LLP 1133.004 §7): the entry handed to the relaunched app, as the platform hands a
+ * closed app its click, before the drive's first op; each `--wake '<entry>'` (LLP 1133.017 §10) likewise, raised as a
+ * cold wake. */
+export async function launchEntries(s, flags) {
+  for (const entry of flags.launchEntries ?? []) {
+    const r = await s.op({ op: 'launchEntry', ...entry });
+    if (r?.error) throw new Error(r.error);
+  }
 }

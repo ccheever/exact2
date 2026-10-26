@@ -15,6 +15,16 @@ impl FontVariations {
     /// and a run carries these by value (`TextStyle`, the hosts' runs).
     pub const MAX: usize = 8;
 
+    /// The first [`Self::MAX`] of `axes`, each tag once (the caller's).
+    pub fn from_axes(axes: &[(u32, f32)]) -> Self {
+        let mut out = Self::default();
+        for (slot, axis) in out.axes.iter_mut().zip(axes) {
+            *slot = *axis;
+            out.len += 1;
+        }
+        out
+    }
+
     /// The axes as (tag, value), the tag big-endian (`'wght'` is
     /// `0x77676874`).
     pub fn axes(&self) -> &[(u32, f32)] {

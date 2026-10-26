@@ -123,25 +123,59 @@ pub(crate) fn misplaced(t: &Token) -> bool {
 /// icon whose sources don't read (its own error says why), or in a cycle,
 /// keeps its name, which [`check`] refuses.
 pub(crate) fn aliased(icons: &mut [Token]) {
-    for _ in 0..icons.len() {
-        let mut changed = false;
-        for i in 0..icons.len() {
-            let name = icons[i].value.value.trim().to_string();
-            if name.contains('(') {
-                continue;
-            }
-            if let Some(src) = icons
-                .iter()
-                .find(|t| t.name.value == name && sources(&t.value.value).is_ok())
-            {
-                // Its line too: the SVG is read beside the file it is written in.
-                let value = src.value.clone();
-                icons[i].value = value;
-                changed = true;
-            }
+    // Each alias names an icon; followed once, iteratively, every icon on
+    // the way kept (Astra's round 2 on the checker bound: a pass per alias,
+    // each scanning every icon, was cubic in a chain). A name two icons
+    // share (which the check refuses) takes the first that is an icon.
+    let valid: Vec<bool> = icons
+        .iter()
+        .map(|t| sources(&t.value.value).is_ok())
+        .collect();
+    let mut named: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (k, t) in icons.iter().enumerate() {
+        let first = named.entry(t.name.value.as_str()).or_insert(k);
+        if !valid[*first] && valid[k] {
+            *first = k;
         }
-        if !changed {
-            break;
+    }
+    // The icon each one's value comes from: known, or none (a cycle, or a
+    // name no icon has).
+    let mut source: Vec<Option<Option<usize>>> = vec![None; icons.len()];
+    let mut on_path = vec![false; icons.len()];
+    for start in 0..icons.len() {
+        let mut path = Vec::new();
+        let mut at = start;
+        let found = loop {
+            if let Some(known) = source[at] {
+                break known;
+            }
+            if valid[at] {
+                break Some(at);
+            }
+            let name = icons[at].value.value.trim();
+            if name.contains('(') || on_path[at] {
+                break None;
+            }
+            on_path[at] = true;
+            path.push(at);
+            match named.get(name) {
+                Some(&next) => at = next,
+                None => break None,
+            }
+        };
+        for k in path {
+            on_path[k] = false;
+            source[k] = Some(found);
+        }
+        source[start].get_or_insert(found);
+    }
+    let values: Vec<_> = icons.iter().map(|t| t.value.clone()).collect();
+    for (k, t) in icons.iter_mut().enumerate() {
+        // Its line too: the SVG is read beside the file it is written in.
+        if let Some(Some(from)) = source[k] {
+            if from != k {
+                t.value = values[from].clone();
+            }
         }
     }
 }
@@ -152,11 +186,12 @@ pub(crate) fn check(icons: &[Token], tokens: &[Token]) -> (Vec<Icon>, Vec<Diagno
     let (mut out, mut errors) = (Vec::new(), Vec::new());
     let at =
         |t: &Token, id: &'static str, m: String| Diagnostic::new(id, m, t.name.line, t.name.col);
-    for (i, t) in icons.iter().enumerate() {
+    // The names declared so far, once each (linear: round 3).
+    let mut names: std::collections::HashSet<&str> =
+        tokens.iter().map(|x| x.name.value.as_str()).collect();
+    for t in icons {
         let name = &t.name.value;
-        if tokens.iter().any(|x| x.name.value == *name)
-            || icons[..i].iter().any(|x| x.name.value == *name)
-        {
+        if !names.insert(name.as_str()) {
             errors.push(at(
                 t,
                 "tamber-duplicate",

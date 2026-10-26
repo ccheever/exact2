@@ -152,6 +152,9 @@ final class SurfaceRecordTests: XCTestCase {
         XCTAssertEqual(GpuModule.modulePath(defaultPath:"baked", compat:compat(card), environment:["EXACT_GPU_DYLIB":"override"]), "baked")
         var dev = card; dev["trust"] = "development"
         XCTAssertEqual(GpuModule.modulePath(defaultPath:"baked", compat:compat(dev), environment:["EXACT_GPU_DYLIB":"override"]), "override")
+        // A production bake with no updater (L=0, no trust in its cohort) takes no override, whatever its card says.
+        var zero = compat(dev); zero["embedded"] = ["gpu":dev, "trust":"production"]
+        XCTAssertEqual(GpuModule.modulePath(defaultPath:"baked", compat:zero, environment:["EXACT_GPU_DYLIB":"override"]), "baked")
     }
     func testLostSurfaceLeavesFrameSchedulingUntilRecreated() throws {
         let session = try fixture()

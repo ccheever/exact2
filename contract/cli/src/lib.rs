@@ -22,6 +22,8 @@ pub fn paint_row(a: &contract_syntax::Attr) -> bool {
     !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
 }
 mod declaration;
+/// A faced tool's signature and digest (LLP 1133.023 D8).
+pub mod faces;
 pub mod functions;
 pub mod gallery;
 mod grants;
@@ -32,13 +34,18 @@ mod logic;
 mod manifest;
 mod map;
 mod midi;
+mod module_events;
 mod module_rust;
 mod modules;
 pub mod native;
+mod orientationlock;
+mod package_views;
 pub mod picker;
 mod resolve;
 mod retained;
+mod shape_schema;
 pub use retained::{retention_build, Kept, Retained};
+mod reach;
 mod rust;
 mod sources;
 mod strings;
@@ -53,6 +60,7 @@ pub mod tamber_params;
 pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
+pub mod watch;
 pub use contract_lower::vocab::collection_edge_refusal;
 pub use contract_types::strings::Strings;
 /// The data seam, re-exported for an app's build script: the bake asks the
@@ -65,7 +73,8 @@ pub use module_rust::module_rust;
 pub use resolve::Origin;
 pub use rust::rust;
 pub use sources::{
-    code_beside, design_path, with_contract_texts, with_design_text, Package, Source, SourceGraph,
+    code_beside, design_path, with_contract_texts, with_design_text, GraphBase, Package, Source,
+    SourceGraph,
 };
 pub use symbols::symbols_json;
 pub use typescript::{design_exports, typescript, typescript_exporting};
@@ -253,8 +262,10 @@ impl From<contract_analyze::AnalyzeError> for CompileError {
 from_pass!(contract_lower::LowerError, "lower");
 /// A source text's components' `param.` names as their tokens (LLP 1121
 /// D15), as the loader writes them for a file; a text with no path is
-/// `app.contract`, as an app's root is.
+/// `app.contract`, as an app's root is. A text with no path has no members
+/// files either, so one that names any is refused.
 pub(crate) fn params(file: &mut contract_syntax::File) -> Result<(), CompileError> {
+    sources::standalone_members(file)?;
     for c in &mut file.components {
         c.params
             .identity
@@ -299,7 +310,9 @@ pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileErro
         .and_then(|mut file| {
             contract_syntax::resolve_clock_timelines(&mut file)?;
             params(&mut file)?;
-            picker::check(&file, None).map_err(first)?;
+            picker::check(&file, None)
+                .and(orientationlock::check(&file, None))
+                .map_err(first)?;
             compile_file_warned(
                 &file,
                 None,
@@ -321,7 +334,9 @@ pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
     contract_syntax::resolve_clock_timelines(&mut file)?;
     params(&mut file)?;
     terminal::check(&file).map_err(first)?;
-    picker::check(&file, None).map_err(first)?;
+    picker::check(&file, None)
+        .and(orientationlock::check(&file, None))
+        .map_err(first)?;
     compile_file_output(&file, None, None, false, contract_lower::Profile::Terminal)
         .map(|(plan, _)| plan)
         .map_err(first)
@@ -408,6 +423,12 @@ pub fn compile_path_source_mapped(
 /// from, and the loader's refusals if it stopped (LLP 1091 D10): what a
 /// capture copies, a watcher watches, and a deploy freezes.
 pub fn source_graph(path: &Path) -> SourceGraph {
+    source_graph_base(path).map_or_else(|refused| refused, |base| base.tail())
+}
+
+/// [`source_graph`]'s Contract half ([`sources::GraphBase`]), which reads no design file, or its refusal (the root
+/// unreadable) as the whole graph: the design server's walk keeps it across a design-only edit.
+pub fn source_graph_base(path: &Path) -> Result<GraphBase, SourceGraph> {
     // The server's planned text of the root, where it has one (stage 8 D).
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
@@ -425,15 +446,15 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     };
     let src = match sources::contract_text(path).map_or_else(|| std::fs::read_to_string(path), Ok) {
         Ok(src) => src,
-        Err(e) => return refused(format!("{}: {e}", path.display())),
+        Err(e) => return Err(refused(format!("{}: {e}", path.display()))),
     };
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     match source_root.canonicalize() {
-        Ok(app_root) => sources::graph(path, &src, &app_root),
-        Err(e) => refused(format!("{}: {e}", source_root.display())),
+        Ok(app_root) => Ok(sources::graph_base(path, &src, &app_root)),
+        Err(e) => Err(refused(format!("{}: {e}", source_root.display()))),
     }
 }
 
@@ -509,6 +530,8 @@ pub fn fix_uses(path: &Path) -> Result<(Vec<WrittenUses>, Vec<CompileError>), Ve
 /// edit to a used file or a library rebuilds the plan, not only an edit to
 /// the root.
 pub fn rerun_if_changed(path: &Path) {
+    // The builder also detects restored bytes whose mtime predates the bake.
+    println!("cargo:rerun-if-env-changed=EXACT_BAKE_INPUTS");
     println!("cargo:rerun-if-changed={}", path.display());
     let graph = source_graph(path);
     for source in &graph.sources {
@@ -609,13 +632,45 @@ pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {
         .map(|(plan, _)| plan)
 }
 
+/// Compile an app's watch entry (LLP 1126.002 D4): its own file, whose first
+/// component is the root, refused by the watch's admission (D9) and then
+/// compiled as a whole live plan with the main plan's checks, as a terminal
+/// entry is its own file (LLP 1101 D2).
+pub fn compile_watch(app: &Path, entry: &manifest::WatchEntry) -> Result<Plan, Vec<CompileError>> {
+    let path = app.join(&entry.source);
+    let src = read_source(&path).map_err(|e| vec![e])?;
+    let (file, sources) = sources::load(&path, &src, &app_root(&path)?)?;
+    watch::check(&file).map_err(|all| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
+    if file.components.first().map(|c| c.name.as_str()) != Some(entry.component.as_str()) {
+        return Err(vec![CompileError {
+            pass: "watch",
+            id: "watch-component".to_owned(),
+            message: format!(
+                "app.json's watch.component is `{}`, which is not the first component of {}; make it the first, or name the first",
+                entry.component, entry.source
+            ),
+            span: Span::default(),
+            file: Some(path.clone().into_boxed_path()),
+            related: Box::default(),
+        }]);
+    }
+    // The app's own plan's profile: the watch runs the same runner and kernel.
+    compile_path_checked(&path, &src, false, true, contract_lower::Profile::Web)
+        .map(|(plan, _)| plan)
+}
+
 /// The buttons whose `aria-keyshortcuts` chord types a key the game's
 /// `Actions` also bind (LLP 1132 D11), as warnings: on every host the
 /// shortcut takes that press, the key with exactly the chord's modifiers,
 /// first, so the world does not hear it while the button shows; the key
 /// with other modifiers still reaches the world. With a stale or missing
-/// `.shells/keys.json`, a warning saying so. Empty for an app that declares
-/// no shortcut.
+/// `.shells/keys.json`, a warning saying so. In an app with a Windows host,
+/// the chords that never reach it there (LLP 1115.004 D9.6). Empty for an
+/// app that declares no shortcut.
 pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
     let src = read_source(path).map_err(|e| vec![e])?;
     let app_root = app_root(path)?;
@@ -627,6 +682,32 @@ pub fn shortcut_findings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileEr
 }
 
 fn shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<CompileError> {
+    if !contract_analyze::declares_shortcuts(file) {
+        return Vec::new();
+    }
+    let mut out: Vec<CompileError> = match windows_host(app_root) {
+        true => contract_analyze::check_windows_shortcuts(file)
+            .into_iter()
+            .map(|e| CompileError {
+                pass: "warning",
+                ..e.into()
+            })
+            .collect(),
+        false => Vec::new(),
+    };
+    out.extend(game_shortcut_warnings(file, app_root));
+    out
+}
+
+/// Whether the app has a Windows host: `app.json` declares `host.windows`,
+/// or the app has a Windows crate (`windows/Cargo.toml`) to build one.
+fn windows_host(app_root: &Path) -> bool {
+    app_root.join("windows/Cargo.toml").is_file()
+        || Manifest::read(app_root)
+            .is_ok_and(|manifest| manifest.json.pointer("/host/windows").is_some())
+}
+
+fn game_shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<CompileError> {
     let keys = app_root.join(".shells/keys.json");
     let stale = |message: String| CompileError {
         pass: "warning",
@@ -636,9 +717,6 @@ fn shortcut_warnings(file: &contract_syntax::File, app_root: &Path) -> Vec<Compi
         file: Some(keys.as_path().into()),
         related: Box::new([]),
     };
-    if !contract_analyze::declares_shortcuts(file) {
-        return Vec::new();
-    }
     // A game built before its GPU build wrote the keys: say so, rather
     // than check against none.
     if !keys.is_file() {
@@ -821,16 +899,18 @@ fn compile_loaded(
     warned: Option<&mut Vec<CompileError>>,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
     let app_root = app_root.to_path_buf();
-    native::check(&file, &app_root).map_err(|all| {
+    let views = native::check(&file, &app_root).map_err(|all| {
         all.into_iter()
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
-    picker::check(&file, Some(&app_root)).map_err(|all| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    })?;
+    picker::check(&file, Some(&app_root))
+        .and(orientationlock::check(&file, Some(&app_root)))
+        .map_err(|all| {
+            all.into_iter()
+                .map(|e| sources.resolve(e))
+                .collect::<Vec<_>>()
+        })?;
     // Surface findings join the compile's own refusals; neither hides the other.
     let surface: Vec<CompileError> = match surfaces.then(|| surface::arguments(&app_root)) {
         Some(declared) => match declared.map_err(|e| vec![e])? {
@@ -879,46 +959,11 @@ fn compile_loaded(
     if !surface.is_empty() {
         return Err(surface);
     }
-    if app_root.join("app.json").is_file() || app_root.join(".shells/app.json").is_file() {
-        let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
-            pass: "app",
-            id: "app-manifest".into(),
-            message,
-            span: Span::default(),
-            file: Some(path.into()),
-            related: Box::new([]),
-        })?;
-        if !plan.app_id.is_empty() && plan.app_id != manifest.id {
-            return Err(vec![CompileError {
-                pass: "app",
-                id: "app-identity".into(),
-                message: format!(
-                    "the plan names app {}, but app.json names {}",
-                    plan.app_id, manifest.id
-                ),
-                span: Span::default(),
-                file: Some(path.into()),
-                related: Box::new([]),
-            }]);
-        }
-        // @ref LLP 1075.003.000.001 §4.3 — each hatch word with the
-        // platforms that handle it, under the plan's signature: a host calls
-        // a word only where the plan says its platform handles it.
-        let rows = native::hatch_rows(&manifest).map_err(|message| {
-            vec![CompileError {
-                pass: "app",
-                id: "app-manifest".into(),
-                message,
-                span: Span::default(),
-                file: Some(path.into()),
-                related: Box::new([]),
-            }]
-        })?;
-        for (word, platforms) in rows {
-            plan.add_hatch(&word, platforms);
-        }
-        plan.app_id = manifest.id;
+    for v in &views {
+        let binds: Vec<&str> = v.binds.iter().map(String::as_str).collect();
+        plan.add_view(&v.tag, &v.extension, v.displayed, &binds);
     }
+    reach::from_manifest(path, &app_root, &file, &mut plan)?;
     Ok((plan, sites.map(|sites| SourceMap::new(sites, sources))))
 }
 
@@ -955,7 +1000,9 @@ pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
     // Media alone: a text has no app, so no `file_handlers` (LLP 1069.002 D1).
-    picker::check(&file, None).map_err(first)?;
+    picker::check(&file, None)
+        .and(orientationlock::check(&file, None))
+        .map_err(first)?;
     compile_file_output(&file, asset_root, None, false, contract_lower::Profile::Web)
         .map(|(plan, _)| plan)
         .map_err(first)

@@ -277,6 +277,7 @@ extension Agent {
               let node = reach.reached?.live(in: presenter), !node.disabled else { return ["pressed": NSNull()] }
         if let run = reach.run, !node.inert, node.activateInline(run) { return ["pressed": Int(run)] }
         if let href = reach.href {
+            if node.pressReaderAtom(href) { return ["pressed": Int(node.id)] } // an inline atom (LLP 1045.000 D7)
             presenter.session?.follow(href)
             return ["followed": href]
         }
@@ -286,6 +287,8 @@ extension Agent {
         defer { handoff?.dispatched() }
         while let cur = f {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field {
+                // A pill's press, as its tap recognizer takes a finger's (FieldAtoms.swift, LLP 1045.000 D7).
+                if let area = field as? TextArea, let hit = area.atom(at: area.convert(p, from: nil)) { area.pressAtom(hit.range); return ["pressed": Int(node.id), "atom": hit.atom.kind] }
                 handoff = presenter.beginPress(control: field)
                 if !field.isFirstResponder { _ = field.becomeFirstResponder() }
                 took = true; break
@@ -332,7 +335,7 @@ extension Agent {
     /// arbitration gives it, which only a real touch tests: refused, naming
     /// `--touch platform`.
     func scrollDrag(_ req: [String: Any]) -> [String: Any] {
-        guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), let win = v.window else { return miss(req) }
         guard let delta = req["scrollDrag"] as? [Double], delta.count == 2, delta.allSatisfy(\.isFinite) else { return ["error": "drag: dx and dy must be finite"] }
         if v.scrollDormant { v.needScroll() }
         let list = presenter.groupedLists?.scroller(for: v.id).flatMap { $0.superview === v ? $0 : nil }

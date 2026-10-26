@@ -1,0 +1,11 @@
+{
+  "name": "@fixture/tally",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A package with a Rust implementation for the Linux and Windows hosts: the seam's fixture for the desktop builder and dispatch (LLP 1133.022 D10 item 5).",
+  "exports": {
+    ".": "./exact.json",
+    "./linux": "./linux/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

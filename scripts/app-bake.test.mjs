@@ -2,9 +2,11 @@
 // packs, the build environment and what makes a build stale.
 import { test } from 'bun:test';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:net';
+import { cargoBakeInputs } from './cargo-dep-info.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { classifyArtifacts, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
@@ -75,6 +77,216 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 300000);
+
+async function withContractBake(use, {binding=false}={}) {
+  const root=resolve(import.meta.dir,'..'), old=new Date('2000-01-01T00:00:00Z');
+  const dir=realpathSync(mkdtempSync(resolve(tmpdir(),'rebake-'))), name='rebake-'+basename(dir).split('-').at(-1).toLowerCase();
+  const write=(path, bytes)=>{mkdirSync(dirname(resolve(dir,path)),{recursive:true});writeFileSync(resolve(dir,path),bytes);};
+  try {
+    write('rust-toolchain.toml',readFileSync(resolve(root,'rust-toolchain.toml')));
+    write('Cargo.lock',readFileSync(resolve(root,'Cargo.lock')));
+    write('Cargo.toml',`[workspace]\nmembers=["linux"${binding?',"binding"':''}]\nresolver="2"\n[patch.crates-io]\ntaffy={path=${JSON.stringify(resolve(root,'vendor/taffy'))}}\n`);
+    write('linux/Cargo.toml',`[package]\nname="${name}-linux"\nversion="0.1.0"\nedition="2021"\n[build-dependencies]\nexact-js-bake={path=${JSON.stringify(resolve(root,'js/bake'))}}\n${binding?`[dependencies]\n${name}-binding={path="../binding"}\n`:''}`);
+    write('linux/build.rs',`fn main() {
+      if std::path::Path::new("../.during-bake").exists() { std::fs::rename("../.during-bake", "../app.contract").unwrap(); }
+      exact_js_bake::build(std::path::Path::new(".."), "linux").unwrap();
+      std::fs::write(std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("ran"), b"ran").unwrap();
+    }`);
+    write('linux/src/main.rs',binding?`fn main(){println!("{}", ${name.replaceAll('-','_')}_binding::SOURCE);}`:'fn main(){let _=include_bytes!(concat!(env!("OUT_DIR"),"/app.plan"));}');
+    if(binding) {
+      write('binding/Cargo.toml',`[package]\nname="${name}-binding"\nversion="0.1.0"\nedition="2021"\n[build-dependencies]\ncontract={path=${JSON.stringify(resolve(root,'contract/cli'))}}\n`);
+      write('binding/src/lib.rs','include!(concat!(env!("OUT_DIR"),"/binding.rs"));');
+      write('binding/build.rs',`fn main(){
+        let path=std::path::Path::new("../app.contract");
+        contract::rerun_if_changed(path);
+        contract::compile_path(path).unwrap();
+        let source=std::fs::read_to_string(path).unwrap();
+        std::fs::write(std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("binding.rs"),format!("pub const SOURCE: &str = {:?};",source)).unwrap();
+      }`);
+    }
+    const id='com.exact.rebake';
+    write('app.json',JSON.stringify({app:{id,name:'Rebake'},rust:false,deploy:{store:{linux:'0'}}}));
+    write('app.ts',`export const appId='${id}'; export const grants=''; export const answer=()=>{throw new Error('no sources');};`);
+    const source=text=>`component App\n  view\n    text "${text}"\n`;
+    write('app.contract',source('ORIGINAL')); utimesSync(resolve(dir,'app.contract'),old,old);
+    const lock=spawnSync('cargo',['generate-lockfile','--offline'],{cwd:dir,encoding:'utf8'}); assert.equal(lock.status,0,lock.stderr);
+    const target=bakeTarget('linux'), output=resolve(dir,'target/bakes');
+    const app={dir,workspace:dir,target:process.env.CARGO_TARGET_DIR??resolve(root,'target'),name,id,manifest:{app:{id,name:'Rebake'},rust:false},crate:kind=>`${name}-${kind}`};
+    const bake=()=>buildBake(app,'linux',target,{profile:'dev',output,env:{EXACT_UPDATE_TRUST:'development',EXACT_RUST_BUNDLE:undefined,EXACT_UPDATE_RECEIPT:undefined}});
+    const plan=()=>readFileSync(resolve(output,`linux-${target}.plan`));
+    const run=()=>{const r=spawnSync(resolve(app.target,target,'debug',name+'-linux'),[],{encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout;};
+    const scriptDir=()=>{
+      const builds=resolve(app.target,target,'debug/build');
+      const unit=readdirSync(builds).find(name=>name.startsWith(app.crate('linux')+'-') && existsSync(resolve(builds,name,'out/ran')));
+      assert.ok(unit, 'the bake must leave its build-script marker');
+      return resolve(builds,unit);
+    };
+    await use({dir,write,source,bake,plan,run,scriptDir,old});
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}
+
+// Real Cargo and the TypeScript baker must agree even when a restore keeps an old mtime.
+test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('restored and equal-mtime Contract sources rebake and then stay quiet', async () => {
+  await withContractBake(({dir, write, source, bake, plan, scriptDir, old}) => {
+    const path = resolve(dir, 'app.contract'), original = resolve(dir, 'app.contract.orig');
+    copyFileSync(path, original); utimesSync(original, old, old);
+    bake();
+    const first = plan(); assert.ok(first.includes(Buffer.from('ORIGINAL')));
+    write('app.contract', source('EDITED'));
+    bake(); assert.ok(plan().includes(Buffer.from('EDITED')));
+    renameSync(original, path);
+    bake();
+    assert.deepEqual(plan(), first, 'restoring the older source must restore the original plan');
+    assert.equal(statSync(path).mtimeMs, old.getTime(), 'the builder must not touch the source');
+    write('app.contract', source('EQUALNEW')); utimesSync(path, old, old);
+    bake(); assert.ok(plan().includes(Buffer.from('EQUALNEW')), 'changed bytes at the same mtime and size must rebake');
+    const ran = resolve(scriptDir(), 'out/ran'), stamp = statSync(ran, {bigint:true}).mtimeNs;
+    const expected = plan();
+    bake();
+    assert.deepEqual(plan(), expected);
+    assert.equal(statSync(ran, {bigint:true}).mtimeNs, stamp, 'an unchanged build must not run the bake');
+    write('node_modules/@fixture/ui/package.json', JSON.stringify({name:'@fixture/ui', exports:'./child.contract'}));
+    write('node_modules/@fixture/ui/child.contract', 'component Child\n  view\n    text "IMPORTED"\n');
+    const library = resolve(dir, 'node_modules/@fixture/ui/child.contract');
+    utimesSync(library, old, old);
+    write('app.contract', 'use Child from "@fixture/ui"\ncomponent App\n  view\n    Child()\n');
+    bake(); assert.ok(plan().includes(Buffer.from('IMPORTED')));
+    const importedStamp = statSync(ran, {bigint:true}).mtimeNs;
+    bake();
+    assert.equal(statSync(ran, {bigint:true}).mtimeNs, importedStamp, 'discovering an import must not dirty the next build');
+    writeFileSync(library, 'component Child\n  view\n    text "CHANGED!"\n');
+    utimesSync(library, old, old);
+    bake(); assert.ok(plan().includes(Buffer.from('CHANGED!')), 'installed Contract imports must be watched by content');
+  });
+}, 300000);
+
+for (const entry of ['socket', 'unreadable file', 'unreadable directory', 'linked unreadable directory']) {
+  test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST || process.platform === 'win32' || (entry !== 'socket' && process.getuid?.() === 0))(`an unused ${entry} in a watched package permits quiet bakes`, async()=>{
+    await withContractBake(async({dir,write,bake,plan,scriptDir,old})=>{
+      write('node_modules/@fixture/ui/package.json',JSON.stringify({name:'@fixture/ui',exports:'./child.contract'}));
+      write('node_modules/@fixture/ui/child.contract','component Child\n  view\n    text "PACKAGE_OK"\n');
+      write('app.contract','use Child from "@fixture/ui"\ncomponent App\n  view\n    Child()\n');
+      const pkg=resolve(dir,'node_modules/@fixture/ui'), cwd=process.cwd();
+      mkdirSync(resolve(pkg,'.cache'));
+      let server, blocked, payload;
+      process.chdir(pkg);
+      try {
+        if(entry === 'socket') {
+          server=createServer();
+          await new Promise((ok,fail)=>{server.once('error',fail);server.listen('.cache/worker.sock',ok);});
+        } else {
+          const file=entry === 'unreadable file';
+          blocked=entry === 'linked unreadable directory' ? resolve(dir,'.private') : resolve(pkg,'.cache/private');
+          if(!file)mkdirSync(blocked);
+          payload=file ? blocked : resolve(blocked,'payload');
+          writeFileSync(payload,'before');utimesSync(payload,old,old);
+          if(entry === 'linked unreadable directory')symlinkSync(blocked,resolve(pkg,'.cache/link'),'dir');
+          chmodSync(blocked,0);
+          assert.throws(()=>file ? readFileSync(blocked) : readdirSync(blocked), error=>['EACCES','EPERM'].includes(error.code));
+        }
+        bake(); assert.ok(plan().includes(Buffer.from('PACKAGE_OK')));
+        // Without the optional .tamber file, Contract watches the installed directory.
+        const watches=readFileSync(resolve(scriptDir(),'output'),'utf8').split('\n');
+        assert.ok(watches.includes(`cargo:rerun-if-changed=${pkg}`),'the package directory must actually be watched');
+        const stamp=()=>statSync(resolve(scriptDir(),'out/ran'),{bigint:true}).mtimeNs;
+        const first=stamp(), expected=plan();
+        bake(); assert.deepEqual(plan(),expected);
+        assert.equal(stamp(),first,'an unchanged package must not rerun the bake');
+        if(blocked) {
+          chmodSync(blocked,entry === 'unreadable file' ? 0o600 : 0o700);
+          writeFileSync(payload,'after!');utimesSync(payload,old,old);
+          bake(); assert.deepEqual(plan(),expected);
+          const readable=stamp();
+          assert.notEqual(readable,first,'a now-readable input must change the revision even at an old mtime');
+          bake(); assert.equal(stamp(),readable,'a readable unchanged package must stay quiet');
+        }
+      } finally {
+        if(blocked)chmodSync(blocked,0o700);
+        if(server)await new Promise(ok=>server.close(ok));
+        process.chdir(cwd);
+      }
+    });
+  },300000);
+}
+
+test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('a dependency regenerates Rust when the contract is restored',async()=>{
+  await withContractBake(({dir,write,source,bake,plan,run,old})=>{
+    const path=resolve(dir,'app.contract'), saved=resolve(dir,'.saved');
+    copyFileSync(path,saved);utimesSync(saved,old,old);
+    bake(); assert.ok(run().includes('ORIGINAL'));
+    write('app.contract',source('EDITED'));
+    bake(); assert.ok(run().includes('EDITED'));
+    renameSync(saved,path);bake();
+    assert.ok(plan().includes(Buffer.from('ORIGINAL')));
+    assert.ok(run().includes('ORIGINAL'),'the compiled dependency must agree with the restored plan');
+  },{binding:true});
+},300000);
+
+test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('restoring bytes seen before an in-build save rebakes',async()=>{
+  await withContractBake(({dir,write,source,bake,plan,old})=>{
+    bake();
+    write('app.contract',source('BEFORE'));utimesSync(resolve(dir,'app.contract'),old,old);
+    write('.during-bake',source('DURING'));utimesSync(resolve(dir,'.during-bake'),old,old);
+    bake();assert.ok(plan().includes(Buffer.from('DURING')));
+    write('app.contract',source('BEFORE'));utimesSync(resolve(dir,'app.contract'),old,old);
+    bake();assert.ok(plan().includes(Buffer.from('BEFORE')),'restored pre-build bytes must not reuse the consumed revision');
+  });
+},300000);
+
+function watchFixture(use) {
+  const dir=mkdtempSync(resolve(tmpdir(),'watch-'));
+  try {
+    const out=resolve(dir,'out'), watched=resolve(dir,'watched'), target=resolve(dir,'target');
+    for(const path of [out,watched,target])mkdirSync(path);
+    const pkg={id:'watch',manifest_path:resolve(dir,'Cargo.toml'),targets:[{kind:['custom-build']}]};
+    const env={CARGO_TARGET_DIR:target,EXACT_BAKE_OUTPUT:resolve(dir,'bake')};
+    writeFileSync(resolve(out,'../output'),`cargo:rerun-if-changed=${watched}\n`);
+    const messages=[{reason:'build-script-executed',package_id:pkg.id,out_dir:out}];
+    const prepare=()=>cargoBakeInputs(pkg,'target','dev',env);
+    use({dir,out,watched,env,messages,prepare,pkg});
+  }finally{rmSync(dir,{recursive:true,force:true});}
+}
+
+test.skipIf(process.platform === 'win32')('a watched directory follows inner directory links without cycles or output aliases',()=>watchFixture(({dir,out,watched,env,messages,prepare})=>{
+  const real=resolve(dir,'real');mkdirSync(real);writeFileSync(resolve(real,'input'),'ORIGINAL');
+  symlinkSync(real,resolve(watched,'link'),'dir');
+  symlinkSync(watched,resolve(real,'back'),'dir');
+  symlinkSync('loop-b',resolve(watched,'loop-a'));symlinkSync('loop-a',resolve(watched,'loop-b'));
+  mkdirSync(env.EXACT_BAKE_OUTPUT);
+  env.CARGO_BUILD_BUILD_DIR=resolve(dir,'build');mkdirSync(env.CARGO_BUILD_BUILD_DIR);
+  const outputs=[env.CARGO_TARGET_DIR,env.EXACT_BAKE_OUTPUT,env.CARGO_BUILD_BUILD_DIR,out];
+  for(const [i,path] of outputs.entries())symlinkSync(path,resolve(watched,`output-${i}`),'dir');
+  prepare()(messages);const first=env.EXACT_BAKE_INPUTS;
+  writeFileSync(resolve(real,'input'),'RESTORED');utimesSync(resolve(real,'input'),new Date(0),new Date(0));
+  const record=prepare();assert.notEqual(env.EXACT_BAKE_INPUTS,first,'bytes behind the inner directory link must change the revision');
+  record(messages);const changed=env.EXACT_BAKE_INPUTS;
+  for(const path of outputs)writeFileSync(resolve(path,'product'),'new output');
+  prepare();assert.equal(env.EXACT_BAKE_INPUTS,changed,'output aliases must not change the next revision');
+}));
+
+test('disappearance after metadata records a missing input and a stable revision',()=>watchFixture(({out,watched,env,messages,prepare,pkg})=>{
+  const path=resolve(watched,'vanish');
+  // A directly watched missing path must contribute a row, even without a parent watch.
+  writeFileSync(resolve(out,'../output'),`cargo:rerun-if-changed=${path}\n`);
+  writeFileSync(path,'content');prepare()(messages);
+  const script=`import {mock} from 'bun:test'; import * as fs from 'node:fs';
+    const read=fs.readFileSync, remove=fs.rmSync;
+    mock.module('node:fs',()=>({...fs,readFileSync:(path,...args)=>{if(path===${JSON.stringify(path)})remove(path);return read(path,...args);}}));
+    const {cargoBakeInputs}=await import(${JSON.stringify(resolve(import.meta.dir,'cargo-dep-info.mjs'))});
+    const env=${JSON.stringify(env)};
+    cargoBakeInputs(${JSON.stringify(pkg)},'target','dev',env)(${JSON.stringify(messages)});
+    console.log(env.EXACT_BAKE_INPUTS);
+  `;
+  const result=spawnSync(process.execPath,['-e',script],{encoding:'utf8'});
+  assert.equal(result.status,0,result.stderr);
+  assert.equal(existsSync(path),false,'the read must have raced with removal');
+  const records=resolve(env.CARGO_TARGET_DIR,'bake-inputs');
+  const record=JSON.parse(readFileSync(resolve(records,readdirSync(records)[0]),'utf8'));
+  assert.deepEqual(record.paths,[path]);
+  assert.notEqual(record.digest,createHash('sha256').digest('hex'),'a missing watch must not be silently omitted');
+  prepare();
+  assert.equal(env.EXACT_BAKE_INPUTS,result.stdout.trim(),'a second scan with the file gone must keep the recorded revision');
+}));
 
 // Real Cargo units include named game logic for the lint and absent-art receipt.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {
@@ -236,6 +448,26 @@ test('watch archives from nightly require matching bytes and the exact compiler 
     writeFileSync(dep, `${dep}: ${root}/wrong.rs\n`);
     assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('rustc unit dep-info written under another spelling of the same directory still matches', async () => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-spelled-dep-')), alias = root + '-alias';
+  try {
+    // Cargo wrote the unit through one spelling (macOS's /private/tmp); the build asks through another (/tmp).
+    symlinkSync(root, alias);
+    const out = resolve(root, 'out/release'), deps = resolve(out, 'deps');
+    mkdirSync(deps, { recursive: true });
+    const src = resolve(root, 'src/lib.rs'), artifact = resolve(out, 'libleaf.rlib');
+    writeFileSync(artifact, 'unit'); writeFileSync(resolve(deps, 'libleaf-a11ce.rlib'), 'unit');
+    const dep = resolve(deps, 'leaf-a11ce.d');
+    writeFileSync(dep, `${dep}: ${src}\n`);
+    const metadata = { target_directory: resolve(alias, 'out'), build_directory: resolve(alias, 'out') };
+    const message = { filenames: [resolve(alias, 'out/release/libleaf.rlib')], executable: null, target: { name: 'leaf', src_path: resolve(alias, 'src/lib.rs') } };
+    assert.equal(realpathSync(unitDepInfo(message, alias, metadata)), realpathSync(dep));
+    writeFileSync(dep, `${dep}: ${resolve(root, 'src/other.rs')}\n`);
+    assert.throws(() => unitDepInfo(message, alias, metadata), /no matching rustc unit dep-info for leaf; searched target directory /);
+  } finally { rmSync(alias, { force: true }); rmSync(root, { recursive: true, force: true }); }
 });
 
 test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info accepts spaces and build directory %s', async split => {

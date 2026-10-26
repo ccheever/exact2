@@ -28,7 +28,7 @@
   "app": { "id": "com.exact.markdown", "name": "Markdown", "command": "mdview" },
   "host": {
     "macos": { "minimumOS": "14.0", "window": { "width": 1000, "height": 760, "minWidth": 480, "minHeight": 360 } },
-    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"], "backgroundModes": ["audio"] },
     "web": {}
   },
   "deploy": { "store": { "web": "0", "macos": "0", "ios": "0" } }
