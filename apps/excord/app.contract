@@ -10,7 +10,7 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted from "./shapes.contract"
 use MessageRow from "./transcript.contract"
 use ServerButton, FolderButton, ChannelMark from "./servers.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
@@ -135,6 +135,8 @@ component Excord
   state composing = false
   // Files picked for the next send: their copies under app:/tmp/picked.
   state picked: Picked[] = []
+  // Why a pasted picture could not be added ("" when every one was).
+  state pasteError = ""
   state swipeKey = ""
   state swipeX = 0
   state dragging = false
@@ -213,6 +215,7 @@ component Excord
   mutation sent as shape Ack queue refreshes win, chan, categories
   mutation changed as shape Ack queue refreshes win, chan, categories, dms, guilds, rail
   mutation edited as shape Ack refreshes win then afterEdit
+  mutation pastedPictures as shape Pasted queue then takePasted
   // An ack changes the read state, not the history the window shows.
   mutation acked as shape Ack queue refreshes chan, categories, dms, guilds, rail then afterAck
   // The page the window names (`win.need`), one at a time.
@@ -408,6 +411,7 @@ component Excord
     editing = ""
     editError = ""
     picked = []
+    pasteError = ""
     highlight = ""
     away = false
     // A New divider only for what was unread on opening: what arrives while the
@@ -664,8 +668,11 @@ component Excord
   action pick(text: string)
     drafts = withDraft(drafts, open, text)
     focus("composer")
+  // A paste still being copied goes with this message: Send waits for it.
   action post
-    if draft.trim() != "" or (picked.length > 0 and editing == "")
+    if pending(pastedPictures)
+      aimed = aimed
+    else if draft.trim() != "" or (picked.length > 0 and editing == "")
       if editing != ""
         savingChannel = open
         savingId = editing
@@ -674,6 +681,7 @@ component Excord
       else
         send echoed = echoMessage(open, draft.trim(), replyTo, time.epochAtZero + performanceNow(), picked, replyMention)
         picked = []
+        pasteError = ""
         replyTo = ""
         drafts = withDraft(drafts, open, "")
         if away or anchor != ""
@@ -891,6 +899,22 @@ component Excord
   action filesPicked(files: Picked[])
     picked = picked.concat(files).slice(0, 10)
     focus("composer")
+  // Pictures pasted into the composer join the picked ones, as Discord's do; text pastes as text.
+  action pastedInto(e: ClipboardEvent)
+    if e.files.length > 0 and editing == ""
+      preventDefault()
+      pasteError = ""
+      send pastedPictures = adoptPasted(open, e.files, time.epochAtZero + performanceNow())
+  // A paste's pictures join its own channel's composer: one left while they were copied keeps none.
+  action takePasted
+    match pastedPictures
+      case some(r)
+        if r.channel == open
+          let over = picked.length + r.files.length > 10
+          picked = picked.concat(r.files).slice(0, 10)
+          pasteError = over ? (r.error != "" ? `A message takes up to 10 pictures; ${r.error}` : "A message takes up to 10 pictures.") : r.error
+      case none
+        aimed = aimed
   action unpick(path: string)
     picked = picked.filter(p => p.path != path)
   action composerFocus(on: bool)
@@ -1229,6 +1253,8 @@ component Excord
                     if editError != ""
                       text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" testId="edit-error"
                   // One line of text is as tall as Send beside it, so the text sits at its middle.
+                  if pasteError != ""
+                    text pasteError font="-exact-footnote" color="-exact-system-red" margin="0px 4px 6px" testId="paste-error"
                   if picked.length > 0
                     scroll overflow-x="auto" overflow-y="hidden" height=88 flex-shrink=0 margin="0px 0px 6px" testId="picked"
                       row gap=8 padding="6px 2px"
@@ -1260,7 +1286,7 @@ component Excord
                     // bottom as the field grows.
                     row flex=1 min-width=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
                       focusin=composerFocus(true) focusout=composerFocus(false)
-                      textarea id="composer" value=draft input=edit selectionchange=caretMoved key=keyed rows=1 field-sizing="content" max-height="9rem"
+                      textarea id="composer" value=draft input=edit selectionchange=caretMoved paste=pastedInto key=keyed rows=1 field-sizing="content" max-height="9rem"
                         placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
                         line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
                       // Discord's emoji button: dim until the pointer is over it.
@@ -1268,7 +1294,7 @@ component Excord
                         :hover
                           opacity = 1
                         text "🙂" font-size=20 line-height="24px"
-                      button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
+                      button press=post disabled=((draft.trim() == "" and picked.length == 0) or pending(pastedPictures)) buttonStyle="filled"
                         retainFocus=true aria-label="Send" testId="send" align-self="flex-end"
                         image "symbol:send"
               if membersBeside
