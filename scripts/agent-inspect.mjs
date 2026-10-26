@@ -579,13 +579,18 @@ function renderPerf(r) {
   if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.streamTiming) return renderStreamTiming(r.streamTiming);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
-  if (r.unavailable) return 'this host observes no presented frames';
+  if (r.unavailable) return `this host observes no presented frames${r.reason ? `: ${r.reason}` : ''}`;
   if (r.unmeasured) return `frames not measured: ${r.unmeasured}`;
   if (r.lifetime) {
     const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
     const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed}${r.lifetime.overruns != null ? ` · overruns ${r.lifetime.overruns}` : ''} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
       `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
-    if (r.live) out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to}`);
+    if (r.live) {
+      const o = r.live.observation;
+      out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to} · ${r.live.clockMode ?? 'unspecified'} clock · execution ${r.live.execution ?? 'unspecified'}${r.live.performanceClaim === false ? ' · does not qualify ordinary app performance' : ''}`);
+      if (o) out.push(`observation: ${o.samples} callbacks, ${o.dropped} dropped · ${o.proxy}`);
+      if (r.live.substitutions?.length) out.push(`execution substitutions: ${r.live.substitutions.join('; ')}`);
+    }
     for (const w of r.world ?? []) {
       const g = n => n == null ? '—' : `${Math.round(n * 100) / 100} ms`, ms = x => x ? `p50 ${g(x.p50)} p95 ${g(x.p95)} p99 ${g(x.p99)} mean ${g(x.mean)}` : '—';
       out.push(`  world ${w.canvas}: frame ${ms(w.perf.frameMs)} · tick ${ms(w.perf.tickMs)} · feed ${ms(w.perf.feedMs)} · encode ${ms(w.perf.encodeMs)}`);

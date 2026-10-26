@@ -452,7 +452,12 @@ class Collection {
     w.setAttribute("data-listitemkey", key);
     const m = { key, position: p, wrapper: w, item: sig(this.items[p]), index: sig(p), published: [-1, -1], inner: [], list: this };
     // The row's scope names its row, for a list inside it (at any time).
-    const build = () => scope(() => { owner().$row = m; this.o.row(w, m.item, m.index); }, this.own);
+    const build = () => scope(() => {
+      owner().$row = m;
+      globalThis.exact?.rowWork?.(this.el, "rowConstructed");
+      onEnd(() => globalThis.exact?.rowWork?.(this.el, "rowRetired"));
+      this.o.row(w, m.item, m.index);
+    }, this.own);
     m.s = served ? adoptRow(w, build) : unadopted(build);
     m.view = viewId(w); w.dataset.view = m.view;
     m.root = w.firstElementChild ? viewId(w.firstElementChild) : m.view;

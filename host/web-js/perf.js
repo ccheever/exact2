@@ -12,6 +12,7 @@ import { sourceTypes } from "./names.js";
 import { watch } from "./seam.js";
 
 const Sites = [];
+let Since = null;
 const at = site => Sites[site] ??= { created: 0, retired: 0, evaluated: 0, unchanged: 0, authored: 0 };
 
 /** A binding's expression, counted. One expression can feed several
@@ -83,6 +84,13 @@ export function install(root) {
   if (Observer) return;
   for (const el of sited(root)) created(el);
   Observer = new MutationObserver(records => count(records, false));
+  Since = clock.now;
+  globalThis.exact.rowWork = (el, counter) => {
+    const site = siteOf(el);
+    if (site === null) return;
+    const w = at(site);
+    w[counter] = (w[counter] ?? 0) + 1;
+  };
   Observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
   Before.push(() => take(false));
   After.push(() => take(true));
@@ -116,7 +124,7 @@ export function reply(target, tags) {
     // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.3).
     return { site, instances: live.get(site), live: w.created - w.retired, ...w, ...(globalThis.exact?.hatchPerf?.site(site) ?? {}) };
   });
-  return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, walked, truncated };
+  return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, walked, truncated, work: {scope:"session", since:Since, timebase:"runner-clock-ms", counts:{}, coverage:"virtual row operations by collection site; browser layout and inherited work are unavailable"} };
 }
 
 /** A development page's data answers, watched from before the app starts

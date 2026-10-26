@@ -1237,6 +1237,7 @@ impl NodeInst {
     fn destroy(self, u: &mut Update<'_>) {
         // Destroying the view destroys its subtree in the kernel; the instance
         // tree just drops.
+        collection::work::retire_node(u, &self);
         u.ops.push(Op::DestroyView { id: self.view });
     }
 }
