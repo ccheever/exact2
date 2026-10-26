@@ -144,20 +144,25 @@ export function heldLine(server) {
   return `${server.url} already answers${pid ? ` (pid ${pid}${command ? `: ${command}` : ''})` : ''}, and the tests would ${server.database ? "write into that server's database" : 'change that server\'s state'}: stop it (${pid ? `kill ${pid}` : 'Ctrl-C where it runs'}) and run this again, which starts ${server.entry} itself${server.database ? ' on an empty one' : ''}`;
 }
 
-/** Reuse a fixture only with this directory's launch record and the recorded process still listening. */
-function ownsFixture(dir, server) {
+/** A managed server needs this directory's launch record and the recorded process still listening. */
+function ownsServer(dir, server, expectedPid, child = null) {
   const listeners = process.platform === 'win32'
     ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-NetTCPConnection -State Listen -LocalPort ${server.port} -ErrorAction SilentlyContinue).OwningProcess`], { encoding: 'utf8' }).stdout?.match(/\d+/g) ?? []
     : [...(spawnSync('lsof', ['-nP', `-iTCP:${server.port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' }).stdout?.matchAll(/^p(\d+)/gm) ?? [])].map(m => m[1]);
   const root = realpathSync(dir), lease = resolve(dir, '.exact/agent-server');
   for (const pid of listeners) {
+    if (expectedPid !== undefined && Number(pid) !== expectedPid) continue;
     let record; try { record = JSON.parse(readFileSync(resolve(lease, `server-${pid}`), 'utf8')); } catch { continue; }
-    if (record.directory !== root || record.origin !== server.url || !alive(Number(pid))) continue;
+    if (!record || record.directory !== root || record.origin !== server.url || !alive(Number(pid))) continue;
     const command = commandLine(pid);
     if (!command.includes(server.entry)) continue;
-    if (process.platform === 'win32') return true;
+    // CIM exposes no cwd. A copied record cannot vouch for one; only this invocation's child can.
+    if (process.platform === 'win32') {
+      if (child?.pid === Number(pid) && child.exitCode == null) return true;
+      continue;
+    }
     const cwd = spawnSync('lsof', ['-a', '-p', pid, '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout?.match(/^n(.+)$/m)?.[1];
-    if (cwd && realpathSync(cwd) === root) return true;
+    try { if (cwd && realpathSync(cwd) === root) return true; } catch { /* The process or its directory disappeared. */ }
   }
   return false;
 }
@@ -241,17 +246,23 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
   const lease = resolve(dir, '.exact/agent-server'), mine = resolve(lease, `drive-${process.pid}`), starting = resolve(lease, 'starting');
   const db = !server.database ? null : storage ? resolve(dir, '.exact/agent', storage.replace(/[^\w.-]+/g, '-'), 'db.sqlite') : resolve(lease, 'db.sqlite');
   const files = (kind) => { try { return readdirSync(lease).filter((f) => f.startsWith(`${kind}-`)).map((f) => [resolve(lease, f), Number(f.slice(kind.length + 1))]); } catch { return []; } };
+  let spawned = null;
   mkdirSync(lease, { recursive: true });
   writeFileSync(mine, '');
-  // This drive is out: the servers to end when it was the last one, their files removed.
+  // A refused drive may have found a copied record. Ending it must not lend that record authority to stop a process.
   const leave = () => {
     rmSync(mine, { force: true });
     for (const [file, pid] of files('drive')) if (!alive(pid)) rmSync(file, { force: true });
     if (files('drive').length) return null;
-    return files('server').map(([file, pid]) => { rmSync(file, { force: true }); return pid; })
-      .filter((pid) => alive(pid) && commandLine(pid).includes(server.entry));
+    return files('server').flatMap(([file, pid]) => {
+      const ours = spawned?.pid === pid && spawned.exitCode == null || ownsServer(dir, server, pid);
+      if (!ours && alive(pid)) return [];
+      rmSync(file, { force: true });
+      return ours ? [pid] : [];
+    });
   };
   const clean = () => {
+    if (files('server').length) return;
     if (db) rmSync(lease, { recursive: true, force: true });
     else { rmSync(resolve(lease, 'log'), { force: true }); try { rmdirSync(lease); } catch {} }
   };
@@ -281,11 +292,11 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
       throw new Error(`agent: --storage ${storage} is to start empty, but ${others.length ? `another drive (pid ${others.join(', ')}) is using` : 'something already answers at'} ${server.url}, the app server${db ? ', on its database' : ''}: let it end, or name another store`);
     }
     if (await answering(server.url)) {
-      if (server.fixture && !ownsFixture(dir, server)) {
+      if (server.fixture && !ownsServer(dir, server)) {
         await stop();
         throw new Error(`agent: ${server.url} answers, but its fixture does not belong to ${realpathSync(dir)}; use --backend http://127.0.0.1:<free-port> or PORT=<free-port> for this checkout`);
       }
-      const other = db && files('server').map(([file]) => { const text = readIn(lease, file); return server.fixture ? JSON.parse(text).db : text; }).find((was) => was && was !== db);
+      const other = db && files('server').map(([file]) => { try { return JSON.parse(readIn(lease, file)).db; } catch { return null; } }).find((was) => was && was !== db);
       if (other) say(`agent: ${server.entry} at ${server.url} is another drive's, on its database (${relative(dir, other)}); this drive uses it`);
       return { stop };
     }
@@ -293,11 +304,12 @@ export async function driveServer(dir, storage, say = (line) => console.error(li
     if (db && (!storage || fresh)) for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true });
     const log = openSync(resolve(lease, 'log'), 'a');
     const child = Bun.spawn([process.execPath, server.entry, ...server.args], { cwd: dir, env: serverEnv(server, db), stdin: 'ignore', stdout: 'ignore', stderr: log });
+    spawned = child;
     closeSync(log);
-    writeFileSync(resolve(lease, `server-${child.pid}`), server.fixture ? JSON.stringify({ directory: realpathSync(dir), origin: server.url, db }) : db ?? '');
+    writeFileSync(resolve(lease, `server-${child.pid}`), JSON.stringify({ directory: realpathSync(dir), origin: server.url, db }));
     const why = await untilAnswers(server, child, () => lastError(readIn(lease, 'log') ?? ''));
     if (why) { await stop(); throw new Error(`agent: ${why}`); }
-    if (server.fixture && !ownsFixture(dir, server)) {
+    if (server.fixture && !ownsServer(dir, server, child.pid, child)) {
       await stop();
       throw new Error(`agent: ${server.url} answered before this checkout's fixture owned its port; choose another port with --backend or PORT`);
     }
