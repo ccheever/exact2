@@ -161,8 +161,7 @@ component Excord
   mutation translation as shape TranslatorResult then landTranslation
   mutation detectorMade as shape LanguageDetectorInfo then rereadLanguage
   derive canTranslate = lang.detector == "downloadable" or (lang.language != "" and lang.language != myLanguage and pair.availability != "unavailable")
-  derive failed = match failure(translator) { case some(f) => f.code, case none => match failure(translation) { case some(f) => f.code, case none => "" } }
-  derive pendingLine = translating == "" ? "" : pendingLineOf(failed, translatingFrom, pair)
+  derive pendingLine = translating == "" ? "" : pendingLineOf(match failure(translator) { case some(f) => f.code, case none => match failure(translation) { case some(f) => f.code, case none => "" } }, translatingFrom, pair)
   derive translations = pendingLine == "" ? translated : withTranslated(translated, Translated(id=translating, text="", line=pendingLine))
   resource viewport = exactViewport() as shape Viewport
   // The gateway opens once the kept credentials are read, which only `session` reads, so
