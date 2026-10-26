@@ -1220,20 +1220,6 @@ impl<D: DataSource> Runner<D> {
         &mut self.kernel
     }
 
-    /// Same immutable plan as a targeted node read. No work until an inspector
-    /// requests identity; a replacement runner owns a fresh cache.
-    pub fn inspection_digest(&self) -> &str {
-        self.inspection_digest.get_or_init(|| {
-            use sha2::{Digest, Sha256};
-            use std::fmt::Write;
-            let mut out = String::with_capacity(64);
-            for byte in Sha256::digest(self.plan.encode()) {
-                write!(out, "{byte:02x}").unwrap();
-            }
-            out
-        })
-    }
-
     /// The data source.
     pub fn data(&mut self) -> &mut D {
         &mut self.data
