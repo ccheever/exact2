@@ -123,6 +123,10 @@ final class ResetGateTests: XCTestCase {
         let (session, plan) = try boot()
         try edit(session, try id(session, "field"))
         until("the timer runs: \((try? words(session)) ?? [])") { (try? ticks(session)) ?? 0 > 2 }
+        let toggle = try id(session, "switch")
+        func measured() -> CGSize { session.presenter.views[toggle]?.frame.size ?? .zero }
+        until("the switch is laid out at its own measure") { measured().width > 0 && measured().height > 0 }
+        let natural = measured()
         var seen: [ResetGate.Seen] = []
         ResetGate.spy = { seen.append($0) }
         XCTAssertTrue(session.apply(plan, label: "generation"))
@@ -141,6 +145,8 @@ final class ResetGateTests: XCTestCase {
         }
         XCTAssertEqual(session.runtime.heldCalls, [], "nothing left held")
         XCTAssertFalse(session.runtime.held)
+        // The old switch's intrinsics are dropped; the new one measures and reports its own, not 0 and not stale.
+        until("the new tree's switch is laid out at its own measure: \(measured()) vs \(natural)") { measured() == natural }
         let after = try ticks(session)
         until("the timer due over the reset fires after it") { (try? ticks(session)) ?? 0 > after }
         let saved = try words(session).filter { $0.hasPrefix("Saved") }

@@ -19,6 +19,14 @@ import ExactCore
 
 enum ResetGate {
     /// What a replay does, in the order replays run.
+    /// Each replay re-reads the host's state as it is once the new tree is in, never a held call's arguments (which
+    /// name the old tree's views, and are discarded): `fit` the view's bounds, safe area and keyboard now;
+    /// `activation` the pending activation, only if its generation is the current one; `advance` the runtime's own
+    /// deadline; `covers` the live navigation's bars (the old tree's cleared covers never reach the new runtime);
+    /// `page` the window, root font, zoom and scale now; `collections` the live lists' rows; `modules` the events
+    /// still queued (a held delivery never took them), once this generation's data is up; `pump` what the network
+    /// owes now. Work asked while the runtime is held whose host side has effects of its own waits too, rather
+    /// than run half: a fit, AppKit's insets, the data activation, module delivery, the iOS native geometry pump.
     enum Replay: Int, CaseIterable {
         case fit, activation, advance, covers, page, collections, modules, pump
     }
