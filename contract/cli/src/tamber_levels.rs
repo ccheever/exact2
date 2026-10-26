@@ -40,6 +40,9 @@ pub struct Designs<'a> {
     /// Each role's row spelling (`AccentColor`, `-exact-secondary-label`),
     /// as the checker keys a role.
     pub roles: Vec<String>,
+    /// Each param's first `params` line in the app's design, by token, its
+    /// index there: found once ([`Designs::set`]).
+    pub lines: std::cell::OnceCell<std::collections::HashMap<String, usize>>,
 }
 
 impl<'a> Designs<'a> {
@@ -51,6 +54,7 @@ impl<'a> Designs<'a> {
         vocab: &exact_tamber::Vocab,
     ) -> Designs<'a> {
         Designs {
+            lines: std::cell::OnceCell::new(),
             file,
             app: text.and_then(|t| exact_tamber::parse(t).ok()),
             packages: app
@@ -78,6 +82,7 @@ impl<'a> Designs<'a> {
         vocab: &exact_tamber::Vocab,
     ) -> Designs<'a> {
         Designs {
+            lines: std::cell::OnceCell::new(),
             app: design,
             ..Designs::read(file, None, app, vocab)
         }
@@ -90,11 +95,19 @@ impl<'a> Designs<'a> {
     /// The app's `params` line that sets `p`, by its full name or its short
     /// one where that names it alone.
     pub fn set(&self, p: &ParamToken) -> Option<&exact_tamber::Token> {
-        let a = self.app_params;
-        self.app.as_ref()?.params.iter().find(|e| {
-            params::resolve(&a.tokens, &a.identities, &e.name.value)
-                .is_ok_and(|q| q.token == p.token)
-        })
+        let app = self.app.as_ref()?;
+        let lines = self.lines.get_or_init(|| {
+            let a = self.app_params;
+            let resolver = params::Resolver::new(&a.tokens, &a.identities);
+            let mut out = std::collections::HashMap::new();
+            for (i, e) in app.params.iter().enumerate() {
+                if let Ok(q) = resolver.resolve(&e.name.value) {
+                    out.entry(q.token.clone()).or_insert(i);
+                }
+            }
+            out
+        });
+        lines.get(&p.token).map(|&i| &app.params[i])
     }
 
     /// The role `key` names, by its row spelling, as the checker's

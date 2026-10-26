@@ -1066,18 +1066,24 @@ impl<'a> Checker<'a> {
             self.refs[i].iter().for_each(|&j| named_by[j].push(i));
             self.reads[i].iter().for_each(|&d| readers[d].push(i));
         }
+        // (each dial's visit marked by its number, so nothing is cleared per
+        // dial: round 1 of the counts' review)
+        let mut moving = vec![usize::MAX; n];
         for (d, dial) in design.dials.iter().enumerate() {
-            let mut moving = vec![false; n];
             #[cfg(test)]
             let readers = &influence_tests::every_token(&readers, n);
             let mut todo = readers[d].clone();
             let mut reach = Vec::new();
             while let Some(i) = todo.pop() {
-                if !std::mem::replace(&mut moving[i], true) {
+                if std::mem::replace(&mut moving[i], d) != d {
                     reach.push(i);
                     todo.extend(&named_by[i]);
                 }
             }
+            // Refolded in the design's order, as every token was: a token's
+            // names folded before it (Astra's round 1: a chain read from its
+            // far end passed the depth bound).
+            reach.sort_unstable();
             let Some((_, value)) = self.dials.get(dial.name.value.as_str()).cloned() else {
                 continue;
             };

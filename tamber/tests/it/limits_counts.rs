@@ -64,3 +64,59 @@ fn many_dials_probe_only_what_they_move() {
     let t = folded.tokens.iter().find(|t| t.name == "t2001").unwrap();
     assert_eq!(t.dials, ["d1"]);
 }
+
+/// A dial's dependents are refolded in the design's order, a token's names
+/// before it, as every token was: a 512-token chain the dial reads at both
+/// ends still moves with it (Astra's round 1: refolded from its far end the
+/// chain passed the depth bound and the dial read as inert).
+#[test]
+fn a_long_chain_a_dial_reads_at_both_ends_still_moves_with_it() {
+    let mut src = String::from("tamber t\n\ndials\n  d: number = 0.1  in 0..1\n\ntheme\n  ink = #111111\n  t0: number = d\n");
+    for k in 1..511 {
+        src += &format!("  t{k}: number = t{}\n", k - 1);
+    }
+    src += "  t511: number = calc(t510 + d)\n";
+    let folded = exact_tamber::check(&src, &crate::common::vocab());
+    let folded = folded.unwrap_or_else(|e| panic!("{:?}", &e[..e.len().min(2)]));
+    let t = folded.tokens.iter().find(|t| t.name == "t511").unwrap();
+    assert_eq!(t.dials, ["d"]);
+}
+
+/// An ordinary re-import of a shared dial's change (every token reading it
+/// changed alike) is not refused for the budget: only a batch's rounds past
+/// its first are charged (Astra's round 1: a trial per token spent it).
+#[test]
+fn a_shared_dials_change_reimports_within_the_budget() {
+    let mut src =
+        String::from("tamber t\n\ndials\n  c: color = #000000\n\ntheme\n  ink = #111111\n");
+    for k in 0..1000 {
+        src += &format!("  surface.component{k} = c\n");
+    }
+    let vocab = crate::common::vocab();
+    let folded = exact_tamber::check(&src, &vocab).unwrap();
+    let export = exact_tamber::export::dtcg(&folded, &vocab).unwrap();
+    // Every value that was the dial's black, white now.
+    fn whiten(v: &mut serde_json::Value) {
+        match v {
+            serde_json::Value::Object(o) => {
+                if o.get("hex").and_then(|h| h.as_str()) == Some("#000000") {
+                    o.insert("hex".into(), serde_json::json!("#ffffff"));
+                    o.insert("components".into(), serde_json::json!([1.0, 1.0, 1.0]));
+                }
+                o.values_mut().for_each(whiten);
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(whiten),
+            _ => {}
+        }
+    }
+    let mut doc: serde_json::Value = serde_json::from_str(&export).unwrap();
+    whiten(&mut doc);
+    let edited = doc.to_string();
+    let import = exact_tamber::export::reimport_against(&edited, Some(&export), &[], &src, &vocab);
+    let import = import.unwrap_or_else(|d| panic!("{:?}", &d[..d.len().min(2)]));
+    assert!(
+        !import.ops.is_empty() || !import.dials.is_empty(),
+        "{:?}",
+        &import.unmapped[..import.unmapped.len().min(2)]
+    );
+}

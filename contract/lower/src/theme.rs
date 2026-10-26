@@ -294,8 +294,9 @@ impl Lowerer<'_> {
         let identities = crate::params::identities(file);
         let mut overridden: Vec<(String, Span)> = Vec::new();
         let mut seen = std::collections::HashSet::new();
+        let resolver = crate::params::Resolver::new(&kinded, &identities);
         for entry in &design.params {
-            if let Ok(p) = crate::params::resolve(&kinded, &identities, &entry.name.value) {
+            if let Ok(p) = resolver.resolve(&entry.name.value) {
                 if seen.insert(p.token.clone()) {
                     let span = self.token_span(&origin, entry.name.line, entry.name.col);
                     overridden.push((p.token.clone(), span));
