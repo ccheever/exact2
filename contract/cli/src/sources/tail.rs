@@ -30,15 +30,16 @@ impl GraphBase {
     /// motion token reads (a colour) leaves it as it was.
     pub fn design_facts(&self) -> String {
         let root = self.root_key.as_path();
-        let Some(path) = design_path(root) else {
-            return "no design\n".to_string();
-        };
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            return "design unreadable\n".to_string();
-        };
-        // (One that can't be read, a link out of its package with the same bytes, fails the load: said, as the load fails.)
+        // (A package design that can't be read, a link out of its package with the same bytes, fails the load,
+        // design or none: said first, in every case.)
         let read = packages::read(&self.sources, false);
         let unread = read.as_ref().err().map(|e| format!("{e:?}"));
+        let Some(path) = design_path(root) else {
+            return format!("no design\npackages unread {unread:?}\n");
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return format!("design unreadable\npackages unread {unread:?}\n");
+        };
         let package_designs: Vec<_> = read
             .unwrap_or_default()
             .into_iter()

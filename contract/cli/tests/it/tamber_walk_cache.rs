@@ -339,3 +339,29 @@ fn an_app_design_that_is_a_packages_design_keys_the_params_by_its_text() {
     );
     assert!(lines.iter().any(|l| l == "params loaded"), "{lines:?}");
 }
+
+/// Round 2's case (Astra): with no app design, a package's design replaced by a link out of its package with the same
+/// bytes fails the load (unreadable) where it loaded: the params load again, never kept, checked cold.
+#[test]
+fn a_package_design_linked_out_with_the_same_bytes_and_no_app_design_loads_the_params_again() {
+    let dir = setup("walk-linked");
+    let (mut s, log) = start(&dir);
+    s.ask(json!({"method": "hello", "paths": true}));
+    s.ask(json!({"method": "describe"}));
+    // The app's design gone while the server runs (it starts only with one).
+    std::fs::remove_file(dir.join("app.tamber")).unwrap();
+    assert_eq!(gone(&mut s, &log), ["walk designs"]);
+    s.ask(json!({"method": "describe"}));
+    let package = dir.join("node_modules/@acme/reading/reading.tamber");
+    let outside = dir.join("outside.tamber");
+    std::fs::copy(&package, &outside).unwrap();
+    std::fs::remove_file(&package).unwrap();
+    std::os::unix::fs::symlink(&outside, &package).unwrap();
+    let from = since(&log, 0).len();
+    let (hello, _) = s.ask(json!({"method": "hello", "paths": true}));
+    assert!(hello.get("ok").is_some(), "{hello}");
+    let (described, _) = s.ask(json!({"method": "describe"}));
+    assert_ne!(described, Value::Null, "describe answered");
+    let lines = since(&log, from);
+    assert!(lines.iter().any(|l| l == "params loaded"), "{lines:?}");
+}
