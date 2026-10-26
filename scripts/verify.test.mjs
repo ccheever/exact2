@@ -637,6 +637,21 @@ process.exit(0);`;
     // A matching command and cwd are insufficient without the launch record.
     const lease = resolve(fixtures[0], '.exact/agent-server');
     const record = readdirSync(lease).find(f => /^server-\d+$/.test(f)), path = resolve(lease, record), held = readFileSync(path, 'utf8');
+    await b.stop();
+    const foreignLease = resolve(fixtures[1], '.exact/agent-server');
+    mkdirSync(foreignLease, { recursive: true });
+    const copied = resolve(foreignLease, record);
+    const { realpathSync } = await import('node:fs');
+    for (const text of [held, JSON.stringify({ ...JSON.parse(held), directory: realpathSync(fixtures[1]), origin: a.origin }), 'null']) {
+      writeFileSync(copied, text);
+      try {
+        const refused = await drive(fixtures[1], { EXACT_BACKEND_ORIGIN: a.origin });
+        assert.match(refused.error, /fixture does not belong/);
+        await refused.child.exited;
+        assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0], 'refusal cleanup leaves the foreign server running');
+        assert.equal(readFileSync(copied, 'utf8'), text, 'an unowned live process record is left alone');
+      } finally { rmSync(copied, { force: true }); }
+    }
     rmSync(path);
     try {
       const unknown = await drive(fixtures[0]);
@@ -648,7 +663,7 @@ process.exit(0);`;
     assert.equal(shared.origin, a.origin);
     await a.stop();
     assert.equal((await fetch(shared.origin).then(r => r.json())).world, fixtures[0]);
-    await Promise.all([shared.stop(), b.stop()]);
+    await shared.stop();
   } finally {
     for (const child of running) { if (child.exitCode == null) child.kill('SIGTERM'); await child.exited; }
     rmSync(parent, { recursive: true, force: true });
