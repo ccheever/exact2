@@ -588,6 +588,8 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        resetting = true // (from its first teardown: a view it removes may end an edit)
+        defer { resetting = false }
         MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
         cancelPageElementScroll(viewport.contentView)
@@ -610,8 +612,6 @@ package final class Presenter {
         tables.reset()
         leaves.reset()
         autofocusProcessed.removeAll()
-        resetting = true
-        defer { resetting = false }
         menus.reset()
         dialogs.reset()
         toolbar.reset() // its header's cover goes with `covers.reset()` below, untold
@@ -929,7 +929,8 @@ package final class Presenter {
     var devPill: PlatformView?
     /// Painted popovers' measures in their regions this batch (`placePainted`).
     var regionMeasures = PositionArea.MeasureCache()
-    private var resetting = false
+    /// In `reset`, from its first teardown (FocusEvents keeps the focus it last reported: ResetGate).
+    private(set) var resetting = false
     private var pendingGeometry: (() -> Void)?
 
     /// Window chrome can synchronously resize ExactView while an older batch

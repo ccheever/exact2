@@ -290,6 +290,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        resetting = true; defer { resetting = false }
         MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
         focusEvents.reset()
@@ -690,6 +691,9 @@ package final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
     /// What native containers cover of boxes (LLP 1075.003 §3.5).
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// In `reset`: host state its views would move with no runtime to tell stays as it was (FocusEvents' focus,
+    /// OwnersIOS' blocks, ExactView `fit`'s geometry; ResetGate).
+    private(set) var resetting = false
     /// Work for after the batch being applied, or now: a hatch's act on an
     /// authored element never lands inside a batch (LLP 1075.003 §3.4).
     package func afterBatch(_ work: @escaping () -> Void) { if applying { waiting.append((nil, work)) } else { work() } }
