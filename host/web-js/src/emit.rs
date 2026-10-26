@@ -1105,10 +1105,7 @@ impl Em<'_> {
             self.out,
             "const {e}={h}({parent},\"{element}\",{class},{attrs_js},{text});"
         );
-        if !presence.is_empty() {
-            let pr = self.uses.rt("pr");
-            let _ = write!(self.out, "{pr}({e});");
-        }
+        self.presence(i, &e, &presence);
         self.element_extras(&parts.tag, &e, &attrs, &parts.props);
         // Its surface's inputs, named or positional (LLP 1009 D2).
         if let Some(sf) = row.surface {

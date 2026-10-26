@@ -1,10 +1,13 @@
 // The production presence controller under Chrome's layout and animation
 // clocks, including the host's resize entry and child reconciliation.
 import { beforeAll, afterAll, test, expect } from 'bun:test';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
-import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
+import { tmpdir } from 'node:os';
+import { resolve, sep } from 'node:path';
+import { cdpBrowser, chromium, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
@@ -91,8 +94,6 @@ beforeAll(async () => {
     // `/js/` is the JS target's directory, beside this one; its modules import ours as `../web/`.
     const path = req.url.startsWith('/js/') ? req.url.slice(4) : req.url.replace(/^\/(web\/)?/, '');
     const js = resolve(WEB, '../web-js', path);
-    // names.js is a build's output (the plan's names), which rt.js reaches through perf.js since db825de7b.
-    if (req.url === '/js/names.js') { res.end('export const sourceTypes = {};'); return; }
     res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path)));
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
@@ -438,4 +439,370 @@ check('JS commits keep ghost containment and restore the latest paint decision a
     expect(await evaluate('jsHolder.style.isolation')).toBe(required ? 'isolate' : '');
     await evaluate('jsIsolation(false); jsShown(true)');
   }
+});
+
+// This is the normal compiler, TypeScript data module, emitter, bundler and
+// browser path. The literal control takes that same path first, so a build or
+// data-fixture refusal cannot be mistaken for the bound-row refusal of #809.
+const motionSource = row => [
+  'shape Preferences',
+  '  reducedMotion: bool',
+  '  reads: number',
+  '  writes: number',
+  'component App',
+  '  state curve = "none"',
+  '  state offset = 0',
+  '  state tall = false',
+  '  state shown = true',
+  '  resource prefs = preference() as shape Preferences else empty()',
+  '  mutation prefsChanged as shape Preferences refreshes prefs',
+  '  action enable',
+  '    curve = "1000ms linear"',
+  '    offset = 100',
+  '  action grow',
+  '    tall = true',
+  '  action shift',
+  '    offset = 200',
+  '  action disable',
+  '    curve = "none"',
+  '    tall = false',
+  '    offset = 300',
+  '  action clear',
+  '    curve = "unset"',
+  '    offset = 450',
+  '  action reenable',
+  '    curve = "1000ms linear"',
+  '    offset = 400',
+  '  action reduce',
+  '    offset = 500',
+  '    send prefsChanged = setPreference(true)',
+  '  action restoreMotion',
+  '    offset = 600',
+  '    send prefsChanged = setPreference(false)',
+  '  action retire',
+  '    shown = false',
+  '    curve = "1000ms linear"',
+  '    offset = 800',
+  '  action restoreChild',
+  '    shown = true',
+  '    offset = 700',
+  '  view',
+  '    column position="relative" width=700 height=900',
+  '      column position="absolute" left=200 top=0',
+  ...['enable', 'grow', 'shift', 'disable', 'clear', 'reenable', 'reduce', 'restoreMotion', 'retire', 'restoreChild']
+    .map(action => `        button "${action}" testId="${action}" press=${action}`),
+  '        text `${prefs.reads}/${prefs.writes}` testId="counts"',
+  '      if shown',
+  `        column id="moving-card" testId="moving-card" position="absolute" left=20 top=(prefs.reducedMotion ? offset + 50 : offset) width=100 height=(tall ? 140 : 40) background-color="red" overflow="hidden" -exact-layout-transition=${row}`,
+  '          text "Content" font-size=14',
+  '',
+].join('\n');
+const motionData = `import type { Answer, Sources } from './app.contract.d.ts';
+export const appId = 'test.dynamic-layout', grants = '';
+let reducedMotion = false, reads = 0, writes = 0;
+const sources: Sources = {
+  preference: () => ({ reducedMotion, reads: ++reads, writes }),
+  setPreference: async ([value]) => { reducedMotion = value; writes++; return { reducedMotion, reads, writes }; },
+};
+export const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;
+`;
+
+async function buildMotionApp(dir, row) {
+  writeFileSync(resolve(dir, 'app.contract'), motionSource(row));
+  writeFileSync(resolve(dir, 'app.ts'), motionData);
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Dynamic layout', app: { id: 'test.dynamic-layout', name: 'Dynamic layout' }, host: { web: {} } }));
+  const dist = resolve(dir, 'dist');
+  const built = await new Promise((done, fail) => {
+    const child = spawn(process.execPath, ['host/web-js/build.mjs', 'dynamic-layout', '--out', dist, '--render', 'none'],
+      { cwd: resolve(WEB, '../..'), env: { ...process.env, EXACT_APP_DIR: dir }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Inherit the test supervisor's group, including any compiler descendants:
+    // its outer deadline can clean the whole group rather than only this Bun.
+    console.info(JSON.stringify({ phase: 'presence-build-start', pid: child.pid, row }));
+    let log = '', timedOut = false, kill;
+    const signal = name => child.kill(name);
+    const timeout = setTimeout(() => { timedOut = true; signal('SIGTERM'); kill = setTimeout(() => signal('SIGKILL'), 5000); }, 30000);
+    child.stdout.on('data', chunk => { log += chunk; });
+    child.stderr.on('data', chunk => { log += chunk; });
+    child.on('error', error => { clearTimeout(timeout); clearTimeout(kill); fail(error); });
+    child.on('close', (code, signal) => {
+      clearTimeout(timeout); clearTimeout(kill);
+      console.info(JSON.stringify({ phase: 'presence-build-end', pid: child.pid, code, signal, timedOut, log }));
+      done({ code, signal, timedOut, pid: child.pid, log });
+    });
+  });
+  expect({ timedOut: built.timedOut, signal: built.signal }, `infrastructure: builder completion ${JSON.stringify(built)}`)
+    .toEqual({ timedOut: false, signal: null });
+  if (built.code === 0) {
+    const scan = new Bun.Transpiler({ loader: 'js' }), modules = {};
+    for (const file of readdirSync(dist).filter(name => name.endsWith('.js'))) {
+      const bytes = readFileSync(resolve(dist, file));
+      modules[file] = { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), imports: scan.scanImports(bytes.toString()) };
+    }
+    const statics = new Set(), late = new Set();
+    const visit = file => {
+      if (statics.has(file)) return;
+      statics.add(file);
+      for (const item of modules[file]?.imports ?? []) {
+        const target = item.path.replace(/^\.\//, '');
+        if (item.kind === 'import-statement' && modules[target]) visit(target);
+        if (item.kind === 'dynamic-import') late.add(target);
+      }
+    };
+    visit('app.js');
+    console.info(JSON.stringify({ phase: 'presence-emitted-graph', row, source: createHash('sha256').update(motionSource(row) + motionData).digest('hex'), modules, staticClosure: [...statics], late: [...late] }));
+    for (const piece of ['shared', 'presence-glue']) {
+      expect([...late].some(file => file.startsWith(piece + '-') || file === piece + '.js'), `the emitted ${piece} piece stays a dynamic import`).toBe(true);
+      expect([...statics].some(file => file.startsWith(piece + '-') || file === piece + '.js'), `the emitted ${piece} piece is outside the static entry closure`).toBe(false);
+    }
+  }
+  return { ...built, dist };
+}
+
+async function builtMotionPage(browser, dist) {
+  const served = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
+    const path = new URL(request.url).pathname, file = resolve(dist, path === '/' ? 'index.html' : decodeURIComponent(path.slice(1)));
+    return file.startsWith(dist + sep) && existsSync(file) ? new Response(Bun.file(file)) : new Response('not found', { status: 404 });
+  } });
+  const context = await browser.newContext(), p = await context.newPage(), errors = [];
+  p.on('pageerror', error => errors.push(String(error)));
+  try {
+    await p.goto(`${served.url.href}?agent`);
+    await p.waitForFunction(() => globalThis.exact?.ready && document.querySelector('[data-testid="counts"]'));
+    const ready = await p.evaluate(async () => { await exact.ready; return exact.agentSettled({ op: 'clock', data: true }); });
+    expect(ready.settled, `ordinary data readiness: ${JSON.stringify(ready)}`).toBe(true);
+    const read = () => p.evaluate(() => {
+      const card = document.getElementById('moving-card'), root = document.getElementById('exact-root').getBoundingClientRect();
+      const stand = card?.previousElementSibling, surface = stand?.hasAttribute('data-exiting') ? stand.firstElementChild : card;
+      return { y: card ? card.getBoundingClientRect().y - root.y : null, height: surface?.getBoundingClientRect().height ?? null,
+        css: card?.style.getPropertyValue('--exact-layout-transition') ?? null, animations: document.getAnimations().filter(a => a.playState !== 'finished' && a.playState !== 'idle').length,
+        stands: document.querySelectorAll('[data-exiting]').length, counts: document.querySelector('[data-testid="counts"]').textContent };
+    });
+    const press = async name => { await p.getByTestId(name).evaluate(el => el.click()); await p.evaluate(() => exact.agentSettled({ op: 'state' })); return read(); };
+    const advance = async ms => { await p.evaluate(async ms => { exact.advance(exact.clock.now + ms, false); await exact.agentSettled({ op: 'state' }); }, ms); return read(); };
+    return { p, read, press, advance, errors, close: async () => { await context.close(); served.stop(true); } };
+  } catch (error) { await context.close(); served.stop(true); throw error; }
+}
+
+check('normal emitted layout rows gain, clear and re-enable through real controls and resource replies', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-dynamic-layout-')), browser = await suiteBrowser();
+  let live;
+  try {
+    const literal = await buildMotionApp(dir, '"1000ms linear"');
+    expect(literal.code, `infrastructure: literal normal build ${JSON.stringify(literal)}`).toBe(0);
+    live = await builtMotionPage(browser, literal.dist);
+    const literalStart = await live.press('enable'), literalMiddle = await live.advance(500), literalEnd = await live.advance(500);
+    const controlFailures = live.errors.map(error => `page error: ${error}`);
+    for (const [sample, wanted] of [[literalStart, 0], [literalMiddle, 50], [literalEnd, 100]]) {
+      if (typeof sample.y !== 'number' || !Number.isFinite(sample.y) || Math.abs(sample.y - wanted) > .05 || sample.counts !== '1/0') controlFailures.push(JSON.stringify({ sample, wanted }));
+    }
+    expect(controlFailures, 'infrastructure: literal motion/data control').toEqual([]);
+    await live.close(); live = null;
+
+    const bound = await buildMotionApp(dir, '(prefs.reducedMotion ? "none" : curve)');
+    const knownRefusal = /a dynamic `layout_transition` \(Transitions\) is not one declaration; not in the JS target/.test(bound.log);
+    expect(bound.code, `${knownRefusal && !bound.timedOut ? 'issue809 feature' : 'infrastructure: unexpected dynamic build outcome'}: ${JSON.stringify(bound)}`).toBe(0);
+    live = await builtMotionPage(browser, bound.dist);
+    const samples = {}, failures = [];
+    const take = (name, sample, values) => {
+      samples[name] = sample;
+      for (const [key, wanted] of Object.entries(values)) {
+        const got = sample[key];
+        if (typeof wanted === 'number' ? typeof got !== 'number' || !Number.isFinite(got) || Math.abs(got - wanted) > .05 : got !== wanted) failures.push(`${name}.${key}: ${JSON.stringify(got)} != ${JSON.stringify(wanted)}`);
+      }
+    };
+    take('initial', await live.read(), { y: 0, counts: '1/0', css: '', animations: 0 });
+    take('first gain', await live.press('enable'), { y: 0, counts: '1/0' });
+    take('first midpoint', await live.advance(500), { y: 50 });
+    take('first end', await live.advance(500), { y: 100 });
+    take('position start', await live.press('shift'), { y: 100 });
+    take('position quarter', await live.advance(250), { y: 125 });
+    take('disable interrupted position', await live.press('disable'), { y: 300, css: '', animations: 0, stands: 0 });
+    take('gain before size', await live.press('reenable'), { y: 300 });
+    await live.advance(1000);
+    take('grow start', await live.press('grow'), { height: 40 });
+    take('grow midpoint', await live.advance(500), { height: 90 });
+    take('disable interrupted size', await live.press('disable'), { y: 300, height: 40, css: '', animations: 0, stands: 0 });
+    take('re-enable after none', await live.press('reenable'), { y: 300 });
+    take('re-enable midpoint', await live.advance(500), { y: 350 });
+    take('re-enable end', await live.advance(500), { y: 400 });
+    take('unset removal', await live.press('clear'), { y: 450, css: '', animations: 0, stands: 0 });
+    take('re-enable after removal', await live.press('reenable'), { y: 450 });
+    take('second midpoint', await live.advance(500), { y: 425 });
+    await live.advance(500);
+    await live.press('reduce');
+    const reduced = await live.p.evaluate(() => exact.agentSettled({ op: 'clock', data: true }));
+    if (!reduced.settled) failures.push(`reduced preference did not finish: ${JSON.stringify(reduced)}`);
+    take('preference disabled', await live.read(), { y: 550, css: '', counts: '2/1', animations: 0, stands: 0 });
+    await live.press('restoreMotion');
+    const restored = await live.p.evaluate(() => exact.agentSettled({ op: 'clock', data: true }));
+    if (!restored.settled) failures.push(`restored preference did not finish: ${JSON.stringify(restored)}`);
+    take('preference gains with move', await live.read(), { y: 650, counts: '3/2' });
+    take('preference midpoint', await live.advance(500), { y: 625 });
+    take('preference end', await live.advance(500), { y: 600 });
+    await live.p.evaluate(() => { globalThis.retiredCard = document.getElementById('moving-card'); });
+    take('retired child', await live.press('retire'), { y: null, animations: 0, stands: 0, counts: '3/2' });
+    failures.push(...await live.p.evaluate(() => retiredCard.isConnected || retiredCard.getAnimations().length ? ['retired child retained a live view or animation'] : []));
+    take('new child', await live.press('restoreChild'), { y: 700, animations: 0, stands: 0, counts: '3/2' });
+    failures.push(...live.errors.map(error => `page error: ${error}`));
+    expect(failures, `issue809 lifecycle: ${JSON.stringify(samples)}`).toEqual([]);
+  } finally { await live?.close(); await browser.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 120000);
+
+// A direct-runtime supplement can count a style getter and derive, which an
+// ordinary Contract intentionally cannot mutate. It never replaces the normal
+// emitted program above and uses no prospective-style API or future export.
+check('gaining presence never previews a source or a retired child effect, and ordinary styles keep their IDs', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext(), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const result = await p.evaluate(async () => {
+      const { h, S, when, sig, memo, res, W, act, pr, mount, pieces, data, Views } = await import('/js/rt.js');
+      const counts = { derives: 0, styles: 0, asks: 0 }, samples = {};
+      const mode = sig(false), offset = sig(0), shown = sig(true), tint = sig(false);
+      data.answer = (_, args) => { counts.asks++; return { v: args[0] }; };
+      let card, original;
+      mount(root => {
+        const app = h(root, 'div', 0, {}, 0);
+        app.style.cssText = 'position:relative;width:700px;height:900px';
+        const seed = h(app, 'div', 0, {}, 0);
+        seed.style.cssText = 'position:absolute;left:300px;width:10px;height:10px;--exact-layout-transition:1000 0 linear'; pr(seed);
+        for (let n = 0; n < 40; n++) {
+          const ordinary = h(app, 'div', 0, {}, 0);
+          S(ordinary, 'background-color', '', () => tint() ? 'red' : 'blue');
+        }
+        when(app, shown, parent => {
+          const resource = res('ownedProof', 'ownedProof', () => [1], undefined, undefined, 'n', 0);
+          const curve = memo(() => { counts.derives++; resource(); return mode() ? '1000 0 linear' : null; });
+          card = h(parent, 'div', 0, {}, 0); original ??= card;
+          card.style.cssText = 'position:absolute;width:100px;height:40px;background:red';
+          S(card, '--exact-layout-transition', '', () => { counts.styles++; return curve(); });
+          S(card, 'top', 'px', offset); pr(card);
+        }, () => {});
+      });
+      await pieces();
+      const capture = name => { samples[name] = { ...counts, y: card.getBoundingClientRect().y - card.parentElement.getBoundingClientRect().y, connected: card.isConnected }; };
+      capture('initial');
+      act(() => { W(mode, true); W(offset, 100); })(); capture('gain');
+      act(() => { W(shown, false); W(mode, false); })();
+      samples.retired = { ...counts, connected: original.isConnected, animations: original.getAnimations().length };
+      act(() => { W(shown, true); W(mode, true); W(offset, 400); })(); capture('newChild');
+      const ids = Views.size;
+      for (let n = 0; n < 10; n++) act(() => W(tint, !tint()))();
+      return { samples, idsBefore: ids, idsAfter: Views.size };
+    });
+    const expected = {
+      initial: { derives: 1, styles: 1, asks: 1, y: 0, connected: true },
+      gain: { derives: 2, styles: 2, asks: 1, y: 0, connected: true },
+      retired: { derives: 3, styles: 2, asks: 1, connected: false, animations: 0 },
+      newChild: { derives: 4, styles: 3, asks: 2, y: 400, connected: true },
+    };
+    expect({ samples: result.samples, idGrowth: result.idsAfter - result.idsBefore },
+      'issue809 ownership: normal settle/flush counts, first-gain box and ordinary style IDs').toEqual({ samples: expected, idGrowth: 0 });
+  } finally { await context.close(); await browser.close(); }
+});
+
+check('ordinary dynamic styles neither load presence nor register view IDs', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext(), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const result = await p.evaluate(async () => {
+      const { h, S, sig, W, act, mount, pieces, Views } = await import('/js/rt.js');
+      const tint = sig(false), boxes = [];
+      mount(root => {
+        for (let n = 0; n < 40; n++) {
+          const box = h(root, 'div', 0, {}, 0); boxes.push(box);
+          S(box, 'background-color', '', () => tint() ? 'red' : 'blue');
+        }
+      });
+      for (let n = 0; n < 10; n++) act(() => W(tint, !tint()))();
+      await pieces();
+      return { presence: !!globalThis.exact.presenceLive, ids: Views.size, boxes: boxes.length,
+        colors: [...new Set(boxes.map(box => box.style.backgroundColor))] };
+    });
+    expect(result).toEqual({ presence: false, ids: 0, boxes: 40, colors: ['blue'] });
+  } finally { await context.close(); await browser.close(); }
+});
+
+check('a real shared commit measures current queued gains only when its deferred tail runs', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext({ reducedMotion: 'no-preference' }), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const observed = await p.evaluate(async () => {
+      const { h, S, when, sig, W, act, pr, mount, pieces } = await import('/js/rt.js');
+      const branch = sig(true), enabled = sig(false), offset = sig(0);
+      let moving, reads = 0;
+      mount(root => {
+        const app = h(root, 'div', 0, {}, 0); app.style.cssText = 'position:relative;width:500px;height:600px';
+        const named = parent => {
+          const e = h(parent, 'div', 0, { 'data-shared-element': 'handoff' }, 0);
+          e.style.cssText = 'position:absolute;left:300px;width:10px;height:10px;--exact-layout-transition:1000 0 linear'; pr(e);
+        };
+        when(app, branch, named, named);
+        moving = h(app, 'div', 0, {}, 0); moving.style.cssText = 'position:absolute;width:100px;height:40px';
+        S(moving, '--exact-layout-transition', '', () => { reads++; return enabled() ? '1000 0 linear' : null; });
+        S(moving, 'top', 'px', offset); pr(moving);
+      });
+      await pieces();
+      const original = document.startViewTransition, updates = [];
+      // Hold the browser's public callback. The shared module and both actual
+      // runtime tails remain production code; no private flush hook is called.
+      document.startViewTransition = update => {
+        let finish;
+        const done = new Promise(resolve => { finish = resolve; });
+        updates.push(async () => { try { update(); } finally { finish(); } await done; });
+        return { ready: done, updateCallbackDone: done, finished: done, skipTransition() {} };
+      };
+      const y = () => moving.getBoundingClientRect().y - moving.parentElement.getBoundingClientRect().y;
+      try {
+        act(() => { W(branch, false); W(enabled, true); W(offset, 100); })();
+        act(() => W(offset, 200))(); // this tail waits behind the same capture
+        const held = { updates: updates.length, reads, y: y(), css: moving.style.getPropertyValue('--exact-layout-transition') };
+        await updates[0](); await exact.viewTransition(); seek(0);
+        const start = { reads, y: y() };
+        seek(500); const middle = y(); seek(1000); const end = y();
+        return { held, start, middle, end };
+      } finally { document.startViewTransition = original; }
+    });
+    expect(observed).toEqual({ held: { updates: 1, reads: 1, y: 0, css: '' }, start: { reads: 2, y: 0 }, middle: 100, end: 200 });
+  } finally { await context.close(); await browser.close(); }
+});
+
+check('rebound list items, indices and match values gain presence before their first move', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext(), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const result = await p.evaluate(async () => {
+      const { h, S, each, match, sig, W, act, pr, mount, pieces } = await import('/js/rt.js');
+      const items = sig([[1, false, 0]]), indices = sig([1, 2]), value = sig([false, 0]);
+      const cards = [], reads = [0, 0, 0];
+      const row = (parent, slot, enabled, offset) => {
+        const card = h(parent, 'div', 0, {}, 0);
+        card.style.cssText = 'position:absolute;width:100px;height:40px;background:red';
+        S(card, '--exact-layout-transition', '', () => { if (slot !== null) reads[slot]++; return enabled() ? '1000 0 linear' : null; });
+        S(card, 'top', 'px', offset); pr(card);
+        if (slot !== null) cards[slot] = card;
+      };
+      mount(root => {
+        const group = () => {
+          const e = h(root, 'div', 0, {}, 0);
+          e.style.cssText = 'position:relative;width:400px;height:200px';
+          return e;
+        };
+        each(group(), items, item => item()[0], (parent, item) => row(parent, 0, () => item()[1], () => item()[2]));
+        each(group(), indices, item => item(), (parent, item, index) => row(parent, item() === 1 ? 1 : null, () => index() > 0, () => index() * 100));
+        match(group(), value, (parent, bound) => row(parent, 2, () => bound()[0], () => bound()[1]));
+      });
+      await pieces();
+      const boxes = () => cards.map(card => card.getBoundingClientRect().y - card.parentElement.getBoundingClientRect().y);
+      const before = boxes(), originals = [...cards];
+      act(() => { W(items, [[1, true, 100]]); W(indices, [2, 1]); W(value, [true, 100]); })();
+      const start = boxes(); seek(500); const middle = boxes(); seek(1000); const end = boxes();
+      return { before, start, middle, end, reads, kept: cards.every((card, i) => card === originals[i]) };
+    });
+    expect(result).toEqual({ before: [0, 0, 0], start: [0, 0, 0], middle: [50, 50, 50], end: [100, 100, 100], reads: [2, 2, 2], kept: true });
+  } finally { await context.close(); await browser.close(); }
 });
