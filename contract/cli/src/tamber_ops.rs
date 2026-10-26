@@ -243,7 +243,7 @@ pub(crate) fn param_values(
         let Ok(design) = exact_tamber::parse(text) else {
             continue;
         };
-        let message = |m: &str| contract_lower::params::shown(m, list);
+        let message = |m: &str| app.shown(m);
         let at = |line: u32, col: u32, id: &str, m: &str| json!({"file": file, "line": line, "col": col, "id": id, "message": message(m)});
         // A line the build refuses (ambiguous, or a second for one param),
         // then each value written out of its range.
