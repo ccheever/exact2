@@ -659,8 +659,12 @@ ownership regressions, and targeted Swift/driver tests passed. An Excord Chrome 
 resource declarations and recorded 19 constructed rows; no resource failure was reported.
 Only synthetic service data was used.
 
-The initial Mac scratch fixture observed 111 display callbacks over 1000.21 ms with an 8.33 ms
-target cadence and no ring drops. This is callback timing, not proof of compositor presentation
+After the event-pump fix, a Mac scratch fixture observed 42 display callbacks over 500.49 ms
+with an 8.33 ms target cadence and no ring drops. The clock remained real, scheduling normal,
+and the subsequent tree read returned 62 nodes. Eleven focused Swift tests passed, including
+an AppKit event delivered during capture, exactly-once interrupted completion, and presented
+bounds during animation. The integrated driver suite passed 61 tests, with one missing-Chromium
+skip; separate Chrome app and list drives used the installed browser. This is callback timing, not proof of compositor presentation
 or a native bounce. A same-binary count-hook microbenchmark measured 3.75 ns disabled and
 23.83 ns enabled; it does not establish end-to-end app overhead. tvOS compiled the shared UIKit
 code. iOS touch/keyboard dismissal, Windows and Android app behavior, a physical iPhone and
