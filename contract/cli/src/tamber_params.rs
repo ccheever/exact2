@@ -40,7 +40,19 @@ pub struct AppParams {
     /// hoisted or vendored, what the server never writes into.
     pub package_roots: Vec<std::path::PathBuf>,
     /// `tokens`' names in full, indexed on first use (`shown`).
-    pub shown_index: std::sync::OnceLock<params::Shown>,
+    pub shown_index: ShownIndex,
+}
+
+/// [`AppParams::shown`]'s index, made from `tokens` on first use: what it
+/// derives, never what it is (its `Debug` says nothing, so a kept load
+/// prints as a cold one, the walk's check of the params kept).
+#[derive(Clone, Default)]
+pub struct ShownIndex(std::sync::OnceLock<params::Shown>);
+
+impl std::fmt::Debug for ShownIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ShownIndex")
+    }
 }
 
 impl AppParams {
@@ -48,6 +60,7 @@ impl AppParams {
     /// ([`params::shown`]), the index built once for the app's params.
     pub fn shown(&self, message: &str) -> String {
         self.shown_index
+            .0
             .get_or_init(|| params::Shown::new(&self.tokens))
             .text(message)
     }
