@@ -34,7 +34,8 @@ for (const side of ['A', 'B']) {
   ids[side] = r.status === 0 ? rec.appId : null;
 }
 
-const drive = readFileSync(resolve(HERE, 'drive.md'), 'utf8').replaceAll('{SIM}', sim).replaceAll('{DRIVE}', resolve(HERE, 'drive.mjs'));
+// The sheet names the driver by its repository path; the grader runs it by its absolute one.
+const drive = readFileSync(resolve(HERE, 'drive.md'), 'utf8').replaceAll('bun bench/bakeoff/drive.mjs', `bun ${resolve(HERE, 'drive.mjs')}`).replaceAll('<UDID>', sim);
 const prompt = readFileSync(resolve(HERE, 'prompts/grader.md'), 'utf8')
   .replaceAll('{SIM}', sim).replace('{DRIVE}', drive)
   .replace('{A}', ids.A ?? '(not installed: the build left no app; grade it as missing)')

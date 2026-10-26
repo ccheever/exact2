@@ -117,9 +117,16 @@ async function main() {
       ...(d.direct ? { screen: [x1, y1], screenTo: [x2, y2], display: [d.w, d.h] } : {}) });
   };
   // An app launched while no session was open (not by `launch`) can refuse the first reads (kAXErrorAPIDisabled).
+  // Identifiers a toolkit generates (Exact's `exact-…`, anything carrying a UUID) are dropped: they would tell a
+  // blind grader how an app was built, and no person sees them.
+  const generated = /^exact-|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i;
   const tree = async () => {
     for (const until = Date.now() + 8000; ;) {
-      try { return await ask({ op: 'tree' }); }
+      try {
+        const t = await ask({ op: 'tree' });
+        for (const e of t.elements) if (e.identifier != null && generated.test(e.identifier)) e.identifier = null;
+        return t;
+      }
       catch (e) { if (!(e instanceof Refusal && /APIDisabled/.test(e.message)) || Date.now() > until) throw e; }
       await sleep(250);
     }

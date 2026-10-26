@@ -21,7 +21,7 @@ const dir = resolve(round, 'apps', name);
 for (const d of ['records', 'logs', 'apps', 'built']) mkdirSync(resolve(round, d), { recursive: true });
 
 // Neutral identity: the grader must not learn the arm from the bundle id or the home-screen name.
-const appId = `dev.bakeoff.${spec.replace(/[^a-z0-9]/g, '')}.${randomBytes(3).toString('hex')}`;
+const appId = `dev.bakeoff.${spec.replace(/[^a-z0-9]/g, '')}.b${randomBytes(3).toString('hex')}`;
 const appName = readFileSync(resolve(HERE, 'specs', spec, 'SPEC.md'), 'utf8').match(/^# (.+)$/m)[1];
 
 rmSync(dir, { recursive: true, force: true });
@@ -96,6 +96,10 @@ let app = null;
 const installed = spawnSync('xcrun', ['simctl', 'get_app_container', sim, finalId, 'app'], { encoding: 'utf8' });
 if (installed.status === 0) app = installed.stdout.trim();
 else if (arm !== 'exact' && existsSync(resolve(dir, 'build/App.app'))) app = resolve(dir, 'build/App.app');
+else if (arm === 'exact') { // the newest simulator build under its id in the app's build tree
+  const found = spawnSync('find', [resolve(dir, 'target'), '-maxdepth', '9', '-type', 'd', '-name', '*.app', '-path', `*${finalId}*ios-simulator*`], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
+  app = found.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0] ?? null;
+}
 const kept = resolve(round, 'built', `${name}.app`);
 rmSync(kept, { recursive: true, force: true });
 if (app) cpSync(app, kept, { recursive: true });

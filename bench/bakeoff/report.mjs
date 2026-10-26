@@ -11,14 +11,21 @@ const json = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch 
 const geo = (xs) => (xs.length ? Math.exp(xs.reduce((a, x) => a + Math.log(x), 0) / xs.length) : NaN);
 const f = (x, d = 1) => (x == null || Number.isNaN(x) ? '–' : Number(x).toFixed(d));
 
-// The probe's verdict counts for one app: how many metrics read "tell" or "bad".
+// The probe's verdict counts for one app: how many metrics read "tell" or "bad" (feel/analyze.mjs keeps each
+// group's verdicts in its own `verdict` object), and which.
 const feelOf = (spec, arm) => {
   const j = json(resolve(ROUND, 'feel', `${spec}-${arm}`, 'feel.json'));
   if (!j) return null;
-  if (j.status && j.status !== 'ok') return { text: j.status };
-  const verdicts = Object.values(j.verdicts ?? {}).map((v) => (typeof v === 'string' ? v : v?.verdict));
-  const bad = verdicts.filter((v) => v === 'bad').length, tell = verdicts.filter((v) => v === 'tell').length;
-  return { bad, tell, text: bad + tell ? `${bad} bad, ${tell} tell` : 'ok' };
+  if (j.verdict !== 'probed') return { text: j.verdict ?? '?' };
+  const found = [];
+  const walk = (o, at) => {
+    for (const [k, v] of Object.entries(o ?? {})) {
+      if (k === 'verdict' && v && typeof v === 'object') for (const [m, x] of Object.entries(v)) { if (x === 'tell' || x === 'bad') found.push(`${at}.${m} ${x}`); }
+      else if (v && typeof v === 'object' && !Array.isArray(v)) walk(v, k);
+    }
+  };
+  walk(j, '');
+  return { found, text: found.length ? found.join(', ') : 'ok' };
 };
 
 const rows = [], ratios = { min: [], tok: [] }, tally = { exact: 0, other: 0, tie: 0 }, sums = { exact: { o: [], p: [], t: [], b: [] }, other: { o: [], p: [], t: [], b: [] } };
