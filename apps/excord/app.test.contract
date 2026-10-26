@@ -842,6 +842,7 @@ test "image spoilers with and without dimensions wait for disclosure"
   tap "channel-random"
   clock settle
   tap "transcript" into "1556955556722245885"
+  clock data
   clock settle
   tap "transcript" into "1553618685438984394"
   clock settle
@@ -860,7 +861,8 @@ test "image spoilers with and without dimensions wait for disclosure"
   clock settle
   expect tree has "reveal-media-1557059859277414659-1557059859277516980"
   expect tree missing "media-image-1557059859277414659-1557059859277516980"
-  type "reveal-media-1557059859277414659-1557059859277516980" key "Enter"
+  // Space presses a focused button on every host; on a Mac, Return is the default button's.
+  type "reveal-media-1557059859277414659-1557059859277516980" key " "
   clock settle
   expect state revealed.length == 2
   expect tree has "media-image-1557059859277414659-1557059859277516980"
@@ -876,7 +878,7 @@ test "failed history can be retried without reopening the channel"
   expect state pageTries == 3
   type "composer" "Keep this draft"
   pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
-  type "retry-history" key "Enter"
+  type "retry-history" key " "
   clock settle
   expect tree has "message-1562887009075210000"
   expect tree missing "history-error"
@@ -905,7 +907,8 @@ test "a failed page leaves cached messages readable and another channel loads"
   tap "channel-general"
   clock settle
   expect tree missing "history-error"
-  expect state win.firstId == "1562033782335219374"
+  expect state pageTries == 0
+  expect tree has "message-1562732896249194217"
 
 test "a failed older page does not block a jump to a different history page"
   clock +500 real
