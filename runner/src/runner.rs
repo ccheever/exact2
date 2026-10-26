@@ -1133,6 +1133,17 @@ impl<D: DataSource> Runner<D> {
     /// layout refusal) so one read sees everything in order.
     pub fn log(&mut self, line: impl Into<String>) {
         let line = line.into();
+        // While measuring, a development host also writes it to its
+        // platform's log (LLP 1143 open question 1).
+        if !self.ids.work.sites.is_empty() {
+            crate::perf::queue(&self.ids.work.journal, line.clone());
+        }
+        self.journal_only(line);
+    }
+
+    /// Append a line to the journal and nowhere else: an alert, which its
+    /// own queue carries to the platform's log.
+    pub(crate) fn journal_only(&mut self, line: String) {
         self.journal.push_back(lines::stamped(self.now_ms, &line));
         if self.journal.len() > JOURNAL_RING {
             self.journal.pop_front();
