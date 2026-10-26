@@ -9,7 +9,7 @@ import { cmpId, msFromSnowflake } from './discord/ids';
 import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live, type Upload } from './live';
 import { emojiChoices, resolveMentions, suggest, switchTargets } from './compose';
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
-import { avatarUrl, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
+import { avatarUrl, clip, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 import { messageLanguage } from './language';
 
 export const appId = 'com.exact.excord';
@@ -260,7 +260,7 @@ function guildRecords(): Result<'loadGuilds'> {
     const reads = readable(g.id).map(c => S.unread(store, c.id));
     const name = g.name ?? '';
     return { id: g.id, name, icon: g.icon ? `${live.origins.cdn}/icons/${g.id}/${g.icon}.png?size=128` : '',
-      acronym: name.split(/\s+/).filter(Boolean).map((w: string) => Array.from(w)[0]).join('').slice(0, 5),
+      acronym: clip(name.split(/\s+/).filter(Boolean).map((w: string) => Array.from(w)[0]).join(''), 5),
       unread: reads.some(r => r.unread), mentions: reads.reduce((n, r) => n + r.mentionCount, 0) };
   });
   guildCache = { version, records };
