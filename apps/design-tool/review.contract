@@ -48,14 +48,16 @@ component Proposals
                 text m.name width=200 flex-shrink=0 font="-exact-footnote"
                 if m.kind != "token"
                   text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
+                // Each mode's value whole (a light-dark pair's dark half included, the third pass's #10): its field grows
+                // with the row, and a mode that can't fit wraps onto a line of its own.
                 for md in m.modes key=`${md.mode}`
-                  row gap=4 align-items="center"
+                  row gap=4 align-items="center" flex="1 1 24rem" min-width=0
                     if md.light != ""
                       view width=16 height=16 border-radius=3 background-color=md.light border="1px solid -exact-separator"
                     if md.dark != ""
                       view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
                     text md.label font="-exact-caption2" color="-exact-secondary-label"
-                    input value=md.value change=editImportValue(h.proposal, m.index, md.mode) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` min-width=160 font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
+                    input value=md.value change=editImportValue(h.proposal, m.index, md.mode) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` flex=1 min-width="12rem" font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
             text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
             for o in h.offers key=o.role
               row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
