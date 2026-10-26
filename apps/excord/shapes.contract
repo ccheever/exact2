@@ -266,6 +266,8 @@ shape EmojiChoice
   glyph: string
   avatar: string
   value: string
+  // What a message says for it: the character, or Discord's `<:name:id>` (`<a:…>` animated).
+  text: string
 
 // A quick-switcher match: a channel (`glyph` "#") or a direct message (an
 // `avatar`, or `glyph` "@" for a group), the server it is in (`server`, "@me"
