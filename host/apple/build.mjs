@@ -37,7 +37,7 @@
 // in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. --release, --distribution, --archive (or EXACT_UPDATE_TRUST=production) build a signed-update-only artifact.
 import { platformWidgetEntries, activityEntries, hasEntries, widgetGroup, prepareWidgetCore, sharedWidgetCore, entryProfiles, macWidgetSigning, alarmActivity } from './widgets.mjs';
-import { assembleMac, assembleIOS } from './bundle.mjs';
+import { assembleMac, assembleIOS, buildIntents, shortcutKeys } from './bundle.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -60,7 +60,6 @@ import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory,
 import { keptModules } from './modules.mjs';
 import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
-import { buildIntents, shortcutKeys } from './intents.mjs';
 import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes };
@@ -1017,8 +1016,7 @@ async function main(args, lockHeld = false) {
   const shared = widgets ? sharedWidgetCore({ app, prepared: widgetCore, libDir, crate, env, runApple, linkedPlan }) : null;
   if (shared) env.EXACT_CORE_FRAMEWORK = relative(pkg, shared.xcframework);
   rmSync(resolve(paths.namespace, 'swift'), { recursive: true, force: true }); // the per-app scratch this replaced
-  const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
-  cleanup.push(binDir);
+  const binDir = mkdtempSync(resolve(paths.namespace, '.products-')); cleanup.push(binDir);
   const intents = tv ? null : buildIntents({ app, compat: bakedCompat, directory: resolve(linkRoot, 'intents'), sdkName, sdk, triple: moduleTripleFor(app, ios, device, tv), platform: ios ? 'ios' : 'macos', deployment: ios ? targets.ios : targets.macos, swiftc, runApple });
   // The shared scratch links one app at a time: another app's build of this
   // destination waits here (seconds once ExactKit is compiled), and the

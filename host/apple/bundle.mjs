@@ -11,6 +11,8 @@ import { webRefusal } from './documents.mjs';
 import { listAssets } from '../web/serve.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, copyMacResources, signingOrder, helperEntitlements, wrapFramework, assertArchiveFrameworks } from './assets.mjs';
 import { allows, profile, identity, embeddedProfile } from './devices.mjs';
+// The App Intents module the bundle places, built before the executable links it (LLP 1133.023 D8).
+export { buildIntents, shortcutKeys } from './intents.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts, stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });
