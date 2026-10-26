@@ -41,6 +41,8 @@ pub(super) struct Checkpoint {
     root_font: (super::root_font::RootFont, f32, u32),
     /// Kept answers refused before this commit (`kept::refuse`).
     refused: usize,
+    /// Who each request and `then` is from (LLP 1133.023 D7).
+    origins: super::modules::OriginsSaved,
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
@@ -114,6 +116,7 @@ impl<D: DataSource> Runner<D> {
                 self.ids.theme.window,
             ),
             refused: self.keeping.refused.len(),
+            origins: self.origins_saved(),
         }
     }
 
@@ -133,6 +136,7 @@ impl<D: DataSource> Runner<D> {
                 self.log_store_writes(c.store.writes);
                 self.transport_stood();
                 self.samples_stood();
+                self.invocations_let_go();
             }
             Err(e) if self.poisoned && !was_poisoned => {
                 self.samples_refused();
@@ -171,6 +175,7 @@ impl<D: DataSource> Runner<D> {
                     self.reconcile_after(m);
                 }
                 self.pending = c.pending;
+                self.origins_restore(c.origins);
                 self.queues.restore(c.queues);
                 self.timers = c.timers;
                 if let Some(p) = c.published {
@@ -633,6 +638,7 @@ impl<D: DataSource> Runner<D> {
         // runner's, run once the commit stands.
         let effects = self.take_module_effects(first_command);
         self.refuse_in_wake(first_command);
+        self.skip_in_call(first_command);
         // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
         self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
@@ -753,7 +759,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn forget_ticket(&mut self, target: Target) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
-            self.wake_let_go(t, self.call_origin());
+            self.note_let_go(t, target);
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }
@@ -811,7 +817,7 @@ impl<D: DataSource> Runner<D> {
         }
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
-            self.wake_let_go(t, self.origin_for(Some(target)));
+            self.note_let_go(t, target);
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }
@@ -1167,11 +1173,11 @@ impl<D: DataSource> Runner<D> {
         let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
         let target = p.target;
         // An answer lands as a commit of its request's origin (LLP 1133.002 D12).
-        let origin = self.ticket_origin(ticket);
-        let result = self.as_origin(origin, |r| r.fulfill_inner(p, outcome));
+        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
+        let result = self.as_invocation(origin, id, |r| r.fulfill_inner(p, outcome));
         self.conclude(checkpoint, &result, was_poisoned);
-        // Its `then` runs under the same origin.
-        self.as_origin(origin, |r| r.arm_then(result.is_ok()));
+        // Its `then` runs under the same origin and invocation.
+        self.as_invocation(origin, id, |r| r.arm_then(result.is_ok()));
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if let (Some(handles), Err(_)) = (handles, &result) {

@@ -235,3 +235,95 @@ fn shortcuts_are_refused_where_the_platform_has_none() {
     assert_eq!(extension(&r, "quick-actions")["shortcuts"], json!([]));
     assert!(logs(&r).contains("NotSupportedError"), "{}", logs(&r));
 }
+
+/// LLP 1133.023 D5, D8, D10: `intents.tools` in `app.json` faces a tool. A
+/// face is stored with the doors it reaches and its digest; one naming no
+/// tool, a parameter of another type, or a door with no confirmation for a
+/// `destroys` tool is refused; and a door is held to its face's digest.
+#[test]
+fn a_face_is_checked_against_its_tool_and_holds_its_door() {
+    let tools = "  state last = \"\"\n  tool log writes closed \"Log a page.\" = log\n  tool drop destroys \"Drop a book.\" = drop\n  action log(id: string, page: number)\n    last = `${id} ${page}`\n  action drop(id: string)\n    last = id\n  action follow(url: string)";
+    let source = SOURCE.replacen("  action follow(url: string)", tools, 1);
+    let app = App::new("faces", &source);
+    let write = |intents: &Json| {
+        let manifest =
+            json!({ "app": { "id": "com.exact.faces", "name": "Faces" }, "intents": intents });
+        std::fs::write(app.0.join("app.json"), manifest.to_string()).unwrap();
+    };
+    let compile =
+        || contract::compile_path_all(&app.0.join("app.contract"), false).map(|(plan, _)| plan);
+    let face = |plan: &exact_plan::Plan, tool: &str| -> Json {
+        let row = plan
+            .tools
+            .iter()
+            .find(|t| plan.str(t.name) == tool)
+            .unwrap();
+        serde_json::from_str(plan.str(row.face)).unwrap_or_default()
+    };
+    let good = json!({
+        "entities": { "book": { "title": "Book" } },
+        "tools": {
+            "log": { "title": "Log", "parameters": { "id": { "entity": "book" }, "page": { "type": "integer" } } },
+            "drop": { "title": "Drop" }
+        }
+    });
+    write(&good);
+    let plan = compile().unwrap_or_else(|e| panic!("{e:?}"));
+    let log = face(&plan, "log");
+    assert_eq!(log["doors"], json!(["apple", "android", "web"]));
+    assert_eq!(
+        face(&plan, "drop")["doors"],
+        json!(["apple"]),
+        "a destroys tool's default"
+    );
+    let digest = log["digest"].as_str().unwrap().to_owned();
+    assert_eq!(digest.len(), 64);
+
+    let refused = |intents: Json, id: &str| {
+        write(&intents);
+        let errors = format!("{:?}", compile().unwrap_err());
+        assert!(errors.contains(id), "{id}: {errors}");
+    };
+    let mut destroys = good.clone();
+    destroys["tools"]["drop"]["doors"] = json!(["apple", "android"]);
+    refused(destroys, "intents-destroys-door");
+    let mut no_kind = good.clone();
+    no_kind["entities"] = json!({});
+    refused(no_kind, "intents-face-type");
+    let mut not_number = good.clone();
+    not_number["tools"]["log"]["parameters"]["id"] = json!({ "type": "integer" });
+    refused(not_number, "intents-face-type");
+    let mut missing = good.clone();
+    missing["tools"]["nothing"] = json!({ "title": "Nothing" });
+    refused(missing, "intents-tool");
+
+    // The description is part of the signature, so of the digest.
+    let moved = source.replace("Log a page.", "Log the page.");
+    std::fs::write(app.0.join("app.contract"), moved).unwrap();
+    write(&good);
+    let plan = compile().unwrap();
+    assert_ne!(face(&plan, "log")["digest"], json!(digest));
+
+    let kernel = exact_kernel::Kernel::with_monospace();
+    let mut r = Runner::boot(plan, NoData, kernel, Default::default(), "/").unwrap();
+    let mut call = |door: &str, digest: Option<&str>| {
+        let how = exact_runner::CallHow {
+            door: door.into(),
+            digest: digest.map(str::to_owned),
+            ..Default::default()
+        };
+        r.call_tool("log", r#"{"id":"a","page":3}"#, how).unwrap();
+        r.advance(r.now_ms()).unwrap();
+    };
+    call("apple", Some(&digest));
+    call("apple", None);
+    let state = exact_runner::agent::handle(&r, r#"{"op":"state"}"#);
+    let state: Json = serde_json::from_str(&state).unwrap();
+    let calls = &state["intents"]["calls"];
+    assert_eq!(calls[0]["outcome"], "refused", "a stale digest: {calls}");
+    assert!(
+        calls[0]["message"].as_str().unwrap().starts_with("face:"),
+        "{calls}"
+    );
+    assert_eq!(calls[1]["outcome"], "ok", "{calls} {}", logs(&r));
+}

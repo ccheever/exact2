@@ -26,14 +26,6 @@ type Saved = { books: Book[]; goal: number };
 let state: Saved | null = null;
 let loading: Promise<Saved> | null = null;
 
-// Storage runs one step at a time, in the order the answers asked.
-let tail: Promise<unknown> = Promise.resolve();
-function serial<T>(work: () => Promise<T>): Promise<T> {
-  const run = tail.then(work);
-  tail = run.catch(() => {});
-  return run;
-}
-
 const encode = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
 const decode = (b: ArrayBuffer) => new TextDecoder().decode(new Uint8Array(b));
 
@@ -56,7 +48,7 @@ function normalize(raw: Partial<Book>): Book {
 async function load(storage: Storage): Promise<Saved> {
   if (state) return state;
   if (!loading) {
-    loading = serial(async () => {
+    loading = (async () => {
       let text: string | null = null;
       try {
         text = decode(await storage.fs.readFile(FILE));
@@ -78,25 +70,33 @@ async function load(storage: Storage): Promise<Saved> {
       }
       state = saved;
       return saved;
-    });
+    })();
     loading.catch(() => { loading = null; });
   }
   return loading;
 }
 
+// The module's storage runs one operation at a time, in the order issued
+// (LLP 1097 D3), so both are issued here, in this answer's own turn: the
+// directory is made before the write, and a later edit writes after this
+// one. A write chained on another answer's would run after that answer
+// replied, where the module counts it as storage no answer awaits.
 async function persist(storage: Storage): Promise<void> {
   const snapshot = state;
   if (!snapshot) return;
-  await serial(async () => {
-    try { await storage.fs.mkdir(DIR); } catch { /* already there */ }
-    await storage.fs.atomicWriteFile(FILE, encode(snapshot));
-  });
+  await Promise.all([
+    storage.fs.mkdir(DIR).catch(() => { /* already there */ }),
+    storage.fs.atomicWriteFile(FILE, encode(snapshot)),
+  ]);
 }
 
+// An edit applies to the newest state, read and set with no await between:
+// two edits that waited on the same first load would otherwise both start
+// from its snapshot, and the later persist would drop the earlier edit.
 async function change(storage: Storage, edit: (s: Saved) => Saved): Promise<Result<'removeBook'>> {
   try {
-    const current = await load(storage);
-    state = edit(current);
+    await load(storage);
+    state = edit(state!);
     await persist(storage);
     return { ok: true };
   } catch (error) {

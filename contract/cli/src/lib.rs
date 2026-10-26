@@ -22,6 +22,8 @@ pub fn paint_row(a: &contract_syntax::Attr) -> bool {
     !rows.is_empty() && !rows.iter().any(|r| r.affects_layout())
 }
 mod declaration;
+/// A faced tool's signature and digest (LLP 1133.023 D8).
+pub mod faces;
 pub mod functions;
 pub mod gallery;
 mod grants;

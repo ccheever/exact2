@@ -194,6 +194,9 @@ pub fn compatibility_id_sources_with_entries(
     let mut owned = None;
     let entries = crate::icon_rules::entries(app_dir, entries, &mut owned)?;
     crate::icon_rules::apply(&mut compat, app_dir, plan.as_ref(), entries)?;
+    if let Some(plan) = &plan {
+        faces(&mut compat, plan, platform, target);
+    }
     if let Some(out) = std::env::var_os("OUT_DIR") {
         // What an Apple archive links is part of its cohort (LLP 1047.001
         // D2), named before anything binds the id.
@@ -211,6 +214,30 @@ pub fn compatibility_id_sources_with_entries(
         )?;
     }
     Ok(compat)
+}
+
+/// The faced tools this platform's binary compiles a door for (LLP 1133.023
+/// D8): each one's signature and face join the id, so a plan that changes
+/// one is a binary change. tvOS (an `ios` bake for a tvOS target) and the
+/// web compile none.
+fn faces(compat: &mut Compat, plan: &exact_plan::Plan, platform: &str, target: &str) {
+    let door = match platform {
+        _ if target.contains("tvos") => return,
+        "ios" | "macos" => "apple",
+        "android" => "android",
+        _ => return,
+    };
+    let faced: Vec<serde_json::Value> = (0..plan.tools.len())
+        .filter_map(|i| {
+            let face: serde_json::Value = serde_json::from_str(plan.str(plan.tools[i].face)).ok()?;
+            let doors = face["doors"].as_array()?;
+            doors.iter().any(|d| d == door).then(|| serde_json::json!({ "signature": contract::faces::tool_signature(plan, i), "face": face }))
+        })
+        .collect();
+    if !faced.is_empty() {
+        compat.inputs["faces"] = serde_json::json!(faced);
+        compat.id = compatibility_digest(&compat.inputs);
+    }
 }
 
 fn grant_union(javascript: &str, rust: &str) -> String {

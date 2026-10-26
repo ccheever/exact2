@@ -990,6 +990,13 @@ impl Plan {
         self.modules[i].substitute = id;
     }
 
+    /// Set tool row `i`'s face, the manifest's `intents` face for it as a
+    /// JSON object (LLP 1133.023 D8), after lowering.
+    pub fn set_tool_face(&mut self, i: usize, json: &str) {
+        let id = self.intern(json);
+        self.tools[i].face = id;
+    }
+
     /// The package view row of `tag`, if a package serves it.
     pub fn view_named(&self, tag: &str) -> Option<&ViewsRow> {
         self.views.iter().find(|v| self.str(v.tag) == tag)
