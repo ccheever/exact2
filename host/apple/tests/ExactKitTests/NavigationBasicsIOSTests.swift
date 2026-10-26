@@ -161,6 +161,31 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(hearsTouches(p.viewport) && !hearsTouches(p.documentMount), "light dismissal hears the document where it is")
     }
 
+    func testPageScrollDoesNotChangeRouteClearance() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "route clearance follows native bars independently of page scrolling")
+        }
+        let session = try fixture("page-scroll-clearance", plan: "EXACT_PUSHED_TITLE_PLAN"), p = session.presenter
+        // The visual policy keeps a route viewport that scrolls the route's whole page.
+        p.apply(wireBatch([["op": "props", "id": Int(try node(session, "app").id), "set": ["interactiveWidget": "resizes-visual"]]]))
+        try tapNode(session, "home-open-viewport")
+        XCTAssertEqual(Agent(session: session).clock(["settle": true])["settled"] as? Bool, true)
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let page = try XCTUnwrap(route.contentViewport)
+        bottomToolbar(nav, route, shown: true)
+        p.apply(wireBatch([["op": "content", "id": route.node.id, "w": route.node.bounds.width, "h": page.bounds.height + 200]]))
+        route.fitContentViewport()
+        let cover = try XCTUnwrap(p.navigation.covers[route.node.id]), clearance = route.bottomClearance
+        XCTAssertGreaterThan(clearance, 0)
+        XCTAssertGreaterThan(page.contentSize.height, page.bounds.height + 40)
+        page.setContentOffset(CGPoint(x: 0, y: 40), animated: false)
+        XCTAssertEqual(page.contentOffset.y, 40, accuracy: 0.5)
+        p.navigation.reportCovers()
+        XCTAssertEqual(p.navigation.covers[route.node.id], cover)
+        XCTAssertEqual(route.bottomClearance, clearance)
+    }
+
     func testVisualKeyboardInsetsRevealALowNativeRouteFieldWithoutAnInnerScroller() throws {
         guard hostedWindowScene() != nil else {
             throw missing("scene", "keyboard ownership requires the hosted app responder chain")

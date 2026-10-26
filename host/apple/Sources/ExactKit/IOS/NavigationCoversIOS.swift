@@ -93,9 +93,10 @@ extension NavigationHost {
             }
             if settled, c.viewIfLoaded?.window != nil {
                 let safe = c.view.safeAreaInsets
-                // Only what the route reaches of the bottom bars is covered:
-                // none once the keyboard ends it above them (`ownerFrame`).
-                let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
+                // The route's end with its page unscrolled: scrolling moves the route, not the bars.
+                // A route the keyboard shortens can end above the bars, with no bottom cover.
+                let end = c.node.convert(c.node.bounds, to: c.contentMount).maxY + (c.contentViewport?.frame.minY ?? 0)
+                let reached = end - (c.view.bounds.maxY - safe.bottom)
                 edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
                                         collapses: c.collapseScroll != nil || !c.ridingBars.isEmpty, reached: reached)
                 c.bottomClearance = edges?.bottom ?? 0
@@ -171,6 +172,11 @@ extension NavigationHost {
     /// persona switcher lay under the large title, drawn over by it and
     /// untappable (LLP 1116.006 D1).
     func deliverCovers() {
+        // A callback the runtime waits on can make no runtime call: deliver once it returns
+        if Owner.shared.isServingMain {
+            DispatchQueue.main.async { [weak self] in self?.deliverCovers() }
+            return
+        }
         var changes: [(UInt32, HostCover?)] = []
         for (id, cover) in covers where delivered[id] != cover { changes.append((id, cover)) }
         for id in delivered.keys where covers[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }

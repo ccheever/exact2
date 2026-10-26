@@ -160,6 +160,11 @@ the secondary editor's focus and draft, destination scroll restoration, and
 horizontal clearance during the gesture. The sheet's root refuses a native
 Back tap rather than targeting the stack behind it.
 
+The runtime refuses a host call made from a callback it waits on
+(`Owner.shared.callMain` inside `Owner.shared.sync`). To test a report made there,
+change the native state inside that pair, then wait for the runner to apply it
+(`testACoverFromAServedCallbackReachesTheRunner`, `testAReportWaitsForTheServedCallbackToReturn`).
+
 ## Browsers
 
 - **Launch Chromium through `chromium()`, never by a path.** It
