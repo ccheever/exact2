@@ -236,14 +236,24 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var authoredInert: Bool { inert(forAccessibility: false, blocked: false) }
     private func inert(forAccessibility: Bool, blocked: Bool = true) -> Bool {
         if blocked, forAccessibility ? presenter?.dialogs.accessibilityBlocks(self) == true : presenter?.dialogs.blocks(self) == true { return true }
-        var ancestor: NSView? = self
+        var ancestor: NSView? = self, walked: [ObjectIdentifier] = [], inert = false
         while let view = ancestor {
-            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
+            if let known = NodeView.hitInert?[ObjectIdentifier(view)] { inert = known; break }
+            walked.append(ObjectIdentifier(view))
+            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { inert = true; break }
             if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
             ancestor = presenter?.authoredSuperview(of: view) ?? view.superview
         }
-        return false
+        // Every view walked ends at the same answer, so a hit test asks each ancestor once.
+        if NodeView.hitInert != nil { for id in walked { NodeView.hitInert?[id] = inert } }
+        return inert
     }
+    /// The ancestor walk's answers while a hit test runs: it asks every node it visits whether it is
+    /// inert, and nothing that decides it changes until it returns. Without them a hit test in a long
+    /// list walked to the root from each node, most of the main thread's time while content scrolled
+    /// under the pointer.
+    static var hitInert: [ObjectIdentifier: Bool]?
+    static var hitDepth = 0
     /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
     var accessibilityHiddenByProp: Bool {
         sequence(first: self as NSView, next: { self.presenter?.authoredSuperview(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
@@ -752,6 +762,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // overflow and transformed or placed children still need the full walk.
         if overlay == nil, !frame.contains(point), (clipsToBounds || subviews.isEmpty),
            plane == nil { return nil }
+        NodeView.hitDepth += 1
+        if NodeView.hitDepth == 1 { NodeView.hitInert = [:] }
+        defer { NodeView.hitDepth -= 1; if NodeView.hitDepth == 0 { NodeView.hitInert = nil } }
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
