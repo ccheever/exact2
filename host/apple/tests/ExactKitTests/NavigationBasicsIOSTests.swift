@@ -215,10 +215,14 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertLessThanOrEqual(content.contentSize.width, content.bounds.width + 0.5, "the lifted header leaves no horizontal range")
         XCTAssertEqual(content.contentOffset, .zero)
         XCTAssertEqual(route.navigationItem.rightBarButtonItems?.count, 2)
-        try tapNode(session, "rail-share")
+        let share = try XCTUnwrap(route.navigationItem.rightBarButtonItems?.first { $0.accessibilityIdentifier == "rail-share" })
+        let target = try XCTUnwrap(share.target as? NSObject)
+        target.perform(try XCTUnwrap(share.action), with: share)
+        until("the projected Share action is delivered") { text(session, "rail-actions") == "Actions 1" }
         XCTAssertEqual(text(session, "rail-actions"), "Actions 1")
-        _ = Agent(session: session).back()
-        until("the starting route returns") { p.navigation.activeRoute?.node.props["testId"] == "route-start" && !p.navigation.inTransition }
+        let back = Agent(session: session).back()
+        XCTAssertNil(back["error"], "\(back)")
+        until("Rows returns") { p.navigation.activeRoute?.node.props["testId"] == "route-rows" && !p.navigation.inTransition }
         XCTAssertEqual(owner.convert(owner.bounds, to: window), allocation)
     }
 
