@@ -151,6 +151,11 @@
       "description": "What the app does, in a sentence: the web manifest's `description`, which an install prompt or a store listing can show.",
       "type": "string"
     },
+    "privacy_policy": {
+      "description": "The app's privacy policy, an https: URL: the one its App Store and Google Play listings name (LLP 1133.026 D4). HealthKit requires one, and Health Connect's permission screen links to it, so an app granting device.health-read without it is refused for Android (grant-privacy-policy) and warned for iOS.",
+      "type": "string",
+      "pattern": "^https://"
+    },
     "id": {
       "description": "The web app's identity (the web manifest's `id`); usually the same as `app.id`.",
       "type": "string"

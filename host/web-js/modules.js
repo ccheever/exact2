@@ -43,8 +43,17 @@ import { reach } from "./reach.js";
 // name; a wake's budget].
 export function modules(rows, bound = {}, views = {}, events = {}) {
   const byKey = new Map(), preferred = new Map(), permission = new Map(), held = [];
-  for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub, type, request, options, live });
-  const sampled = samples();
+  // A permission declared for other targets is no permission here (`targets`, LLP 1133.026 D19 item 2).
+  const onWeb = p => !Array.isArray(p?.targets) || p.targets.includes("web");
+  const here = sub => {
+    if (!sub || typeof sub !== "object") return sub;
+    const out = { ...sub };
+    if (out.permission && !onWeb(out.permission)) delete out.permission;
+    if (Array.isArray(out.permissionList)) out.permissionList = out.permissionList.filter(onWeb);
+    return out;
+  };
+  for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub: here(sub), type, request, options, live });
+  const sampled = samples(t => now() - clock.now + t);
   // The origin of the commit running now (LLP 1133.002 D12): the device's while an emitted event's handler runs, and,
   // since data code and an answer's commit cannot say which request they follow, while any request such a handler
   // made is still in flight (`deviceBase`, the in-flight count before it): the least privileged origin.

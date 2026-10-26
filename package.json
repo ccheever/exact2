@@ -43,6 +43,9 @@
     "@exact/search-index": "workspace:*",
     "@exact/attestation": "workspace:*",
     "@exact/age-range": "workspace:*",
-    "@exact/tracking-consent": "workspace:*"
+    "@exact/tracking-consent": "workspace:*",
+    "@exact/health": "workspace:*",
+    "@exact/pedometer": "workspace:*",
+    "@exact/altimeter": "workspace:*"
   }
 }

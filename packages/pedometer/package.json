@@ -1,0 +1,12 @@
+{
+  "name": "@exact/pedometer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The steps the device counted since a moment (LLP 1133.026 Part II).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

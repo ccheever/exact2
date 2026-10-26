@@ -7,6 +7,7 @@
       "dependencies": {
         "@exact/actions": "workspace:*",
         "@exact/age-range": "workspace:*",
+        "@exact/altimeter": "workspace:*",
         "@exact/attestation": "workspace:*",
         "@exact/background": "workspace:*",
         "@exact/browser": "workspace:*",
@@ -16,12 +17,14 @@
         "@exact/cards": "workspace:*",
         "@exact/contacts": "workspace:*",
         "@exact/geolocation": "workspace:*",
+        "@exact/health": "workspace:*",
         "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
         "@exact/passkeys": "workspace:*",
+        "@exact/pedometer": "workspace:*",
         "@exact/photos": "workspace:*",
         "@exact/quick-actions": "workspace:*",
         "@exact/reading": "workspace:*",
@@ -48,6 +51,10 @@
     },
     "packages/age-range": {
       "name": "@exact/age-range",
+      "version": "1.0.0",
+    },
+    "packages/altimeter": {
+      "name": "@exact/altimeter",
       "version": "1.0.0",
     },
     "packages/attestation": {
@@ -92,6 +99,10 @@
       "name": "@exact/geolocation",
       "version": "1.0.0",
     },
+    "packages/health": {
+      "name": "@exact/health",
+      "version": "1.0.0",
+    },
     "packages/language-model": {
       "name": "@exact/language-model",
       "version": "1.0.0",
@@ -114,6 +125,10 @@
     },
     "packages/passkeys": {
       "name": "@exact/passkeys",
+      "version": "1.0.0",
+    },
+    "packages/pedometer": {
+      "name": "@exact/pedometer",
       "version": "1.0.0",
     },
     "packages/photos": {
@@ -174,6 +189,8 @@
 
     "@exact/age-range": ["@exact/age-range@workspace:packages/age-range"],
 
+    "@exact/altimeter": ["@exact/altimeter@workspace:packages/altimeter"],
+
     "@exact/attestation": ["@exact/attestation@workspace:packages/attestation"],
 
     "@exact/background": ["@exact/background@workspace:packages/background"],
@@ -192,6 +209,8 @@
 
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 
+    "@exact/health": ["@exact/health@workspace:packages/health"],
+
     "@exact/language-model": ["@exact/language-model@workspace:packages/language-model"],
 
     "@exact/lists": ["@exact/lists@workspace:packages/lists"],
@@ -203,6 +222,8 @@
     "@exact/motion": ["@exact/motion@workspace:packages/motion"],
 
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
+
+    "@exact/pedometer": ["@exact/pedometer@workspace:packages/pedometer"],
 
     "@exact/photos": ["@exact/photos@workspace:packages/photos"],
 

@@ -32,7 +32,7 @@ use crate::failure::FailureCode;
 use crate::request::{Answer, Dispatch, Outcome, Reply, Request, Response, Work};
 use crate::HoldAnswer;
 use exact_plan::{ModulesRow, TypesId, Value};
-use serde_json::{json, Map, Value as Json};
+use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod admit;
@@ -45,11 +45,13 @@ mod events;
 mod fed;
 mod handles;
 mod invoke;
+mod keyed;
 mod permits;
 mod pictures;
 mod poll;
 mod presence;
 mod samples;
+mod values;
 mod views;
 mod wakes;
 pub use admit::CallOrigin;
@@ -60,6 +62,7 @@ pub use declared::AppState;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
 use std::sync::{Arc, Mutex};
+use values::{absent_is_none, fill};
 pub use wakes::WakeHow;
 pub(super) use wakes::TOLD;
 
@@ -76,6 +79,9 @@ pub(super) struct Extensions {
     preferred: BTreeMap<String, Json>,
     /// Each declared permission's state, by its name: `prompt` when absent.
     permission: BTreeMap<String, String>,
+    /// The facts a person's answer kept beside a state the platform hides
+    /// (`keyed.rs`): `shared` and `since`, by permission.
+    facts: BTreeMap<String, Json>,
     /// Requests held for the agent.
     held: Vec<Held>,
     /// Held requests answered, with whether the host has dispatched them.
@@ -495,7 +501,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn substitute(&self, row: &ModulesRow) -> Json {
-        serde_json::from_str(self.plan.str(row.substitute)).unwrap_or_default()
+        let mut sub = serde_json::from_str(self.plan.str(row.substitute)).unwrap_or_default();
+        self.this_target(&mut sub);
+        sub
     }
 
     /// The row of the name `declared` that `row`'s extension declares.
@@ -530,6 +538,9 @@ impl<D: DataSource> Runner<D> {
     /// What the runner's permission decides of `row` now: its status
     /// source's answer, a denial, or a ticket; `None` when it allows the call.
     fn decide_permission(&self, row: &ModulesRow, send: bool, args: &Json) -> Option<Decision> {
+        if let Some(each) = self.decide_each(row, send, args) {
+            return each;
+        }
         let sub = self.substitute_for(row, args);
         let permission = &sub["permission"];
         let name = permission["name"].as_str()?;
@@ -634,6 +645,9 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             return Decision::Hold(Waits::Check);
+        }
+        if !send && sub["counts"].is_object() {
+            return Decision::Now(self.counted(row, sub, args));
         }
         if !send {
             return Decision::Now(
@@ -791,6 +805,9 @@ impl<D: DataSource> Runner<D> {
         permission: &str,
         call: &Json,
     ) -> u64 {
+        if let Some(hold) = self.shared_hold(waits, permission) {
+            return hold;
+        }
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let checks = check_choices(&sub);
@@ -817,7 +834,11 @@ impl<D: DataSource> Runner<D> {
                 if let (Some(asks), true) = (asks, line.is_some()) {
                     args["asks"] = Json::Object(asks);
                 }
-                ("permission".to_owned(), args, &asked[..], false)
+                // A request asking several together names each (`keyed.rs`).
+                if self.is_each(row) {
+                    args["permissions"] = json!(permission.split(',').collect::<Vec<_>>());
+                }
+                ("permission".to_owned(), args, &asked[..], self.is_each(row))
             }
             Waits::Choose => (
                 sub["choose"]["ticket"]
@@ -1161,6 +1182,10 @@ impl<D: DataSource> Runner<D> {
             let typed = self.choose_typed(&row, &h.args, text);
             return Some(typed.map_err(|e| format!("@{ticket}: {e}")));
         }
+        if h.waits == Waits::Permission && self.is_each(&self.module_row(&h.source)) {
+            let typed = self.each_typed(&h.permission, text);
+            return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
+        }
         if h.waits != Waits::Value {
             return Some(Err(format!("@{ticket}: answered by tap, not type")));
         }
@@ -1220,10 +1245,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The agent answered hold `hold`, already spent: §6's transitions.
     pub(super) fn module_answered(&mut self, hold: u64, answer: &HoldAnswer) {
-        if self.effect_answered(hold, answer) {
-            return;
-        }
-        if self.effect_answered(hold, answer) {
+        if self.effect_answered(hold, answer) || self.each_answered(hold, answer) {
             return;
         }
         let Some(h) = self.extensions.held.iter().find(|h| h.hold == hold) else {
@@ -1444,47 +1466,4 @@ fn check_choices(sub: &Json) -> Vec<&'static str> {
         }
     }
     out
-}
-
-/// Set `path` (`coords.accuracy`) in `value` to `filler` where it is absent.
-fn fill(value: &mut Json, path: &str, filler: Json) {
-    let mut at = value;
-    let mut parts = path.split('.').peekable();
-    while let Some(part) = parts.next() {
-        let Some(object) = at.as_object_mut() else {
-            return;
-        };
-        if parts.peek().is_none() {
-            object.entry(part).or_insert(filler);
-            return;
-        }
-        at = object
-            .entry(part)
-            .or_insert_with(|| Json::Object(Map::new()));
-    }
-}
-
-/// A module's answer leaves out an option field it has nothing for (a
-/// platform's words where another platform answers, a declared default):
-/// absent is `none`, as an omitted word is (LLP 1133.002 D2).
-fn absent_is_none(json: &mut Json, shape: &exact_js_value::Shape) {
-    use exact_js_value::Shape;
-    match (json, shape) {
-        (Json::Object(map), Shape::Record(fields)) => {
-            for (name, field) in fields {
-                match map.get_mut(name) {
-                    Some(value) => absent_is_none(value, field),
-                    None if matches!(field, Shape::Option(_)) => {
-                        map.insert(name.clone(), Json::Null);
-                    }
-                    None => {}
-                }
-            }
-        }
-        (Json::Array(items), Shape::List(item)) => {
-            items.iter_mut().for_each(|v| absent_is_none(v, item))
-        }
-        (value, Shape::Option(inner)) if !value.is_null() => absent_is_none(value, inner),
-        _ => {}
-    }
 }

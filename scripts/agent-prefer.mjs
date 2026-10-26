@@ -22,8 +22,10 @@ export function preferGroups(facts) {
   const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
   for (const [given, value] of Object.entries(facts ?? {})) {
     const name = Object.keys(all).find(k => k === given || norm(k) === norm(given)) ?? given;
-    // A module's permission (LLP 1133.002 §6): `permission.geolocation granted|denied|prompt`.
-    if (/^permission\.[\w-]+$/.test(name) && ['granted', 'denied', 'prompt'].includes(String(value))) { (extension.permission ??= {})[name.slice(11)] = String(value); continue; }
+    // A module's permission (LLP 1133.002 §6): `permission.geolocation granted|denied|prompt`; one of a
+    // family (`permission.health.steps`), or a fact of one whose answer the platform hides (`shared=false`,
+    // `since=2026-10-01`, LLP 1133.026 D19 item 1).
+    if (/^permission\.[\w-]+(\.[\w-]+)*$/.test(name) && (['granted', 'denied', 'prompt'].includes(String(value)) || /^(shared=(true|false)|since=\d{4}-\d{2}-\d{2})$/.test(String(value)))) { (extension.permission ??= {})[name.slice(11)] = String(value); continue; }
     // A native module's source (LLP 1124 D7): `extension geolocation.watchPosition={…}`, `{"error":"CODE"}` or `clear`.
     if (name === 'extension') {
       const m = /^([\w-]+\.\w+)=(.+)$/s.exec(String(value));

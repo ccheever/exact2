@@ -151,6 +151,7 @@ impl<D: DataSource> Runner<D> {
             .filter(|m| {
                 self.asks_permission(m, name)
                     || self.statuses_of(m).iter().any(|p| p["name"] == name)
+                    || self.lists_permission(m, name)
             })
             .cloned()
             .collect();
@@ -190,14 +191,15 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             let fails = self.denial_fails(&self.substitute_for(&row, &args), &args);
+            // `unknown` (an answer the platform hides, `keyed.rs`) admits as
+            // `granted` does.
+            let admits = state == "granted" || state == "unknown";
             match (state, waits) {
-                ("granted", Waits::Permission) | ("denied", Waits::Permission)
-                    if state == "granted" || !fails =>
-                {
+                ("granted" | "unknown" | "denied", Waits::Permission) if admits || !fails => {
                     self.retire_hold(hold);
                     // A call that needs another permission too asks it next
                     // (`getUserMedia(audio=true, video=true)`, LLP 1133.009 D3).
-                    if state == "granted" && self.ask_next(&row, send, token, name, &args) {
+                    if admits && self.ask_next(&row, send, token, name, &args) {
                         continue;
                     }
                     let forward = (self.extensions.held.iter())

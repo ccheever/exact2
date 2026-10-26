@@ -471,6 +471,16 @@ impl<D: DataSource> Runner<D> {
     /// given that settles the call now: a denied one, else one still to ask,
     /// else the first (LLP 1133.008 D6, LLP 1133.009 D3).
     pub(in crate::runner) fn permission_of(&self, row: &ModulesRow, args: &Json) -> Json {
+        // A permission chosen by an argument's value, or the first still to
+        // ask of those a request asks together (`keyed.rs`).
+        if let Some(p) = self.permission_by_value(row, args) {
+            return p;
+        }
+        if let Some(names) = self.each_asked(row, args) {
+            let first =
+                (names.iter().find(|n| self.permission_state(n) == "prompt")).or(names.first());
+            return first.map_or(Json::Null, |n| self.declared_permission(n));
+        }
         let sub = self.substitute(row);
         // The first of the name's permissions whose grant line the app
         // declares (`"narrowest"`, LLP 1133.019 D4).
@@ -506,7 +516,10 @@ impl<D: DataSource> Runner<D> {
     /// `row`'s substitute with the permission a call with `args` asks.
     pub(in crate::runner) fn substitute_for(&self, row: &ModulesRow, args: &Json) -> Json {
         let mut sub = self.substitute(row);
-        if sub["permissionBy"].is_object() || sub["permissionAny"].is_array() {
+        if sub["permissionBy"].is_object()
+            || sub["permissionAny"].is_array()
+            || sub["permissionValue"].is_array()
+        {
             sub["permission"] = self.permission_of(row, args);
         }
         sub
@@ -514,6 +527,10 @@ impl<D: DataSource> Runner<D> {
 
     /// [`Self::permission_of`]'s name; empty for none.
     pub(in crate::runner) fn permission_name(&self, row: &ModulesRow, args: &Json) -> String {
+        // A request asking several together holds them all, comma-joined.
+        if let Some(names) = self.each_asked(row, args).filter(|_| row.send) {
+            return names.join(",");
+        }
         (self.permission_of(row, args)["name"].as_str())
             .unwrap_or_default()
             .to_owned()
@@ -522,6 +539,14 @@ impl<D: DataSource> Runner<D> {
     /// The permission `name` as `row` declares it.
     pub(in crate::runner) fn permission_named(&self, row: &ModulesRow, name: &str) -> Json {
         let sub = self.substitute(row);
+        // A name that asks by its arguments' values asks any of its own.
+        if sub["permissionValue"].is_array() || sub["permissionEach"].is_array() {
+            let p = self.declared_permission(name);
+            let own = (sub["permissionList"].as_array().into_iter().flatten())
+                .filter_map(|d| d["name"].as_str())
+                .any(|d| d == name || d.strip_suffix('*').is_some_and(|pre| name.starts_with(pre)));
+            return if own { p } else { Json::Null };
+        }
         let by = sub["permissionBy"].as_object().into_iter().flatten();
         let any = sub["permissionAny"].as_array().into_iter().flatten();
         (std::iter::once(&sub["permission"]).chain(by.map(|(_, p)| p)))
