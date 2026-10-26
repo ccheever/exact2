@@ -215,10 +215,13 @@ pub(crate) struct Taken<'a> {
 /// reported with its own reason, and each other is asked (`again`) what the
 /// folding makes of its lines, until a round adds no pin, refuses nothing
 /// and clears no token's lines (`settle`).
-/// A token that may be a dial's change (D14) is judged on its own, as its
-/// literal lines are only a fallback for when the dial cannot take it, which
-/// is known after (`export_dials::dials`): beside the others they would stand
-/// for an edit the proposal may not make (its dial unused, say).
+/// A token that may be a dial's change (D14) is not judged here: its literal
+/// lines are only a fallback for when the dial cannot take it, which is known
+/// after (`export_dials::dials`), and beside the others they would stand for
+/// an edit the proposal may not make (its dial unused, say). Their indices
+/// are returned, for [`settle_alone`] to judge one on its own if its dial
+/// falls back (theme2's ruling on the counts' round 2: the dial decided
+/// first, so N tokens a dial takes are no N checks of the design).
 pub(crate) fn rounds(
     names: &[String],
     planned: &mut [Planned],
@@ -226,7 +229,7 @@ pub(crate) fn rounds(
     current: &str,
     vocab: &Vocab,
     mut again: impl FnMut(&String, Taken) -> Planned,
-) {
+) -> Vec<usize> {
     let pending = |p: &Planned| match p {
         Planned::Kind(_, ops) => !ops.is_empty(),
         Planned::Colour { ops, why: None, .. } => !ops.is_empty(),
@@ -235,20 +238,45 @@ pub(crate) fn rounds(
     let (mut together, mut alone) = (Vec::new(), Vec::new());
     for (i, p) in planned.iter().enumerate() {
         match p {
-            Planned::Colour { dial: Some(_), .. } if pending(p) => alone.push(vec![i]),
+            Planned::Colour { dial: Some(_), .. } if pending(p) => alone.push(i),
             p if pending(p) => together.push(i),
             _ => {}
         }
     }
     let lines: Vec<&str> = current.split('\n').collect();
-    for set in std::iter::once(together).chain(alone) {
-        if crate::budget::spent().is_some() {
-            return;
-        }
-        settle(
-            &set, names, planned, cur, current, &lines, vocab, &mut again,
-        );
+    settle(
+        &together, names, planned, cur, current, &lines, vocab, &mut again,
+    );
+    alone
+}
+
+/// One token [`rounds`] left alone, judged on its own now that its dial falls
+/// back: one check of the design, charged to the re-import's budget (theme2's
+/// condition (3)); past it nothing is judged and the re-import is refused.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn settle_alone(
+    i: usize,
+    names: &[String],
+    planned: &mut [Planned],
+    cur: &Folding,
+    current: &str,
+    vocab: &Vocab,
+    mut again: impl FnMut(&String, Taken) -> Planned,
+) {
+    if crate::budget::spend(current.len() as u64).is_err() {
+        return;
     }
+    let lines: Vec<&str> = current.split('\n').collect();
+    settle(
+        &[i],
+        names,
+        planned,
+        cur,
+        current,
+        &lines,
+        vocab,
+        &mut again,
+    );
 }
 
 /// [`rounds`] for the tokens `set` (in that order).
