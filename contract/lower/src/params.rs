@@ -487,37 +487,94 @@ pub fn written_ranges(
     identities: &[String],
     vocab: &exact_tamber::Vocab,
 ) -> Vec<(u32, u32, LowerError)> {
-    let mut out = Vec::new();
-    for (index, entry) in design.params.iter().enumerate() {
-        let Ok(t) = resolve(params, identities, &entry.name.value) else {
-            continue;
-        };
-        if range(&t.param).is_none() {
-            continue;
+    let resolver = Resolver::new(params, identities);
+    // Each ranged line: its index, its param, and its values.
+    let ranged: Vec<(usize, &ParamToken, Vec<&exact_tamber::At<String>>)> = design
+        .params
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            let t = resolver.resolve(&entry.name.value).ok()?;
+            let _ = range(&t.param)?;
+            let values = std::iter::once(&entry.value).chain(entry.whens.iter().map(|w| &w.value));
+            Some((index, t, values.collect()))
+        })
+        .collect();
+    // One value of a line folded in its param's place, the rest of the
+    // design as written: the range errors at it.
+    let probe = |at: &[(usize, &exact_tamber::At<String>)]| {
+        let mut probe = design.clone();
+        for (index, v) in at {
+            probe.params[*index].value = (*v).clone();
+            probe.params[*index].whens.clear();
         }
-        let values = std::iter::once(&entry.value).chain(entry.whens.iter().map(|w| &w.value));
+        add_to(&mut probe, params, identities);
+        crate::theme::stand_in_profiles(&mut probe);
+        exact_tamber::check_design(probe, vocab).ok()
+    };
+    let errors = |t: &ParamToken, v: &exact_tamber::At<String>, folding: &exact_tamber::Folding| {
+        let span = Span {
+            line: v.line,
+            col: v.col,
+            end_col: v.col,
+            source_id: 0,
+        };
+        folded(std::slice::from_ref(t), folding, &[], Some(span))
+            .into_iter()
+            .filter(|e| matches!(e.id, "tamber-param-range" | "tamber-range-unit"))
+            .map(|e| (v.line, v.col, e))
+            .collect::<Vec<_>>()
+    };
+    let one = |index: usize, t: &ParamToken, v: &exact_tamber::At<String>| {
+        probe(&[(index, v)]).map_or(Vec::new(), |f| errors(t, v, &f))
+    };
+    // A line whose value names a param folds with what that param holds, so
+    // each of its values is folded alone; the others fold together, each
+    // line's k-th value in one probe, since no value reads another line (the
+    // checker's work in param counts: a fold of the design per value was
+    // values x the design).
+    let names: std::collections::HashSet<&str> = params
+        .iter()
+        .flat_map(|p| [p.token.as_str(), p.full.as_str()])
+        .chain(design.params.iter().map(|e| e.name.value.as_str()))
+        .collect();
+    let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '#');
+    let reads_a_param =
+        |v: &exact_tamber::At<String>| v.value.split(|c| !word(c)).any(|w| names.contains(w));
+    let (alone, together): (Vec<_>, Vec<_>) = ranged
+        .iter()
+        .partition(|(_, _, values)| values.iter().any(|v| reads_a_param(v)));
+    let mut out = Vec::new();
+    for (index, t, values) in &alone {
         for v in values {
-            let mut probe = design.clone();
-            probe.params[index].value = v.clone();
-            probe.params[index].whens.clear();
-            add_to(&mut probe, params, identities);
-            crate::theme::stand_in_profiles(&mut probe);
-            let Ok(folding) = exact_tamber::check_design(probe, vocab) else {
-                continue;
-            };
-            let span = Span {
-                line: v.line,
-                col: v.col,
-                end_col: v.col,
-                source_id: 0,
-            };
-            for e in folded(std::slice::from_ref(t), &folding, &[], Some(span)) {
-                if matches!(e.id, "tamber-param-range" | "tamber-range-unit") {
-                    out.push((v.line, v.col, e));
-                }
-            }
+            out.extend(one(*index, t, v));
         }
     }
+    let most = together
+        .iter()
+        .map(|(_, _, values)| values.len())
+        .max()
+        .unwrap_or(0);
+    for k in 0..most {
+        let at: Vec<(usize, &ParamToken, &exact_tamber::At<String>)> = together
+            .iter()
+            .filter_map(|(index, t, values)| Some((*index, *t, *values.get(k)?)))
+            .collect();
+        let placed: Vec<(usize, &exact_tamber::At<String>)> =
+            at.iter().map(|(i, _, v)| (*i, *v)).collect();
+        match probe(&placed) {
+            Some(folding) => at
+                .iter()
+                .for_each(|(_, t, v)| out.extend(errors(t, v, &folding))),
+            // One of them does not fold: each alone, as written (a value
+            // that does not fold is the fold's to say).
+            None => at
+                .iter()
+                .for_each(|(index, t, v)| out.extend(one(*index, t, v))),
+        }
+    }
+    // In the lines' order, each line's values in order, as before.
+    out.sort_by_key(|(line, col, _)| (*line, *col));
     out
 }
 
@@ -530,12 +587,13 @@ pub fn entry_errors(
     params: &[ParamToken],
     identities: &[String],
 ) -> Vec<(u32, u32, LowerError)> {
-    let mut seen: Vec<&str> = Vec::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut out = Vec::new();
+    let resolver = Resolver::new(params, identities);
     for entry in &design.params {
         let at = (entry.name.line, entry.name.col);
-        match resolve(params, identities, &entry.name.value) {
-            Ok(p) if seen.contains(&p.token.as_str()) => out.push((
+        match resolver.resolve(&entry.name.value) {
+            Ok(p) if seen.contains(p.token.as_str()) => out.push((
                 at.0,
                 at.1,
                 LowerError {
@@ -547,7 +605,7 @@ pub fn entry_errors(
                     span: Span::default(),
                 },
             )),
-            Ok(p) => seen.push(&p.token),
+            Ok(p) => drop(seen.insert(&p.token)),
             Err(e) if e.id == "tamber-param-ambiguous" => out.push((at.0, at.1, e)),
             Err(_) => {}
         }
@@ -565,10 +623,11 @@ pub fn unknown(
     identities: &[String],
     source_id: u32,
 ) -> Vec<LowerError> {
+    let resolver = Resolver::new(params, identities);
     design
         .params
         .iter()
-        .filter_map(|entry| match resolve(params, identities, &entry.name.value) {
+        .filter_map(|entry| match resolver.resolve(&entry.name.value) {
             Err(e) if e.id == "tamber-param-unknown" => Some(LowerError {
                 id: "tamber-param-unknown",
                 message: format!(
@@ -598,35 +657,80 @@ pub fn resolve<'a>(
     identities: &[String],
     name: &str,
 ) -> Result<&'a ParamToken, LowerError> {
-    use exact_tamber::params::{called, named, Unnamed};
-    let refuse = |id: &'static str, message: String| LowerError {
-        id,
-        message,
-        span: Span::default(),
-    };
-    let folds = folds(params, identities);
-    match named(&folds, name) {
-        Ok(p) => Ok(params
-            .iter()
-            .find(|q| q.token == p.token)
-            .expect("folds are params'")),
-        Err(Unnamed::Unknown) => Err(refuse(
-            "tamber-param-unknown",
-            format!("`{name}` is no component's param"),
-        )),
-        Err(Unnamed::Ambiguous) => {
-            let component = name.rsplit_once('.').map_or(name, |(c, _)| c);
-            Err(refuse(
+    Resolver::new(params, identities).resolve(name)
+}
+
+/// [`resolve`] for many names over one app's params: the folds, the
+/// names' index and the tokens by name made once (the checker's work in
+/// param counts: a fold of every param per name was params x names).
+pub struct Resolver<'a> {
+    folds: exact_tamber::params::Params,
+    index: exact_tamber::params::Index,
+    by_token: std::collections::HashMap<&'a str, &'a ParamToken>,
+}
+
+impl<'a> Resolver<'a> {
+    /// The resolver of `params` among the app's components (`identities`).
+    pub fn new(params: &'a [ParamToken], identities: &[String]) -> Self {
+        let mut by_token = std::collections::HashMap::new();
+        for q in params {
+            by_token.entry(q.token.as_str()).or_insert(q);
+        }
+        let folds = folds(params, identities);
+        Resolver {
+            index: exact_tamber::params::Index::new(&folds),
+            folds,
+            by_token,
+        }
+    }
+
+    /// Each param's first line in the design's `params` block, by its token
+    /// (one pass, where a scan of the lines per param was params x lines).
+    pub fn lines<'d>(
+        &self,
+        design: &'d exact_tamber::Design,
+    ) -> std::collections::HashMap<&'a str, &'d exact_tamber::Token> {
+        let mut out = std::collections::HashMap::new();
+        for e in &design.params {
+            if let Ok(p) = self.resolve(&e.name.value) {
+                out.entry(p.token.as_str()).or_insert(e);
+            }
+        }
+        out
+    }
+
+    /// As [`resolve`] answers.
+    pub fn resolve(&self, name: &str) -> Result<&'a ParamToken, LowerError> {
+        use exact_tamber::params::{called, Unnamed};
+        let refuse = |id: &'static str, message: String| LowerError {
+            id,
+            message,
+            span: Span::default(),
+        };
+        let folds = &self.folds;
+        match self.index.named(folds, name) {
+            Ok(p) => Ok(*self
+                .by_token
+                .get(p.token.as_str())
+                .expect("folds are params'")),
+            Err(Unnamed::Unknown) => Err(refuse(
+                "tamber-param-unknown",
+                format!("`{name}` is no component's param"),
+            )),
+            Err(Unnamed::Ambiguous) => {
+                let component = name.rsplit_once('.').map_or(name, |(c, _)| c);
+                Err(refuse(
                 "tamber-param-ambiguous",
                 format!(
                     "`{name}`: more than one component is called `{component}` ({}): name the param in full",
-                    called(&folds, component)
+                    called(folds, component)
                         .iter()
                         .map(|o| format!("`{o}`"))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
             ))
+            }
         }
     }
 }

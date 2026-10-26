@@ -310,3 +310,36 @@ fn a_short_name_is_a_components_a_text_has_an_identity_and_icons_fold() {
         .unwrap();
     assert_eq!(glyph["values"][0]["sf"], "heart");
 }
+
+/// Many ranged params, each given a value in the design's `params` block,
+/// build in moments: the lines resolved by one index and their values folded
+/// together, a probe per value index, not a fold of the design per value
+/// (the checker's work in param counts, Astra's round 1).
+#[test]
+fn many_ranged_params_set_by_the_design_build_in_moments() {
+    let n = 1500;
+    let mut src = String::from("component App\n  params\n");
+    for k in 0..n {
+        src += &format!("    p{k}: number = \"0.5\"  range=\"0..1\"\n");
+    }
+    src += "  view\n    column\n";
+    for k in 0..n {
+        src += &format!("      column opacity=\"param.p{k}\"\n        text \"x\"\n");
+    }
+    let mut design = String::from("tamber t\n\ntheme\n  accent.fill = #0a7aff\n\nparams\n");
+    for k in (0..n).rev() {
+        let v = if k == 7 { "2" } else { "0.7" };
+        design += &format!("  App.p{k} = {v}\n");
+    }
+    let path = app(
+        "many-ranged",
+        &[("app.contract", &src), ("app.tamber", &design)],
+    );
+    let began = std::time::Instant::now();
+    let built = contract::compile_path(&path);
+    let took = began.elapsed();
+    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
+    // `p7`'s value, out of its range, is refused as before.
+    let e = built.unwrap_err();
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+}

@@ -57,14 +57,18 @@ fn judged_on(base: &str, folding: Folding, members: &[&[Op]], vocab: &Vocab) -> 
 /// halving recurses, as deep as the members halve.
 fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
     let mut members: Vec<(usize, &[Op])> = members.to_vec();
+    let mut round = 0;
     loop {
-        // Each round a check of the whole design, charged to the
-        // re-import's budget (theme2's ruling on the batch's time): past it,
-        // nothing more is judged, and the re-import is refused in the
-        // budget's words, applying nothing (`reimport_against`).
-        if members.is_empty() || crate::budget::spend(at.text.len() as u64).is_err() {
+        // Each round after the first a check of the whole design again,
+        // charged to the re-import's budget (theme2's ruling on the batch's
+        // time; the first is the judging any batch does): past it, nothing
+        // more is judged, and the re-import is refused in the budget's
+        // words, applying nothing (`reimport_against`).
+        let spent = round > 0 && crate::budget::spend(at.text.len() as u64).is_err();
+        if members.is_empty() || spent || crate::budget::spent().is_some() {
             return;
         }
+        round += 1;
         let ops: Vec<Op> = members
             .iter()
             .flat_map(|(_, m)| m.iter().cloned())
@@ -97,6 +101,10 @@ fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
                 return;
             }
             Ok(_) => {
+                // Halving is rounds too.
+                if crate::budget::spend(at.text.len() as u64).is_err() {
+                    return;
+                }
                 let half = members.len() / 2;
                 take(at, &members[..half], vocab);
                 take(at, &members[half..], vocab);
@@ -231,6 +239,9 @@ pub(crate) fn rounds(
     }
     let lines: Vec<&str> = current.split('\n').collect();
     for set in std::iter::once(together).chain(alone) {
+        if crate::budget::spent().is_some() {
+            return;
+        }
         settle(
             &set, names, planned, cur, current, &lines, vocab, &mut again,
         );
@@ -256,6 +267,10 @@ fn settle(
     // or a token of another kind that has its values already), so the rounds
     // end; settled only on a round that moves nothing, never by a count.
     loop {
+        // Past the re-import's budget nothing more is settled (it is refused).
+        if crate::budget::spent().is_some() {
+            return;
+        }
         // Every member's lines are the proposal's, and every member is asked
         // what this round's folding makes of them: one settled in a round
         // before is asked again, as a pin added or a token dropped since may

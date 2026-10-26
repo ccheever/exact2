@@ -101,20 +101,22 @@ pub fn called<'a>(params: &'a Params, name: &str) -> Vec<&'a str> {
 /// [`named`] for many names at once: the params by full name and by short
 /// name (each the first), and how many components share each component
 /// name, made once (the checker's work in param counts: a scan per name
-/// was a square, a scan per param a cube).
-pub(crate) struct Index<'a> {
-    params: &'a Params,
-    full: HashMap<&'a str, usize>,
-    short: HashMap<&'a str, usize>,
-    sharing: HashMap<&'a str, usize>,
+/// was a square, a scan per param a cube). Owned, so a caller can keep it
+/// beside the [`Params`] it indexes.
+#[derive(Debug, Clone, Default)]
+pub struct Index {
+    full: HashMap<String, usize>,
+    short: HashMap<String, usize>,
+    sharing: HashMap<String, usize>,
 }
 
-impl<'a> Index<'a> {
-    pub(crate) fn new(params: &'a Params) -> Self {
+impl Index {
+    /// The index of `params`.
+    pub fn new(params: &Params) -> Self {
         let (mut full, mut short) = (HashMap::new(), HashMap::new());
         for (i, p) in params.list.iter().enumerate() {
-            full.entry(p.full.as_str()).or_insert(i);
-            short.entry(p.short()).or_insert(i);
+            full.entry(p.full.clone()).or_insert(i);
+            short.entry(p.short().to_string()).or_insert(i);
         }
         let identities: std::collections::BTreeSet<&str> = params
             .list
@@ -124,25 +126,24 @@ impl<'a> Index<'a> {
             .collect();
         let mut sharing = HashMap::new();
         for identity in identities {
-            *sharing.entry(component(identity)).or_insert(0) += 1;
+            *sharing.entry(component(identity).to_string()).or_insert(0) += 1;
         }
         Index {
-            params,
             full,
             short,
             sharing,
         }
     }
 
-    /// As [`named`] answers.
-    pub(crate) fn named(&self, name: &str) -> Result<&'a Param, Unnamed> {
+    /// As [`named`] answers, among the `params` this indexes.
+    pub fn named<'p>(&self, params: &'p Params, name: &str) -> Result<&'p Param, Unnamed> {
         if let Some(&i) = self.full.get(name) {
-            return Ok(&self.params.list[i]);
+            return Ok(&params.list[i]);
         }
         let Some(&i) = self.short.get(name) else {
             return Err(Unnamed::Unknown);
         };
-        let p = &self.params.list[i];
+        let p = &params.list[i];
         let owner = p.short().rsplit_once('.').map_or("", |(c, _)| c);
         match self.sharing.get(owner) {
             Some(1) => Ok(p),
@@ -202,7 +203,7 @@ pub fn laid(design: &Design, params: &Params) -> Design {
     let index = Index::new(params);
     let mut first: HashMap<&str, &Token> = HashMap::new();
     for e in &design.params {
-        if let Ok(q) = index.named(&e.name.value) {
+        if let Ok(q) = index.named(params, &e.name.value) {
             first.entry(q.token.as_str()).or_insert(e);
         }
     }
