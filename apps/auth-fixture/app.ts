@@ -12,7 +12,12 @@
 // fixture's relying party in the mutation that runs it (a challenge is
 // single-use, D9), and posts the response back; the plan sees `{ok,
 // message}` only, never a response, a challenge or a signature.
+//
+// "Check this build" (LLP 1133.028 §8.1): a challenge from the server,
+// `attest` over it, and the server's verdict, which is all the plan sees;
+// the token never leaves this file (D2).
 import type { Answer, Store } from './app.contract.d.ts';
+import { attest, resetAttestation } from '@exact/attestation';
 import { credentials, PublicKeyCredential } from '@exact/passkeys';
 
 export const appId = 'com.exact.authfixture';
@@ -30,7 +35,11 @@ export const grants = [
   // The fixture's relying party, and the web drive's (the page is a loopback one).
   'auth.passkey auth-fixture.exact.test',
   'auth.passkey localhost',
+  'device.attestation',
 ].join('\n');
+// The Google Cloud project Play Integrity bills (LLP 1133.020 §3.2);
+// unused on Apple.
+const CLOUD_PROJECT = '000000000000';
 // The RP ID: the app's origin natively; on the web the development page's,
 // a loopback one for this fixture, whose callback is an http(s) URL.
 const rpId = () => (/^https?:\/\//.test(authCallback()) ? 'localhost' : 'auth-fixture.exact.test');
@@ -230,6 +239,35 @@ async function passkeySignIn(store: Store, mediation?: 'conditional') {
   return signedInAs(store, done);
 }
 
+const errorName = (e: unknown) => String((e as any)?.name ?? (e as any)?.code ?? 'Error');
+
+// One attestation (or, with a key the server holds, an assertion) over a
+// fresh challenge, and what the server concluded. A `NetworkError` keeps
+// the key, so the same challenge is tried once more (D3).
+async function proveOnce(account: string | undefined) {
+  const { challenge } = await relyingParty('/attest/challenge', {});
+  const ask = () => attest({ clientData: challenge, account, android: { cloudProjectNumber: CLOUD_PROJECT } });
+  let proof, failure = '';
+  try { proof = await ask(); } catch (e) {
+    if (errorName(e) !== 'NetworkError') return { ok: false, unknown: false, message: `Failed: ${errorName(e)}` };
+    failure = `Failed: NetworkError; retried. `;
+    try { proof = await ask(); } catch (again) { return { ok: false, unknown: false, message: `${failure}Failed: ${errorName(again)}` }; }
+  }
+  const verdict = await relyingParty('/attest/verify', { ...proof, clientData: challenge });
+  return { ok: verdict.ok === true, unknown: verdict.error === 'unknown-key', message: failure + String(verdict.message) };
+}
+
+// On "unknown key" the key is forgotten here too and a new one attested.
+async function checkBuild(store: Store) {
+  const kept = store.get('fixture.session');
+  const account = kept ? String(JSON.parse(kept).handle) : undefined;
+  const first = await proveOnce(account);
+  if (!first.unknown) return { ok: first.ok, message: first.message };
+  await resetAttestation({ account });
+  const again = await proveOnce(account);
+  return { ok: again.ok, message: `Unknown key; reset. ${again.message}` };
+}
+
 export const answer: Answer = (source, args, store) => {
   switch (source) {
     case 'currentSession': return session(store) as never;
@@ -239,6 +277,7 @@ export const answer: Answer = (source, args, store) => {
     case 'signInWithPasskey': return passkeySignIn(store) as never;
     case 'suggestPasskey': return passkeySignIn(store, 'conditional') as never;
     case 'passkeyIdle': return { ok: true, message: '' } as never;
+    case 'checkBuild': return checkBuild(store) as never;
     case 'signOut':
       store.forget('fixture.session'); store.forget('fixture.pending'); store.forget('fixture.dpop');
       return { ok: true, message: 'Signed out' } as never;

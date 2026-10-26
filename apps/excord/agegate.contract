@@ -1,0 +1,39 @@
+// What covers an age-restricted channel until the reader confirms, as
+// Discord's clients do (LLP 1133.028 §8.2). The store's age range decides
+// which: under 18, or Play's unverified, the channel is not available and
+// nothing gets past; otherwise, including a declined request or no signal at
+// all (the web, Windows, an iOS older than 26), the confirmation alone.
+//
+// Excord asks for the range when the first age-restricted channel of a launch
+// opens (`openChannel`); its `ageGate` is "", "asked" or "confirmed".
+
+use AgeRange from "@exact/age-range"
+
+fn under(a: AgeRange): bool = a.status == "unverified" or (a.status == "sharing" and match a.upperBound { case some(u) => u < 18, case none => false })
+
+component AgeGate
+  props
+    age: option<AgeRange>
+    asking: bool
+    confirm: action
+    leave: action
+  derive blocked = match age { case some(a) => under(a), case none => false }
+  derive unverified = match age { case some(a) => a.status == "unverified", case none => false }
+  view
+    column position="absolute" inset=0 align-items="center" justify-content="center" gap=16 padding=24 background-color="-exact-background" testId="age-gate"
+      if asking
+        progress aria-label="Checking your age" testId="age-asking"
+      else if blocked
+        image "symbol:lock" font-size=44 color="-exact-secondary-label"
+        text "This Channel Isn’t Available" font="-exact-title3" role="heading" aria-level=2
+        text (unverified ? "Google Play needs you to finish verifying your age. Open the Play Store to verify it, then try again." : "This channel is age-restricted, and it isn’t available to people under 18.") text-align="center" color="-exact-secondary-label" testId="age-unavailable"
+        button press=leave testId="age-leave"
+          text "Go Back"
+      else
+        image "symbol:alert" font-size=44 color="-exact-secondary-label"
+        text "Age-Restricted Channel" font="-exact-title3" role="heading" aria-level=2
+        text "This channel may contain content that isn’t suitable for everyone. You must be 18 or older to view it." text-align="center" color="-exact-secondary-label" testId="age-confirmation"
+        button press=confirm buttonStyle="filled" testId="age-continue"
+          text "Continue"
+        button press=leave testId="age-leave"
+          text "Go Back"

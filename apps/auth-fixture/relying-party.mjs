@@ -30,7 +30,7 @@ const sha256 = async bytes => new Uint8Array(await crypto.subtle.digest('SHA-256
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /** One CBOR item at `at` (RFC 8949): unsigned and negative integers, byte and text strings, arrays, maps. */
-function cbor(bytes, at = 0) {
+export function cbor(bytes, at = 0) {
   const head = bytes[at], major = head >> 5, info = head & 31;
   let n, next = at + 1;
   if (info < 24) n = info;
@@ -50,7 +50,7 @@ function cbor(bytes, at = 0) {
 }
 
 /** Authenticator data (§6.1): the RP ID hash, flags, sign count, and the attested credential where `AT` is set. */
-function authData(bytes) {
+export function authData(bytes) {
   const flags = bytes[32], out = { rpIdHash: bytes.slice(0, 32), up: !!(flags & 1), uv: !!(flags & 4), at: !!(flags & 64),
     signCount: new DataView(bytes.buffer, bytes.byteOffset + 33, 4).getUint32(0) };
   if (out.at) {

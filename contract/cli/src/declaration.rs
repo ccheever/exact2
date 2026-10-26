@@ -421,9 +421,23 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         let many_ok = choose["many"].is_null()
             || (choose["many"].as_str()).is_some_and(|o| !object(&entry["options"])[o].is_null());
         let typed_ok = choose["typed"].is_null() || choose["typed"].is_boolean();
-        if !choose["ticket"].is_string() || !word_ok || !choices_ok || !many_ok || !typed_ok {
+        // A tap its status rules out (LLP 1133.028 §7): one of its `choices`,
+        // by a status source's field.
+        let listed =
+            |c: &str| (choose["choices"].as_array()).is_some_and(|l| l.iter().any(|x| x == c));
+        let unless_ok = choose["unless"].is_null()
+            || object(&choose["unless"]).iter().all(|(c, rule)| {
+                listed(c) && rule["status"].is_string() && rule["field"].is_string()
+            }) && choose["unless"].is_object();
+        if !choose["ticket"].is_string()
+            || !word_ok
+            || !choices_ok
+            || !many_ok
+            || !typed_ok
+            || !unless_ok
+        {
             return Err(format!(
-                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, and the option that allows `many`"
+                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, the option that allows `many`, and the choices its status rules out (`unless`)"
             ));
         }
     }

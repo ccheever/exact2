@@ -398,6 +398,32 @@ impl<D: DataSource> Runner<D> {
         Ok(())
     }
 
+    /// A sheet's taps besides `cancel` (LLP 1133.018 D13 item 4), less those
+    /// its `unless` rules out while a field of its status holds a value
+    /// (LLP 1133.028 §7: Apple's age sheet has no decline where the region
+    /// requires the signal), `{"decline": {"status", "field", "has"}}`, the
+    /// field a dotted path, a list holding the value or the value itself.
+    pub(super) fn sheet_choices(&self, row: &ModulesRow) -> Vec<String> {
+        let choose = &self.substitute(row)["choose"];
+        let ruled_out = |choice: &str| {
+            let rule = &choose["unless"][choice];
+            let Some(field) = rule["field"].as_str() else {
+                return false;
+            };
+            let status = (rule["status"].as_str())
+                .and_then(|s| self.sibling(row, s))
+                .and_then(|s| self.value_of(&s))
+                .unwrap_or_default();
+            let at = field.split('.').fold(&status, |v, k| &v[k]);
+            at == &rule["has"] || at.as_array().is_some_and(|a| a.contains(&rule["has"]))
+        };
+        (choose["choices"].as_array().into_iter().flatten())
+            .filter_map(Json::as_str)
+            .filter(|c| !ruled_out(c))
+            .map(str::to_owned)
+            .collect()
+    }
+
     /// Whether this target is one the name's declaration says it does not
     /// exist on (`unsupported`): it fails `NotSupportedError` there, under
     /// the agent too (LLP 1133.002 D14 step 2).

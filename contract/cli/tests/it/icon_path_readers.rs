@@ -188,7 +188,7 @@ fn walked(dir: &Path, out: &mut Vec<PathBuf>) {
         if path.is_dir() {
             if !matches!(
                 name.as_str(),
-                "target" | "node_modules" | "dist" | "web-dist"
+                "target" | "node_modules" | "dist" | "dist.gen" | "web-dist"
             ) && !name.starts_with('.')
             {
                 walked(&path, out);
