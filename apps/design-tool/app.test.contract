@@ -154,6 +154,51 @@ test "a commit's dry run is read again only when what a commit could take moves:
   request POST "/__stub/refuse-commit" {"why": ""} as ada
   request POST "/__stub/restart" {} as ada
 
+test "nothing is read for no one before the name; the dry commit is asked only once the run has written since its last commit, a write from before the tool opened included (stage 15 D1.6)"
+  // A write from before the tool's name: in the first answer's backlog, so the dry run is asked and Commit turns on.
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +3000
+  clock data
+  request POST "/__stub/asked" {"dry": false, "nameless": false} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/asked" {"dry": true} as ada
+  // Committed (by anyone): nothing is asked again until the next write, though a dry run would find an edit here.
+  request POST "/__stub/event" {"event": "committed", "client": "agent:codex", "commit": "c0ffee0123456789abcdef0123456789abcdef01", "files": ["app.tamber"], "edits": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  request POST "/__stub/asked" {"dry": false} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/asked" {"dry": true} as ada
+  request POST "/__stub/restart" {} as ada
+
+test "a new run that has written nothing asks no dry commit (the hands-on pass's 400 on every load)"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  request POST "/__stub/asked" {"dry": false, "nameless": false} as ada
+
 test "a name ending in a colon is a client like any other: its dry run is read and Commit turns on"
   type "name" "Ada:"
   tap "save-name"

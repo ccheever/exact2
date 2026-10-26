@@ -368,7 +368,7 @@ let polls = 0, resync = true, polled = '', seeded = '';
 // The changes' poll (stage 14 D): `reread`, a reply the long poll could not fold alone (a coalesced one, from
 // another cursor, or starting again), so the next ask reads once by POST; its answers' common part.
 let reread = false, byCursor = false, taken: unknown = null; // (`byCursor`: the server speaks 1.17's GET long poll; an older one keeps the held POST; `taken`, the last answer's cursor folded, opaque)
-const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), reloading: [...goneNow.values()], reloadGen: goneGen, ...refusalRows(buildsNow.values()) });
+const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold} ${written}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), reloading: [...goneNow.values()], reloadGen: goneGen, ...refusalRows(buildsNow.values()) });
 /** One reply of the long poll (wire.ts `longPoll`), folded as it comes, or the poll's end (`ok: false`, asked again
  * after 3 s). A reply that names another cursor than the last folded, or carries others folded into it (D4's
  * coalescing keeps the newest), or starts again (missed, another run), is read again once by POST instead, which
@@ -457,7 +457,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // Where the changes start from: the files as the poll has them when it
   // starts again (the first answer, a gap it says it missed, a new run).
   const anew = !epoch || r.missed || (place.epoch && r.epoch !== place.epoch);
-  if (anew) { lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; clientMoves += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
+  if (anew) { written = r.missed === true; lastFiles = (r as { files?: Record<string, string> }).files ?? {}; fileChanges += 1; clientMoves += 1; if (r.missed) mine.length = 0; scrubsOpen.clear(); }
   // A gap in this run: said in the list, which is no longer complete.
   if (epoch && r.missed && r.epoch === place.epoch) {
     changeset.unshift({ seq: Number(r.seq ?? 0), who: '', acceptedBy: '', write: 0, changed: [], files: [], before: {}, after: {}, mine: false, diff: '', values: new Map(), committed: false, gap: true });
@@ -475,6 +475,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     if (e.event === 'paired' || e.event === 'revoked') clientMoves += 1;
     if (e.event === 'scrub') { scrubMoves += 1; if (e.reason === 'opened') scrubsOpen.add(String(e.scrub)); else scrubsOpen.delete(String(e.scrub)); if (scrubsOpen.size > 64) scrubsOpen.delete(scrubsOpen.values().next().value!); }
     if (e.event === 'changed' && e.files) filesAt = e.files;
+    if (e.event === 'changed' || e.event === 'committed') written = e.event === 'changed';
     // Each as it comes, so a reload told in one answer still ends a
     // selection (a build that went keeps its inspect mode at the server,
     // which tells it again when it is back).
@@ -574,6 +575,10 @@ let lastFiles: Record<string, string> = {};
 let fileChanges = 0;
 // Commits told (with fileChanges, what moves while a scrub is open).
 let commitsTold = 0;
+// Whether this run of the server has written since its last commit, as its events tell it (stage 15 D1.6): the dry
+// commit is asked only then, a write from before the tool opened (the first answer's backlog) included; a first answer
+// that missed some of the run can't say, so it asks.
+let written = false;
 // The scrubs open on the server, any client's, as its events tell them:
 // while one is, a build's status or a frame re-reads nothing.
 const scrubsOpen = new Set<string>();
@@ -1159,6 +1164,9 @@ const sources: Sources = {
     // its pins live only while it is (LLP 1122 D4).
     // A poll another has replaced (a new name starts one) changes nothing
     // when it answers: the newer one reads the same events.
+    // None for no one (`design-tool:`, before the name: the tool asks it first and shows nothing else), and no answer
+    // counted, so nothing asks again until the name comes (stage 15 D1.6).
+    if (client === 'design-tool:') return { ok: true, error: '', missed: false, stream: false, ...changesState() };
     const gen = ++polls;
     // Another name is another client: what this tool inspects is read again.
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
@@ -1238,8 +1246,8 @@ const sources: Sources = {
     // What a commit would take now (a dry run, of the run the poll is on), so Commit is on when there is something,
     // writes from before the tool opened among them, a refusal to say, or no answer (it says why when pressed).
     // Read again only when the files move, a commit is told or the server starts again; never for no one
-    // (`design-tool:`, before the name).
-    if (!client || client === 'design-tool:') return { open: 0, refused: false, unavailable: false };
+    // (`design-tool:`, before the name), nor while this run has nothing written since its last commit.
+    if (!client || client === 'design-tool:' || !written) return { open: 0, refused: false, unavailable: false };
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);
