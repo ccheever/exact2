@@ -150,3 +150,13 @@ test('resource declarations require the state reply’s own plan digest', async 
   expect(identifyResources(reply('old'), maps).resourceStatus.inbox.declaration.status).toBe('unavailable');
   expect(identifyResources(reply(undefined), maps).resourceStatus.inbox.declaration.status).toBe('unavailable');
 });
+
+test('resource declarations refuse incomplete or malformed source spans', async () => {
+  const {identifyResources} = await import('./agent-inspect.mjs');
+  const valid = {file:'app.contract', line:7, col:3, end_col:8, component:'App'};
+  for (const bad of [{end_col:undefined}, {end_col:2}, {end_col:3.5}, {component:undefined}, {line:Number.MAX_SAFE_INTEGER+1}]) {
+    const maps = {get: () => ({resources:{inbox:{...valid,...bad}}})};
+    const reply = {planDigest:'same',resourceStatus:{inbox:{resource:1,source:'Inbox'}}};
+    expect(identifyResources(reply, maps).resourceStatus.inbox.declaration.status).toBe('unavailable');
+  }
+});
