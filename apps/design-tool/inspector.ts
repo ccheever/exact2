@@ -84,13 +84,15 @@ function libraryOf(library: any, partsOf: (identity: string) => { name: string; 
 /** The selection as the inspector shows it: each row's source, and its edit
  * on the branch that won for the copy (D6: its modes' column and scheme), its
  * token link or why it is read-only; nothing to do while stale. */
-export function selectionView(s: Selected | null, stale: string, axes: Axis[], columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '', partsOf: (identity: string) => { name: string; slot: boolean }[] | null = () => null) {
+export function selectionView(s: Selected | null, stale: string, read: Axis[] | null, columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '', partsOf: (identity: string) => { name: string; slot: boolean }[] | null = () => null) {
   if (!s) return { ...noSelection, inspecting };
-  const e = s.e, dark = s.scheme === 'dark';
+  // (`read`: the app design's axes, null until its first read; a design that declares none has an empty list, and its
+  // copies sit on its light or dark column, stage 15 D4's batch 1 #1.)
+  const axes = read ?? [], e = s.e, dark = s.scheme === 'dark';
   // On a light copy an under-dark axis is its default; any other the copy
   // names. With no axes read yet, or one it does not name, it is not placed.
   const values = axes.map(a => (dark || a.under !== 'dark' ? e.tuple?.[a.name] : a.values[0]));
-  const col = s.scheme && axes.length && values.every(v => v != null) ? columns.find(c => c.dark === dark && c.values.every((v, i) => v === values[i])) : undefined;
+  const col = s.scheme && read && values.every(v => v != null) ? columns.find(c => c.dark === dark && c.values.every((v, i) => v === values[i])) : undefined;
   const at = (x: any, file = String(x?.file)) => x ? `${file}:${x.line} · ${x.component}` : '';
   const usable = !stale && !!col;
   const shown = holdView(e, holding, note, !!stale);
@@ -116,7 +118,7 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     // (Not current for the page itself, latched apart from the rows' staleness: a move up is refused then. The Apple
     // pass's #5, #6.)
     pageStale: s.pageStale ?? '',
-    has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
+    has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !read ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
     source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: at(x), up: i + 1, component: String(x?.component ?? '') })), component: String(e.source?.component ?? ''), movedUp: Number.isSafeInteger(e.moved?.up) ? e.moved.up : -1, movedStepped: Number.isSafeInteger(e.moved?.stepped) ? e.moved.stepped : -1, modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
     // A node of an exported library component's own view (stage 12 D4, LLP 1139 D5): the component by its declaring
     // identity, the part this node is or none, and its parts as the server lists them, this one and the slot's marked.

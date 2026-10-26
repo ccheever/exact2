@@ -61,6 +61,9 @@ const classOf = (ops: { name?: string; op?: string }[]) => ops.some(o => o.op ==
 // (`/__stub/reverse-axes`): describe says so from then on. `describe`
 // refused (an event's `refuseDescribe`), so a test sees whether the tool
 // reads the design again.
+// A design that declares no axes (`/__stub/no-axes`, stage 15 D4 batch 1 #1): describe names none and each token
+// resolves at its one tuple.
+let noAxes = false;
 let LIVE = false, refuseRelease = '', previewMs = 0, reversed = false, refuseDescribe = '', describePasses = 0;
 const changedOf = (ops: { name?: string }[]) => ops.map(o => ({ file: 'app.tamber', token: o.name }));
 // A run's sessions (a restart starts their ids again, as a new server's do).
@@ -353,7 +356,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) };
+      if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}), ...(noAxes ? { axes: [] } : {}) };
         if (PACKAGED) ir.components = [...ir.components, ...PACKAGED.components];
         // (surface.card's dark side, which moves with app.tamber below, is in its entry too, as a server's describe folds it.)
         if (FILES['app.tamber'] !== 'a'.repeat(64)) ir.tokens = ir.tokens.map((t: { name: string; values: string[] }) => (t.name === 'surface.card' ? { ...t, values: t.values.map(() => `light-dark(#f1f3f5ff, #${FILES['app.tamber'].slice(0, 6)}ff)`) } : t));
@@ -362,7 +365,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (Object.keys(LIBRARY).length) { const known = ir.components.map((c: { identity: string }) => c.identity); ir.components = [...ir.components.map((c: { identity: string }) => (LIBRARY[c.identity] ? { ...c, ...LIBRARY[c.identity] } : c)), ...Object.entries(LIBRARY).filter(([id]) => !known.includes(id)).map(([identity, l]) => ({ identity, params: [], ...l }))]; } return send({ ok: { ...DIALS.describe, ir, files: FILES, ...(PACKAGED?.base ? { base: PACKAGED.base } : {}) } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
-      const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
+      const order = (tuples: { modes: Record<string, string> }[]) => noAxes ? tuples.slice(0, 1).map(t => ({ ...t, modes: {} })) : !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
       // A package param's resolve, its tuples' winning level and name (stage 12 B2-levels), as the test gives them.
       // (Each of the design's tuples, by its modes as a token's resolve gives them, its level the test's in turn: one given
       // as a string is both sides', as `{light, dark}` each side's.)
@@ -549,7 +552,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       longPolls = false; skipCursor = false; refuseHello = false; beat = LONG_POLL_MS;
       heldAnswer = null;
       BUILDS = [];
-      reversed = false;
+      reversed = false; noAxes = false;
       refuseDescribe = '';
       pins = 0;
       present.clear();
@@ -641,6 +644,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
       previewMs = Number((await req.json().catch(() => ({}))).ms ?? 0);
+      return send({ ok: true });
+    },
+  },
+  '/__stub/no-axes': {
+    POST: (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      noAxes = true;
       return send({ ok: true });
     },
   },

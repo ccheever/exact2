@@ -1245,3 +1245,25 @@ test "a refused inspect is said in the inspector, three at most, and goes when i
   clock data
   expect text "inspect-toggle" == "Stop inspecting"
   expect tree missing "inspect-refused-web-2"
+
+test "a design that declares no mode axes is read, not 'not read yet': its copy sits on its light column and its rows offer their edits (stage 15 D4 batch 1 #1)"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/no-axes" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  expect text "inspect-toggle" == "Stop inspecting"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-build" == "web-1 · Light"
+  expect tree missing "selection-stale"
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  request POST "/__stub/restart" {} as ada

@@ -344,7 +344,7 @@ const sameHold = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.
 /** A build's hold moved (another, or none): the selection's held report
  * was of the last one, so it is asked for again under this one. */
 const forgetHeld = (id: string) => { if (selectionNow?.e.held && String(selectionNow.e.build) === id) selectionNow.e = { ...selectionNow.e, held: undefined }; };
-let designAxes: Axis[] = [];
+let designAxes: Axis[] = [], axesRead = false;
 // Each library component's parts, by its declaring identity, as the app design's newest describe lists them (stage
 // 12 D3, LLP 1139 D5): the inspector's part outline. Empty until the server says them.
 let libraryParts = new Map<string, { name: string; slot: boolean }[]>();
@@ -858,7 +858,7 @@ const sources: Sources = {
       // Overtaken: never shown, so nothing to keep.
       if (number === issued) {
         // The app design's axes, of the newest read only.
-        if (axesAt === axesReads) designAxes = axes;
+        if (axesAt === axesReads) { designAxes = axes; axesRead = true; }
         if (partsAt === partsReads) libraryParts = partsFrom(ir);
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir), levelParams: read.params ?? [] });
         if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; appKinds = snapshots.get(number)!.kinds; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
@@ -1384,7 +1384,7 @@ const sources: Sources = {
     const ir = (reply?.ok as { ir?: { axes?: Axis[] } } | undefined)?.ir, axes = error ? [] : (ir?.axes ?? []);
     // Also the axes a selection is placed by, while this file is open; and its library components' parts, of the
     // newest of these reads (the open file's own reads move `axesReads`, never the parts).
-    if (!error && axesAt === axesReads) designAxes = axes;
+    if (!error && axesAt === axesReads) { designAxes = axes; axesRead = true; }
     if (!error && partsAt === partsReads) libraryParts = partsFrom(ir as Parameters<typeof partsFrom>[0]);
     return { axes: axes.map(a => ({ name: a.name, values: a.values })), answer: ++appReads };
   },
@@ -1401,7 +1401,7 @@ const sources: Sources = {
     }
     latch();
     const b = selectionNow ? buildsNow.get(String(selectionNow.e.build)) : undefined;
-    const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '', id => libraryParts.get(id) ?? null);
+    const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', axesRead ? designAxes : null, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '', id => libraryParts.get(id) ?? null);
     const shown = view();
     // Held here and the selection not reporting that state yet (none, or an
     // earlier hold's): its page is asked to report it again, once a hold.
