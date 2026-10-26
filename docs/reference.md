@@ -1871,7 +1871,8 @@ refuses `ENOENT`). The comparison and the write are queued together but are
 not one atomic step; what they close is the time an editor spends editing.
 Read the new file and let the person choose.
 
-**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS). An
+**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS, and
+Linux in a desktop session). An
 app granted `doc.keep` keeps exactly what the person chose — a file or folder
 from a picker, Finder, ⌘O, Open Recent, the command line or a drop; never a
 typed path, a followed link, or a route's folder — and its `doc:/<n>/<name>`
@@ -1893,11 +1894,18 @@ requests (`apps/markdown/data`). A kept item is the object chosen: a move
 or rename is followed and keeps its path (`<name>` is the name it was
 chosen by); a file another program replaced at its name is not the
 document, and the app's own `atomicWriteFile` carries the entry to the file
-it wrote (from Rust; not yet from TypeScript). A path whose entry is gone
+it wrote, from Rust or TypeScript. A path whose entry is gone
 refuses `ENOENT`: ask the person to choose again. Without `doc.keep`
-both calls are refused. Under the agent the kept set is the drive's scratch
-store (`--storage`), never the person's. Linux and iOS keep nothing yet and
-list nothing; the web has neither call yet.
+both calls are refused. Under the agent on a Mac the kept set is the
+drive's scratch store (`--storage`), never the person's.
+
+On Linux the list is the desktop's recent files (`recently-used.xbel`),
+each entry marked with the app's id, and the person clears it there. The
+path is the handle: a kept document moved, or replaced at its path, is
+forgotten rather than followed. Only a desktop session keeps anything; a
+headless run, a drive and the DRM kiosk keep and list nothing. The Linux
+host has no file chooser of its own yet, so today nothing there is chosen
+to keep. iOS keeps nothing; the web has neither call yet.
 
 ### Files dropped or pasted
 

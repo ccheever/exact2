@@ -141,6 +141,11 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     const left = (await storage.fs.recentDocuments()).length;
     return {text: [listed.map((d) => `${d.path} ${d.kind} ${d.mode}`).join(","), left, again].join(" | ")};
   }
+  // LLP 1069.010.000 D4: the app's own atomic save of a kept file.
+  if (op === "kept-save") {
+    await storage.fs.atomicWriteFile(value, new TextEncoder().encode("saved"));
+    return {text: (await storage.fs.recentDocuments()).map((d) => d.path).join(",")};
+  }
   // LLP 1069.010.000 D1, D2a: the answer watches a chosen file and its
   // folder, and a write that expects a stale stat is refused.
   if (op === "doc-watch") {

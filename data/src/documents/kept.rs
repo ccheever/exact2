@@ -168,7 +168,7 @@ struct Store {
 
 static STORES: Mutex<BTreeMap<Arc<str>, Store>> = Mutex::new(BTreeMap::new());
 
-type Forgotten = Arc<dyn Fn(Identity) + Send + Sync>;
+type Forgotten = Arc<dyn Fn(Identity, &Path) + Send + Sync>;
 static FORGOTTEN: Mutex<Option<Forgotten>> = Mutex::new(None);
 
 fn stores() -> MutexGuard<'static, BTreeMap<Arc<str>, Store>> {
@@ -512,12 +512,13 @@ pub fn forget(owner: u64, path: &str) -> std::io::Result<()> {
     told(listeners);
     let hook = FORGOTTEN.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if let Some(hook) = hook {
-        hook(r.identity);
+        hook(r.identity, &r.path);
     }
     Ok(())
 }
 
-/// Where the host takes a document the app forgot: off the platform's list.
+/// Where the host takes a document the app forgot off the platform's list:
+/// told the object it was and where it was last found.
 pub fn on_forgotten(hook: Forgotten) {
     *FORGOTTEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(hook);
 }
@@ -554,6 +555,7 @@ pub fn before_write(owner: u64, path: &str) -> Option<Replaced> {
 }
 
 /// The kept files an atomic write is replacing, and where it writes.
+#[derive(Clone)]
 pub struct Replaced {
     kept: Vec<u64>,
     directory: Arc<std::fs::File>,

@@ -173,7 +173,7 @@ fn documents<D: exact_runner::DataSource>(
 /// The Swift host's hook for a document the app forgot (`forgetDocument`):
 /// it takes the object off `NSDocumentController`'s recents.
 pub fn on_forgotten(forgotten: extern "C" fn(u64, u64)) {
-    kept::on_forgotten(Arc::new(move |identity| {
+    kept::on_forgotten(Arc::new(move |identity, _| {
         forgotten(identity.device, identity.inode)
     }));
 }

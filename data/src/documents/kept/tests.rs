@@ -204,7 +204,7 @@ fn the_platforms_list_and_the_apps_forget_drop_an_entry_and_its_own_save_keeps_i
 
     let forgotten = Arc::new(Mutex::new(Vec::new()));
     let into = forgotten.clone();
-    on_forgotten(Arc::new(move |identity| {
+    on_forgotten(Arc::new(move |identity, _| {
         into.lock().unwrap().push(identity)
     }));
     forget(7522, &b).unwrap();

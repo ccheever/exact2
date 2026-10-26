@@ -50,6 +50,9 @@ exact-runner = { path = "../../runner" }
 # conformance's network runs this host over (src/executor.rs).
 ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket", "portable-http"] }
 sha2 = "0.10"
+# The freedesktop recent-files store a kept document is noted in (src/kept.rs);
+# fontconfig-parser already links it.
+roxmltree = "0.20"
 # A remote image's redirects resolve and lose their credentials here (src/image/remote.rs).
 url = "2.5"
 serde = { version = "1.0", features = ["derive"] }

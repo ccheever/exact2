@@ -26,6 +26,7 @@ pub(crate) struct DocWatch {
 // Read by the inotify thread, which only Linux has.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 struct Shared {
+    owner: u64,
     watches: Mutex<Vec<Watched>>,
     folders: Mutex<HashMap<i32, PathBuf>>,
     native: exact_runner::Native,
@@ -34,6 +35,11 @@ struct Shared {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl Shared {
     fn changed(&self, path: &Path) {
+        // The person cleared or changed the desktop's recent files (LLP
+        // 1069.010.000 D6).
+        if crate::kept::is_store(path) {
+            crate::kept::recheck(self.owner);
+        }
         let topics: Vec<String> = self
             .watches
             .lock()
@@ -83,6 +89,7 @@ impl DocWatch {
         Self {
             owner,
             shared: Arc::new(Shared {
+                owner,
                 watches: Mutex::new(Vec::new()),
                 folders: Mutex::new(HashMap::new()),
                 native,
@@ -108,6 +115,8 @@ impl DocWatch {
             })
             .collect();
         let mut folders = BTreeSet::new();
+        // The recent-files store's folder, where the app keeps documents.
+        folders.extend(crate::kept::watched_folder());
         for w in &now {
             folders.insert(w.folder.clone());
             if w.recursive && w.real.is_dir() {
