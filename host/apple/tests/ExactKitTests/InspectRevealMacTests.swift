@@ -6,7 +6,7 @@ import XCTest
 /// An outline brings the selection's own copy into view (Apple pass #2; Inspect.revealing): over a real session, a
 /// feed of twelve posts scrolled to one, a selection there and its move up leave the feed where it is; that copy
 /// scrolled away is brought back, not another; with no selection the first copy is, as before; and a held selection
-/// whose copy shows nowhere scrolls nothing. (A move's outline carries no click token, nor does a click the build
+/// whose copy shows nowhere (hidden, or CSS `visibility: hidden`) scrolls nothing. (A move's outline carries no click token, nor does a click the build
 /// didn't take itself: each scrolled the feed to another copy, rows away.)
 final class InspectRevealMacTests: XCTestCase {
     private func plan(_ source: String) throws -> (plan: Data, copies: [Int]) {
@@ -128,6 +128,11 @@ final class InspectRevealMacTests: XCTestCase {
         outline(glyph)
         XCTAssertEqual(top(), still, accuracy: 0.5, "no other copy is scrolled to")
         glyphs[k].isHidden = false
+        // CSS `visibility: hidden` (its box kept, nothing drawn) shows nowhere too (Astra's round 2).
+        glyphs[k].style["visibility"] = .string("hidden")
+        outline(glyph)
+        XCTAssertEqual(top(), still, accuracy: 0.5, "a CSS-hidden copy is scrolled to no more than a hidden one")
+        glyphs[k].style["visibility"] = nil
         // (d) No selection (the tool's Outline of a token's uses): the first copy that shows, as before.
         Inspect.set(true, seq: 10)
         XCTAssertNil(Inspect.selected)
