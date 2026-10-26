@@ -7,10 +7,12 @@ import ExactKit
 import UIKit
 
 /// What a custom row draws as a standard cell would: the leading symbol it
-/// marked (`NodeView.listSymbol`) and where its line started when last
-/// carried, to know when it moves.
+/// marked (`NodeView.listSymbol`), what it presses, marked as a cell's
+/// (`NodeView.listRow`), and where its line started when last carried, to
+/// know when it moves.
 struct CustomLook {
     weak var symbol: NodeView?
+    weak var press: NodeView?
     var line: CGFloat?
 }
 
@@ -31,6 +33,12 @@ extension GroupedListView {
     /// carried as a cell shows, at the next projection sync).
     func look(_ id: UInt32, row: NodeView) {
         mark(id, leadingSymbol(of: row))
+        let press = row.props["swipeContent"].flatMap { swipeBody(of: row, named: $0) } ?? row
+        if customLooks[id]?.press !== press {
+            customLooks[id]?.press?.listRow = false
+            press.listRow = true
+            customLooks[id]?.press = press
+        }
         let line = lineStart(id)
         if customLooks[id]?.line != line { customLooks[id]?.line = line; resized = true }
     }
@@ -64,7 +72,9 @@ extension GroupedListView {
     /// The row is no custom row now, is gone, or the list is going: its
     /// mark goes.
     func forgetLook(_ id: UInt32) {
-        customLooks.removeValue(forKey: id)?.symbol?.listSymbol = false
+        let look = customLooks.removeValue(forKey: id)
+        look?.symbol?.listSymbol = false
+        look?.press?.listRow = false
     }
 
     /// The row's first shown child when it is the sheet's leading symbol: a

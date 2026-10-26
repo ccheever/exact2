@@ -1376,9 +1376,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let node = host.presenter.views[id]
         cell.accessibilityLabel = node?.props["accessibilityLabel"]
             ?? [row.title, row.secondary].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
-        let link = node?.props["accessibilityRole"] == "link"
         cell.accessibilityTraits.remove([.button, .link, .selected])
-        if row.pressable { cell.accessibilityTraits.insert(link ? .link : .button) }
+        if row.pressable { cell.accessibilityTraits.insert(.button) } // whatever it opens, as UIKit's cell
         let current = node?.props["accessibilityCurrent"].map { !["", "false"].contains($0) } ?? false
         if row.accessory == "checkmark" || (row.accessory == "radio" && row.checked)
             || node?.props["accessibilitySelected"] == "true" || current { cell.accessibilityTraits.insert(.selected) }

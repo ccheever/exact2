@@ -136,6 +136,7 @@ final class NodeExtras {
     var symbolKey: String?
     var symbolRefusal: String?
     var listSymbol = false
+    var listRow = false
     var scrollCornered = false
     var focusRing: CAShapeLayer?
     var scrollEventQueued: Bool = false
@@ -336,6 +337,18 @@ extension NodeView {
     /// A grouped list's custom row's leading symbol, drawn as UIKit's list
     /// draws a cell's image (`GroupedCustomRowsIOS.swift`).
     package var listSymbol: Bool { get { extras?.listSymbol ?? false } set { guard newValue != listSymbol else { return }; more.listSymbol = newValue; symbolKey = nil; updateSymbol() } }
+    /// What a grouped list's custom row presses (`GroupedCustomRowsIOS.swift`):
+    /// a list cell, which UIKit gives the button trait whatever it opens, so
+    /// a `link` row is a button to VoiceOver there, as a hand-built cell is.
+    package var listRow: Bool {
+        get { extras?.listRow ?? false }
+        set {
+            guard newValue != listRow else { return }
+            more.listRow = newValue
+            guard actsAsButton, props["accessibilityRole"] == "link" else { return }
+            accessibilityTraits.insert(newValue ? .button : .link); accessibilityTraits.remove(newValue ? .link : .button)
+        }
+    }
     /// Whether its scroll view holds a default surface's corner (`syncDefaultSurfaceScroll`).
     var scrollCornered: Bool { get { extras?.scrollCornered ?? false } set { if newValue || extras != nil { more.scrollCornered = newValue } } }
     var focusRing: CAShapeLayer? { get { extras?.focusRing } set { if newValue != nil || extras != nil { more.focusRing = newValue } } }

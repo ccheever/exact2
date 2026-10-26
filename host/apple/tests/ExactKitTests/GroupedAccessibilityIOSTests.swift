@@ -13,8 +13,9 @@ final class GroupedAccessibilityIOSTests: GroupedListFixture {
         ]]]))
         XCTAssertTrue(try cell(p, 10) === milk)
         XCTAssertEqual(milk.accessibilityLabel, "Buy milk")
-        XCTAssertTrue(milk.accessibilityTraits.contains(.link))
-        XCTAssertFalse(milk.accessibilityTraits.contains(.button))
+        // A list cell is a button whatever it opens, as UIKit's is.
+        XCTAssertTrue(milk.accessibilityTraits.contains(.button))
+        XCTAssertFalse(milk.accessibilityTraits.contains(.link))
         XCTAssertTrue(milk.accessibilityTraits.contains(.selected))
         p.apply(wireBatch([["op": "props", "id": 10, "set": [
             "accessibilityRole": "button", "accessibilitySelected": "false", "accessibilityCurrent": "page"

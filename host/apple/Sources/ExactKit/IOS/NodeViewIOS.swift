@@ -1158,8 +1158,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateTextAccessibility()
         if actsAsButton {
             isAccessibilityElement = true
-            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6).
-            let link = props["accessibilityRole"] == "link"
+            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6);
+            // a list row is a cell, a button whatever it opens (`listRow`).
+            let link = props["accessibilityRole"] == "link" && !listRow
             accessibilityTraits.insert(link ? .link : .button); accessibilityTraits.remove(link ? .button : .link)
             // `aria-current` (not `false`) is the selected trait too: UIKit has no
             // current, and a bar's current item is its selected one (theme2 2026-10-22 06:40).
