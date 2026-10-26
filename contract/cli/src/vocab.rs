@@ -465,6 +465,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if matches!(name, "reachstart" | "reachend") {
             println!("  {}", vocab::collection_edge_refusal(name));
         }
+        if matches!(name, "reachstart" | "reachend") {
+            println!("  {REACH_MARGIN}");
+        }
         if name == "resize" {
             println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
         }
@@ -855,6 +858,7 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
 /// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
+const REACH_MARGIN: &str = "reach-margin on a `list virtualized=true`: how far ahead of an edge `reachstart` and `reachend` fire, a literal one or two nonnegative px or % lengths (before, after; a % is of the list's port along its axis), default one port, \"100%\". \"200%\" fires `reachend` when the last row is two ports away (LLP 1145 D4)";
 const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`. Any other scroller, a horizontal strip too, opens at the offset its `scrollLeft=` and `scrollTop=` give, and moves when the value changes";
 
 /// What reaches `navigate=`, and which tab a location lands in (LLP 1038 D8):
@@ -989,6 +993,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if matches!(name, "scroll-start" | "scrollFollowEnd") {
         doc["note"] = TRANSCRIPT_END.into();
+    }
+    if name == "reach-margin" {
+        doc["note"] = REACH_MARGIN.into();
     }
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
@@ -1155,6 +1162,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if matches!(name, "scroll-start" | "scrollFollowEnd") {
                 return vec![line, TRANSCRIPT_END.into()];
+            }
+            if name == "reach-margin" {
+                return vec![line, REACH_MARGIN.into()];
             }
             if name == "accept" {
                 return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];

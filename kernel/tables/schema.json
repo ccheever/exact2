@@ -1732,6 +1732,12 @@
       "kind": "str",
       "measure": true,
       "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title}]`, keyed by each atom's whole source text. Measured: a label changes a pill's width."
+    },
+    {
+      "id": 289,
+      "name": "reachMargin",
+      "kind": "str",
+      "_comment": "@ref LLP 1145 D4: `reach-margin` on a virtualized list, a literal one or two nonnegative px or % lengths (before, after; % of the port along the list's axis), default 100%: how far past the port its edge row may be when `reachstart` or `reachend` fires. The runner reads it (and the JS target's list.js); not layout."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

@@ -671,6 +671,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // Where a virtualized list opens: at its start, or at its end (a
         // transcript), CSS Scroll Snap 2's container-level `scroll-start`.
         "scroll-start" => AttrTarget::Prop(p("scrollStart")),
+        // @ref LLP 1145 D4 — how far ahead a virtualized list's edges fire.
+        "reach-margin" => AttrTarget::Prop(p("reachMargin")),
         // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),

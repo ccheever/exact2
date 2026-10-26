@@ -22,6 +22,32 @@ pub(super) fn row_list(attrs: &[Attr]) -> bool {
     literal(attrs, "display").and_then(string) == Some("flex")
 }
 
+/// `reach-margin` (@ref LLP 1145 D4): one or two literal nonnegative px or
+/// % lengths, before and after, as the runner and list.js read them.
+fn reach_margin(a: &Attr, virtualized: bool) -> Result<(), LowerError> {
+    if !virtualized {
+        return err("lower-list-virtualized", "`reach-margin` sets how far ahead of an edge a virtualized list's `reachstart` and `reachend` fire; it goes on `list virtualized=true`", a.span);
+    }
+    let length = |part: &str| {
+        let part = part.to_ascii_lowercase();
+        part.strip_suffix("px")
+            .or_else(|| part.strip_suffix('%'))
+            .is_some_and(|n| {
+                super::intersect::css_number(n)
+                    && n.parse::<f64>().is_ok_and(|n| n.is_finite() && n >= 0.0)
+            })
+    };
+    match string(a) {
+        Some(s)
+            if (1..=2).contains(&s.split_ascii_whitespace().count())
+                && s.split_ascii_whitespace().all(length) =>
+        {
+            Ok(())
+        }
+        _ => err("lower-reach-margin", "`reach-margin` takes a literal: one or two nonnegative px or % lengths, before and after, a % being of the list's port (for example \"200%\" or \"0px 800px\"); the default is one port, \"100%\"", a.span),
+    }
+}
+
 impl Lowerer<'_> {
     pub(super) fn check_collection(
         &self,
@@ -50,6 +76,9 @@ impl Lowerer<'_> {
                     edge.span,
                 );
             }
+        }
+        if let Some(margin) = literal(attrs, "reach-margin") {
+            reach_margin(margin, virtualized)?;
         }
         if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
             if !virtualized {
