@@ -196,11 +196,16 @@ extension Agent {
             result["presented"] = ["unavailable": "no comparable presentation layer"]
             return result
         }
-        let rect = shown.convert(local, to: port)
+        guard local == view.bounds || shown.bounds == view.bounds else {
+            result["presented"] = ["unavailable": "fragment geometry during an animated bounds change"]
+            return result
+        }
+        let rect = shown.convert(local == view.bounds ? shown.bounds : local, to: port)
         #if os(macOS)
         let origin = port.bounds.origin
         #else
-        let origin = presenter.viewport.pageOrigin
+        let margins = presenter.pageMargins
+        let origin = CGPoint(x: port.bounds.minX + margins.left, y: port.bounds.minY + margins.top)
         #endif
         result["presented"] = AgreementReport.rect(rect.offsetBy(dx: -origin.x, dy: -origin.y))
         return result

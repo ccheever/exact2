@@ -2,6 +2,9 @@ import CExact
 import Foundation
 import QuartzCore
 import XCTest
+#if os(macOS)
+import AppKit
+#endif
 @testable import ExactKit
 
 /// LLP 1079 D3–D5 on Apple: the trailer's `seq`, the sampler's arithmetic
@@ -27,10 +30,69 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertNotNil(records.first?["period"])
         XCTAssertNotNil(records.first?["target"])
         session.clock = 1234
-        let invalid = Agent(session: session).liveFrames(["live": 0])
+        var invalid: [String: Any] = [:]
+        Agent(session: session).liveFrames(["live": 0]) { invalid = $0 }
         XCTAssertNotNil(invalid["malformed"])
         XCTAssertEqual(session.clock, 1234, "a refused observation never takes or seeks the clock")
     }
+
+    #if os(macOS)
+    func testCaptureCompletionReturnsToAppKitsEventPumpAndRepliesOnce() throws {
+        let app = NSApplication.shared
+        var returned = false, heard = false, replies = 0
+        var observation: FrameObservation?
+        func wake(_ token: Int) {
+            app.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: 0, context: nil, subtype: 0, data1: token, data2: 0)!, atStart: false)
+        }
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .applicationDefined) { event in
+            if event.data1 == 1142 {
+                XCTAssertTrue(returned, "capture must return before AppKit can dispatch the queued event")
+                XCTAssertEqual(replies, 0, "the event is dispatched inside the capture interval")
+                heard = true
+                return nil
+            }
+            return event
+        }
+        let escape = Timer(timeInterval: 3, repeats: false) { _ in app.stop(nil); wake(1144) }
+        RunLoop.main.add(escape, forMode: .common)
+        defer { escape.invalidate(); observation?.finish(); if let monitor { NSEvent.removeMonitor(monitor) } }
+        DispatchQueue.main.async {
+            observation = FrameObservation(ms: 100) { reason in
+                replies += 1
+                XCTAssertNil(reason)
+                XCTAssertTrue(heard)
+                app.stop(nil); wake(1143)
+            }
+            returned = true
+            wake(1142)
+        }
+        app.run()
+        XCTAssertTrue(heard)
+        XCTAssertEqual(replies, 1)
+        observation?.finish("late interruption")
+        XCTAssertEqual(replies, 1)
+    }
+
+    func testDestroyingASessionInterruptsItsCaptureCompletionOnce() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let sampler = try XCTUnwrap(session.sampler)
+        var replies = 0
+        let observation = FrameObservation(ms: 1000) { reason in
+            replies += 1
+            XCTAssertEqual(reason, "display observation stopped")
+            XCTAssertEqual(session.state, .destroyed)
+        }
+        sampler.observationStopped = { observation.finish($0) }
+        XCTAssertEqual(replies, 0)
+        session.destroy()
+        XCTAssertEqual(replies, 1)
+        sampler.stop()
+        observation.finish()
+        XCTAssertEqual(replies, 1)
+    }
+    #endif
 
     func testTheTrailerCarriesTheTransactionsItApplies() {
         let batch = Batch.decode(Data(#"{"ops":[],"seq":[3,7],"timers":false,"motion":false,"canvas":false,"clock":0,"error":null}"#.utf8))
