@@ -105,9 +105,10 @@ package final class ChainingScrollView: NSScrollView {
     /// one call is not tracked as the event queue's is: measured on macOS
     /// 27.0, AppKit applies one event of it). For a person a `scroll` node
     /// is scrolled by AppKit (LLP 1115.000 D8.2), as the page is, and so it
-    /// is under platform timing, whose drive watches a person's or the
-    /// platform's own scrolling, momentum and rubber band included (LLP 1144 D1).
-    static var appliesAtOnce = ExactEnv.agentFreezes
+    /// is while a drive holds the frames for a person's own flings (`perf
+    /// frames hold` under platform timing, LLP 1144 D1): momentum and rubber
+    /// band included.
+    static var appliesAtOnce = ExactEnv.agentMode
     /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
     var collectionWillScroll: (() -> Void)?
     var scrollsX = true

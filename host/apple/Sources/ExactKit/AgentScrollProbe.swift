@@ -19,7 +19,8 @@ extension Agent {
             return (y, past ? "b" : sv.isTracking ? "t" : sv.isDecelerating ? "d" : "-")
         }
         #else
-        guard let sv = node.enclosingScrollView ?? (node.subviews.first { $0 is NSScrollView } as? NSScrollView) else { return nil }
+        // The node's own scroller; the page's encloses every node and does not move with a list.
+        guard let sv: NSScrollView = node.scroll ?? node.enclosingScrollView else { return nil }
         return { [weak sv] in
             guard let sv else { return nil }
             let clip = sv.contentView.bounds, doc = sv.documentView?.frame.height ?? 0
