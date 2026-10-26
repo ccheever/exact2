@@ -15,6 +15,7 @@ import ExactGroupedLists
 /// is, and the title expands when the user pulls.
 /// Gestures (a finger's collapse, pull to top, a held sheet) need real
 /// touches, which a unit test has none of.
+/// Safe-area checks fill the scene so UIKit supplies its actual edge clearance.
 final class NavigationCollapseIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
@@ -44,13 +45,14 @@ final class NavigationCollapseIOSTests: XCTestCase {
         let view = ExactView(session: session)
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
-        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let bounds = scene?.coordinateSpace.bounds ?? UIScreen.main.bounds
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: bounds)
+        window.frame = bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.addSubview(view)
         self.window = window
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        XCTAssertNil(session.boot(plan: plan, size: bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         spin(0.3)
@@ -89,18 +91,19 @@ final class NavigationCollapseIOSTests: XCTestCase {
         let view = ExactView(session: session)
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
-        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let bounds = scene?.coordinateSpace.bounds ?? UIScreen.main.bounds
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: bounds)
+        window.frame = bounds
         window.rootViewController = host
         self.window = window
         if beforeItsWindow {
-            XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
-            view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            XCTAssertNil(session.boot(plan: plan, size: bounds.size).error)
+            view.frame = bounds
             view.layoutIfNeeded()
         }
         window.makeKeyAndVisible()
         host.view.addSubview(view)
-        if !beforeItsWindow { XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error) }
+        if !beforeItsWindow { XCTAssertNil(session.boot(plan: plan, size: bounds.size).error) }
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         spin(0.3)
@@ -448,5 +451,140 @@ final class NavigationCollapseIOSTests: XCTestCase {
             XCTAssertEqual(bar.frame.height, collapsed, accuracy: 0.5, "the title still collapsed, as UIKit leaves it")
         }
     }
+    func testSafeAreaEdgesKeepTheBarAndOtherInsetsAndCanBeReversed() throws {
+        let (_, nav, route) = try pushed("tall")
+        let scroll = try XCTUnwrap(route.collapseScrollView)
+        let bottom = scroll.adjustedContentInset.bottom
+        XCTAssertGreaterThan(scroll.adjustedContentInset.top, 0)
+        let authored = route.node.contentBox()
+        route.node.props["safeArea"] = "top"
+        route.safeArea.sync(route)
+        nav.view.layoutIfNeeded()
+        route.safeArea.sync(route)
+        XCTAssertFalse(nav.isNavigationBarHidden)
+        XCTAssertEqual(scroll.adjustedContentInset.top, 0, accuracy: 0.5)
+        XCTAssertEqual(scroll.adjustedContentInset.bottom, bottom, accuracy: 0.5)
+        XCTAssertEqual(route.node.contentBox(), authored, "the executor changes no authored padding")
+        let inset = scroll.contentInset
+        route.safeArea.sync(route)
+        XCTAssertEqual(scroll.contentInset, inset, "repeated layout adds no inset")
+        // A keyboard/refresh contribution belongs to its executor, not this policy.
+        scroll.contentInset.bottom += 23
+        route.node.props["safeArea"] = "none"
+        route.safeArea.sync(route)
+        XCTAssertEqual(scroll.adjustedContentInset.top, 0, accuracy: 0.5)
+        XCTAssertEqual(scroll.adjustedContentInset.bottom, 23, accuracy: 0.5)
+        route.node.props["safeArea"] = "bottom"
+        route.safeArea.sync(route)
+        XCTAssertGreaterThan(scroll.adjustedContentInset.top, 0)
+        XCTAssertEqual(scroll.adjustedContentInset.bottom, 23, accuracy: 0.5)
+        route.node.props["safeArea"] = "auto"
+        route.safeArea.sync(route)
+        XCTAssertEqual(scroll.contentInset.top, 0, accuracy: 0.5)
+        XCTAssertEqual(scroll.adjustedContentInset.bottom, bottom + 23, accuracy: 0.5)
+        XCTAssertGreaterThan(scroll.adjustedContentInset.top, 0)
+    }
+
+    func testSafeAreaOptOutMovesToAReplacementScrollerAndReleasesTheOldOne() throws {
+        let (_, nav, route) = try pushed("tall")
+        let node = try XCTUnwrap(route.collapseScroll)
+        let old = try XCTUnwrap(route.collapseScrollView)
+        route.node.props["safeArea"] = "top bottom"
+        route.host?.reportCovers()
+        XCTAssertLessThan(old.contentInset.top, 0, "the old backend holds a real correction")
+        XCTAssertLessThan(old.contentInset.bottom, 0)
+        node.groupedOwner = true
+        node.syncScroll()
+        let replacement = UIScrollView(frame: node.bounds)
+        replacement.contentSize = old.contentSize
+        replacement.alwaysBounceVertical = true
+        replacement.delegate = node
+        node.addSubview(replacement)
+        node.mountNativeScrollView(replacement)
+        route.host?.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+        nav.view.layoutIfNeeded()
+        route.host?.reportCovers()
+        XCTAssertTrue(route.collapseScrollView === replacement)
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === replacement)
+        XCTAssertEqual(old.contentInset, .zero, "the old backend gives both corrections back")
+        XCTAssertLessThan(replacement.contentInset.top, 0, "the new backend takes the correction")
+        XCTAssertEqual(replacement.adjustedContentInset.top, 0, accuracy: 0.5)
+        XCTAssertEqual(replacement.adjustedContentInset.bottom, 0, accuracy: 0.5)
+        route.node.props["safeArea"] = "auto"
+        route.host?.reportCovers()
+        XCTAssertEqual(replacement.contentInset, .zero)
+    }
+
+    func testAnOptedOutTopStillCollapsesAndReexpandsTheLargeTitle() throws {
+        let (session, nav, route) = try pushed("tall")
+        let scroll = try XCTUnwrap(route.collapseScrollView)
+        route.node.props["safeArea"] = "top"
+        route.host?.reportCovers()
+        nav.view.layoutIfNeeded()
+        route.host?.reportCovers()
+        let expanded = nav.navigationBar.frame.height
+        XCTAssertGreaterThan(expanded, 90)
+        XCTAssertEqual(scroll.adjustedContentInset.top, 0, accuracy: 0.5)
+        scroll.setContentOffset(CGPoint(x: 0, y: 240), animated: false)
+        until("the native large title collapses with top clearance disabled") {
+            nav.navigationBar.frame.height < expanded - 20
+        }
+        XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 240, accuracy: 0.5,
+                       "the anchor survives the collapse itself, not just a repeated cover report")
+        route.host?.reportCovers()
+        XCTAssertEqual(scroll.adjustedContentInset.top, 0, accuracy: 0.5)
+        let collapsed = nav.navigationBar.frame.height
+        let page = try XCTUnwrap(route.collapseScroll)
+        let pull = Agent(session: session).tap(["id": Int(page.id), "scrollDrag": [0.0, 1_000.0]])
+        XCTAssertNil(pull["error"], "\(pull)")
+        until("the native large title reexpands with top clearance disabled") {
+            nav.navigationBar.frame.height > collapsed + 20
+        }
+        route.host?.reportCovers()
+        XCTAssertEqual(scroll.adjustedContentInset.top, 0, accuracy: 0.5)
+        XCTAssertEqual(scroll.contentInsetAdjustmentBehavior, .automatic)
+    }
+
+    func testInvalidSafeAreaBindingsFallBackToAutoAndJournalOnce() throws {
+        let (session, _, route) = try pushed("tall")
+        let scroll = try XCTUnwrap(route.collapseScrollView)
+        for value in ["none bottom", "auto top", "top top"] {
+            route.node.props["safeArea"] = value
+            route.host?.reportCovers()
+            XCTAssertEqual(scroll.contentInset, .zero)
+            XCTAssertFalse(route.ignoresSafeArea("top"))
+        }
+        let logs = session.agent(#"{"op":"logs","since":0}"#)
+        XCTAssertEqual(logs.components(separatedBy: "invalid -exact-safe-area").count - 1, 1)
+    }
+
+    func testOwnershipAccountsForThePolicyAndStillDetectsForeignInsets() throws {
+        let (_, _, route) = try pushed("tall")
+        let node = try XCTUnwrap(route.collapseScroll)
+        let scroll = try XCTUnwrap(route.collapseScrollView)
+        route.node.props["safeArea"] = "none"
+        route.host?.reportCovers()
+        func changes() -> [String] {
+            NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: true, safeArea: route.safeArea.insets(for: scroll))
+        }
+        XCTAssertFalse(changes().contains("contentInset"))
+        scroll.contentInset.bottom += 9
+        XCTAssertTrue(changes().contains("contentInset"))
+    }
+
+    func testEndingTheSessionReleasesTheRoutesCorrections() throws {
+        let (session, _, route) = try pushed("tall")
+        let scroll = try XCTUnwrap(route.collapseScrollView)
+        let before = scroll.contentInset
+        route.node.props["safeArea"] = "none"
+        route.host?.reportCovers()
+        XCTAssertLessThan(scroll.contentInset.top, before.top)
+        session.destroy()
+        sessions.removeLast()
+        XCTAssertEqual(scroll.contentInset, before)
+        route.safeArea.sync(route)
+        XCTAssertEqual(scroll.contentInset, before)
+    }
+
 }
 #endif

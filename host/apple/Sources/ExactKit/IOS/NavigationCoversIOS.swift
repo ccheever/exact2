@@ -69,11 +69,12 @@ extension NavigationHost {
             // from a route without one, §9.10), its last cover stands.
             // An active search's bar is UIKit's: the content follows it, as
             // UIKit's own does, but a title's insets are not sampled.
+            c.safeArea.sync(c)
             let search = searching(c)
             let settled = search || (nav?.isNavigationBarHidden ?? true) != routeShowsBar(c, in: nav)
             // A route showing no bar has no title: its inset is the status bar's, none in landscape (LLP 1130 D3).
             let barless = !routeShowsBar(c, in: nav)
-            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 || barless {
+            if !c.ignoresSafeArea("top"), settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 || barless {
                 let inset = sv.adjustedContentInset.top
                 if c.insetsBarless != barless { c.insetsBarless = barless; node.scrollCollapsed = 0 }
                 // tvOS has no large titles: every title is inline.
@@ -119,12 +120,17 @@ extension NavigationHost {
                     // read alone, it would leave it there for good.
                     let reach = node === c.edgeScroll ? c.bottomClearance : 0
                     // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).
-                    let top = max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top), bottom = max(0, max(safe.bottom, reach) - node.pageBand.bottom)
+                    let top = c.ignoresSafeArea("top") ? 0 : max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top)
+                    let bottom = c.ignoresSafeArea("bottom") ? 0 : max(0, max(safe.bottom, reach) - node.pageBand.bottom)
                     if top > 0 || bottom > 0 { wanted[node.id] = .inset(top: top, bottom: bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
             guard let edges else { continue }
-            if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(edges) }
+            let kept = HostCover.Edges(top: c.ignoresSafeArea("top") ? 0 : edges.top,
+                                       right: c.ignoresSafeArea("right") ? 0 : edges.right,
+                                       bottom: c.ignoresSafeArea("bottom") ? 0 : edges.bottom,
+                                       left: c.ignoresSafeArea("left") ? 0 : edges.left)
+            if kept != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(kept) }
         }
         // The tablist whose place the tab bar takes takes no room.
         if let list = adoptedTablist.flatMap({ presenter.views[$0] }) {
@@ -224,7 +230,7 @@ extension NavigationHost {
         for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.contentMount { say("route \(c.key)", "view") }
             guard let node = c.ownedScroll, let scroll = node.scrollView else { continue }
-            for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node) { say("route \(c.key)", property) }
+            for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node, safeArea: c.safeArea.insets(for: scroll)) { say("route \(c.key)", property) }
         }
     }
 
@@ -235,15 +241,17 @@ extension NavigationHost {
     /// the platform's for what it scrolls, LLP 1115.000 D9.1). The offset
     /// and the content size are Exact's too but are not checked: they move
     /// with the user and with layout, so no last write predicts them.
-    static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool) -> [String] {
+    static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool, safeArea: UIEdgeInsets = .zero) -> [String] {
         var out: [String] = []
         // A native backend owns layout/footer insets, composed with the
         // refresh control and keyboard; zero is only the plain-scroll baseline.
         if s === node.scroll {
+            let expected = UIEdgeInsets(top: node.bandInset.top + safeArea.top, left: node.bandInset.left + safeArea.left,
+                                        bottom: node.bandInset.bottom + safeArea.bottom, right: node.bandInset.right + safeArea.right)
             #if os(tvOS)
-            if s.contentInset != node.bandInset { out.append("contentInset") }
+            if s.contentInset != expected { out.append("contentInset") }
             #else
-            if s.contentInset != node.bandInset, s.refreshControl?.isRefreshing != true { out.append("contentInset") } // a band's is the host's
+            if s.contentInset != expected, s.refreshControl?.isRefreshing != true { out.append("contentInset") } // a band's is the host's
             #endif
         }
         if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .automatic : .never) { out.append("contentInsetAdjustmentBehavior") }
