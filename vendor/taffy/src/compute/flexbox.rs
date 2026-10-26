@@ -2213,6 +2213,18 @@ fn determine_hypothetical_cross_size(
             constants.node_inner_size.height
                 .maybe_sub(child.margin.vertical_axis_sum())
                 .maybe_clamp(child.min_size.height, child.max_size.height)
+        } else if !constants.is_row && !constants.is_wrap && constants.node_outer_size.width.is_some()
+            && child.align_self == AlignSelf::STRETCH && child.size_style.width.is_auto()
+            && !child.margin_is_auto.left && !child.margin_is_auto.right
+        {
+            // EXACT PATCH 68: a single-line column of known width makes its
+            // line that width (§9.4 step 8) and stretches this item to it
+            // (step 11), which reads no hypothetical width. Measuring the item's
+            // fit-content width would ask every box in it for its intrinsic
+            // widths: a list's rows, all of them again when a row is inserted.
+            constants.node_inner_size.width
+                .maybe_sub(child.margin.horizontal_axis_sum())
+                .maybe_clamp(child.min_size.width, child.max_size.width)
         } else {
             child.size.cross(constants.dir).maybe_clamp(transferred_min_cross, transferred_max_cross)
         }.maybe_max(padding_border_sum);

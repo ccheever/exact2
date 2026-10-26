@@ -37,6 +37,7 @@ mod image;
 mod inline_image;
 mod invocation;
 mod layout_equality;
+mod list_insert;
 mod live_time;
 mod motion;
 mod native_buttons;

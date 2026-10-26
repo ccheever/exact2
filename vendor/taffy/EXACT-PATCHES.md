@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65 and 66 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67 and 68 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -2152,3 +2152,30 @@ grandchild gives 210 (220); a 300px child with a 15px right margin gives
 **Held by** `browser_scroll_padding::end_padding_extends_children_not_descendants`:
 17 cases across block, flex row and column, grid, RTL and relative offsets,
 all of which failed before the patch.
+
+## Patch 68: a stretched item in a single-line column of known width is not measured for its width
+
+`determine_hypothetical_cross_size` measured every column item with an auto
+width at its fit-content width, which asks the item for its min- and
+max-content widths. For a list, that is every row's intrinsic widths, and
+the rows laid out again at the list's max-content width; when a row is
+inserted whose text is wider than any before, the max-content width changes
+and every row is laid out again. When the column is single-line and its
+width is known, the line's cross size is the container's inner width
+([Flexbox §9.4 step 8](https://www.w3.org/TR/css-flexbox-1/#algo-cross-line)),
+and an item that stretches (`align-self: stretch`, auto width, no auto
+margins) takes that width less its margins (step 11), whatever its
+hypothetical width was. Such an item now takes the stretched width as its
+hypothetical width, clamped by its min and max width, as patch 65 does for a
+row's height. Chrome skips the measurement too
+([`WillChildCrossSizeBeContainerCrossSize`](https://chromium.googlesource.com/chromium/src/+/refs/tags/151.0.7922.34/third_party/blink/renderer/core/layout/flex/flex_layout_algorithm.cc)).
+Nothing else reads the hypothetical width of such an item: the line's size
+comes from the container, a column aligns no item by its baseline, and the
+item's width was already definite, which is all patch 49's comparison of the
+two widths decides. Frames are unchanged.
+
+**Held by** `kernel/tests/it/list_insert.rs`: two rows inserted at the top of
+330 rows of an inbox's shape (a swipe row of a wrapping title line, a subject
+and a preview) measure 82 texts, 3,266 before; the 330 rows' first layout
+measures 13,530, 48,840 before; every moved row keeps its size. Every
+`browser_*` Chrome case and the layout-equality comparisons pass unchanged.
