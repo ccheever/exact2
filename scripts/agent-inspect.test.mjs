@@ -131,3 +131,22 @@ test('a settle that runs out of rounds says which tasks are still due', () => {
   expect([r.settled, r.reason, r.tasks]).toEqual([false, 'tasks', { chain: 17 }]);
   expect(r.diagnostic).toContain('`chain` is due again at 17 ms');
 });
+
+test('work deltas retain scope and refuse reset measurement windows', () => {
+  const read = n => ({plan:'p',incarnation:1,seq:n,sites:[],work:{since:4,scope:'session',timebase:'runner-clock-ms',counts:{kernelLayouts:n}},hostWork:{since:8,scope:'process',timebase:'media-clock-ms',counts:{ownerSync:n*2}}});
+  const delta = perfDelta(read(3), read(9));
+  expect(delta.work.counts.kernelLayouts).toBe(6);
+  expect(delta.hostWork.counts.ownerSync).toBe(12);
+  const reset = read(10); reset.hostWork.since = 9;
+  expect(() => perfDelta(read(3), reset)).toThrow('measurement coverage changed');
+  expect(() => perfDelta(read(9), read(3))).toThrow('seq went back');
+});
+
+test('resource declarations require the state reply’s own plan digest', async () => {
+  const {identifyResources} = await import('./agent-inspect.mjs');
+  const maps = {get: d => d === 'new' ? {resources:{inbox:{file:'app.contract',line:7,column:3,component:'App'}}} : null};
+  const reply = digest => ({planDigest:digest,resourceStatus:{inbox:{resource:1,source:'Inbox'}}});
+  expect(identifyResources(reply('new'), maps).resourceStatus.inbox.declaration).toMatchObject({status:'compatible',file:'app.contract',line:7});
+  expect(identifyResources(reply('old'), maps).resourceStatus.inbox.declaration.status).toBe('unavailable');
+  expect(identifyResources(reply(undefined), maps).resourceStatus.inbox.declaration.status).toBe('unavailable');
+});
