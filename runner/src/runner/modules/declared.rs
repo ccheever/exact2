@@ -33,6 +33,7 @@ use serde_json::{json, Map};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+mod reach;
 mod wake_list;
 
 /// The host's app-wide state: one per app, shared by its sessions.
@@ -52,6 +53,8 @@ pub(in crate::runner) struct Declared {
     lines: Arc<Mutex<Vec<String>>>,
     /// What a registration a wake runs for keeps beside its options, by `ref`.
     wake_meta: BTreeMap<u64, wake_list::Meta>,
+    /// The shortcut list and the content index (`reach.rs`).
+    reach: reach::Reach,
 }
 
 /// One entry of a keyed list.
@@ -177,6 +180,11 @@ impl<D: DataSource> Runner<D> {
             }
             return Effect::Now(Json::Null);
         }
+        // A target's own restriction holds under the agent too.
+        if self.unsupported_here(row) {
+            self.log(format!("{declared}: refused: NotSupportedError"));
+            return Effect::Now(json!({ "error": "NotSupportedError" }));
+        }
         let said = self.say_person_required(row, true, origin);
         let sub = self.substitute(row);
         let permission = &sub["permission"];
@@ -209,10 +217,7 @@ impl<D: DataSource> Runner<D> {
                 });
                 Effect::Held
             }
-            _ => {
-                self.apply_effect(row, &args);
-                Effect::Now(Json::Null)
-            }
+            _ => Effect::Now(self.apply_effect(row, &args)),
         }
     }
 
@@ -237,8 +242,12 @@ impl<D: DataSource> Runner<D> {
         })))
     }
 
-    /// What `row`'s declaration says its call does to the agent's state.
-    fn apply_effect(&mut self, row: &ModulesRow, args: &Json) {
+    /// What `row`'s declaration says its call does to the agent's state:
+    /// `null`, or `{"error": …}` where it refuses the call.
+    fn apply_effect(&mut self, row: &ModulesRow, args: &Json) -> Json {
+        if let Some(answer) = self.apply_reach(row, args) {
+            return answer;
+        }
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let mut fields = args.as_object().cloned().unwrap_or_default();
@@ -327,6 +336,7 @@ impl<D: DataSource> Runner<D> {
             }
             self.log(format!("{declared}: {state} {value}"));
         }
+        Json::Null
     }
 
     /// Where a declared value is kept: by the app, the module and its state
@@ -409,8 +419,7 @@ impl<D: DataSource> Runner<D> {
             self.retire_hold(h.hold);
             let row = self.module_row(&h.source);
             let answer = if state == "granted" {
-                self.apply_effect(&row, &h.args);
-                Json::Null
+                self.apply_effect(&row, &h.args)
             } else {
                 json!({ "error": self.substitute(&row)["permission"]["denied"] })
             };
