@@ -25,6 +25,9 @@
       "."
     ]
   },
+  "maven": [
+    "com.google.android.gms:play-services-fitness:21.3.0"
+  ],
   "artifacts": [],
   "class": "exact.pedometer.PedometerModule"
 }

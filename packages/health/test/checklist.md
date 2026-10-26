@@ -53,16 +53,28 @@ Note each day's total as Health shows it.
    whether a workout's distance still shows (§15 stage 2: whether a
    workout's statistics need their type's own read).
 
-## Android phone, API 28 or later (stage 3, not built)
+## Android phone, API 31 or later
 
-The Android implementation (Health Connect through the Jetpack client) is
-not built yet; this section is what its first person check is.
+The conformance fixture (`test/fixture`) carries the module on Android.
+`bun packages/health/test/android.mjs` builds it and leaves its APK at
+`host/android/app/build/healthfixture/outputs/apk/release/app-release.apk`;
+install that with `adb install`. On an Android 13 phone, install Health Connect
+from Google Play first. Add steps and a workout in a fitness app that
+writes to Health Connect, or in Health Connect's own data screens, and
+note them.
 
-1. **The permission screen.** Install the fixture fresh, tap Ask: Health
-   Connect's screen shows Steps and Exercise, and its privacy policy
-   link opens the app's `privacy_policy`.
-2. **Part of it.** Allow Steps only: `healthStatus` reads steps
-   `granted`, workouts `denied`, and the workouts read fails
-   `NotAllowedError`.
-3. **History.** Without the history permission, `since` reads 30 days
-   before the first grant; with it, earlier days read.
+1. **The permission screen.** Install the fixture fresh and tap Ask:
+   Health Connect's screen shows Steps, Distance and Exercise. Its
+   privacy policy link opens the fixture's `privacy_policy`
+   (`https://example.com/privacy`) in the browser.
+2. **All of it.** Allow all: `health-status` reads `true granted`, `days`
+   the noted steps, `workouts` the noted workout.
+3. **Part of it.** In Health Connect › App permissions › the fixture, turn
+   Exercise off and return: `health-types` reads `workouts prompt`, and
+   `workouts-error` `NotAllowedError`. Tap Ask and decline Exercise twice:
+   it reads `workouts denied`, and a third Ask shows nothing.
+4. **The window.** Steps older than 30 days before today do not show in
+   `days`; record what Health Connect returns for them.
+5. **Android 14 and later:** Settings › Security & privacy › Privacy ›
+   Health Connect › App permissions › the fixture: its privacy policy
+   entry opens the same page (the permission-usage alias).

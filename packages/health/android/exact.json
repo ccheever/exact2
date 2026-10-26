@@ -43,6 +43,32 @@
       "."
     ]
   },
+  "maven": [
+    "androidx.health.connect:connect-client:1.1.0"
+  ],
+  "manifest": {
+    "queries": [
+      {
+        "package": "com.google.android.apps.healthdata"
+      }
+    ],
+    "activities": [
+      {
+        "name": "exact.health.PrivacyPolicyActivity",
+        "actions": [
+          "androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"
+        ]
+      }
+    ],
+    "aliases": [
+      {
+        "name": "exact.health.ViewPermissionUsageActivity",
+        "targetActivity": "exact.health.PrivacyPolicyActivity",
+        "action": "android.intent.action.VIEW_PERMISSION_USAGE",
+        "category": "android.intent.category.HEALTH_PERMISSIONS"
+      }
+    ]
+  },
   "artifacts": [],
   "class": "exact.health.HealthModule"
 }
