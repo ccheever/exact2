@@ -194,6 +194,9 @@ component App
   phone pushes. A row pressed while a detail shows pushes another; to swap the detail instead,
   `open` replaces when one shows: `nav = top(nav).name == "recipe" ? replace(nav,
   path("recipe", name)) : push(nav, path("recipe", name))`.
+- The chevron is the row's last child with no colour or size of yours: UIKit's grey
+  disclosure. A row that wraps (`flex-wrap`) at large text sizes wraps its parts in a `row
+  flex=1 min-width=0 flex-wrap="wrap"` and leaves the chevron after it, at the trailing edge.
 - Each route keeps its own scroll: a pushed screen opens at its top, and Back returns to the
   list where it was left. What an `if` swaps inside one route's scroll keeps that scroll's
   place, as a web page's does, so the stages a person moves through (a quiz's start, its

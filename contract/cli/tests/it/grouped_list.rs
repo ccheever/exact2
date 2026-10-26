@@ -1383,8 +1383,6 @@ fn the_sheets_symbol_and_checkmark_take_the_accent() {
     // (The accent, as a raster's tint paints it: a symbol's own tint is its `color`, symbol_ink.rs.)
     let accent = tint("accent");
     assert!(accent.is_some());
-    // A symbol is drawn in its `color` (LLP 1081 stage 2): a custom row's
-    // checkmark and chevron show the sheet's there.
     let colour = |t: &str| k.node(id(&r, t)).unwrap().text_color();
     assert_eq!(Some(colour("check")), accent, "the checkmark: the accent");
     let profile = k.node(id(&r, "profile")).unwrap();
@@ -1483,9 +1481,8 @@ image "photo.png" color="-exact-system-red" width=20 height=20 testId="photo""#,
             .computed_style(StyleMask::ALL)
             .tint_color
     };
-    let grey = role("-exact-tertiary-label");
-    assert_eq!(colour("chev-unsaid"), grey);
-    assert_eq!(colour("chev-contacts"), grey, "not the link's label colour");
+    assert_eq!(colour("chev-unsaid"), role("-exact-tertiary-label"));
+    assert_eq!(colour("chev-contacts"), colour("chev-unsaid"));
     // `currentcolor` is the row's `None`: the symbol paints its `color`.
     let red = role("-exact-system-red");
     assert_eq!(
