@@ -88,13 +88,6 @@ export function handleSource(path: string): AttachSource {
 
 async function mkdir(fs: StageFiles, path: string): Promise<void> { try { await fs.mkdir(path, { recursive: true }); } catch { /* it exists */ } }
 
-/** `from` copied to `to`: an app file in place, a document by its bytes (`doc:` paths refuse copyFile), which it returns. */
-async function copy(fs: StageFiles, from: string, to: string): Promise<Uint8Array | null> {
-  if (from.startsWith('app:/')) { await fs.copyFile(from, to); return null; }
-  const bytes = new Uint8Array(await fs.readFile(from));
-  await fs.writeFile(to, bytes);
-  return bytes;
-}
 
 /** A name without path separators, for the scratch copy compressImage reads. */
 const scratchName = (name: string) => name.replace(/[/:\\]/g, '-').slice(0, 200) || 'image';
@@ -110,14 +103,19 @@ const renamed = (name: string, type: string) => `${name.replace(/\.[^.]*$/, '') 
 async function stageImage(fs: StageFiles, source: AttachSource, size: number): Promise<Obj> {
   const name = source.name;
   if (size > MAX_COMPRESSIBLE_SOURCE_BYTES) return { kind: 'image-too-large', name, sizeBytes: size };
-  // Its header is read through JavaScript, which fails past HOST_READ_BYTES: a larger picked (`app:`) image is
-  // re-encoded without it, in its own type when that is PNG and else as a JPEG; a larger dropped one is refused.
-  if (size > HOST_READ_BYTES && !source.path.startsWith('app:/')) return { kind: 'image-too-large', name, sizeBytes: size };
   const id = uuid(), out = `${DRAFTS}/${id}.png`;
   let from = source.path, scratch = '';
   try {
     await mkdir(fs, DRAFTS);
+    // Its header is read through JavaScript, which fails past HOST_READ_BYTES: a larger image is re-encoded without
+    // it, in its own type when that is PNG and else as a JPEG, a dropped one from the app copy compressImage reads.
     if (size > HOST_READ_BYTES) {
+      if (!from.startsWith('app:/')) {
+        scratch = `${SCRATCH}/${id}`;
+        await mkdir(fs, scratch);
+        from = `${scratch}/${scratchName(name)}`;
+        await fs.copyFile(source.path, from);
+      }
       const type = source.type === 'image/png' || /\.png$/i.test(name) ? 'image/png' : 'image/jpeg';
       const encoded = await fs.compressImage(from, out, { maxDimension: IMAGE_ATTACHMENT_MAX_EDGE, maxBytes: PROVIDER_SEND_TURN_MAX_IMAGE_BYTES, type });
       return { kind: 'image', id, name: type === 'image/png' ? name : renamed(name, type), mimeType: type, sizeBytes: encoded.size };
@@ -156,20 +154,18 @@ async function stageImage(fs: StageFiles, source: AttachSource, size: number): P
 async function stageFile(fs: StageFiles, source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
   const name = source.name, mimeType = videoMimeType({ name, mimeType: source.type }) ?? (source.type || 'application/octet-stream');
   const file: Obj = { kind: 'file', name, sizeBytes: size, mimeType };
-  if (!source.path.startsWith('app:/')) file.readLimit = HOST_READ_BYTES;
-  if (size <= 0 || fileLimit <= 0 || size > Math.min(fileLimit, MAX_FILE_BYTES, Number(file.readLimit) || MAX_FILE_BYTES)) return file;
+  if (size <= 0 || fileLimit <= 0 || size > Math.min(fileLimit, MAX_FILE_BYTES)) return file;
   const id = uuid(), to = `${STAGED}/${stagedName({ id, name, mimeType })}`;
-  let read: Uint8Array | null;
   try {
     await mkdir(fs, STAGED);
-    read = await copy(fs, source.path, to);
+    // The host copies a picked (`app:`) or dropped (`doc:`) file; its bytes never enter JavaScript.
+    await fs.copyFile(source.path, to);
   } catch { return { kind: 'unreadable', name, sizeBytes: size }; }
   file.id = id;
   if (videoMimeType({ name, mimeType }) !== null) {
-    // `moov` may follow the media data, and storage.fs reads whole files only, so the header costs a read of the video
-    // once: a dropped or pasted one's bytes are already read by its copy, a picked one within HOST_READ_BYTES is read
-    // from its staged copy, and a larger one goes without its display size.
-    const bytes = read ?? (size <= HOST_READ_BYTES ? new Uint8Array(await fs.readFile(to).catch(() => new ArrayBuffer(0))) : new Uint8Array(0));
+    // `moov` may follow the media data, and storage.fs reads whole files only, so the header costs a read of the
+    // staged copy within HOST_READ_BYTES; a larger video goes without its display size.
+    const bytes = size <= HOST_READ_BYTES ? new Uint8Array(await fs.readFile(to).catch(() => new ArrayBuffer(0))) : new Uint8Array(0);
     const frame = videoFrameSize(bytes);
     if (frame) { file.videoWidth = frame.width; file.videoHeight = frame.height; }
   }

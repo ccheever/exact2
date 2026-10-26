@@ -118,20 +118,21 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(store.get(`${DRAFTS}/${str(drafts[2]!.id)}.png`)).toEqual(photo);
   });
 
-  test('a dropped file over what staging can read is named with that limit; a picked one is copied up to the server\'s', async () => {
+  test('a large dropped or picked file is copied by the host up to the server\'s limit; a large image is re-encoded from its file', async () => {
     const { client, native } = await opened();
-    const big = new Uint8Array(13 * 1024 * 1024);
-    const { store, compressed } = memoryFiles({ 'doc:/1/big.bin': big, 'app:/tmp/picked/1/big.bin': big, 'app:/tmp/picked/2/huge.png': png(5000, 4000, 12 * 1024 * 1024) });
-    await attachIncoming(client, native, 'drop', incoming(['doc:/1/big.bin']));
-    expect(client.error).toBe("'big.bin' exceeds the 11 MB attachment limit.");
-    expect(under(store, STAGED)).toEqual([]);
+    const big = new Uint8Array(13 * 1024 * 1024), huge = png(5000, 4000, 12 * 1024 * 1024);
+    const { store, compressed } = memoryFiles({ 'doc:/1/big.bin': big, 'app:/tmp/picked/1/big.bin': big, 'doc:/2/huge.png': huge, 'app:/tmp/picked/2/huge.png': huge });
+    await attachIncoming(client, native, 'drop', incoming(['doc:/1/big.bin', 'doc:/2/huge.png']));
     await attachIncoming(client, native, 'pick', incoming([], { picked: [
       { path: 'app:/tmp/picked/1/big.bin', name: 'big.bin', type: 'application/octet-stream', size: big.byteLength },
-      { path: 'app:/tmp/picked/2/huge.png', name: 'huge.png', type: 'image/png', size: 12 * 1024 * 1024 + 33 }] }));
-    expect(draftFiles(client.local)).toMatchObject([{ name: 'big.bin', sizeBytes: big.byteLength, status: 'staged' }]);
-    // The large picked image is re-encoded from its app file, its header never read.
-    expect(compressed.map(call => [call.from, call.maxDimension, call.type])).toEqual([['app:/tmp/picked/2/huge.png', 2000, 'image/png']]);
-    expect(client.local.snapshotDrafts[client.draftKey]).toMatchObject([{ name: 'huge.png', mimeType: 'image/png' }]);
+      { path: 'app:/tmp/picked/2/huge.png', name: 'huge.png', type: 'image/png', size: huge.byteLength }] }));
+    expect(draftFiles(client.local)).toMatchObject([{ name: 'big.bin', sizeBytes: big.byteLength, status: 'staged' }, { name: 'big.bin', sizeBytes: big.byteLength, status: 'staged' }]);
+    expect(under(store, STAGED).map(path => store.get(path)!.byteLength)).toEqual([big.byteLength, big.byteLength]);
+    // Their headers are never read: the dropped image is re-encoded from its scratch copy, the picked one from its own file.
+    expect(compressed.map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.type])).toEqual([
+      ['app:/tmp/composer-stage/id/huge.png', 2000, 'image/png'], ['app:/tmp/picked/2/huge.png', 2000, 'image/png']]);
+    expect(under(store, 'app:/tmp/composer-stage')).toEqual([]);
+    expect(client.local.snapshotDrafts[client.draftKey]).toMatchObject([{ name: 'huge.png', mimeType: 'image/png' }, { name: 'huge.png', mimeType: 'image/png' }]);
     expect(client.error).toBe('');
   });
 
