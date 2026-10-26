@@ -140,6 +140,21 @@ export function sourceMapReaders(locators) {
   };
 }
 
+/** Resource declarations are joined only to the digest in this same state reply. */
+export function identifyResources(reply, maps) {
+  const digest = reply.planDigest, map = maps?.get(digest);
+  for (const [name, row] of Object.entries(reply.resourceStatus ?? {})) {
+    const at = map?.resources?.[name];
+    const valid = at && typeof at.file === 'string' && at.file.length > 0
+      && Number.isSafeInteger(at.line) && at.line > 0
+      && Number.isSafeInteger(at.column) && at.column > 0;
+    row.declaration = valid
+      ? {status:'compatible', digest, file:at.file, line:at.line, column:at.column, component:at.component}
+      : {status:'unavailable', reason:map ? 'no resource declaration in this map' : 'no compatible development source map'};
+  }
+  return reply;
+}
+
 /** LLP 1104 D2 / 1035.002 D3: list reasons only when geometry and tree
  * describe the same settlement; a target read already owns its identity. */
 export function identifyLayoutNodes(layout, tree, maps) {
@@ -416,7 +431,7 @@ function renderNode(n) {
 }
 
 /** The counters a `perf` site row may carry, in the order they print (LLP 1079 D1). */
-const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved'];
+const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved', 'rowConstructed', 'rowRebound', 'rowRetired'];
 
 /** `perf [<target>] [during "<op>" …]` and `perf frames [live <ms>] [late <n>]`
  * (LLP 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
@@ -505,7 +520,21 @@ export function perfDelta(a, b) {
     const was = ran.get(`${h.site} ${h.event}`);
     return { ...h, dispatched: h.dispatched - (was?.dispatched ?? 0), committed: h.committed - (was?.committed ?? 0) };
   }).filter(h => h.dispatched > 0);
-  return { ...b, sites, handlers, from: { seq: a.seq, clock: a.clock } };
+  const counted = {};
+  for (const key of ['work', 'hostWork']) {
+    if (!b[key]) continue;
+    const before = a[key], after = b[key];
+    if (!before || before.since !== after.since || before.scope !== after.scope || before.timebase !== after.timebase)
+      throw Error(`perf: ${key} measurement coverage changed between reads; no difference is defined`);
+    const counts = {};
+    for (const [name, value] of Object.entries(after.counts ?? {})) {
+      if (typeof before.counts?.[name] !== 'number') throw Error(`perf: ${key}.${name} was not measured in the first read`);
+      counts[name] = value - before.counts[name];
+      if (counts[name] < 0) throw Error(`perf: ${key}.${name} went backwards; counters restarted`);
+    }
+    counted[key] = {...after, counts};
+  }
+  return { ...b, ...counted, sites, handlers, from: { seq: a.seq, clock: a.clock } };
 }
 
 function renderHatchPerf(r) {
@@ -577,7 +606,7 @@ function renderPerf(r) {
   const handlers = (r.handlers ?? []).filter(h => h.dispatched > 0).sort((x, y) => y.dispatched - x.dispatched)
     .map(h => `  ${h.event} at ${where(h)}${h.source?.status === 'compatible' ? ` (${h.source.component})` : ''}: ${h.dispatched} dispatched, ${h.committed} changed the tree`);
   return [`${r.target ?? 'every root'} — seq ${span(r.from?.seq, r.seq)} · clock ${span(r.from?.clock, r.clock)} ms · incarnation ${r.incarnation}${r.truncated ? ` · partial: ${r.walked} walked` : ''}${unmapped ? ` · source unavailable: ${unmapped.source?.reason ?? 'no development source map'}` : ''}`,
-    pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : [])].join('\n');
+    pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : []), ...['work', 'hostWork'].filter(k => r[k]).map(k => `${k} (${r[k].scope}, since ${r[k].since ?? 'unmeasured'} ${r[k].timebase}): ${Object.entries(r[k].counts ?? {}).map(([n,v]) => `${n}=${v}`).join(' ')}`)].join('\n');
 }
 
 /** `bun scripts/agent.mjs trace <file>` (LLP 1079 D5): a person's session
