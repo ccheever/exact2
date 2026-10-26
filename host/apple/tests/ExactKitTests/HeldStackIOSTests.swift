@@ -286,6 +286,32 @@ final class HeldStackIOSTests: XCTestCase {
         XCTAssertEqual(navigation.presentedNavigations.count, 1, "the sheet stays up")
     }
 
+    func testADeferredHeaderProjectionKeepsTheTabContainerInItsViewport() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "a sheet presents only from a scene's window") }
+        let session = try fixture("held-rail"), p = session.presenter, navigation = p.navigation
+        let (tabs, held, root) = try held(session)
+        let allocation = tabs.view.convert(tabs.view.bounds, to: p.viewport)
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        try press(session, "open-sheet")
+        until("the sheet is presenting") { navigation.realizeWaits }
+        try press(session, "rail")
+        XCTAssertTrue(tabs.viewControllers?.first === held)
+        XCTAssertTrue(navigation.syncAfterTransitionArmed, "the header waits for a sync after the transition")
+        until("the deferred projection finishes") {
+            tabs.viewControllers?.first is UINavigationController && !navigation.syncAfterTransitionArmed && !navigation.inTransition
+                && (try? self.node(session, "held-header-rail"))?.isHidden == true
+        }
+        let nav = try XCTUnwrap(tabs.viewControllers?.first as? UINavigationController)
+        XCTAssertTrue(nav.viewControllers.first === root)
+        XCTAssertEqual(root.navigationItem.rightBarButtonItems?.count, 2)
+        XCTAssertEqual(tabs.view.convert(tabs.view.bounds, to: p.viewport), allocation)
+        XCTAssertTrue(p.root.isDescendant(of: p.viewport))
+        let content = try XCTUnwrap(root.contentViewport)
+        XCTAssertLessThanOrEqual(content.contentSize.width, content.bounds.width + 0.5, "the deferred header leaves no horizontal range")
+        XCTAssertEqual(navigation.presentedNavigations.count, 1, "the sheet stays up")
+    }
+
     /// The route's node waits in the window while its controller moves: with
     /// a sheet up over the tab, whose presentation makes the tab container
     /// inert, the field's focus is as it was and VoiceOver's element is told
