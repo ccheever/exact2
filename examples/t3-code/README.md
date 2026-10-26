@@ -647,9 +647,9 @@ Differences that belong to the app:
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
 - A PDF preview (a file, an attachment or a draft's file, and a server Browser tab's PDF) is PDFKit's `PDFView`
   (LLP 1020.002 D10), which centres a document shorter than its pane, where Chromium's viewer keeps it at the top; the
-  pane around the pages is PDFView's own grey, not Chromium's #282828. A sent PDF over 31 MiB shows "Could not load
-  this file.": the frame shows a local copy, and the Apple host refuses a fetch ceiling over about 32 MiB
-  (`media-frame.ts`). A rendered HTML preview is a sandboxed `iframe`
+  pane around the pages is PDFView's own grey, not Chromium's #282828. A sent PDF over 24 MiB shows "Could not load
+  this file.": the frame shows a local copy, and the Apple host starts a fetch only once twice its ceiling fits
+  beside the open server sockets (`media-frame.ts`). A rendered HTML preview is a sandboxed `iframe`
   (LLP 1020.002): a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens
   the platform's popup window, where the reference opens every new window in the default browser (a `target="_blank"`
   link or ⌘-click still does).
