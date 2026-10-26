@@ -420,12 +420,14 @@ writeFileSync(resolve(gen, 'main.js'), [
     "import { answering } from './ts-fetch.js'; import { heldReply, looseFetch } from './held.js'; Object.assign(answering, { loose: looseFetch, heldReply });"] : []),
   // The schemes `openURL` may hand to the browser beyond its own (app.json `open_url`, navigation.js `declaredScheme`).
   ...(manifest.open_url?.schemes?.length ? [`globalThis.exact = Object.assign(globalThis.exact ?? {}, { openSchemes: ${JSON.stringify(manifest.open_url.schemes)} });`] : []),
+  // Before the first render, whose hatched nodes read them (hatches.js `ht`, `page`): the hatch words the web handles,
+  // when app.json gives words their platforms (LLP 1075.003.000.001 §4.3, §5: a word it leaves out is shown and never
+  // called), and whether the app has a page module at all (none: no module artifact is asked for).
+  `globalThis.exact = Object.assign(globalThis.exact ?? {}, { pageModule: ${pageModules}${manifest.hatches && !Array.isArray(manifest.hatches) ? `, hatchWords: ${JSON.stringify(hatchWords(manifest, 'web'))}` : ''} });`,
   "const start = () => {",
   "  const state = app();",
   ...(devReload ? ["  finishDev();"] : []),
   "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, heldAsks, heldReplies, views: Views, viewId, After, resources: Resources, mutations: Mutations, writes: writeRecords });",
-  // The hatch words the web handles, when app.json gives words their platforms (LLP 1075.003.000.001 §4.3, §5): a word it leaves out is shown and never called (hatches.js).
-  ...(manifest.hatches && !Array.isArray(manifest.hatches) ? [`  globalThis.exact.hatchWords = ${JSON.stringify(hatchWords(manifest, 'web'))};`] : []),
   // A development page counts its work and samples its frames (LLP 1079); the agent adapter, only when the agent drives it.
   // The served plan's digest, which a development page's `perf` names (LLP 1079 D2).
   ...(production ? [] : [`  globalThis.exact.plan = ${JSON.stringify(createHash('sha256').update(readFileSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'))).digest('hex'))};`, "  globalThis.exact.goTo = goTo;", "  develop(globalThis.exact).catch(console.error);", "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
