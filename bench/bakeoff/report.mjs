@@ -1,5 +1,5 @@
-// A round's table: per pair, wall clock, tokens, the grader's scores and verdict, and the scroll probe's verdicts;
-// then Exact over the other as geometric means. Writes <round>/summary.md and prints it.
+// A round's tables: scrolling first (the probe's numbers per app, Exact beside the other), then per pair wall clock,
+// tokens, the grader's scores and verdict; Exact over the other as geometric means. Writes <round>/summary.md.
 //   bun bench/bakeoff/report.mjs <round dir>
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -9,6 +9,7 @@ const ROUND = resolve(process.argv[2]);
 const pairs = JSON.parse(readFileSync(resolve(HERE, 'pairs.json'), 'utf8'));
 const json = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 const geo = (xs) => (xs.length ? Math.exp(xs.reduce((a, x) => a + Math.log(x), 0) / xs.length) : NaN);
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const f = (x, d = 1) => (x == null || Number.isNaN(x) ? '–' : Number(x).toFixed(d));
 
 // The probe's verdict counts for one app: how many metrics read "tell" or "bad" (host/apple/feel/analyze.mjs keeps each
@@ -28,6 +29,27 @@ const feelOf = (spec, arm) => {
   return { found, text: found.length ? found.join(', ') : 'ok' };
 };
 
+// The numbers a person feels, from feel.json: hitch ratio (ms late per s of motion; Apple calls < 5 good), the
+// longest frame, offset jumps while decelerating, flings that drop a frame at the lift, touch-to-content lag.
+const scrollOf = (spec, arm) => {
+  const j = json(resolve(ROUND, 'feel', `${spec}-${arm}`, 'feel.json'));
+  if (!j || j.verdict !== 'probed') return null;
+  return { hitch: j.smooth?.hitchRatio, longest: j.smooth?.longestFrameMs, jumps: j.momentum?.jumps, lift: j.momentum?.lifts ? `${j.momentum.liftDrops}/${j.momentum.lifts}` : '–', lag: j.tracking?.lagFrames };
+};
+const scrollRows = [], hitches = { exact: [], other: [] };
+const smooth = { exact: 0, other: 0, probed: 0 };
+for (const [spec, { stack }] of Object.entries(pairs)) {
+  const e = scrollOf(spec, 'exact'), o = scrollOf(spec, stack);
+  if (!e && !o) continue;
+  const cell = (x) => (x ? `${f(x.hitch)} | ${f(x.longest, 0)} | ${x.jumps ?? '–'} | ${x.lift} | ${x.lag ?? '–'}` : '– | – | – | – | –');
+  scrollRows.push(`| ${spec} | ${stack} | ${cell(e)} | ${cell(o)} |`);
+  if (e && o) {
+    smooth.probed++; hitches.exact.push(e.hitch); hitches.other.push(o.hitch);
+    if (e.hitch < 5 && !e.jumps) smooth.exact++;
+    if (o.hitch < 5 && !o.jumps) smooth.other++;
+  }
+}
+
 const rows = [], ratios = { min: [], tok: [] }, tally = { exact: 0, other: 0, tie: 0 }, sums = { exact: { o: [], p: [], t: [], b: [] }, other: { o: [], p: [], t: [], b: [] } };
 for (const [spec, { stack, model }] of Object.entries(pairs)) {
   const ex = json(resolve(ROUND, 'records', `${spec}-exact.json`)), ot = json(resolve(ROUND, 'records', `${spec}-${stack}.json`));
@@ -43,11 +65,21 @@ for (const [spec, { stack, model }] of Object.entries(pairs)) {
   const fe = feelOf(spec, 'exact'), fo = feelOf(spec, stack);
   rows.push(`| ${spec} | ${model} | ${stack} | ${f(ex?.minutes)} | ${f(ot?.minutes)} | ${f(ex && ex.tokens.total / 1e6, 2)} | ${f(ot && ot.tokens.total / 1e6, 2)} | ${ge?.scores?.overall ?? '–'} | ${go?.scores?.overall ?? '–'} | ${ge?.scores?.platform ?? '–'} | ${go?.scores?.platform ?? '–'} | ${ge ? ge.tells?.length : '–'} / ${go ? go.tells?.length : '–'} | ${ge ? ge.bugs?.length : '–'} / ${go ? go.bugs?.length : '–'} | ${fe?.text ?? '–'} | ${fo?.text ?? '–'} | ${better} |`);
 }
-const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const md = [
   `# Bake-off ${basename(ROUND)}`,
   '',
   `exact2 ${(() => { try { return readFileSync(resolve(ROUND, 'pin.txt'), 'utf8').split('\n')[0]; } catch { return '?'; } })()}. Exact over the other, per pair: minutes **${f(geo(ratios.min), 2)}×**, tokens **${f(geo(ratios.tok), 2)}×** (geometric means, timeouts excluded). Preferred: Exact ${tally.exact}, other ${tally.other}, tie ${tally.tie}.`,
+  '',
+  `## Scrolling`,
+  '',
+  `Lists that scroll clean (hitch ratio under 5 ms/s and no offset jumps): Exact **${smooth.exact} of ${smooth.probed}**, the other ${smooth.other} of ${smooth.probed}. Mean hitch ratio: Exact ${f(mean(hitches.exact))} ms/s, the other ${f(mean(hitches.other))}.`,
+  '',
+  '| Spec | Other | Exact hitch ms/s | longest ms | jumps | lift drops | lag frames | Other hitch ms/s | longest ms | jumps | lift drops | lag frames |',
+  '|---|---|---|---|---|---|---|---|---|---|---|---|',
+  ...scrollRows,
+  '',
+  '## The pairs',
+  '',
   `Means, Exact vs other: overall ${f(mean(sums.exact.o))} vs ${f(mean(sums.other.o))}; platform ${f(mean(sums.exact.p))} vs ${f(mean(sums.other.p))}; tells an app ${f(mean(sums.exact.t))} vs ${f(mean(sums.other.t))}; bugs an app ${f(mean(sums.exact.b))} vs ${f(mean(sums.other.b))}.`,
   '',
   '| Spec | Model | Other | Exact min | Other min | Exact Mtok | Other Mtok | Exact overall | Other overall | Exact platform | Other platform | Tells E/O | Bugs E/O | Exact scroll | Other scroll | Better |',

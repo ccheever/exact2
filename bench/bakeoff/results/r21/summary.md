@@ -1,6 +1,27 @@
 # Bake-off r21
 
 exact2 f0eeade6b1. Exact over the other, per pair: minutes **1.48×**, tokens **2.69×** (geometric means, timeouts excluded). Preferred: Exact 2, other 10, tie 0.
+
+## Scrolling
+
+Lists that scroll clean (hitch ratio under 5 ms/s and no offset jumps): Exact **5 of 11**, the other 10 of 11. Mean hitch ratio: Exact 21.7 ms/s, the other 2.1.
+
+| Spec | Other | Exact hitch ms/s | longest ms | jumps | lift drops | lag frames | Other hitch ms/s | longest ms | jumps | lift drops | lag frames |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| contacts | swiftui | 26.1 | 45 | 18 | 1/4 | 3 | 1.2 | 33 | 0 | 0/4 | 0 |
+| recipes | uikit | 0.0 | 17 | 0 | 0/4 | 0 | 2.4 | 39 | 0 | 0/4 | 0 |
+| expenses | uikit | 9.1 | 34 | 23 | 0/4 | 0 | 0.0 | 17 | 0 | 0/4 | 0 |
+| workout-log | swiftui | 0.0 | 17 | 0 | 0/4 | 0 | 0.0 | 17 | 0 | 0/4 | 0 |
+| podcasts | swiftui | 26.6 | 61 | 23 | 1/4 | 0 | 10.2 | 62 | 0 | 0/4 | 0 |
+| notes | uikit | 0.0 | 17 | 0 | 0/4 | 0 | 1.4 | 36 | 0 | 0/4 | 0 |
+| watchlist | uikit | 79.7 | 98 | 15 | 1/4 | 0 | 0.0 | 17 | 0 | 0/4 | 0 |
+| chat | swiftui | 4.6 | 39 | 0 | 0/4 | – | 2.4 | 43 | 0 | 0/4 | – |
+| moodboard | swiftui | 73.3 | 72 | 20 | 0/4 | 0 | 1.1 | 33 | 0 | 0/4 | 0 |
+| inbox | uikit | 17.4 | 107 | 8 | 1/4 | 0 | 1.1 | 33 | 0 | 0/4 | 0 |
+| settings | swiftui | 1.5 | 33 | 0 | 0/4 | 0 | 3.0 | 33 | 0 | 0/4 | 0 |
+
+## The pairs
+
 Means, Exact vs other: overall 6.8 vs 8.2; platform 6.8 vs 7.3; tells an app 6.2 vs 4.8; bugs an app 1.7 vs 1.0.
 
 | Spec | Model | Other | Exact min | Other min | Exact Mtok | Other Mtok | Exact overall | Other overall | Exact platform | Other platform | Tells E/O | Bugs E/O | Exact scroll | Other scroll | Better |
