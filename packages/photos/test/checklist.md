@@ -41,9 +41,21 @@ off: on return the strip is gone and the denied line shows.
    showed goes blank.
 3. Open a photo held only in iCloud (Settings > Photos > Optimize iPhone
    Storage on, an old photo): it downloads and opens in the editor.
+   Age and Optimize Storage do not prove that an original is cloud-only.
+   If uncertain, request its original through PhotoKit with network access
+   disabled: no image data and `PHImageResultIsInCloudKey` true establish
+   the prerequisite. Record unavailable coverage when every selected original
+   is local; do not count opening a cached photo as an iCloud download.
 4. Open an HDR photo, rotate it, and Save to Photos: the system asks to add
    once (if only adding was asked before). In Photos the saved photo shows
    as HDR, with the original's date and place.
+   For a repeatable codec check, import the repository's
+   `host/apple/tests/ExactKitTests/ColorFixtures/gainmap-iso.jpg`, whose HDR
+   headroom is 4. Reopen the saved edit and inspect its original bytes with
+   ImageIO using `kCGImageSourceDecodeToHDR`: `CGImageGetContentHeadroom`
+   must remain 4 after a quarter-turn. A gain-map attachment alone is not
+   enough; an SDR image can retain one. Use a fixture with known EXIF dates
+   and GPS coordinates to check those fields as well.
 5. Turn photo access off in Settings > Photo Editor: on return the strip is
    gone and the editor says it can't see your photos, with Open Settings.
 
