@@ -1212,6 +1212,24 @@ reading. Nothing that isn't HTML is added by it.
   Bluetooth Classic; `exclusionFilters` and filters with several
   services; an app's own scan list on Android; and the Linux, visionOS and
   watchOS cells.
+- NFC was never on the doing list. **Expanded (Charlie, 2026-10-26,
+  "Converged: build (Recommended)", waived; LLP 1133.035 §16 question
+  8):** Web NFC's NDEF reading and writing (`nfcStatus`, `scan`,
+  `abortScan`, `write`, `makeReadOnly`, `abortWrite`, `ndefRecords` and
+  the root's `reading` and `readingerror`, imported from `@exact/nfc`) on
+  the web (Chrome on Android), iOS (Core NFC) and Android (reader mode),
+  with tier 2's tag types and commands to a tag a live scan holds: one
+  reader per process, claims per session, and `readerUI` telling the app
+  whether the system's sheet or its own panel shows the wait. With the
+  seam additions of LLP 1133.035 D16. Consumer: Shelf's Tag this book.
+  Unblocks reading and writing a tag from Contract without app Swift or
+  Kotlin. Take: none named; the ruling is its own waiver. Still out, each
+  until a consumer asks (LLP 1133.035 §15): Android card emulation, built
+  (designed in D13), and Apple's `CardSession`; the NDEF message that
+  launched an app from iOS's background reading; payment-card reading and
+  Apple's value-added services; ISO 15693's and FeliCa's own commands as
+  tier 2; writing to the tag just read in one touch; and the Windows and
+  Linux cells.
 - Alarms were never on the doing list. **Expanded (Charlie, 2026-10-26,
   "Accept, tell Daehyeon (Recommended)", waived; LLP 1133.030 §15
   question 9):** alarms (`@exact/alarms`): an alert at a time or after a
