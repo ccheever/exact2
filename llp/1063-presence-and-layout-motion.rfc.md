@@ -125,8 +125,9 @@ first seen, interruption from the current presentation and springs (settling
 per axis in points) for free. The presenter gets `layout` as the shown box's
 offset from the laid-out origin, applied outermost as a translation (it
 composes with authored `translate`/`scale`/`rotate`, and a moving parent
-carries its children: only relative motion animates), and its size as a
-ratio of the laid-out one. The size is the box's *surface* only, as a UIKit
+carries its children: only relative motion animates), and its size as its
+difference from the laid-out one (a ratio cannot say a size shown over a box
+laid out at zero; GitHub #940). The size is the box's *surface* only, as a UIKit
 or SwiftUI frame animation shows it: its background, border, radius, shadow
 and — when it clips — the clip on its children take the shown size from the
 top-left corner, while the view keeps its laid-out frame, so its content and
@@ -163,7 +164,7 @@ arrives while it loads waits for it, with every batch after it in order
 (`presenceLoader`, navigation.js), so no exit is lost. An `exit` op carries
 the CSS list it plays: a windowed row's wrapper declares none.
 
-**D8 — Linux is honest.** Layout transitions run (the offset and scale are
+**D8 — Linux is honest.** Layout transitions run (the offset and size are
 painted outermost, as on Apple). Exit animation is refused: the painter draws the
 live kernel tree every frame, and keeping a destroyed subtree would need a
 retained paint list that does not exist. The node leaves at once and the

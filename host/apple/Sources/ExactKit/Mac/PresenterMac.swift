@@ -1231,6 +1231,7 @@ package final class Presenter {
                 v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
+                if v.surface != nil { v.applySurface() } // its size is the laid-out one plus `layoutResize`
                 v.layoutContent()
             case .fieldContent:
                 views[id]?.applyFieldContent(op.payload)
@@ -1244,7 +1245,7 @@ package final class Presenter {
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
-                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutResize = CGSize(width: CGFloat(op.w), height: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.presentedAlpha = x; v.alphaValue = v.disabledShown ? x * NodeView.disabledOpacity : x; v.refreshPressOpacity()
