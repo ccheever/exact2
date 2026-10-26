@@ -598,7 +598,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "orientationlock" => AttrTarget::Prop(p("orientationlock")),
         // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
         // `none` for a full-bleed screen.
-        "navigationBar" => AttrTarget::Prop(p(name)),
+        "navigationBar" => AttrTarget::Prop(p("navigationBar")),
         "-exact-safe-area" => AttrTarget::Prop(p("safeArea")),
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
