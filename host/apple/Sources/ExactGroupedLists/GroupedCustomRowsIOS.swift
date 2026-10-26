@@ -16,6 +16,26 @@ struct CustomLook {
     var line: CGFloat?
 }
 
+extension GroupedListModel.Look {
+    /// A UIKit weight as CSS's number, to the nearest of CSS's hundreds.
+    static func cssWeight(_ w: UIFont.Weight) -> Int {
+        let steps: [(UIFont.Weight, Int)] = [(.ultraLight, 100), (.thin, 200), (.light, 300), (.regular, 400), (.medium, 500),
+                                            (.semibold, 600), (.bold, 700), (.heavy, 800), (.black, 900)]
+        return steps.min { abs($0.0.rawValue - w.rawValue) < abs($1.0.rawValue - w.rawValue) }?.1 ?? 400
+    }
+}
+
+extension GroupedListHost {
+    /// List `id`'s model, decoded again only when the kernel's JSON for it changed.
+    func read(_ id: UInt32) -> GroupedListModel? {
+        guard let json = presenter.session?.runtime.groupedList(id) else { return nil }
+        if let known = reads[id], known.json == json { return known.model }
+        let model = GroupedListModel(json: json)
+        reads[id] = (json, model)
+        return model
+    }
+}
+
 extension GroupedListView {
     /// Its cells, headers and separators follow the list's direction, as
     /// UIKit mirrors its own lists; a view's `semanticContentAttribute`

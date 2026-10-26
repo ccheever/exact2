@@ -25,13 +25,13 @@ import CExact
 import UIKit
 
 extension Runtime {
-    /// A grouped list's sections and rows (LLP 1084 D4). The model is read
-    /// on iOS; tvOS shows a grouped list's authored nodes.
-    func groupedList(_ view: UInt32) -> GroupedListModel? {
+    /// A grouped list's sections and rows (LLP 1084 D4), as the kernel's
+    /// JSON. The model is read on iOS; tvOS shows a grouped list's authored nodes.
+    func groupedList(_ view: UInt32) -> Data? {
         #if os(iOS)
         return on(busy: nil) {
             let len = exact_grouped_list(rt, view)
-            return GroupedListModel(json: Data(bytes: exact_out(rt), count: Int(len)))
+            return Data(bytes: exact_out(rt), count: Int(len))
         }
         #else
         return nil
@@ -84,12 +84,6 @@ struct GroupedListModel: Equatable {
         }
         /// Onto a cell's or a header's text: only what the author said
         /// changes UIKit's. `engine` makes the author's font.
-        /// A UIKit weight as CSS's number, to the nearest of CSS's hundreds.
-        static func cssWeight(_ w: UIFont.Weight) -> Int {
-            let steps: [(UIFont.Weight, Int)] = [(.ultraLight, 100), (.thin, 200), (.light, 300), (.regular, 400), (.medium, 500),
-                                                (.semibold, 600), (.bold, 700), (.heavy, 800), (.black, 900)]
-            return steps.min { abs($0.0.rawValue - w.rawValue) < abs($1.0.rawValue - w.rawValue) }?.1 ?? 400
-        }
         func apply(to text: inout UIListContentConfiguration.TextProperties, engine: TextEngine?) {
             if lines > 0 {
                 text.numberOfLines = lines
@@ -202,7 +196,10 @@ final class GroupedListHost: GroupedLists {
     /// Each list's margins as the kernel was last told them (`tell`).
     var told: [UInt32: [CGFloat]] = [:]
     /// A list's model: the kernel's, through the runtime; a test's own.
-    lazy var model: (UInt32) -> GroupedListModel? = { [unowned self] id in presenter.session?.runtime.groupedList(id) }
+    lazy var model: (UInt32) -> GroupedListModel? = { [unowned self] id in read(id) }
+    /// Each list's model as last read, by the JSON it was read from: a batch
+    /// that changes only what is inside its rows gives the same JSON again.
+    var reads: [UInt32: (json: Data, model: GroupedListModel?)] = [:]
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     func rows(for id: UInt32) -> [[UInt32]]? {
@@ -237,7 +234,7 @@ final class GroupedListHost: GroupedLists {
             lists[owner.id] = list
             list.update(model)
         }
-        for id in Array(lists.keys) where !live.contains(id) { lists.removeValue(forKey: id)?.remove() }
+        for id in Array(lists.keys) where !live.contains(id) { lists.removeValue(forKey: id)?.remove(); reads[id] = nil }
         tell()
     }
 
