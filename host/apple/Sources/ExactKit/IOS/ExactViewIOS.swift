@@ -161,7 +161,6 @@ public final class ExactView: UIView {
     public override func layoutSubviews() {
         super.layoutSubviews()
         fit()
-        session.presenter.placeDocumentMount()
     }
 
     #if os(iOS)
@@ -421,6 +420,7 @@ public final class ExactView: UIView {
             // the agent's explicit size, where the insets are zero too
             regions = LayoutRegionsIOS.insets(of: self, viewport: cover ? frame : frame.intersection(bounds.inset(by: safe)))
         }
+        presenter.placeDocumentMount()
         guard size.width > 0, size.height > 0 else { return }
         // The fold (LLP 1078 D5): the container's active division regions,
         // converted into the viewport's space, split it into segments; the

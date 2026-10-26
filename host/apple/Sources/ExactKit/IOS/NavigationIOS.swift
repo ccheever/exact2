@@ -210,15 +210,17 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         if node.superview !== contentMount { contentMount.addSubview(node) }
         host?.presenter.regrid(node) // from the controller's view, a grid origin of its own
     }
-    /// Scroll the document inside the native container; the navigation and tab bars stay in their viewport.
+    /// The route's room for the keys, and under `resizes-visual` its
+    /// viewport's frame, extent and inset.
     func fitContentViewport(in block: CGRect? = nil) {
         #if os(iOS)
         // Under a search in the bar the route keeps its layout (`block(in:)`)
         // and takes the keys as safe area, as SwiftUI's keyboard region is:
         // UIKit insets its edge scroller so the last rows reach above them.
+        // A visual viewport takes them as its inset instead, without reflow.
         if let presenter = host?.presenter {
             var keys: CGFloat = 0
-            if presenter.editsInBar(of: view), let top = presenter.keyboardTop, let window = view.window {
+            if contentViewport == nil, presenter.editsInBar(of: view), let top = presenter.keyboardTop, let window = view.window {
                 let edge = view.convert(CGPoint(x: 0, y: top), from: window).y
                 keys = max(0, view.bounds.maxY - edge - (view.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom))
             }
@@ -237,7 +239,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         if scroll.contentSize != size { scroll.contentSize = size }
         // Keep drawing under the keyboard while the content clears its occupied area
         var overlap = max(0, frame.maxY - allocation.maxY)
-        if presenter.keyboardPolicy == "resizes-visual", presenter.edits(in: view),
+        if presenter.keyboardPolicy == "resizes-visual", presenter.ownsKeyboard(in: view),
            let top = presenter.keyboardTop, let window = view.window {
             let keys = view.convert(CGPoint(x: 0, y: top), from: window).y
             overlap = min(allocation.height, max(0, allocation.maxY - keys))
@@ -643,6 +645,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func refitForBars() {
         guard wantsWholeView != tookWholeView else { return }
         tookWholeView = wantsWholeView
+        // Now, not at the layout: under `cover` or the agent's own size the
+        // view's area does not change, and `fit` refits the owner only when it does.
+        presenter.hostDocument(fixed: wantsWholeView)
         presenter.session?.view?.setNeedsLayout()
     }
 

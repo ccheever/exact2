@@ -133,7 +133,7 @@ final class NavigationBarIOSTests: XCTestCase {
         let nav = try XCTUnwrap(p.navigation.primaryNavigation)
         let returning = try XCTUnwrap(nav.topViewController as? RouteController)
         let returningSize = returning.node.bounds.size
-        let full = p.viewport.frame
+        let full = p.documentHost.frame
         p.press(try node(session, "open-focused-plain").id)
         let field = try XCTUnwrap(try node(session, "plain-first").field)
         until("the pushed field has the system keyboard") {
@@ -141,17 +141,17 @@ final class NavigationBarIOSTests: XCTestCase {
         }
         XCTAssertLessThan(try XCTUnwrap(nav.topViewController as? RouteController).node.bounds.height, full.height)
         XCTAssertEqual(p.viewportSize, full.size, "avoiding one route's keyboard must not resize its application root")
-        XCTAssertEqual(p.viewport.frame, full, "native navigation retains its physical area while the document avoids the keyboard")
+        XCTAssertEqual(p.documentHost.frame, full, "native navigation retains its physical area while the document avoids the keyboard")
         nav.popViewController(animated: true)
         until("both routes are in the transition") { returning.view.window != nil && nav.transitionCoordinator != nil }
         XCTAssertTrue(field.isFirstResponder, "UIKit keeps the outgoing editor focused while its keyboard travels")
-        XCTAssertEqual(p.viewport.frame, view.bounds, "the viewport must not clip the returning route below the moving keyboard")
+        XCTAssertEqual(p.documentHost.frame, view.bounds, "the viewport must not clip the returning route below the moving keyboard")
         XCTAssertEqual(returning.node.bounds.size, returningSize, "the returning route fills the area exposed beside the moving keyboard")
         until("the pop and keyboard hide finish") {
             nav.viewControllers.count == 1 && nav.transitionCoordinator == nil &&
                 !p.hasKeyboardEditor && p.keyboardGuideTop(in: view) == nil && p.keyboardInset == 0
         }
-        XCTAssertEqual(p.viewport.frame, full, "the returning route takes back the area the keyboard covered")
+        XCTAssertEqual(p.documentHost.frame, full, "the returning route takes back the area the keyboard covered")
         XCTAssertEqual(p.viewportSize, full.size)
         XCTAssertNil(p.keyboardTop)
     }

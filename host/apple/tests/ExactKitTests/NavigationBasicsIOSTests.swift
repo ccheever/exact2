@@ -137,6 +137,30 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertFalse(sequence(first: owner, next: { $0.superview }).contains { $0 is UIScrollView }, "no scroll view holds the container")
     }
 
+    func testTheDocumentLeavesItsMountWithTheNativeContainerUnderCover() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "the native container needs the hosted window")
+        }
+        let session = try fixture("mount-under-cover", plan: "EXACT_NAVIGATION_BARS_PLAN"), p = session.presenter
+        let app = try node(session, "app")
+        p.apply(wireBatch([["op": "props", "id": Int(app.id), "set": ["viewportFit": "cover"]]]))
+        let view = try XCTUnwrap(session.view)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        let hearsTouches = { (host: UIView) in host.gestureRecognizers?.contains { $0 is PopoverTouch } == true }
+        XCTAssertTrue(p.documentFixed)
+        XCTAssertTrue(hearsTouches(p.documentMount))
+        let frame = p.viewport.frame
+        // Every route leaves the root, which retires the container
+        p.apply(wireBatch([["op": "children", "id": Int(app.id), "ids": []]]))
+        view.layoutIfNeeded()
+        XCTAssertNil(p.navigation.primaryOwner)
+        XCTAssertEqual(p.viewport.frame, frame, "under cover the session's area is the same without the container")
+        XCTAssertFalse(p.documentFixed, "the document leaves its mount with the container")
+        XCTAssertTrue(p.viewport.isScrollEnabled)
+        XCTAssertTrue(hearsTouches(p.viewport) && !hearsTouches(p.documentMount), "light dismissal hears the document where it is")
+    }
+
     func testVisualKeyboardInsetsRevealALowNativeRouteFieldWithoutAnInnerScroller() throws {
         guard hostedWindowScene() != nil else {
             throw missing("scene", "keyboard ownership requires the hosted app responder chain")

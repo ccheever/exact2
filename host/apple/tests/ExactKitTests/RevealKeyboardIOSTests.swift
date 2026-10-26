@@ -187,7 +187,7 @@ final class RevealKeyboardIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
         view.fit()
         let field = UITextField(frame: CGRect(x: 20, y: 80, width: 180, height: 40))
-        p.viewport.addSubview(field)
+        p.documentHost.addSubview(field)
         addTeardownBlock { window.endEditing(true); window.isHidden = true; session.destroy() }
         return (session, view, window, field)
     }
@@ -582,7 +582,8 @@ private final class KeyboardInputFixture: UIView, UIKeyInput {
 }
 
 extension XCTestCase {
-    func setKeyboard(_ presenter: Presenter, top: CGFloat?) {
+    /// `responder`: the editor the keys are for, if not the fixture's own.
+    func setKeyboard(_ presenter: Presenter, top: CGFloat?, responder: UIView? = nil) {
         guard let window = presenter.viewport.window, let parent = presenter.viewport.superview else { return }
         if let view = presenter.session?.view {
             if objc_getAssociatedObject(view, &keyboardFixtureKey) == nil {
@@ -595,6 +596,7 @@ extension XCTestCase {
             }
             let fixture = objc_getAssociatedObject(view, &keyboardFixtureKey) as! KeyboardGuideFixture
             fixture.top = top
+            if let responder { fixture.responder = responder }
             if top != nil { XCTAssertTrue(presenter.hasKeyboardEditor, "the fixture supplies a mounted keyboard responder") }
             presenter.refitKeyboard()
             return

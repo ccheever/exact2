@@ -45,6 +45,9 @@ extension Presenter {
         placeDocumentMount()
         // A fixed document takes no keyboard range; a scrolling one does again.
         setKeyboardInset(keyboardInset)
+        // What is drawn over the document, and what hears its touches, moves with it.
+        menus.rehostPopovers()
+        menus.observeTouches()
     }
 
     /// The mount in the viewport's place: its transform (the agent's own
