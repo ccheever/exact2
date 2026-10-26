@@ -549,11 +549,17 @@ extension Presenter {
     }
     func trackPointer(_ event: NSEvent) {
         guard trackedPointerEvent !== event else { return }
-        trackedPointerEvent = event
-        trackedCanvas = nil
         // A move in a popover's or a sheet's own window is that window's
         // (`BlockView.pointerTracking`); the page's hover is left as it is.
         let apart = event.window.map { $0 !== viewport.window && hosts($0) } ?? false
+        // Rows sliding under a still pointer enter and exit their tracking areas: while a scroll
+        // runs, its hover waits for the scroll to rest (`followPointerAfterScroll`), as a
+        // browser's does, since each was a hit-test the next scrolled frame replaced. A move is
+        // the person's and is heard at once, and a pointer leaving the content, or crossing into
+        // a window in front of it (a popover), ends hover.
+        if !apart, scrollRestFollow != nil, event.type == .mouseEntered || event.type == .mouseExited && restingPointer(frontmost: true) != nil { return }
+        trackedPointerEvent = event
+        trackedCanvas = nil
         // A held contact owns move delivery, but leaving the window still
         // ends hover. Other tracking areas may exit inside the window; hit
         // testing there keeps the subtree currently under the pointer.
