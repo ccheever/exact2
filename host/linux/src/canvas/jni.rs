@@ -232,7 +232,7 @@ macro_rules! canvas_jni {
                             Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale, hatches()).map(
                                 |mut h| {
                                     h.set_borrowed(true);
-                                    let first = h.frame();
+                                    let first = $crate::canvas::agent::after_turn(h.frame());
                                     h.roles_here(false);
                                     Booted(h, first)
                                 },
@@ -435,7 +435,9 @@ macro_rules! canvas_jni {
                 // for (EXACT_SCRUB_TRACE), its stream or none (a view of the
                 // app's own took it), never a stream queued before.
                 let own = waiting.is_none();
-                let ops = waiting.or_else(|| with(|h| h.frame()).flatten());
+                let ops = waiting.or_else(|| {
+                    $crate::canvas::agent::after_turn(with(|h| h.frame()).flatten())
+                });
                 if own {
                     $crate::presenter::preferences::scrub_frame_drawn();
                 }

@@ -37,24 +37,14 @@
 use super::{CanvasHost, FINISHED};
 use exact_runner::agent::{error, field_str};
 use exact_runner::DataSource;
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
 
 /// A driver has asked: the host's turns run at the runner's clock.
 static DRIVEN: AtomicBool = AtomicBool::new(false);
 /// A driver's launch: the runner's clock from the boot, before any request.
 static SEEK: AtomicBool = AtomicBool::new(false);
 
-/// Streams painted since the reader last took one, oldest first. A process
-/// has one host, and only its thread paints and takes.
-static STREAMS: Mutex<VecDeque<Vec<u32>>> = Mutex::new(VecDeque::new());
-
-fn streams() -> MutexGuard<'static, VecDeque<Vec<u32>>> {
-    STREAMS.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-fn driven() -> bool {
+pub(super) fn driven() -> bool {
     DRIVEN.load(Ordering::Relaxed)
 }
 
@@ -86,22 +76,25 @@ pub(super) fn clock<D: DataSource>(p: &crate::presenter::Presenter<D>) -> Option
 }
 
 /// A recording finished over `older`, which the reader never took. With a
-/// driver it is kept for the reader; with none it goes, as it always did.
+/// driver it is queued for the reader; otherwise it is dropped. Unread
+/// recordings carry their definitions in [`super::Recorder::finish_stream`].
 pub(super) fn kept(older: Option<Vec<u32>>) {
-    if let Some(ops) = older.filter(|_| driven()) {
-        streams().push_back(ops);
-    }
+    super::stream::keep(older.filter(|_| driven()));
 }
 
 /// The oldest stream the reader has not taken, before the host's own turn.
-/// With no driver there is none, and nothing is locked to say so.
 pub fn next_stream() -> Option<Vec<u32>> {
-    driven().then(|| streams().pop_front()).flatten()
+    super::stream::next_stream()
+}
+
+/// A turn's latest stream follows any older stream it could not split.
+pub fn after_turn(latest: Option<Vec<u32>>) -> Option<Vec<u32>> {
+    super::stream::after_turn(latest)
 }
 
 /// Whether a stream waits for the reader: it is owed another turn.
 pub fn waiting() -> bool {
-    driven() && !streams().is_empty()
+    super::stream::waiting()
 }
 
 impl<D: DataSource + Default> CanvasHost<D> {
