@@ -816,9 +816,16 @@ if (es) {
     const wanted = new Set(frame.sites);
     const found = views.sites.filter(([, site]) => wanted.has(site)).map(([id]) => globalThis.exact.views?.get(id)).filter((el) => el?.isConnected);
     // The outline answering a click here (its token) scrolls nothing: that
-    // copy is (or was) under the pointer. Any other (the tool's Outline)
-    // brings the first in.
-    if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
+    // copy is (or was) under the pointer. Any other brings in the
+    // selection's own copy when this page holds the selection there (that
+    // plan and generation, its site outlined), and nothing when that copy
+    // shows nowhere, never another copy of it (Apple pass #2: a move
+    // scrolled to a copy rows away); else (the tool's Outline) the first.
+    // As the Apple hosts' Inspect.revealing.
+    const was = inspecting.selected;
+    const holds = was && was.plan === frame.plan && was.generation === globalThis.exact.generation && wanted.has(was.site);
+    const chosen = holds ? (views.sites.some(([id, site]) => id === was.id && wanted.has(site)) ? globalThis.exact.views?.get(was.id) : null) : found[0];
+    if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`)) && chosen?.isConnected) chosen.scrollIntoView({ block: "nearest" });
     for (const el of found) {
       const mark = document.createElement("div");
       mark.dataset.exactOutline = "";

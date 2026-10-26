@@ -491,7 +491,15 @@ function outlineSites(frame) {
   unmark(true);
   const wanted = new Set(frame.sites.map(String));
   const found = [...document.querySelectorAll("[data-site]")].filter((el) => wanted.has(el.dataset.site) && !el.closest("[data-exiting]"));
-  if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
+  // The outline answering a click here scrolls nothing. Any other brings in the selection's own copy when this page
+  // holds the selection there (its plan, its site outlined, its element known), and nothing when that copy shows
+  // nowhere, never another copy of it (Apple pass #2: a move scrolled to a copy rows away); else (the tool's
+  // Outline, or a selection kept across a reload, its element unknown) the first. As host/web/dev.js and the Apple
+  // hosts' Inspect.revealing.
+  const was = inspecting.selected;
+  const holds = was?.el && was.plan === frame.plan && wanted.has(String(was.site));
+  const chosen = holds ? (found.includes(was.el) && was.el.isConnected ? was.el : null) : found[0];
+  if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) chosen?.scrollIntoView({ block: "nearest" });
   for (const el of found) {
     const mark = document.createElement("div");
     mark.dataset.exactOutline = "";
