@@ -6014,8 +6014,11 @@ Its wire is the one `tamber/1.17` bullet. It was opened by the `pen` importer (`
   - the iOS dev-joined blank rows: a generation reload's presenter reset called the new runtime before its committed
     batch applied; closed at one choke point (`Runtime.on`, `ResetGate.swift`'s replayed and dropped lists), signed
     off and landing as its own push (iosfix, `x2/blank-rows`);
-  - Excord's two relaunch reds, so main closed green: a launch reopens the channel it left, once, with its draft,
-    yielding to any user action (`9265bf2c0b`; the full contract suite 2469/0 on its tip).
+  - Excord's relaunch reds: a launch reopens the channel it left, once, with its draft, yielding to any user action
+    (`9265bf2c0b`; the full contract suite 2469/0 on its tip).
+  - **Known reds at close:** two more Excord app tests failed on clean main on every run at load 20–36 ("scrolling up
+    from the end acknowledges what was on screen" and "Mark As Read away from the end"). They aren't stage 14 work;
+    x2-perf4 owns them as main-red fixes, being fixed now, not QUEUE'd.
 
 | Part | Gate | Result |
 |---|---|---|
