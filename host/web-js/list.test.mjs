@@ -461,3 +461,27 @@ test('lists opened at their ends report only their ends while their rows measure
     expect(heard).toEqual(heard.map(() => 0));
   }
 }, 60_000);
+
+test('measured virtual rows count construction and retirement without eager realization', async () => {
+  const result = await evaluate(`(async () => {
+    const perf = await import('/perf.js'), root = document.getElementById('exact-root');
+    perf.install(root);
+    const el = document.createElement('div'); el.dataset.site = '93';
+    el.style.cssText = 'height:320px;width:400px;overflow:auto'; root.append(el);
+    const own = rt.scope(() => list.vl(el, () => Array.from({length:3000}, (_, i) => i), i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+    }, {est:32,pw:[],ph:[320]}));
+    await exact.lists.pending(); await exact.lists.settle();
+    const before = perf.reply(root, {}).sites.find(s => s.site === 93);
+    exact.lists.into(el.$list.view, 500);
+    await exact.lists.settle();
+    const moved = perf.reply(root, {}).sites.find(s => s.site === 93);
+    rt.end(own); el.remove(); rt.settled();
+    const after = perf.reply(root, {}).sites.find(s => s.site === 93);
+    return {before,moved,after};
+  })()`);
+  expect(result.before.rowConstructed).toBeGreaterThan(0);
+  expect(result.before.rowConstructed).toBeLessThan(100);
+  expect(result.moved.rowRetired).toBeGreaterThan(0);
+  expect(result.after.rowRetired).toBe(result.after.rowConstructed);
+}, 60_000);

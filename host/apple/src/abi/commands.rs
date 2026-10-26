@@ -27,6 +27,7 @@ pub fn measure_work_later() {
 pub fn measure_at_boot<D: DataSource>(runner: &mut exact_runner::Runner<D>, compat: Option<&str>) {
     if WORK_FROM_BOOT.load(Ordering::Relaxed) {
         runner.measure_unless_production(compat, true);
+        runner.measure_kernel_layouts();
     } else {
         runner.measure_later(compat);
     }
@@ -47,6 +48,7 @@ impl<D: DataSource> Bridge<D> {
         WORK_FROM_BOOT.store(true, Ordering::Relaxed);
         if let Some(host) = self.host.as_mut() {
             host.runner_mut().measure_from_now(self.compat, true);
+            host.runner_mut().measure_kernel_layouts();
         }
         0
     }

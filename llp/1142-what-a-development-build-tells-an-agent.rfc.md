@@ -1,7 +1,7 @@
 # LLP 1142: What a development build tells an agent — late frames, portable traces, failed resources
 
 **Type:** RFC
-**Status:** Draft r4, 2026-10-25. §12 records what r3 built; §13 proposes the remaining Excord development-loop work and is unreviewed and unimplemented. The r1 and r2 blind reviews by GPT-6 Astra and Grok are in `llp/reviews/rfc-2026-10-25-1142-r{1,2}.{astra,grok}.md`; §R and §12 record their disposition. §13.8 lists the new decisions requested.
+**Status:** Draft r5, panel-reviewed; 2026-10-26. §12 records what r3 built; §13 specifies the next tooling increment after the r4 panel. Implementation is authorized by Charlie’s 2026-10-26 instruction below; completion evidence is recorded separately. The r1 and r2 blind reviews by GPT-6 Astra and Grok are in `llp/reviews/rfc-2026-10-25-1142-r{1,2}.{astra,grok}.md`; §R and §12 record their disposition. §13.8 lists the new decisions requested.
 **Systems:**
 - Apple host:
   - the frame sampler and its trace (`host/apple/Sources/ExactKit/FrameSampler.swift`);
@@ -23,7 +23,7 @@
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Revision author:** Codex for Charlie Cheever (§13 and r4 metadata), 2026-10-25, at his request to write an RFC from the Excord development findings.
 **Date:** 2026-10-25
-**Implementer:** Claude (Opus 5.5), from 2026-10-25, for §11's work, as recorded in §12. Charlie asked for that review and build ("have the panel review this then go ahead and implement when you're happy with it"). §13 is a requested proposal; implementation is not yet assigned or scheduled, and the earlier authorization does not cover its additions.
+**Implementer:** Claude (Opus 5.5), from 2026-10-25, for §11's work, as recorded in §12. Charlie asked for that review and build ("have the panel review this then go ahead and implement when you're happy with it"). Codex implements §13’s tooling increment for Charlie, who instructed on 2026-10-26: “hav the panel review it and then when you're happy with it at a high level, go ahead and implement”. The r4 panel narrowed the implementation as recorded in §13.8.
 **Related:**
 - LLP 1079 (`perf`, the frame sampler, the trace, "juxtaposition, never a cause"). This RFC extends it most.
 - LLP 1075.003.000.001 §3.1 (hatch calls charged by overlap with a late frame's window, the model D1 follows).
@@ -38,10 +38,10 @@
 
 ## Summary
 
-Revision 4 extends this RFC with [§13](#13-the-remaining-excord-development-loop-work).
-The proposal closes the native-input and inspection gaps left by §12, then removes stream
-scheduling and list-prefetch workarounds from Excord. It changes no implementation or admission
-rule by being written. §12 remains the account of what shipped.
+Revision 5 narrows this RFC with [§13](#13-the-remaining-excord-development-loop-work).
+The implementation closes inspection and fixture-isolation gaps left by §12. Stream scheduling
+and collection semantics require amendments to their governing LLPs and remain unchanged in
+this increment. §12 remains the account of what shipped before it.
 
 An agent working on Excord on macOS (2026-10-24 and 25) lost most of its time to things a
 development build knew but did not say. Its report listed seven gaps. This RFC checks each against
@@ -442,11 +442,12 @@ range likewise does not prove that app work was absent (§3).
 
 ### 13.2 D8: exercise native input and observe its presentation
 
-Continue D3 from its failed probe. First try window-server delivery on a development Mac with
-the required Accessibility permission already granted. Prove that a held pull crosses the
-scroll limit and that momentum continues after release. A driver that only changes an offset
-does not pass. If the environment lacks permission or AppKit does not accept the events, report
-the exact unsupported condition; never silently substitute the synthetic path.
+Observe a session without changing its execution mode. The existing Mac `EXACT_AGENT=live`
+carrier opens the development wire while leaving `agentMode` false: normal timers, collection
+fills, velocity and AppKit wheel handling remain active. No `clock` operation is issued during
+that observation. `--timing platform` alone still has agent substitutions and cannot qualify
+ordinary performance. No new window-server input injection is implemented in this increment;
+D3’s failed probe and LLP 1080.000’s input decisions remain as recorded.
 
 Extend existing `tap`, `layout`, `screenshot` and `perf` forms:
 
@@ -456,32 +457,36 @@ Extend existing `tap`, `layout`, `screenshot` and `perf` forms:
   whether the driver can synthesize it. That removes §12's dependency between recording and
   automatic flinging. The interval records actual frame timestamps, display cadence, input path
   when known, and whether the session is on real or virtual time.
-- A live capture does not seek or settle. Frames carry timestamps and dropped-capture counts;
-  screenshots alone are not a display-cadence measurement. Keep LLP 1113's existing final-capture
-  behavior separate and unchanged. Restore the prior clock mode on success, failure or timeout,
-  without replaying elapsed timers or moving the session clock backward.
+- A live capture does not seek, settle or change clock mode. Frames carry timestamps and
+  dropped-capture counts; screenshots alone are not a display-cadence measurement. Keep LLP
+  1113’s final-capture behavior separate. A virtual session remains virtual and cannot qualify
+  ordinary performance. Qualification must preserve normal timers, collection fill scheduling,
+  scroll velocity and native wheel handling, preferably by observing a normally running
+  development session. Report any remaining execution substitutions.
 - `layout` labels target and presented geometry separately. Where the host cannot read the
   presented value, it says unavailable rather than returning the target under that name.
-- On iOS, a platform touch can cross from the transcript over the software keyboard while
-  preserving its contact identity. Verify interactive dismissal, cancellation and return to
-  typing with the platform's input path.
+- iOS uses the existing whole XCTest gesture. A held contact across driver operations and
+  private input synthesis remain under LLP 1080.000’s separate probe, outside this increment.
 
-**Acceptance:** exercise the Mac bottom-bounce gesture with native input; capture its settling and
-read its presented offset; film an iOS keyboard dismissal while observing real frame timing.
-The same gesture on a small hand-built native scroller is the reference. Keep deterministic
-virtual-clock tests for state and exact motion samples. Neither substitutes for this drive.
+**Acceptance:** capture real frame timing independently of input synthesis, and label target and
+presented geometry honestly. A real-time qualification drive must show normal scheduling; a
+virtual session reports its substitutions. Report existing input paths honestly; an unavailable native gesture is unsupported, not a
+passed bounce test. A person’s bounce on a normally running
+development app remains useful evidence, compared with a native scroller on the same OS.
 
 ### 13.3 D9: show why a resource's displayed answer is retained
 
 D4's failure counts and logs are built. Extend `state` to join them with a resource's source
 site, current request generation, last successful generation, pending status, and whether the
 displayed value is a fallback, a current answer, or an answer retained from an earlier request.
-For a retained answer, distinguish equal arguments from changed arguments using the runner's
-existing equality rules. Publish opaque generation identifiers and equality results, not raw
+For a retained answer, distinguish full live-argument equality from changed arguments using
+the runner’s existing rules. Report placeholder and kept-seed facts separately; boot admission
+by identifying arguments is not full live-argument equality, and unavailable evidence is null. Publish opaque generation identifiers and equality results, not raw
 arguments, tokens, answer bodies, or hashes of secrets. The driver joins source locations.
 
 Give the web JS target the same diagnostic meaning; §12 currently gives it console errors but
-no failure counts. Bring the web wasm target into the same failure reporting. Keep collection
+no failure counts. Reuse shared failure reporting where the wasm host already carries alerts; do not add a separate
+inspector for the web target being retired. Keep collection
 bounded and development-only under §2's predicate.
 
 This does not change retention semantics. LLP 1027.005's `with` governs admission of a persisted
@@ -512,132 +517,104 @@ accounting; counts are not added to milliseconds, and parent and child timings a
 Keep bounded aggregates, not a history of every node or a new causal trace. The report states
 when measurement began and what coverage the host provides.
 
-**Acceptance:** the 150-channel fixture exposes per-icon layout multiplication, a 3,000-DM
-fixture exposes eager construction, and a member insertion exposes unnecessary row replacement.
-After the corresponding fixes, the same drives show the reduced counts. Measure instrumentation
-overhead with it enabled and disabled on the same build and device. Ordinary production builds
-collect none of these additions. The existing key warning remains; no new warning threshold or
-performance check is added by this proposal.
+**Acceptance:** bounded 3,000-row regression workloads expose construction and retirement
+counts without realizing the whole list; measured layouts and owner calls have operation-level
+tests. The historical defects in §13.1 are already fixed and are not claimed as new before/after
+measurements. Report each counter’s coverage, scope and start time; host process counters and
+runner session counters are read sequentially, not claimed as an atomic cross-thread snapshot.
+Measure instrumentation overhead where the build supports a controlled enabled/disabled run;
+state missing device evidence. Production builds collect none of these additions. No warning
+threshold or new performance check is introduced.
 
-### 13.5 D11: let a stream mapper finish across bounded turns
+### 13.5 D11: stream scheduling needs its own amendment
 
-Amend LLP 1016.000 D7 to permit a mapper to return a promise, with the same per-turn budget and
-yield mechanism as an asynchronous answer. The executor owns delivery, queue bounds and lifetime:
+Do not implement promise-returning stream mappers or remove Excord’s digest in this tooling
+increment. The panel identified assumptions that require a dated amendment to LLP 1016.000 D7:
 
-1. At most one mapper invocation is active for a stream generation. Later frames remain ordered
-   behind it, including while it yields. An empty waiting queue does not mean the active mapper
-   has finished. Normal close delivery follows preceding admitted frames.
-2. Pending frame bytes stay charged against a finite receive budget while a mapper is suspended.
-   Reuse the transport's documented limits and overflow policy. Overflow fails visibly and retires
-   the generation; it never silently drops a protocol frame or grows an unbounded queue.
-3. Refresh, forget and transport failure retire the generation. Its continuations cannot publish
-   another snapshot or issue another socket send. Already accepted sends retain D7's existing
-   semantics; cancellation cannot undo them.
-4. Socket sends after a yield are authorized against the active mapper's captured request and
-   generation on both native and web JS executors. An unrelated source turn cannot lend it
-   authority. Completion uses the existing stream settlement and snapshot coalescing rules.
-5. Framework cancellation does not roll back arbitrary mutations already made to module state.
-   Excord must still guard shared cache writes with its account and connection generations. The
-   framework removes delivery machinery, not the app's ownership of its protocol state.
+- A yield must return to ordinary host scheduling so outbound heartbeats and other work run;
+  draining a promise to completion is insufficient. Specify whether intermediate snapshots are
+  required before changing the app’s publication path.
+- A suspended mapper retains its active bytes as well as waiting frames. Derive receive limits
+  against sustained post-READY traffic; the synchronous mapper’s 256-frame/1 MiB limit is not
+  evidence that a large READY plus queued traffic fits. Test reconnect pressure at realistic rates.
+- Resume with the captured request context on both runtimes. Normal close follows admitted work;
+  overflow or retirement prevents further sends and publication, while previously accepted sends
+  retain their semantics. Arbitrary module-state mutation is not rolled back.
 
-Native `DecompressionStream("deflate")` is a second, separable improvement, loaded through an
-optional artifact rather than a core Cargo feature. Require bounded output and retained decoder
-state across packets. Its API and capability placement need an amendment to the data API's
-governing LLP before implementation. It does not make a large synchronous `JSON.parse` preemptible;
-Excord's bounded parsing stays until a measured replacement exists.
+That amendment must pass the 3, 8 and 32 MB READY cases, fragmentation, highly compressible data,
+traffic during digest, heartbeat deadlines and retirement before deleting the app’s scheduler.
+Native decompression is separate and does not make a synchronous JSON parse preemptible.
 
-**Acceptance:** run the existing 3, 8 and 32 MB READY fixtures on Hermes and the web, including
-highly compressible and fragmented input. Exercise a heartbeat behind READY, disconnect during
-yield, a replaced connection, sign-out, overflow and a stale continuation. Assert frame order,
-bounded queued bytes, no sends or publication after retirement, and no reconnect caused by
-starving the fixture's heartbeat deadline. Measure turn duration and peak memory on an iPhone,
-not only Bun. Remove Excord's digest mutation and its competing snapshot path only when the same
-drives pass; retain the protocol parser and any necessary bounded scan.
+### 13.6 D12: collection semantics need a narrow delta
 
-### 13.6 D12: make paging and row-position reports sufficient for a transcript
+Do not change collection behavior in this tooling increment. Amend LLP 1010 for `reach-margin`
+as the configurable lead of its existing edge-window calculation, defaulting to one viewport.
+Preserve measured-band rearming, start-before-end, refusal retry and the empty-page guard. A
+prepend rearm rule would be a separate explicit change, not an implication of a larger margin.
 
-Add `reach-margin` to virtualized lists: one nonnegative CSS length or percentage, default `100%`.
-A percentage is relative to the scrollport's extent along the list's scrolling axis. It says how
-far before either content edge to fire `reachstart` or `reachend`; zero fires at the edge. This
-keeps today's one-screen default and permits an author to choose a longer lead, as the existing
-issue requests. Rearm after leaving the region, or after that edge's content range grows, with
-at most one delivery per edge per committed geometry change. An unchanged range does not rearm
-merely because a frame passes. The app still guards a pending page request; the list does not
-know its network state. Pin these rules in the collection tests before updating the recipe.
-
-After a jump and row measurements settle, the scroll report's first-visible key and offset must
-describe the measured viewport even if the physical offset did not change. Deliver a correction
-only when those facts change. A completed jump belongs to the collection identity that accepted
-it. Switching to another channel's collection cancels that jump; replacing the keyed window
-inside the same collection may fulfill it, including in the commit that brings its target in.
-
-Extend the existing chat recipe or its linked example with channel identity, early paging,
-restoration and jump completion. Preserve the recipe byte budget. Delete Excord's row-distance
-prefetch workaround when the edge event covers it. Keep Discord's history gaps, unread rules,
-optimistic message IDs and permission logic in Excord.
-
-**Acceptance:** fling while history replies are delayed; jump to an unmeasured key while replacing
-the window; prepend and resize rows above the viewport; switch channels during a pending jump;
-restore after a measurement correction. Assert the visible key and offset as well as the screen.
-A deliberately inadequate margin may reach the edge; a sufficient margin must avoid it without
-fetching the entire history. Run on web and native hosts and report any unsupported cell.
+Likewise, specify visible-key corrections and jump completion against the existing collection
+identity and request lifetime in their governing LLPs. Verify delayed history, a replaced window,
+measurement corrections and channel switches before removing Excord’s row-distance prefetch.
+Keep protocol history gaps and unread rules in the app.
 
 ### 13.7 D13: verify the app's scale and the host actually being shipped
 
-Use Excord's existing fixture for the large READY, 3,000 DMs, 150-channel server, numeric-zero read
-position, delayed history and concurrent incoming messages. Include representative PNG, JPEG,
-WebP and GIF responses and a failed decode. Fixture data remains synthetic; automated drives
-never use the real account. Shared rendering code alone does not qualify Windows or Android.
+Use the existing synthetic fixture for isolation tests; automated drives never use a real
+account. Large READY, image-format and full chat host qualification remain app work, including
+known stream turn overruns. This increment’s acceptance is isolation and grant correctness.
 
 Complete D7's fixture isolation: one port per checkout, explicit overrides winning, and an
 ownership check that refuses another checkout's server. Development loopback-grant relocation
-must cover the selected port without broadening production grants. Report the app, host build,
+is limited to the selected loopback or private-network origin and its port, for fetch and socket
+lines; ambiguous grants refuse and production grants remain exact. Report the app, host build,
 plan digest, fixture origin and delivery path in the drive's existing output. Select a compatible
 test archive, and mark an incompatible fixture as not run rather than misdiagnosing a product
 failure or silently counting a skip as a pass.
 
-Run macOS XCTests in the existing async lane with retained failure attribution, after resolving
-or explicitly classifying the baseline failures in §12. Exercise the supported Android emulator
-ABI through the existing build and driver rather than relying on an unlanded patch. A compiled
-APK, an installed APK and a driven app are separate results. Keep the six blocking checks and
-their budgets unchanged.
+macOS XCTest baseline repair and async-lane admission remain the separate D7 follow-up. Android
+and Windows qualification belong to the app’s host work; compilation alone is not evidence of
+an installed or driven app. This increment neither repairs unrelated baseline failures nor claims
+those hosts qualified. Keep the blocking checks and their budgets unchanged.
 
-**Acceptance:** two checkouts drive isolated fixture worlds concurrently; a wrong archive is
-identified before its unrelated tests run; a native failure names the tested build; the same
-chat scenario is driven on each claimed host. Tests wait on observable completion, following
-[docs/testing.md](../docs/testing.md), rather than adding fixed startup sleeps.
+**Acceptance:** two checkouts drive isolated fixture worlds concurrently; an existing server
+whose ownership cannot be established is refused; explicit ports win; development relocation
+accepts the chosen loopback origin while production grants remain exact. Existing archive
+compatibility skips remain visible as not-run results. Tests wait on observable completion,
+following [docs/testing.md](../docs/testing.md).
 
-### 13.8 Sequence and decisions requested
+### 13.8 Panel disposition and implementation sequence
+
+The r4 panel comprised Astra (`gpt-6-astra`, max), Fable (`claude-fable-5-1`, xhigh) and Grok
+(`grok-4.7`, xhigh), mutually blind. Muse failed to start because the named model was unavailable;
+no Muse review is claimed. The individual reviews are under `llp/reviews/rfc-2026-10-26-1142-r4.*.md`.
+
+All three support the inspection direction. Fable and Grok identified semantic changes to streams
+and collection rearming that should be reviewed in their governing LLPs. This revision removes
+those implementations from this increment. Astra’s normal-scheduling finding applies to every
+performance claim. Fable and Grok also separate a successful input probe from live observation,
+and fixture isolation from unrelated native test and platform baseline work.
 
 | Order | Deliverable | Completion evidence |
 |---|---|---|
-| 1 | D8 real input probe and independent live observation; D9 resource inspection | A captured native bounce and one inspection of the stale-list failure |
-| 2 | D10 work counts; D13 fixture isolation and correct host verification | A measured server switch and two independent fixture drives |
-| 3 | D11 ordered asynchronous mappers, then the separable inflater if warranted | Large READY and retirement cases pass; app scheduling code is deleted |
-| 4 | D12 edge lead and measured row reports | Paging/jump drives pass; app prefetch workaround is deleted |
+| 1 | D9 resource inspection and owner-gated recipe | Retained/current/fallback states, failure, overlap and recovery on both runtimes |
+| 2 | D8 independent live observation and honest geometry/input receipts | Bounded frame capture and explicit clock/scheduling coverage |
+| 3 | D10 operation counts | Measured operation deltas, bounded storage, no collection in production |
+| 4 | D13 fixture isolation | Two isolated fixture worlds and strict production grants |
 
-Each implementation change updates the governing subsystem LLP and author guide in the same
-change. A regression belongs at the lowest level that exhibits it, with an app drive where
-native behavior is the subject. Apply the three-round fix limit; report an unsupported probe
-instead of changing what the test claims to prove. These are proposed stages, not scheduled work.
+The implementation changes the governing subsystem LLP and author guide with the code. A
+regression belongs at the lowest level that exhibits it, with an app drive when native behavior
+is the subject. Apply the three-round fix limit and report unsupported qualification cells.
+No resource retention semantics, stream scheduling, collection edge semantics, private input
+synthesis, new blocking check or production inspector is admitted by this increment.
 
-Requested decisions:
+The final r5 panel supports the four-deliverable direction. Its acceptance concerns were checked
+against the code: Mac’s existing live carrier supplies normal execution; platform timing alone
+does not. Historical bugs are evidence, not fixtures claimed to fail now. D13 tests isolation,
+not the deferred READY scheduler. D9 keeps diagnostic metadata outside author-visible state,
+but successful-value metadata must follow rollback so a refused commit cannot appear published.
+The source flags keep boot-seed evidence separate from full live-argument equality. §§13.5–13.6
+are requirements to investigate in later amendments, not runtime rulings. No third panel pass
+is needed; remaining questions are implementation and verification details.
 
-1. **Accept D8–D10 and D13 as the next development-tooling scope?** Recommendation: yes, within
-   the existing operations and scripts. Explicitly include independent live observation even if
-   automatic native input remains blocked by the environment.
-2. **Admit promise-returning stream mappers and optional native decompression?** Recommendation:
-   accept ordered mappers first, with Excord's scheduling workaround as the deletion target;
-   qualify the inflater separately. This requires amending D7, not treating an RFC draft as
-   runtime authority.
-3. **Admit `reach-margin` and the corrected list reports?** Recommendation: yes, with the existing
-   collection as owner and Excord's scroll-handler prefetch as the deletion target.
-4. **Change live resource retention semantics now?** Recommendation: no. First ship D9 and the
-   owner-gated example, then decide from a concrete failure whether a new predicate earns its
-   place. No implicit reuse of `with` as a live freshness guarantee.
-
-No causal trace, general provenance explorer, session replay, production inspector, new blocking
-check or general job scheduler is proposed. Where an accepted change crosses `rules/DEFERRED.md`,
-record its admission and take there in the implementation change. Deleting app workaround code
-is a measurable benefit, but does not itself replace the doing-list trade that file requires;
-the acceptance must name a take or waive it explicitly.
+**Deferred question, 2026-10-26:** use D9 evidence to reconsider live retention in LLP 1016.000
+and persisted-identity guidance in LLP 1027.005. No predicate or default change is authorized here.

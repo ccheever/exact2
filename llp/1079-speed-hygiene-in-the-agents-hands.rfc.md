@@ -738,3 +738,23 @@ Trace keeps `overrun` beside the other proxies. `agent.mjs perf frames` and
 `trace` print both. Turns are a proxy: the deadline that counts is the render
 server's, a little after the target, so an overrun of under a millisecond may
 still have made the frame. Test: `FrameSamplerTests`.
+
+## Measured operation coverage (LLP 1142 §13, 2026-10-26)
+
+`perf` adds virtual-row `rowConstructed`, `rowRebound` and `rowRetired` counts at the
+collection’s plan site. They count operations since measurement began, including work whose
+commit is later refused. Destruction includes nested rows when their owning subtree retires;
+rebind means a wrapper takes a different item, not merely an unchanged row visited again. The
+JS target constructs and retires rows but does not rebind them, so it omits that counter.
+
+`work` names the runner session scope, measurement start and clock. Apple reports
+`counts.kernelLayouts` at actual kernel layout entries, including provisional retries and
+failed attempts; hosts that do not instrument the entry omit it. Swift’s `hostWork` names its
+process scope and counts synchronous owner submissions, intrinsic reports, resulting intrinsic
+layout submissions and uncached native control measurements. These are sequential observations
+across the owner boundary, not one atomic snapshot. Unknown sites stay unknown; a target does
+not narrow process-wide host totals.
+
+`perf … during` subtracts both sets and refuses a changed measurement window. No counter is
+added to phase milliseconds. The tables remain bounded by plan sites or fixed host operations;
+no per-frame node history is kept, and production does not collect them.

@@ -20,6 +20,7 @@ mod tests;
 mod traversal;
 pub(crate) mod views;
 mod within;
+pub(super) mod work;
 use super::*;
 pub use api::*;
 use exact_kernel::PropId;
@@ -976,6 +977,7 @@ impl Collection {
                     // removed it; a build-only report never sees one.
                     None => {
                         debug_assert!(false, "a build-only report met a row whose item left");
+                        self.retire_row(u, &mounted);
                         views::item_left(u, mounted.wrapper);
                         u.ops.push(Op::DestroyView {
                             id: mounted.wrapper,
@@ -999,6 +1001,7 @@ impl Collection {
                     leaving.push((self.distance(p, top, end).1, text, mounted))
                 }
                 (_, None) => {
+                    self.retire_row(u, &mounted);
                     views::item_left(u, mounted.wrapper);
                     u.ops.push(Op::DestroyView {
                         id: mounted.wrapper,
@@ -1131,6 +1134,7 @@ impl Collection {
             awaiting: false,
             held: false,
         };
+        self.count_row(u, |w| w.row_constructed += 1);
         self.mounted_shown(u, &mut mounted);
         Ok(mounted)
     }

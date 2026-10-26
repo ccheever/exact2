@@ -30,6 +30,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             self.ids.work.sites = sites;
+            self.ids.work.since = self.now_ms();
         }
         self.ids.work.moves = moves;
     }
@@ -72,6 +73,22 @@ impl<D: DataSource> Runner<D> {
             if let Some(site) = self.ids.site(view) {
                 self.ids.work.sites[site.0 as usize].moved += 1;
             }
+        }
+    }
+
+    /// Declare that this host reports every kernel layout entry while measuring.
+    pub fn measure_kernel_layouts(&mut self) {
+        if !self.ids.work.sites.is_empty() {
+            self.ids.work.kernel_layouts.get_or_insert(0);
+        }
+    }
+
+    /// Record entry into a kernel layout operation, including failed attempts.
+    /// Hosts call at the operation, never infer it from a receipt or moved nodes.
+    pub fn count_kernel_layout(&mut self) {
+        if !self.ids.work.sites.is_empty() {
+            let count = self.ids.work.kernel_layouts.get_or_insert(0);
+            *count = count.saturating_add(1);
         }
     }
 

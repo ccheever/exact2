@@ -43,6 +43,12 @@ pub struct SiteWork {
     pub inherited: u64,
     /// Layout passes that moved an instance's frame (a host that lays out).
     pub moved: u64,
+    /// Virtual row operations at this collection site, including work later refused.
+    pub row_constructed: u64,
+    /// Existing wrappers rebound to a different item.
+    pub row_rebound: u64,
+    /// Mounted rows whose destruction was requested, including nested collections.
+    pub row_retired: u64,
 }
 
 /// What is measured: a row per plan node, empty while nothing is.
@@ -52,6 +58,10 @@ pub struct Work {
     pub sites: Vec<SiteWork>,
     /// The host lays out and reports frames that moved ([`Runner::moved`]).
     pub moves: bool,
+    /// Runner clock at measurement start; counters do not reconstruct earlier work.
+    pub since: f64,
+    /// Actual kernel layout entries reported by a participating host.
+    pub kernel_layouts: Option<u64>,
     /// The last transaction a batch trailer reported ([`Runner::seq_range`]).
     pub reported: std::cell::Cell<u64>,
     /// Measuring waits for the host's first ask ([`Runner::measure_later`]).
@@ -217,6 +227,11 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             w.authored,
             w.inherited
         );
+        let _ = write!(
+            s,
+            ",\"rowConstructed\":{},\"rowRebound\":{},\"rowRetired\":{}",
+            w.row_constructed, w.row_rebound, w.row_retired
+        );
         if ids.work.moves {
             let _ = write!(s, ",\"moved\":{}", w.moved);
         }
@@ -238,7 +253,12 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             );
         }
     }
-    let _ = write!(s, "],\"walked\":{walked},\"truncated\":{truncated}}}");
+    let _ = write!(s, "],\"work\":{{\"scope\":\"session\",\"since\":{},\"timebase\":\"runner-clock-ms\",\"counts\":{{", num(ids.work.since));
+    if let Some(count) = ids.work.kernel_layouts {
+        let _ = write!(s, "\"kernelLayouts\":{count}");
+    }
+    s.push_str("},\"coverage\":\"virtual row operations by collection site; kernelLayouts only when the host reports actual entries\"}");
+    let _ = write!(s, ",\"walked\":{walked},\"truncated\":{truncated}}}");
     s
 }
 
