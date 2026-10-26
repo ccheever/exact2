@@ -191,7 +191,6 @@ extension Presenter {
         if let o = owner {
             let id = o.id
             if sub === o.symbolView { return ("glyph", id) }
-            if sub === o.textRasterTint { return ("text", id) } // its one-colour text, tinted as it composites (TextRasterIOS.swift)
             if sub === o.materialView || sub === o.glassSlot || sub === o.glassGroupView || sub === o.vibrancyView { return ("material", id) }
             if sub === o.clipBox { return ("clip", id) }
             if sub === o.metal || sub === o.overlay { return ("canvas", id) }

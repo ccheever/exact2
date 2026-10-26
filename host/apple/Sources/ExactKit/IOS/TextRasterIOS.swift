@@ -347,18 +347,17 @@ extension NodeView {
         // One colour's coverage masks that colour; other ink carries its
         // own colours. Each has its own layer.
         let tint = result.tint
-        if (tint != nil) != (textRasterTint != nil), let old = textRasterLayer {
-            old.dropTextCast(); old.removeFromSuperlayer(); textRasterLayer = nil; textRasterTint = nil
+        if (tint != nil) != (textRasterLayer is TintInk), let old = textRasterLayer {
+            old.dropTextCast(); old.removeFromSuperlayer(); textRasterLayer = nil
         }
-        // The ink layer never animates (`InkLayer`, `TintInk`), so no
+        // The ink layer never animates (`InkLayer`), so no
         // transaction of its own: a worker's result published between frames
         // commits with the next frame's changes, rather than alone.
         let ink: CALayer
         if let tint {
-            let view = textRasterTint ?? TintInk()
-            textRasterTint = view
-            view.show(result.image, tint: tint, frame: result.frame, scale: key.scale)
-            ink = view.layer
+            let layer = textRasterLayer as? TintInk ?? TintInk()
+            layer.show(result.image, tint: tint, frame: result.frame, scale: key.scale)
+            ink = layer
         } else {
             ink = textRasterLayer ?? InkLayer()
         }
@@ -377,40 +376,32 @@ extension NodeView {
         presenter?.boxFilters.changed(self)
     }
     func dropTextRaster() {
-        textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil; textRasterTint = nil
+        textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
         textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false; textRasterSpec = nil
     }
 }
 
 /// A paragraph's worker-rendered pixels (`showTextRaster`): its changes show
 /// at once, as under `setDisableActions`, in whatever transaction is open.
-final class InkLayer: CALayer {
+class InkLayer: CALayer {
     override func action(forKey event: String) -> (any CAAction)? { nil }
 }
 
-/// A one-colour paragraph's ink (`TextRasterImage.tint`): its colour masked
-/// by its coverage, one layer as a label is. Updating coverage does not ask
-/// UIImageView to resolve another template image. Only its layer is in the
-/// tree, where `InkLayer` would be; like that, it never animates. A
-/// paragraph with a `text-shadow` is never tinted (`TextRasterizer`'s
-/// `tints`), so the mask clips no shadow.
-final class TintInk: UIView {
-    private let coverage = InkLayer()
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isUserInteractionEnabled = false
-        layer.mask = coverage
-    }
-    convenience init() { self.init(frame: .zero) }
-    required init?(coder: NSCoder) { nil }
+/// A one-colour paragraph's ink (`TextRasterImage.tint`): a layer of that
+/// colour masked by its coverage. A layer, not a view: Core Animation's
+/// sublayer methods are for layers you create, never a view's own layer
+/// ("Building a Layer Hierarchy"). A paragraph with a `text-shadow` is
+/// never tinted (`TextRasterizer`'s `tints`), so the mask clips no shadow.
+final class TintInk: InkLayer {
     func show(_ image: CGImage, tint: CGColor, frame: CGRect, scale: CGFloat) {
-        layer.frame = frame
-        layer.backgroundColor = tint
+        self.frame = frame
+        backgroundColor = tint
+        let coverage = mask ?? InkLayer()
         coverage.frame = bounds
         coverage.contentsScale = scale
         coverage.contents = image
+        if mask !== coverage { mask = coverage }
     }
-    override func action(for layer: CALayer, forKey event: String) -> (any CAAction)? { NSNull() }
 }
 
 /// One refresh's clip geometry: each ancestor's accumulated clips (at no
