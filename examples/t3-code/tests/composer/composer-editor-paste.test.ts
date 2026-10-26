@@ -95,8 +95,8 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     const { client, native } = await opened();
     const photo = jpeg(400, 300), anim = gif(30, 20);
     const { store, compressed } = memoryFiles({ 'doc:/1/wide.png': png(3000, 10), 'app:/tmp/picked/1/photo.jpg': photo, 'doc:/3/anim.gif': anim,
-      'doc:/4/big.jpg': jpeg(4000, 3000), 'doc:/5/huge.gif': gif(30, 20, 11 * 1024 * 1024), 'doc:/6/shot.heic': text('....ftypheic'),
-      'doc:/7/photo.webp': webp(3000, 2000, false, 11 * 1024 * 1024) });
+      'doc:/4/big.jpg': jpeg(4000, 3000), 'doc:/5/huge.gif': gif(30, 20, 10.5 * 1024 * 1024), 'doc:/6/shot.heic': text('....ftypheic'),
+      'doc:/7/photo.webp': webp(3000, 2000, false, 10.5 * 1024 * 1024) });
     await attachIncoming(client, native, 'drop', incoming(['doc:/1/wide.png', 'doc:/3/anim.gif']));
     await attachIncoming(client, native, 'pick', incoming([], { picked: [{ path: 'app:/tmp/picked/1/photo.jpg', name: 'photo.jpg', type: 'image/jpeg', size: photo.byteLength }] }));
     await attachIncoming(client, native, 'drop', incoming(['doc:/4/big.jpg', 'doc:/5/huge.gif', 'doc:/6/shot.heic', 'doc:/7/photo.webp']));
@@ -116,6 +116,23 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
       ['photo.jpg', 'image/jpeg', undefined]]);
     expect(store.get(`${DRAFTS}/${str(drafts[1]!.id)}.png`)).toEqual(anim);
     expect(store.get(`${DRAFTS}/${str(drafts[2]!.id)}.png`)).toEqual(photo);
+  });
+
+  test('a dropped file over what staging can read is named with that limit; a picked one is copied up to the server\'s', async () => {
+    const { client, native } = await opened();
+    const big = new Uint8Array(13 * 1024 * 1024);
+    const { store, compressed } = memoryFiles({ 'doc:/1/big.bin': big, 'app:/tmp/picked/1/big.bin': big, 'app:/tmp/picked/2/huge.png': png(5000, 4000, 12 * 1024 * 1024) });
+    await attachIncoming(client, native, 'drop', incoming(['doc:/1/big.bin']));
+    expect(client.error).toBe("'big.bin' exceeds the 11 MB attachment limit.");
+    expect(under(store, STAGED)).toEqual([]);
+    await attachIncoming(client, native, 'pick', incoming([], { picked: [
+      { path: 'app:/tmp/picked/1/big.bin', name: 'big.bin', type: 'application/octet-stream', size: big.byteLength },
+      { path: 'app:/tmp/picked/2/huge.png', name: 'huge.png', type: 'image/png', size: 12 * 1024 * 1024 + 33 }] }));
+    expect(draftFiles(client.local)).toMatchObject([{ name: 'big.bin', sizeBytes: big.byteLength, status: 'staged' }]);
+    // The large picked image is re-encoded from its app file, its header never read.
+    expect(compressed.map(call => [call.from, call.maxDimension, call.type])).toEqual([['app:/tmp/picked/2/huge.png', 2000, 'image/png']]);
+    expect(client.local.snapshotDrafts[client.draftKey]).toMatchObject([{ name: 'huge.png', mimeType: 'image/png' }]);
+    expect(client.error).toBe('');
   });
 
   test('a file past the 100-file limit is not staged and is named', async () => {

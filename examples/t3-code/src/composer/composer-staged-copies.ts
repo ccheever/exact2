@@ -1,7 +1,6 @@
 // The device's copies of attached files (composer-attach-stage.ts writes them): an image's draft beside SnapShot's,
 // and a plain file's copy for its chip, read once at send and removed.
 import { appFiles } from '../media/save-file';
-import { toBase64 } from '../shared/base64';
 import { videoMimeType } from './composer-video';
 
 export const DRAFTS = 'app:/data/snapshots/drafts';
@@ -10,7 +9,7 @@ export const STAGED = 'app:/data/composer-files';
 const MAX_STAGED_BYTES = 50 * 1024 * 1024;
 
 interface CopyFiles {
-  readFile(path: string): Promise<ArrayBuffer>;
+  stat(path: string): Promise<{ size: number }>;
   readdir(path: string): Promise<string[]>;
   rm(path: string): Promise<unknown>;
 }
@@ -28,12 +27,13 @@ export function stagedName(file: { id: string; name: string; mimeType: string })
   return media && ext ? `${id}.${ext}` : id;
 }
 
-/** A staged file's bytes as base64 for the upload (`uploadAttachment`), or null when the copy is gone or empty. */
-export async function readStaged(file: { id: string; name: string; mimeType: string }): Promise<string | null> {
+/** A staged file for the upload (`uploadAttachment` sends it from its path), or null when the copy is gone or empty. */
+export async function stagedUpload(file: { id: string; name: string; mimeType: string }): Promise<{ bodyFrom: string; sizeBytes: number } | null> {
   if (!valid(file.id)) return null;
+  const path = `${STAGED}/${stagedName(file)}`;
   try {
-    const bytes = new Uint8Array(await files().readFile(`${STAGED}/${stagedName(file)}`));
-    return bytes.byteLength > 0 && bytes.byteLength <= MAX_STAGED_BYTES ? toBase64(bytes) : null;
+    const { size } = await files().stat(path);
+    return size > 0 && size <= MAX_STAGED_BYTES ? { bodyFrom: path, sizeBytes: size } : null;
   } catch { return null; }
 }
 

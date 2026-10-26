@@ -36,7 +36,9 @@ export function acceptAttachedFile(client: T3Client, file: Obj, limit = attachSt
   const name = str(file.name, 'file'), size = Number(file.sizeBytes) || 0, id = str(file.id);
   if (limit <= 0) return { file: null, error: 'This server does not support file attachments.' };
   if (size <= 0) return { file: null, error: `'${name}' is empty or could not be read.` };
-  if (size > limit) return { file: null, error: fileTooLargeMessage(name, limit) };
+  // `readLimit`: a dropped or pasted file's own, lower limit (composer-attach-stage.ts stageFile).
+  const cap = Math.min(limit, Number(file.readLimit) || limit);
+  if (size > cap) return { file: null, error: fileTooLargeMessage(name, cap) };
   if (!/^[a-f0-9-]{36}$/i.test(id)) return { file: null, error: `'${name}' is empty or could not be read.` };
   const staged: DraftFile = { id, contextId: contextId('file', id), draftKey, environmentId, name,
     mimeType: str(file.mimeType, 'application/octet-stream'), sizeBytes: size, source: 'attached', attachmentId: '', status: 'staged' };

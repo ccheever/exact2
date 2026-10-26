@@ -94,7 +94,7 @@ describe('submission text (ChatView onSend, 9c161462c9)', () => {
       });
       expect(sent.attachments).toEqual([...(withImage ? [expect.objectContaining({ id: 'image-upload', type: 'image' })] : []),
         { type: 'file', id: 'file-upload', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 5 }]);
-      expect(uploaded).toMatchObject([{ base64: 'aGVsbG8=', contentType: 'text/plain', path: '/api/attachments/upload/file-upload' }]);
+      expect(uploaded).toMatchObject([{ bodyFrom: `${STAGED}/${file.id}`, sizeBytes: 5, contentType: 'text/plain', path: '/api/attachments/upload/file-upload' }]);
       expect(released()).toEqual([file.id]);
       expect(client.draft).toBe('');
     });

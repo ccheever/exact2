@@ -17,6 +17,8 @@ const asked = (questions: Obj[] = [{ id: 'first', header: 'First', question: 'Wh
   runtimeRequests: [{ id: 'questions', kind: 'user_input', status: 'pending', responseCapability: { type: 'live' } }],
   turnItems: [{ id: 'request-item', type: 'user_input_request', requestId: 'questions', questions }] });
 const image = (n: number, extra: Obj = {}): Obj => ({ id: uuid(n), name: `shot-${n}.png`, mimeType: 'image/png', sizeBytes: 10, ...extra });
+/** The saved drafts of image(1…4), which their uploads send from their files (snapshot-upload.ts). */
+const drafts = (): Record<string, Uint8Array> => Object.fromEntries([1, 2, 3, 4].map(n => [`app:/data/snapshots/drafts/${uuid(n)}.png`, png(4, 3)]));
 
 describe('question attachment drafts (questionAttachments.ts)', () => {
   test('each question has its own draft key, apart from the thread draft and the sidebar draft rows', () => {
@@ -55,6 +57,7 @@ describe('question attachment drafts (questionAttachments.ts)', () => {
 
 async function questionClient(capabilities: Obj = { questionAttachments: true }) {
   const context = await opened(), { client, native } = context;
+  memoryFiles(drafts());
   client.config = { ...client.config, environment: { ...obj(client.config.environment), capabilities: { ...obj(obj(client.config.environment).capabilities),
     attachmentUploads: true, fileAttachments: { maxUploadBytes: 26_214_400 }, ...capabilities } } };
   Object.assign(client.thread!.projection, asked([{ id: 'first', header: 'First', question: 'Which window?', allowCustomAnswer: true, options: [] },
@@ -63,7 +66,6 @@ async function questionClient(capabilities: Obj = { questionAttachments: true })
   native.later = async input => {
     const request = obj(input); calls.push(request);
     if (request.op === 'editorInsert') return native.ok({ applied: true });
-    if (request.op === 'snapshotDraftRead') return native.ok({ base64: 'png' });
     if (request.op === 'snapshotDraftRemove' || request.op === 'uploadAttachment') return native.ok({});
     if (request.method === 'attachments.createUploadUrl') return native.ok({ attachmentId: `uploaded-${obj(request.payload).name}`, relativeUrl: '/api/attachments/upload/test' });
     return later(input);
@@ -120,7 +122,7 @@ describe('a question takes images beside its answer', () => {
     client.answers.questions = { selected: [], custom: '', index: 0 };
     expect(requestPresentation(client).questions[0]).toMatchObject({ responding: true, action: 'Submitting...' });
     expect(openQuestionDraft(client)).toBeNull();
-    memoryFiles({ 'app:/tmp/picked/1/shot.png': png(4, 3) });
+    memoryFiles({ ...drafts(), 'app:/tmp/picked/1/shot.png': png(4, 3) });
     await command('cclocal:attach-files', 'pick', picks('app:/tmp/picked/1/shot.png'));
     expect(toasts(client).map(toast => toast.title)).toContain('This question cannot accept attachments.');
     expect((await command('remove-snapshot', uuid(1))).message).toBe('Wait for the answer to finish submitting before removing its attachments.');

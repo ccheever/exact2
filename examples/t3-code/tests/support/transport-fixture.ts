@@ -65,7 +65,7 @@ export class FakeServer {
 
   http(method: string, target: string, init: HttpInit): { status: number; body: unknown } {
     const headers = init.headers ?? {};
-    const body = typeof init.body === 'string' ? init.body : init.body ? `<${init.body.length} bytes>` : '';
+    const body = init.bodyFrom ? `<file ${init.bodyFrom}>` : typeof init.body === 'string' ? init.body : init.body ? `<${init.body.length} bytes>` : '';
     this.requests.push({ method, path: target, headers, body });
     const custom = this.routes[target];
     if (custom) return custom({ method, body, headers });
