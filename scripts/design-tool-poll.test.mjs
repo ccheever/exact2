@@ -30,7 +30,9 @@ test('an idle tool holds its long poll: clock settle returns at once, heartbeats
     // waits on its signal, so no heartbeat can come between: then one reply on, it is folded.
     const written = signals('poll');
     onTestFinished(written.drop);
-    const ops = ['clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
+    // (Named first: the tool reads nothing for no one, stage 15 D1.6. `N` ops before the poll's own.)
+    const named = ['type name Ada', 'tap save-name'], N = named.length;
+    const ops = [...named, 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
       'clock settle', HELD, HELD, HELD, HELD, 'state',
       written.pause(60_000, 1), HELD, 'clock data', 'state'];
     drive = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', ...DRIVEN.args, '--url', url, '--storage', `design-tool-poll-${process.pid}`, '--json', ...ops], { cwd: ROOT, env: DRIVEN.env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -41,7 +43,7 @@ test('an idle tool holds its long poll: clock settle returns at once, heartbeats
     drive.stdout.on('data', () => { const n = out.seen.filter(l => l.startsWith('{')).length; while (at.length < n) at.push(Date.now()); });
     const replies = () => out.seen.filter(l => l.startsWith('{'));
     // The fourth heartbeat is in (the twelfth reply is the state after it): an agent writes, and the next reply carries it.
-    await out.until(() => replies().length >= 12, 300_000).catch(e => { throw new Error(`${e.message}\n${driveSaid}`); });
+    await out.until(() => replies().length >= N + 12, 300_000).catch(e => { throw new Error(`${e.message}\n${driveSaid}`); });
     const digest = createHash('sha256').update(readFileSync(join(app, 'app.tamber'))).digest('hex');
     const write = spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', TOOL_ORIGIN, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, encoding: 'utf8' });
     expect(write.status, write.stdout + write.stderr).toBe(0);
@@ -50,16 +52,16 @@ test('an idle tool holds its long poll: clock settle returns at once, heartbeats
     expect(drive.exitCode, driveSaid).toBe(0);
     const r = replies().map(l => JSON.parse(l));
     expect(r.length).toBe(ops.length);
-    const opened = r[5].resources.changes, idle = r[11].resources.changes, after = r[15].resources.changes;
-    expect(r[5].resources.hello).toMatchObject({ ok: true, protocol: 'tamber/1.17' });
+    const opened = r[N + 5].resources.changes, idle = r[N + 11].resources.changes, after = r[N + 15].resources.changes;
+    expect(r[N + 5].resources.hello).toMatchObject({ ok: true, protocol: 'tamber/1.17' });
     expect(opened.stream).toBe(true);
     // Settled with the poll held, not waited on: named, and back well inside the server's wait (10 s of 25 s).
-    expect(r[6]).toMatchObject({ settled: true, held: 1, heldTargets: ['changes'] });
-    expect(at[6] - at[5]).toBeLessThan(WAIT * 0.4);
+    expect(r[N + 6]).toMatchObject({ settled: true, held: 1, heldTargets: ['changes'] });
+    expect(at[N + 6] - at[N + 5]).toBeLessThan(WAIT * 0.4);
     // Each held clock came back on a heartbeat: the first on the wait in flight (any part of it left), each after
     // it a whole wait on, so over 2.4 waits idle from the first to the last (a minute of 25 s waits).
-    for (const i of [7, 8, 9, 10]) expect(r[i].settled, JSON.stringify(r[i])).toBe(true);
-    expect(at[10] - at[7]).toBeGreaterThanOrEqual(WAIT * 2.4);
+    for (const i of [7, 8, 9, 10].map(i => N + i)) expect(r[i].settled, JSON.stringify(r[i])).toBe(true);
+    expect(at[N + 10] - at[N + 7]).toBeGreaterThanOrEqual(WAIT * 2.4);
     // ...and nothing came of them: no answer folded, nothing recent, the same place.
     expect([idle.answer, idle.seq, idle.epoch, idle.recent]).toEqual([opened.answer, opened.seq, opened.epoch, opened.recent]);
     expect(idle.stream).toBe(true);
