@@ -227,6 +227,10 @@ pub fn add_to(design: &mut exact_tamber::Design, params: &[ParamToken], componen
 /// `message` with each param's token name written as its full name: what
 /// an author reads never names the hash.
 pub fn shown(message: &str, params: &[ParamToken]) -> String {
+    // (a message naming no param builds no index: a literal is most)
+    if !message.contains(PREFIX) {
+        return message.to_string();
+    }
     Shown::new(params).text(message)
 }
 
@@ -579,15 +583,18 @@ pub fn written_ranges(
         })
         .collect();
     // The dial readers' stem: the first `exact.probe{n}` that starts no
-    // name of the design (a token's, a param line's or a dial's).
+    // name of the design (a token's, an icon's, a param line's, a dial's or
+    // an axis's).
     let taken = |stem: &str| {
         let below = format!("{stem}.");
         design
             .tokens
             .iter()
+            .chain(&design.icons)
+            .chain(&design.params)
             .map(|t| &t.name.value)
-            .chain(design.params.iter().map(|e| &e.name.value))
             .chain(design.dials.iter().map(|d| &d.name.value))
+            .chain(design.axes.iter().map(|a| &a.name.value))
             .any(|n| n == stem || n.starts_with(&below))
     };
     let stem = (0..)

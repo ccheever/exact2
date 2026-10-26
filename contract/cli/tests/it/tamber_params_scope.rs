@@ -475,6 +475,31 @@ fn a_batchs_dial_readers_take_no_authored_name() {
     assert!(e.message.contains("p1"), "{e:?}");
 }
 
+/// An icon's name is taken too: the readers' stem skips it, so the batch
+/// folds and a range error in a `when` value reading the dial is still found
+/// (Astra's narrow re-check: a reader named as the icon failed the batch,
+/// and the value alone left the dial inert, so the error went unseen).
+#[test]
+fn a_batchs_dial_readers_take_no_icons_name() {
+    let src = r##"component App
+  params
+    p0: number = "0.5"  range="0..1"
+    p1: number = "0.5"  range="0..1"
+  view
+    column opacity="param.p0"
+      column opacity="param.p1"
+        text "x"
+"##;
+    let design = "tamber t\n\naxes\n  tone = a | b\n\ndials\n  d: number = 0.3  in 0..1\n\ntheme\n  accent.fill = #0a7aff\n\nicons\n  exact.probe0.dial0 = icon(sf \"house\")\n\nparams\n  App.p0 = 2\n    when tone=b: d\n  App.p1 = 0.5\n";
+    let path = app(
+        "probe-icon",
+        &[("app.contract", src), ("app.tamber", design)],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p0"), "{e:?}");
+}
+
 /// A design read again unchanged through `fold_with` (what `describe` and
 /// `resolve` read) is answered from the last few checked, not folded again
 /// (both reviewers' round 3 on the counts).
@@ -493,7 +518,8 @@ fn fold_with_answers_an_unchanged_design_from_the_last() {
         "fold-cached",
         &[("app.contract", src), ("app.tamber", &design)],
     );
-    let params = contract::tamber_params::params_of(&path.join("app.contract"));
+    let params = contract::tamber_params::params_of(&path);
+    assert!(!params.failed && params.tokens.len() == 1, "{params:?}");
     let vocab = contract_lower::tamber_vocab();
     let began = std::time::Instant::now();
     let first = contract::tamber_params::fold_with(&design, &params, &vocab)
