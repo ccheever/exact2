@@ -442,6 +442,20 @@ fn a_body_from_a_file_is_refused_at_the_module_seam() {
     ));
 }
 
+/// A body written to a file has no encoding at the seam either: refused,
+/// never read into memory instead.
+#[test]
+fn a_body_to_a_file_is_refused_at_the_module_seam() {
+    let download = Request::get("https://example.test/").body_to("app:/cache/a.jpg");
+    let mut encoded = Writer::default();
+    encode_result(&mut encoded, Ok(Answer::Later(download)));
+    let bytes = encoded.into_vec();
+    assert!(matches!(
+        read_result(&mut Reader::new(&bytes)).unwrap(),
+        Err(DataError::Unavailable(s)) if s == "exactBodyTo cannot cross the Rust module seam"
+    ));
+}
+
 /// A held mark (LLP 1016.000 D9) has no encoding at the seam: refused, never
 /// silently turned into a request a clock waits on.
 #[test]

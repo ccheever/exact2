@@ -1336,12 +1336,14 @@ fn transform_image_answers_a_rust_source_as_typescripts() {
 }
 
 /// A Rust source's upload from a file (LLP 1108 D6 R2): the storage composer
-/// passes `Request::body_from` through untouched, the path alone, for the
-/// host's executor to read when it sends the request.
+/// passes `Request::body_from` and `body_to` through untouched, the paths
+/// alone, for the host's executor to read and write when it runs the request.
 #[test]
 fn a_rust_sources_body_from_passes_to_the_host_as_its_path() {
     let mut host = Storage::new(Fixture::new());
-    let mut upload = Request::get("https://example.test/upload").body_from("app:/data/photo.jpg");
+    let mut upload = Request::get("https://example.test/upload")
+        .body_from("app:/data/photo.jpg")
+        .body_to("app:/cache/reply.json");
     upload.method = "POST".into();
     host.source.request = upload.clone();
     host.configure_storage("data".into(), "cache".into(), "tmp".into())

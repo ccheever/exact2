@@ -91,14 +91,14 @@ const dataImports = {
 };
 function loadAfterPaint(file, exported) {
   return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.type = 'module';
+    const script = Object.assign(document.createElement('script'), { type: 'module' });
     script.src = new URL(file, import.meta.url).href;
     script.onload = () => resolve(globalThis.exact[exported]);
     script.onerror = () => reject(new Error('host module loader failed: ' + file));
     document.head.append(script);
   });
 }
+const pageFile = name => (path, grants) => (globalThis.exact[name] ? Promise.resolve(globalThis.exact[name]) : loadAfterPaint('./storage-request.js', name)).then(f => f(globalThis.exact.compat.inputs.app, grants, path));
 async function loadRust() {
   if (rustLoader) return;
   rustLoading ??= loadAfterPaint('./rust-glue.js','createRustRuntime')
@@ -743,7 +743,7 @@ function apply(batch) {
         const requestIncarnation = incarnation, controller = new AbortController(), started = performance.now();
         let p, first, messages = 0; const opened = new Promise(r => { first = r; });
         const host = {
-          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller, bodyFile: (path, grants) => (globalThis.exact.requestBody ? Promise.resolve(globalThis.exact.requestBody) : loadAfterPaint('./storage-request.js', 'requestBody')).then(read => read(globalThis.exact.compat.inputs.app, grants, path)), // `exactBodyFrom` (LLP 1108 D6 R2): the page's store
+          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller, bodyFile: pageFile('requestBody'), bodyTarget: pageFile('bodyTarget'), // `exactBodyFrom` and `exactBodyTo` (LLP 1108 D6 R2): the page's store
           active: () => requestIncarnation === incarnation,
           // A stream's message (LLP 1016.000): after its first, the stream is open, not in flight, so `clock settle`
           // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
