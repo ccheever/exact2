@@ -98,12 +98,9 @@ and both variables set) runs the development binary, which carries no bundle res
 no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T3 Code (Exact)`
 (the driver then skips its stale-build check, so rebuild after every source change).
 
-Safari's Web Inspector (exact2 #101): in a development build the rendered-HTML preview's web view is
-`isInspectable`, so Safari's Develop menu lists it, and a Browser tab's frame follows main's rule for
-Exact's own `iframe` web views. A release build's are not: the packaged
-build (that metadata), a legacy packaged marker retained for inspection compatibility, a production-trust bake or a distributed bundle (`--distribution`, what
-`exact release` signs), as main #309 decides for Exact's own `iframe` web views
-(`T3WebInspection.swift`; each web view writes a `t3.inspection:` line to stderr). There is no
+Safari's Web Inspector (exact2 #101): every web view the clone shows is an Exact `iframe` (a Browser tab, a
+rendered HTML preview, the terminal, a Mermaid diagram), which main #309 makes `isInspectable` in a development
+build, so Safari's Develop menu lists it, and never in a production-trust bake or a distributed bundle. There is no
 View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
 
 ## Desktop command
@@ -228,10 +225,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   from Go to file, content search and file chips: a chip written from the workspace root as a bare name, or
   with a subfolder project's own folders repeated, opens the file the workspace search finds, and a `~/` link
   opens as a host file the server expands, `workspace-file-lookup.ts`; its explorer and rendered/source
-  choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
+  choices persist; an `.html` file opens rendered in a sandboxed `iframe` (its sibling stylesheets, scripts and
   images load through the signed asset URL's token directory, and the page may load stylesheets, scripts,
   images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, and `http` to an IP
-  address or a named host: `app.json` allows arbitrary loads in web content, #106), `T3MediaPreview.swift`)
+  address or a named host: `app.json` allows arbitrary loads in web content, #106), `media-frame.*`)
   from a signed asset URL, with the reference's Show HTML source / Show rendered page toggle,
   `files-rendered-html.ts`; regex literals in its scripts are coloured as Shiki does,
   `html-script-regex.ts`; every right-panel tab (Files, files, the
@@ -256,8 +253,9 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   previews (Markdown, table or numbered source, images, Copy contents and Save file;
   opened from a sent file chip; the text is fetched from the signed asset URL, and Save file
   hands the bytes to the window's Save panel, `attachment-files.ts`, `save-file.ts`;
-  `attachment-media*`, `T3MediaPreview.swift`: PDFs in PDFKit, HTML rendered in a sandboxed
-  WebKit view that loads its token directory and external hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
+  `attachment-media*`, `media-frame.*`: PDFs in the platform's viewer (an `iframe` of a copy in app:/cache, which
+  Apple shows in PDFKit, LLP 1020.002 D10), HTML in a sandboxed `iframe` that loads its token directory and external
+  hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
   Pierre themes (`html-syntax.ts`), audio and video in the platform's players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
@@ -528,10 +526,6 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
   files, where a capture moves in and Reveal in Finder and Copy image act, which have no framework call; a saved
   recording's bytes go to the environment from there, since the data module reads only the app's files.
-- `T3MediaPreview.swift`: a PDF in PDFKit on Chromium's viewer surface, fitted to the width and
-  top-aligned; an `iframe` would show WebKit's own PDF viewer. A rendered HTML attachment opens a
-  `target="_blank"` link in the default browser and shows `alert` and `confirm` as sheets; an
-  `iframe` refuses popups (LLP 1020 §5) and has no dialogs.
 - `T3MediaActions.swift`: the media menu, Copy image and Save. Save opens in Downloads first and then
   in the session's last folder, as Electron's download dialog does, where `saveFile` names no
   folder; Copy image needs an image clipboard write (`ClipboardItem`), which main does not have;
@@ -643,13 +637,22 @@ Differences that belong to the app:
   store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, so WebKit throttles its
   timers; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
   the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
-  reports no focus); ⇧⌘R reloads the window, as the reference's menu does, and ⌘L does nothing. A page's dialog while
+  reports no focus) and ⌘L puts the focus in the address bar, selecting the address; ⇧⌘R reloads the window, as the
+  reference's menu does. A page's dialog while
   an agent request runs on its tab is answered at once (OK for `alert`, Cancel for `confirm` and `prompt`); one left
   from an agent's run shows over the page as Chromium's tab-modal dialog and takes the person's answer. The console,
   network log and media scripts go in as each document commits, so what a page logs before that is not kept
   (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
   from the page every few seconds
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
+- A PDF preview (a file, an attachment or a draft's file, and a server Browser tab's PDF) is PDFKit's `PDFView`
+  (LLP 1020.002 D10), which centres a document shorter than its pane, where Chromium's viewer keeps it at the top; the
+  pane around the pages is PDFView's own grey, not Chromium's #282828. A sent PDF over 31 MiB shows "Could not load
+  this file.": the frame shows a local copy, and the Apple host refuses a fetch ceiling over about 32 MiB
+  (`media-frame.ts`). A rendered HTML preview is a sandboxed `iframe`
+  (LLP 1020.002): a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens
+  the platform's popup window, where the reference opens every new window in the default browser (a `target="_blank"`
+  link or ⌘-click still does).
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
@@ -1201,7 +1204,7 @@ build above for an integrated check.
 
 The module AppKit/XCTest binaries under `macos/tests/<name>/` build with Exact's
 module facade, the app's generated data keys, every file in `modules/apple/` (the
-`composer`, `menus` and `panels-native` tests define their own `exactModule`, so they leave
+`composer` and `menus` tests define their own `exactModule`, so they leave
 out `T3Module.swift` and its `T3Module+<area>.swift` op files; an `extension T3Module` goes in one
 of those op files, never beside other code, or these three binaries do not compile) and the test
 directory's sources, and every one the rest of Exact's module seam
@@ -1219,7 +1222,7 @@ T3_DK="$R" bun -e 'import { composedModule } from "./host/apple/compose.mjs"; aw
 for d in examples/t3-code/macos/tests/*/; do
   n=$(basename "$d"); O="$R/$n"; mkdir -p "$O"
   [ "$n" = timeline-keyboard ] && continue # Actual host regression; separate recipe below.
-  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus|panels-native) M=$(echo "$M" | grep -v /T3Module);; esac
+  M=$(ls examples/t3-code/modules/apple/*.swift); case $n in composer|menus) M=$(echo "$M" | grep -v /T3Module);; esac
   T="host/apple/modules/ExactNativeViews.swift host/apple/modules/ExactTamber.swift host/apple/modules/ExactExtensions.swift $R/ExactComposed.swift"
   xcrun swiftc -swift-version 5 -module-name "T3$(echo $n | tr -d -)Tests" -F "$F" -I "$L" -L "$L" \
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \

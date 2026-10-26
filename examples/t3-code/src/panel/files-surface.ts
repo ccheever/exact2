@@ -41,6 +41,7 @@ import { availableEditorIds } from '../shared/context-menus';
 import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath } from '../media/media-source';
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
 import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath, splitPosition } from '../timeline/workspace-file-lookup'; // the file a chat link means
+import { mediaFrameSource } from '../media/media-frame'; // a PDF's or a rendered page's frame source
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; loading: boolean; guides: { id: string; left: number }[] };
 /** A crumb: `navigable` moves the browser to its folder (FolderBreadcrumb), `descendant` is below the current one (kept
@@ -687,12 +688,15 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   if (tree && selected && tree.revealed !== trail) { tree.revealed = trail ?? ''; tree.expanded.add(selected); await loadDirectory(client, native, selected, false, hostFolder); }
   const markdown = isMarkdownPath(previewPath), table = isTablePath(previewPath), html = !isHost(previewPath) && isHtmlPath(previewPath);
   const rendered = (markdown && preferences.renderMarkdown) || (table && preferences.renderTable) || (html && preferences.renderBrowserFile !== false);
-  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame; here the module's PDFView, issues/closed/20261009-app-file-iframe-loading.md), a page when rendered.
+  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame, media-frame.ts), a page when rendered.
   const pdf = !isHost(previewPath) && isPdfPath(previewPath), frame = (html && rendered) || pdf;
   // The explorer the crumbs walked up to opens the workspace folder in an editor.
   const absolute = path ? (isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : crumbPath === '' ? cwd : '';
   // A rendered page waits for its signed URL, not for the read.
-  const page = frame ? await htmlPage(client, native, cwd, absolute, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
+  const minted = frame ? await htmlPage(client, native, cwd, absolute, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
+  // The frame's source: a PDF is first written to app:/cache (media-frame.ts).
+  const source = frame && minted.url ? await mediaFrameSource(pdf ? 'pdf' : 'html', minted.url) : null;
+  const page = { url: source?.src ?? '', error: minted.error || source?.error || '' };
   // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
   const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, '', now) : NO_MEDIA;
   const text = read?.contents ?? '';

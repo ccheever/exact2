@@ -13,6 +13,7 @@ import { observeComposer, acceptComposerEdit } from '../support/composer-field-f
 import { setDraftFiles, foldPaste, type DraftFile } from '../../src/composer/composer-editor-files';
 import { attachmentView } from '../../src/panel/attachment-surface';
 import { lastSave, memoryAppFiles, serveAssets } from '../support/asset-server';
+import { forgetMediaFrames } from '../../src/media/media-frame';
 
 let server: ReturnType<typeof serveAssets> | null = null;
 afterEach(() => { server?.restore(); server = null; });
@@ -64,10 +65,16 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
     expect((await composerFileView(client, native, 1)).open).toBe(false);
   });
 
-  test('a PDF names its staged copy to the media body; another type is "No preview" with its actions', async () => {
-    const { native, client } = harness([file({ name: 'spec.pdf', mimeType: 'application/pdf' })]);
+  test('a PDF shows its staged copy, copied under a .pdf name for the frame; another type is "No preview" with its actions', async () => {
+    forgetMediaFrames(); // another file's test may have shown this staged name
+    const { native, client, appFiles } = harness([file({ name: 'spec.pdf', mimeType: 'application/pdf' })]);
     await performChipAct(client, native, { act: 'file', context: `file_${ID}` });
-    expect((await composerFileView(client, native, 1)).file).toMatchObject({ preview: 'pdf', url: `t3-staged:${ID}`, canSave: true, canCopy: false, canRemove: true });
+    const view = (await composerFileView(client, native, 1)).file;
+    expect(view).toMatchObject({ preview: 'pdf', canSave: true, canCopy: false, canRemove: true });
+    expect(view.url).toMatch(/^app:\/cache\/media-preview\/\d+\.pdf$/);
+    expect(appFiles.get(view.url)).toEqual(appFiles.get(`app:/data/composer-files/${ID}`));
+    // Nothing is uploaded or fetched to preview it.
+    expect(server!.calls).toEqual([]);
     const other = harness([file({ name: 'build.bin', mimeType: 'application/octet-stream' })]);
     await performChipAct(other.client, other.native, { act: 'file', context: `file_${ID}` });
     expect((await composerFileView(other.client, other.native, 1)).file).toMatchObject({ preview: 'none', noPreview: 'Save it to open in an app that supports bin files.', canSave: true });

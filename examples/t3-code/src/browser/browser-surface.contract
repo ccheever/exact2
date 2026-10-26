@@ -128,8 +128,15 @@ component BrowserChrome
       draft = view.url
       touched = false
       blur()
+  // Preview: Focus URL from a page holding the focus (⌘L, settings-shortcuts.contract ViewReload): the field takes the
+  // focus, which selects the address, as PreviewChromeRow's focusUrlNonce does; the module then forgets the request.
+  action focusUrl
+    focus("browser-url")
+    local("surface-browser-frame-url-focused", view.runtimeId, `${view.focusUrlSerial}`)
   view
     column position="relative" flex-shrink=0 width="100%"
+      for serial in (view.focusUrlSerial > 0 ? [view.focusUrlSerial] : []) key=serial
+        BrowserUrlFocus(take=focusUrl)
       row height="2.5rem" flex-shrink=0 width="100%" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.25rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="browser-chrome"
         row gap="0.125rem" align-items="center" flex-shrink=0 role="group" aria-label="Navigation"
           BsButton(icon="arrow-left", label="Back", tip="Back", disabled=(not view.canGoBack or (view.server and not serverFrame.controlled)), pressed=false, spin=false, align="start", press=local("surface-browser-back", view.tabId, ""), testId="browser-back")
@@ -151,6 +158,18 @@ component BrowserChrome
       // The loading bar: 2pt, the primary colour, from the left edge; it stops moving with reduced motion.
       box position="absolute" left=0 right=0 bottom=0 height="0.125rem" overflow="hidden" pointer-events="none" aria-hidden=true
         box width="100%" height="100%" border-top-right-radius="624.9375rem" border-bottom-right-radius="624.9375rem" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(view.loading ? 1 : 0) translate=(view.loading ? "-10% 0%" : "0% 0%") animation=(view.loading and not still ? "bsLoading 5.3s cubic-bezier(0.1, 0.5, 0.2, 1) forwards" : "none") transition=(still ? "none" : "translate 150ms ease-out, opacity 150ms ease-out 220ms") testId="browser-loading-bar"
+
+// Runs `take` once, as it is laid out: a new request mounts a new one (keyed by its serial), as TerminalFrameFocus does.
+component BrowserUrlFocus
+  props
+    take: action
+  state sent = false
+  action laidOut(width: number, height: number)
+    if not sent
+      sent = true
+      take()
+  view
+    box width=1 height=1 position="absolute" opacity=0 pointer-events="none" aria-hidden=true resize=laidOut
 
 // Button ghost icon-xs: 24pt, a 14pt glyph in the muted colour, the accent on hover, 64% when disabled,
 // and its tooltip under it.

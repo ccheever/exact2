@@ -21,6 +21,7 @@ use DiffCommentCard, DiffDraftCard from "../diff/diff-comments.contract"
 use diffSel from "../diff/diff-rows.contract"
 use DiagramBlocks, ChatDocument from "../timeline/markdown.contract"
 use FilesMedia from "../media/media-actions.contract"
+use MediaFrame from "../media/media-frame.contract"
 use PanelIcon from "./panel-icons.contract"
 use SidebarMenuCard, SidebarMenuItem from "../sidebar/sidebar-row.contract"
 use SidebarMenuRow from "../sidebar/sidebar-shapes.contract"
@@ -364,10 +365,10 @@ component FilePreview
     // An image or video file with its menu, tooltip and failure states (FilesMedia).
     if files.preview == "media"
       FilesMedia(media=files.media, local=local)
-    // A rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame);
-    // a PDF, always rendered, in the module's PDFView (issues/closed/20261009-app-file-iframe-loading.md), as an attachment's.
+    // A rendered HTML page or a PDF (always rendered), as an attachment's (BrowserDocumentFrame, media-frame.contract).
     if files.preview == "html" or files.preview == "pdf"
-      box hatch="t3-media" data-media-url=files.url data-media-kind=files.preview data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId=`file-${files.preview}`
+      box position="relative" flex=1 min-height=0 width="100%" background-color="#ffffff"
+        MediaFrame(kind=files.preview, src=files.url, name=files.path, testId=`file-${files.preview}`)
     if files.preview == "code"
       scroll flex=1 min-height=0 width="100%" testId="file-code"
         // The editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
