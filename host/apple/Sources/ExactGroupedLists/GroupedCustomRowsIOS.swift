@@ -40,7 +40,10 @@ extension GroupedListView {
             customLooks[id]?.press = press
         }
         let line = lineStart(id)
-        if customLooks[id]?.line != line { customLooks[id]?.line = line; resized = true }
+        // The separator handler read the same line as the layout ran: only
+        // a line that moved since it was noted lays the list out again.
+        if let noted = customLooks[id]?.line, noted != line { resized = true }
+        customLooks[id]?.line = line
     }
 
     /// Every custom row noted, carried now or not, its mark checked again

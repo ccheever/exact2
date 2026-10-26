@@ -493,8 +493,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// A custom row's height changed since the list was last laid out.
     var resized = false
     /// Each custom row's height when it was last carried: what the layout
-    /// learned of its item. A cell UIKit reuses for another row takes that
-    /// row's height, which changes nothing the layout knows.
+    /// learned of its item, the first time from its configured cell's
+    /// preferred attributes; a cell reused for another row takes that row's.
     private var heights: [UInt32: CGFloat] = [:]
     /// How far the collection reaches past the list's box at its left and
     /// right: over the window's side safe area where the list's edge meets
@@ -1060,7 +1060,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             cell.contentConfiguration = nil
             cell.marginsIgnoreSafeArea()
             cell.accessories = []
-            carry(id, into: cell)
+            carry(id, into: cell, sized: false)
             return
         }
         for case let carried as NodeView in cell.contentView.subviews { carried.removeFromSuperview() }
@@ -1251,7 +1251,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// A custom row's own views in its cell, at the row's place in its
     /// group, as tall as the row: its separator is decoration, which the
     /// cell draws instead, and a bottom border its author wrote is its own.
-    private func carry(_ id: UInt32, into cell: GroupedCell) {
+    private func carry(_ id: UInt32, into cell: GroupedCell, sized: Bool = true) {
         guard rows[id]?.custom == true, let row = host.presenter.views[id] else { return }
         for case let other as NodeView in cell.contentView.subviews where other !== row { other.removeFromSuperview() }
         if carried[id] == nil, let parent = row.superview {
@@ -1271,7 +1271,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         cell.height = height
-        if heights[id] != height { heights[id] = height; resized = true }
+        if heights.updateValue(height, forKey: id).map({ $0 != height }) ?? (sized && abs(cell.frame.height - height) > 0.5) { resized = true }
         if height > 0 { unsized.remove(id) } else { unsized.insert(id) }
         cell.contentView.clipsToBounds = true
         if row.superview !== cell.contentView {
