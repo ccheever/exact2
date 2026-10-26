@@ -129,7 +129,7 @@ public final class CalendarModule: ExactPackage {
     // MARK: announcing (D7)
 
     private func changedStore() {
-        guard !readers.isEmpty else { return }
+        guard !readers.isEmpty else { context.changed("calendar.calendarStatus"); return }
         if awaiting { dirty = true; return }
         announce()
     }

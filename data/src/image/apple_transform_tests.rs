@@ -351,6 +351,22 @@ fn writes_gain_maps() -> bool {
     .is_some_and(|(bytes, _)| has_gain_map(&bytes))
 }
 
+fn hdr_headroom(bytes: &[u8]) -> f32 {
+    extern "C" {
+        fn CGImageGetContentHeadroom(image: CFTypeRef) -> f32;
+    }
+    let opened = Opened::new(bytes, &|| "undecodable".into()).unwrap();
+    // SAFETY: the keys are immutable statics; the source and options remain live.
+    let decode =
+        dictionary(unsafe { &[(kCGImageSourceDecodeRequest, kCGImageSourceDecodeToHDR)] }).unwrap();
+    let image = Owned::new(unsafe {
+        CGImageSourceCreateImageAtIndex(opened.source.get(), 0, decode.get())
+    })
+    .unwrap();
+    // SAFETY: the decoded image remains live.
+    unsafe { CGImageGetContentHeadroom(image.get()) }
+}
+
 #[test]
 fn a_gain_map_survives_the_edit_and_the_colour_space_is_kept() {
     let kept = writes_gain_maps();
@@ -371,6 +387,15 @@ fn a_gain_map_survives_the_edit_and_the_colour_space_is_kept() {
         .unwrap();
         // Where ImageIO cannot write one, the SDR retry runs and the result says so.
         assert_eq!((out.hdr, has_gain_map(&out.bytes)), (kept, kept), "{name}");
+        if kept {
+            let original = hdr_headroom(&source);
+            let edited = hdr_headroom(&out.bytes);
+            assert!(original > 1.0, "{name}: source must be HDR");
+            assert!(
+                (edited - original).abs() < 0.1,
+                "{name}: HDR headroom changed from {original} to {edited}"
+            );
+        }
         assert_eq!(out.color_space, "display-p3", "{name}");
         assert_eq!(
             out.media_type,

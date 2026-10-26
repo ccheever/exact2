@@ -239,7 +239,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
 /// D6's map, as `exact_game::tilt_stick` computes it (game/engine/src/input/sensor.rs).
 export function tiltStick(g, n, max = 20, dead = 2) {
   const deg = (v, i) => Math.asin(v[i] / Math.hypot(...v)) * 180 / Math.PI;
-  const raw = [(deg(g, 0) - deg(n, 0)) / max, -(deg(g, 1) - deg(n, 1)) / max];
+  const raw = [-(deg(g, 0) - deg(n, 0)) / max, -(deg(g, 1) - deg(n, 1)) / max];
   const m = Math.hypot(...raw), zone = dead / max;
   if (m <= zone) return [0, 0];
   const scaled = Math.min(1, (m - zone) / (1 - zone));
@@ -287,7 +287,7 @@ async function tiltLeg({open, check, node, world}) {
   check('tilt 2: resumed, one input on world at 60 Hz, the stream at its rate',
     resumed.inputs?.length === 1 && resumed.inputs[0].surface === 'world' && resumed.inputs[0].frequency === 60
       && resumed.streams?.gravity?.frequency === 60, resumed);
-  const g = [3.0, 4.9, 7.9], level = [0, 4.9, 8.49];
+  const g = [-3.0, 4.9, 7.9], level = [0, 4.9, 8.49];
   await t.prefer({extension:`motion.gravitySensor=${JSON.stringify({x:g[0], y:g[1], z:g[2]})}`});
   const from = await world(t).local_position('player'), fromTick = (await world(t).snapshot()).tick;
   await t.clock('+1000');
@@ -295,8 +295,8 @@ async function tiltLeg({open, check, node, world}) {
   const stick = tiltStick(g, level), speed = 4 * Math.hypot(...stick), walked = rampFromRest(speed, 59);
   const expected = [walked * stick[0] / Math.hypot(...stick), walked * -stick[1] / Math.hypot(...stick)];
   const moved = [to[0] - from[0], to[2] - from[2]];
-  check('tilt 3: a second of 18° roll walks what the engine\'s stick gives, within a millimetre',
-    Math.abs(moved[0] - expected[0]) < 0.001 && Math.abs(moved[1] - expected[1]) < 0.001 && ticks === 60, {moved, expected, stick, ticks});
+  check('tilt 3: lowering the right edge walks right at the expected speed',
+    moved[0] > 1 && Math.abs(moved[0] - expected[0]) < 0.001 && Math.abs(moved[1] - expected[1]) < 0.001 && ticks === 60, {moved, expected, stick, ticks});
   await t.tap('pause'); await t.clock('settle');
   const paused = await motion();
   check('tilt 4: paused, no input and the level\'s stream at 30 Hz',

@@ -17,7 +17,7 @@
 //! before anything is asked, in every state: presence is not delegable
 //! (D12).
 
-use super::super::{DataSource, Runner};
+use super::super::{CommitReceipt, DataSource, Runner, RunnerError};
 use super::{response, CallOrigin, Json, ModulesRow, Pending};
 use crate::presence::{Backend, Checked, Done, Env, Event, Faults, Occupancy, Op};
 use crate::request::{Dispatch, Work};
@@ -363,6 +363,47 @@ impl<D: DataSource> Runner<D> {
         if !self.extensions.presence.moves {
             self.extensions.presence.moves = true;
             self.pump_presence();
+        }
+    }
+
+    /// Presence retries use the host's existing deadline, even on an idle
+    /// screen with no authored timers.
+    pub(in crate::runner) fn presence_due_ms(&self) -> Option<f64> {
+        self.extensions
+            .presence
+            .backend
+            .as_ref()
+            .and_then(Backend::retry_due_ms)
+    }
+
+    /// Retry at the clock the advance reached, coalescing missed attempts.
+    /// Recovery without a waiting call still publishes the new occupancy.
+    pub(in crate::runner) fn tick_presence(
+        &mut self,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.pump_presence();
+        let mut changed = false;
+        let mut recovered_plain = false;
+        if let Some(backend) = self.extensions.presence.backend.as_ref() {
+            for (name, occupancy) in backend.occupancies() {
+                let before = self.store.occupancy(&name);
+                changed |= before != Some(occupancy);
+                recovered_plain |=
+                    before == Some(Occupancy::Pending) && occupancy == Occupancy::Plain;
+            }
+        }
+        if changed {
+            // Unlike an explicit unprotect, boot recovery has no caller's
+            // reply to tell readers that the plain value is available.
+            let readers = self
+                .store_readers
+                .iter()
+                .enumerate()
+                .filter_map(|(i, reads)| (recovered_plain && *reads).then_some(i))
+                .collect();
+            self.commit_again(readers, "presence").map(Some)
+        } else {
+            Ok(None)
         }
     }
 

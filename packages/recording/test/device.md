@@ -21,6 +21,8 @@ Each step says what to do and what should happen.
 4. **Leaving the app.** Record, then go to the home screen for ten
    seconds and come back. Without `audio` in `host.ios.backgroundModes`
    (the recorder's default) the take paused when you left: Resume shows.
+   Tap Resume, speak again, then Stop. Playback includes both spoken
+   parts and excludes the time away; a moving timer alone is not a pass.
    On iOS with the mode (add `"backgroundModes": ["audio"]` to
    `host.ios` in `apps/recorder/app.json` and build again), the orange
    indicator stays on and the take records on.

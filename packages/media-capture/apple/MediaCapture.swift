@@ -179,11 +179,13 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         guard let t = tracks[id] else { throw ExactTrackError("NotFoundError") }
         if t.readyState == "ended" { consumer.ended(); return ExactSubscription {} }
         t.consumers[ObjectIdentifier(consumer)] = consumer
-        if t.active {
+        if t.active, !(start && origin == "app" && !context.agent && !t.leased) {
             consumer.live(context.agent ? nil : ProcessCapture.shared)
             if t.muted { consumer.muted(t.muteReason ?? "idle") }
         } else if origin == "app", t.enabled, !t.used || start {
             activate(t)
+            // A retry can fail with the same mute reason; this new subscription must hear it too.
+            if t.muted { consumer.muted(t.muteReason ?? "idle") }
         } else {
             consumer.muted(t.muteReason ?? "idle")
         }
@@ -223,6 +225,8 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
                 try ProcessCapture.shared.lease(t.options, session: context.audioSession, log: context.log)
                 t.leased = true
                 t.settings = t.options.settings(ProcessCapture.shared.format)
+                t.platformMute = nil
+                context.changed("media-capture.microphoneStatus")
             } catch {
                 context.log("media-capture: \(t.id) did not open: \(error)")
                 t.platformMute = "interrupted"
@@ -267,6 +271,8 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
                 // A media-services reset: the capture is let go, and nothing records until a start (D7).
                 t.platformMute = "interrupted"
                 if t.active { mute(t, "interrupted", consumersHear: "media-reset") }
+                t.active = false
+                release(t)
                 continue
             default: continue
             }

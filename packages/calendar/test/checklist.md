@@ -47,8 +47,9 @@ Two apps carry the module:
    `saved` reads `none none` (no id: nothing can read it back), and the
    event is in your default calendar in Calendar. `walk` reads
    `error NotAllowedError write-only`. Tap Full access: iOS asks again for
-   full access. Don't Allow: `raised` reads `write-only`. Tap it again: write
-   down whether iOS asks a second time.
+   full access. Choose Keep Add Only (or Don't Allow on versions that use
+   that label): `raised` reads `write-only`. Tap it again: write down whether
+   iOS asks a second time.
 7. **The editor without access** (the fixture, access None in Settings):
    tap Editor, Add: `edited` reads `saved`; the event is in Calendar.
 

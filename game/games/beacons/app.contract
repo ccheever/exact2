@@ -138,7 +138,7 @@ component TiltPanel
         // between the reading's polls (LLP 1133.013 D5).
         row align-items="center" gap=12
           box width=64 height=64 border-radius=32 border-width=2 border-style="solid" border-color="#ceddd8" position="relative" box-sizing="border-box"
-            box testId="level-dot" position="absolute" left=24 top=24 width=12 height=12 border-radius=6 background-color="#e8ad61" translate=`${min(24, max(-24, x * 2.5))}px ${min(24, max(-24, 0 - y * 2.5))}px` transition="translate 100ms linear"
+            box testId="level-dot" position="absolute" left=24 top=24 width=12 height=12 border-radius=6 background-color="#e8ad61" translate=`${min(24, max(-24, 0 - x * 2.5))}px ${min(24, max(-24, 0 - y * 2.5))}px` transition="translate 100ms linear"
           text angles testId="tilt-angles" font-variant-numeric="tabular-nums"
           button press=setLevel(gx, gy, gz) testId="set-level" padding=12 border-radius=8 background-color="#354751"
             text "Set level" color="#ffffff"

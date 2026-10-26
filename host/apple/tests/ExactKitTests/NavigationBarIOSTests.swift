@@ -277,6 +277,7 @@ final class NavigationBarIOSTests: XCTestCase {
             until("the source's focus claim wins after cancellation") { outgoing.isFirstResponder && p.keyboardInset > 0 }
             app.interactive = false
             app.usesAnimator = false
+            let popHidden = decision == "handoff" ? nil : expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil)
             nav.popViewController(animated: true)
             until("the native pop finishes") { nav.transitionCoordinator == nil && nav.viewControllers.count == 2 }
             if decision == "handoff" {
@@ -284,7 +285,12 @@ final class NavigationBarIOSTests: XCTestCase {
             } else {
                 until("the returning screen has no keyboard") { !p.hasKeyboardEditor && p.keyboardInset == 0 && returning.node.bounds.size == full }
             }
+            // A zero inset can precede DidHide. Finish dismissal before the
+            // next fixture replaces this window and claims keyboard focus.
+            if let popHidden { wait(for: [popHidden], timeout: 5) }
+            let finalHidden = decision == "handoff" ? expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil) : nil
             window?.endEditing(true)
+            if let finalHidden { wait(for: [finalHidden], timeout: 5) }
             window?.isHidden = true
             session.destroy()
         }

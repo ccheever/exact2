@@ -113,8 +113,11 @@ final class IframePartitionTests: XCTestCase {
         window.orderFrontRegardless()
         windows.append(window)
         #else
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
-        window.addSubview(web)
+        let window = hostedWindowScene().map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(web)
         window.isHidden = false
         windows.append(window)
         #endif

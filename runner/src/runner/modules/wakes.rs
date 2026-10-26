@@ -313,6 +313,7 @@ impl<D: DataSource> Runner<D> {
     /// Run invocation `i` of the current wake: its event's action, under
     /// the wake's origin, with as many of its arguments as the action takes.
     fn deliver_invocation(&mut self, i: usize) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.sample();
         let now = self.now_ms;
         let wake = self.extensions.wakes.current.as_mut().expect("a wake");
         wake.started.get_or_insert(now);

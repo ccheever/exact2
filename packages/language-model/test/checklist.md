@@ -45,6 +45,11 @@ Agents is the app throughout; "On this device" is in New Conversation
 3. On an iPhone below iOS 26 the app opens and "On this device" is not
    offered.
 
+On iOS 27, [Apple's settings guide](https://support.apple.com/en-gb/guide/iphone/iph3fed3f2c3/27/ios/27)
+lists controls for individual features. Record the control used for the
+off/on check. If there is no control for disabling the on-device model,
+leave that check unverified; an unchanged model choice alone is not a failure.
+
 ## A Pixel 9 or later (Gemini Nano through AICore)
 
 1. `bun scripts/agent-android.mjs build agents --apk`, then install and

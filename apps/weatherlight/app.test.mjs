@@ -3,6 +3,35 @@ import { open } from '../../scripts/agent.mjs';
 import { checkOp, ratio } from '../../scripts/agent-check.mjs';
 import { startNet } from '../../host/web-js/conformance/net.mjs';
 
+test('location request failures remain visible when permission status has not changed', async () => {
+  const net = await startNet();
+  let session;
+  try {
+    session = await open({ host: 'web', app: 'weatherlight',
+      env: { ...net.env, EXACT_AGENT_EPHEMERAL_PORT: '1' } });
+    await session.prefer({ 'permission.geolocation': 'granted' });
+    for (const code of ['PERMISSION_DENIED', 'POSITION_UNAVAILABLE']) {
+      await session.prefer({ extension: `geolocation.watchPosition=${JSON.stringify({ error: code })}` });
+      await session.tap('use-location');
+      await session.clock('settle');
+      expect((await session.state()).resources.location.state).toBe('granted');
+      const message = await session.carrier.evaluate('document.querySelector(\'[data-testid="location-error"]\')?.textContent');
+      expect(message).toContain(code === 'PERMISSION_DENIED' ? 'Location access was denied' : "Couldn't get your location");
+      await session.tap('city-london');
+      await session.clock('settle');
+      expect(await session.carrier.evaluate('document.querySelector(\'[data-testid="location-error"]\') === null')).toBe(true);
+    }
+    await session.prefer({ extension: 'geolocation.watchPosition={"coords":{"latitude":37.7749,"longitude":-122.4194,"accuracy":50}}' });
+    await session.tap('use-location');
+    await session.clock('settle');
+    expect((await session.state()).slots.following).toBe(true);
+    expect(await session.carrier.evaluate('document.querySelector(\'[data-testid="location-error"]\') === null')).toBe(true);
+  } finally {
+    await session?.close();
+    await net.close();
+  }
+}, 30000);
+
 // These controls have flat fills. Include every translucent ancestor when
 // comparing a selection with its track; comparing CSS colour strings misses it.
 async function backgrounds(session, ids) {

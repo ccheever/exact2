@@ -67,10 +67,11 @@ public final class CameraModule: ExactPackage {
         var subscription: ExactSubscription?
         var onLive: (ExactVideoSource?) -> Void = { _ in }
         var onBlank: () -> Void = {}
+        var onMuted: () -> Void = {}
         var onUnmuted: () -> Void = {}
         init(track: String, origin: String) { self.track = track; self.origin = origin }
         func live(video source: ExactVideoSource?) { live = true; onLive(source) }
-        func muted(_ reason: String) { onBlank() }
+        func muted(_ reason: String) { onMuted() }
         func unmuted() { onUnmuted() }
         func ended() { live = false; onBlank() }
         func leave() { subscription?.cancel(); subscription = nil }
@@ -181,6 +182,7 @@ public final class CameraModule: ExactPackage {
         }
         sub.onLive = { s in source = s; show() }
         sub.onUnmuted = show
+        sub.onMuted = { [weak v] in v?.view?.mute() }
         sub.onBlank = { [weak v] in v?.view?.blank() }
         v.sub = sub
         do {
@@ -200,6 +202,7 @@ public final class CameraModule: ExactPackage {
         let s = entry.state?() ?? [:]
         // A track that is not shown takes no photo (D1): ended, disabled, or muted (`idle` among them).
         guard s["readyState"] as? String == "live", s["enabled"] as? Bool == true, s["muted"] as? Bool == false else {
+            say("takePhoto \(id): InvalidStateError (state=\(s["readyState"] ?? "unknown"), enabled=\(s["enabled"] ?? false), muted=\(s["muteReason"] ?? "none"))")
             return reply(["error": "InvalidStateError"])
         }
         let written = { [self] (ext: String) -> (String, URL)? in
