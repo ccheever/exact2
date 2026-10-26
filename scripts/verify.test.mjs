@@ -5,7 +5,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
@@ -592,8 +592,8 @@ test('Excord declares its transcript fixture without a database', async () => {
   assert.throws(() => appServer(dir, {PORT:'0'}), /fixture port must be an integer/);
 });
 
-test('two checkouts drive separate fixture worlds and refuse an unowned listener, including the same entry', async () => {
-  const parent = mkdtempSync(resolve(tmpdir(), 'exact-fixture-checkouts-')), running = [];
+test('fixture drives isolate checkouts, refuse foreign servers and clean overlapping ports', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-fixture-checkouts-')), running = [], fixturePids = new Map();
   const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
   const env = { ...process.env }; delete env.PORT; delete env.EXACT_BACKEND_ORIGIN;
   const script = `import { driveServer, appServer } from ${JSON.stringify(resolve(import.meta.dir, 'verify.mjs'))};
@@ -610,6 +610,9 @@ process.exit(0);`;
     running.push(child);
     const reader = child.stdout.values()[Symbol.asyncIterator](), first = await reader.next();
     const result = JSON.parse(new TextDecoder().decode(first.value));
+    if (result.origin) for (const file of readdirSync(resolve(dir, '.exact/agent-server')).filter(f => /^server-\d+$/.test(f))) {
+      fixturePids.set(Number(file.slice(7)), realpathSync(dir));
+    }
     return { ...result, child, stop: async () => { child.stdin.write('\n'); await child.stdin.flush(); await child.exited; } };
   };
   const fixtures = [], ports = new Set();
@@ -641,7 +644,6 @@ process.exit(0);`;
     const foreignLease = resolve(fixtures[1], '.exact/agent-server');
     mkdirSync(foreignLease, { recursive: true });
     const copied = resolve(foreignLease, record);
-    const { realpathSync } = await import('node:fs');
     for (const text of [held, JSON.stringify({ ...JSON.parse(held), directory: realpathSync(fixtures[1]), origin: a.origin }), 'null']) {
       writeFileSync(copied, text);
       try {
@@ -659,13 +661,26 @@ process.exit(0);`;
       await unknown.child.exited;
       assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0]);
     } finally { writeFileSync(path, held); }
+    const parallel = await drive(fixtures[0], { EXACT_BACKEND_ORIGIN: b.origin });
+    assert.equal(parallel.origin, b.origin);
+    assert.equal((await fetch(parallel.origin).then(r => r.json())).world, fixtures[0]);
     const shared = await drive(fixtures[0]);
     assert.equal(shared.origin, a.origin);
     await a.stop();
     assert.equal((await fetch(shared.origin).then(r => r.json())).world, fixtures[0]);
     await shared.stop();
+    assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0], 'the other port keeps this checkout leased');
+    await parallel.stop();
+    for (const origin of [a.origin, parallel.origin]) {
+      assert.equal(await fetch(origin, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false), false, 'the last drive stops every owned port');
+    }
+    assert.equal(existsSync(lease), false, 'both server records are removed');
   } finally {
     for (const child of running) { if (child.exitCode == null) child.kill('SIGTERM'); await child.exited; }
+    for (const [pid, dir] of fixturePids) {
+      const cwd = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout?.match(/^n(.+)$/m)?.[1];
+      if (cwd === dir) try { process.kill(pid, 'SIGTERM'); } catch {}
+    }
     rmSync(parent, { recursive: true, force: true });
   }
 }, 30000);
