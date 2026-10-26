@@ -86,6 +86,7 @@ mod perf;
 pub mod persist;
 mod query;
 mod queue;
+mod resource_inspection;
 pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
@@ -259,6 +260,8 @@ pub enum RunnerError {
 
 #[derive(Clone)]
 struct ResourceState {
+    /// Development inspection only; zero means the request was not observed.
+    inspection_generation: u64,
     args: Vec<Value>,
     value: crate::held::Held,
     /// Store revision this answer observed; checked only for known readers.
@@ -303,6 +306,7 @@ enum Seed<'a> {
 /// answers, and the arguments it was asked with (what `parse` sees).
 #[derive(Clone)]
 struct PendingReq {
+    inspection_generation: u64,
     refusal: Option<(&'static str, bool)>,
     /// The host refused this ordered request before execution (LLP 1041 §8.4).
     /// Earlier source turns may already have executed effects.
@@ -1004,6 +1008,7 @@ impl<D: DataSource> Runner<D> {
                     })
                     .filter(|(_, _, _, value)| runner.check_shape(i, value).is_ok())
                     .map(|(_, _, args, value)| ResourceState {
+                        inspection_generation: 0,
                         args: args.clone(),
                         value: crate::held::Held::new(value.clone()),
                         store_revision: runner.store.revision(),

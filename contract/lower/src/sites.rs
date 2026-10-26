@@ -19,6 +19,8 @@ pub struct Sites {
     pub slots: Vec<Declared>,
     /// The plan's derives (a child's never reach the plan).
     pub derives: Vec<Declared>,
+    /// The plan's resources, including a placeholder's owner declaration.
+    pub resources: Vec<Declared>,
     /// The plan's actions, a child's lifted `name#N` included.
     pub actions: Vec<Declared>,
 }
@@ -68,6 +70,8 @@ pub struct Declared {
     pub span: Span,
     /// The instantiation whose component declared it.
     pub instance: u32,
+    /// Device facts hoisted once for a component, independent of its uses.
+    pub component: Option<String>,
 }
 
 /// The attribute an author wrote that a row came from (LLP 1122 D6): its
@@ -148,6 +152,15 @@ impl Sites {
             name: name.to_string(),
             span,
             instance,
+            component: None,
+        };
+        let resource = |name: &str, r: &contract_syntax::ResourceDecl| {
+            let mut site = declared(name, r.span, 0);
+            site.component = r
+                .name
+                .rsplit_once('@')
+                .map(|(_, component)| component.to_string());
+            site
         };
         Sites {
             instances: ex.instances.clone(),
@@ -163,6 +176,17 @@ impl Sites {
                 .derives
                 .iter()
                 .map(|d| declared(&d.name, d.span, 0))
+                .collect(),
+            resources: root
+                .resources
+                .iter()
+                .map(|r| resource(&r.name, r))
+                .chain(root.resources.iter().filter_map(|r| {
+                    r.placeholder
+                        .as_ref()
+                        .filter(|p| p.source != contract_types::placeholder::EMPTY)
+                        .map(|_| resource(&format!("{}#else", r.name), r))
+                }))
                 .collect(),
             actions: root
                 .actions

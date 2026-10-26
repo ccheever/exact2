@@ -878,7 +878,7 @@ function apply(batch) {
   positionContexts(); presence.live?.after(batch, views); markScrollDocument();
   return batch.timers;
 }
-function applyBatch(batch) {
+function applyBatch(batch) { for (const line of batch.alerts?.splice(0) ?? []) console.error('exact:', line);
   if (page?.hold(batch) || presence.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
   const began = frameSampler ? performance.now() : 0; // what applying it cost, for the next frame's record (LLP 1079 D3)
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {

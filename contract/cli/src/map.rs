@@ -132,7 +132,10 @@ impl SourceMap {
             out.extend_from_slice(b",\"component\":");
             quote(
                 out,
-                &self.sites.instances[declaration.instance as usize].component,
+                declaration
+                    .component
+                    .as_deref()
+                    .unwrap_or(&self.sites.instances[declaration.instance as usize].component),
             );
             out.push(b'}');
         }
@@ -156,13 +159,14 @@ impl SourceMap {
             .collect()
     }
 
-    /// Where the plan's slot, derive or action named `name` was declared.
+    /// Where the plan's slot, derive, resource or action named `name` was declared.
     pub fn declared(&self, name: &str) -> Option<(&std::path::Path, Span)> {
         let d = self
             .sites
             .slots
             .iter()
             .chain(&self.sites.derives)
+            .chain(&self.sites.resources)
             .chain(&self.sites.actions)
             .find(|d| d.name == name)?;
         Some((self.sources.path(d.span), d.span))
@@ -369,6 +373,8 @@ impl SourceMap {
         self.declarations(&mut out, &self.sites.slots);
         out.extend_from_slice(b",\"derives\":");
         self.declarations(&mut out, &self.sites.derives);
+        out.extend_from_slice(b",\"resources\":");
+        self.declarations(&mut out, &self.sites.resources);
         out.extend_from_slice(b",\"actions\":");
         self.declarations(&mut out, &self.sites.actions);
         out.push(b'}');

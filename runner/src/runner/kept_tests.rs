@@ -221,6 +221,21 @@ fn provisional(r: &Runner<Source>) {
 #[test]
 fn seed_survives_two_context_changes_and_activation_asks_the_latest_full_arguments() {
     let mut r = seeded();
+    r.measure(true, false);
+    let observed: serde_json::Value = serde_json::from_str(&crate::agent::state(&r)).unwrap();
+    assert_eq!(
+        observed["resourceStatus"]["answer"]["displayed"],
+        "retained"
+    );
+    assert_eq!(observed["resourceStatus"]["answer"]["keptSeed"], true);
+    assert_eq!(
+        observed["resourceStatus"]["answer"]["displayedGeneration"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        observed["resourceStatus"]["answer"]["argumentsEqual"],
+        serde_json::Value::Null
+    );
     shows(&r, "kept");
     assert!(state(&r).kept_seed);
     provisional(&r);

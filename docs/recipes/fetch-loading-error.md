@@ -1,8 +1,6 @@
 # Recipe: fetch with loading, error and retry
 
 ```contract
-routes nav
-  home "/"
 shape Feed
   owner: string
   posts: string[]
@@ -13,31 +11,27 @@ component App
   action reload
     refresh feed
   view
-    main navigationKey=`${top(nav).id}` height="100%"
-      for e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` navigationScroll="posts" position="absolute" inset=0
-          header
-            h1 "Feed"
-            button press=reload testId="refresh"
-              text "Refresh"
-          scroll id="posts" refresh=reload refreshing=(pending(feed) and feed.owner == account) flex=1 min-height=0
-            if pending(feed)
-              progress aria-label="Loading" testId="loading"
-            if failed(feed)
-              text "Couldn't load the feed. Try again." testId="error"
-              button press=reload testId="retry"
-                text "Try Again"
-            if feed.owner == account
-              if feed.posts.length == 0 and not failed(feed)
-                text "No posts yet."
-              for p, i in feed.posts key=p
-                text p testId=`post-${i}`
+    column
+      button press=reload testId="refresh"
+        text "Refresh"
+      scroll refresh=reload refreshing=(pending(feed) and feed.owner == account) flex=1 min-height=0
+        if pending(feed)
+          progress aria-label="Loading" testId="loading"
+        if failed(feed)
+          text "Couldn't load the feed." testId="error"
+          button press=reload testId="retry"
+            text "Try Again"
+        if feed.owner == account
+          if feed.posts.length == 0 and not failed(feed)
+            text "No posts yet."
+          for p, i in feed.posts key=p
+            text p testId=`post-${i}`
 ```
 
-The build-time placeholder cannot read `account`; `empty()` gives `owner` the
-value `""`. Account IDs here must be nonempty. The view shows rows only when
-`feed.owner == account`, so they remain visible during a refresh or failure. A
-validated empty `posts` array replaces the previous rows.
+`empty()` sets `owner` to `""`; account IDs must be nonempty. The owner check
+hides A's retained rows after switching to B, even if B fails. A failed refresh
+of A keeps its rows beside Retry; a valid empty answer replaces them.
+Use the same check for a server or workspace: its answer names that owner.
 
 ```ts
 import type { Answer, Result } from './app.contract.d.ts';
@@ -82,6 +76,11 @@ test "a failed refresh retains rows and retries"
 `fail fetch` rejects; it cannot delay or supply an HTTP status/body. Use a
 [test server](rest-backend.md) for those.
 
-For private data, gate answers by the app's authorized principal and auth
-generation. Await session prerequisites in the source; resource dependencies do
-not sequence requests. See the [data guide](../contract-for-agents.md#data-requests-and-side-effects).
+For private data, also gate by the authorized principal and auth generation:
+A → B → A must reject the first A session's answers. Check it before writing a cache
+after an await. Await session prerequisites in the source; dependencies do not
+sequence requests. See the
+[data guide](../contract-for-agents.md#data-requests-and-side-effects).
+
+Development `state.resourceStatus` reports retained answers and argument equality; `failed` and `failures` give the error and count. It changes neither
+retention nor authorization. `with` only admits persisted answers at boot.

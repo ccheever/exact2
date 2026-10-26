@@ -62,6 +62,7 @@ impl<D: DataSource> Runner<D> {
     /// reason: it keeps what it shows and is not asked again until `refresh`.
     pub(super) fn give_up(&mut self, owed: &[usize], why: &RunnerError) {
         for &i in owed {
+            self.inspect_request(i);
             self.failed_args[i] = self.resources[i].as_ref().map(|s| s.args.clone());
             let failure = Failure::error(format!(
                 "the commit that asked it again was refused: {why:?}"

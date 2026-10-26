@@ -258,6 +258,22 @@ component Child
 }
 
 #[test]
+fn resource_locations_include_the_declared_placeholder_owner() {
+    let app = App::new("resources");
+    let path = app.write("app.contract", "component App\n  resource rows = rows() as shape string else fallback()\n  view\n    text rows\n");
+    let (plan, map) = app.compile();
+    assert_eq!(
+        map["resources"].as_object().unwrap().len(),
+        plan.resources.len()
+    );
+    for name in ["rows", "rows#else"] {
+        assert_eq!(map["resources"][name]["file"], path.to_str().unwrap());
+        assert_eq!(map["resources"][name]["line"], 2);
+        assert_eq!(map["resources"][name]["component"], "App");
+    }
+}
+
+#[test]
 fn source_snapshot_and_final_baked_bytes_determine_the_map() {
     let app = App::new("snapshot");
     let path = app.write("app.contract", "invalid on disk\n");

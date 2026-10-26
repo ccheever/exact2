@@ -33,6 +33,7 @@ impl<D: DataSource> Runner<D> {
             self.ids.work.since = self.now_ms();
         }
         self.ids.work.moves = moves;
+        self.begin_resource_inspection();
     }
 
     /// [`Runner::measure`] as a host holding its baked `compat.json` decides
