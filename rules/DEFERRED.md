@@ -1095,6 +1095,19 @@ reading. Nothing that isn't HTML is added by it.
   Bluetooth Classic; `exclusionFilters` and filters with several
   services; an app's own scan list on Android; and the Linux, visionOS and
   watchOS cells.
+- Alarms were never on the doing list. **Expanded (Charlie, 2026-10-26,
+  "Accept, tell Daehyeon (Recommended)", waived; LLP 1133.030 §15
+  question 9):** alarms (`@exact/alarms`): an alert at a time or after a
+  countdown that rings through silent mode and Focus, with Stop, Snooze
+  or Repeat and Pause, on iOS 26 (AlarmKit) and Android (`setAlarmClock`,
+  with `SCHEDULE_EXACT_ALARM`); no app code runs when one rings, and only
+  the person sets one. Consumer: Metronome's practice timer. Unblocks a
+  timer that is heard with the phone silent and locked. Take: none named.
+  Still out (LLP 1133.030 §13): repeating alarms and local times, an
+  alarm-clock app's `USE_EXACT_ALARM` and full-screen alert, the app's own
+  sound as tier 1, buttons that run app code, an author-drawn countdown,
+  alarms set or resumed by tools and wakes, the Windows cell until the
+  desktop builder, and the web, macOS, Linux and tvOS cells.
 - **Expanded (Daehyeon Mun, 2026-10-23; trade; LLP 1133.006):** the
   clipboard's `write([new ClipboardItem(…)])` from data code, by the
   Clipboard API's names, for `image/png` (the app converts other images
