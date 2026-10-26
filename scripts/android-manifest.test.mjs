@@ -26,7 +26,11 @@ test('an implementation with no fragment adds nothing', () => {
 test('the allow-list refuses, naming what', () => {
   const refuses = (manifest, what) => assert.throws(() => manifestFragment(impl(manifest)), (e) => e.message.includes(what) && e.message.includes("alarms's Android implementation"));
   refuses({ providers: [] }, 'names "providers"');
-  refuses({ activities: [] }, 'names "activities"');
+  refuses({ activities: [{ name: 'exact.alarms.A', actions: ['android.intent.action.MAIN'] }] }, 'android.intent.action.MAIN');
+  refuses({ activities: [{ name: 'exact.alarms.A' }] }, 'no actions');
+  refuses({ activities: [{ name: 'exact.alarms.A', actions: ['androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE'], exported: false }] }, '"exported"');
+  refuses({ queries: [{ package: 'com.android.chrome' }] }, 'com.android.chrome');
+  refuses({ aliases: [{ name: 'exact.alarms.B', targetActivity: 'exact.alarms.A', action: 'android.intent.action.VIEW_PERMISSION_USAGE', category: 'android.intent.category.HEALTH_PERMISSIONS' }] }, 'not an activity it declares');
   refuses({ receivers: [{ name: 'exact.alarms.R', actions: ['android.intent.action.PACKAGE_ADDED'] }] }, 'PACKAGE_ADDED');
   refuses({ receivers: [{ name: 'exact.alarms.R', exported: true }] }, '"exported"');
   refuses({ receivers: [{ name: 'exact.alarms.R', permission: 'x' }] }, '"permission"');
@@ -35,4 +39,18 @@ test('the allow-list refuses, naming what', () => {
   refuses({ services: [{ name: 'dev.exact.canvas.Other' }] }, 'not a class in exact.alarms');
   refuses({ services: [{ name: 'exact.alarms.S"/><provider' }] }, 'not a class in exact.alarms');
   refuses({ services: [{ name: 'exact.alarms.S' }, { name: 'exact.alarms.S' }] }, 'twice');
+});
+
+test("health's fragment: Health Connect queried, the rationale and the usage alias exported for the system alone", () => {
+  const json = JSON.parse(readFileSync(resolve(import.meta.dir, '../packages/health/android/exact.json'), 'utf8'));
+  const health = [{ extension: 'health', className: 'exact.health.HealthModule', manifest: json.manifest }];
+  const xml = manifestFragment(health, { privacyPolicy: 'https://example.com/privacy?a=1&b=2' });
+  assert.match(xml, /^ {4}<queries>\n {8}<package android:name="com\.google\.android\.apps\.healthdata" \/>\n {4}<\/queries>\n {4}<application>/);
+  assert.match(xml, /<meta-data android:name="exact\.privacy_policy" android:value="https:\/\/example\.com\/privacy\?a=1&amp;b=2" \/>/);
+  assert.match(xml, /<activity android:name="exact\.health\.PrivacyPolicyActivity" android:exported="true" android:theme="@android:style\/Theme\.NoDisplay">/);
+  assert.match(xml, /<activity-alias android:name="exact\.health\.ViewPermissionUsageActivity" android:exported="true" android:targetActivity="exact\.health\.PrivacyPolicyActivity" android:permission="android\.permission\.START_VIEW_PERMISSION_USAGE">/);
+  assert.match(xml, /<category android:name="android\.intent\.category\.HEALTH_PERMISSIONS" \/>/);
+  assert.doesNotMatch(xml, /<provider|<uses-permission|android:process/);
+  // No activity, no policy carried.
+  assert.doesNotMatch(manifestFragment([{ ...health[0], manifest: { queries: json.manifest.queries } }], { privacyPolicy: 'https://example.com/privacy' }), /meta-data|<application/);
 });

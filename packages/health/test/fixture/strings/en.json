@@ -1,0 +1,4 @@
+{
+  "purpose.health": "The conformance suite reads the fixture's steps and workouts.",
+  "purpose.motion": "The conformance suite counts steps and reads air pressure."
+}

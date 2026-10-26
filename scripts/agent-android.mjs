@@ -369,8 +369,9 @@ function extensionArgs(app, out) {
       `    override val views: Map<String, String> = mapOf(${bound.flatMap((b) => (b.views ?? []).map((tag) => `${JSON.stringify(tag)} to ${JSON.stringify(b.extension)}`)).join(', ')})`,
       '}', ''].join('\n'));
   }
-  // The components the packages' manifest fragments declare, under the allow-list (LLP 1133.030 D9).
-  const fragment = manifestFragment(bound), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
+  // The queries and components the packages' manifest fragments declare, under the allow-list (LLP 1133.030 D9), with
+  // the app's privacy policy for an activity that shows it (LLP 1133.026 D4).
+  const fragment = manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
   rmSync(fragmentFile, { force: true });
   if (fragment) { mkdirSync(dirname(fragmentFile), { recursive: true }); writeFileSync(fragmentFile, fragment); }
   return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : []),
