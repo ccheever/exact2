@@ -1050,8 +1050,10 @@ package final class Presenter {
         let bar = toolbar.concerns(batch)
         if bar { toolbar.prepare() }
         anchorChanges.reset()
-        let anchorFocus = scrollers.isEmpty ? nil : focusedNode
-        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition(focused: anchorFocus) }
+        // A collection keeps its own place; the focus is read only for another scroller.
+        let anchored = scrollers.filter { !collections.owns($0) }
+        let anchorFocus = anchored.isEmpty ? nil : focusedNode
+        for id in anchored { views[id]?.captureScrollPosition(focused: anchorFocus) }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         if let text = session?.text {
             // SVG text shapes with the session's fonts (LLP 1055.000 D11).
