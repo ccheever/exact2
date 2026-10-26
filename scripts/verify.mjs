@@ -39,6 +39,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { findings as feelFindings, summary as feelSummary } from '../host/apple/feel/analyze.mjs';
 import { compilerWarnings } from './app-cli.mjs';
 import { guardFlags } from './help.mjs';
 import { holderOf, takePort } from './port-lock.mjs';
@@ -851,11 +852,48 @@ async function checkAt(host, app, size, store, shots) {
     if (facts) Object.defineProperty(runs, 'seen', { value: facts });
     Object.defineProperty(runs, 'refusals', { value: await refusalsIn(s) });
     if (host === 'ios' || size === WEB_SIZES[0]) Object.defineProperty(runs, 'large', { value: await largestText(s, FIRST) });
+    if (host === 'ios') Object.defineProperty(runs, 'tall', { value: await tallContent(s) });
     return runs;
   } finally {
     await s.close();
     if (host === 'web') await removeBrowserProfile(driveStore(app, store).profile).catch(() => {});
   }
+}
+
+/** Whether the screen `s` shows lays content out well beyond its height, below it or above (a chat opens at its
+ * end): the feel probe's own test (`pickList`, 1.5 × the list's height + 100 pt) made on the screen's height, so a
+ * screen that cannot hold a long list costs no probe. */
+async function tallContent(s) {
+  const l = await s.layout().catch(() => null), h = l?.viewport?.h ?? l?.screen?.h;
+  if (!h) return true;
+  const boxes = (l.nodes ?? []).filter((n) => Number.isFinite(n.y + n.h) && n.h > 0);
+  return boxes.length > 0 && Math.max(...boxes.map((n) => n.y + n.h)) - Math.min(...boxes.map((n) => n.y)) > h * 1.5 + 100;
+}
+
+/** How the first screen's list scrolls against UIKit's (host/apple/feel): the app launched again on a fresh scratch
+ * store, on real time (`timing: 'platform'`, no `clock`), with the recorder inserted, and the probe's short script of
+ * real touches played on its largest list. `{ ms, out, result }` (`result.verdict` is `no-scrollable-list` when no
+ * shown list is long), or `{ error }`. */
+/** `--json`'s `scrolling`: the verdict, the metrics found a tell or a bad with UIKit's values and remedies, and where
+ * feel.json (every number) is. */
+const scrollingOut = (sc) => sc.error ? { error: sc.error, ms: sc.ms }
+  : { ms: sc.ms, verdict: sc.result.verdict, list: sc.result.list ?? null, summary: feelSummary(sc.result), findings: feelFindings(sc.result), feel: resolve(sc.out, 'feel.json') };
+
+async function scrolling(app, shots) {
+  const started = Date.now(), out = resolve(shots, 'ios-feel'), tracePath = resolve(out, 'trace.jsonl');
+  try {
+    const [{ open }, feel] = await Promise.all([import('./agent.mjs'), import('../host/apple/feel/probe.mjs')]);
+    rmSync(out, { recursive: true, force: true });
+    mkdirSync(out, { recursive: true });
+    writeFileSync(tracePath, '');
+    const s = await open({ host: 'ios', app: app.name, storage: 'verify', env: { EXACT_AGENT_STORAGE_FRESH: '1', ...feel.recorderEnv(tracePath) }, chrome: 'platform', timing: 'platform', touch: 'drag' });
+    let played;
+    try {
+      await Bun.sleep(2500); // its first loads, on real time; the accessibility runtime the touch runner turns on
+      played = await feel.play({ touches: s.carrier.touches, tracePath, script: 'short' });
+    } finally { await s.close(); }
+    return { ms: Date.now() - started, out, result: feel.finish(out, app.id, played, s.carrier.udid) };
+  } catch (e) { return { ms: Date.now() - started, error: e.message }; }
 }
 
 const quoted = (text, n = 40) => JSON.stringify(text.length > n ? `${text.slice(0, n - 1)}…` : text);
@@ -1023,7 +1061,7 @@ export function byRule(lines) {
 
 /** The report's lines and its problem count, from what each stage gave; `full`, every finding of each group, one a line,
  *  which verify writes to `listed` (a path the report names when the groups leave any line out). */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], large = [], fixed = { lines: [], accepted: [] }, scrolled = null, shots, copied, own = [], accept = [], ms, cwd = process.cwd(), listed = null }) {
   const out = [], full = [];
   const all = listed ? `${listed} lists them all` : 'verify --json lists them all';
   let failedTests = 0, findings = 0, broken = 0;
@@ -1135,6 +1173,23 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     if (shown.length) full.push(`largest text size (${size}): ${plural(shown.length, 'finding')}`, ...shown);
     for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
   }
+  // How the first screen's list scrolls against UIKit's (host/apple/feel): each metric a tell or a bad is a finding,
+  // with UIKit's value and what causes it; a list like UIKit's is one line; no long list, nothing; a probe that could
+  // not run is said, not counted, since it is the tool's.
+  if (scrolled?.error) out.push(`scrolling: could not measure: ${firstLine(scrolled.error)}`);
+  else if (scrolled?.result?.verdict === 'probed') {
+    const r = scrolled.result, place = relative(cwd, scrolled.out), all = feelFindings(r), found = all.filter((f) => !f.unsure);
+    const said = `${secs(scrolled.ms)} of real touches on the first screen's list, ${r.list?.cls?.split('.').at(-1) ?? 'a scroll view'}`;
+    const line = (f) => { const u = f.unit ? ` ${f.unit}` : ''; return `scrolling ${f.metric} ${f.value}${u} (${f.verdict}; UIKit ${f.uikit}${u}): ${f.remedy}`; };
+    const notes = all.filter((f) => f.unsure).map((f) => `  note, not counted (the probe also reads plain regions as blank): ${line(f)}`);
+    if (!found.length) out.push(`scrolling: like UIKit (${feelSummary(r)}; ${said})`, ...notes);
+    else {
+      const lines = found.map((f) => `  ${line(f)}`), head = `scrolling: ${plural(found.length, 'finding')} against UIKit (${said}); each says whose it is`;
+      out.push(head, ...lines, ...notes, `  the numbers: ${place}/feel.txt; report Exact's own with ${place}/feel.json`);
+      full.push(head, ...lines);
+      findings += found.length; counted('scrolling', found.length);
+    }
+  }
   // The relaunch on a test's store (LLP 1116.005 D7): what came back, or each problem, counted as findings.
   if (relaunched?.error) { broken++; out.push(`relaunch: could not drive: ${firstLine(relaunched.error)}`); }
   else if (relaunched) {
@@ -1213,7 +1268,7 @@ async function main(argv) {
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
-  let tested, firsts, relaunched = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
+  let tested, firsts, relaunched = null, scrolled = null, results = [], running = null, toured = [], serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
   const compiling = compilerWarningsOf(app);
   if (owned) {
     try { running = await startServer(app.dir, server, 'verify'); }
@@ -1244,6 +1299,7 @@ async function main(argv) {
     }
     // An app's own server holds what the tests wrote by now: the tour, which writes again, goes last.
     if (running && host === 'web') toured = await largeTour(app);
+    if (host === 'ios' && firsts.some((runs) => runs.tall)) scrolled = await scrolling(app, shots);
   } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
@@ -1280,13 +1336,13 @@ async function main(argv) {
   const large = [...visited, ...tourNews(visited, toured)];
   const fixed = await fixedType(app.dir, host);
   const findingsFile = resolve(shots, `${host}-findings.txt`), listed = relative(process.cwd(), findingsFile);
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, scrolled, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });
   if (r.full.length) writeFileSync(findingsFile, r.full.join('\n') + '\n'); else rmSync(findingsFile, { force: true });
   writeFileSync(resolve(shots, 'last.json'), JSON.stringify({ ...lastRuns(app), [host]: Date.now() - started }) + '\n');
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, file, failures, end }) => ({ name, file, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
   return r.exit;
 }

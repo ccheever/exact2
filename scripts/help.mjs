@@ -174,7 +174,7 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/ (a test\'s own `screenshot` steps too)'],
-      ['--json', 'the report as one JSON object'],
+      ['--json', 'the report as one JSON object (ios: `scrolling`, each finding\'s metric, value, UIKit\'s and remedy)'],
     ],
     internal: ['--app <name>'],
     body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
@@ -196,8 +196,10 @@ Large    each of those screens again at the largest text size (ios: the simulato
          smaller or fixed font is the tell, and so is a line-clamp in a list's row or hyphens="auto"
          on a text of several words (a UILabel hyphenates only a word longer than its line; a
          grouped list's rows hyphenate as cells do). Counted ("3 at the largest text size"), never failing.
+Scroll   ios: a long list on the first screen gets ~20 s of real touches (host/apple/feel): "scrolling:
+         like UIKit (…)", or a counted finding a metric, with UIKit's value and whose cause it is.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
-         findings (check's, the relaunch's, the largest text size's) and the compiler's
+         findings (check's, the relaunch's, the largest text size's, scrolling's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.
          Its first line says about how long it takes (its last run's time): wait that once.
 Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls

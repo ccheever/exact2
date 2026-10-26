@@ -66,8 +66,7 @@ async function build() {
 }
 
 async function feel() {
-  const probe = resolve(HERE, 'feel/probe.mjs');
-  if (!existsSync(probe)) { say('feel: no probe yet, skipped'); return; }
+  const probe = resolve(HERE, '../../host/apple/feel/probe.mjs');
   mkdirSync(resolve(ROUND, 'feel'), { recursive: true });
   const [sim] = sims('bake-feel');
   for (const spec of specs) for (const arm of ['exact', pairs[spec].stack]) {

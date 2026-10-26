@@ -11,7 +11,7 @@ const json = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch 
 const geo = (xs) => (xs.length ? Math.exp(xs.reduce((a, x) => a + Math.log(x), 0) / xs.length) : NaN);
 const f = (x, d = 1) => (x == null || Number.isNaN(x) ? '–' : Number(x).toFixed(d));
 
-// The probe's verdict counts for one app: how many metrics read "tell" or "bad" (feel/analyze.mjs keeps each
+// The probe's verdict counts for one app: how many metrics read "tell" or "bad" (host/apple/feel/analyze.mjs keeps each
 // group's verdicts in its own `verdict` object), and which.
 const feelOf = (spec, arm) => {
   const j = json(resolve(ROUND, 'feel', `${spec}-${arm}`, 'feel.json'));

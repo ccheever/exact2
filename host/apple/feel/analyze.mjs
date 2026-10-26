@@ -3,8 +3,8 @@
 // metrics with a verdict each: ok, tell (someone who knows iOS would notice)
 // or bad. The thresholds are UIKit's behaviour as measured on the simulator
 // (README.md, "Calibration").
-//   bun bench/bakeoff/feel/analyze.mjs DIR            re-analyze one probe's output, rewriting feel.json and feel.txt
-//   bun bench/bakeoff/feel/analyze.mjs DIR DIR …      and a table comparing them
+//   bun host/apple/feel/analyze.mjs DIR            re-analyze one probe's output, rewriting feel.json and feel.txt
+//   bun host/apple/feel/analyze.mjs DIR DIR …      and a table comparing them
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -207,7 +207,9 @@ export function analyze(t, meta) {
     const back = after.findIndex((f, i) => after.slice(i).every((x) => Math.abs(x.oy - minOff(x)) < 0.5));
     out.rubberBand = { overscrollPt: round(over), fingerPt: round(travel), ratio: travel ? round(over / travel, 2) : null,
       settleS: ended && back >= 0 ? round(after[back].t - ended.t, 2) : null, bounces: config?.bounces ?? null };
-    out.rubberBand.verdict = { ratio: over < 1 ? 'bad' : band(out.rubberBand.ratio, ...T.band), settle: band(out.rubberBand.settleS, ...T.settle) };
+    // A pull that began away from the top measures no rubber band.
+    const before = frames.findLast((f) => f.t < pull.m0 && f.v === listId), fromTop = !before || before.oy <= minOff(before) + 1;
+    out.rubberBand.verdict = !fromTop ? { ratio: 'n/a', settle: 'n/a' } : { ratio: over < 1 ? 'bad' : band(out.rubberBand.ratio, ...T.band), settle: band(out.rubberBand.settleS, ...T.settle) };
   }
 
   // Scroll to top from a status-bar tap.
@@ -248,23 +250,50 @@ export function analyze(t, meta) {
   return { app: meta.app, verdict: 'probed', ...out };
 }
 
+// Each metric: its name, value and verdict; UIKit's value on the simulator (README.md, "Calibration"); and, for an app
+// author, what in an app causes a tell or a bad there, or that it is Exact's own (`OWN`, the evidence named).
+const OWN = (evidence) => `Exact's own: report it${evidence ? ` with ${evidence}` : ''}`;
+const at = (r) => { const g = [...new Set(r.smooth.hitchAt.map((h) => h.gesture))]; return g.length ? ` (during ${g.join(', ')})` : ''; };
+const ROWS = 'make the rows lighter (fewer nodes, images at the size they show, no shadow, blur or filter on each row)';
 const VERDICTS = [
-  ['hitch ratio (ms/s)', (r) => r.smooth.hitchRatio, (r) => r.smooth.verdict.hitch],
-  ['longest frame (ms)', (r) => r.smooth.longestFrameMs, (r) => r.smooth.verdict.stall],
-  ['main thread p95 (ms/frame)', (r) => r.smooth.mainP95Ms, (r) => r.smooth.verdict.main],
-  ['tracking ratio', (r) => r.tracking?.ratio, (r) => r.tracking?.verdict.ratio],
-  ['touch-to-content lag (frames)', (r) => r.tracking?.lagFrames, (r) => r.tracking?.verdict.lag],
-  ['glide after a still lift (pt)', (r) => r.tracking?.glidePt, (r) => r.tracking?.verdict.glide],
-  ['deceleration τ (ms; .normal 500)', (r) => r.momentum.tauMs, (r) => r.momentum.verdict.tau],
-  ['momentum hand-off (content/asked)', (r) => r.momentum.handoff, (r) => r.momentum.verdict.handoff],
-  ['flings that drop a frame at the lift', (r) => r.momentum.lifts ? `${r.momentum.liftDrops}/${r.momentum.lifts}` : null, (r) => r.momentum.verdict.lift],
-  ['offset jumps while decelerating', (r) => r.momentum.jumps, (r) => r.momentum.verdict.jumps],
-  ['edge bounce settle (s)', (r) => r.edgeBounce.settleS, (r) => r.edgeBounce.verdict.settle],
-  ['rubber band (overscroll/finger)', (r) => r.rubberBand?.ratio, (r) => r.rubberBand?.verdict.ratio],
-  ['rubber band settle (s)', (r) => r.rubberBand?.settleS, (r) => r.rubberBand?.verdict.settle],
-  ['status-bar scroll to top (s)', (r) => r.scrollToTop?.reached ? round((r.scrollToTop.startS ?? 0) + (r.scrollToTop.durationS ?? 0), 2) : 'no', (r) => r.scrollToTop?.verdict.reached],
-  ['tap while decelerating: travel (pt)', (r) => r.tapToStop?.activated ? 'activated' : r.tapToStop?.travelPt, (r) => r.tapToStop?.verdict.stop],
-  ['blank samples (share)', (r) => r.blank.share, (r) => r.blank.verdict.blank],
+  ['hitch ratio (ms/s)', (r) => r.smooth.hitchRatio, (r) => r.smooth.verdict.hitch, '0',
+    (r, e) => `frames came late while the list moved${at(r)}: the main thread is busy as rows come on screen; ${ROWS}. Where each row is a few texts and an image, it is ${OWN(e)}`],
+  ['longest frame (ms)', (r) => r.smooth.longestFrameMs, (r) => r.smooth.verdict.stall, '16.7',
+    (r, e) => { const worst = [...r.smooth.hitchAt].sort((a, b) => b.ms - a.ms)[0]; return `a frame of ${r.smooth.longestFrameMs} ms${worst ? ` during ${worst.gesture} (main thread ${worst.mainMs} ms)` : ''}: a row costly the first time it shows; ${ROWS}. Where they are light, it is ${OWN(e)}`; }],
+  ['main thread p95 (ms/frame)', (r) => r.smooth.mainP95Ms, (r) => r.smooth.verdict.main, '1.5–2.1',
+    (r, e) => `the rows' layout and drawing take most of each frame while the list moves; ${ROWS}. Where they are light, it is ${OWN(e)}`],
+  ['tracking ratio', (r) => r.tracking?.ratio, (r) => r.tracking?.verdict.ratio, '1.000',
+    (r, e) => `the content ${r.tracking.ratio < 1 ? 'trails' : 'outruns'} the finger: a scroll= handler that moves content as the list scrolls does this; without one it is ${OWN(e)}`],
+  ['touch-to-content lag (frames)', (r) => r.tracking?.lagFrames, (r) => r.tracking?.verdict.lag, '0',
+    (r, e) => `the content follows the finger ${r.tracking.lagFrames} frames late: a scroll= handler that sets state each frame, or rows heavy enough to hold the main thread, does this; without either it is ${OWN(e)}`],
+  ['glide after a still lift (pt)', (r) => r.tracking?.glidePt, (r) => r.tracking?.verdict.glide, '0',
+    (r, e) => `the list moved ${r.tracking.glidePt} pt after a finger lifted still: a scroll= handler that scrolls the list, or scroll snapping, does this; without either it is ${OWN(e)}`],
+  ['deceleration τ (ms; .normal 500)', (r) => r.momentum.tauMs, (r) => r.momentum.verdict.tau, '502',
+    (r, e) => `a fling slows down unlike UIKit's (.normal): ${OWN(e)}`],
+  ['momentum hand-off (content/asked)', (r) => r.momentum.handoff, (r) => r.momentum.verdict.handoff, '0.95–1.05',
+    (r, e) => `a fling's glide starts at ${r.momentum.handoff}× the finger's speed: ${OWN(e)}`],
+  ['flings that drop a frame at the lift', (r) => r.momentum.lifts ? `${r.momentum.liftDrops}/${r.momentum.lifts}` : null, (r) => r.momentum.verdict.lift, '0',
+    (r, e) => `the list stalls a frame as the finger lifts (main thread ${r.momentum.liftMainMs} ms then), the host's work at a fling's release: ${OWN(e)}`],
+  ['offset jumps while decelerating', (r) => r.momentum.jumps, (r) => r.momentum.verdict.jumps, '0',
+    (r, e) => `the gliding list stalled or jumped ${r.momentum.jumps} times off UIKit's curve: a frame the main thread had no time for (heavy rows), or a row that resizes once it shows (an image without width and height or aspect-ratio); otherwise ${OWN(e)}`],
+  ['edge bounce settle (s)', (r) => r.edgeBounce.settleS, (r) => r.edgeBounce.verdict.settle, '0.63–0.85',
+    (r, e) => `momentum carried past the list's end comes back in ${r.edgeBounce.settleS} s: an overscroll-behavior other than auto on the list or above it changes the bounce; without one it is ${OWN(e)}`],
+  ['rubber band (overscroll/finger)', (r) => r.rubberBand?.ratio, (r) => r.rubberBand?.verdict.ratio, '0.47',
+    (r, e) => r.rubberBand.bounces === false || !r.rubberBand.overscrollPt
+      ? `the list does not stretch past its top as iOS lists do: overscroll-behavior none (or contain) on the list or above it turns the bounce off; drop it. Without one it is ${OWN(e)}`
+      : `pulled past its top, the list stretches ${r.rubberBand.ratio} of the finger's travel: ${OWN(e)}`],
+  ['rubber band settle (s)', (r) => r.rubberBand?.settleS, (r) => r.rubberBand?.verdict.settle, '0.54–0.55',
+    (r, e) => `released past its top, the list takes ${r.rubberBand.settleS ?? 'too long'} s to come back: ${OWN(e)}`],
+  ['status-bar scroll to top (s)', (r) => r.scrollToTop?.reached ? round((r.scrollToTop.startS ?? 0) + (r.scrollToTop.durationS ?? 0), 2) : 'no', (r) => r.scrollToTop?.verdict.reached, '0.93–0.94',
+    (r, e) => r.scrollToTop.reached
+      ? `a tap on the status bar takes the list to its top slower than UIKit: ${OWN(e)}`
+      : `a tap on the status bar did not take the list to its top: iOS scrolls one scroller a screen, the route's content (navigationScroll names it), so name this list there when the screen has more than one; where it is named, it is ${OWN(e)}`],
+  ['tap while decelerating: travel (pt)', (r) => r.tapToStop?.activated ? 'activated' : r.tapToStop?.travelPt, (r) => r.tapToStop?.verdict.stop, '0',
+    (r, e) => r.tapToStop.activated
+      ? `a tap that stopped the gliding list also opened what it landed on, where UIKit only stops the list: a row that acts on pointerdown or a touch's start does this (act on press=); without one it is ${OWN(e)}`
+      : `the list kept moving ${r.tapToStop.travelPt} pt after a finger landed on it: ${OWN(e)}`],
+  ['blank samples (share)', (r) => r.blank.share, (r) => r.blank.verdict.blank, '0',
+    (r, e) => `${r.blank.blankSamples} of ${r.blank.samples} frames sampled while the list moved showed a blank band (up to ${r.blank.maxPt} pt) where rows belong: rows drawn late. A row that is itself 60 pt or more of one plain colour, or drawn on a canvas, reads as blank too; otherwise it is ${OWN(e)}`],
 ];
 
 /** feel.txt: one line a metric. */
@@ -277,9 +306,31 @@ export function report(r) {
   return lines.join('\n') + '\n';
 }
 
+const UNITS = new Set(['ms/s', 'ms', 'ms/frame', 'frames', 'pt', 's']);
+// Metrics too unsure to put to an app author as a finding: blank bands read a plain region (a grouped list's
+// background, a uniform card) as blank on native lists too (round r21: SwiftUI's Settings 0.36, UIKit's inbox 0.22).
+const UNSURE = new Set(['blank samples']);
+/** The metrics a tell or a bad, each `{ metric, unit, verdict, value, uikit, remedy }` (`metric` without its unit;
+ * `unsure`: a note, not a finding); `evidence` names the file to report Exact's own with. */
+export function findings(r, evidence = null) {
+  if (r.verdict !== 'probed') return [];
+  return VERDICTS.filter(([, , verdict]) => ['tell', 'bad'].includes(verdict(r))).map(([label, value, verdict, uikit, remedy]) => {
+    const unit = label.match(/\(([^;)]+)/)?.[1], metric = label.replace(/ \(.*\)$/, '');
+    return { metric, unit: UNITS.has(unit) ? unit : '', verdict: verdict(r), value: value(r), uikit, remedy: remedy(r, evidence), ...(UNSURE.has(metric) ? { unsure: true } : {}) };
+  });
+}
+
+/** The key numbers, for a list that scrolls like UIKit's: what was measured, in a few words each. */
+export function summary(r) {
+  if (r.verdict !== 'probed') return '';
+  return [r.smooth.hitchRatio != null && `hitches ${r.smooth.hitchRatio} ms/s`, r.smooth.longestFrameMs != null && `longest frame ${r.smooth.longestFrameMs} ms`,
+    r.smooth.mainP95Ms != null && `main thread p95 ${r.smooth.mainP95Ms} ms`, r.momentum.tauMs != null && `τ ${r.momentum.tauMs} ms`,
+    r.momentum.lifts && `${r.momentum.liftDrops}/${r.momentum.lifts} lifts dropped a frame`].filter(Boolean).join(', ');
+}
+
 if (import.meta.main) {
   const dirs = process.argv.slice(2);
-  if (!dirs.length) { console.error('usage: bun bench/bakeoff/feel/analyze.mjs DIR [DIR …]'); process.exit(2); }
+  if (!dirs.length) { console.error('usage: bun host/apple/feel/analyze.mjs DIR [DIR …]'); process.exit(2); }
   const results = dirs.map((d) => {
     const r = analyze(readTrace(readFileSync(resolve(d, 'trace.jsonl'), 'utf8')), JSON.parse(readFileSync(resolve(d, 'gestures.json'), 'utf8')));
     writeFileSync(resolve(d, 'feel.json'), JSON.stringify(r, null, 1));

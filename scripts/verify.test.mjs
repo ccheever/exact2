@@ -1219,3 +1219,34 @@ test('many findings: the closing line names their kinds, and a check kind that d
   assert.equal(r.lines.at(-1), 'verify: 12 problems (12 findings: 11 tap-target, 1 contrast; the tests passed) in 4.0 s');
   assert.equal(r.lines.at(-2), 'most findings are tap-target (11): fix them, or, where the design means them, app.json\'s verify.accept takes each by its kind and testId (docs/recipes/tests.md)');
 });
+
+test('scrolling: like UIKit in one line; each tell or bad a counted finding with UIKit\'s value; blanks a note; no list, nothing', () => {
+  const ok = { ratio: 'ok', lag: 'ok', glide: 'ok' };
+  const feel = (over = {}) => ({ app: 'a', verdict: 'probed', list: { cls: 'ExactGroupedLists.GroupedCollectionView' },
+    smooth: { hitchRatio: 0, longestFrameMs: 16.7, mainP95Ms: 4.1, hitchAt: [], verdict: { hitch: 'ok', stall: 'ok', main: 'ok' } },
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: ok },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, rubberBand: { ratio: 0.48, settleS: 0.55, verdict: { ratio: 'ok', settle: 'ok' } },
+    scrollToTop: { reached: true, startS: 0.02, durationS: 0.92, verdict: { reached: 'ok' } }, tapToStop: { travelPt: 0, verdict: { stop: 'ok' } },
+    blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } }, ...over });
+  const run = (scrolled) => report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app', scrolled });
+  const out = '/app/.exact/verify/ios-feel';
+  const clean = run({ ms: 21000, out, result: feel() });
+  assert.equal(clean.lines[1], 'scrolling: like UIKit (hitches 0 ms/s, longest frame 16.7 ms, main thread p95 4.1 ms, τ 502 ms, 0/2 lifts dropped a frame; 21.0 s of real touches on the first screen\'s list, GroupedCollectionView)');
+  assert.equal(clean.problems, 0);
+
+  const bad = feel({ momentum: { ...feel().momentum, liftDrops: 1, verdict: { ...feel().momentum.verdict, lift: 'bad' } },
+    blank: { share: 0.5, samples: 40, blankSamples: 20, maxPt: 100, verdict: { blank: 'bad' } } });
+  const found = run({ ms: 21000, out, result: bad });
+  assert.equal(found.problems, 1);
+  assert.match(found.lines[1], /^scrolling: 1 finding against UIKit/);
+  assert.match(found.lines[2], /^ {2}scrolling flings that drop a frame at the lift 1\/2 \(bad; UIKit 0\): .*the host's work at a fling's release: Exact's own: report it$/);
+  assert.match(found.lines[3], /^ {2}note, not counted .*scrolling blank samples 0\.5 \(bad; UIKit 0\)/);
+  assert.equal(found.lines[4], '  the numbers: .exact/verify/ios-feel/feel.txt; report Exact\'s own with .exact/verify/ios-feel/feel.json');
+  assert.match(found.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\)/);
+
+  assert.deepEqual(run({ ms: 9000, out, result: { app: 'a', verdict: 'no-scrollable-list' } }).lines.filter((l) => l.startsWith('scrolling')), []);
+  const failed = run({ ms: 3000, error: 'the recorder wrote nothing in 20 s\nstack' });
+  assert.equal(failed.lines[1], 'scrolling: could not measure: the recorder wrote nothing in 20 s');
+  assert.equal(failed.problems, 0);
+});

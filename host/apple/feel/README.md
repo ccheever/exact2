@@ -2,22 +2,23 @@
 
 Plays the same real touches on any iOS simulator app's list and says, metric by metric, whether its scrolling feels
 like UIKit's. It does not care what built the app: an Exact app, a SwiftUI `List` and a `UICollectionView` are
-probed the same way, so the native arms are the baseline for Exact.
+probed the same way, so the native arms are the baseline for Exact. `bun exact.mjs verify ios` runs it on an app's
+first screen when that screen lays out content well below its bottom (`scripts/verify.mjs`, `scrolling`).
 
 | File | What it is |
 |---|---|
-| `feel.m`, `build.sh` | the recorder: a dylib inserted at launch that only watches (writes `target/feel/feel-sim.dylib`) |
-| `probe.mjs` | relaunches the app with the recorder, plays the gestures through the touch runner (`host/apple/touches.mjs`), analyzes |
-| `analyze.mjs` | trace → `feel.json` and `feel.txt`; given several output directories, a comparison table |
+| `feel.m` | the recorder: a dylib inserted at launch that only watches (`probe.mjs` builds it into `target/feel/recorder-sim.dylib`) |
+| `probe.mjs` | relaunches the app with the recorder, plays the gestures through the touch runner (`host/apple/touches.mjs`), analyzes; `play` is the gestures alone, for a drive that launched the app itself (`verify`) |
+| `analyze.mjs` | trace → `feel.json` and `feel.txt`; given several output directories, a comparison table; `findings`, each tell or bad with UIKit's value and its cause for an app author |
 
 ## Running it
 
 ```sh
-bun bench/bakeoff/feel/probe.mjs --udid <simulator udid> --app <bundle id> [--out DIR]
+bun host/apple/feel/probe.mjs --udid <simulator udid> --app <bundle id> [--out DIR] [--short]
 # a list behind a tab or a push: steps first (window points; wait in seconds; drag ends with an optional speed)
-bun bench/bakeoff/feel/probe.mjs --udid U --app B --steps "tap 300,820;wait 1"
+bun host/apple/feel/probe.mjs --udid U --app B --steps "tap 300,820;wait 1"
 # several runs side by side
-bun bench/bakeoff/feel/analyze.mjs DIR1 DIR2 DIR3
+bun host/apple/feel/analyze.mjs DIR1 DIR2 DIR3
 ```
 
 The app must already be installed on the booted simulator. A probe takes about 40 s (8 s when there is no list),
@@ -45,8 +46,14 @@ The gestures, all real HID touches through XCTest's synthesizer:
 3. flings up at 8,000 pt/s, 1.2 s apart, until the list is back at the top (blanks sampled); the last meets the
    top with momentum;
 4. a pull 240 pt past the top, held, released;
-5. a fling down at 3,000 pt/s, then a tap on the status bar;
+5. a fling down at 3,000 pt/s, then a tap on the status bar (on its right: the left may hold the back-to-app
+   breadcrumb, which leaves the app);
 6. a fling down at 4,000 pt/s and, 200 ms after the lift, a tap in the middle of the list.
+
+`--short` is verify's script, about 20 s: the slow drag; flings down at 6,000 and 4,000 pt/s (blanks sampled in the
+second); the status-bar tap from where they left the list; the pull past the top; the fling and the tap while it
+decelerates. It skips the 1,500 pt/s fling and the flings back up, so the edge bounce is measured only when a fling
+reaches the list's end, and blanks are sampled in one fling (about 45 samples, not 130).
 
 ## Reading `feel.txt`
 
@@ -120,6 +127,10 @@ between UIKit's and SwiftUI's.
 - Blank sampling renders the list's layers (`renderInContext`), which omits Metal content and costs 3–7 ms, so it
   runs only during the 4,000 pt/s fling and the flings back up, and those frames are left out of the timing
   metrics. A list that draws through Metal would read as blank.
+- Blank bands misread plain regions: a grouped list's background or a uniform card reads as blank on native lists
+  too (round r21: SwiftUI's Settings 0.36, UIKit's inbox 0.22), so `verify` says blank samples as a note, uncounted.
+- A list that opens at its end (a chat) has its slow drag and first flings go up it instead; the pull past the top
+  is skipped when the flings did not bring the list back to its top.
 - Vertical lists only; the gestures land in the middle of the list and assume a row there tolerates a tap (the
   tap during deceleration). The detector picks the largest qualifying scroll view; use `--steps` and `--at` for
   another.
