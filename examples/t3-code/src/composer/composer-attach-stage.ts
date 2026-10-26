@@ -11,7 +11,7 @@
 import type { Obj } from '../client/domain';
 import { appFiles } from '../media/save-file';
 import { uuid } from '../transport/transport-wire';
-import { MAX_FILE_BYTES } from './composer-editor-files';
+import { HOST_READ_BYTES, MAX_FILE_BYTES } from './composer-editor-files';
 import { videoFrameSize, videoMimeType } from './composer-video';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from './image-attachment-size';
 import { DRAFTS, STAGED, stagedName } from './composer-staged-copies';
@@ -110,10 +110,18 @@ const renamed = (name: string, type: string) => `${name.replace(/\.[^.]*$/, '') 
 async function stageImage(fs: StageFiles, source: AttachSource, size: number): Promise<Obj> {
   const name = source.name;
   if (size > MAX_COMPRESSIBLE_SOURCE_BYTES) return { kind: 'image-too-large', name, sizeBytes: size };
+  // Its header is read through JavaScript, which fails past HOST_READ_BYTES: a larger picked (`app:`) image is
+  // re-encoded without it, in its own type when that is PNG and else as a JPEG; a larger dropped one is refused.
+  if (size > HOST_READ_BYTES && !source.path.startsWith('app:/')) return { kind: 'image-too-large', name, sizeBytes: size };
   const id = uuid(), out = `${DRAFTS}/${id}.png`;
   let from = source.path, scratch = '';
   try {
     await mkdir(fs, DRAFTS);
+    if (size > HOST_READ_BYTES) {
+      const type = source.type === 'image/png' || /\.png$/i.test(name) ? 'image/png' : 'image/jpeg';
+      const encoded = await fs.compressImage(from, out, { maxDimension: IMAGE_ATTACHMENT_MAX_EDGE, maxBytes: PROVIDER_SEND_TURN_MAX_IMAGE_BYTES, type });
+      return { kind: 'image', id, name: type === 'image/png' ? name : renamed(name, type), mimeType: type, sizeBytes: encoded.size };
+    }
     const bytes = new Uint8Array(await fs.readFile(from));
     const header = imageHeader(bytes);
     const fits = header?.type === 'image/png' || header?.type === 'image/jpeg';
@@ -148,7 +156,8 @@ async function stageImage(fs: StageFiles, source: AttachSource, size: number): P
 async function stageFile(fs: StageFiles, source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
   const name = source.name, mimeType = videoMimeType({ name, mimeType: source.type }) ?? (source.type || 'application/octet-stream');
   const file: Obj = { kind: 'file', name, sizeBytes: size, mimeType };
-  if (size <= 0 || fileLimit <= 0 || size > Math.min(fileLimit, MAX_FILE_BYTES)) return file;
+  if (!source.path.startsWith('app:/')) file.readLimit = HOST_READ_BYTES;
+  if (size <= 0 || fileLimit <= 0 || size > Math.min(fileLimit, MAX_FILE_BYTES, Number(file.readLimit) || MAX_FILE_BYTES)) return file;
   const id = uuid(), to = `${STAGED}/${stagedName({ id, name, mimeType })}`;
   let read: Uint8Array | null;
   try {
@@ -158,9 +167,9 @@ async function stageFile(fs: StageFiles, source: AttachSource, size: number, fil
   file.id = id;
   if (videoMimeType({ name, mimeType }) !== null) {
     // `moov` may follow the media data, and storage.fs reads whole files only, so the header costs a read of the video
-    // (at most MAX_FILE_BYTES) once: a dropped or pasted one's bytes are already read by its copy, a picked one is read
-    // from its staged copy.
-    const bytes = read ?? new Uint8Array(await fs.readFile(to).catch(() => new ArrayBuffer(0)));
+    // once: a dropped or pasted one's bytes are already read by its copy, a picked one within HOST_READ_BYTES is read
+    // from its staged copy, and a larger one goes without its display size.
+    const bytes = read ?? (size <= HOST_READ_BYTES ? new Uint8Array(await fs.readFile(to).catch(() => new ArrayBuffer(0))) : new Uint8Array(0));
     const frame = videoFrameSize(bytes);
     if (frame) { file.videoWidth = frame.width; file.videoHeight = frame.height; }
   }

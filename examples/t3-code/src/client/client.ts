@@ -16,6 +16,7 @@ import { adoptComposerFiles } from '../composer/composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
 import { takeRowDrops } from '../sidebar/legacy-sidebar-drop';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from '../composer/image-attachment-size';
+import { draftUpload } from '../snapshot/snapshot-upload';
 import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from '../connections/relaunch-reconnect';
 import { adoptSidebarPrefs } from '../sidebar/sidebar-state';
 import { PROVIDER_OPS } from '../providers/providers';
@@ -1031,18 +1032,17 @@ export class T3Client {
       if (!current()) throw new ClientError('The draft changed before upload.');
       let attachmentId = str(image.uploadId);
       if (!attachmentId) {
-        // A capture's PNG may still be over the edge; an attached image was fitted as it was staged (composer-attach-stage.ts).
         const png = str(image.mimeType, 'image/png') === 'image/png';
-        const bytes = await this.call(native, { op: 'snapshotDraftRead', id: image.id,
-          imageMaxEdge: image.downscalable === false || !png ? 0 : IMAGE_ATTACHMENT_MAX_EDGE });
+        const body = await draftUpload(str(image.id))
+          .catch(() => { throw new ClientError(`${str(image.name, 'An image')} was not saved with this draft. Attach it again to send it.`); });
         if (!current()) throw new ClientError('The draft changed before upload.');
-        if (num(bytes.sizeBytes) > 0) image.sizeBytes = num(bytes.sizeBytes);
+        if (body.sizeBytes > 0) image.sizeBytes = body.sizeBytes;
         const upload = await this.request(native, 'attachments.createUploadUrl', { type: 'image', name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes });
         attachmentId = str(upload.attachmentId);
         if (!attachmentId || !str(upload.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');
         try {
           if (!current()) throw new ClientError('The draft changed before upload.');
-          await this.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, base64: bytes.base64, ...(png ? {} : { contentType: str(image.mimeType) }) });
+          await this.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, bodyFrom: body.bodyFrom, sizeBytes: body.sizeBytes, ...(png ? {} : { contentType: str(image.mimeType) }) });
           if (!current()) throw new ClientError('The draft changed during upload.');
           image.uploadId = attachmentId;
           await this.persist(storage);

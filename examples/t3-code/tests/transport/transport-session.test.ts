@@ -439,4 +439,16 @@ describe('HTTP through fetch', () => {
     expect(value(reply)).toEqual({ stored: '<5 bytes>', type: 'text/plain', auth: '' });
     expect((await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', base64: btoa('not a png') })).error).toMatchObject({ message: 'The captured image is not a PNG.' });
   });
+
+  test('a staged attachment uploads from its app file, within its type\'s limit', async () => {
+    const { drive, server } = await paired();
+    server.routes['/api/attachments/upload/a1'] = request => ({ status: 200, body: { stored: request.body, type: request.headers['Content-Type'] } });
+    const from = 'app:/data/composer-files/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    expect(value(await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', bodyFrom: from, sizeBytes: 40 * 1024 * 1024, contentType: 'application/zip' })))
+      .toEqual({ stored: `<file ${from}>`, type: 'application/zip' });
+    expect(value(await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', bodyFrom: 'app:/data/snapshots/drafts/x.png', sizeBytes: 9 })))
+      .toEqual({ stored: '<file app:/data/snapshots/drafts/x.png>', type: 'image/png' });
+    expect((await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', bodyFrom: from, sizeBytes: 51 * 1024 * 1024, contentType: 'application/zip' })).error).toMatchObject({ message: 'Choose a file up to 50MB.' });
+    expect((await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', bodyFrom: 'doc:/1/a.zip', sizeBytes: 9, contentType: 'application/zip' })).error).toMatchObject({ message: 'Choose a file up to 50MB.' });
+  });
 });

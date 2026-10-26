@@ -6,7 +6,7 @@ import { requestComposerField } from './composer-field-request';
 // images upload) and binds it as a `file` attachment plus its
 // FileContextRecord. The upload's id persists with the device's drafts; the
 // staged bytes live in memory until then.
-import { readStaged, removeStaged } from './composer-staged-copies';
+import { removeStaged, stagedUpload } from './composer-staged-copies';
 import type { T3Client } from '../client/client';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -24,6 +24,13 @@ import { composerFieldOwner } from './auto-balance-owner';
 
 export const PASTED_TEXT_THRESHOLD_BYTES = 32 * 1024;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
+/**
+ * The largest dropped or pasted (`doc:`) file staging can take. The host copies no `doc:` file, so staging reads it
+ * through JavaScript, and `storage.fs.readFile` answers base64 within the runner's 16 MiB host work limit
+ * (runner/src/request.rs MAX_HOST_WORK_BYTES): a read past about 12 MiB fails. A picked file is an `app:` copy the host
+ * copies, up to MAX_FILE_BYTES as in the reference.
+ */
+export const HOST_READ_BYTES = 11 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 100;
 export const PASTED_TEXT_MIME = 'text/plain;charset=utf-8';
 
@@ -327,14 +334,17 @@ async function insertFold(client: T3Client, native: Native, fact: ComposerOSReco
   return result.queued;
 }
 
-/** attachmentUploadQueue at send time: mint an upload URL, send the bytes (base64), keep the id. */
-async function upload(client: T3Client, native: Native, file: DraftFile, base64: string, assertOwner?: () => void): Promise<void> {
+/** What an upload sends: a folded paste's text as base64, or a staged file from its path. */
+type UploadBody = { base64: string } | { bodyFrom: string; sizeBytes: number };
+
+/** attachmentUploadQueue at send time: mint an upload URL, send the bytes, keep the id. */
+async function upload(client: T3Client, native: Native, file: DraftFile, body: UploadBody, assertOwner?: () => void): Promise<void> {
   assertOwner?.();
   const minted = await client.rpc(native, 'attachments.createUploadUrl', { type: 'file', name: file.name, mimeType: file.mimeType, sizeBytes: file.sizeBytes });
   assertOwner?.();
   const attachmentId = str(minted.attachmentId);
   if (!attachmentId || !str(minted.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');
-  await nativeCall(native, { op: 'uploadAttachment', path: str(minted.relativeUrl), base64, contentType: file.source === 'pasted-text' ? PASTED_TEXT_MIME : file.mimeType, generation: client.generation });
+  await nativeCall(native, { op: 'uploadAttachment', path: str(minted.relativeUrl), ...body, contentType: file.source === 'pasted-text' ? PASTED_TEXT_MIME : file.mimeType, generation: client.generation });
   assertOwner?.();
   file.attachmentId = attachmentId;
   file.status = 'ready';
@@ -345,11 +355,11 @@ async function upload(client: T3Client, native: Native, file: DraftFile, base64:
   assertOwner?.();
 }
 
-/** The staged bytes of a draft file, or null when they were lost (a folded paste across a restart, a staged copy removed). */
-async function stagedBytes(client: T3Client, native: Native, file: DraftFile): Promise<string | null> {
-  if (file.source === 'attached') return readStaged(file);
+/** What a draft file uploads, or null when its bytes were lost (a folded paste across a restart, a staged copy removed). */
+async function stagedBody(client: T3Client, file: DraftFile): Promise<UploadBody | null> {
+  if (file.source === 'attached') return stagedUpload(file);
   const text = mapFor(texts, client).get(file.id);
-  return text === undefined ? null : base64Utf8(text);
+  return text === undefined ? null : { base64: base64Utf8(text) };
 }
 
 /** The send's file attachments for the prompt's file chips, uploading the staged ones (as SnapShots upload at send). */
@@ -359,10 +369,10 @@ export async function composerFileAttachments(client: T3Client, native: Native, 
   for (const file of files) {
     assertOwner?.();
     if (file.status === 'ready' && file.attachmentId) continue;
-    const bytes = await stagedBytes(client, native, file);
+    const body = await stagedBody(client, file);
     assertOwner?.();
-    if (bytes === null) throw new ClientError(`${file.name} was not saved with this draft. Attach it again to send it.`);
-    await upload(client, native, file, bytes, assertOwner);
+    if (body === null) throw new ClientError(`${file.name} was not saved with this draft. Attach it again to send it.`);
+    await upload(client, native, file, body, assertOwner);
     assertOwner?.();
   }
   const block = fileSendBlock(files);
