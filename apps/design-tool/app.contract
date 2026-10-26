@@ -188,6 +188,10 @@ component DesignTool
   // the selection's own, which a landing on another is said against (the Apple pass's #1).
   state upFromComponent = ""
   state upFromFill = false
+  // Every copy the selection is a caller's of (its own component and each chain line's, `|`-bounded): a landing on
+  // none of them holds it in a slot (the map says so, theme2's 08:51 condition); on another of them, it is plainly
+  // the nearest copy with a node of its own.
+  state upFromCallers = ""
   state upExpect = -1
   // Said of the selection the move lands on alone (the first after it), kept for that visit of it (a click away and
   // back is another).
@@ -501,6 +505,7 @@ component DesignTool
       upFromArrival = inspected.arrival
       upFromComponent = inspected.chain.length == 0 ? inspected.component : inspected.chain.filter(c => c.up == up).map(c => c.component).join("")
       upFromFill = inspected.chain.length == 0
+      upFromCallers = `|${inspected.component}|${inspected.chain.map(c => c.component).join("|")}|`
       upRefusalsAt = refusalsKey
       upExpect = up
       upNote = ""
@@ -935,7 +940,7 @@ component DesignTool
   // Where the step landed, always said (the Apple pass's #1): at the root (already, or before the steps asked), or a
   // copy other than the one the press named, the one holding it in its slot (a step the call-site chain doesn't list).
   action landUp
-    upNote = inspected.movedUp > 0 and inspected.key == upFromKey ? `It is at the app's root already: no other copy above holds this one, so it stays on ${inspected.source}.` : inspected.movedUp > 0 and inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : inspected.movedUp > 0 and upFromComponent != "" and inspected.component != "" and inspected.component != upFromComponent ? (upFromFill ? `It landed on ${inspected.component}, which holds this fill (written in ${upFromComponent}) in its slot: ${inspected.source}.` : `It landed on ${inspected.component}, which holds ${upFromComponent} in its slot: ${inspected.source}.`) : ""
+    upNote = inspected.movedUp > 0 and inspected.key == upFromKey ? `It is at the app's root already: no other copy above holds this one, so it stays on ${inspected.source}.` : inspected.movedUp > 0 and inspected.movedStepped < inspected.movedUp ? `It reached the app's root after ${inspected.movedStepped} of ${inspected.movedUp} steps: no other copy above holds this one, so it selected ${inspected.source}.` : inspected.movedUp > 0 and upFromComponent != "" and inspected.component != "" and inspected.component != upFromComponent ? (upFromCallers.includes(`|${inspected.component}|`) ? `It landed on ${inspected.component}, the nearest copy with a node of its own here: ${inspected.source}.` : upFromFill ? `It landed on ${inspected.component}, which holds this fill (written in ${upFromComponent}) in its slot: ${inspected.source}.` : `It landed on ${inspected.component}, which holds ${upFromComponent} in its slot: ${inspected.source}.`) : ""
     upNoteKey = inspected.visit
     upExpect = -1
   action dropUp
