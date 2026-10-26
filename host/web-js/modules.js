@@ -428,6 +428,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // which its `cancel(request)` is given, and under the agent the sheet's answer or else the preferred value.
   const viaImplementation = (row, args, reader, how = {}) => implementation(row)?.then(async impl => {
     const name = row.key.slice(row.key.indexOf(".") + 1);
+    // An extension with no web implementation reads its declared default, as the runner answers a target with none
+    // (LLP 1133.028 D17); its sends refuse.
+    if (impl === null && !row.send) return valueOf(row) ?? { error: "NotSupportedError" };
     if (!impl?.[name]) return { error: "NotSupportedError" };
     // A call not the app's that would ask is refused while the platform's state is `prompt` (LLP 1133.002 D12).
     const p = row.sub.permission;

@@ -23,12 +23,12 @@ export const origin = 'http://127.0.0.1:4790';
 const DISCORD: string = 'https://discord.com';
 export const grants = {
   'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790',
-    'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock',
+    'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range',
     'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload', 'fs.read doc:/',
     'fs.read app:/data/fixture-identifies.json', 'fs.write app:/data/fixture-identifies.json'],
   // The gateway resumes on other subdomains (`resume_gateway_url`).
   'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg',
-    'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock',
+    'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range',
     // A message's files go to Discord's upload bucket (`upload` below), with no credentials.
     'net.fetch https://discord-attachments-uploads-prd.storage.googleapis.com',
     'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload', 'fs.read doc:/',
@@ -163,7 +163,7 @@ function channelRecord(id: string): Channel {
   const avatar = c?.type === 1 && recipients[0] ? avatarUrl(live.origins.cdn, S.user(store, recipients[0].id) ?? recipients[0])
     : c?.type === 3 && c.icon ? `${live.origins.cdn}/channel-icons/${id}/${c.icon}.png?size=128` : '';
   return { id, guild: c?.guild_id ?? '', name, avatar, direct: c?.type === 1, topic: c?.topic ?? '', version: S.channelVersion(store, id),
-    private: !!c?.guild_id && !S.everyoneSees(store, c),
+    private: !!c?.guild_id && !S.everyoneSees(store, c), ageRestricted: c?.nsfw === true,
     unread: read.unread ? Math.max(1, known.count) : 0, mentions: read.mentionCount,
     firstUnread: first ?? '', firstUnreadAt: read.unread ? known.at : 0,
     lastRead: read.lastReadId ?? (read.unread ? NEVER : ''),

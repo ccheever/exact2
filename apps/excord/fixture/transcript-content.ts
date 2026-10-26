@@ -38,6 +38,8 @@ export const channelSpecs = [
   { id: 'random', name: 'random', topic: 'Bikes, lunch, and the view from outside.', count: 300, unread: 0, days: 90, seed: 917 },
   // Never read: its read state names no message.
   { id: 'announcements', name: 'announcements', topic: 'Releases and community notes.', count: 60, unread: 60, days: 360, seed: 1015 },
+  // Age-restricted (Discord's `nsfw`): it opens behind Excord's age gate.
+  { id: 'after-hours', name: 'after-hours', topic: 'Late-night talk, for adults.', count: 40, unread: 0, days: 30, seed: 1113, nsfw: true },
 ];
 
 export const emojiNames = ['exact', 'ferris', 'party', 'shipit', 'coffee', 'bike', 'spark', 'heart', 'check'];

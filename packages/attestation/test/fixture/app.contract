@@ -1,0 +1,23 @@
+// The conformance fixture (LLP 1133.028 §8.4 drive 11): the status, and one
+// attestation from data code whose outcome the row shows (app.ts). The auth
+// fixture (apps/auth-fixture) is the module's consumer and its drives' app.
+use attestationStatus, AttestationStatus from "@exact/attestation"
+
+shape Line
+  text: string
+
+component Fixture
+  resource status = attestationStatus() as shape AttestationStatus
+  mutation proved as shape Line
+  action prove
+    send proved = prove()
+  view
+    column padding=24 gap=12
+      text `Available: ${status.available}, provider: ${status.provider}` testId="status"
+      button press=prove testId="prove"
+        text "Attest"
+      match proved
+        case some(p)
+          text p.text testId="proved"
+        case none
+          text ""

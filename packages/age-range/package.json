@@ -1,0 +1,11 @@
+{
+  "name": "@exact/age-range",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The person's age range, as the app stores provide it: Declared Age Range and Play Age Signals (LLP 1133.028).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json"
+  }
+}

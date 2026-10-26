@@ -805,9 +805,8 @@ impl<D: DataSource> Runner<D> {
         );
         let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
         // A sheet's taps besides `cancel` (LLP 1133.018 D13 item 4).
-        let sheet: Vec<&str> = (sub["choose"]["choices"].as_array().into_iter().flatten())
-            .filter_map(Json::as_str)
-            .collect();
+        let sheet = self.sheet_choices(row);
+        let sheet: Vec<&str> = sheet.iter().map(String::as_str).collect();
         let (capability, args, choices, value) = match waits {
             Waits::Permission => {
                 // What `allow` grants this request (`asks`, D13 item 3).
@@ -826,7 +825,7 @@ impl<D: DataSource> Runner<D> {
                     .unwrap_or("choose")
                     .to_owned(),
                 // The sheet shows what the call asked (the properties, the event).
-                json!({ "request": declared, "origin": origin.word(), "options": call }),
+                json!({ "request": declared, "origin": origin.word(), "options": call, "target": self.host_target() }),
                 &sheet[..],
                 sub["choose"]["typed"] != false,
             ),

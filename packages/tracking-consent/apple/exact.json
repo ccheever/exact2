@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/tracking-consent@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "tvos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "TrackingConsent.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "TrackingConsentModule"
+}

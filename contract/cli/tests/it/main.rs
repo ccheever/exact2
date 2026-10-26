@@ -12,6 +12,7 @@ mod announce;
 mod app_action_snapshots;
 mod aria;
 mod at;
+mod attestation_age_tracking;
 mod auth;
 mod baked_release;
 mod blocks;
