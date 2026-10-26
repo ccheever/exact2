@@ -41,6 +41,8 @@ async function devLoop(flags) {
 test('an outline on both web pages brings the selection\'s own copy into view, never another', async () => {
   const browser = await suiteBrowser();
   const polls = [], stops = [];
+  // Each case checked on its own (none stops the next), all said at the end: on the old code each red case shows.
+  const fails = [];
   try {
     for (const flags of [[], ['--wasm']]) {
       const loop = await devLoop(flags), { base, said } = loop, page_ = flags.join('') || 'js';
@@ -52,6 +54,7 @@ test('an outline on both web pages brings the selection\'s own copy into view, n
       const poll = (async () => { let after = 0, epoch; while (state.polling) { const r = await post(epoch ? { after, epoch, client: 'tool' } : { after: 0, wait: false, client: 'tool' }, '/__tamber/events'); events.push(...(r.events ?? [])); after = r.seq ?? after; epoch = r.epoch ?? epoch; await Bun.sleep(100); } })();
       const until = async (pass, ms = 60_000, what = '') => { const end = Date.now() + ms; for (;;) { const got = await pass(); if (got) return got; if (Date.now() > end) throw new Error(`not seen: ${what} on ${page_}`); await Bun.sleep(100); } };
       // Wide, so the banner (top centre) leaves the cards' left edge to click; short (below), so the page scrolls.
+      const check = (name, ok, info) => { if (!ok) fails.push(`${page_} ${name}: ${JSON.stringify(info)}`); };
       const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
       await page.goto(`${base}/`);
       await until(() => said().includes('plan ready'), 900_000, 'plan ready');
@@ -91,15 +94,14 @@ test('an outline on both web pages brings the selection\'s own copy into view, n
       const moved = await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, 'the move up');
       expect(moved.source.line).toBe(line('card'));
       await marked();
-      expect([page_, await scrollY()]).toEqual([page_, at]);
-      expect(await shows(1)).toBe(true);
+      check('(a) the move leaves the page', (await scrollY()) === at && await shows(1), { at, now: await scrollY() });
       // (c) Back at the top, an outline of the card brings Outer's copy in, the selection's, not Post's.
       const outline = async () => { await unmarked(); expect((await post({ method: 'outline', client: 'tool', at: [{ file: moved.source.file, line: moved.source.line, col: moved.source.col }] })).ok?.builds).toEqual([build.id]); await marked(); };
       await page.evaluate(() => scrollTo(0, 0));
       await settle();
       expect(await shows(1)).toBe(false);
       await outline();
-      expect([page_, await shows(1)]).toEqual([page_, true]);
+      check('(c) the selection\'s copy is brought in', await shows(1), { now: await scrollY() });
       // (d) No selection (inspect mode off and on again), neither copy on screen: the first in the page's order is
       // brought in, as before.
       expect((await post({ method: 'inspect', client: 'tool', on: false })).ok).toBeTruthy();
@@ -109,7 +111,7 @@ test('an outline on both web pages brings the selection\'s own copy into view, n
       expect([await shows(0), await shows(1)]).toEqual([false, false]);
       await outline();
       // (the first mark is the first copy in the page's own order: it is on screen)
-      expect([page_, await page.evaluate(() => { const r = document.querySelector('[data-exact-outline]').getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; })]).toEqual([page_, true]);
+      check('(d) the first copy without a selection', await page.evaluate(() => { const r = document.querySelector('[data-exact-outline]').getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }), { now: await scrollY() });
       // (e) A held selection whose copy is gone from the page: the outline scrolls nothing, never to Post's copy.
       await toOuter();
       const box2 = await page.locator('[data-testid="wrapped"]').boundingBox();
@@ -126,17 +128,18 @@ test('an outline on both web pages brings the selection\'s own copy into view, n
       await settle();
       const atTop = await scrollY();
       await outline();
-      expect([page_, 'hidden', await scrollY()]).toEqual([page_, 'hidden', atTop]);
+      check('(e) a hidden copy scrolls nothing', (await scrollY()) === atTop, { atTop, now: await scrollY() });
       await page.evaluate(y => { document.querySelectorAll('[data-testid="card"]')[1].remove(); scrollTo(0, y); }, kept);
       await settle();
       const goneAt = await scrollY(); // (the page shorter by that card)
       await outline();
-      expect([page_, 'gone', await scrollY()]).toEqual([page_, 'gone', goneAt]);
+      check('(e) a gone copy scrolls nothing', (await scrollY()) === goneAt, { goneAt, now: await scrollY() });
       state.polling = false;
       await poll.catch(() => {});
       await page.close();
       await loop.stop();
     }
+    expect(fails).toEqual([]);
   } finally {
     for (const p of polls) p.polling = false;
     await browser.close();
