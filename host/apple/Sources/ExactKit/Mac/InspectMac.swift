@@ -234,16 +234,19 @@ enum InspectHost {
         if frame["clear"] as? Bool == true { overlays.values.forEach { $0.mark([]) }; return }
         guard let plan = frame["plan"] as? String, let wanted = (frame["sites"] as? [Any])?.compactMap({ ($0 as? NSNumber)?.intValue }) else { return }
         let want = Set(wanted)
-        var marks: [ObjectIdentifier: (window: NSWindow, places: [Place])] = [:], first: NSView?
+        var marks: [ObjectIdentifier: (window: NSWindow, places: [Place])] = [:]
+        var copies: [(session: ObjectIdentifier, id: UInt32, view: NSView, shown: Bool)] = [], running: [ObjectIdentifier: Int] = [:]
         for session in app.sessions where session.booted {
             let sites = Inspect.sites(session)
             guard sites.plan == plan else { continue }
+            running[ObjectIdentifier(session)] = session.generation
             let nodes = sites.views.filter { want.contains($0.site) }.compactMap { session.presenter.views[$0.id] }.filter { $0.window != nil }
-            first = first ?? nodes.first { !$0.isHiddenOrHasHiddenAncestor }
+            copies += nodes.map { (ObjectIdentifier(session), $0.id, $0, !$0.isHiddenOrHasHiddenAncestor) }
             // Each in the window it is in (a sheet's, a popover's).
             for node in nodes { if let window = node.window, let place = place(of: node, in: session.presenter) { marks[ObjectIdentifier(window), default: (window, [])].places.append(place) } }
         }
-        if !Inspect.answersClick(frame), let first { first.scrollToVisible(first.bounds) }
+        // The selection's own copy, or the first that shows (one rule, Inspect.revealing).
+        if !Inspect.answersClick(frame), let chosen = Inspect.revealing(copies, sites: want, plan: plan, sessions: running) { chosen.scrollToVisible(chosen.bounds) }
         for (_, m) in marks { overlay(on: m.window)?.mark(m.places) }
     }
 
