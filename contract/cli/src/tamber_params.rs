@@ -39,6 +39,18 @@ pub struct AppParams {
     /// Each package root its load resolved (LLP 1121 D11), real: direct,
     /// hoisted or vendored, what the server never writes into.
     pub package_roots: Vec<std::path::PathBuf>,
+    /// `tokens`' names in full, indexed on first use (`shown`).
+    pub shown_index: std::sync::OnceLock<params::Shown>,
+}
+
+impl AppParams {
+    /// `message` with each param's token name written as its full name
+    /// ([`params::shown`]), the index built once for the app's params.
+    pub fn shown(&self, message: &str) -> String {
+        self.shown_index
+            .get_or_init(|| params::Shown::new(&self.tokens))
+            .text(message)
+    }
 }
 
 /// The app's params, loaded from `app_contract`; none when it has no
@@ -102,6 +114,7 @@ pub fn params_of(app_contract: &Path) -> AppParams {
                 .collect(),
             paths: sources.paths().to_vec(),
             failed: false,
+            shown_index: Default::default(),
         },
         // Its packages' roots as far as it loaded (a source past them can't be read): still the server's
         // never to write into (LLP 1121 D11).
@@ -122,7 +135,7 @@ pub fn params_of(app_contract: &Path) -> AppParams {
 /// default, in its declaring file (its path, by the default's source),
 /// which is returned; every name in full.
 pub fn relocate(d: &mut exact_tamber::Diagnostic, app: &AppParams) -> Option<String> {
-    d.message = contract_lower::package_unband(&params::shown(&d.message, &app.tokens));
+    d.message = contract_lower::package_unband(&app.shown(&d.message));
     // A package token's (D11): at its line in its package's design.
     if let Some((band, line)) = contract_lower::package_line(d.line) {
         let source = app.packages.get(band)?;
@@ -180,7 +193,10 @@ pub fn fold_with(
     if !refused.is_empty() {
         return Err(refused.into_iter().map(|e| packaged(e, app)).collect());
     }
-    let folding = exact_tamber::check_design(laid(&design, app), vocab)?;
+    // (an unchanged design answered from the last few checked: a client
+    // asking again can't make the server fold it, dial influence and all,
+    // each time; theme2's condition on the counts)
+    let folding = exact_tamber::check_design_cached(laid(&design, app), vocab)?;
     let wrong =
         contract_lower::package_references(&folding, &app.packages, &app.tokens, &app.identities);
     if !wrong.is_empty() {
@@ -517,7 +533,7 @@ pub fn components(
                                 }
                             }
                         }
-                        lost.iter().map(|w| params::shown(w, all)).collect()
+                        lost.iter().map(|w| app.shown(w)).collect()
                     }
                     None => Vec::new(),
                 };

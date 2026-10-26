@@ -407,3 +407,111 @@ fn many_ranged_params_reading_a_dial_build_in_moments() {
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
     assert!(e.message.contains("p7"), "{e:?}");
 }
+
+/// Ranged params whose values name a theme token that reads no param fold
+/// together, each line's k-th value in one probe: only a token that reads a
+/// param, directly or through another, folds its values alone (Astra's and
+/// Grok's round 3 on the counts: every token-valued line was a fold of the
+/// design).
+#[test]
+fn many_ranged_params_naming_a_token_build_in_moments() {
+    let n = 5000;
+    let mut src = String::from("component App\n  params\n");
+    for k in 0..n {
+        src += &format!("    p{k}: number = \"0.5\"  range=\"0..1\"\n");
+    }
+    src += "  view\n    column\n";
+    for k in 0..n {
+        src += &format!("      column opacity=\"param.p{k}\"\n        text \"x\"\n");
+    }
+    let mut design = String::from(
+        "tamber t\n\ntheme\n  accent.fill = #0a7aff\n  half: number = 0.5\n  most: number = half\n  two: number = 2\n\nparams\n",
+    );
+    for k in 0..n {
+        let v = if k == 7 {
+            "two"
+        } else if k % 2 == 0 {
+            "half"
+        } else {
+            "most"
+        };
+        design += &format!("  App.p{k} = {v}\n");
+    }
+    let path = app(
+        "many-named",
+        &[("app.contract", &src), ("app.tamber", &design)],
+    );
+    let began = std::time::Instant::now();
+    let built = contract::compile_path(&path);
+    let took = began.elapsed();
+    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
+    let e = built.unwrap_err();
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p7"), "{e:?}");
+}
+
+/// The dials' readers a batch adds never take an authored token's place: a
+/// design with tokens under the readers' first stems is checked as written
+/// (Astra's round 3 on the counts).
+#[test]
+fn a_batchs_dial_readers_take_no_authored_name() {
+    let src = r##"component App
+  params
+    p0: number = "0.5"  range="0..1"
+    p1: number = "0.5"  range="0..1"
+  view
+    column opacity="param.p0"
+      column opacity="param.p1"
+        text "x"
+"##;
+    let design = "tamber t\n\naxes\n  tone = a | b\n\ndials\n  d: number = 0.3  in 0..1\n\ntheme\n  accent.fill = #0a7aff\n  exact.probe.dial0: number = 2\n  exact.probe0.dial0: number = 2\n\nparams\n  App.p0 = 0.5\n    when tone=b: d\n  App.p1 = exact.probe0.dial0\n    when tone=b: d\n";
+    let path = app(
+        "probe-names",
+        &[("app.contract", src), ("app.tamber", design)],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    // `p1` is the authored 2, past its 0..1.
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p1"), "{e:?}");
+}
+
+/// A design read again unchanged through `fold_with` (what `describe` and
+/// `resolve` read) is answered from the last few checked, not folded again
+/// (both reviewers' round 3 on the counts).
+#[test]
+fn fold_with_answers_an_unchanged_design_from_the_last() {
+    let src = "component App\n  params\n    p0: number = \"0.5\"  range=\"0..1\"\n  view\n    column opacity=\"param.p0\"\n      text \"x\"\n";
+    let mut design = String::from("tamber t\n\ndials\n");
+    for k in 0..800 {
+        design += &format!("  d{k}: number = 0.1  in 0..0.5\n");
+    }
+    design += "\ntheme\n  accent.fill = #0a7aff\n  t0 = oklch(from #3366cc calc(l + d0) c h)\n";
+    for k in 1..800 {
+        design += &format!("  t{k} = oklch(from t{} calc(l + d{k}) c h)\n", k - 1);
+    }
+    let path = app(
+        "fold-cached",
+        &[("app.contract", src), ("app.tamber", &design)],
+    );
+    let params = contract::tamber_params::params_of(&path.join("app.contract"));
+    let vocab = contract_lower::tamber_vocab();
+    let began = std::time::Instant::now();
+    let first = contract::tamber_params::fold_with(&design, &params, &vocab)
+        .map(|(f, _)| f.tokens.len())
+        .ok();
+    let cold = began.elapsed();
+    assert!(first.is_some());
+    // (the fastest of a few: another test's designs may push it out once)
+    let warm = (0..5)
+        .map(|_| {
+            let began = std::time::Instant::now();
+            let again = contract::tamber_params::fold_with(&design, &params, &vocab)
+                .map(|(f, _)| f.tokens.len())
+                .ok();
+            assert_eq!(again, first);
+            began.elapsed()
+        })
+        .min()
+        .unwrap();
+    assert!(warm * 2 < cold, "again {warm:?}, the first {cold:?}");
+}

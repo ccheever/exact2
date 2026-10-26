@@ -870,7 +870,7 @@ impl Server {
         if app.tokens.is_empty() {
             return v;
         }
-        let text = contract_lower::params::shown(&v.to_string(), &app.tokens);
+        let text = app.shown(&v.to_string());
         serde_json::from_str(&text).unwrap_or(v)
     }
 
