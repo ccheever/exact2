@@ -573,7 +573,8 @@
         "id": {
           "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
-          "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
+          "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$",
+          "x-hint": "every dot-separated part starts with a letter, since this one id is also the Android package and the Linux app id, which require that (Apple alone allows a leading digit). Put a letter before a part that starts with a digit, as in com.example.x2048, and use that id everywhere; nothing else needs changing."
         },
         "name": {
           "description": "The name a native host shows: the menu bar, the app switcher, Finder.",
