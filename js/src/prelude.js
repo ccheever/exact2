@@ -120,23 +120,23 @@
       dateFormat = engineFormat;
       global.Intl.DateTimeFormat = engineFormat.constructor;
     }
-    var getFormat = Object.getOwnPropertyDescriptor(dateFormat, "format").get;
-    var formats = new WeakMap();
-    var apply = Reflect.apply;
+    var getFormat = Object.getOwnPropertyDescriptor(dateFormat, "format").get, formats = new WeakMap(), apply = Reflect.apply, engineOf = function (f) { return f; };
+    // Natively intl.js follows, whose formatters share an engine formatter (`engineOf` finds it).
+    if (tracker) Object.defineProperty(global, "__exact_dates", { configurable: true, value: { getFormat: getFormat, engineOf: function (f) { engineOf = f; } } });
     function explicitFormat(fn, name) {
       return new Proxy(fn, {
         apply: function (target, receiver, args) {
           if (args[0] === undefined) return refuseAmbient("Intl.DateTimeFormat." + name + "()");
-          return apply(target, receiver, args);
+          return apply(target, engineOf(receiver), args);
         },
       });
     }
     Object.defineProperty(dateFormat, "format", {
       configurable: false,
-      get: function () {
-        var native = getFormat.call(this);
-        if (!formats.has(native)) formats.set(native, explicitFormat(native, "format"));
-        return formats.get(native);
+      get: function () { // a function for each object, as each has its own bound format
+        var native = getFormat.call(engineOf(this));
+        if (!formats.has(this)) formats.set(this, explicitFormat(native, "format"));
+        return formats.get(this);
       },
     });
     if (typeof dateFormat.formatToParts === "function") {
