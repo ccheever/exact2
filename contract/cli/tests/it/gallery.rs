@@ -1048,3 +1048,71 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const PATHS: &str = r#"component Glyph
+  props
+    d: string
+    selectedD: string
+    selected: bool
+    label: string
+  parts
+    mark: paint
+  view
+    column part="mark"
+      svg viewBox="0 0 24 24" width=24 height=24
+        path d=(selected ? selectedD : d)
+      text label
+
+component Tab
+  props
+    shape: string
+    title: string
+  parts
+    tab: paint
+  view
+    column part="tab"
+      Glyph(d=shape, selectedD=shape, selected=false, label=title)
+"#;
+
+const PATHS_APP: &str = r#"use Glyph, Tab from "@acme/lib"
+
+component App
+  view
+    column
+      Glyph(d="M0 0h1v1z", selectedD="M0 0h2v2z", selected=false, label="a")
+      Tab(shape="M0 0h1v1z", title="b")
+"#;
+
+/// A string prop drawn as a path's data, directly, through either branch of a `?:` or through a component it is
+/// passed to, gets a neutral square, not its name, which no path parses (`attribute d: Expected moveto`, design-tool
+/// pass 3, #10); a text prop keeps its name.
+#[test]
+fn a_string_drawn_as_a_paths_data_gets_a_neutral_square_and_text_keeps_its_name() {
+    let dir = fixture("paths");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), PATHS).unwrap();
+    std::fs::write(dir.join("app.contract"), PATHS_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(
+        g.cells.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        g.cells.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    let square = r#""M6 6h12v12H6z""#;
+    let glyph = text
+        .lines()
+        .find(|l| l.contains("Glyph(") && !l.contains("use "))
+        .expect("a Glyph cell");
+    assert!(glyph.contains(&format!("d={square}")), "{glyph}");
+    assert!(glyph.contains(&format!("selectedD={square}")), "{glyph}");
+    assert!(glyph.contains(r#"label="label""#), "{glyph}");
+    let tab = text
+        .lines()
+        .find(|l| l.contains("Tab(") && !l.contains("use "))
+        .expect("a Tab cell");
+    assert!(tab.contains(&format!("shape={square}")), "{tab}");
+    assert!(tab.contains(r#"title="title""#), "{tab}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

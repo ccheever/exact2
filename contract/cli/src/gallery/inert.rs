@@ -272,15 +272,34 @@ pub(super) fn names_symbol(c: &Component, prop: &str) -> bool {
     names
 }
 
+/// Where a string prop is shown that its name can't be: an image's source, which no image loads, or a path's `d`,
+/// which no path parses (`attribute d: Expected moveto`, design-tool pass 3, #10).
+#[derive(Clone, Copy)]
+pub(super) enum Sink {
+    Image,
+    PathData,
+}
+
 /// Whether `c`'s view shows string prop `prop` as an image's source:
 /// `image prop`, or `prop` passed to a component of `file` that does, at
 /// any depth (PostCard's `avatar` reaches Avatar's `image src`). A `for`
 /// or `match` binding of the same name shadows it.
 pub(super) fn shows_image(c: &Component, file: &File, prop: &str) -> bool {
-    shows(c, file, prop, &mut Vec::new())
+    shows(c, file, prop, Sink::Image, &mut Vec::new())
 }
 
-fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)>) -> bool {
+/// Whether `c`'s view draws string prop `prop` as a path's data, `path d=prop`, likewise (BarItem's `d`).
+pub(super) fn draws_path(c: &Component, file: &File, prop: &str) -> bool {
+    shows(c, file, prop, Sink::PathData, &mut Vec::new())
+}
+
+fn shows(
+    c: &Component,
+    file: &File,
+    prop: &str,
+    sink: Sink,
+    seen: &mut Vec<(String, String)>,
+) -> bool {
     let key = (c.name.clone(), prop.to_string());
     if seen.contains(&key) {
         return false;
@@ -293,11 +312,17 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
             return;
         }
         let is_prop = |e: &Expr| yields(e, prop);
-        match node {
-            Node::Element {
-                tag, positional, ..
-            } if tag == "image" => found |= positional.first().is_some_and(is_prop),
-            Node::Use { name, args, .. } => used.extend(
+        match (node, sink) {
+            (
+                Node::Element {
+                    tag, positional, ..
+                },
+                Sink::Image,
+            ) if tag == "image" => found |= positional.first().is_some_and(is_prop),
+            (Node::Element { tag, attrs, .. }, Sink::PathData) if tag == "path" => {
+                found |= attrs.iter().any(|a| a.name == "d" && is_prop(&a.value))
+            }
+            (Node::Use { name, args, .. }, _) => used.extend(
                 args.iter()
                     .filter(|a| is_prop(&a.value))
                     .map(|a| (name.clone(), a.name.clone())),
@@ -310,7 +335,7 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
             file.components
                 .iter()
                 .find(|d| d.name == *name)
-                .is_some_and(|d| shows(d, file, param, seen))
+                .is_some_and(|d| shows(d, file, param, sink, seen))
         })
 }
 
