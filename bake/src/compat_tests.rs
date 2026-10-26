@@ -469,6 +469,57 @@ fn shortcuts_move_a_native_binary_but_not_the_web() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// A faced tool's signature is compiled into the Apple and Android doors
+/// (LLP 1133.023 D8): a change to it moves those binaries' id, never the
+/// web's or tvOS's, and an unfaced tool moves none.
+#[test]
+fn a_faced_tools_signature_moves_the_binaries_with_its_door() {
+    let dir = app("faces-identity");
+    let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
+    let ids = |description: &str, faced: bool| {
+        let source = format!("component A\n  state n = 0\n  tool add writes \"{description}\" = add\n  action add(by: number)\n    n = n + by\n  view\n    text `${{n}}`\n");
+        std::fs::write(dir.join("app.contract"), source).unwrap();
+        let face = if faced {
+            r#"{"intents":{"tools":{"add":{"title":"Add"}}},"#
+        } else {
+            "{"
+        };
+        std::fs::write(dir.join("app.json"), manifest.replacen('{', face, 1)).unwrap();
+        let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+        let targets = [
+            ("ios", "aarch64-apple-ios"),
+            ("android", "aarch64-linux-android"),
+            ("web", "wasm32-unknown-unknown"),
+            ("ios", "aarch64-apple-tvos"),
+        ];
+        targets.map(|(platform, target)| {
+            let m = Manifest::read(&dir).unwrap();
+            let mut c =
+                compatibility_with_trust(&dir, platform, target, &m, Some(""), "development")
+                    .unwrap();
+            super::faces(&mut c, &plan, platform, target);
+            c.id
+        })
+    };
+    let bare = ids("Add.", false);
+    assert_eq!(
+        bare,
+        ids("Add more.", false),
+        "an unfaced tool is plan data"
+    );
+    let faced = ids("Add.", true);
+    let moved = ids("Add more.", true);
+    assert_ne!(
+        bare[0], faced[0],
+        "a face is compiled into the Apple binary"
+    );
+    assert_ne!(faced[0], moved[0], "so is the tool's description");
+    assert_ne!(faced[1], moved[1], "and into Android's");
+    assert_eq!(faced[2], moved[2], "the web registers it at run time");
+    assert_eq!(faced[3], moved[3], "tvOS compiles no faces");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn the_inputs_name_every_field_and_an_undeclared_app_gets_defaults() {
     let dir = app("fields");

@@ -815,6 +815,8 @@ export async function stateOp(s, args) {
   const page = { ...look, ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
+  // `state intents.entities <kind> [<text>]` (LLP 1133.023 §10): what the content index's query answers a system's.
+  if (args[0] === 'intents.entities') return s.op({ op: 'entities', kind: args[1], ...(args.length > 2 ? { matching: args.slice(2).join(' ') } : {}) });
   // `state <canvas> input` (LLP 1127.003 D8): the world's controls, the devices and pads held, contexts, bindings, and
   // what fired at the last tick.
   if (args[1] === 'input') {

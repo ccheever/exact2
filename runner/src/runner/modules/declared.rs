@@ -494,6 +494,10 @@ impl<D: DataSource> Runner<D> {
                 out.insert(state.to_owned(), value.unwrap_or(Json::Null));
             }
         }
+        // The app's tools and the system's calls of them (LLP 1133.023 §10).
+        if let Some(intents) = self.intents_state() {
+            out.insert("intents".into(), intents);
+        }
         out.into_iter().collect()
     }
 
@@ -536,6 +540,8 @@ impl<D: DataSource> Runner<D> {
                     Err("--wake: the entry is a JSON object, as `state` printed it".into())
                 })
             }
+            // A cold call is the calls' (`calls.rs`).
+            "launchEntry" if v["launch"] == "call" => None,
             "launchEntry" => {
                 let entry = v["entry"]
                     .as_str()

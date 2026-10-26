@@ -14,6 +14,29 @@
       }
     }
   ],
+  "intents": {
+    "entities": {
+      "book": { "title": "Book" }
+    },
+    "tools": {
+      "logPages": {
+        "title": "Log Pages",
+        "parameters": {
+          "id": { "title": "Book", "entity": "book" },
+          "page": { "title": "Page", "type": "integer" }
+        },
+        "apple": { "phrases": ["Log pages in ${applicationName}"] }
+      },
+      "addToShelf": {
+        "title": "Add to Shelf",
+        "parameters": {
+          "title": { "title": "Title" },
+          "author": { "title": "Author" },
+          "pages": { "title": "Pages", "type": "integer" }
+        }
+      }
+    }
+  },
   "app": {
     "id": "com.exact.shelf",
     "name": "Shelf"

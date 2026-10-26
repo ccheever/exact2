@@ -281,6 +281,10 @@ pub fn answer<D: DataSource>(
     if let Some(reply) = runner.listed_op(&op, request) {
         return Some((reply.unwrap_or_else(|e| error(&e)), None));
     }
+    // A system's call of a tool, and the content index's query (LLP 1133.023 §10).
+    if let Some(reply) = runner.call_agent(&op, request) {
+        return Some((reply.unwrap_or_else(|e| error(&e)), None));
+    }
     if !matches!(op.as_str(), "tap" | "type") || after_key(request, "ticket").is_none() {
         return None;
     }

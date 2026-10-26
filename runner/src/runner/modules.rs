@@ -38,6 +38,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod admit;
 mod agent;
 mod bound;
+mod calls;
 mod ceremony;
 mod declared;
 mod events;
@@ -52,7 +53,9 @@ mod samples;
 mod views;
 mod wakes;
 pub use admit::CallOrigin;
+pub(super) use admit::OriginsSaved;
 use admit::{Origins, Route};
+pub use calls::CallHow;
 pub use declared::AppState;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
@@ -93,6 +96,8 @@ pub(super) struct Extensions {
     pub(super) events: events::Events,
     /// Wakes, running and to come (LLP 1133.017 D5).
     wakes: wakes::Wakes,
+    /// Tool calls, running and to come (LLP 1133.023 D7).
+    calls: calls::Calls,
     /// Each bound live source's Contract readers, by resource, with the
     /// arguments each last asked with (`bound.rs`).
     readers: BTreeMap<String, BTreeMap<usize, String>>,
@@ -175,6 +180,8 @@ struct Held {
     /// The call's body for the implementation, once the ticket allows it.
     forward: Option<Vec<u8>>,
     origin: CallOrigin,
+    /// The invocation it is part of (`admit.rs`); 0 for none.
+    id: u64,
     /// The call's arguments: a denial fails it only where they ask for what
     /// the permission gates (`permission.continues`), and which of an
     /// interface's permissions it asks (`permission_of`).
@@ -760,6 +767,7 @@ impl<D: DataSource> Runner<D> {
             deadline,
             forward,
             origin,
+            id: self.invocation_id(),
             args,
             permission,
             request: None,
@@ -1064,6 +1072,7 @@ impl<D: DataSource> Runner<D> {
                     deadline,
                     forward,
                     origin,
+                    id: self.invocation_id(),
                     args: held_args.clone(),
                     permission,
                     request,
