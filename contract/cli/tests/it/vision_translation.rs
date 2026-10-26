@@ -228,7 +228,11 @@ fn a_stills_path_is_admitted_against_the_grants() {
     pump(&mut r);
     let made = sent(&calls, "detectBarcodes");
     assert_eq!(made.len(), 1, "{}", logs(&r));
-    assert_eq!(made[0]["args"]["image"], "app:/tmp/picked/1-1.png", "{}", made[0]);
+    assert_eq!(
+        made[0]["args"]["image"], "app:/tmp/picked/1-1.png",
+        "{}",
+        made[0]
+    );
 }
 
 /// Text detection is not a web, Linux or Windows name: there it fails
@@ -241,7 +245,11 @@ fn text_detection_is_absent_where_d18_says() {
         pump(&mut r);
         r.act("readText", Vec::new()).unwrap();
         pump(&mut r);
-        assert!(sent(&calls, "detectText").is_empty(), "{target}: {}", logs(&r));
+        assert!(
+            sent(&calls, "detectText").is_empty(),
+            "{target}: {}",
+            logs(&r)
+        );
         assert!(
             logs(&r).contains("send read failed: text-detection.detectText: NotSupportedError"),
             "{target}: {}",
@@ -260,7 +268,11 @@ fn a_scan_read_by_a_tool_is_admitted() {
         .filter(|c| c["source"] == "detectedBarcodes")
         .count();
     assert!(reads >= 1, "{}", logs(&r));
-    assert!(!logs(&r).contains("detectedBarcodes: refused"), "{}", logs(&r));
+    assert!(
+        !logs(&r).contains("detectedBarcodes: refused"),
+        "{}",
+        logs(&r)
+    );
 }
 
 /// The script's words are the interface's agent-only sources (§9): typed by
