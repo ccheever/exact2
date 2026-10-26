@@ -79,10 +79,10 @@ export async function resolveAll<R extends { error: string; reply: any }>(call: 
   if (!batch.error && Array.isArray(answers) && answers.length === names.length) {
     return answers.map((a: any) => (a?.error ? { ...batch, error: String(a.error.message ?? 'The design server refused the token.'), reply: { error: a.error } } : { ...batch, reply: { ok: { ...a, files: batch.reply.ok.files } } }));
   }
-  // A batch that reached no server (a timeout) is each name's answer; one a server answered without `answers` (a
-  // refusal, a server before 1.17's) is asked again by name. A request by name that reached none stops the rest,
-  // each name not asked answering with it.
-  if (batch.error && !batch.reply?.error) return names.map(() => batch);
+  // Asked again by name only from a server before the batch, which refuses it for its missing `token`; any other
+  // failure (no server, a timeout, the gateway's 504 while the batch still runs) is each name's answer. A request by
+  // name that reached none stops the rest, each name not asked answering with it.
+  if (!/^`token` is a string/.test(String(batch.reply?.error?.message ?? ''))) return names.map(() => batch);
   const out: R[] = [];
   let next = 0, stalled: R | null = null;
   await Promise.all(Array.from({ length: Math.min(4, names.length) }, async () => {

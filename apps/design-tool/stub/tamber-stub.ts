@@ -349,6 +349,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // as a string is both sides', as `{light, dark}` each side's.)
       const sides = (g: Record<string, unknown>) => Object.fromEntries(Object.entries(g).map(([k, v]) => [k, (k === 'level' || k === 'name') && typeof v === 'string' ? { light: v, dark: v } : v]));
       const packagedParam = PACKAGED?.components.some(c => ((c.params ?? []) as { name: string }[]).some(p => p.name === request.token));
+      // (A server before tamber/1.17's batch, as a real one refuses it: the tool asks again by name.)
+      if (request.method === 'resolve' && request.tokens) return send({ error: { message: '`token` is a string, and needed' } }, 400);
       if (request.method === 'resolve' && packagedParam && PACKAGED!.refuse?.includes(request.token)) return send({ error: { message: `the server could not resolve ${request.token}` } }, 400);
       if (request.method === 'resolve' && packagedParam) { const given = (PACKAGED!.resolve?.[request.token] ?? [{ level: 'default', name: request.token }]) as Record<string, unknown>[]; return send({ ok: { token: request.token, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>, i: number) => ({ modes: u.modes, ...sides(given[i % given.length]) }))) } }); }
       // surface.card's dark side moves once app.tamber does (an event's
