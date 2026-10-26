@@ -57,6 +57,8 @@ public struct Batch {
     public var facts = false
     /// Whether a displayed element holds the wake lock, when that changed (LLP 1125 D11).
     public var wakelock: Bool? = nil
+    /// The session's orientation lock, when it changed (LLP 1133.029 D3).
+    public var orientation: OrientationRequest? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     /// Failure lines the session writes to the unified log, each once (LLP 1142 D4).
@@ -878,6 +880,33 @@ package final class Runtime {
     /// built. A later call runs after it; a destroyed runtime refuses it.
     package func log(_ line: String) {
         Owner.shared.notify { [self] in _ = exact_log(rt, write(line)) }
+    }
+    /// What the host applied of the orientation lock, JSON, and whether its
+    /// resolution found a conflict (LLP 1133.029 §8): queued as `log` is.
+    package func orientationApplied(_ json: String, conflict: Bool) {
+        Owner.shared.notify { [self] in _ = exact_orientation_applied(rt, write(json), conflict ? 1 : 0) }
+    }
+}
+
+/// The session's orientation lock as the runner tells it (LLP 1133.029 D3).
+public struct OrientationRequest: Equatable {
+    /// The orientations the holders' types allow, as bits in the Screen
+    /// Orientation API's order: portrait-primary 1, portrait-secondary 2,
+    /// landscape-primary 4, landscape-secondary 8. 0 when none is held.
+    public var types = 0
+    /// Whether a holder says `natural`, and `current`.
+    public var natural = false, current = false
+    /// Each counted holder, `view 12 "current"`, for a line the host journals.
+    public var holders: [String] = []
+    public init() {}
+    init(_ o: [String: BatchValue]) {
+        types = Int(o["types"]?.number ?? 0)
+        natural = o["natural"] == .bool(true)
+        current = o["current"] == .bool(true)
+        holders = (o["by"]?.array ?? []).compactMap { pair in
+            guard let p = pair.array, p.count == 2, let view = p[0].number, let word = p[1].string else { return nil }
+            return "view \(Int(view)) \"\(word)\""
+        }
     }
 }
 
