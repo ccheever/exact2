@@ -241,7 +241,8 @@ enum InspectHost {
             guard sites.plan == plan else { continue }
             running[ObjectIdentifier(session)] = session.generation
             let nodes = sites.views.filter { want.contains($0.site) }.compactMap { session.presenter.views[$0.id] }.filter { $0.window != nil }
-            copies += nodes.map { (ObjectIdentifier(session), $0.id, $0, !$0.isHiddenOrHasHiddenAncestor) }
+            // (shown: not hidden, and not CSS `visibility: hidden`, whose box keeps its place but draws nothing)
+            copies += nodes.map { (ObjectIdentifier(session), $0.id, $0, !$0.isHiddenOrHasHiddenAncestor && !$0.cssVisibilityHidden) }
             // Each in the window it is in (a sheet's, a popover's).
             for node in nodes { if let window = node.window, let place = place(of: node, in: session.presenter) { marks[ObjectIdentifier(window), default: (window, [])].places.append(place) } }
         }
