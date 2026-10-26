@@ -90,6 +90,31 @@ shape Reaction
   count: number
   me: bool
 
+// A poll's answer: `count` is Discord's, `percent` its share of every vote, rounded; `me` says the
+// reader chose it, and `winner` marks the most-voted answers of a poll Discord has closed.
+shape PollAnswer
+  id: string
+  text: string
+  emoji: string
+  src: string
+  count: number
+  percent: number
+  me: bool
+  winner: bool
+
+// A poll. `known` says Discord sent its counts (it leaves them out of some messages); `expiry` is
+// when it closes (0 for never); `closed` says Discord has finalized it; `voted` says the reader has
+// voted; `votes` sums the answers' counts.
+shape Poll
+  question: string
+  multi: bool
+  known: bool
+  expiry: number
+  closed: bool
+  voted: bool
+  votes: number
+  answers: PollAnswer[]
+
 // The message a reply answers. `state` is "present", "deleted" (the store saw it
 // deleted, or Discord sent the reply with a null `referenced_message`) or
 // "unknown" (the store does not hold it, so a jump has to load it).
@@ -134,6 +159,8 @@ shape Message
   source: string
   isNew: bool
   blocks: Block[]
+  // A system message's icon role (`symbol:<role>`), "" for an ordinary message.
+  systemIcon: string
   // A forward: what shows is the message it forwarded (`message_snapshots`), under a Forwarded label.
   forwarded: bool
   // A forward's own words, above its Forwarded label ([] for any other message).
@@ -143,6 +170,7 @@ shape Message
   stickers: Sticker[]
   embeds: Embed[]
   reactions: Reaction[]
+  poll: Poll[]
   reply: ReplyRef[]
 
 // One contiguous run of a channel's history, at most 200 rows. `hasBefore`

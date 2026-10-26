@@ -152,7 +152,7 @@ export function dispatch(live: Live, t: string, s: number, d: any): S.Changed {
   return applyEvent(live, t, d);
 }
 
-const HISTORY = /^MESSAGE_(CREATE|UPDATE|DELETE|DELETE_BULK|REACTION_)/;
+const HISTORY = /^MESSAGE_(CREATE|UPDATE|DELETE|DELETE_BULK|REACTION_|POLL_VOTE_)/;
 
 /** Apply an event the app learned of (a dispatch, or a REST reply standing for one). */
 export function applyEvent(live: Live, t: string, d: any): S.Changed {

@@ -93,6 +93,7 @@ export function createTranscriptWorld(assetOrigin: string): World {
       });
       converted.embeds = message.embeds.map(embed => transcriptEmbed(embed, assetOrigin));
       if (message.sticker_items) (converted as Record<string, unknown>).sticker_items = message.sticker_items;
+      if (message.poll) (converted as Record<string, unknown>).poll = structuredClone(message.poll);
       // A forward is Discord's: no words of its own, the forwarded message in `message_snapshots`.
       if (message.forwarded) Object.assign(converted, { content: '', attachments: [], embeds: [],
         message_reference: { type: 1, message_id: snowflakeFromMs(message.timestamp - 86400000), channel_id: channel.id, guild_id: guildId },

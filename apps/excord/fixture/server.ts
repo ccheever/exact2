@@ -10,6 +10,7 @@
 // POST /control/hold-sends {on} holds the app's sends until released, in order.
 // POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
 // {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
+// POST /control/vote {channel_id, message_id, user_id, answer_id, add} adds or takes back one vote on a poll.
 // POST /control/rotate-token {token} makes the account's token `token` (a reset keeps it) and sends
 // each session a READY carrying it as `auth_token`, as Discord rotates a client's token; /control/state's
 // `identify_token` is the token the last IDENTIFY carried.
@@ -671,6 +672,20 @@ export function startFixture(options: FixtureOptions = {}) {
     if (changed) await broadcast(add ? 'MESSAGE_REACTION_ADD' : 'MESSAGE_REACTION_REMOVE', changed);
   }
 
+  // One voter's vote on one answer, which Discord sends as its own event. Only the reader's choice is kept.
+  async function pollVote(channelId: string, messageId: string, userId: string, answerId: number, add: boolean) {
+    const poll = (message(channelId, messageId) as { poll?: any }).poll;
+    if (!poll?.answers.some((a: { answer_id: number }) => a.answer_id === answerId)) throw new HttpError(400, 'Not an answer');
+    poll.results ??= { is_finalized: false, answer_counts: [] };
+    let count = poll.results.answer_counts.find((a: { id: number }) => a.id === answerId);
+    if (!count) poll.results.answer_counts.push(count = { id: answerId, count: 0, me_voted: false });
+    count.count = Math.max(0, count.count + (add ? 1 : -1));
+    if (userId === world.me.id) count.me_voted = add;
+    const guildId = channel(channelId).guild_id;
+    await broadcast(add ? 'MESSAGE_POLL_VOTE_ADD' : 'MESSAGE_POLL_VOTE_REMOVE', { user_id: userId, channel_id: channelId,
+      message_id: messageId, answer_id: answerId, ...(guildId ? { guild_id: guildId } : {}) });
+  }
+
   async function typing(channelId: string, userId: string) {
     const destination = channel(channelId);
     const user = world.users.find(value => value.id === userId);
@@ -836,6 +851,9 @@ export function startFixture(options: FixtureOptions = {}) {
         if (typeof body.add !== 'boolean') throw new HttpError(400, 'add must be a boolean');
         await react(textField(body, 'channel_id'), textField(body, 'message_id'), parseEmoji(body.emoji),
           textField(body, 'user_id'), body.add); break;
+      case 'vote':
+        if (typeof body.add !== 'boolean' || !Number.isInteger(body.answer_id)) throw new HttpError(400, 'add must be a boolean, answer_id an integer');
+        await pollVote(textField(body, 'channel_id'), textField(body, 'message_id'), textField(body, 'user_id'), body.answer_id, body.add); break;
       case 'react-many': {
         const channelId = textField(body, 'channel_id'), id = textField(body, 'message_id');
         const emoji = parseEmoji(body.emoji);
@@ -923,6 +941,22 @@ export function startFixture(options: FixtureOptions = {}) {
         uploads.set(name, { filename, bytes: null });
         return { id: f.id, upload_url: `${origin}/upload/${encodeURIComponent(name)}`, upload_filename: name };
       }) } };
+    }
+    // A vote replaces the reader's earlier one; no answers takes it back. Discord sends an event an answer.
+    const vote = /^\/channels\/([^/]+)\/polls\/([^/]+)\/answers\/@me$/.exec(path);
+    if (vote && method === 'PUT') {
+      const [, channelId, messageId] = vote;
+      const poll = (message(channelId, messageId) as { poll?: any }).poll;
+      if (!poll) throw new HttpError(400, 'Not a poll');
+      const chosen = (await readBody(request)).answer_ids;
+      const answers = poll.answers.map((a: { answer_id: number }) => String(a.answer_id));
+      if (!Array.isArray(chosen) || chosen.some(id => typeof id !== 'string' || !answers.includes(id))
+        || (!poll.allow_multiselect && chosen.length > 1)) throw new HttpError(400, 'Invalid answers');
+      for (const id of answers) {
+        const mine = !!poll.results?.answer_counts.find((a: { id: number }) => String(a.id) === id)?.me_voted;
+        if (mine !== chosen.includes(id)) await pollVote(channelId, messageId, world.me.id, Number(id), !mine);
+      }
+      return { status: 204 };
     }
     const match = /^\/channels\/([^/]+)\/(messages|typing)(?:\/([^/]+)(?:\/(ack|reactions)(?:\/([^/]+)\/@me)?)?)?$/.exec(path);
     if (!match) throw new HttpError(404, 'Unknown endpoint');

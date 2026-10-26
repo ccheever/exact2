@@ -512,6 +512,23 @@ const sources: Sources = {
     applyEvent(live, mine ? 'MESSAGE_REACTION_REMOVE' : 'MESSAGE_REACTION_ADD',
       { channel_id: channel, message_id: row.id, user_id: store.meId, emoji: value });
   }),
+  // A vote replaces the reader's earlier one; no answers takes it back.
+  vote: ([channel, id, answers]) => write(async () => {
+    const row = S.message(store, channel, id);
+    if (!row?.id || !row.poll) throw new Error('Message no longer exists.');
+    const poll = row.poll;
+    const before = ((poll.results?.answer_counts ?? []) as any[]).filter(a => a.me_voted).map(a => String(a.id));
+    await call(live, rest.votePoll(context(live), channel, row.id, answers));
+    // Any vote event during the request (this vote's own, or a later one from another device) replaced the
+    // poll, and the gateway's account wins.
+    if (S.message(store, channel, id)?.poll !== poll) return;
+    for (const answer of before.filter(a => !answers.includes(a))) {
+      applyEvent(live, 'MESSAGE_POLL_VOTE_REMOVE', { channel_id: channel, message_id: row.id, user_id: store.meId, answer_id: answer });
+    }
+    for (const answer of answers.filter(a => !before.includes(a))) {
+      applyEvent(live, 'MESSAGE_POLL_VOTE_ADD', { channel_id: channel, message_id: row.id, user_id: store.meId, answer_id: answer });
+    }
+  }),
   // An ack names the newest message the reader has seen (§2: sent as the official client sends it).
   markRead: ([channel]) => write(async () => {
     const last = newest(channel);

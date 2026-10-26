@@ -72,7 +72,7 @@ function serverForTest() {
   const counts = new Map<string, number>();
   const pending = new Set<Promise<unknown>>();
   const releases: (() => void)[] = [];
-  const holds = new Map<string, { entered: (request: Request) => void; wait: Promise<void> }>();
+  const holds = new Map<string, { entered: (request: Request) => void; wait: Promise<void>; reply: boolean }>();
   const track = (work: Promise<unknown>) => {
     pending.add(work);
     void work.then(() => pending.delete(work), () => pending.delete(work));
@@ -95,6 +95,8 @@ function serverForTest() {
     const held = holds.get(url.pathname);
     if (held) {
       holds.delete(url.pathname);
+      // A held reply: the server has acted on the request, and only its answer waits.
+      const answered = held.reply ? await handle(request, {}) : undefined;
       held.entered(request);
       const aborted = Promise.withResolvers<never>();
       const abort = () => aborted.reject(request.signal.reason);
@@ -104,6 +106,7 @@ function serverForTest() {
         await Promise.race([held.wait, aborted.promise]);
         request.signal.throwIfAborted();
       } finally { request.signal.removeEventListener('abort', abort); }
+      if (answered) return answered;
     }
     return handle(request, {});
   }
@@ -194,9 +197,9 @@ function serverForTest() {
     };
   };
   return { fixture, peers, requests, counts, request, state, control, drain, app,
-    hold(path: string) {
+    hold(path: string, reply = false) {
       const entered = Promise.withResolvers<Request>(), released = Promise.withResolvers<void>();
-      holds.set(path, { entered: entered.resolve, wait: released.promise });
+      holds.set(path, { entered: entered.resolve, wait: released.promise, reply });
       releases.push(released.resolve);
       return { entered: entered.promise, release: released.resolve };
     },
@@ -339,6 +342,28 @@ test('6. a newer page ask is refused without aborting the page already in flight
   expect(await first).toEqual({ ok: true, error: '' });
   expect(ids((await app.window(channel)).rows)).toEqual(ids(rig.fixture.world.messages[channel].slice(-49)));
   expect(rig.counts.get(path)).toBe(1);
+});
+
+test('6b. a vote whose reply comes after the gateway has moved on leaves the gateway\'s account', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, asked = rig.fixture.world.messages[channel].at(-1)! as { id: string; poll?: unknown };
+  asked.poll = { question: { text: 'Lunch?' }, answers: [{ answer_id: 1, poll_media: { text: 'Tacos' } }, { answer_id: 2, poll_media: { text: 'Ramen' } }],
+    expiry: null, allow_multiselect: false, results: { is_finalized: false, answer_counts: [] } };
+  await app.ask('viewChannel', [channel]); await rig.drain();
+  expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
+  const held = rig.hold(`/api/v9/channels/${channel}/polls/${asked.id}/answers/@me`, true);
+  const voted = app.ask('vote', [channel, asked.id, ['2']]);
+  await held.entered;
+  // This vote's own event arrives, then another device takes it back, before the reply.
+  await rig.control('vote', { channel_id: channel, message_id: asked.id, user_id: rig.fixture.world.me.id, answer_id: 2, add: false });
+  await rig.drain();
+  await app.ask('digest', [EPOCH + 100]);
+  held.release();
+  expect(await voted).toEqual({ ok: true, error: '' });
+  await rig.drain();
+  await app.ask('digest', [EPOCH + 200]);
+  const row = (await app.window(channel)).rows.find(r => r.id === asked.id)!;
+  expect(row.poll[0]).toMatchObject({ voted: false, answers: [{ count: 0, me: false }, { count: 0, me: false }] });
 });
 
 test('7. a fresh READY hides stale rows until each page confirms them', async () => {

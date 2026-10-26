@@ -12,6 +12,7 @@ type Block = Row['blocks'][number];
 type Run = Block['runs'][number];
 type Media = Row['media'][number];
 type Embed = Row['embeds'][number];
+type Poll = Row['poll'][number];
 // A Discord message as the store keeps it: its `key` (the nonce of a send from here) and `status`.
 export type Stored = Record<string, any> & { id: string | null; key: string; channel_id: string; status: string };
 export interface User { id: string; username?: string; global_name?: string | null; bot?: boolean; avatar?: string | null; discriminator?: string }
@@ -187,7 +188,8 @@ function replyOf(m: Stored, dirs: Directories): Row['reply'] {
     // A forward's own words first, then the message it forwards.
     preview: ([ref.message_snapshots?.[0]?.message ? ref.content : '', (ref.message_snapshots?.[0]?.message ?? ref).content]
       .map(words => plain(flatten(parse(String(words ?? '')), context(dirs)))).filter(Boolean).join(' ')
-      || stickersOf(ref.message_snapshots?.[0]?.message ?? ref).map(stickerName).join(', '))
+      || stickersOf(ref.message_snapshots?.[0]?.message ?? ref).map(stickerName).join(', ')
+      || String((ref.message_snapshots?.[0]?.message ?? ref).poll?.question?.text ?? ''))
       .replace(/\s+/g, ' ').trim().slice(0, 100),
     state: 'present' }];
 }
@@ -208,7 +210,33 @@ function editable(content: string, dirs: Directories): string {
 const STICKER_EXTENSION: Record<number, string> = { 1: 'png', 2: 'png', 4: 'gif' };
 const stickersOf = (m: Stored): Record<string, any>[] => Array.isArray(m.sticker_items) ? m.sticker_items : [];
 const stickerName = (s: Record<string, any>): string => String(s.name ?? '') || 'Sticker';
-const SYSTEM: Record<number, (who: string) => string> = { 6: who => `${who} pinned a message.`, 7: who => `${who} joined the server.` };
+// A system message's line and its icon. A closed poll's (46) names it from its `poll_result` embed.
+const SYSTEM: Record<number, [string, (who: string, m: Stored) => string]> = {
+  6: ['pin', who => `${who} pinned a message.`],
+  7: ['forward', who => `${who} joined the server.`],
+  46: ['chart', (who, m) => [`${who}'s poll`, pollResult(m, 'poll_question_text'), 'has closed.'].filter(Boolean).join(' ')],
+};
+const pollResult = (m: Stored, name: string): string => String((m.embeds ?? []).find((e: Record<string, any>) => e.type === 'poll_result')
+  ?.fields?.find((f: Record<string, any>) => f.name === name)?.value ?? '');
+
+// A poll (Discord's `poll`). Its counts are in `results`, which Discord leaves out until it has some; the
+// most-voted answers of a finalized poll win.
+function pollOf(m: Stored, dirs: Directories): Poll[] {
+  const p = m.poll;
+  if (!p || typeof p !== 'object') return [];
+  const counts = new Map<string, Record<string, any>>((p.results?.answer_counts ?? []).map((a: Record<string, any>) => [String(a.id), a]));
+  const answers = (Array.isArray(p.answers) ? p.answers : []).map((a: Record<string, any>) => {
+    const id = String(a.answer_id), e = a.poll_media?.emoji, n = counts.get(id);
+    return { id, text: String(a.poll_media?.text ?? ''), emoji: e && !e.id ? String(e.name ?? '') : '',
+      src: e?.id ? dirs.emoji(String(e.id), e.animated === true) : '', count: Number(n?.count ?? 0), me: n?.me_voted === true };
+  });
+  const votes = answers.reduce((sum: number, a: { count: number }) => sum + a.count, 0);
+  const top = Math.max(0, ...answers.map((a: { count: number }) => a.count)), closed = p.results?.is_finalized === true;
+  return [{ question: String(p.question?.text ?? ''), multi: p.allow_multiselect === true, known: !!p.results && p.results.partial !== true,
+    expiry: p.expiry ? Date.parse(p.expiry) || 0 : 0, closed, voted: answers.some((a: { me: boolean }) => a.me), votes,
+    answers: answers.map((a: Record<string, any>) => ({ ...a, percent: votes ? Math.round(100 * a.count / votes) : 0,
+      winner: closed && top > 0 && a.count === top })) }];
+}
 
 export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Directories): Row {
   // A forward (Discord's `message_snapshots`) carries no words of its own: what shows is the forwarded
@@ -227,7 +255,8 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
   let ownMentionsMe = ctx.mentionsMe, note: Block[] = [];
   if (snapshot) { ctx.mentionsMe = false; note = flatten(parse(String(m.content ?? '')), ctx); ownMentionsMe = ctx.mentionsMe; }
   // The message as words: its text, then its stickers' names (a sticker alone reads as its name).
-  const text = [plain(note), plain(blocks), stickers.map(stickerName).join(', ')].filter(Boolean).join('\n');
+  const poll = pollOf(shown, dirs);
+  const text = [plain(note), plain(blocks), stickers.map(stickerName).join(', '), poll[0]?.question ?? ''].filter(Boolean).join('\n');
   const edited = shown.edited_timestamp != null;
   if (edited) {
     if (blocks[blocks.length - 1]?.kind !== 'paragraph') blocks.push(block(ctx, 'paragraph', false));
@@ -243,7 +272,8 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
   const me = dirs.me(), authorId = String(m.author?.id ?? '');
   const mentionsMe = ownMentionsMe || (authorId !== me && (m.mention_everyone === true
     || (m.mentions ?? []).some((u: User) => u.id === me)));
-  const embeds: Embed[] = (shown.embeds ?? []).map((e: Record<string, any>, i: number) => {
+  // A closed poll's result card is drawn as its system line.
+  const embeds: Embed[] = (shown.embeds ?? []).filter((e: Record<string, any>) => e.type !== 'poll_result').map((e: Record<string, any>, i: number) => {
     const image = (kind: 'image' | 'thumbnail'): Media[] => e[kind] ? [media(`e${i}.${kind}`, e[kind], e.title ?? '', false)] : [];
     // An image or video link's embed is its picture alone, as Discord draws it.
     const bare = e.type === 'image' || e.type === 'gifv' || e.type === 'video';
@@ -254,7 +284,8 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
   });
   const user: User = dirs.user(authorId) ?? m.author ?? { id: authorId };
   const author = displayName(user, authorId);
-  const system = SYSTEM[m.type]?.(author) ?? '';
+  const [systemIcon, line] = SYSTEM[m.type] ?? ['', () => ''];
+  const system = line(author, m);
   const at = timeOf(m), prevAt = previous ? timeOf(previous) : 0, delta = previous ? at - prevAt : 0;
   return { key: m.key, id: m.id ?? m.key, authorId, author,
     avatar: dirs.avatar(user), color: dirs.nameColor(m.channel_id, m.member?.roles ?? []),
@@ -263,7 +294,7 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
       (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',
     edited, mine: authorId === me, state: m.status, mentionsMe, jumbo: isJumbo,
     // A forward is never edited: it has no words of its own to edit.
-    system, plain: system || text, source: snapshot ? '' : editable(content, dirs), isNew: false, blocks,
+    system, systemIcon, plain: system || text, source: snapshot ? '' : editable(content, dirs), isNew: false, blocks,
     forwarded: !!snapshot, note,
     media: (shown.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
       media(String(a.id), a, String(a.filename ?? ''), String(a.filename ?? '').startsWith('SPOILER_'))),
@@ -276,7 +307,7 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     reactions: (m.reactions ?? []).map((r: Record<string, any>) => ({ id: r.emoji.id || r.emoji.name,
       emoji: r.emoji.id ? '' : r.emoji.name, src: r.emoji.id ? dirs.emoji(r.emoji.id, r.emoji.animated === true) : '',
       name: r.emoji.name, count: r.count, me: r.me === true })),
-    reply: replyOf(m, dirs) };
+    poll, reply: replyOf(m, dirs) };
 }
 
 /** A renderer that redraws a row only when its message, its predecessor, its reply's original (or its
