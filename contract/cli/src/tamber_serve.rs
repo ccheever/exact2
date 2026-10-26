@@ -775,10 +775,11 @@ impl Server {
         let app = self.app_params();
         crate::tamber_packages::packaged(&app, &mut out, paths);
         if paths {
+            // The walk's graph, read this request: no walk of its own.
             let at = self.dir.join("app.contract");
-            let graph = contract::source_graph(&at);
-            out["watch"] = crate::tamber_packages::watched(&at, &graph);
-            crate::tamber_packages::assets(&app, &mut out, &graph);
+            let walk = self.walk();
+            out["watch"] = crate::tamber_packages::watched(&at, &walk.graph);
+            crate::tamber_packages::assets(&app, &mut out, &walk.graph);
         }
         Ok(out)
     }
