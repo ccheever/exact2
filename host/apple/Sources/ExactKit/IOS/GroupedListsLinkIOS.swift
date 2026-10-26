@@ -10,9 +10,19 @@ import UIKit
 package protocol GroupedLists: AnyObject {
     /// Before a batch: every carried row back where the presenter put it.
     func prepare()
-    /// Before a batch that touches `ids` (`Presenter.touching`): the rows
-    /// of each list where one is a carried row or above one go back.
-    func prepare(touching ids: Set<UInt32>)
+    /// Before a batch of `ops`: the carried rows it must read at home go
+    /// back, every row of a list where it changes what they were carried
+    /// from in a way their cells cannot follow.
+    func prepare(_ ops: [BatchOp])
+    /// A `children` op places `want` in `container`: those the presenter
+    /// places, without the rows a list carries from there, which stay in
+    /// their cells.
+    func placing(_ container: UIView, _ want: [NodeView]) -> [NodeView]
+    /// The rows carried from `container`, which are placed from it on the pixel grid.
+    func carried(from container: UIView) -> [NodeView]
+    /// Where a row a list carries is drawn in its cell when layout places
+    /// it at `place` in its parent; nil for a view no list carries.
+    func cellFrame(of view: NodeView, at place: GridPlace) -> CGRect?
     /// After a batch; `changed` is the touched views and their ancestors.
     func sync(changed: Set<UInt32>?)
     /// Whether some list holds a custom row's views in its cells.

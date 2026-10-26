@@ -59,8 +59,6 @@ extension NodeView {
     var hasOwnContextMenu: Bool { handlers.contains("contextmenu") || props["contextPopover"]?.isEmpty == false }
     var hasInlineContextMenu: Bool { inlineText.contains { $0.handlers.contains("contextmenu") || $0.props["contextPopover"]?.isEmpty == false } }
     var hasInlinePlainContextMenu: Bool { inlineText.contains { $0.handlers.contains("contextmenu") && $0.props["contextPopover"]?.isEmpty != false } }
-    var hasInlineContextPopover: Bool { inlineText.contains { $0.props["contextPopover"]?.isEmpty == false } }
-
     func inlineContextTarget(at point: CGPoint) -> InlineText? {
         var run = inlineTarget(at: point)
         while let current = run {

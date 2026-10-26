@@ -104,13 +104,13 @@ package final class SwipeActionsHost {
     #endif
 
     /// Whether `owner` is a grouped list's row: its section's group's child
-    /// (LLP 1084 D3), drawn in UIKit's list cell. Read while the batch's
-    /// hierarchy is the authored one (the list gives its rows back first).
+    /// (LLP 1084 D3), drawn in UIKit's list cell. Read from the authored
+    /// hierarchy: a row the list carries is its parent's child from its cell.
     private func groupedRow(_ owner: NodeView) -> Bool {
         #if os(iOS)
-        guard presenter.groupedLists != nil else { return false }
+        guard let lists = presenter.groupedLists else { return false }
         func parent(_ view: UIView?) -> NodeView? {
-            var at = view?.superview
+            var at = view.flatMap(lists.logicalParent) ?? view?.superview
             while let v = at { if let node = v as? NodeView { return node }; at = v.superview }
             return nil
         }
@@ -126,6 +126,10 @@ package final class SwipeActionsHost {
     /// keeps its row as it was; nil revisits every owner.
     func sync(changed: Set<UInt32>? = nil) {
         let renamed = presenter.takeChangedNames()
+        // The views whose name is read from an element renamed now, found once, not once a row.
+        let relabelled = renamed.isEmpty ? [] : Set(presenter.carrying("accessibilityLabelledBy").filter {
+            $0.props["accessibilityLabelledBy"]?.split(separator: " ").contains { renamed.contains(String($0)) } == true
+        }.map(\.id))
         var wanted = Set<UInt32>(), paintedOwners = Set<UInt32>()
         var claimed = Set<UInt32>()
         for owner in presenter.carrying("swipeContent") {
@@ -137,7 +141,7 @@ package final class SwipeActionsHost {
             // A kept row's subtree is as it was, so its names resolve to the same nodes whatever was renamed
             // elsewhere (a new row's `id`s are every row's); only an action labelled by an id can read another name.
             if let row = rows[owner.id], row.owner === owner, kept.contains(owner.id),
-               !(row.leading + row.trailing).contains(where: { $0.props["accessibilityLabelledBy"]?.split(separator: " ").contains { renamed.contains(String($0)) } == true }) {
+               relabelled.isEmpty || !(row.leading + row.trailing).contains(where: { relabelled.contains($0.id) }) {
                 claimed.insert(row.body.id)
                 wanted.insert(owner.id)
                 continue

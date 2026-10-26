@@ -152,16 +152,24 @@ struct GroupedListModel: Equatable {
     var spaceBelow: CGFloat?
 
     init(style: String = "inset-grouped", sections: [Section] = []) { self.style = style; self.sections = sections }
-    init?(json: Data) {
+    init?(json: Data) { var none: [UInt32: (NSDictionary, Row)] = [:]; self.init(json: json, rows: &none) }
+    /// `rows`: each row as last decoded, by its view, with the JSON it was
+    /// decoded from, which a row whose JSON is the same reuses and this
+    /// decode replaces: two rows inserted into 330 are the two decoded.
+    init?(json: Data, rows decoded: inout [UInt32: (NSDictionary, Row)]) {
         guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
         style = o["style"] as? String ?? "inset-grouped"
         func id(_ v: Any?) -> UInt32? { (v as? NSNumber).map { $0.uint32Value } }
+        var known: [UInt32: (NSDictionary, Row)] = [:]
+        defer { decoded = known }
         sections = (o["sections"] as? [[String: Any]] ?? []).compactMap { s in
             guard let view = id(s["view"]) else { return nil }
-            let rows: [Row] = (s["rows"] as? [[String: Any]] ?? []).compactMap { r in
-                guard let view = id(r["view"]) else { return nil }
+            let rows: [Row] = (s["rows"] as? NSArray ?? []).compactMap { json in
+                guard let json = json as? NSDictionary, let view = id(json["view"]) else { return nil }
+                if let (was, row) = decoded[view], was.isEqual(json) { known[view] = (json, row); return row }
+                let r = json as? [String: Any] ?? [:]
                 // An svg-only icon's path as its token (FaceSymbol, stage 9 A2).
-                return Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: FaceSymbol.of(r),
+                let row = Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: FaceSymbol.of(r),
                            title: r["title"] as? String, secondary: r["secondary"] as? String,
                            subtitle: r["subtitle"] as? Bool ?? false, accessory: r["accessory"] as? String ?? "none",
                            target: id(r["target"]), checked: r["checked"] as? Bool ?? false, pressable: r["pressable"] as? Bool ?? false,
@@ -170,6 +178,8 @@ struct GroupedListModel: Equatable {
                            authoredEdge: r["authoredEdge"] as? Bool ?? false,
                            nextAuthoredTop: r["nextAuthoredTop"] as? Bool ?? false,
                            titleLook: Look(json: r["titleLook"]), secondaryLook: Look(json: r["secondaryLook"]))
+                known[view] = (json, row)
+                return row
             }
             return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String,
                            headerLook: Look(json: s["headerLook"]), footerLook: Look(json: s["footerLook"]), rows: rows,
@@ -199,7 +209,7 @@ final class GroupedListHost: GroupedLists {
     lazy var model: (UInt32) -> GroupedListModel? = { [unowned self] id in read(id) }
     /// Each list's model as last read, by the JSON it was read from: a batch
     /// that changes only what is inside its rows gives the same JSON again.
-    var reads: [UInt32: (json: Data, model: GroupedListModel?)] = [:]
+    var reads: [UInt32: (json: Data, model: GroupedListModel?, rows: [UInt32: (NSDictionary, GroupedListModel.Row)])] = [:]
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     func rows(for id: UInt32) -> [[UInt32]]? {
@@ -212,7 +222,6 @@ final class GroupedListHost: GroupedLists {
 
     /// Before a batch: every carried row back where the presenter put it.
     func prepare() { for list in lists.values { list.restore() } }
-    func prepare(touching ids: Set<UInt32>) { for list in lists.values where list.touches(ids) { list.restore() } }
 
     /// After a batch. `changed` is the touched views and their ancestors; a
     /// list outside it keeps its model and only carries its rows again.
@@ -225,7 +234,7 @@ final class GroupedListHost: GroupedLists {
         for owner in presenter.carrying("listStyle") where owner.kind == "list" {
             live.insert(owner.id)
             if let list = lists[owner.id], list.owner === owner, let changed, !changed.contains(owner.id), !rethemed {
-                list.mount()
+                list.mount(looks: false)
                 continue
             }
             guard let model = model(owner.id) else { continue }
@@ -480,11 +489,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     #if !os(tvOS)
     private var switches: [UInt32: UISwitch] = [:]
     #endif
-    /// Custom rows: where the presenter put each, to give it back.
-    var carried: [UInt32: (parent: UIView, index: Int, frame: CGRect, inert: Bool)] = [:]
-    /// The order they were carried in: given back last first, each index
-    /// is where it was before the ones carried after it left.
-    var carriedOrder: [UInt32] = []
+    /// Custom rows: the parent the presenter put each in, to give it back.
+    var carried: [UInt32: (parent: UIView, frame: CGRect, inert: Bool)] = [:]
+    /// Each parent rows are carried from, the order of its children (`noteHome`).
+    var homes: [ObjectIdentifier: [UInt32]] = [:]
     /// The row whose switch's action is running.
     private var flipping: UInt32?
     /// A custom row's height changed since the list was last laid out.
@@ -749,7 +757,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     /// The collection owns scrolling; the original sections retain their
     /// authored layout and custom rows are carried into their cells.
-    func mount() {
+    /// `looks`: whether a batch changed what is in the list, so that a
+    /// custom row's look is read again (`refreshLooks`).
+    func mount(looks: Bool = true) {
         if collection.superview !== owner { owner.addSubview(collection) }
         // Padding is room around the sections; final footer space is below
         // the footer. Apply only this module's delta, keeping refresh and
@@ -790,7 +800,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         frame.origin.x -= reach.left
         frame.size.width += reach.left + reach.right
         assign(collection, \.frame, frame)
-        refreshLooks()
+        if looks { refreshLooks() }
         for cell in collection.visibleCells {
             guard let cell = cell as? GroupedCell, let id = cell.row else { continue }
             carry(id, into: cell)
@@ -801,6 +811,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #if !os(tvOS)
         for (id, toggle) in switches { refresh(id, toggle) }
         #endif
+        // A section the list no longer holds, kept hidden while its rows stayed carried, shows again.
+        for (id, root) in hiddenRoots where root.node.superview !== owner.container { root.node.isHidden = root.hidden; hiddenRoots[id] = nil }
         for case let section as NodeView in owner.container.subviews {
             if hiddenRoots[section.id] == nil { hiddenRoots[section.id] = (section, section.hiddenByHost) }
             section.isHidden = true
@@ -1252,17 +1264,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         guard rows[id]?.custom == true, let row = host.presenter.views[id] else { return }
         for case let other as NodeView in cell.contentView.subviews where other !== row { sendHome(other) }
         if carried[id] == nil, let parent = row.superview {
+            noteHome(parent)
             // Its inertness is its authored ancestors', which a cell is not.
-            carried[id] = (parent, parent.subviews.firstIndex(of: row) ?? 0, row.frame, row.inert)
-            carriedOrder.append(id)
+            carried[id] = (parent, row.frame, row.inert)
         }
         guard let place = carried[id] else { return }
         look(id, row: row)
-        // At its layout x on the cell's grid, at the size it is drawn at
-        // home. Its children keep their places in it: carried and put back
-        // in every batch, a row placed afresh in the cell would place them
-        // twice a batch.
-        let drawn = row.grid.map { CGRect(x: PixelGrid.round($0.layout.minX, scale: host.presenter.gridScale), y: 0, width: $0.drawn.width, height: $0.drawn.height) }
+        let drawn = row.grid.map { Self.cellFrame($0, scale: host.presenter.gridScale) }
             ?? CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
         let height = drawn.height
         // Never invalidated here: a cell is configured inside the data
@@ -1289,7 +1297,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func remeasure() {
         unsized = unsized.filter { rows[$0]?.custom == true }
         let grown = unsized.filter { id in
-            host.presenter.views[id].map { (carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
+            host.presenter.views[id].map { ($0.grid?.drawn.height ?? carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
         }
         guard !grown.isEmpty else { return }
         unsized.subtract(grown)
@@ -1304,13 +1312,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     /// Every carried row back in its authored place.
     func restore() {
-        for id in carriedOrder.reversed() {
-            guard let place = carried[id], let row = host.presenter.views[id] else { continue }
-            if row.superview !== place.parent { place.parent.insertSubview(row, at: min(place.index, place.parent.subviews.count)) }
-            row.frame = place.frame
+        for id in Array(carried.keys) {
+            if let row = host.presenter.views[id], carried[id] != nil { sendHome(row) }
+            forget(id)
         }
-        carried.removeAll()
-        carriedOrder.removeAll()
         for root in hiddenRoots.values { root.node.isHidden = root.hidden }
         hiddenRoots.removeAll(keepingCapacity: true)
     }
@@ -1463,20 +1468,6 @@ final class GroupedCollectionView: UICollectionView, GroupedScroller {
         insets.left = max(insets.left, sideSafeArea.left)
         insets.right = max(insets.right, sideSafeArea.right)
         return insets
-    }
-}
-
-extension UICollectionViewListCell {
-    /// A row's or header's margins are the list layout's, never the safe
-    /// area's: a cell under the home indicator (a fling past the end)
-    /// otherwise grew by the inset, moved, and shrank a pixel a layout pass
-    /// until UIKit's feedback-loop check stopped the app. The layout's
-    /// sections already keep clear of the sides' safe area (its
-    /// `contentInsetsReference`). Again after each configuration, which may
-    /// replace the content view.
-    func marginsIgnoreSafeArea() {
-        insetsLayoutMarginsFromSafeArea = false
-        contentView.insetsLayoutMarginsFromSafeArea = false
     }
 }
 

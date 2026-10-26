@@ -19,6 +19,8 @@ package final class Presenter {
     /// sync last looked, those applied after a batch among them: their lists
     /// redraw separators by them
     private var geometryApplied: [UInt32] = []
+    /// The views `children` ops put under a parent they were not under (`placeChildren`).
+    private var placedAnew: [UInt32] = []
     /// Views whose drawn origin a batch moved (`PixelGridIOS.swift`).
     var gridMoved: [NodeView] = []
     /// What the native projections show changed outside a batch (a subtree's appearance or
@@ -750,7 +752,7 @@ package final class Presenter {
         if !applying { flats.begin(batch) }
         pool.begin(batch)
         swipeActions.prepare(batch)
-        if let ids = touching(batch) { groupedLists?.prepare(touching: ids) } else { groupedLists?.prepare() }
+        groupedLists?.prepare(batch.ops)
         prepareContexts(batch)
         modals.prepare(batch)
         navigation.prepare(batch)
@@ -800,6 +802,8 @@ package final class Presenter {
             }
         }
         var beganGeometry = false, touchedIDs: [UInt32] = []
+        if outermost { placedAnew.removeAll(keepingCapacity: true) } // a flat leaf promoted between batches
+        let anewFrom = placedAnew.count
         let rowsOnly = onlyListRows(batch)
         if batch.controls { controls.facesChanged() }
         for op in batch.ops {
@@ -1016,12 +1020,14 @@ package final class Presenter {
         menus.sync()
         glassGroups.reconcile()
         positionContexts()
-        let ariaMoved = Set(batch.ops.filter { $0.op == .children }.flatMap(\.ids).filter { id in
+        // A view a `children` op moved within its parent keeps its ancestors.
+        let ariaMoved = Set(placedAnew[anewFrom...].filter { id in
             guard let node = views[id] else { return false }
             return node.accessibilityTraits.contains(.notEnabled) != (node.disabled || node.ariaUnavailable)
         })
         let ariaProps = batch.ops.filter { $0.op == .props && ($0.props["accessibilityDisabled"] != nil || $0.clear.contains("accessibilityDisabled")) }.map(\.id)
         let disabledRoots = Set(ariaProps).union(ariaMoved)
+        placedAnew.removeSubrange(anewFrom...)
         // Finish controls and frames before UIKit synchronously lays out the destination.
         afterBatch { [weak self] in
             guard let self else { return }
@@ -1071,8 +1077,9 @@ package final class Presenter {
     func placeChildren(_ parent: NodeView, _ ids: [UInt32]) {
         // Make any views required by this holder before assembling its list.
         for id in flats.place(parent, ids) { flats.promote(id) }
-        let want = ids.compactMap { views[$0] }
         let container = parent.container
+        // A row a grouped list carries stays in its cell (`GroupedLists.placing`).
+        let want = groupedLists.map { $0.placing(container, ids.compactMap { views[$0] }) } ?? ids.compactMap { views[$0] }
         // An open popover under the agent stays in the top layer.
         menus.children(container, want)
         let wanted = Set(want.map(ObjectIdentifier.init))
@@ -1083,6 +1090,7 @@ package final class Presenter {
         // In order, below anything else in the container (a scroll
         // view's indicators): inserting a subview at an index moves
         // it when it is already there. One already there stays.
+        for child in want where child.superview !== container { placedAnew.append(child.id) }
         let contained = NodeView.keepingGhosts(want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }, in: container)
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
@@ -1093,19 +1101,6 @@ package final class Presenter {
         }
         flats.mounted(parent.id)
         if parent === navigation.container { navigation.placeOwner() }
-    }
-
-    /// The views a batch's ops name; nil when it moves the tree at large
-    /// (new roots, a flight, an exit).
-    private func touching(_ batch: Batch) -> Set<UInt32>? {
-        var ids = Set<UInt32>()
-        for op in batch.ops {
-            switch op.op {
-            case .roots, .flight, .land, .exit: return nil
-            default: ids.insert(op.id)
-            }
-        }
-        return ids
     }
 
     /// The views a batch touched and every view above them, as the batch
@@ -1127,14 +1122,11 @@ package final class Presenter {
     func applyGeometry(_ op: BatchOp) {
         // Outside a batch, carried rows go back to their authored parents
         // first, as before a batch, so the new box is theirs; the projections
-        // remount on the next turn. Inside one they went back as it began,
-        // unless a list laid out in the batch carried one again: a box applied
-        // then is the row's too, which `restore` would otherwise undo.
+        // remount on the next turn. Inside one, a carried row's box is placed
+        // from its authored parent (`gridOrigin`) and goes home with it.
         if !applying {
             groupedLists?.prepare()
             requestProjectionSync()
-        } else if groupedLists?.carriesRows == true {
-            groupedLists?.prepare(touching: [op.id])
         }
         let id = op.id
         guard let v = views[id] else { return }

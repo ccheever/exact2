@@ -30,8 +30,9 @@ extension GroupedListHost {
     func read(_ id: UInt32) -> GroupedListModel? {
         guard let json = presenter.session?.runtime.groupedList(id) else { return nil }
         if let known = reads[id], known.json == json { return known.model }
-        let model = GroupedListModel(json: json)
-        reads[id] = (json, model)
+        var rows = reads[id]?.rows ?? [:]
+        let model = GroupedListModel(json: json, rows: &rows)
+        reads[id] = (json, model, rows)
         return model
     }
 }

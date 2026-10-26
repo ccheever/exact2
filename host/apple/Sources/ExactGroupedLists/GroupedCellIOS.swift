@@ -65,6 +65,20 @@ final class GroupedCell: UICollectionViewListCell {
         return fitted
     }
 }
+
+extension UICollectionViewListCell {
+    /// A row's or header's margins are the list layout's, never the safe
+    /// area's: a cell under the home indicator (a fling past the end)
+    /// otherwise grew by the inset, moved, and shrank a pixel a layout pass
+    /// until UIKit's feedback-loop check stopped the app. The layout's
+    /// sections already keep clear of the sides' safe area (its
+    /// `contentInsetsReference`). Again after each configuration, which may
+    /// replace the content view.
+    func marginsIgnoreSafeArea() {
+        insetsLayoutMarginsFromSafeArea = false
+        contentView.insetsLayoutMarginsFromSafeArea = false
+    }
+}
 #endif
 
 #if os(iOS)

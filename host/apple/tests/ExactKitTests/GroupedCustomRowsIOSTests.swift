@@ -180,5 +180,49 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(try cell(p, 11).bounds.height, 120, accuracy: 0.5, "its row grew")
     }
+
+    /// A row inserted at the top of a list of custom rows: the shown rows
+    /// stay in their cells through the batch, as a collection view's cells
+    /// do under an insert, and go home in the order the batch gave them.
+    func testARowInsertedAboveCustomRowsLeavesTheShownOnesInTheirCells() throws {
+        var inserted = false
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].rows[0] = Row(view: 10, custom: true, pressable: true)
+            m.sections[0].rows[1] = Row(view: 11, custom: true, pressable: true)
+            if inserted { m.sections[0].rows.insert(Row(view: 14, custom: true, pressable: true), at: 0) }
+            return m
+        }
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 16.0, "y": 0.0, "w": 354.0, "h": 85.0],
+                           ["op": "frame", "id": 11, "x": 16.0, "y": 85.0, "w": 354.0, "h": 79.0]]))
+        let l = try list(p)
+        let a = try cell(p, 10), row = try XCTUnwrap(p.views[10])
+        XCTAssertTrue(row.superview === a.contentView)
+        inserted = true
+        let insert = wireBatch([
+            ["op": "create", "id": 14, "kind": "button", "props": ["testId": "row14"], "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 4, "ids": [14, 10, 11, 12]],
+            ["op": "frame", "id": 14, "x": 16.0, "y": 0.0, "w": 354.0, "h": 70.0],
+            ["op": "frame", "id": 10, "x": 16.0, "y": 70.0, "w": 354.0, "h": 85.0],
+            ["op": "frame", "id": 11, "x": 16.0, "y": 155.0, "w": 354.0, "h": 79.0],
+        ])
+        host(p).prepare(insert.ops)
+        XCTAssertTrue(row.superview === a.contentView, "a frame and its parent's children leave it in its cell")
+        p.apply(insert)
+        XCTAssertTrue(row.superview === a.contentView, "nor did the batch move it")
+        XCTAssertEqual(row.frame.minY, 0, "at its cell's top")
+        XCTAssertTrue(try XCTUnwrap(p.views[14]).superview === (try cell(p, 14)).contentView, "the new row in its own cell")
+        // Home, each is where the batch put it, in its order.
+        l.restore()
+        let group = try XCTUnwrap(p.views[4]).container
+        XCTAssertEqual(group.subviews.compactMap { ($0 as? NodeView)?.id }, [14, 10, 11, 12])
+        XCTAssertEqual(row.frame.minY, 70, "and its box")
+        // A prop on the row itself takes it home alone for the batch.
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0]]))
+        let b = try cell(p, 11)
+        host(p).prepare(wireBatch([["op": "props", "id": 10, "set": ["testId": "first"]]]).ops)
+        XCTAssertTrue(row.superview === group, "the row read at home")
+        XCTAssertTrue(try XCTUnwrap(p.views[11]).superview === b.contentView, "its neighbour still in its cell")
+    }
 }
 #endif

@@ -60,7 +60,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     weak var paintParent: PaintView?
     let firstDraw: DrawReceipt?
     package let kind: String
-    var inlineText: [InlineText] = []
+    var inlineText: [InlineText] = [] { didSet { hasInlineContextPopover = inlineText.contains { $0.props["contextPopover"]?.isEmpty == false } } }
+    /// A run names a context popover: read for every paragraph each batch (`ContextMenuHost.sync`).
+    private(set) var hasInlineContextPopover = false
     /// The rarely set fields (`NodeExtrasIOS.swift`); nil until one is set.
     var extras: NodeExtras?
     /// A box's gradient and shadows (`NodePaintExtras`); nil until one is set.
