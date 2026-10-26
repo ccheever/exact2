@@ -25,7 +25,7 @@ impl Batch {
 }
 
 pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'static str> {
-    if let exact_runner::HttpScheduling::Independent { max_response_bytes } = request.http {
+    if let exact_runner::HttpScheduling::Independent { .. } = request.http {
         if request.storage.is_some() || request.continuation.is_some() {
             return Some("only HTTP may opt into independent transport");
         }

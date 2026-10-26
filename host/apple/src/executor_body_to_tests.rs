@@ -118,7 +118,13 @@ impl Drop for Files {
 
 const GRANTS: &str = "net.fetch https://example.test\nfs.write app:/cache";
 
+/// A core on workers, whatever `EXACT_HTTP_ASYNC` says (the asynchronous
+/// core refuses a body to a file: below), its transports [`Server`]s.
 fn serving(grants: &str) -> (Core, Opened, Receiver<()>) {
+    serving_on(grants, false)
+}
+
+fn serving_on(grants: &str, switched: bool) -> (Core, Opened, Receiver<()>) {
     let opened = Opened::default();
     let owners = (0..WORKERS)
         .map(|_| {
@@ -130,13 +136,14 @@ fn serving(grants: &str) -> (Core, Opened, Receiver<()>) {
         })
         .collect();
     let (wake, woke) = channel();
-    let core = Core::with_owners(
-        owners,
-        grants,
-        Box::new(move || {
-            let _ = wake.send(());
-        }),
-    );
+    let wake: Wake = Box::new(move || {
+        let _ = wake.send(());
+    });
+    let core = if switched {
+        Core::with_owners(owners, grants, wake)
+    } else {
+        Core::with_owners_on(owners, grants, wake, Arc::new(ibex2::host::Host::new))
+    };
     (core, opened, woke)
 }
 
@@ -333,4 +340,32 @@ fn a_body_to_a_file_is_charged_a_bounded_allowance() {
     assert!(limit < 3 << 20, "charged {limit}");
     let plain = Request::get("https://example.test/bytes/1").independent_http(1 << 30);
     assert!(reservation(&plain).is_err());
+}
+
+/// The asynchronous core (LLP 1120; `EXACT_HTTP_ASYNC`, off) does not write a
+/// body to a file yet: it refuses one, sending nothing, never reading it into
+/// memory instead. Run in the executor suite's rerun on that core.
+#[test]
+fn the_asynchronous_core_refuses_a_body_to_a_file() {
+    if !asynch::asynchronous() {
+        return;
+    }
+    let files = Files::new();
+    let (core, opened, woke) = serving_on(GRANTS, true);
+    core.set_app_roots(files.roots());
+    core.run(job(1, download("/bytes/10", "app:/cache/a")), None)
+        .unwrap();
+    let outcomes = collect(&core, &woke, 1);
+    assert!(
+        matches!(
+            &outcomes[0].1,
+            Outcome::Failed {
+                kind: FailureKind::Unsupported,
+                ..
+            }
+        ),
+        "{outcomes:?}"
+    );
+    assert!(opened.lock().unwrap().is_empty());
+    assert!(files.cache().is_empty());
 }

@@ -733,8 +733,8 @@ it (`.exact-<hex>.partial`, Ibex patch 19) that replaces the target only when
 the body is complete. A failure, an abort, the deadline or the bound removes
 the staging file and leaves the target as it was. A reply that is not 2xx is
 read into the response as usual, at most 1 MiB, and the file is untouched.
-The bound is `maxResponseBytes`, which may be up to 1 GiB here, or 1 GiB: the
-body is never held, so the bound is the disk's, not memory's. The written size
+The bound is `maxResponseBytes` (up to 1 GiB here), or 1 GiB when the fetch
+names none: the body is never held, so the bound is the disk's, not memory's. The written size
 travels as the response header `:exact-body-to` (the runner's `BODY_WRITTEN`;
 no HTTP header name has a colon), which the prelude turns into
 `response.exactBodyTo = {path, bytes}`; the JS target sets the same field. A
