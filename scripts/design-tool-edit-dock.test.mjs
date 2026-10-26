@@ -28,6 +28,9 @@ test('a cell pressed opens its editor in the dock, in the window, the cell marke
       `tap ${cell}`, ...wait, 'tree', 'layout', `screenshot ${join(shots, 'edit-dock-900.png')}`,
       // Escape with nothing pending: the dock goes, the focus back on the cell.
       'type branch-value key Escape', ...wait, 'tree',
+      // A tall editor (a shadow list's typed fields) and its draft's proposal joining it: the dock at its tallest, the
+      // cell still clear above it.
+      'tap cell-shadow.ring-0-light', ...wait, 'type part-0.spread-field 1px', ...wait, 'layout', `screenshot ${join(shots, 'edit-dock-900-tall.png')}`,
     ]);
     const trees = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {}))), layouts = replies.filter(r => r.nodes?.some(n => 'x' in n));
     const one = (t, id) => t.nodes.find(n => n.props?.testId === id);
@@ -49,5 +52,10 @@ test('a cell pressed opens its editor in the dock, in the window, the cell marke
     // Escape: no dock, the focus on the cell again.
     expect(one(trees[1], 'edit-dock')).toBeUndefined();
     expect(one(trees[1], cell)?.focused).toBe(true);
+    const [tall, ring] = [rect(layouts[1], 'edit-dock'), rect(layouts[1], 'cell-shadow.ring-0-light')];
+    expect(rect(layouts[1], 'proposal')).toBeDefined();
+    expect(tall.y + tall.h).toBeLessThanOrEqual(view.h + 1);
+    expect(ring.y).toBeGreaterThanOrEqual(0);
+    expect(ring.y + ring.h).toBeLessThanOrEqual(tall.y);
   } finally { await tool.close(); rmSync(app, { recursive: true, force: true }); }
 }, 1_200_000);

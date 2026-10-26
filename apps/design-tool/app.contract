@@ -208,11 +208,18 @@ component DesignTool
   state dockedFor = ""
   derive docked = editKind != "" and dockedFor == `${editKind}|${editTarget}`
   // The edit dock (third pass #7) shows while a cell is selected or an edit is open; the selected cell's branch, read
-  // for the grid shown, is its editor. A selection's first showing moves the focus into it once (`focusedFor`).
+  // for the grid shown, is its editor. Each press of a grid cell (`pressed`, counted) moves the focus into it once it
+  // shows (`focusedPress`), and Close or Escape gives it back to that cell (`returnTo`); a selection made otherwise
+  // (the Inspector, an input's button) moves no focus and has no cell to give it back to.
   derive editing = selToken != "" or editKind != ""
   derive branchShown = selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and (selPlace == "" or branch.place == selPlace)
-  state focusedFor = ""
-  task focusEditor when branchShown and focusedFor != `${selToken}|${selColumn}` key=`${selToken}|${selColumn}`
+  state pressed = 0
+  state focusedPress = 0
+  state returnTo = ""
+  // Text typed in the value field and not yet committed (it commits on change: Enter, or leaving it) is pending too.
+  state typing = false
+  derive closable = selToken != "" and editKind == "" and not scrubShown and not typing
+  task focusEditor when branchShown and focusedPress != pressed key=pressed
     after(1, enterEditor)
   state historyPages = 1
   resource history = loadHistory(historyShown, historyPages, since, epoch) as shape History else empty(ok=true)
@@ -578,10 +585,16 @@ component DesignTool
   action outlineImpact
     if impactToken != "" and not pending(outlined)
       send outlined = outlineUses(client, impactToken)
-  action selectCell(token: string, column: string)
+  action selectCell(token: string, column: string, press: bool)
     dockedFor = ""
-    // Clear of the dock: the cell in the middle of what the window shows above it.
-    scrollIntoView(`cell-${token}-${column}`, block="center")
+    // In view and clear of the dock however tall it grows (the cell's scroll margin is the dock's most, half the window).
+    scrollIntoView(`cell-${token}-${column}`, block="nearest")
+    if press
+      pressed = pressed + 1
+      returnTo = `cell-${token}-${column}`
+    else
+      returnTo = ""
+    typing = false
     // A scrub open is of another edit: it ends first.
     if scrubShown
       scrubTick = scrubTick + 1
@@ -596,35 +609,42 @@ component DesignTool
     editKind = ""
     rawFor = ""
     partFor = ""
-  // Into the editor: its value field, or (a token that follows others, unpinned: no field) the dock itself.
+  // Into the editor: its value field where there is one it can type in, else (a token that follows others, unpinned;
+  // a value this client or the token's source can't edit) the dock itself.
   action enterEditor
-    focusedFor = `${selToken}|${selColumn}`
-    if branch.expression and not pinning and not typed.ok
+    focusedPress = pressed
+    if (branch.expression and not pinning and not typed.ok) or branch.readOnly != "" or not canPropose
       focus("edit-dock")
     else
       focus("branch-value")
-  // The selection ended with nothing pending (Close, Escape): the dock goes and the focus is back on the cell.
+  action typingValue(v: string)
+    typing = v != shownValue
+  // The selection ended with nothing pending (Close, Escape): the dock goes and the focus is back on the cell pressed.
   action closeEditor
-    if editKind == "" and not scrubShown and selToken != ""
-      focus(`cell-${selToken}-${selColumn}`)
+    if closable
+      if returnTo != ""
+        focus(returnTo)
       selToken = ""
       selColumn = ""
       selPlace = ""
-      focusedFor = ""
-  // Escape in the dock closes it as Close does; with an edit pending (a draft, a scrub) it does nothing.
+      returnTo = ""
+  // Escape in the dock (from its field or any control in it) closes it as Close does; with anything pending (a typed
+  // value, a draft, a scrub) it does nothing.
   action dockKey(key: string)
-    if key == "Escape" and editKind == "" and not scrubShown and selToken != ""
-      focus(`cell-${selToken}-${selColumn}`)
+    if key == "Escape" and closable
+      if returnTo != ""
+        focus(returnTo)
       selToken = ""
       selColumn = ""
       selPlace = ""
-      focusedFor = ""
+      returnTo = ""
   action showDial(name: string, group: string, more: bool)
     if more and not opened.includes(group)
       opened = opened.concat([group])
     focusDial = name
   action cellText(v: string)
     dockedFor = ""
+    typing = false
     // A scrub open on another edit (another branch of it, a panel edit) ends first.
     if scrubShown and not (editKind == branchOp and editTarget == branch.token and editWhen == (scopeOwn ? branch.own : branch.when))
       scrubTick = scrubTick + 1
@@ -1108,13 +1128,13 @@ component DesignTool
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
+                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn, false), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
+                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn, false), onBackToPackage=panelBackToPackage(r.packageToken, r.c.name))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -1139,7 +1159,7 @@ component DesignTool
                             if t.follows != ""
                               text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                           for cell in t.cells key=cell.column
-                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(selToken == t.name and selColumn == cell.column ? "AccentColor" : lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellMarks.filter(m => m.cell == `${t.name}|${cell.column}`).map(m => m.tint).join("") : "transparent") press=selectCell(t.name, cell.column) id=`cell-${t.name}-${cell.column}` role="button" aria-current=(selToken == t.name and selColumn == cell.column ? "true" : "false") aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
+                            column width=96 flex-shrink=0 box-sizing="border-box" gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(selToken == t.name and selColumn == cell.column ? "AccentColor" : lit.cells.includes(`${t.name}|${cell.column}`) ? lit.cellMarks.filter(m => m.cell == `${t.name}|${cell.column}`).map(m => m.tint).join("") : "transparent") press=selectCell(t.name, cell.column, true) scroll-margin-top=8 scroll-margin-bottom="calc(50vh + 8px)" id=`cell-${t.name}-${cell.column}` role="button" aria-current=(selToken == t.name and selColumn == cell.column ? "true" : "false") aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
                               if cell.kind == "box-shadow"
                                 // In a padded box of the column's scheme, so the shadow falls on its own ground.
                                 view padding=6 border-radius=4 color-scheme=cell.scheme background-color="-exact-background" testId=`cell-shadow-${t.name}-${cell.column}`
@@ -1184,10 +1204,10 @@ component DesignTool
               // so neither opens a screen below the grid nor covers the other. Escape, or Close, with nothing pending
               // ends the selection and gives the focus back to its cell; with an edit pending Escape does nothing.
               if editing
-                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" position="sticky" bottom=0 z-index=5 max-height="50vh" overflow-y="auto" box-shadow="0 -2px 12px rgba(0, 0, 0, 0.18)" key=dockKey id="edit-dock" tabindex=-1 role="region" aria-label="Editing" testId="edit-dock"
-                  if selToken != "" and editKind == "" and not scrubShown
+                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" position="sticky" bottom=0 z-index=5 box-sizing="border-box" max-height="50vh" overflow-y="auto" box-shadow="0 -2px 12px rgba(0, 0, 0, 0.18)" key=dockKey id="edit-dock" tabindex=-1 role="region" aria-label="Editing" testId="edit-dock"
+                  if closable
                     row justify-content="flex-end"
-                      button press=closeEditor aria-keyshortcuts="Escape" testId="edit-dock-close"
+                      button press=closeEditor testId="edit-dock-close"
                         text "Close"
                   // The branch of the cell chosen, read of the grid shown.
                   if selPlace != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch) and branch.place != selPlace
@@ -1202,7 +1222,7 @@ component DesignTool
                       if branch.expression and not pinning and not typed.ok
                         text `Follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
                         for n in branch.inputs key=n
-                          button press=selectCell(n, selColumn) testId=`input-${n}`
+                          button press=selectCell(n, selColumn, false) testId=`input-${n}`
                             text n
                         for d in branch.dials key=d.name
                           if d.hidden
@@ -1219,7 +1239,7 @@ component DesignTool
                           // Its fields keep the names it holds (a shadow's colour token).
                           text `Names ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: its fields keep them; edit those for their own values.` color="-exact-secondary-label" testId="branch-names"
                           for n in branch.inputs key=n
-                            button press=selectCell(n, selColumn) testId=`input-${n}`
+                            button press=selectCell(n, selColumn, false) testId=`input-${n}`
                               text n
                           for d in branch.dials.filter(d => not d.hidden) key=d.name
                             button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
@@ -1249,7 +1269,7 @@ component DesignTool
                                   input value=fieldTexts.slice(p.index, p.index + 1).join("") input=partEdit(p.index) disabled=(not canPropose or branch.readOnly != "") placeholder=(p.optional ? "unsaid" : "") aria-label=`${branch.token} ${p.label}` flex=1 min-width=0 testId=`part-${p.key}-field`
                             if partMissing != ""
                               text `Give ${partMissing} a value: emptied, the part after it would be read in its place.` color="-exact-system-orange" font="-exact-footnote" testId="typed-missing"
-                        input value=shownValue change=cellText disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} value` id="branch-value" testId="branch-value"
+                        input value=shownValue input=typingValue change=cellText disabled=(not canPropose or branch.readOnly != "") aria-label=`${branch.token} value` id="branch-value" testId="branch-value"
                       if not branch.exact
                         button press=onlyThisMode disabled=(not canPropose or branch.readOnly != "") testId="only-this-mode"
                           text "Only this mode"
@@ -1312,7 +1332,7 @@ component DesignTool
                           row gap=8
                             button press=keepScrub disabled=(not scrub.ok or not scrub.ready or partsStale or pending(scrub) or pending(written) or not canWrite) buttonStyle="filled" testId="scrub-keep"
                               text "Keep"
-                            button press=cancelScrub aria-keyshortcuts="Escape" disabled=(not canWrite) testId="scrub-cancel"
+                            button press=cancelScrub disabled=(not canWrite) testId="scrub-cancel"
                               text "Cancel scrub"
                       else
                         row gap=8

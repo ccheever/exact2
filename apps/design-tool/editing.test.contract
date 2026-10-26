@@ -832,7 +832,14 @@ test "the edit dock: a cell's editor and its edit's proposal in one dock; Close 
   expect tree has "edit-dock"
   expect tree has "branch"
   expect tree has "edit-dock-close"
-  expect state focusedFor == "surface.card|0-light"
+  expect state focusedPress == 1
+  // Text typed and not yet committed is pending too: no Close, and Escape leaves it.
+  type "branch-value" "#abcdef"
+  expect tree missing "edit-dock-close"
+  type "branch-value" key "Escape"
+  clock data
+  expect tree has "edit-dock"
+  expect state selToken == "surface.card"
   // A typed value: its proposal in the same dock, and no Close while it is pending.
   type "branch-value" "#123456"
   type "branch-value" key "Enter"
@@ -868,3 +875,40 @@ test "the edit dock: a cell's editor and its edit's proposal in one dock; Close 
   clock data
   expect tree missing "edit-dock"
   expect state selToken == ""
+
+test "the edit dock: Escape during a scrub leaves the scrub and the selection; a second press of the same cell counts again (third pass #7)"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  tap "cell-surface.card-0-light"
+  clock data
+  clock +1
+  clock data
+  expect state focusedPress == 1
+  type "branch-value" "#223344"
+  type "branch-value" key "Enter"
+  clock data
+  expect text "chip" == "Live"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  // Escape: nothing cancelled, nothing closed.
+  type "branch-value" key "Escape"
+  clock data
+  expect tree has "scrub"
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  expect state selToken == "surface.card"
+  tap "scrub-cancel"
+  clock data
+  tap "cancel-edit"
+  clock data
+  // The same cell pressed again: a press of its own, so the focus moves into the editor again.
+  tap "cell-surface.card-0-light"
+  clock data
+  clock +1
+  clock data
+  expect state pressed == 2
+  expect state focusedPress == 2
