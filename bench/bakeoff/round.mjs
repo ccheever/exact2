@@ -20,13 +20,30 @@ const sims = (prefix) => spawnSync('xcrun', ['simctl', 'list', 'devices'], { enc
   .split('\n').map((l) => l.match(new RegExp(`^\\s+${prefix}\\d* \\(([0-9A-F-]{36})\\)`))?.[1]).filter(Boolean);
 const say = (s) => { const line = `${new Date().toISOString().slice(11, 19)} ${s}`; console.log(line); writeFileSync(resolve(ROUND, 'round.log'), line + '\n', { flag: 'a' }); };
 
-/** Run `jobs` (functions of a pool slot) at most `slots.length` at a time. */
+/** A simulator held by this round: a lock file naming this process, so two rounds never drive one simulator (a
+ * grade uninstalls every bake-off app on its simulator first). A lock whose process is gone is taken over. */
+const LOCKS = resolve(homedir(), 'bakeoff/locks');
+async function hold(udid) {
+  mkdirSync(LOCKS, { recursive: true });
+  const path = resolve(LOCKS, udid);
+  for (let said = false; ; said = true) {
+    try { writeFileSync(path, String(process.pid), { flag: 'wx' }); return () => rmSync(path, { force: true }); } catch {}
+    const owner = Number(readFileSync(path, 'utf8'));
+    let alive = true;
+    try { process.kill(owner, 0); } catch { alive = false; }
+    if (!alive || owner === process.pid) { rmSync(path, { force: true }); continue; }
+    if (!said) say(`waiting for ${udid}, held by PID ${owner}`);
+    await new Promise((r) => setTimeout(r, 10000));
+  }
+}
+
+/** Run `jobs` (functions of a pool slot) at most `slots.length` at a time, each slot held while its job runs. */
 async function pool(jobs, slots) {
   const free = [...slots], queue = [...jobs];
   await Promise.all(slots.map(async () => {
     while (queue.length) {
-      const job = queue.shift(), slot = free.shift();
-      try { await job(slot); } catch (e) { say(`job failed: ${e.message}`); } finally { free.push(slot); }
+      const job = queue.shift(), slot = free.shift(), release = await hold(slot);
+      try { await job(slot); } catch (e) { say(`job failed: ${e.message}`); } finally { release(); free.push(slot); }
     }
   }));
 }
@@ -69,6 +86,7 @@ async function feel() {
   const probe = resolve(HERE, '../../host/apple/feel/probe.mjs');
   mkdirSync(resolve(ROUND, 'feel'), { recursive: true });
   const [sim] = sims('bake-feel');
+  const release = await hold(sim);
   for (const spec of specs) for (const arm of ['exact', pairs[spec].stack]) {
     const recPath = resolve(ROUND, 'records', `${spec}-${arm}.json`);
     if (!existsSync(recPath)) continue;
@@ -88,6 +106,7 @@ async function feel() {
     writeFileSync(resolve(out, 'load.json'), JSON.stringify({ load, cores: availableParallelism() }) + '\n');
     say(`feel ${spec}-${arm}: exit ${r.code} (load ${load})`);
   }
+  release();
 }
 
 async function grade() {
