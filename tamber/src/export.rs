@@ -1347,6 +1347,10 @@ fn reimport_within(
         .collect();
     let judged = crate::edit::stepped_all(current, &ops, vocab)
         .and_then(|base| crate::export_batch::judged(&base, &members, vocab));
+    // Past the budget, nothing more is planned (the marks' checks).
+    if let Some(why) = crate::budget::spent() {
+        return Err(refuse(why));
+    }
     let mut refused = match &judged {
         Ok(j) => j
             .refused

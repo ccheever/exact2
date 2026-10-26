@@ -372,3 +372,38 @@ fn a_value_reading_a_param_through_a_token_is_checked_against_the_design() {
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
     assert!(e.message.contains("p1"), "{e:?}");
 }
+
+/// Ranged params each with a `when` line reading one dial fold together
+/// too: the batch reads the dial beside them, so it stays moving a token
+/// (Astra's round 2 on the counts: cleared `when` lines left it inert and
+/// every value folded alone).
+#[test]
+fn many_ranged_params_reading_a_dial_build_in_moments() {
+    let n = 1500;
+    let mut src = String::from("component App\n  params\n");
+    for k in 0..n {
+        src += &format!("    p{k}: number = \"0.5\"  range=\"0..1\"\n");
+    }
+    src += "  view\n    column\n";
+    for k in 0..n {
+        src += &format!("      column opacity=\"param.p{k}\"\n        text \"x\"\n");
+    }
+    let mut design = String::from(
+        "tamber t\n\naxes\n  tone = a | b\n\ndials\n  d: number = 0.3  in 0..1\n\ntheme\n  accent.fill = #0a7aff\n\nparams\n",
+    );
+    for k in 0..n {
+        let v = if k == 7 { "2" } else { "0.5" };
+        design += &format!("  App.p{k} = {v}\n    when tone=b: d\n");
+    }
+    let path = app(
+        "many-dial",
+        &[("app.contract", &src), ("app.tamber", &design)],
+    );
+    let began = std::time::Instant::now();
+    let built = contract::compile_path(&path);
+    let took = began.elapsed();
+    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
+    let e = built.unwrap_err();
+    assert_eq!(e.id, "tamber-param-range", "{e:?}");
+    assert!(e.message.contains("p7"), "{e:?}");
+}

@@ -43,6 +43,20 @@ pub struct Designs<'a> {
     /// Each param's first `params` line in the app's design, by token, its
     /// index there: found once ([`Designs::set`]).
     pub lines: std::cell::OnceCell<std::collections::HashMap<String, usize>>,
+    /// The params, the app's lines and the packages' lines by name, each
+    /// the first, found once ([`Names`]).
+    pub names: std::cell::OnceCell<Names>,
+}
+
+/// Where each name's line is, for the walks: made once a `Designs`.
+#[derive(Default)]
+pub struct Names {
+    params: std::collections::HashMap<String, usize>,
+    /// (in the tokens, then the icons: `false`, `true`), its index
+    app: std::collections::HashMap<String, (bool, usize)>,
+    roles: std::collections::HashMap<String, (bool, usize)>,
+    /// the package, (tokens or icons), its index
+    packages: std::collections::HashMap<String, (usize, bool, usize)>,
 }
 
 impl<'a> Designs<'a> {
@@ -55,6 +69,7 @@ impl<'a> Designs<'a> {
     ) -> Designs<'a> {
         Designs {
             lines: std::cell::OnceCell::new(),
+            names: std::cell::OnceCell::new(),
             file,
             app: text.and_then(|t| exact_tamber::parse(t).ok()),
             packages: app
@@ -83,6 +98,7 @@ impl<'a> Designs<'a> {
     ) -> Designs<'a> {
         Designs {
             lines: std::cell::OnceCell::new(),
+            names: std::cell::OnceCell::new(),
             app: design,
             ..Designs::read(file, None, app, vocab)
         }
@@ -135,16 +151,55 @@ impl<'a> Designs<'a> {
     /// The app's line `name` reads (a token or an icon): by its name, else
     /// a role's override in either spelling. With the name the fold
     /// publishes it by (a role's row spelling).
+    /// [`Names`], made on first use.
+    fn names(&self) -> &Names {
+        self.names.get_or_init(|| {
+            let mut n = Names::default();
+            for (i, q) in self.app_params.tokens.iter().enumerate() {
+                n.params.entry(q.token.clone()).or_insert(i);
+            }
+            if let Some(d) = &self.app {
+                let lines = d
+                    .tokens
+                    .iter()
+                    .map(|t| (false, t))
+                    .chain(d.icons.iter().map(|t| (true, t)));
+                let (mut tokens, mut icons) = (0, 0);
+                for (icon, t) in lines {
+                    let at = if icon { &mut icons } else { &mut tokens };
+                    n.app.entry(t.name.value.clone()).or_insert((icon, *at));
+                    if let Some(role) = self.role(&t.name.value) {
+                        n.roles.entry(role.to_string()).or_insert((icon, *at));
+                    }
+                    *at += 1;
+                }
+            }
+            for (k, (_, d)) in self.packages.iter().enumerate() {
+                for (i, t) in d.tokens.iter().enumerate() {
+                    n.packages
+                        .entry(t.name.value.clone())
+                        .or_insert((k, false, i));
+                }
+                for (i, t) in d.icons.iter().enumerate() {
+                    n.packages
+                        .entry(t.name.value.clone())
+                        .or_insert((k, true, i));
+                }
+            }
+            n
+        })
+    }
+
     fn app_token(&self, name: &str) -> Option<(String, &exact_tamber::Token)> {
         let d = self.app.as_ref()?;
-        let lines = || d.tokens.iter().chain(&d.icons);
-        if let Some(t) = lines().find(|t| t.name.value == name) {
+        let line = |(icon, i): (bool, usize)| if icon { &d.icons[i] } else { &d.tokens[i] };
+        if let Some(&at) = self.names().app.get(name) {
             let shown = self.role(name).map_or(name, |r| r);
-            return Some((shown.to_string(), t));
+            return Some((shown.to_string(), line(at)));
         }
         let role = self.role(name)?;
-        let t = lines().find(|t| self.role(&t.name.value) == Some(role))?;
-        Some((role.to_string(), t))
+        let &at = self.names().roles.get(role)?;
+        Some((role.to_string(), line(at)))
     }
 
     /// A package's line `name` reads: a token, or an icon (stage 13).
@@ -152,19 +207,15 @@ impl<'a> Designs<'a> {
         &self,
         name: &str,
     ) -> Option<(&contract_syntax::DesignSource, &exact_tamber::Token)> {
-        self.packages.iter().find_map(|(s, d)| {
-            let t = d
-                .tokens
-                .iter()
-                .chain(&d.icons)
-                .find(|t| t.name.value == name)?;
-            Some((*s, t))
-        })
+        let &(k, icon, i) = self.names().packages.get(name)?;
+        let (s, d) = &self.packages[k];
+        Some((*s, if icon { &d.icons[i] } else { &d.tokens[i] }))
     }
 
     /// The param whose IR token `name` is.
     fn param(&self, name: &str) -> Option<&ParamToken> {
-        self.app_params.tokens.iter().find(|q| q.token == name)
+        let &i = self.names().params.get(name)?;
+        self.app_params.tokens.get(i)
     }
 
     /// Whether `text` is a reference a walk follows: a param, an app or a
