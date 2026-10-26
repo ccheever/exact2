@@ -12,6 +12,22 @@ use super::tamber_serve::Serve;
 use serde_json::json;
 use std::time::{Duration, Instant};
 
+/// This thread's CPU time: what an in-process build's work takes, not the
+/// wall clock, which a loaded machine (the suite's other tests and servers,
+/// another agent's builds) stretches with no work the build did (dtool2's
+/// run at load 72 read 9.3 s of wall clock for a 3.0 s build; the build
+/// runs on its caller's thread).
+fn cpu() -> Duration {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: a valid timespec for the call to fill.
+    let read = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    assert_eq!(read, 0, "this thread's CPU clock");
+    Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
+}
+
 /// Two levels of `clamp()` over `space.md`, a base name the app leaves
 /// unset: `c1` holds 13 atoms (9 values, within the kernel's `calc()`
 /// limits, so the app builds); a value nesting three more `clamp()`s of it
@@ -183,13 +199,10 @@ fn many_profile_colours_are_taken_in_moments() {
     }
     src += "  p0 = color(--dci-p3 0 0 0)\n";
     std::fs::write(dir.join("app.tamber"), &src).unwrap();
-    let began = Instant::now();
+    let began = cpu();
     let built = contract::compile_path(&dir.join("app.contract"));
-    assert!(
-        began.elapsed() < Duration::from_secs(20),
-        "{:?}",
-        began.elapsed()
-    );
+    let took = cpu() - began;
+    assert!(took < Duration::from_secs(20), "{took:?} of CPU");
     assert!(built.is_ok(), "{:?}", built.err());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -215,13 +228,11 @@ fn the_builds_scheme_and_retention_walks_are_linear() {
     }
     src += "  c0 = #333333\n\nparams\n  Map.pin = c29999\n";
     std::fs::write(dir.join("app.tamber"), &src).unwrap();
-    let began = Instant::now();
+    let began = cpu();
     let built = contract::compile_path(&dir.join("app.contract"));
-    assert!(
-        began.elapsed() < Duration::from_secs(8),
-        "{:?}",
-        began.elapsed()
-    );
+    let took = cpu() - began;
+    // (in CPU time: 9.2 s before the sweep, 0.9 s now at load 180)
+    assert!(took < Duration::from_secs(4), "{took:?} of CPU");
     assert!(built.is_ok(), "{:?}", built.err());
     let _ = std::fs::remove_dir_all(&dir);
 }
