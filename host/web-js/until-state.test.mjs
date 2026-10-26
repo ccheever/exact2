@@ -77,9 +77,10 @@ test "a miss fails with the last value"
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    page = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+    page = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
       const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1))));
+      const file = Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1)));
+      return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
     } });
     const r = await runTests({ host: 'web', file, app: dir, url: page.url.href, atStep: (_, st) => { if (st.op === 'tap') arm(); } });
     const [waited, missed] = r.results;
