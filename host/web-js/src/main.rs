@@ -14,6 +14,7 @@ mod base_scale;
 mod base_scale_tests;
 #[cfg(test)]
 mod budget_tests;
+mod calls;
 mod code;
 mod emit;
 #[cfg(test)]

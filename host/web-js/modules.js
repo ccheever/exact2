@@ -59,10 +59,11 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // since data code and an answer's commit cannot say which request they follow, while any request such a handler
   // made is still in flight (`deviceBase`, the in-flight count before it): the least privileged origin.
   let origin = "app", deviceBase = null, wk = null;
-  const originNow = () => deviceBase !== null ? "device" : wk?.active() ? "wake" : origin;
+  // A tool call's (calls.js, LLP 1133.023 D7) stands below the app's.
+  const originNow = () => deviceBase !== null ? "device" : wk?.active() ? "wake" : origin === "app" ? Origin.call?.() ?? origin : origin;
   Origin.now = originNow;
-  // What a commit of a wake's origin may not run (LLP 1133.017 D6): journaled, never run.
-  Origin.refused = (name, from) => from === "wake" && REFUSED.has(name) && (say(`${name}: refused: during a wake`), true);
+  // What a commit of a wake's origin may not run (LLP 1133.017 D6): journaled, never run; a call's, calls.js says.
+  Origin.refused = (name, from) => from === "tool" ? !!Origin.callRefuses?.(name) : from === "wake" && REFUSED.has(name) && (say(`${name}: refused: during a wake`), true);
   After.push(() => { if (deviceBase !== null && inflight.n <= deviceBase) deviceBase = null; });
   const asks = (row, send) => row.request === "always" ? send : row.request === "when-prompt" ? !send : false;
   // A request's own timeout, the option its declaration's `timeout` names: from a Contract call's record, or data code's object.
