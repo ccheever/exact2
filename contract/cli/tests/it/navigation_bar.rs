@@ -169,6 +169,15 @@ fn safe_area_opt_out_is_local_to_a_routes_authored_root() {
             .unwrap_err();
         assert_eq!(error.id, "lower-attr-value", "{value}: {error}");
     }
+    for expression in [
+        r#"e.name == "viewer" ? "top" : "none bottom""#,
+        r#"e.name == "viewer" ? "auto top" : "bottom""#,
+        r#"e.name == "viewer" ? "top" : (e.name == "other" ? "Top" : "auto")"#,
+    ] {
+        let source = stack("", &format!("-exact-safe-area=({expression})"), "");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{expression}: {error}");
+    }
     for (root, inner) in [
         ("-exact-safe-area=\"none\"", ""),
         ("", "-exact-safe-area=\"top\""),

@@ -130,8 +130,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     let safeArea = RouteSafeArea()
 
     func ignoresSafeArea(_ edge: String) -> Bool {
-        let words = node.props["safeArea"]?.split(whereSeparator: { $0.isWhitespace }) ?? []
-        return words.contains("none") || words.contains(Substring(edge))
+        safeArea.ignores(edge, in: self)
     }
 
     /// The backdrop's colours last written, light and dark.
@@ -832,7 +831,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// A route's controller leaves for good: its header paints again and the
     /// route hatch hears `routeEnded` (LLP 1075.003 §3.2).
     private func end(_ c: RouteController) {
-        c.safeArea.releaseTop(); c.safeArea.releaseBottom()
+        c.safeArea.end()
         if let header = c.lifted { header.isHidden = false; c.lifted = nil }
         c.scoped?.isHidden = false
         c.scoped = nil

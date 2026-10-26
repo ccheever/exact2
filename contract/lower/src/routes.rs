@@ -337,7 +337,9 @@ impl NavPlace {
                     a.span,
                 );
             }
-            if let Expr::Str(word, _) = &a.value {
+            let mut literals = Vec::new();
+            crate::theme::literal_leaves(&a.value, &mut literals);
+            for (word, span) in literals {
                 let edges: Vec<_> = word.split_whitespace().collect();
                 if word != "auto"
                     && word != "none"
@@ -350,7 +352,7 @@ impl NavPlace {
                     return err(
                         "lower-attr-value",
                         "`-exact-safe-area` takes \"auto\", \"none\", or a space-separated list of top, right, bottom and left without duplicates",
-                        a.span,
+                        span,
                     );
                 }
             }

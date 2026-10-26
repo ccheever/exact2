@@ -1525,15 +1525,17 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
 | a route with `navigationPresentation="modal"` | a sheet |
 
-On an iOS route's root, `-exact-safe-area="top"` lets its primary scroller's
+On an iOS or tvOS route's root, `-exact-safe-area="top"` lets its primary scroller's
 content reach behind the navigation bar and status area. `"bottom"` opts out
 at the foot, an edge list combines them, and `"none"` opts out on every edge.
 `"auto"` (the default) keeps native clearance. Authored padding and keyboard
 insets remain in place. This property is not inherited and is refused on the
 session root and on descendants. This increment handles native route covers
-and the top/bottom scroller executors; the owner wrapper, padding credit and
-local inset custom properties from LLP 1123 follow separately. Other hosts
-keep their current presentation.
+and cancels UIKit's automatic contribution on every opted-out scroller edge,
+including tvOS overscan. Invalid runtime values fall back to `auto` and are
+journalled once per route; invalid literals in conditional branches are refused.
+The owner wrapper, padding credit and local inset custom properties from LLP 1123
+follow separately. macOS and the other hosts keep their current presentation.
 
 On macOS, date, time, datetime-local and select controls are default Tab stops,
 independent of the system's Keyboard navigation setting. Their native control

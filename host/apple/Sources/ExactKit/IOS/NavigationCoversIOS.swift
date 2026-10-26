@@ -230,7 +230,7 @@ extension NavigationHost {
         for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.contentMount { say("route \(c.key)", "view") }
             guard let node = c.ownedScroll, let scroll = node.scrollView else { continue }
-            for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node) { say("route \(c.key)", property) }
+            for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node, safeArea: c.safeArea.insets(for: scroll)) { say("route \(c.key)", property) }
         }
     }
 
@@ -241,15 +241,17 @@ extension NavigationHost {
     /// the platform's for what it scrolls, LLP 1115.000 D9.1). The offset
     /// and the content size are Exact's too but are not checked: they move
     /// with the user and with layout, so no last write predicts them.
-    static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool) -> [String] {
+    static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool, safeArea: UIEdgeInsets = .zero) -> [String] {
         var out: [String] = []
         // A native backend owns layout/footer insets, composed with the
         // refresh control and keyboard; zero is only the plain-scroll baseline.
         if s === node.scroll {
+            let expected = UIEdgeInsets(top: node.bandInset.top + safeArea.top, left: node.bandInset.left + safeArea.left,
+                                        bottom: node.bandInset.bottom + safeArea.bottom, right: node.bandInset.right + safeArea.right)
             #if os(tvOS)
-            if s.contentInset != node.bandInset { out.append("contentInset") }
+            if s.contentInset != expected { out.append("contentInset") }
             #else
-            if s.contentInset != node.bandInset, s.refreshControl?.isRefreshing != true { out.append("contentInset") } // a band's is the host's
+            if s.contentInset != expected, s.refreshControl?.isRefreshing != true { out.append("contentInset") } // a band's is the host's
             #endif
         }
         if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .automatic : .never) { out.append("contentInsetAdjustmentBehavior") }

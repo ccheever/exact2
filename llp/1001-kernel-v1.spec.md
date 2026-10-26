@@ -1646,5 +1646,7 @@ families even when their spelling is a CSS generic.
 clearance: `auto` (default), `none`, or the space-separated edges `top`,
 `right`, `bottom`, `left`. It is not inherited and is refused elsewhere.
 CSS has no native-container clearance property. UIKit currently applies the
-opt-out to route covers and its top/bottom scroll insets; the wrapper and
-padding credit are subsequent increments. Authored padding stays unchanged.
+opt-out to route covers and the automatic contribution on all scroller edges
+on iOS and tvOS (including overscan); the wrapper and padding credit are
+subsequent increments. Invalid runtime values mean `auto` and are journalled
+once per route. Authored padding stays unchanged.
