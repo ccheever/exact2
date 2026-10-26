@@ -86,12 +86,42 @@ extension GroupedListView {
     /// carried to (`carry`), as the kernel places the line where the sheet
     /// draws it (`Kernel::grouped_separator`). Right to left the leading
     /// edge is the right, where the kernel mirrors the sheet's insets.
+    /// A `delete=` row is a swipe scroll whose content holds the row's
+    /// insets (`swipe_rows::grouped`): its line starts at that content's
+    /// box, past a leading symbol there, at the text as UIKit's does with
+    /// an image, not at the card's edge.
     func lineStart(_ id: UInt32) -> CGFloat? {
         guard let row = host.presenter.views[id] else { return nil }
         let x = row.grid.map { PixelGrid.round($0.layout.minX, scale: host.presenter.gridScale) } ?? carried[id]?.frame.minX ?? row.frame.minX
-        let box = row.contentBox().offsetBy(dx: -row.bounds.minX, dy: 0)
+        var box = row.contentBox().offsetBy(dx: -row.bounds.minX, dy: 0)
+        if let body = row.props["swipeContent"].flatMap({ swipeBody(of: row, named: $0) }) {
+            var content = body.contentBox()
+            let shown = body.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
+            if shown.count > 1, leadingSymbol(of: body) === shown[0] {
+                let text = body.container.convert(shown[1].frame, to: body)
+                if collection.effectiveUserInterfaceLayoutDirection == .rightToLeft {
+                    content.size.width = max(0, text.maxX - content.minX)
+                } else {
+                    content = CGRect(x: text.minX, y: content.minY, width: max(0, content.maxX - text.minX), height: content.height)
+                }
+            }
+            box = body.convert(content, to: row).offsetBy(dx: -row.bounds.minX, dy: 0)
+        }
         if collection.effectiveUserInterfaceLayoutDirection == .rightToLeft { return row.bounds.width - box.maxX - x }
         return x + box.minX
+    }
+
+    /// The descendant of the swipe row `row` whose `id` is `name`: the
+    /// content its `swipeContent` names, which resolves within the row.
+    private func swipeBody(of row: NodeView, named name: String) -> NodeView? {
+        func find(_ view: UIView) -> NodeView? {
+            for child in view.subviews {
+                if let node = child as? NodeView, node.props["id"] == name { return node }
+                if let found = find(child) { return found }
+            }
+            return nil
+        }
+        return name.isEmpty ? nil : find(row)
     }
 }
 #endif
