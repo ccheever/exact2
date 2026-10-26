@@ -58,6 +58,15 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
         #endif
     }
     required init?(coder: NSCoder) { nil }
+    #if os(iOS)
+    // LLP 1133.029 D5: UIKit asks a presented controller, whose default is
+    // not its presenter's answer; a dialog over a locked screen keeps the lock.
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        host?.orientationLock?.supported ?? super.supportedInterfaceOrientations
+    }
+    @available(iOS 26, *)
+    override var prefersInterfaceOrientationLocked: Bool { host?.orientationLock?.locked ?? false }
+    #endif
 
     override func loadView() {
         let view = UIView()
@@ -172,6 +181,10 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     private weak var presenter: Presenter?
     /// Its presenter's root: what a sheet's surface resolves the theme by.
     var root: UIView? { presenter?.root }
+    #if os(iOS)
+    /// Its presenter's orientation lock, which each sheet answers.
+    var orientationLock: OrientationLock? { presenter?.orientationLock }
+    #endif
     private final class Entry {
         let dialog: NodeView
         let incarnation: UInt64

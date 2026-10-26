@@ -23,6 +23,7 @@ package final class Presenter {
     let menusHeldFocus = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
     weak package var session: ExactSession?
+    var orientationLock = OrientationLock() // journaled once: the Mac has no orientation (LLP 1133.029 D12)
     /// The document: the roots live here, content-sized like a page.
     let root = FlippedView(frame: .zero)
     /// The viewport over it: the window's content view, scrolling like a browser's.
@@ -591,7 +592,7 @@ package final class Presenter {
         resetting = true // (from its first teardown: a view it removes may end an edit)
         defer { resetting = false }
         MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
-        WakeLock.hold(self, false) // the new host's first batch says it again
+        WakeLock.hold(self, false); releaseOrientationLock() // the new host's first batch says them again
         cancelPageElementScroll(viewport.contentView)
         focusEvents.reset()
         pointerHeld = nil; pointerPath = []; pointerSource = nil; mouseChain.bubbledPress?.cancel()
@@ -1041,7 +1042,7 @@ package final class Presenter {
 
     func apply(_ batch: Batch) {
         session?.fieldChrome.presented(batch.layoutProvisional)
-        defer { applyLanguage(batch); applyWakeLock(batch) }
+        defer { applyLanguage(batch); applyWakeLock(batch); applyOrientationLock(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops"), phase = HostPhases.shared.begin(.apply)
         defer { Self.signposts.endInterval("apply", post); HostPhases.shared.end(phase) }
