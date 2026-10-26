@@ -1,0 +1,43 @@
+// Translate (LLP 1133.027 §10): a message's language, found in data code when
+// its menu opens, and its translation on the device, kept for the session per
+// message and shown under its text.
+
+use TranslatorAvailability from "@exact/translation"
+
+// What the data module says of a message: its language's tag ("" where none
+// was found with confidence), the language's name, and the detector's own
+// availability (`downloadable` only on the web).
+shape MessageLanguage
+  language: string
+  name: string
+  detector: string
+
+// A message's translation, or, with no `text`, the line that stands in its
+// place: the download in progress, or why there is none.
+shape Translated
+  id: string
+  text: string
+  line: string
+
+fn withTranslated(ts: Translated[], t: Translated): Translated[] = ts.filter(x => x.id != t.id).concat([t])
+// A failure's line, by the error's name (D7): a pack that is not there, a
+// download the person declined, or anything else.
+fn translateFailure(code: string, name: string): string = code == "InvalidStateError" or code == "NotAllowedError" ? `${name} isn’t downloaded` : "Couldn’t translate this message"
+
+// The line a translation in progress shows: its failure, or its download.
+fn pendingLineOf(failed: string, name: string, pair: TranslatorAvailability): string = failed != "" ? translateFailure(failed, name) : (pair.availability == "downloading" ? `Downloading ${name}…${match pair.progress { case some(p) => ` ${round(p * 100)}%`, case none => "" }}` : "")
+
+component TranslationView
+  props
+    t: Translated
+    original: action
+  view
+    column gap=2 testId=`translation-${t.id}`
+      if t.text != ""
+        text t.text overflow-wrap="break-word" testId=`translated-${t.id}`
+      row gap=4 align-items="baseline" flex-wrap="wrap"
+        text t.line font="-exact-footnote" color="-exact-secondary-label" testId=`translation-line-${t.id}`
+        if t.text != ""
+          text "·" font="-exact-footnote" color="-exact-secondary-label" aria-hidden=true
+          button appearance="none" press=original(t.id) testId=`show-original-${t.id}`
+            text "Show Original" font="-exact-footnote" color="AccentColor"
