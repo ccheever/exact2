@@ -879,7 +879,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// not stay at the edge.
     private func hem() {
         let presenter = host.presenter, viewport = presenter.viewport
-        guard let container = viewport.superview, owner.window != nil, owner.isDescendant(of: viewport),
+        guard let container = viewport.superview, owner.window != nil, presenter.inDocument(owner),
               presenter.keyboardInset == 0, viewport.contentSize.height <= viewport.bounds.height + 0.5,
               viewport.contentSize.width <= viewport.bounds.width + 0.5 else { skirt?.isHidden = true; return }
         // The page's area, which the viewport is drawn past (LLP 1130).
@@ -921,12 +921,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         mask.frame = local
         mask.path = path.cgPath
         CATransaction.commit()
-        // Inside the viewport, behind the document: the viewport now covers the whole view.
-        let document = presenter.root
-        if view.superview !== viewport || viewport.subviews.firstIndex(of: view).map({ $0 > (viewport.subviews.firstIndex(of: document) ?? 0) }) == true {
-            viewport.insertSubview(view, belowSubview: document)
+        // Behind the document, where it is mounted: that covers the whole view.
+        let document = presenter.root, page = presenter.documentHost
+        if view.superview !== page || page.subviews.firstIndex(of: view).map({ $0 > (page.subviews.firstIndex(of: document) ?? 0) }) == true {
+            page.insertSubview(view, belowSubview: document)
         }
-        assign(view, \.frame, viewport.convert(reach, from: container))
+        assign(view, \.frame, page.convert(reach, from: container))
         assign(view, \.isHidden, false)
     }
     #endif

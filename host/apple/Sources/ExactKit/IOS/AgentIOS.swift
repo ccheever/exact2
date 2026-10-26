@@ -425,7 +425,7 @@ extension Agent {
         }
         // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
         let popoverLayer = PopoverLayer.containing(host)
-        let inViewport = popoverLayer.map { $0.isDescendant(of: vp) } ?? (presenter.port(of: host) === vp)
+        let inViewport = popoverLayer.map { presenter.inDocument($0) } ?? (presenter.port(of: host) === vp)
         var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)].merging(Agent.range(of: vp)) { a, _ in a }
                                                   : ["presentation": true, "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]]
         scroll.append(contentsOf: chain.reversed())
@@ -1237,7 +1237,8 @@ extension Agent {
         // A film's frames keep one size.
         let presented = req["film"] as? Bool == true ? nil : presentedOverApp()
         let wholeWindow = req["window"] as? Bool == true || presented != nil
-        let captureView: UIView = wholeWindow ? (vp.window ?? vp) : vp
+        let page = presenter.documentHost
+        let captureView: UIView = wholeWindow ? (vp.window ?? page) : page
         // The page's picture is its area, whose top-left is a box's (0, 0), not the bands it is drawn past (LLP 1130).
         let margins = wholeWindow ? .zero : presenter.pageMargins
         let size = captureView.bounds.inset(by: margins).size

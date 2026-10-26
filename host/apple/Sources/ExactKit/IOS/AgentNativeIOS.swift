@@ -176,7 +176,7 @@ extension Presenter {
     /// for there is a stray. `owner` is the nearest node view at or above `v`.
     private func inspectionJudges(_ v: UIView, owner: NodeView?) -> Bool {
         if let n = liveView(v) { return !Self.platformKinds.contains(n.kind) && n.props["hatch"] == nil }
-        if v === viewport || v === root || v === session?.view { return true }
+        if v === viewport || v === documentMount || v === root || v === session?.view { return true }
         if let o = owner {
             let containers: [UIView?] = [o.clipBox, o.scroll, o.overlay, o.materialView?.contentView,
                                          o.glassGroupView?.contentView, o.glassSlot?.contentView]
@@ -211,6 +211,7 @@ extension Presenter {
         // A grouped list's background past the viewport's edge, beside it (LLP 1116.004 D2).
         if owner == nil, groupedLists?.inspectionOwns(sub) == true { return ("grouped-list", nil) }
         if sub === viewport { return ("viewport", nil) }
+        if sub === documentMount { return ("document mount", nil) }
         if sub === root { return ("document", nil) }
         if session?.view?.inspectionOwned.contains(where: { $0 === sub }) == true { return ("probe", nil) }
         if surfaces(includingRetiring: true).contains(where: { $0.owned.contains { $0 === sub } }) { return ("modal", nil) }

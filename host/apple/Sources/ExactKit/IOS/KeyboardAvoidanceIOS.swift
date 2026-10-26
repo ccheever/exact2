@@ -98,8 +98,9 @@ extension Presenter {
             let edge = viewport.convert(CGPoint(x: 0, y: top), from: window).y
             b.size.height = max(0, min(b.maxY, edge) - b.minY)
         }
-        guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
-        let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
+        let host = documentHost
+        guard b.height > 1, let hit = host.hitTest(host.convert(CGPoint(x: b.midX, y: b.maxY - 1), from: viewport), with: nil) else { return nil }
+        let chain = Array(sequence(first: hit, next: { $0 === host ? nil : $0.superview }))
         let from = chain.firstIndex { $0 is UIScrollView } ?? 0
         return chain[from...].lazy.compactMap { v in
             v.backgroundColor.flatMap { $0.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 ? $0 : nil }
@@ -357,7 +358,7 @@ extension NavigationHost {
     /// The primary controller keeps its native bounds while route content avoids the keyboard.
     func ownerFrame(_ owner: UIViewController, in root: UIView) -> CGRect {
         let viewport = presenter.viewport
-        var frame = !ExactEnv.authoredChrome && root.isDescendant(of: viewport) ? viewport.convert(viewport.pageBounds, to: root) : root.bounds
+        var frame = !ExactEnv.authoredChrome && presenter.inDocument(root) ? viewport.convert(viewport.pageBounds, to: root) : root.bounds
         frame.size.height += ownerKeyboardExtension(owner)
         // The authored tablist the agent paints takes its own place in the
         // root, as on the web; the routes end at its edge, not under it.
