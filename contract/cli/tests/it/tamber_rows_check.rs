@@ -409,7 +409,8 @@ fn a_worst_case_write_is_checked_within_the_budget() {
             tv_nsec: 0,
         };
         // SAFETY: a valid timespec for the call to fill.
-        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+        let read = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+        assert_eq!(read, 0, "this thread's CPU clock");
         std::time::Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
     };
     let run = |base: &str| {
