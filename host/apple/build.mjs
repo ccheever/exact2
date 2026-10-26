@@ -1148,7 +1148,8 @@ async function main(args, lockHeld = false) {
   // Linker flags the manifest declares for the module artifact
   // (`host.macos.link`, `host.ios.link`; one argument each), for what an
   // archive needs but cannot say: `-lc++` for a static library with C++ inside.
-  const linkArgs = (forIos, os = forIos ? 'ios' : 'macos') => [...(app.manifest.host?.[os]?.link ?? []), ...weakFrameworks(packages, os, app.manifest.host?.[os]?.minimumOS)];
+  // tvOS weak-links only what a package declares for `tvos`: AlarmKit is iOS's alone.
+  const linkArgs = (forIos, os = forIos ? 'ios' : 'macos') => [...(app.manifest.host?.[os]?.link ?? []), ...weakFrameworks(packages, forIos && tv ? 'tvos' : os, app.manifest.host?.[os]?.minimumOS)];
   // What the arm cache must see change: the flags, and each library's bytes.
   const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).stamped).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
