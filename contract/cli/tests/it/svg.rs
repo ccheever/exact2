@@ -772,8 +772,160 @@ fn d_transitions_and_all_covers_it() {
 }
 
 #[test]
+fn box_transforms_lower_to_their_rows_inline_through_classes_and_choices() {
+    let mut r = boot(
+        r#"style Shifted
+  transform="translate(0px, 25px)"
+style Scaled
+  transform="scale(0.8)"
+style Empty
+  opacity=1
+component App
+  state small = true
+  action change
+    small = false
+  view
+    column
+      view testId="shift" transform="translate(0px, 25px)"
+      view testId="scale" transform="scale(0.8)"
+      view testId="shift-rotate" transform="translate(10px) rotate(45deg)"
+      view testId="rotate-scale" transform="rotate(90deg) scale(2)"
+      view testId="all" transform="translate(10px, 0) rotate(45deg) scale(1.5)"
+      view testId="none" transform="none"
+      view testId="aliases" transform="translateX(3px) rotateZ(0.5turn) scale(2, 2)"
+      view testId="y" transform="translateY(-4px)"
+      view testId="percent" transform="translate(-50%, 8px) scale(80%)"
+      text "Moved" testId="text" transform="translate(2px, 3px)"
+      button testId="button" transform="scale(1.2)"
+        text "Move"
+      view testId="class" class=Shifted
+      view testId="class-choice" class=(small ? Scaled : Shifted)
+      view testId="class-unset" class=(small ? Scaled : Empty)
+      view testId="choice-none" transform=(small ? "scale(0.8)" : "none")
+      view testId="choice-mixed" transform=(small ? "translate(0px, 25px) scale(0.8)" : "rotate(90deg)")
+      svg testId="svg" transform="scale(0.8)"
+        foreignObject width=10 height=10
+          view testId="foreign" transform="scale(0.8)"
+"#,
+    );
+    let rows = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        let s = &k.node_by_key(k.find_by_test_id(id)[0]).unwrap().style;
+        (
+            (s.translate.x, s.translate.y),
+            (s.translate_percent.x, s.translate_percent.y),
+            s.rotate,
+            s.scale,
+        )
+    };
+    let none = ((0.0, 0.0), (0.0, 0.0), 0.0, 1.0);
+    let shifted = ((0.0, 25.0), (0.0, 0.0), 0.0, 1.0);
+    let scaled = ((0.0, 0.0), (0.0, 0.0), 0.0, 0.8);
+    for (id, expected) in [
+        ("shift", shifted),
+        ("scale", scaled),
+        ("shift-rotate", ((10.0, 0.0), (0.0, 0.0), 45.0, 1.0)),
+        ("rotate-scale", ((0.0, 0.0), (0.0, 0.0), 90.0, 2.0)),
+        ("all", ((10.0, 0.0), (0.0, 0.0), 45.0, 1.5)),
+        ("none", none),
+        ("aliases", ((3.0, 0.0), (0.0, 0.0), 180.0, 2.0)),
+        ("y", ((0.0, -4.0), (0.0, 0.0), 0.0, 1.0)),
+        ("percent", ((0.0, 8.0), (-50.0, 0.0), 0.0, 0.8)),
+        ("text", ((2.0, 3.0), (0.0, 0.0), 0.0, 1.0)),
+        ("button", ((0.0, 0.0), (0.0, 0.0), 0.0, 1.2)),
+        ("class", shifted),
+        ("class-choice", scaled),
+        ("class-unset", scaled),
+        ("choice-none", scaled),
+        ("choice-mixed", ((0.0, 25.0), (0.0, 0.0), 0.0, 0.8)),
+        ("foreign", scaled),
+    ] {
+        assert_eq!(rows(&r, id), expected, "{id}");
+    }
+    // An SVG element keeps the property itself.
+    let k = r.kernel();
+    let svg = k.node_by_key(k.find_by_test_id("svg")[0]).unwrap();
+    assert_eq!(svg.style.transform.matrix(), [0.8, 0.0, 0.0, 0.8, 0.0, 0.0]);
+    assert_eq!(svg.style.scale, 1.0);
+    r.act("change", vec![]).unwrap();
+    for (id, expected) in [
+        ("class-choice", shifted),
+        ("class-unset", none),
+        ("choice-none", none),
+        ("choice-mixed", ((0.0, 0.0), (0.0, 0.0), 90.0, 1.0)),
+    ] {
+        assert_eq!(rows(&r, id), expected, "{id} after change");
+    }
+}
+
+#[test]
 fn box_transforms_are_refused_inline_and_through_classes() {
     let mut failures = Vec::new();
+    // What the rows cannot express, with the clause the refusal ends with.
+    let refused = [
+        ("transform=matrix", "cannot read"),
+        ("transform=`scale(${small ? 1 : 2})`", "cannot read"),
+        (
+            "transform=\"matrix(1, 0, 0, 1, 0, 0)\"",
+            "`matrix(…)` has no individual property",
+        ),
+        (
+            "transform=\"skewX(10deg)\"",
+            "`skewX(…)` has no individual property",
+        ),
+        (
+            "transform=\"scale(2, 1)\"",
+            "`scale(2, 1)` scales the axes differently",
+        ),
+        ("transform=\"scaleX(2)\"", "`scaleX(…)` scales one axis"),
+        (
+            "transform=\"scale3d(1, 1, 1)\"",
+            "`scale3d(…)` scales one axis",
+        ),
+        (
+            "transform=\"translate3d(1px, 1px, 1px)\"",
+            "`translate3d(…)` is a 3D function",
+        ),
+        (
+            "transform=\"rotateX(10deg)\"",
+            "`rotateX(…)` is a 3D function",
+        ),
+        (
+            "transform=\"rotate(10deg) rotate(20deg)\"",
+            "`rotate(…)` is written twice",
+        ),
+        (
+            "transform=\"scale(2) translate(10px)\"",
+            "`translate(…)` comes before `scale(…)`",
+        ),
+        (
+            "transform=\"translate(10px) rotate(1deg) translate(2px)\"",
+            "`translate(…)` comes before `rotate(…)`",
+        ),
+        (
+            "transform=\"scale(0.8) rotate(1deg)\"",
+            "`rotate(…)` comes before `scale(…)`",
+        ),
+        (
+            "transform=\"translate(1px, 2px, 3px)\"",
+            "`translate(…)` takes one or two lengths",
+        ),
+        ("transform=\"scale(big)\"", "`scale(big)` is not a number"),
+        (
+            "transform=\"wobble(1)\"",
+            "`wobble(…)` is not a transform function",
+        ),
+        ("transform=\"scale(0.8\"", "has no closing parenthesis"),
+        (
+            "transform=(small ? \"scale(0.8)\" : \"skew(1deg)\")",
+            "`skew(…)` has no individual property",
+        ),
+        ("class=Skewed", "`skewX(…)` has no individual property"),
+        (
+            "class=(small ? Scaled : Skewed)",
+            "`skewX(…)` has no individual property",
+        ),
+    ];
     for element in [
         "view",
         "box",
@@ -786,24 +938,12 @@ fn box_transforms_are_refused_inline_and_through_classes() {
         "button aria-label=\"Move\"",
         "paint-surface",
     ] {
-        for attr in [
-            "transform=\"scale(0.8)\"",
-            "transform=\"translate(0px, 25px)\"",
-            "transform=matrix",
-            "transform=(small ? \"scale(0.8)\" : \"none\")",
-            "transform=\"none\"",
-            "class=Scaled",
-            "class=Shifted",
-            "class=(small ? Scaled : Shifted)",
-            "class=(small ? Scaled : Empty)",
-        ] {
+        for (attr, clause) in refused {
             let src = format!(
                 r#"style Scaled
   transform="scale(0.8)"
-style Shifted
-  transform="translate(0px, 25px)"
-style Empty
-  opacity=1
+style Skewed
+  transform="skewX(10deg)"
 component App
   state matrix = "scale(0.8)"
   state small = true
@@ -824,6 +964,7 @@ component App
                         "`scale`",
                         "translate=\"0px 25px\"",
                         "scale=0.8",
+                        clause,
                     ] {
                         if !e.to_string().contains(expected) {
                             failures.push(format!("{element} {attr}: missing {expected}: {e}"));
@@ -833,11 +974,31 @@ component App
             }
         }
     }
+    // Both the property and a row it lowers to: the author wrote the row twice.
+    for (attrs, row) in [
+        ("transform=\"scale(0.8)\" translate=\"1px\"", "translate"),
+        ("transform=\"translate(1px)\" rotate=15", "rotate"),
+        ("transform=\"translate(1px)\" scale=2", "scale"),
+        ("class=Scaled scale=2", "scale"),
+        ("class=Scaled translate=\"1px\"", "translate"),
+    ] {
+        let src = format!(
+            "style Scaled\n  transform=\"scale(0.8)\"\ncomponent App\n  view\n    view {attrs}\n"
+        );
+        match contract::compile(&src) {
+            Ok(_) => failures.push(format!("compiled: {attrs}")),
+            Err(e)
+                if e.id == "lower-attr-tag"
+                    && e.message
+                        .contains(&format!("`transform` and `{row}` on one box")) => {}
+            Err(e) => failures.push(format!("{attrs}: {e}")),
+        }
+    }
     let html_in_svg = r#"component App
   view
     svg
       foreignObject width=100 height=100
-        text "HTML text" transform="scale(0.8)"
+        text "HTML text" transform="skewX(10deg)"
 "#;
     match contract::compile(html_in_svg) {
         Ok(_) => failures.push("compiled a box inside foreignObject".into()),

@@ -892,3 +892,23 @@ fn random_lowered_translate_tracks_play_as_the_engine_samples() {
 fn random_lowered_colour_tracks_play_as_the_engine_samples() {
     lowered_matches_engine(true, 0x2545_f491_4f6c_dd1d, 60);
 }
+
+#[test]
+fn an_unsupported_filter_transition_is_named() {
+    let literal = "component App\n  view\n    box transition=\"opacity 200ms, filter 200ms\"\n";
+    let diagnostics = contract::compile(literal).unwrap_err();
+    assert!(format!("{diagnostics:?}").contains("`filter` is not a supported transition property"));
+    let source = "component App\n  state transitions = \"opacity 200ms, filter 200ms\"\n  view\n    box transition=transitions\n";
+    let plan = contract::compile(source).unwrap().encode();
+    let (host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let logs = host.agent("{\"op\":\"logs\"}");
+    assert!(logs.contains("invalid transition value"), "{logs}");
+    assert!(logs.contains("filter 200ms"), "{logs}");
+}

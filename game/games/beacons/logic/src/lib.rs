@@ -18,6 +18,8 @@ pub struct Movement {
     pub speed: asset::Curve,
     pub jump: f32,
 }
+/// A held sprint runs at this many times the movement table's speed.
+const SPRINT: f32 = 1.75;
 pub struct Beacons;
 impl Game for Beacons {
     const ID: &'static str = "beacons";
@@ -26,9 +28,18 @@ impl Game for Beacons {
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
-            .stick("move", Stick::wasd().or_arrows())
-            .button("light", &["KeyE"])
-            .button("jump", &["Space"])
+            .stick(
+                "move",
+                Stick::wasd().or_arrows().or_pad(Pad::Left).or_tilt(Tilt {
+                    max_degrees: 20.0,
+                    dead_zone: 2.0,
+                }),
+            )
+            .button("jump", &["Space", "GamepadSouth"])
+            // Held 200 ms, Shift runs; a tap of it does nothing.
+            .hold("sprint", &["ShiftLeft", "GamepadL1"], 0.2)
+            // E lights a beacon only within reach of one.
+            .context("beacon", |a| a.button("light", &["KeyE", "GamepadWest"]))
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
@@ -124,16 +135,37 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
+        // Set level: the app posts the gravity it read (`tilt x y z`), the
+        // level of tilt to move from the next tick.
+        for m in input.messages() {
+            let level: Vec<f32> = (m.strip_prefix("tilt ").into_iter())
+                .flat_map(str::split_whitespace)
+                .filter_map(|n| n.parse().ok())
+                .collect();
+            if let [x, y, z] = level[..] {
+                w.set_tilt_neutral("move", Vec3::new(x, y, z));
+            }
+        }
+        // Set before the step, every tick: the table tunes walking, a held
+        // sprint scales it, and a sprint released while paused (no edge) walks
+        // again from the first tick on resume.
         {
             let tuning = w.table::<Movement>("movement.json").unwrap();
+            let walk = tuning.speed.at(input.stick_xz("move").length());
             let mut player = w.require_mut::<Character>("player");
-            player.speed = tuning.speed.at(input.stick_xz("move").length());
+            player.speed = if input.held("sprint") {
+                walk * SPRINT
+            } else {
+                walk
+            };
             player.jump = tuning.jump;
         }
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         let mut near = "";
+        let mut reach = false;
         if let Some((_, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+            reach = true;
             if input.pressed("light") {
                 beacon.lit = true;
                 beacon.glow_to(1.0, 0.5);
@@ -143,5 +175,6 @@ impl Game for Beacons {
         }
         w.publish("lit", w.count::<Beacon>(|b| b.lit));
         w.publish("near", near);
+        w.input_context("beacon", reach);
     }
 }

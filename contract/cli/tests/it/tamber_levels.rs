@@ -58,19 +58,31 @@ fn reaches(s: &mut Serve, name: &str) -> Value {
         .clone()
 }
 
-/// Each tuple's `[level, name]`.
-fn steps(resolved: &Value) -> Vec<(String, String)> {
+/// Each tuple's `(level, name)` on `side` (`light` or `dark`).
+fn side(resolved: &Value, side: &str) -> Vec<(String, String)> {
     resolved["tuples"]
         .as_array()
         .unwrap()
         .iter()
         .map(|t| {
             (
-                t["level"].as_str().unwrap().to_string(),
-                t["name"].as_str().unwrap().to_string(),
+                t["level"][side].as_str().unwrap().to_string(),
+                t["name"][side].as_str().unwrap().to_string(),
             )
         })
         .collect()
+}
+
+/// Each tuple's `(level, name)`, the same on both sides where the scheme
+/// decides nothing.
+fn steps(resolved: &Value) -> Vec<(String, String)> {
+    let light = side(resolved, "light");
+    assert_eq!(
+        light,
+        side(resolved, "dark"),
+        "one level per tuple: {resolved}"
+    );
+    light
 }
 
 #[test]
@@ -370,8 +382,8 @@ fn icon_params_param_aliases_and_literals() {
     let lift = ask(&mut s, "explain", &format!("{MAP}.lift"));
     assert_eq!(lift.get("levels"), Some(&Value::Null), "{lift}");
     drop(s);
-    // An app component's icon param naming the app's icon (a package's
-    // icons are not read yet).
+    // An app component's icon param naming the app's icon (a package's,
+    // stage 13: `package_icons.rs`).
     std::fs::write(dir.join("app.contract"), "use Card from \"@acme/reading\"\ncomponent Badge\n  params\n    mark: icon = \"icon.app\"\n  view\n    image \"symbol:param.mark\"\ncomponent App\n  view\n    column\n      Card()\n      Badge()\n").unwrap();
     let mut s = Serve::start(&dir, &[]);
     let mark = ask(&mut s, "resolve", "app.contract#Badge.mark");
@@ -432,7 +444,11 @@ fn rows(resolved: &Value) -> Vec<(Value, String, String, Value)> {
         .unwrap()
         .iter()
         .map(|t| {
-            let s = |k: &str| t[k].as_str().unwrap().to_string();
+            // No axis here is under `scheme=dark`: both sides alike.
+            let s = |k: &str| {
+                assert_eq!(t[k]["light"], t[k]["dark"], "{k}: {t}");
+                t[k]["light"].as_str().unwrap().to_string()
+            };
             (
                 t["modes"].clone(),
                 s("level"),
@@ -480,16 +496,20 @@ fn levels_token_keeps_the_walks_eight_hops() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Round 2 (Grok 2): a `when` naming an axis `under scheme=dark` makes a
-/// colour's light/dark pair, its light side the token's own line: the walk
-/// follows neither side alone, and the line owning the pair wins.
+/// Round 2 (Grok 2), and the per-side correction (theme2's 19:30 ruling,
+/// option (a)): a `when` naming an axis `under scheme=dark` makes a
+/// colour's light/dark pair, its light side the token's own line. Each side
+/// is walked on its own: the light side stops on the line, the dark side
+/// follows its `when`.
 #[test]
-fn a_light_dark_pair_stops_on_its_line() {
+fn a_light_dark_pair_is_walked_per_side() {
     let dir = reading("levels-pair", "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = #111111\n  reading.chain = #ffffff\n    when dark-style=dim: reading.pin\n");
     let mut s = Serve::start(&dir, &[]);
     let r = ask(&mut s, "resolve", &format!("{MAP}.chain"));
     let chain = ("app-token".to_string(), "reading.chain".to_string());
-    assert_eq!(steps(&r), [chain.clone(), chain], "{r}");
+    let pin = ("package".to_string(), "reading.pin".to_string());
+    assert_eq!(side(&r, "light"), [chain.clone(), chain.clone()], "{r}");
+    assert_eq!(side(&r, "dark"), [chain, pin], "{r}");
     assert_eq!(
         (&r["tuples"][1]["light"], &r["tuples"][1]["dark"]),
         (&json!("#ffffffff"), &json!("#333333ff")),
@@ -555,6 +575,120 @@ fn two_axes_overlapping_whens_on_a_package_token_and_an_app_param() {
             ("b", "l", "package", "reading.deep", Some("#303030ff")),
         ],
     );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The per-side correction's counterexample (dtool2's T1 reviewers, 18:55):
+/// an app's `params` line whose `when` lines are all on an axis `under
+/// scheme=dark`. Light follows the line's own reference to the package's
+/// colour; dark is the app's literal in every tuple. One level per tuple
+/// named the dark side's for Light.
+#[test]
+fn a_params_line_with_dark_only_whens_wins_dark_and_follows_its_reference_light() {
+    let dir = reading("levels-sides", "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = #111111\n\nparams\n  Map.pin = reading.chain\n    when dark-style=black: #000000\n    when dark-style=dim: #111111\n");
+    let mut s = Serve::start(&dir, &[]);
+    let r = ask(&mut s, "resolve", &format!("{MAP}.pin"));
+    let app = ("app-param".to_string(), format!("{MAP}.pin"));
+    let package = ("package".to_string(), "reading.pin".to_string());
+    assert_eq!(side(&r, "light"), [package.clone(), package], "{r}");
+    assert_eq!(side(&r, "dark"), [app.clone(), app], "{r}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Each tuple's `(modes, light, dark)`: each side's level, name and value.
+fn per_side(r: &Value) -> Vec<(Value, [String; 3], [String; 3])> {
+    let side = |t: &Value, k: &str| -> [String; 3] {
+        let at = |v: &Value| v.as_str().unwrap_or("").to_string();
+        [at(&t["level"][k]), at(&t["name"][k]), at(&t[k])]
+    };
+    r["tuples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| (t["modes"].clone(), side(t, "light"), side(t, "dark")))
+        .collect()
+}
+
+/// Round 1 of the per-side follow-up (Astra 1, Grok 1): `when` lines that
+/// mix an axis `under scheme=dark` with a normal one, and a normal-only
+/// `when` that outranks one under dark. Light takes the most specific
+/// holding `when` naming no axis under dark, else the line's own value;
+/// dark takes the most specific holding `when` of all. On an app's
+/// `params` line and on a package token, values asserted beside levels.
+#[test]
+fn mixed_axis_whens_are_walked_per_side() {
+    let dir = reading("levels-mixed", "tamber t\n\naxes\n  mode = a | b\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #222222)\n\nparams\n  Map.pin = reading.chain\n    when mode=b: ink\n    when mode=b dark-style=dim: #000000\n");
+    let mut s = Serve::start(&dir, &[]);
+    let r = ask(&mut s, "resolve", &format!("{MAP}.pin"));
+    let pin = format!("{MAP}.pin");
+    let row = |level: &str, name: &str, value: &str| {
+        [level.to_string(), name.to_string(), value.to_string()]
+    };
+    let package = row("package", "reading.pin", "#333333ff");
+    assert_eq!(
+        per_side(&r),
+        [
+            (
+                json!({"mode": "a", "dark-style": "black"}),
+                package.clone(),
+                package.clone()
+            ),
+            (
+                json!({"mode": "a", "dark-style": "dim"}),
+                package.clone(),
+                package.clone()
+            ),
+            (
+                json!({"mode": "b", "dark-style": "black"}),
+                row("app-token", "ink", "#111111ff"),
+                row("app-token", "ink", "#222222ff")
+            ),
+            (
+                json!({"mode": "b", "dark-style": "dim"}),
+                row("app-token", "ink", "#111111ff"),
+                row("app-param", &pin, "#000000ff")
+            ),
+        ],
+        "{r}"
+    );
+    drop(s);
+    // A package token: a two-axis normal `when` outranks one under dark.
+    std::fs::write(dir.join("app.tamber"), "tamber t\n\naxes\n  mode = a | b\n  size = s | l\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = #111111\n").unwrap();
+    let pkg = dir.join("node_modules/@acme/reading/reading.tamber");
+    let text = std::fs::read_to_string(&pkg).unwrap().replace(
+        "  reading.pin = #333333\n",
+        "  reading.pin = #333333\n  reading.tone = #101010\n    when mode=b size=l: reading.deep\n    when dark-style=dim: #111111\n  reading.deep = #303030\n",
+    ) + "    tone: color = reading.tone\n";
+    std::fs::write(&pkg, text).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let r = ask(&mut s, "resolve", &format!("{MAP}.tone"));
+    let tone = |v: &str| row("package", "reading.tone", v);
+    let deep = row("package", "reading.deep", "#303030ff");
+    let got = per_side(&r);
+    let at = |mode: &str, size: &str, dark: &str| {
+        got.iter()
+            .find(|(m, ..)| *m == json!({"mode": mode, "size": size, "dark-style": dark}))
+            .map(|(_, l, d)| (l.clone(), d.clone()))
+            .unwrap_or_else(|| panic!("{mode} {size} {dark}: {r}"))
+    };
+    assert_eq!(
+        at("a", "s", "dim"),
+        (tone("#101010ff"), tone("#111111ff")),
+        "{r}"
+    );
+    assert_eq!(
+        at("a", "s", "black"),
+        (tone("#101010ff"), tone("#101010ff")),
+        "{r}"
+    );
+    assert_eq!(
+        at("b", "l", "dim"),
+        (deep.clone(), deep.clone()),
+        "the two-axis when outranks: {r}"
+    );
+    assert_eq!(at("b", "l", "black"), (deep.clone(), deep), "{r}");
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }

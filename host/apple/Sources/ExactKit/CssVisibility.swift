@@ -28,24 +28,46 @@ extension NodeView {
     /// computed visibility, and so does a scroll or clip that holds them.
     func applyCssVisibility() {
         let hidden = cssVisibilityHidden
+        if hidden { giveUpFocus() }
+        #if os(macOS)
+        if hidden, field?.currentEditor() != nil || textArea.map({ $0.window?.firstResponder === $0 }) == true {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.cssVisibilityHidden else { return }
+                self.hideEditors(true)
+            }
+        } else { hideEditors(hidden) }
+        syncMaterialVisibility()
+        applyBackdrop()
+        #else
         field?.isHidden = hidden
         textArea?.isHidden = hidden
+        if hidden { materialView?.effect = nil }
+        else if materialView != nil, materialView?.effect == nil { updateMaterial() }
+        #endif
+        presenter?.svg.boxVisibility(id, hidden: hidden, clock: presenter?.session?.clock)
         symbolView?.isHidden = hidden
         web?.isHidden = hidden
         metal?.isHidden = hidden
         video?.applyCssHidden(hidden)
         presenter?.controls.controls[id]?.isHidden = hidden
         #if os(macOS)
-        textAreaScroll?.isHidden = hidden
         symbolClip?.isHidden = hidden
+        symbolShape?.isHidden = hidden
         #endif
-        if hidden { giveUpFocus() }
         guard isParagraph else { return }
         // The bitmap `invalidateText` left up. A fully hidden paragraph may
         // raster blank afterwards; a visible run draws through TextEngine.
         if hidden { retireHiddenText() }
         if hidden || inlineText.contains(where: { $0.paints && $0.run(dark: drawsDark).hidden }) { updateTextAccessibility() }
     }
+
+    #if os(macOS)
+    private func hideEditors(_ hidden: Bool) {
+        field?.isHidden = hidden
+        textArea?.isHidden = hidden
+        textAreaScroll?.isHidden = hidden
+    }
+    #endif
 
     /// A box hidden now no longer holds the focus it had: no ring, no keys
     /// (its own, or its field's or text area's editor). On the next turn:

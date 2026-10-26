@@ -6,11 +6,7 @@
 # Declarations the dev producer writes beside app.ts.
 /app.contract.d.ts
 # The terminal page, built by terminal-host/build.mjs.
-/assets/terminal-host.html
-/assets/terminal-host.js
-/assets/terminal-ghostty-vt.wasm
-/assets/terminal-ghostty-write-pty.wasm
-/assets/terminal-symbols-nerd-font-mono.woff2
+/assets/terminal/
 # Task records, evidence and diaries: local state, never committed (docs/diary.md).
 /.exact/
 # Generated sources (tools/generate/generate.mjs writes them; the app build runs it): built, not
@@ -32,17 +28,19 @@
 /src/sidebar/sidebar-icons.contract
 /src/timeline/timeline-icons.contract
 /src/panel/panel-icons.contract
+/src/browser/page-scripts.ts
 /src/providers/provider-icons.contract
 /src/diff/diff-glyphs.contract
 /assets/mermaid/vendor/
+/assets/math/vendor/
 /data/pierre-icons.tsv
-/macos/tests/terminal/vectors.json
 # The iOS app's copies (its bake captures only mobile/).
 /mobile/shared/r12-render-grammar.ts
 /mobile/shared/r12-render-grammar-more.ts
 /mobile/shared/r7-polish-css-words.ts
 /mobile/shared/settings-b-lucide.ts
 /mobile/file-icons.contract
+/tests/terminal/vectors.json
 # The app's own Cargo workspace builds here (Cargo.toml).
 /target/
 /src/highlight/codex-directives.js

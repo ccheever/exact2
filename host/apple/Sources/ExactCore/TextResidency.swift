@@ -10,12 +10,12 @@ import CExact
 package enum TextMetricKey {
     private static func fields(_ size: CGFloat, _ weight: Int, _ family: Int, _ italic: Bool,
                                _ lineHeight: CGFloat?, _ spacing: CGFloat, _ numeric: Int, _ stretch: CGFloat,
-                               _ h: inout Hasher) {
+                               _ variations: [FontAxis], _ h: inout Hasher) {
         h.combine(size); h.combine(weight); h.combine(family); h.combine(italic)
-        h.combine(lineHeight); h.combine(spacing); h.combine(numeric); h.combine(stretch)
+        h.combine(lineHeight); h.combine(spacing); h.combine(numeric); h.combine(stretch); h.combine(variations)
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
-        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, r.stretch, &h)
+        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, r.stretch, r.variations, &h)
         // Only an expanded Markdown run has these; a plain run hashes as
         // its request's does (LLP 1045 D4).
         if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
@@ -23,7 +23,7 @@ package enum TextMetricKey {
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
                r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
-               Int(r.font_variant_numeric), CGFloat(r.font_stretch), &h)
+               Int(r.font_variant_numeric), CGFloat(r.font_stretch), FontAxis.of(r), &h)
     }
     package static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
@@ -38,7 +38,8 @@ package enum TextMetricKey {
         h.combine(spec.align); h.combine(spec.lineClamp); h.combine(spec.overflowWrap)
         h.combine(spec.direction); h.combine(spec.whiteSpace)
         h.combine(spec.textIndent); h.combine(spec.hyphens)
-        if spec.hyphens == 2 { h.combine(spec.language) }
+        if spec.automaticHyphens { h.combine(spec.language) }
+        if !spec.emergencyBreaks.isEmpty { h.combine(spec.emergencyBreaks) }
         h.combine(spec.textBoxTrim); h.combine(spec.textBoxOver); h.combine(spec.textBoxUnder)
         h.combine(spec.balance ? 1 : 0)
         return h.finalize()
@@ -55,12 +56,17 @@ package enum TextMetricKey {
         h.combine(Int(request.align)); h.combine(Int(request.line_clamp)); h.combine(Int(request.overflow_wrap))
         h.combine(Int(request.direction)); h.combine(Int(request.white_space))
         h.combine(CGFloat(request.text_indent)); h.combine(Int(request.hyphens))
-        if request.hyphens == 2 {
+        if Spec.insertsHyphens(Int(request.hyphens), wrap: Int(request.overflow_wrap)) {
             h.combine(String(decoding: UnsafeBufferPointer(start: request.lang, count: request.lang_len), as: UTF8.self))
         }
         // A Markdown request hashes apart from the plain request of its one
         // source run; a plain request hashes as its Spec does.
-        if request.markup != 0 { h.combine(Int(request.markup)) }
+        if request.markup != 0 {
+            h.combine(Int(request.markup))
+            // A label's width is its face's (LLP 1045.000 D2).
+            if request.atoms_len > 0, let a = request.atoms { h.combine(bytes: UnsafeRawBufferPointer(start: a, count: request.atoms_len)) }
+            if request.faces_len > 0, let f = request.faces { h.combine(bytes: UnsafeRawBufferPointer(start: f, count: request.faces_len)) }
+        }
         h.combine(Int(request.text_box_trim)); h.combine(Int(request.text_box_over)); h.combine(Int(request.text_box_under))
         h.combine(Int(request.text_wrap_style))
         return h.finalize()
@@ -72,12 +78,13 @@ package enum TextMetricKey {
             && CGFloat(raw.letter_spacing) == owned.letterSpacing
             && Int(raw.font_variant_numeric) == owned.numeric
             && CGFloat(raw.font_stretch) == owned.stretch
+            && FontAxis.of(raw) == owned.variations
     }
     package static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;
         // its geometry is keyed by the request hash and never borrowed by runs.
         // Auto hyphenation's soft hyphens are in the geometry, not the request.
-        guard request.markup == 0, request.hyphens != 2 else { return false }
+        guard request.markup == 0, !Spec.insertsHyphens(Int(request.hyphens), wrap: Int(request.overflow_wrap)) else { return false }
         guard request.count == geometry.runs.count, Int(request.align) == geometry.align,
               Int(request.line_clamp) == geometry.lineClamp, Int(request.overflow_wrap) == geometry.overflowWrap,
               Int(request.direction) == geometry.direction, Int(request.white_space) == geometry.whiteSpace,
@@ -176,35 +183,40 @@ package struct TextPaint: Hashable {
         let backgroundRadii: [InlineRadius]
         let shadow: [Double]?
         let stroke: [Double]?
+        init(_ r: Run) {
+            hidden = r.hidden; fixedInk = r.fixedInk; color = r.color; decoration = r.decoration
+            underlineColor = r.underlineColor; strikeColor = r.strikeColor; href = r.href
+            background = r.background; backgroundBox = r.backgroundBox; backgroundRadii = r.backgroundRadii
+            shadow = r.shadow; stroke = r.stroke
+        }
+        func apply(to run: inout Run) {
+            run.hidden = hidden; run.fixedInk = fixedInk; run.color = color; run.decoration = decoration
+            run.underlineColor = underlineColor; run.strikeColor = strikeColor; run.href = href
+            run.background = background; run.backgroundBox = backgroundBox; run.backgroundRadii = backgroundRadii
+            run.shadow = shadow; run.stroke = stroke
+        }
     }
     package let color: [Double]
     package let runs: [Inline]
+    private let clamp: Inline?
     package let ellipsis: Bool
     package init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration,
-                                      underlineColor: $0.underlineColor, strikeColor: $0.strikeColor, href: $0.href, background: $0.background,
-                                      backgroundBox: $0.backgroundBox, backgroundRadii: $0.backgroundRadii,
-                                      shadow: $0.shadow, stroke: $0.stroke) }
+        runs = spec.runs.map(Inline.init)
+        if spec.lineClamp > 0, var block = spec.strut ?? spec.runs.first {
+            if block.shadow == spec.shadow { block.shadow = nil }
+            clamp = Inline(block)
+        } else { clamp = nil }
     }
     package func applying(to identity: TextIdentity) -> Spec {
         var spec = identity.geometry
         spec.color = color
         spec.ellipsis = ellipsis
-        for i in spec.runs.indices {
-            spec.runs[i].hidden = runs[i].hidden
-            spec.runs[i].fixedInk = runs[i].fixedInk
-            spec.runs[i].color = runs[i].color
-            spec.runs[i].decoration = runs[i].decoration
-            spec.runs[i].underlineColor = runs[i].underlineColor
-            spec.runs[i].strikeColor = runs[i].strikeColor
-            spec.runs[i].href = runs[i].href
-            spec.runs[i].background = runs[i].background
-            spec.runs[i].backgroundBox = runs[i].backgroundBox
-            spec.runs[i].backgroundRadii = runs[i].backgroundRadii
-            spec.runs[i].shadow = runs[i].shadow
-            spec.runs[i].stroke = runs[i].stroke
+        for i in spec.runs.indices { runs[i].apply(to: &spec.runs[i]) }
+        if var block = spec.strut, let clamp {
+            clamp.apply(to: &block)
+            spec.strut = block
         }
         return spec
     }

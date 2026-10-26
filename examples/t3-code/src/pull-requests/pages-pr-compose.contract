@@ -124,7 +124,7 @@ component PrdComposer
     if actions.armedControl == "comment"
       local("pr-ui-disarm", selected, "comment|close")
   action commentKeys(k: string, e: KeyboardEvent)
-    if k == "Enter" and (e.metaKey or e.ctrlKey) and not e.shiftKey and not e.altKey
+    if k == "Enter" and (e.metaKey or e.ctrlKey) and not e.shiftKey and not e.altKey and not e.isComposing
       preventDefault()
       stopPropagation()
       if not e.repeat

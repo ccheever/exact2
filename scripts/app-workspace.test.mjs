@@ -23,6 +23,7 @@ async function fixture(body) {
   mkdirSync(scratch, {recursive:true});
   const root = mkdtempSync(resolve(scratch, 'shell-repair-'));
   const previous = process.env.EXACT_APP_DIR;
+  const previousTarget = process.env.CARGO_TARGET_DIR;
   const write = (path, bytes) => { mkdirSync(dirname(resolve(root, path)), {recursive:true}); writeFileSync(resolve(root, path), bytes); };
   const run = (cmd, args) => {
     const r = spawnSync(cmd, args, {cwd:root, encoding:'utf8', timeout:60000});
@@ -42,7 +43,9 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/app/crates.mjs','game/.cargo/config.toml','scripts/cargo-dep-info.mjs','scripts/linked-plan.mjs','scripts/app-cli.mjs']) {
+    // These fixtures assert the workspaces' default target paths.
+    delete process.env.CARGO_TARGET_DIR;
+    for (const path of ['scripts/app.mjs','scripts/bun.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/cargo-check.mjs','scripts/rust.mjs','scripts/origin.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/web/look.mjs','host/web-js/route-pattern.js','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/app/crates.mjs','game/.cargo/config.toml','scripts/cargo-dep-info.mjs','scripts/linked-plan.mjs','scripts/app-cli.mjs']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -64,6 +67,7 @@ async function fixture(body) {
     body({root, dir, write, run, pkg, game, flags, update:()=>prepareGame(dir, JSON.parse(readFileSync(resolve(dir,'app.json'))).game, resolve(root,'game'), {updateLock:true}), app:(name='foo')=>localResolveApp(name)});
   } finally {
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    if (previousTarget === undefined) delete process.env.CARGO_TARGET_DIR; else process.env.CARGO_TARGET_DIR = previousTarget;
     rmSync(root,{recursive:true,force:true});
   }
 }
@@ -543,7 +547,10 @@ test('a worktree whose target resolves into another checkout is refused', async 
   const { spawnSync } = await import('node:child_process');
   const { assertOwnTarget } = await import('./app.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'exact-target-')), main = resolve(root, 'main'), lane = resolve(root, 'lane');
+  const previousTarget = process.env.CARGO_TARGET_DIR;
   try {
+    // The compiler must inspect lane/target, where this test puts the symlink.
+    delete process.env.CARGO_TARGET_DIR;
     const git = (...args) => assert.equal(spawnSync('git', args, { cwd: main }).status, 0, args.join(' '));
     mkdirSync(main); git('init', '-q'); writeFileSync(resolve(main, 'a'), 'a'); git('add', 'a');
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'a'); git('worktree', 'add', '-q', lane);
@@ -553,7 +560,10 @@ test('a worktree whose target resolves into another checkout is refused', async 
     assert.throws(() => contractCompiler(lane), /another checkout of this repository/);
     mkdirSync(resolve(root, 'private'));
     assertOwnTarget(resolve(root, 'private'), lane);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    if (previousTarget === undefined) delete process.env.CARGO_TARGET_DIR; else process.env.CARGO_TARGET_DIR = previousTarget;
+    rmSync(root, { recursive: true, force: true });
+  }
 }, 60_000);
 
 test('locked metadata fetches a missing git checkout without rewriting the lock', async () => {

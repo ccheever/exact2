@@ -228,9 +228,11 @@ fn packaged(e: contract_lower::LowerError, app: &AppParams) -> exact_tamber::Dia
 }
 
 /// The package tokens a fold of the app's design joins (LLP 1121 D11), as
-/// the build numbers them: what the design server's plans fold beside it.
-pub fn joined(app: &AppParams) -> Vec<exact_tamber::Token> {
-    contract_lower::with_package_designs(None, &app.packages).map_or_else(Vec::new, |d| d.tokens)
+/// the build numbers them: what the design server's plans fold beside it;
+/// and the package icons beside them (stage 13), which an app icon may name.
+pub fn joined_all(app: &AppParams) -> (Vec<exact_tamber::Token>, Vec<exact_tamber::Token>) {
+    contract_lower::with_package_designs(None, &app.packages)
+        .map_or_else(Default::default, |d| (d.tokens, d.icons))
 }
 
 /// The words of `text` a token name may be.
@@ -495,6 +497,33 @@ pub fn components(
             .rsplit_once('#')
             .map_or(p.identity.as_str(), |(_, c)| c);
         out.push(json!({"identity": p.identity, "name": name, "params": list}));
+    }
+    // An exported library component's parts and variant props (LLP 1139 D5,
+    // stage 12 D3, *1.15*), from C's IR, with params or without (one with
+    // none listed with `params: []`).
+    for (identity, _, d) in app.library.iter().filter(|(_, _, d)| d.library) {
+        let at = match out.iter().position(|c| c["identity"] == identity.as_str()) {
+            Some(i) => i,
+            None => {
+                // (named from its identity, as one with params is: never the compiler's renamed `Badge__index`)
+                let name = identity
+                    .rsplit_once('#')
+                    .map_or(identity.as_str(), |(_, c)| c);
+                out.push(json!({"identity": identity, "name": name, "params": []}));
+                out.len() - 1
+            }
+        };
+        out[at]["library"] = json!(true);
+        out[at]["parts"] = json!(d
+            .parts
+            .iter()
+            .map(|(n, g, slot)| json!({"name": n, "groups": g, "slot": slot}))
+            .collect::<Vec<_>>());
+        out[at]["variants"] = json!(d
+            .variants
+            .iter()
+            .map(|(p, o)| json!({"prop": p, "options": o}))
+            .collect::<Vec<_>>());
     }
     Value::Array(out)
 }

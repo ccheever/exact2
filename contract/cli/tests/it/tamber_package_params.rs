@@ -485,39 +485,76 @@ fn an_ambiguous_short_name_sets_no_package_param() {
 }
 
 /// Round 3 (Astra): a package design's icon param reads its SVG as the
-/// app's do: one there is a source of the app (a watcher rebuilds on it),
-/// one not there yet is looked for, so making it rebuilds; with no app
-/// design file too.
+/// build does: one there is a source (a watcher rebuilds on it), one not
+/// there yet is looked for, so making it rebuilds; with no app design file
+/// too. Stage 13 (theme2's Q1): a default written in the package's design
+/// reads the PACKAGE's `assets/`, never the app's same-named file.
 #[test]
 fn a_package_icon_params_svg_is_a_source() {
     let dir = reading("pkg-params-svg");
     let _ = std::fs::remove_file(dir.join("app.tamber"));
-    let design = dir.join("node_modules/@acme/reading/reading.tamber");
+    let package = dir.join("node_modules/@acme/reading");
+    let design = package.join("reading.tamber");
     let text = std::fs::read_to_string(&design).unwrap();
     std::fs::write(&design, format!("{text}    glyph: icon = icon(svg \"pin.svg\")\n    other: icon = icon(svg \"later.svg\")\n")).unwrap();
-    std::fs::create_dir_all(dir.join("assets")).unwrap();
-    std::fs::write(
-        dir.join("assets/pin.svg"),
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"/>",
-    )
-    .unwrap();
+    let svg = |d: &str| {
+        format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"><path d=\"{d}\"/></svg>"
+        )
+    };
+    for (at, d) in [
+        (package.join("assets"), "M0 0h1v1H0Z"),
+        (dir.join("assets"), "M0 0h9"),
+    ] {
+        std::fs::create_dir_all(&at).unwrap();
+        std::fs::write(at.join("pin.svg"), svg(d)).unwrap();
+    }
     let graph = contract::source_graph(&dir.join("app.contract"));
+    let pin = |s: &&contract::Source| s.path.ends_with("assets/pin.svg");
+    let pins: Vec<_> = graph.sources.iter().filter(pin).collect();
     assert!(
-        graph
-            .sources
-            .iter()
-            .any(|s| s.path.ends_with("assets/pin.svg")),
+        pins.len() == 1
+            && pins[0]
+                .path
+                .ends_with("node_modules/@acme/reading/assets/pin.svg"),
         "{:?}",
         graph.sources
+    );
+    assert!(
+        matches!(&pins[0].origin, contract::Origin::Package { name, .. } if name == "@acme/reading"),
+        "{:?}",
+        pins[0]
     );
     assert!(
         graph
             .consulted
             .iter()
-            .any(|p| p.ends_with("assets/later.svg")),
+            .any(|p| p.ends_with("node_modules/@acme/reading/assets/later.svg")),
         "{:?}",
         graph.consulted
     );
+    // The build draws the package's file, never the app's of that name.
+    std::fs::write(package.join("assets/later.svg"), svg("M0 0h1")).unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e}"));
+    let glyph = plan
+        .icons
+        .iter()
+        .find(|i| plan.str(i.name).ends_with(".Map.glyph"))
+        .unwrap_or_else(|| panic!("{:?}", plan.icons));
+    assert_eq!(plan.str(glyph.path), "M0 0h1v1H0Z");
+    // The app's `params` line is written in the app's design: the app's file.
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n\nparams\n  Map.glyph = icon(svg \"pin.svg\")\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e}"));
+    let glyph = plan
+        .icons
+        .iter()
+        .find(|i| plan.str(i.name).ends_with(".Map.glyph"))
+        .unwrap();
+    assert_eq!(plan.str(glyph.path), "M0 0h9");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -742,5 +779,116 @@ fn two_tokens_of_one_name_in_two_cases_stay_two() {
         let (e, _) = fresh.ask(vary(name));
         assert_eq!(p["ok"]["class"], e["ok"]["class"], "{name}: {p} vs {e}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// LLP 1139 D8: a library component's param is named in full in the app's
+/// design, so `set-param` by its short name writes the new line by the full
+/// one, which the build takes (a short one is `tamber-param-short-library`);
+/// `propose` answers the same diff the write makes.
+#[test]
+fn a_short_name_writes_a_library_params_line_in_full() {
+    let dir = app(
+        "pkg-params-library-short",
+        "tamber t\n\ntheme\n  ink = #111111\n",
+    );
+    let at = dir.join("node_modules/@acme/lib");
+    std::fs::create_dir_all(&at).unwrap();
+    std::fs::write(
+        at.join("package.json"),
+        r#"{"name":"@acme/lib","version":"1.0.0","private":true,"exports":{".":"./index.contract"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        at.join("index.contract"),
+        CARD.replace("reading.gap", "lib.gap"),
+    )
+    .unwrap();
+    std::fs::write(
+        at.join("lib.tamber"),
+        "tamber lib\n\ntheme\n  lib.gap: length = space.md\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/lib\"\ncomponent App\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-param", "name": "Card.inset", "value": "20px"});
+    let files = json!({"app.tamber": digest(&file)});
+    let (proposed, _) = s.ask(json!({"method": "propose", "files": files, "ops": [op]}));
+    let (done, _) =
+        s.ask(json!({"method": "transaction", "client": "one", "files": files, "ops": [op]}));
+    assert_eq!(done["ok"]["written"], json!(["app.tamber"]), "{done}");
+    assert_eq!(proposed["ok"]["diff"], done["ok"]["diff"], "{proposed}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("\n  @acme/lib/index.contract#Card.inset = 20px\n"),
+        "{text}"
+    );
+    let plan = contract::compile_path(&dir.join("app.contract"))
+        .unwrap_or_else(|e| panic!("the design the server wrote builds: {e:?}"));
+    assert!(
+        format!("{plan:?}").contains("20px"),
+        "the plan keeps the set value"
+    );
+    // A later write by the short name finds that line, and so does unset.
+    let op = json!({"op": "set-param", "name": "Card.inset", "value": "24px"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert!(done.get("ok").is_some(), "{done}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("#Card.inset = 24px\n") && text.matches("Card.inset").count() == 1,
+        "{text}"
+    );
+    let op = json!({"op": "unset-param", "name": "Card.inset"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert!(done.get("ok").is_some(), "{done}");
+    assert!(!std::fs::read_to_string(&file).unwrap().contains("params"));
+    drop(s);
+    // A line already spelled short (as the server wrote it before): a set
+    // respells it in full, its comment and `when` line kept, and builds.
+    let broken = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  ink = #111111\n\nparams\n  Card.inset = 16px  // roomy\n    when density=compact: 8px\n";
+    std::fs::write(&file, broken).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!({"op": "set-param", "name": "Card.inset", "value": "18px"});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert!(done.get("ok").is_some(), "{done}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.ends_with("\nparams\n  @acme/lib/index.contract#Card.inset = 18px  // roomy\n    when density=compact: 8px\n"),
+        "{text}"
+    );
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    // Its undo gives the short line back, byte for byte.
+    let (undone, _) =
+        s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+    assert!(undone.get("ok").is_some(), "{undone}");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), broken);
+    // Unsetting only its `when` line keeps the param's line, respelled.
+    let op = json!({"op": "unset-param", "name": "Card.inset", "when": [{"axis": "density", "value": "compact"}]});
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": [op]}));
+    assert!(done.get("ok").is_some(), "{done}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.ends_with("\nparams\n  @acme/lib/index.contract#Card.inset = 16px  // roomy\n"),
+        "{text}"
+    );
+    contract::compile_path(&dir.join("app.contract")).unwrap_or_else(|e| panic!("{e:?}"));
+    let (undone, _) =
+        s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+    assert!(undone.get("ok").is_some(), "{undone}");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), broken);
+    // Unset and set again in one transaction: the new line is in full.
+    let ops = json!([{"op": "unset-param", "name": "Card.inset"}, {"op": "set-param", "name": "Card.inset", "value": "20px"}]);
+    let (done, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": ops}));
+    assert!(done.get("ok").is_some(), "{done}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.ends_with("\nparams\n  @acme/lib/index.contract#Card.inset = 20px\n"),
+        "{text}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

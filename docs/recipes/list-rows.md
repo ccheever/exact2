@@ -57,13 +57,13 @@ test "search, swipe to delete, delete from the menu"
 - `delete=` on a row is its swipe to delete: a red Delete (on iOS UIKit's own; a full swipe
   runs it). `disabled` beside it keeps that row from deleting; the row still opens. A test
   taps `"<row testId>-delete"`. Other actions than Delete: `contract vocab swipe`.
-- The swipe deletes without asking, as iOS does where a deletion is routine or recoverable
-  (Mail, Notes, Reminders). An irreversible loss confirms, as a detail screen's Delete or a
-  bulk clear does: its action opens an alert (`contract vocab confirm`).
-- Search querying a server, live or on the Search key: `contract vocab search`.
-- A filter: a `row role="radiogroup"` of `button role="radio"` above the list
-  ([persisted-setting](persisted-setting.md)): a segmented control; `appearance="none"` keeps
-  keys you paint, one Tab stop and the arrows. iOS 26 bar buttons share one glass
-  capsule; `buttonStyle="glass"` gives one its own.
+- The swipe deletes without asking, as Mail and Notes do; an irreversible loss (a detail
+  screen's Delete, a bulk clear) asks first in an alert (`contract vocab confirm`).
+- The empty search field scrolls away on iOS, as UIKit's does; `position="sticky" top=0`
+  on the `input` pins it. Querying a server: `contract vocab search`.
+- A filter: a `row role="radiogroup"` of `button role="radio"`
+  ([persisted-setting](persisted-setting.md)): a segmented control; radios you paint
+  (background, border, radius) or `appearance="none"` stay yours, keys and all. iOS 26 bar
+  buttons share one glass capsule; `buttonStyle="glass"` gives one its own.
 - One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`
   and hides it (iOS: a `UIMenu`). Test: `tap "note-1" contextmenu`.

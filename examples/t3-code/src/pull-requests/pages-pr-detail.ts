@@ -2,7 +2,9 @@ import { notePagePullRequest } from '../panel/closed-views';
 import { buildAddSelectionToAgentHandoff, buildAskAboutGuideStopHandoff, contextMetadata } from './pages-pr-handoffs-logic';
 import { openPullRequestIn } from '../panel/pr-attachment-surfaces';
 import { openFileSurface, panelState, workspacePath } from '../panel/panel-surfaces';
-import { markdownFileMenu } from '../panel/files-surface';
+import { markdownFilePick } from '../panel/files-surface';
+import { withFileLinkMenus } from '../timeline/file-link-menu';
+import { pullRequestUrls } from '../timeline/pull-link-registry';
 import { environmentClient } from '../settings/projects-fleet';
 import { pullRequestServer } from './pages-pr-environments';
 import { emptyGuideView, generateGuide, guideEntry, guideNavigate, guideReader, presentGuide, readGuide } from './pages-pr-guide';
@@ -39,7 +41,8 @@ import {
   readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
   shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
-import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
+import { breakdownKey, emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns, type BreakdownTarget } from './pr-change-breakdown';
 import { commentFilter, conversationBodies, emptySummary, presentSummary, toggleCommentFilter, type CommentFilter, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
@@ -106,7 +109,7 @@ export function emptyDetail() {
   return {
     open: false, loading: false, phase: 'ghost', error: '', errorTitle: '', githubUrl: '', copiedCheckout: 0, copiedBranch: 0, ref: '', number: 0, numberLabel: '', title: '', repository: '', url: '', state: 'open', stateLabel: 'Open', conflict: '',
     author: '', authorAvatar: '', authorInitial: '', updated: '', updatedAgo: '', filesCount: '', checkoutCommand: '', baseBranch: '', headBranch: '', files: '', additions: '', deletions: '',
-    checksSummary: '', checksTone: '', reviewers: [] as { key: string; login: string; avatar: string; initial: string }[],
+    breakdown: emptyBreakdown(), checksSummary: '', checksTone: '', reviewers: [] as { key: string; login: string; avatar: string; initial: string }[],
     labels: [] as { key: string; name: string; background: string; ink: string }[],
     bodies: [] as { id: string; kind: string; title: string; body: string }[], hasBody: false, bodyId: '',
     commentCount: 0, commentsLabel: 'Comments (0)', activityPending: false, activityError: '',
@@ -162,7 +165,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   const selection = parseSelection(input.selected);
   const live = !!native?.available && client.ready;
   if (!selection) {
-    shown.delete(client); guideReader(client).shownKey = '';
+    shown.delete(client); guideReader(client).shownKey = ''; releaseChangeBreakdowns(client, 'detail');
     if (live) await holdPullRequestRefreshes(client, native!, 'detail', false);
     return view;
   }
@@ -174,8 +177,8 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   let panel = panelsOf(client).get(key);
   if (!live) return present(view, panel ?? null, selection, listEntry, input.now, client);
   native!.watch?.(PR_WAKE_TOPIC);
-  await holdPullRequestRefreshes(client, native!, 'detail', true);
-  const viewKey = `pull-request:${key}`, facts = { visible: input.visible !== false, returns: input.returns ?? 0 };
+  await holdPullRequestRefreshes(client, native!, 'detail', true, input.now);
+  const viewKey = `pull-request:${key}`, facts = { visible: input.visible !== false, returns: (input.returns ?? 0) + interactionResumes(client) };
   const arriving = !shown.get(client)?.startsWith(`${key}|`);
   if (!panel) {
     const kept = readPullRequestDetailSnapshot(snapshotStorage(client.local ? client : { local: {} }), client.environmentId, reference);
@@ -189,10 +192,10 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
     // pullRequests.subscribeRefreshes: the server announced a change; detail and activity read again.
     const epoch = pullRequestRefreshEpoch(client);
     if (epoch !== panel.epoch) { panel.epoch = epoch; panel.detailDue = panel.activityDue = true; }
-    // useLiveRefresh's window listeners: `focus`, and `visibilitychange` to visible, are arrivals.
+    // useLiveRefresh's window listeners: `focus`, `visibilitychange` to visible and an interaction after six idle minutes are arrivals.
     const shownAgain = (facts.visible && !panel.facts.visible) || facts.returns !== panel.facts.returns;
     panel.facts = facts;
-    await liveRefresh(client, native!, panel, viewKey, input, arriving || shownAgain);
+    liveRefresh(client, panel, viewKey, input, arriving || shownAgain);
   }
   if (viewRefreshedAt(client, viewKey) === undefined) noteViewRefreshed(client, viewKey, input.now); // the mount's own read fills it in
   // Something new to show first: show it, and ask again for the read that follows.
@@ -208,6 +211,11 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   // Then, once the detail says the host keeps stacks, the stack (one native request at a time: an answer burst can
   // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
   if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
+  // The +/- split, read at once for a view of one pull request (PullRequestChangeBreakdownStat `eager`).
+  // Opening the view (or another pull request in it) is the request; it ends when the view closes or moves on.
+  if (display) releaseChangeBreakdowns(client, 'detail', new Set([breakdownKey(client, breakdownTarget(panel, selection, display))]));
+  if (display && await readChangeBreakdowns(client, native!, [breakdownTarget(panel, selection, display)], { eager: 'detail', wakes: [] }) === 'wake')
+    return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
   // The Code tab's reads once it was opened (the ticks, the slice owed, the contents asked for).
   if (display && await readCode({ client, native: native!, reference: writeReference(selection), environmentId: selection.environmentId ?? '', detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh, epoch: pullRequestRefreshEpoch(client) }) === 'wake') {
     return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
@@ -226,11 +234,11 @@ async function wake(client: T3Client, native: Native, view: PrDetailView, panel:
   try { await native.later({ op: 'wake', topic: PR_WAKE_TOPIC }); } catch (error) { if (letGo(error)) throw error; }
   return view;
 }
-/** useLiveRefresh: an arrival (a reopened view, the window shown or focused again) and the 5-minute interval read the detail. */
-async function liveRefresh(client: T3Client, native: Native, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): Promise<void> {
+/** useLiveRefresh: an arrival (a reopened view, the window shown or focused again, the reader back from idle) and the 5-minute interval read the detail. */
+function liveRefresh(client: T3Client, panel: Panel, viewKey: string, input: DetailInput, arrival: boolean): void {
   if (panel.detailDue) return;
   const ask = { visible: input.visible !== false, now: input.now, arrival };
-  if (liveRefreshAsked(client, viewKey, ask) && await liveRefreshDue(client, native, viewKey, ask)) panel.detailDue = true;
+  if (liveRefreshAsked(client, viewKey, ask) && liveRefreshDue(client, viewKey, ask)) panel.detailDue = true;
 }
 async function readDetail(client: T3Client, native: Native, panel: Panel, ref: Obj, storage: Files | undefined): Promise<void> {
   try {
@@ -288,6 +296,7 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   const remark = (comment: Obj): RemarkWrites => ({ ...commentEditing(client, reference, display, comment), ...reactionPills(client, reference, str(comment.id), comment.reactions) });
   presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark, filter: commentFilter(client) });
   view.writes = presentWrites(client, reference, display);
+  view.breakdown = presentChangeBreakdown(client, breakdownTarget(panel!, selection, display), { eager: true });
   const code = presentCode({ client, reference, detail: display, activity: panel!.activity, now, allowAsk: canAskAgent(client) });
   view.codeTab = code.view;
   const guideReference = { ...reference, environmentId: selection.environmentId };
@@ -309,16 +318,16 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
     links.push(...linked.links, ...pullRequestUrls(linked.text).map(href => ({ href, kind: '' })));
     return { ...body, body: linked.text };
   });
-  // Every body shares the PR workspace; each rendered run needs one file record for its href.
+  // Every body shares the PR workspace; each rendered run needs one file record for its href. A file link's menu rows are
+  // its server's, read in the PR workspace; the page leaves out "Preview media" (PrdBody fileMenu).
   const fileChips = view.bodies.flatMap(body => messageChips({ text: body.body }, str(display.workspaceRoot), [], body.id).filter(chip => chip.kind === 'link'));
+  try { withFileLinkMenus(environmentClient(client, pullRequestServer(client, selection.environmentId ?? '', selectionRef(selection))), fileChips, { cwd: str(display.workspaceRoot) }); }
+  catch { /* the pull request's server is gone: its file links have no menu */ }
   view.md = { ...view.md, chips: [...view.md.chips, ...new Map(fileChips.map(chip => [chip.href, chip])).values(), ...linkChips(client, context.environmentId, links)] };
   return view;
 }
-/** Web links in Markdown source (inline `](url)`, `<url>`, bare URLs) that name a change request: the ones a card can preview. */
-function pullRequestUrls(markdown: string): string[] {
-  const found = [...markdown.matchAll(/\]\((https?:\/\/[^\s)]+)\)|<(https?:\/\/[^\s>]+)>|(https?:\/\/[^\s<>()[\]]+)/g)].map(match => match[1] ?? match[2] ?? match[3] ?? '');
-  return found.map(url => url.replace(/[.,;:!?]+$/, '')).filter(url => /\/(?:pulls?|-\/merge_requests|pull-requests|pullrequest)\/\d+/.test(url));
-}
+const breakdownTarget = (panel: Panel, selection: PrSelection, detail: Obj): BreakdownTarget =>
+  ({ reference: panel.reference, environmentId: selection.environmentId, additions: num(detail.additions), deletions: num(detail.deletions) });
 /** PullRequestDetailGhost: the list row's identity and summary stay; the rest are bars. */
 export function ghostOf(entry: Obj | null, now: number): ReturnType<typeof emptyGhost> {
   const ghost = emptyGhost();
@@ -378,7 +387,9 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
     url: str(detail.url), state, stateLabel: STATE_LABELS[state] ?? 'Open', conflict: conflictLabel(detail), author: author.login, authorAvatar: author.avatar, authorInitial: author.initial,
     updated: `updated ${relativeLabel(detail.updatedAt, now)}`, updatedAgo: relativeLabel(detail.updatedAt, now), filesCount: count(num(detail.changedFiles)),
     checkoutCommand: checkoutCommand(detail), baseBranch: str(detail.baseBranch), headBranch: str(detail.headBranch),
-    files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`, additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}`,
+    files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`,
+    // PullRequestChangeBreakdownStat draws nothing for a change without lines.
+    ...(num(detail.additions) + num(detail.deletions) > 0 ? { additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}` } : { additions: '', deletions: '' }),
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
     hostName: sourceControlHostName(str(detail.provider, 'github')),
     linkMenu: `${str(detail.provider)} ${str(detail.url)}`, linkOpenLabel: openOnHostLabel(str(detail.provider)), // the number's menu (PrLinkMenu)
@@ -453,16 +464,17 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
   if (op === 'quick') return runQuickAction(client, native, value, ref => { const row = parseSelection(ref); return row ? listEntryFor(client, row) : null; }, () => stale(client));
   const selection = parseSelection(selected);
   if (!selection) throw new ClientError('Choose a pull request first.');
-  if (op === 'file-open' || op === 'file-menu') {
+  // A file link's click (value "<surface>\n<target>"), or a row of its menu (value "<surface>\n<target>\n<row id>", PrdBody fileMenu).
+  if (op === 'file-open' || op === 'file-pick') {
     const detail = contextOf(client, selected)?.detail;
     if (!detail) throw new ClientError('The pull request is still loading.');
-    const split = value.indexOf('\n'), surface = value.slice(0, split), target = value.slice(split + 1), cwd = str(detail.workspaceRoot);
+    const [surface = '', target = '', picked = ''] = value.split('\n'), cwd = str(detail.workspaceRoot);
     if (op === 'file-open' && surface === 'thread') {
       const { path, line } = workspacePath(target, cwd);
       await openFileSurface(client, native, path, line);
-    } else {
+    } else if (op === 'file-pick') {
       const owner = environmentClient(client, pullRequestServer(client, selection.environmentId ?? '', selectionRef(selection)), native);
-      await markdownFileMenu(owner, native, target, { cwd, previewMedia: surface === 'thread' });
+      await markdownFilePick(owner, native, target, picked, { cwd, previewMedia: surface === 'thread' });
     }
     return '';
   }

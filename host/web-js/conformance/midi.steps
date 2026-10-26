@@ -1,8 +1,8 @@
 # MIDI (LLP 1125 D6–D8): ports the drive prefers and a request the agent
 # answers; sendMIDI's at=, a late one and a malformed one; notes on two
-# outputs (one not connected), clock out, a tempo edit, an offset edit, a key
-# restart, the gate's stop, a finite take's ended=; messages coalesced and
-# heard by two elements; an output pulled.
+# outputs (one not connected) and on no output, clock out, a tempo edit, an
+# offset edit, a key restart, the gate's stop, a finite take's ended=;
+# messages coalesced and heard by two elements; an output pulled.
 prefer midi.outputs synth midi.inputs keys,pads
 tap ask
 tap send
@@ -10,6 +10,7 @@ tap late
 tap malformed
 tap soon
 tap tick
+tap none
 clock +100
 midi keys b0 07 10 b0 07 20 90 3c 40 b0 07 30
 midi pads 90 30 01

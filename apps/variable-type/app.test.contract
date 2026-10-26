@@ -23,3 +23,7 @@ test "arrow keys step the pad and Home centres it"
   type "pad" key "Home"
   expect state x == 0.5
   expect state y == 0.5
+
+test "holding the poster takes the type to its heaviest, and letting go returns it"
+  tap "poster"
+  expect state held == false

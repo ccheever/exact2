@@ -77,9 +77,24 @@ fn colliding_or_unportable_asset_names_are_refused_before_download() {
     for names in [
         &["a/b.png", "a/c.png", "A-b_c.1.png"][..],
         &["deck/index.html", "deck/index.html.map"],
+        &["photo@2x.png", "photo@3x.png", "icons/home@2x.png"],
     ] {
         exact_update::check_asset_names(names.iter().copied()).unwrap();
     }
+    // Every refused name in one answer, one per line, so a build names them all.
+    let all = exact_update::check_asset_names([
+        "two words.png",
+        "Logo.png",
+        "logo.png",
+        "ok.png",
+        "caf\u{e9}.png",
+    ])
+    .unwrap_err();
+    let lines: Vec<&str> = all.lines().collect();
+    assert_eq!(lines.len(), 3, "{all}");
+    assert!(lines[0].contains("two words.png is not portable"), "{all}");
+    assert!(lines[1].contains("differ only by case"), "{all}");
+    assert!(lines[2].contains("caf\u{e9}.png is not portable"), "{all}");
 }
 
 /// A selected entry corrupted on disk is refused at launch, and entry zero

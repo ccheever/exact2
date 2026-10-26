@@ -279,7 +279,7 @@ fn keydown(key: &str, code: &str, held: &str) -> Event {
 }
 
 #[test]
-fn the_keybinding_recorder_captures_the_layout_character_and_escape_restores() {
+fn the_keybinding_recorder_captures_a_chord_and_escape_restores() {
     let mut host = recording();
     let runner = host.runner_mut();
     let recorder = node(runner, "keybinding-recorder-new").expect("the recorder is up");
@@ -334,9 +334,10 @@ fn the_keybinding_recorder_captures_the_layout_character_and_escape_restores() {
     };
     assert_eq!(names(runner), ["preventDefault", "stopPropagation"]);
     assert_eq!(runner.slot("keybindingRecording"), Some(&Value::Bool(true)));
-    // Settings records the layout's character: Korean 2-Set's ㅠ at KeyB with ⌘⇧ stays ㅠ.
+    // ⌘⇧B on a US layout. Settings records the layout's character (keybinding-defaults.test.ts holds the other
+    // layouts, Korean 2-Set's "ㅠ" among them), so the event names the character, not this machine's input source.
     runner
-        .dispatch(recorder, keydown("ㅠ", "KeyB", "Meta+Shift+"))
+        .dispatch(recorder, keydown("B", "KeyB", "Meta+Shift+"))
         .unwrap();
     assert_eq!(
         runner.slot("keybindingKey"),

@@ -39,6 +39,23 @@ final class KeyboardToolbarIOSTests: XCTestCase {
         return (session, window)
     }
 
+    func testChangingPolicyReleasesTheToolbarLiftAndItsOwnedScrollInset() throws {
+        let (session, window) = fixture()
+        defer { window.isHidden = true; session.destroy() }
+        let p = session.presenter
+        let scroll = try XCTUnwrap(p.views[2]?.scroll), bar = try XCTUnwrap(p.views[3])
+        setKeyboard(p, top: 460)
+        XCTAssertGreaterThan(bar.keyboardLift, 0)
+        XCTAssertGreaterThan(scroll.contentInset.bottom, 0)
+        for policy in ["resizes-content", "resizes-visual"] {
+            p.apply(wireBatch([["op": "props", "id": 1, "set": ["interactiveWidget": policy]]]))
+            p.keyboardToolbars.ride(overlap: p.keyboardInset)
+            XCTAssertEqual(bar.keyboardLift, 0)
+            XCTAssertEqual(scroll.contentInset.bottom, 0)
+            XCTAssertEqual(scroll.verticalScrollIndicatorInsets.bottom, 0)
+        }
+    }
+
     func testAKeyboardToolbarRidesTheKeyboardAndItsScrollerInsetsInsteadOfARelayout() throws {
         let (session, window) = fixture()
         defer { window.isHidden = true; session.destroy() }
@@ -49,7 +66,7 @@ final class KeyboardToolbarIOSTests: XCTestCase {
         transcript.contentOffset.y = end
         let frames = (p.views[2]!.frame, bar.frame)
         // A keyboard whose top is 340 points above the window's bottom.
-        p.applyKeyboard(top: 460, duration: 0, curve: 0)
+        setKeyboard(p, top: 460)
         XCTAssertEqual(p.keyboardInset, 340)
         XCTAssertEqual(bar.keyboardLift, 306, "the keyboard's overlap less the bar's own bottom padding")
         XCTAssertEqual(bar.transform.ty, -306, accuracy: 0.01, "a transform, not a frame")
@@ -81,7 +98,7 @@ final class KeyboardToolbarIOSTests: XCTestCase {
         finalBackend.contentSize = replacement.contentSize
         owner.addSubview(finalBackend)
         owner.mountNativeScrollView(finalBackend)
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        setKeyboard(p, top: nil)
         XCTAssertEqual(finalBackend.contentInset.bottom, 0)
         XCTAssertEqual(replacement.contentInset.bottom, 0)
         XCTAssertEqual(replacement.contentOffset.y, end, accuracy: 0.5)
@@ -96,7 +113,7 @@ final class KeyboardToolbarIOSTests: XCTestCase {
         let p = session.presenter
         let owner = try XCTUnwrap(p.views[2])
         let previous = try XCTUnwrap(owner.scrollView)
-        p.applyKeyboard(top: 460, duration: 0, curve: 0)
+        setKeyboard(p, top: 460)
         previous.contentOffset.y = 1500
         let replacement = UIScrollView(frame: owner.bounds)
         replacement.contentSize = previous.contentSize
@@ -119,6 +136,22 @@ final class KeyboardToolbarIOSTests: XCTestCase {
         XCTAssertEqual(replacement.contentOffset.y, 1500, accuracy: 0.5)
         p.apply(wireBatch([]))
         XCTAssertEqual(replacement.contentOffset.y, 1500, accuracy: 0.5)
+    }
+
+    func testAToolbarInAnotherMountUsesTheWindowKeyboardEvenWhenTheDocumentHasNoOverlap() throws {
+        let (session, window) = fixture()
+        defer { window.isHidden = true; session.destroy() }
+        let p = session.presenter, bar = try XCTUnwrap(p.views[3])
+        // A presentation can extend below the document that presented it.
+        window.addSubview(p.root)
+        p.viewport.frame.size.height = 400
+        setKeyboard(p, top: 460)
+        XCTAssertEqual(p.keyboardInset, 0)
+        XCTAssertEqual(bar.keyboardLift, 306)
+        XCTAssertEqual(p.views[2]?.scrollView?.contentInset.bottom, 306)
+        setKeyboard(p, top: nil)
+        XCTAssertEqual(bar.keyboardLift, 0)
+        XCTAssertEqual(p.views[2]?.scrollView?.contentInset.bottom, 0)
     }
 
 }

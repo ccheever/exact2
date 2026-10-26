@@ -21,6 +21,9 @@ extension Presenter {
         let chosen = scrollsToTopTarget()
         #endif
         if viewport.scrollsToTop != (chosen === viewport) { viewport.scrollsToTop = chosen === viewport }
+        for route in navigation.primaryRoutes {
+            route.contentViewport?.scrollsToTop = route.contentViewport === chosen
+        }
         for id in scrollers {
             guard let sv = views[id]?.scrollView else { continue }
             if sv.scrollsToTop != (sv === chosen) { sv.scrollsToTop = sv === chosen }
@@ -29,7 +32,7 @@ extension Presenter {
 
     /// The scroll view a status-bar tap scrolls, or nil for none.
     func scrollsToTopTarget() -> UIScrollView? {
-        if let route = navigation.activeRoute { return navigation.shownScroll(navigation.contentScroller(of: route)) }
+        if let route = navigation.activeRoute { return navigation.contentScrollView(of: route) }
         if let modal = modals.routes.last?.node { return navigation.shownScroll(Self.firstVerticalScroller(under: modal)) }
         if viewport.contentSize.height > viewport.bounds.height - viewport.adjustedContentInset.top - viewport.adjustedContentInset.bottom {
             return viewport

@@ -8,11 +8,12 @@ import { providerWritable } from './provider-permissions';
 // is an `upkeep:acp-*` op; the field drafts arrive as ops too (one per change). The project
 // picker and each row read their pending flags from here, as the reference reads its state.
 // The destructive confirms are the app's AppConfirm (app-settings.contract), which sends the
-// delete or disable op only on Confirm. The link opens through the native `remoteEditorsOpen`
-// op (the clone's ElectronShell.openExternal; an agent run records the URL).
+// delete or disable op only on Confirm. The link opens through
+// ElectronShell.openExternal (external-open.ts; an agent run journals the URL).
 import { arr, obj, str, type Obj } from '../client/domain';
-import { bridgeReply, ClientError, type Native } from '../client/protocol';
+import { ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
+import { openExternal } from '../client/external-open';
 
 export type AcpToast = { kind: 'success' | 'error' | 'warning'; title: string; description?: string };
 export interface AcpHost {
@@ -215,7 +216,7 @@ export async function acpOp(host: AcpHost, native: Native, what: string, id: str
       const action = obj(obj(provider?.auth).action);
       if (readOnly || !field || str(action.elicitationId) !== field) return;
       const accepting = call('server.acceptAcpRegistryUrlAuth', { instanceId: id, elicitationId: field }).then(result => ({ result, error: null as unknown }), error => ({ result: null, error }));
-      try { await bridgeReply(native, { op: 'remoteEditorsOpen', url: str(action.url) }); } catch (error) { if (letGo(error)) throw error; }
+      openExternal(str(action.url));
       const { result, error } = await accepting;
       if (result && result.accepted !== true) { toast({ kind: 'warning', title: 'Authentication request expired', description: 'Refresh the provider and start the authentication flow again.' }); return; }
       if (error && !letGo(error)) toast({ kind: 'error', title: 'Could not continue authentication', description: failureMessage(error, 'The authentication request expired.') });

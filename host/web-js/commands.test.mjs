@@ -8,6 +8,8 @@ test('relaunch reloads the browser document and keeps committed storage', async 
     if (path === '/frame-messages.js') return new Response(Bun.file(new URL('../web/frame-messages.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
+    if (path === '/alert-message.js') return new Response(Bun.file(new URL('../web/alert-message.js', import.meta.url)));
+    if (path === '/menu-rows.js') return new Response(Bun.file(new URL('../web/menu-rows.js', import.meta.url)));
     return new Response(`<button id="restart">Restart</button><output id="state"></output>
       <script type="module">
         import { commands } from '/commands.js';
@@ -47,6 +49,8 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     if (path === '/frame-messages.js') return new Response(Bun.file(new URL('../web/frame-messages.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
+    if (path === '/alert-message.js') return new Response(Bun.file(new URL('../web/alert-message.js', import.meta.url)));
+    if (path === '/menu-rows.js') return new Response(Bun.file(new URL('../web/menu-rows.js', import.meta.url)));
     return new Response(`<dialog role="alertdialog" open><input id="name">
         <button id="delete" data-exact-on="press" data-destructive="true">Delete</button>
         <button id="save" data-exact-on="press" disabled>Save</button>
@@ -92,6 +96,44 @@ test("a prompt's Return commits its field, then presses its action", async () =>
     await page.locator('#name').fill('Snare');
     await page.locator('#name').press('Enter');
     expect(await log()).toBe('');
+  } finally {
+    await browser?.close();
+    server.stop(true);
+  }
+}, 30000);
+
+// `openURL` hands the browser a scheme app.json's `open_url` declares (`exact.openSchemes`), whatever the case it is
+// written in; an undeclared scheme, and one that runs or reads content even if declared, is refused; under the agent
+// a declared one is journaled, not opened.
+test('openURL opens a declared scheme, refuses the rest, and journals under the agent', async () => {
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    for (const [name, file] of [['commands.js', './commands.js'], ['frame-messages.js', '../web/frame-messages.js'], ['navigation.js', '../web/navigation.js'], ['prompt-glue.js', '../web/prompt-glue.js'], ['alert-message.js', '../web/alert-message.js'], ['menu-rows.js', '../web/menu-rows.js']]) {
+      if (path === `/${name}`) return new Response(Bun.file(new URL(file, import.meta.url)));
+    }
+    return new Response(`<script type="module">
+        import { commands } from '/commands.js';
+        globalThis.exact = { openSchemes: ['vscode', 'javascript'] };
+        const opened = [], said = [];
+        window.open = (url) => { opened.push(url); };
+        const page = commands(line => said.push(line)), agent = commands(line => said.push(line), () => true);
+        for (const url of ['vscode://vscode-remote/ssh-remote+devbox/p', 'VSCode://file/a', 'zed://ssh/devbox/p', 'javascript:alert(1)']) page.openURL(url);
+        agent.openURL('vscode://file/b');
+        globalThis.result = { opened, said };
+      </script>`, { headers: { 'content-type': 'text/html' } });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => globalThis.result);
+    const { opened, said } = await page.evaluate(() => globalThis.result);
+    expect(opened).toEqual(['vscode://vscode-remote/ssh-remote+devbox/p', 'vscode://file/a']);
+    expect(said).toHaveLength(3);
+    expect(said[0]).toStartWith('openURL refused: "zed://ssh/devbox/p"');
+    expect(said[1]).toStartWith('openURL refused: "javascript:alert(1)"');
+    expect(said[2]).toBe('openURL vscode: vscode://file/b (journaled, not opened under the agent)');
   } finally {
     await browser?.close();
     server.stop(true);

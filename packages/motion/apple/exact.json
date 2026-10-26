@@ -1,0 +1,50 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/motion@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleOrientationReading": {
+      "attitudeReferenceFrame": "enum<xArbitraryZVertical|xArbitraryCorrectedZVertical|xMagneticNorthZVertical|xTrueNorthZVertical>",
+      "heading": "option<number>",
+      "headingAccuracy": "option<number>",
+      "magneticFieldAccuracy": "option<enum<uncalibrated|low|medium|high>>"
+    },
+    "AppleMotionStatus": {
+      "headphoneMotion": "enum<notDetermined|restricted|denied|authorized>",
+      "headphonesConnected": "bool"
+    }
+  },
+  "options": {
+    "absoluteOrientationSensor": {
+      "attitudeReferenceFrame": "enum<xArbitraryZVertical|xArbitraryCorrectedZVertical|xMagneticNorthZVertical|xTrueNorthZVertical>",
+      "showsDeviceMovementDisplay": "bool"
+    },
+    "relativeOrientationSensor": {
+      "attitudeReferenceFrame": "enum<xArbitraryZVertical|xArbitraryCorrectedZVertical|xMagneticNorthZVertical|xTrueNorthZVertical>",
+      "showsDeviceMovementDisplay": "bool"
+    },
+    "deviceOrientation": {
+      "attitudeReferenceFrame": "enum<xArbitraryZVertical|xArbitraryCorrectedZVertical|xMagneticNorthZVertical|xTrueNorthZVertical>",
+      "showsDeviceMovementDisplay": "bool"
+    },
+    "gyroscope": {
+      "biasCorrected": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "motionManager"
+  ],
+  "sources": {
+    "swift": [
+      "Motion.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "MotionModule"
+}

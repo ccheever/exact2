@@ -1,5 +1,6 @@
 // Invocation-owned adapter for saved ordinary canonical file holds. No runtime activation.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
+import { mobileComposerFileScope } from './composer-file-scope';
 import type { PickerIntakeProvenance } from './composer-picker-intake-io';
 import type { ComposerMountedIdentity } from './composer-editor-state';
 import type { DraftFile } from './shared/composer-editor-files';
@@ -57,12 +58,7 @@ function fileValid(value:unknown):value is DraftFile {
   return ['videoWidth','videoHeight'].every(k=>value[k]===undefined||typeof value[k]==='number'&&Number.isFinite(value[k])&&Number(value[k])>0);
 }
 function scopeValid(i:unknown,generation:unknown,target:unknown):boolean {
-  if(!identity(i)||!integer(generation)||!plain(target)||!keys(target,['origin','environmentId','threadId','draftKey'])
-    ||!Object.values(target).every(text)||String(target.threadId).startsWith('new:')||String(target.draftKey).includes('~queued-edit~')
-    ||target.draftKey!==`${target.environmentId}:${target.threadId}`)return false;
-  try {const owner:unknown=JSON.parse(i.owner);return Array.isArray(owner)&&(owner.length===5||owner.length===6)
-    &&owner[0]==='ordinary'&&owner[1]===target.origin&&owner[2]===target.environmentId&&owner[3]===generation&&owner[4]===target.draftKey;
-  }catch{return false}
+  return identity(i)&&integer(generation)&&mobileComposerFileScope(i.owner,target)?.generation===generation;
 }
 const releasing=(ledger:FileHoldLedger,e:FileHoldEntry)=>ledger.retired||e.desired==='release';
 function changed(ledger:FileHoldLedger):void {

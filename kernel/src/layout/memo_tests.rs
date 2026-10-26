@@ -608,3 +608,27 @@ fn rows_follow_an_environment_their_calculations_read() {
     assert_eq!(gap(&mut k, 20.0), [20.0; 3], "min(40, 20)");
     assert_eq!(gap(&mut k, 100.0), [16.0; 3], "min(40, 16)");
 }
+
+#[test]
+fn engine_styles_share_by_value_with_absent_or_allocated_defaults() {
+    use super::{engine_hash, LayoutTree};
+    use std::rc::Rc;
+    use taffy::prelude::line;
+
+    let initial = taffy::Style::DEFAULT;
+    let mut explicit = initial.clone();
+    explicit.rare.grid_row.start = line(2);
+    let placed = explicit.clone();
+    explicit.rare.grid_row.start = taffy::style::GridPlacement::Auto;
+    assert!(initial.rare.is_initial());
+    assert!(!explicit.rare.is_initial());
+    assert_eq!(initial, explicit);
+    assert_eq!(engine_hash(&initial), engine_hash(&explicit));
+    let mut tree = LayoutTree::new();
+    let a = tree.share(initial);
+    let b = tree.share(explicit);
+    assert!(Rc::ptr_eq(&a, &b));
+    let c = tree.share(placed.clone());
+    assert!(!Rc::ptr_eq(&a, &c));
+    assert!(Rc::ptr_eq(&c, &tree.share(placed)));
+}

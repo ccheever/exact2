@@ -89,6 +89,7 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
     expect(chord('1', 'Digit1', 'meta shift', true)).toBe('mod+shift+1'); // AZERTY's Shift+&
     expect(chord('/', 'Digit7', 'shift', true)).toBe('shift+/'); // German Shift+7
     expect(chord('K', 'KeyK', 'meta shift', true)).toBe('mod+shift+k');
+    expect(chord('ㅠ', 'KeyB', 'meta shift', true)).toBe('mod+shift+ㅠ'); // Korean 2-Set's character, not its physical key
     expect(chord('ArrowUp', 'ArrowUp', 'ctrl', true)).toBe('ctrl+arrowup');
     expect(chord('Meta', 'MetaLeft', 'meta', true)).toBe('');
   });

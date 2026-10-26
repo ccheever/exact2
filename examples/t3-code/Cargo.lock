@@ -410,6 +410,7 @@ dependencies = [
  "exact-raster",
  "exact-route",
  "exact-runner",
+ "exact-svg-file",
  "exact-textflow",
  "ibex2",
  "serde_json",
@@ -427,6 +428,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "exact-svg-file",
  "exact-update",
  "serde_json",
  "sha2",
@@ -631,6 +633,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-svg-file"
+version = "0.1.0"
+dependencies = [
+ "exact-kernel",
+ "exact-motion",
+ "exact-num",
+]
+
+[[package]]
 name = "exact-svg-filter"
 version = "0.1.0"
 
@@ -641,6 +652,7 @@ dependencies = [
  "exact-color",
  "exact-motion",
  "exact-num",
+ "serde",
  "serde_json",
 ]
 

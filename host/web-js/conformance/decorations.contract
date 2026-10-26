@@ -7,6 +7,7 @@ component App
   state painted = "hi @alice.bsky.social see https://bsky.app #art"
   state geometry = ""
   state sizes = ""
+  state lines = ""
   derive ranges = TextDecorations(value=painted, spans=[TextDecorationSpan(name="mention", start=3, end=21), TextDecorationSpan(name="link", start=26, end=42), TextDecorationSpan(name="tag", start=43, end=47)])
   action edit(value: string)
     draft = value
@@ -30,6 +31,20 @@ component App
     let inside = mention.x > field.x && mention.x + mention.width <= field.x + field.width && mention.y > field.y
     sizes = caret.unavailable ? "unavailable" : `caret ${caret.width}×${caret.height} mention ${mention.width}×${mention.height} past ${past.unavailable}`
     geometry = caret.unavailable ? "unavailable" : `caret width ${caret.width} mention on its line ${line} from it ${mention.x == caret.x} wide ${mention.width > caret.height * 4} inside ${inside} past ${past.unavailable}`
+  action measureLines
+    // The painted caret on an empty line and in an empty field (theme2's
+    // 18:42 ruling), as facts every host's fonts agree on.
+    let first = rangeFrame("notes", 0, 0)
+    let middle = rangeFrame("notes", 2, 2)
+    let next = rangeFrame("notes", 3, 3)
+    let blank = rangeFrame("blank", 0, 0)
+    let box = frame("blank")
+    let typed = rangeFrame("typed", 0, 0)
+    let typedBox = frame("typed")
+    let start = round(middle.x) == round(first.x) && round(middle.x) == round(next.x)
+    let between = middle.y > first.y && middle.y < next.y && round(middle.y - first.y) == round(next.y - middle.y)
+    let inside = round(blank.x - box.x) == round(typed.x - typedBox.x) && round(blank.y - box.y) == round(typed.y - typedBox.y) && round(blank.height) == round(typed.height)
+    lines = middle.unavailable ? "unavailable" : `empty line at the start ${start} between ${between} height ${round(middle.height) == round(first.height)} width ${middle.width}; empty field where a typed one starts ${inside} width ${blank.width}`
   view
     column padding=24 gap=12
       textarea id="composer" testId="composer" aria-label="Composer" value=draft input=edit decorations=ranges width=340 height=120 font-size=16
@@ -40,4 +55,9 @@ component App
           text "Replace mention"
         button testId="measure" press=measure
           text "Measure"
+        button testId="measure-lines" press=measureLines
+          text "Lines"
+      textarea id="notes" testId="notes" aria-label="Notes" value="a\n\nb" width=200 height=80 font-size=16
+      textarea id="blank" testId="blank" aria-label="Blank" value="" width=200 height=40 font-size=16
+      textarea id="typed" testId="typed" aria-label="Typed" value="x" width=200 height=40 font-size=16
       text geometry testId="geometry"

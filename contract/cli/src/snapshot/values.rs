@@ -29,7 +29,7 @@ fn choices(e: &Expr, accepts: &impl Fn(&Expr) -> bool) -> bool {
     }
 }
 /// Whether every branch of `e` is a literal, so a refusal names the value.
-fn literal(e: &Expr) -> bool {
+pub(crate) fn literal(e: &Expr) -> bool {
     choices(e, &|e| {
         matches!(
             e,
@@ -60,6 +60,21 @@ fn color(s: &str) -> bool {
         || ColorValue::parse_light_dark(s)
             .or_else(|| Color::parse(s).map(ColorValue::Fixed))
             .is_some_and(color_value)
+}
+/// A colour the bake reads as one. What it does not, a live entry's design token
+/// among them (`accent.fill`, LLP 1121), lowering resolves or refuses.
+fn parsed_color(s: &str) -> bool {
+    s.eq_ignore_ascii_case("currentcolor")
+        || ColorValue::parse_light_dark(s).is_some()
+        || Color::parse(s).is_some()
+}
+/// A background the bake cannot parse (a stop that names a design token) whose
+/// kind the leaf draws: never conic, repeating or an image.
+fn unparsed_gradient(s: &str) -> bool {
+    exact_kernel::gradient::BackgroundImage::check(s).is_err()
+        && !["conic-gradient", "repeating-", "url("]
+            .iter()
+            .any(|k| s.contains(k))
 }
 fn radius(e: &Expr) -> bool {
     match e {
@@ -120,7 +135,12 @@ fn gradient(s: &str) -> bool {
     })
 }
 
-pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
+/// The paint values the snapshot driver's leaves draw. `live` is the watch's
+/// live driver (LLP 1126.002 D9), which draws with the same leaves: it scrolls
+/// (its own admission refuses a horizontal scroller), its rows are its own
+/// column's, and a computed value or a design token is the runtime's to meet,
+/// not the bake's.
+pub(crate) fn attribute(a: &Attr, errors: &mut Vec<CompileError>, live: bool) {
     let fail = |id, edit: &str| refusal(id, format!("`{}`: {edit}", a.name), a.span);
     let border = a.name == "border" || a.name.starts_with("border-") && !a.name.ends_with("radius");
     if border
@@ -134,6 +154,8 @@ pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
     }
     let rows = match contract_lower::style_values(&a.name, &a.value) {
         Ok(rows) => rows,
+        // A live entry's shorthand may name a design token, which lowering binds.
+        Err(_) if live => return,
         Err(_) if border => {
             errors.push(fail("snapshot-border", BORDER));
             return;
@@ -156,14 +178,17 @@ pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
                 v.iter().all(|p| Some(p) == v.first())
             }
             Expr::Number(_, _) => true,
-            _ => false,
+            _ => live,
         })
     {
         errors.push(fail("snapshot-border", BORDER));
     }
     for (row, value) in rows {
         use StyleId::*;
-        if !admits(row) {
+        if live && (matches!(row, OverflowX | OverflowY) || !literal(&value)) {
+            continue;
+        }
+        if !live && !admits(row) {
             let edit = match row {
                 Visibility => "use display: none or a condition",
                 ZIndex => "use document order to set the paint order",
@@ -182,8 +207,8 @@ pub(super) fn attribute(a: &Attr, errors: &mut Vec<CompileError>) {
             TextOverflow => Some((words(&value, &["clip"]), "snapshot-text-overflow", "use line-clamp instead of text-overflow: ellipsis")),
             BorderStyleTop | BorderStyleRight | BorderStyleBottom | BorderStyleLeft => Some((words(&value, &["solid", "dashed", "dotted", "none", "hidden"]), "snapshot-border", BORDER)),
             BorderRadiusTopLeft | BorderRadiusTopRight | BorderRadiusBottomLeft | BorderRadiusBottomRight => Some((choices(&value, &radius), "snapshot-radius", RADIUS)),
-            BackgroundColor | TextColor | BorderColorTop | BorderColorRight | BorderColorBottom | BorderColorLeft => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if color(s))), "snapshot-color", COLOR)),
-            BackgroundImage => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if gradient(s))), "snapshot-gradient", GRADIENT)),
+            BackgroundColor | TextColor | BorderColorTop | BorderColorRight | BorderColorBottom | BorderColorLeft => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if color(s) || live && !parsed_color(s))), "snapshot-color", COLOR)),
+            BackgroundImage => Some((choices(&value, &|e| matches!(e, Expr::Str(s, _) if gradient(s) || live && unparsed_gradient(s))), "snapshot-gradient", GRADIENT)),
             _ => None,
         };
         if let Some((false, id, edit)) = rule {

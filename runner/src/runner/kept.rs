@@ -277,6 +277,46 @@ impl<D: DataSource> Runner<D> {
         seed
     }
 
+    /// Before the source is ready, each store reader is asked again at
+    /// `data_ready`, and shows the answer kept from the last launch where it
+    /// still fits (`seeded`: a document's answers already seeded it). A
+    /// launch that begins with a presence secret locked or pending shows
+    /// none (LLP 1133.010 D5): a kept answer is the account's content, and
+    /// the person has not passed the check yet.
+    pub(super) fn seed_kept(&mut self, seeded: &[bool], device_state: bool) {
+        let locked = self.store.opened_locked();
+        if locked {
+            self.log("kept answers not shown: the launch begins with a presence secret locked (LLP 1133.010 D5)");
+        }
+        for (i, &taken) in seeded.iter().enumerate() {
+            if !self.plan.resources[i].reader
+                || exact_plan::runner_owned_source(self.plan.str(self.plan.resources[i].source))
+            {
+                continue;
+            }
+            // An answer the runtime already has isn't asked again when
+            // the module loads, unless the device's store may change it.
+            if taken && !device_state {
+                continue;
+            }
+            self.stale[i] = true;
+            if self.resources[i].is_some() || locked {
+                continue;
+            }
+            if let Some((args, value)) = self.kept_seed(i) {
+                self.resources[i] = Some(ResourceState {
+                    args,
+                    value: crate::held::Held::new(value),
+                    store_revision: self.store.revision(),
+                    placeholder: false,
+                    kept_seed: true,
+                    answered_for: None,
+                    origin: 0,
+                });
+            }
+        }
+    }
+
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
@@ -515,6 +555,9 @@ impl<D: DataSource> Runner<D> {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
         }
+        // A pending presence move runs once the source has loaded (LLP
+        // 1133.010 D4), so the store's readers see it from this commit on.
+        self.presence_ready();
         let readers = if change.read {
             self.store_readers()
         } else {
@@ -612,8 +655,10 @@ impl<D: DataSource> Runner<D> {
             let answer = if Self::activity_send(&source) {
                 self.activity_request(&source, &args)
             } else {
-                self.data
-                    .answer_for(target, &mut self.store, &source, &args)
+                let answer = self
+                    .data
+                    .answer_for(target, &mut self.store, &source, &args);
+                self.refuse_locked(answer)
             };
             // What its turn sent as an answer (LLP 1016.000 D7, the amendment
             // of 2026-10-18).

@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { arr, obj, type Obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
 import { Fake, opened } from '../support/composer-controls-fixture';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const now = Date.parse('2026-10-08T03:00:00.000Z');
 const iso = (offset: number) => new Date(now + offset).toISOString();
@@ -13,7 +14,9 @@ type Reply = { ok: true; value: Obj } | { ok: false; error: Obj };
 
 class LimitsFake extends Fake {
   redeems: Obj[] = [];
-  opened: string[] = [];
+  /** The links opened outside the app since this fake was made (external-open.ts). */
+  readonly openedFrom = resetExternalOpensForTests();
+  get opened(): string[] { return [...externalOpensForTests()]; }
   replies: Reply[] = [];
   async later(input: unknown): Promise<unknown> {
     const request = obj(input);
@@ -24,7 +27,6 @@ class LimitsFake extends Fake {
       this.emit(String(request.deliver), reply.ok ? { _reply: reply.value } : { _replyError: { uncertain: false, ...reply.error } });
       return this.ok({ id: `rpc-${this.redeems.length}` });
     }
-    if (request.op === 'remoteEditorsOpen') { this.opened.push(String(request.url)); return this.ok({ opened: true }); }
     return super.later(input);
   }
 }

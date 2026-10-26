@@ -137,6 +137,32 @@ test('forwarded keyups survive focus changes; editable focus blurs; shortcuts st
   send('keydown', 'KeyW'); send('focusin', '', input); send('keyup', 'KeyW', input);
   assert.equal(f.events.at(-1).t, 'blur');
 });
+test('a held pad stays off a world while an editor in its canvas has the focus', async () => {
+  const { padPoller } = await import('../gpu-pads.js');
+  const frames = [], saved = { navigator: globalThis.navigator, requestAnimationFrame: globalThis.requestAnimationFrame, window: globalThis.window, document: globalThis.document };
+  const south = { index: 0, mapping: 'standard', connected: true, axes: [0, 0, 0, 0],
+    buttons: Array.from({ length: 17 }, (_, i) => ({ value: i === 0 ? 1 : 0, pressed: i === 0 })) };
+  globalThis.navigator = { getGamepads: () => [south] };
+  globalThis.requestAnimationFrame = fn => frames.push(fn);
+  globalThis.window = { addEventListener() {} };
+  globalThis.document = { hasFocus: () => true };
+  try {
+    const f = await fixture({input:true, padPoller}), el = f.create(1), input = new f.Element('input');
+    el.canvas.parent = el; input.parent = el; // an editor among the world's controls
+    const poll = () => frames.shift()(), pads = () => f.events.filter(e => e.t === 'pad').map(e => e.buttons[0]);
+    f.document.activeElement = el.canvas;
+    poll();
+    assert.deepEqual(pads(), [1]);
+    f.document.activeElement = input;
+    el.listeners.focusin({target:input, timeStamp:0});
+    assert.equal(f.events.at(-1).t, 'blur');
+    poll();
+    assert.deepEqual(pads(), [1], 'the editor has the pads: none go to the world');
+    f.document.activeElement = el.canvas;
+    poll();
+    assert.deepEqual(pads(), [1, 1], 'back on the canvas, the world hears the pad held');
+  } finally { Object.assign(globalThis, saved); }
+});
 test('only the focused game host or render canvas owns Ctrl and Meta chords', async () => {
   const f=await fixture({input:true}), el=f.create(1), button=new f.Element('button'), input=new f.Element('input');
   const send=(type,code,target,extra={})=>{let prevented=false;el.listeners[type]({target,code,timeStamp:0,preventDefault(){prevented=true;},...extra});return prevented;};

@@ -16,7 +16,7 @@ import { pushToast } from '../shell/toast';
 import { draftContext } from '../composer/composer-controls-branch';
 import { branchState } from './git-branch';
 import {
-  defaultBranchCopy, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, providerMark, publishPathValid,
+  defaultBranchCopy, featureBranchUnavailableReason, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, providerMark, publishPathValid,
   quickAction, quickActionIcon, requiresDefaultBranchConfirmation, sortedPublishProviders, terminology, workingFiles, workingTreeRoot,
 } from './git-logic';
 import { letGo } from '../client/let-go';
@@ -31,7 +31,10 @@ type Publish = { step: number; provider: string; repository: string | null; visi
   pending: boolean; error: string; result: Obj | null; discovered: Obj[]; loaded: boolean };
 export interface GitState {
   cwd: string; status: Obj | null; run: Run | null; success: { cwd: string; title: string; description: string; at: number } | null;
-  dialog: string; pending: Pending | null; editing: boolean; excluded: Set<string>; initPending: boolean;
+  dialog: string; pending: Pending | null;
+  /** The confirmation last shown, whose copy the dialog keeps while it fades out (ui/dialog.tsx RetainedWhileClosed). */
+  shown: Pending | null;
+  editing: boolean; excluded: Set<string>; initPending: boolean;
   /** Which control opened the dialog (the quick action or the menu), which it gives the focus back to as it closes. */
   opener: 'quick' | 'menu';
   ends: Map<string, Obj>; branchSync: { threadId: string; draftKey: string; branch: string }[]; publish: Publish; editor: string; lastNow: number;
@@ -41,7 +44,7 @@ const states = new WeakMap<T3Client, GitState>();
 export function gitState(client: T3Client): GitState {
   let state = states.get(client);
   if (!state) {
-    state = { cwd: '', status: null, run: null, success: null, dialog: '', opener: 'quick', pending: null, editing: false, excluded: new Set(), initPending: false, ends: new Map(), branchSync: [], publish: freshPublish(), editor: '', lastNow: 0 };
+    state = { cwd: '', status: null, run: null, success: null, dialog: '', opener: 'quick', pending: null, shown: null, editing: false, excluded: new Set(), initPending: false, ends: new Map(), branchSync: [], publish: freshPublish(), editor: '', lastNow: 0 };
     states.set(client, state);
   }
   return state;
@@ -141,12 +144,22 @@ async function runWithConfirmation(client: T3Client, native: Native, action: str
   const branch = str(status?.refName);
   if (requiresDefaultBranchConfirmation(action, status?.isDefaultRef === true) && branch) {
     const includesCommit = ['commit', 'commit_push', 'commit_push_pr'].includes(action) && (action === 'commit' || status?.hasWorkingTreeChanges === true);
-    state.pending = { action, branchName: branch, includesCommit, commitMessage: extra.commitMessage ?? '', filePaths: extra.filePaths ?? [] };
+    state.pending = state.shown = { action, branchName: branch, includesCommit, commitMessage: extra.commitMessage ?? '', filePaths: extra.filePaths ?? [] };
     state.dialog = 'confirm';
     return;
   }
   await startAction(client, native, { action, ...extra });
 }
+
+/** The feature-ref option follows the live status while the dialog is open; until the status loads it stays offered,
+ * the server being the authority over a stale request. */
+const featureReason = (status: Obj | null, branchName: string): string =>
+  featureBranchUnavailableReason(branchName, status?.hasWorkingTreeChanges !== false);
+
+/** GitActionsControl canChangeThreadBranch: source-control writes, and a local draft (no server thread yet) or a
+ * scope that operates threads. Both feature-ref options ask for it. */
+const canChangeThreadBranch = (client: T3Client): boolean =>
+  can(client, 'source-control:write') && (!client.shell.threads.some(thread => thread.id === client.threadId) || can(client, 'orchestration:operate'));
 
 /** `shell:git-*` from the card and its dialogs (server writes). */
 export async function gitCommand(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
@@ -171,6 +184,7 @@ export async function gitCommand(client: T3Client, native: Native, op: string, i
     await runWithConfirmation(client, native, item.dialogAction);
     return '';
   }
+  if (op === 'commit-branch' && !canChangeThreadBranch(client)) return '';
   if (op === 'commit' || op === 'commit-branch') {
     const files = workingFiles(state.status), selected = files.filter(file => !state.excluded.has(file.path));
     if (!selected.length) throw new ClientError('Select at least one file to commit.');
@@ -182,6 +196,7 @@ export async function gitCommand(client: T3Client, native: Native, op: string, i
   }
   if (op === 'confirm') {
     const pending = state.pending;
+    if (pending && value === 'feature' && (!canChangeThreadBranch(client) || featureReason(state.status, pending.branchName))) return '';
     state.pending = null; state.dialog = '';
     if (!pending || (value !== 'continue' && value !== 'feature')) return '';
     await startAction(client, native, { action: pending.action, ...(pending.commitMessage ? { commitMessage: pending.commitMessage } : {}),
@@ -293,7 +308,7 @@ export type GitView = ReturnType<typeof gitCardView>;
 export function gitCardView(client: T3Client, status: Obj | null, error: string, cwd: string, now: number, editor = '') {
   const state = gitState(client);
   state.editor = editor;
-  if (state.cwd !== cwd) { state.cwd = cwd; state.dialog = ''; state.pending = null; if (state.success?.cwd !== cwd) state.success = null; }
+  if (state.cwd !== cwd) { state.cwd = cwd; state.dialog = ''; state.pending = state.shown = null; if (state.success?.cwd !== cwd) state.success = null; }
   state.status = status;
   const run = state.run && state.run.cwd === cwd && state.run.generation === client.generation ? state.run : null;
   if (state.run && !run && state.run.generation !== client.generation) state.run = null; // a reconnect interrupts the stream
@@ -311,7 +326,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
   const progress = run ? progressPresentation(run) : null;
   const items = menuItems(status, busy, hasRemote);
   const files = workingFiles(status), selected = files.filter(file => !state.excluded.has(file.path));
-  const term = terminology(status), pending = state.pending;
+  const term = terminology(status), pending = state.pending ?? state.shown;
   const copy = pending ? defaultBranchCopy(pending.action, pending.branchName, pending.includesCommit, term) : { title: 'Run action on default branch?', description: '', continueLabel: 'Continue' };
   const form = state.publish, providers = sortedPublishProviders(form.discovered);
   const chosen = providers.find(option => option.value === form.provider && option.ready) ?? providers.find(option => option.ready) ?? providers.find(option => option.value === (form.provider || 'github'))!;
@@ -331,7 +346,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
     filesOpenable: can(client, 'orchestration:operate') && workingTreeRoot(status) !== '',
     allSelected: state.excluded.size === 0, noneSelected: selected.length === 0, someSelected: state.excluded.size > 0 && selected.length > 0,
     selectedInsertions: selected.reduce((sum, file) => sum + file.insertions, 0), selectedDeletions: selected.reduce((sum, file) => sum + file.deletions, 0),
-    confirmTitle: copy.title, confirmDescription: copy.description, confirmContinue: copy.continueLabel,
+    confirmTitle: copy.title, confirmDescription: copy.description, confirmContinue: copy.continueLabel, confirmFeatureReason: pending ? featureReason(status, pending.branchName) : '', canChangeBranch: canChangeThreadBranch(client),
     publishStep: form.step, publishProviders: providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source Control to configure this provider.',
       selected: option.value === chosen.value && option.ready })),
     publishRows: pairs(providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source Control to configure this provider.',

@@ -12,7 +12,7 @@
 // commands.
 import { journal, clock, nextTicket, inflight, Hosts, OnHooks, viewId, Views, data, painted } from './rt.js';
 import { record } from './pointer.js';
-import { inertAncestor, reportPlace } from './navigation.js';
+import { inertAncestor, reportPlace, liveById } from './navigation.js';
 import { appGrantSet, coversPath } from './admission.js';
 
 const say = line => journal.push(`t=${clock.now} ${line}`);
@@ -35,7 +35,7 @@ const glue = () => Glue ??= import(new URL('./picker-glue.js', import.meta.url).
 }));
 const counted = p => { inflight.n++; return Promise.resolve(p).finally(() => inflight.n--); };
 const extension = name => { const e = /\.([^.]*)$/.exec(name)?.[1]?.toLowerCase() ?? ''; return e && e.length <= 8 && /^[a-z0-9]+$/.test(e) ? e : 'bin'; };
-const byId = id => { const el = document.getElementById(id); return el ? { el, view: viewId(el) } : null; };
+const byId = id => { const el = liveById(id); return el ? { el, view: viewId(el) } : null; };
 
 // A file input's `change` payload (picker.rs `Picked::payload`): one line
 // per file, as `Picked` records; null for anything malformed.

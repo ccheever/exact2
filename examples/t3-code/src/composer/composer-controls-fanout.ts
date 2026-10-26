@@ -49,14 +49,6 @@ export function toggleFanout(client: T3Client, instanceId: string, model: string
   return next[0] ?? single;
 }
 
-/** A Shift-click or Shift+Return in the picker (the newest pointer or Return press, T3ComposerIntent). */
-export async function additiveGesture(client: T3Client, native: Native): Promise<boolean> {
-  if (!fanoutSupported(client)) return false;
-  const gesture = obj(await client.restAccess(native).call({ op: 'composerSendIntent' }).catch(() => ({})));
-  const age = Number(gesture.ageMs);
-  return Number.isFinite(age) && age >= 0 && age <= 2000 && /\bshift\b/.test(str(gesture.modifiers));
-}
-
 /** The trigger and rows while several models are chosen. */
 export function fanoutView(client: T3Client) {
   const list = fanoutSelections(client);

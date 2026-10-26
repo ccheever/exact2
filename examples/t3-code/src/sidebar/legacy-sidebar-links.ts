@@ -88,7 +88,7 @@ export async function openRowPullRequest(client: T3Client, native: Native, id: s
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Unable to open pull request link', description: failure(error, 'An error occurred.'), stacked: true });
   };
-  if (held) { try { await openInSystemBrowser(native, url); } catch (error) { linkFailed(error); } return ''; }
+  if (held) { try { await openInSystemBrowser(url); } catch (error) { linkFailed(error); } return ''; }
   // routeThreadRef (resolveActiveThreadRouteRef): a server thread's route, or a draft once it was sent; an unsent draft is none.
   const besideThread = page === '' && client.threadId !== '';
   if (besideThread) {

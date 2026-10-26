@@ -56,7 +56,7 @@ keyframes lsRowIn
 // A row's or a header's tooltip in the window's hover layer (LegacyRowTip, LegacyTitleTip): kind "tooltip" (Base UI's 600 ms,
 // no provider). Every legacy tip shares one key, so the row or header the pointer is next on closes one a gone trigger left.
 fn legacyTip(label: string, side: string, align: string, at: Geometry, rem: number, testId: string): HoverTip = hoverTipAtFrame("legacy-tip", "tooltip", label, [], side, align, at, (floor(label.length / 48) + 1) * rem + 0.625 * rem, testId)
-fn legacyTipOff(): HoverTip = HoverTip(key="legacy-tip", kind="tooltip", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
+fn legacyTipOff(): HoverTip = HoverTip(key="legacy-tip", kind="tooltip", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, wide=0, testId="")
 // Trigger IDs identify the owner; every legacy tip deliberately shares the same hover-controller key.
 fn legacyTipOwner(testId: string, projects: LegacyProjectRow[]): bool = projects.filter(p => [`legacy-tip-status-${p.key}-bubble`, `legacy-tip-new-${p.key}-bubble`].includes(testId) or p.threads.filter(t => not t.renaming and ["title", "pr", "port", "worktree", "terminal", "archive"].map(kind => `legacy-tip-${kind}-${t.id}-bubble`).includes(testId)).length > 0).length > 0
 

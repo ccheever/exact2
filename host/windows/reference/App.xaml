@@ -1,0 +1,10 @@
+<!-- Its compiled form gives the app the XAML type information WinUI's
+     control resources need; a code-only Application cannot load them. -->
+<Application
+    x:Class="Reference.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+    </Application.Resources>
+</Application>

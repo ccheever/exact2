@@ -1,4 +1,4 @@
-// The transcript's remembered position per thread, Contract's since T3ComposerInput.swift's
+// The transcript's remembered position per thread, Contract's since the module's
 // native restoration retired (its cases are ported here). Reference: T3 Code 1e2ecbd975 (MIT, see LICENSE-T3)
 // timelineScrollAnchoring.ts rememberTimelinePosition (scoped thread keys, 100 entries) and MessagesTimeline.tsx's
 // handleScroll / restoration (scrollToIndex with -offsetWithinRow, else scrollToOffset, else the end). ChatColumn's
@@ -160,15 +160,12 @@ describe('each thread keeps its own place', () => {
 });
 
 describe('one writer per navigation', () => {
-  test('the marker beside the list reports each thread\'s transcript, and T3ComposerInput keeps only the composer\'s input', () => {
+  test('the marker beside the list reports each thread\'s transcript', () => {
     const main = source('app-main.contract');
     expect(main).toContain('          for owner in [composerOwner] key=owner\n            box intersect=transcriptOpened(owner) position="absolute"');
     const c = chat();
     expect(column.drawn('intersect=transcriptOpened(owner)', c.state, c.scope)).toBe(true);
     (c.scope.data as Env).messages = [];
     expect(column.drawn('intersect=transcriptOpened(owner)', c.state, c.scope)).toBe(false);
-    const input = source('modules/apple/T3ComposerInput.swift');
-    expect(input).not.toMatch(/func remember|func step|restoring|turns\[|boundsDidChange|timelineOwner/);
-    for (const kept of ['func responderChanged', 'static func chordKey', 'static func commitMarkedText', 'commit-on-press']) expect(input).toContain(kept);
   });
 });

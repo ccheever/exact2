@@ -28,12 +28,26 @@ extension Presenter {
         tabStart = nil
         #endif
         focusEvents.focus(id)
+        #if os(iOS)
+        session?.view?.setNeedsLayout()
+        #endif
         MainActor.assumeIsolated { HeldState.focusMoved(to: textHost(id)) } // the focus coming into a held focus's node or leaving it lets it go (HeldState.swift)
     }
     func blur(_ id: UInt32) {
+        #if os(iOS) || os(tvOS)
+        if menus.preservesFocus(id) { return }
+        #endif
         focusEvents.blur(id)
+        #if os(iOS)
+        session?.view?.setNeedsLayout()
+        #endif
         // (After the turn: the focus that comes next, so one moving within the node keeps its hold.)
-        DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { HeldState.focusMoved(to: self?.focusedNode) } }
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { HeldState.focusMoved(to: self?.focusedNode) }
+            #if os(iOS)
+            self?.session?.view?.syncKeyboardFocus()
+            #endif
+        }
     }
 }
 

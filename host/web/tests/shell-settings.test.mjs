@@ -3,7 +3,7 @@
 // paints honours the person's settings: with Reduce Transparency the bar is opaque and does not blur, and
 // under forced colours each drawn control is the browser's own again; an effect the author wrote is not
 // touched. The shell carries the resets a careful web app ships (text inflation, the double-tap zoom on a
-// control, a scroller's end pulling the page). A symbol, and an image in something pressable, is not
+// control, a drag moving the whole page). A symbol, and an image in something pressable, is not
 // dragged out as a picture; the select's chevron and the switch's thumb follow the page's direction; and a
 // plain `dialog` has no padding of the user agent's. The nodes are as the hosts write them.
 import { test, expect } from 'bun:test';
@@ -126,9 +126,9 @@ check(`the shell carries the resets a careful web app ships`, () => inChrome(asy
   for (const id of ['button', 'bare', 'link', 'pressable', 'field', 'area', 'select', 'switch']) expect([id, await css(evaluate, id, 'touchAction')]).toEqual([id, 'manipulation']);
   expect(await css(evaluate, 'plain', 'touchAction')).toBe('auto');
   expect(await css(evaluate, 'panned', 'touchAction')).toBe('none');
-  // A shell that scrolls inside itself keeps a scroller's end from the page; a `scroll document` page is the browser's.
+  // A shell that scrolls inside itself stays put, without even its own bounce; a `scroll document` page is the browser's.
   const ends = 'JSON.stringify([getComputedStyle(document.documentElement).overscrollBehaviorY, getComputedStyle(document.body).overscrollBehaviorY])';
-  expect(await evaluate(ends)).toBe('["contain","contain"]');
+  expect(await evaluate(ends)).toBe('["none","none"]');
   expect(await evaluate(`document.documentElement.setAttribute('data-scrolldocument', ''); ${ends}`)).toBe('["auto","auto"]');
 }), 60000);
 

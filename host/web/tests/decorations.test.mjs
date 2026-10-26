@@ -67,6 +67,7 @@ async function page(engine, drive, markdown = false, text = value) {
         let field = document.getElementById('field'); field.value = ${JSON.stringify(text)};
         await import('./geometry-glue.js'); const geometry = exact.geometry(document.getElementById('root'));
         window.range = (start, end) => { const out = new Float64Array(4), bits = geometry.range(field, start, end, out); return bits ? [...out] : null; };
+        window.geometry = geometry;
         if (${markdown}) {
           await import('./markup-editor.js');
           field = (await exact.installMarkupEditor)(field, { live: () => true, select() {}, replace(el) { field = el; } });
@@ -161,16 +162,111 @@ need('chrome', missing.chromium)('chromium: rangeFrame on a Markdown field reads
   }, true, 'first line\n**bold** word');
 }, 30000);
 
-// The web's stated deviation (docs/contract-grammar.md, theme2's 18:42
-// ruling): Chrome's createValueRange gives an empty line's caret the end of
-// the text before it, and an empty field's a zero rectangle at the
-// viewport's origin, where Linux answers the painted caret (QUEUE).
-need('chrome', missing.chromium)('chromium: rangeFrame on an empty line and an empty field is Chrome\'s', async () => {
+// A collapsed range on an empty line, or in an empty field, is where the
+// caret is painted (docs/contract-grammar.md, theme2's 18:42 ruling), as
+// Chrome's createValueRange gives it on a line with text: `a\n\nb`'s empty
+// middle line sits one line below `a`'s start and one above `b`'s, at the
+// same left edge and with the same text height; `ab\n`'s last empty line
+// below `ab`; an empty field's caret at its content box's start.
+need('chrome', missing.chromium)('chromium: rangeFrame on an empty line and an empty field is the painted caret', async () => {
   await page('chromium', async p => {
-    const [last, end] = await p.evaluate(() => [range(3, 3), range(2, 2)]);
-    expect(last).toEqual(end);
+    const [first, middle, last] = await p.evaluate(() => [range(0, 0), range(2, 2), range(3, 3)]);
+    expect(middle[0]).toBeCloseTo(first[0], 1);
+    expect(middle[0]).toBeCloseTo(last[0], 1);
+    expect(middle[1] - first[1]).toBeCloseTo(last[1] - middle[1], 1);
+    expect(middle[1]).toBeGreaterThan(first[1]);
+    expect([middle[2], middle[3]]).toEqual([0, first[3]]);
+  }, false, 'a\n\nb');
+  await page('chromium', async p => {
+    const [start, end, after] = await p.evaluate(() => [range(0, 0), range(2, 2), range(3, 3)]);
+    // One line below `ab` (the page's 16px/1.5: 24), at the line's start.
+    expect(after[1] - start[1]).toBeCloseTo(24, 1);
+    expect(after[0]).toBeCloseTo(start[0], 1);
+    expect([after[2], after[3]]).toEqual([0, end[3]]);
   }, false, 'ab\n');
   await page('chromium', async p => {
-    expect(await p.evaluate(() => range(0, 0))).toEqual([0, 0, 0, 0]);
+    const [caret, box, typed] = await p.evaluate(async () => {
+      const el = field(), r = el.getBoundingClientRect(), s = getComputedStyle(el), empty = range(0, 0);
+      el.value = 'x'; const typed = range(0, 0);
+      return [empty, [r.x + el.clientLeft + parseFloat(s.paddingLeft), r.y + el.clientTop + parseFloat(s.paddingTop)], typed];
+    });
+    expect(caret[0]).toBeCloseTo(box[0], 1);
+    expect([caret[1], caret[3]]).toEqual([typed[1], typed[3]]);
+    expect(caret[2]).toBe(0);
   }, false, '');
+}, 30000);
+
+// The twin that finds the painted caret agrees with Chrome's own caret on
+// lines with text, under the field's styles a twin must copy: padding and
+// borders, a scroll, `wrap=off` with a long line, letter spacing, centred
+// text, a vertical writing mode, a transform (scale and rotation) and zoom,
+// and a transformed ancestor.
+need('chrome', missing.chromium)('chromium: the caret twin is Chrome\'s caret where Chrome has one', async () => {
+  const text = 'first line of the field that is long enough to wrap in a box four hundred wide, or not at all\nsecond\n\nfourth line here\n' + 'more\n'.repeat(12) + 'end';
+  await page('chromium', async p => {
+    const cases = [
+      '', 'padding:13px 7px;border:5px solid red', 'letter-spacing:2px;word-spacing:5px', 'text-align:center',
+      'white-space:pre', 'writing-mode:vertical-rl;height:300px', 'transform:scale(1.5) rotate(10deg)', 'zoom:1.25', 'scroll',
+      'wrap', 'ancestor', 'white-space:normal', 'white-space:nowrap', 'transition:all .2s', 'scroll-behavior:smooth;--scroll:1',
+      'position:fixed;left:30px;top:20px', 'trailing', 'white-space:normal;--indent', 'max-width:400px;padding:10px;border:2px solid;text-align:center',
+    ];
+    const results = await p.evaluate(({ cases, text }) => cases.map(c => {
+      const el = field(), base = el.getAttribute('style');
+      el.value = text;
+      if (c === 'scroll') el.scrollTop = 60;
+      else if (c === 'trailing') { el.value = text + '\n'; el.scrollTop = el.scrollHeight; }
+      else if (c === 'wrap') el.setAttribute('wrap', 'off');
+      else if (c === 'ancestor') el.parentElement.style.transform = 'translate(11px, 7px) scale(0.8)';
+      else el.setAttribute('style', `${base};${c}`);
+      if (c.includes('--indent')) el.value = '              ' + text.replace('\nsecond', '\n            second');
+      if (c.includes('--scroll')) { el.style.scrollBehavior = 'auto'; el.scrollTop = 60; el.style.scrollBehavior = 'smooth'; }
+      const diffs = [];
+      for (const k of [0, 5, 40, 61, 70, 80, 95, 101, 110, 130, text.length]) {
+        if (el.value[k - 1] === '\n' && (el.value[k] === '\n' || k === el.value.length)) continue;
+        // After a space a wrap may fall: either line's end is that caret.
+        if (el.value[k - 1] === ' ') continue;
+        const chrome = el.createValueRange(k, k).getBoundingClientRect(), twin = geometry.caretAt(el, k);
+        const d = Math.max(Math.abs(chrome.x - twin.x), Math.abs(chrome.y - twin.y), Math.abs(chrome.height - twin.height));
+        if (d > 0.5) diffs.push(`${c || 'plain'} @${k}: chrome ${[chrome.x, chrome.y, chrome.height].map(n => n.toFixed(2))} twin ${[twin.x, twin.y, twin.height].map(n => n.toFixed(2))}`);
+      }
+      el.setAttribute('style', base); el.removeAttribute('wrap'); el.scrollTop = 0; el.parentElement.style.transform = '';
+      return diffs;
+    }).flat(), { cases, text });
+    expect(results).toEqual([]);
+  });
+}, 30000);
+
+// Measuring through the twin leaves nothing behind and touches nothing
+// (theme2's sign-off condition): the twin is gone after each read, was
+// hidden from sight and from assistive technology and took no focus while
+// it stood, and the page's scroll, the field's scroll and its selection
+// and focus are as they were.
+need('chrome', missing.chromium)('chromium: the caret twin leaves the page, the field and its selection as they were', async () => {
+  await page('chromium', async p => {
+    const facts = await p.evaluate(() => {
+      const el = field();
+      document.body.style.height = '3000px';
+      scrollTo(0, 40);
+      el.value = 'a\n\nb\n' + 'line\n'.repeat(20);
+      el.focus();
+      el.setSelectionRange(3, 5, 'backward');
+      el.scrollTop = 30;
+      const seen = [];
+      const watch = new MutationObserver(batch => batch.forEach(m => m.addedNodes.forEach(n => {
+        if (n.nodeType === 1) seen.push([n.getAttribute('aria-hidden'), n.inert, n.style.visibility, n.tabIndex]);
+      })));
+      watch.observe(document.body, { childList: true, subtree: true });
+      const before = [scrollX, scrollY, el.scrollTop, el.selectionStart, el.selectionEnd, el.selectionDirection, document.activeElement === el];
+      const answer = range(2, 2);
+      const after = [scrollX, scrollY, el.scrollTop, el.selectionStart, el.selectionEnd, el.selectionDirection, document.activeElement === el];
+      const records = watch.takeRecords();
+      records.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) seen.push([n.getAttribute('aria-hidden'), n.inert, n.style.visibility, n.tabIndex]); }));
+      watch.disconnect();
+      return { answer, before, after, seen, left: document.querySelectorAll('exact-caret-twin').length };
+    });
+    expect(facts.answer).not.toBe(null);
+    expect(facts.after).toEqual(facts.before);
+    expect(facts.left).toBe(0);
+    expect(facts.seen).toEqual([['true', true, 'hidden', -1]]);
+  });
 }, 30000);

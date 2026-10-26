@@ -5,6 +5,12 @@ import { composerIntentSource } from '../../src/composer/composer-intent-source'
 import { composerSourceSession } from '../../src/composer/composer-rich-state';
 import { refreshFileMetadata } from '../../src/shared/file-metadata';
 
+/** The selected provider offers these skills to users, so their `$name` becomes a chip. */
+function offerSkills(client: T3Client, names: string[]): void {
+  client.providerId = 'codex';
+  client.config.providers = [{ instanceId: 'codex', skills: names.map(name => ({ name })) }];
+}
+
 describe('root composer projection source', () => {
   test('live star/plus task prefixes are task blocks for the typing field only', () => {
     for (const source of ['* [x] ', '+ [ ] ']) {
@@ -118,13 +124,16 @@ describe('root composer projection source', () => {
       const mode: 'literal' | 'plain' = literal ? 'literal' : 'plain';
       for (const value of ['```', '- item', '> quote', '```ts\n```']) {
         const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value });
+        // The plain composer continues and indents a list typed as text (composer-list-continuation.ts); a literal answer does not.
+        const list = !literal && value === '- item';
         expect(view.mode).toBe(mode);
-        expect(view.blocks.every(block => block.kind === 'paragraph')).toBe(true);
+        expect(view.blocks.map(block => block.kind)).toEqual(view.blocks.map(() => list ? 'list' : 'paragraph'));
         const common = { snapshotOwner: client.snapshotOwner, owner, value, serial: 1, start: value.length, end: value.length, composing: false, mode };
         expect(composerIntentSource(client, { ...common, kind: 'key', key: 'Enter', shift: false, command: false })).toMatchObject({ kind: 'send', mode });
         expect(composerIntentSource(client, { ...common, kind: 'key', key: 'Enter', shift: true, command: false }))
-          .toMatchObject({ kind: 'edit', start: value.length, end: value.length, text: '\n' });
-        expect(composerIntentSource(client, { ...common, kind: 'key', key: 'Tab', shift: false, command: false }).kind).toBe('default');
+          .toMatchObject({ kind: 'edit', start: value.length, end: value.length, text: list ? '\n- ' : '\n' });
+        expect(composerIntentSource(client, { ...common, kind: 'key', key: 'Tab', shift: false, command: false }))
+          .toMatchObject(list ? { kind: 'edit', start: 0, end: 0, text: '  ', selectionStart: value.length + 2 } : { kind: 'default' });
         expect(composerIntentSource(client, { ...common, mode: 'rich', kind: 'key', key: 'Enter', shift: false, command: false }).kind).toBe('stale');
       }
       const value = '```ts\n```';
@@ -137,24 +146,23 @@ describe('root composer projection source', () => {
       }
     }
   });
-  test('completed chips survive separator deletion and native history in independently observed fields', () => {
+  test('chips are their source in independently observed fields: a separator deleted or undone follows the editor', () => {
     const client = new T3Client(), owner = 'thread';
+    offerSkills(client, ['deploy']);
     const project = (value: string, inputType: string) => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner, value, inputType });
     project('', '');
     expect(project('$dep', 'insertText').chips).toEqual([]);
     expect(project('$deploy ', 'insertText').chips).toHaveLength(1);
-    const completed = project('$deploy', 'deleteContentBackward');
-    expect(completed.chips.map(chip => chip.source)).toEqual(['$deploy']);
+    // A token at the end of the source is no atom (LLP 1045.000 D1), so it is no chip either.
+    expect(project('$deploy', 'deleteContentBackward').chips).toEqual([]);
     const preview = (value: string, inputType: string) => composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value, inputType, surface: 'preview' });
-    expect(preview('$frontend ', '').chips).toHaveLength(1);
-    expect(preview('$frontend', 'deleteContentBackward').chips.map(chip => chip.source)).toEqual(['$frontend']);
+    expect(preview('$frontend-design ', '').chips).toHaveLength(1);
+    expect(preview('$frontend-design', 'deleteContentBackward').chips).toEqual([]);
     expect(composerSourceSession(client).matches(owner, '$deploy')).toBe(true);
-    expect(project('', 'deleteContentBackward').chips).toEqual([]);
-    expect(project('$deploy', 'historyUndo').chips.map(chip => chip.source)).toEqual(['$deploy']);
+    expect(project('$deploy ', 'historyUndo').chips.map(chip => chip.source)).toEqual(['$deploy']);
     expect(project('', 'historyRedo').chips).toEqual([]);
-    expect(project('$deploy', 'historyUndo').chips).toHaveLength(1);
-    const changed = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'another', value: '$deploy' });
-    expect(changed.chips).toEqual([]);
+    const changed = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'another', value: '$deploy ' });
+    expect(changed.chips).toHaveLength(1);
   });
   test('Settings preview shares chip projection without rich syntax or changing the active composer session', () => {
     const client = new T3Client(), owner = 'thread', value = '```ts';
@@ -184,6 +192,7 @@ describe('root composer projection source', () => {
   });
   test('projects the live controlled value independently of persisted draft timing', () => {
     const client = new T3Client(), value = '**live** $frontend-design ';
+    offerSkills(client, ['frontend-design']);
     const view = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread:question', value });
     expect(view.owner).toBe('thread:question');
     expect(view.value).toBe(value);

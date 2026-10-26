@@ -1,5 +1,5 @@
 // T3's own MCP tools in the work log, adapted from T3 Code (MIT, see LICENSE-T3):
-// Sources at 9c161462c9: packages/shared/src/t3McpToolPresentation.ts (the inventory and name
+// Sources at 74541bab17: packages/shared/src/t3McpToolPresentation.ts (the inventory and name
 // resolution), packages/client-runtime/src/work-log/presentation.ts
 // (resolveT3McpToolPresentation: tense, failure and the PR target) and
 // packages/client-runtime/src/t3ToolSummary.ts (group summaries).
@@ -43,14 +43,14 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   unlink_pull_request: pr(['Unlink', 'Unlinking', 'Unlinked', 'a pull request'], 'unlink-pr'),
   list_thread_pull_requests: pr(['Check', 'Checking', 'Checked', 'linked pull requests'], 'list-prs'),
   watch_pull_request: pr(['Watch', 'Watching', 'Watching', 'a pull request'], 'watch-pr'),
-  unwatch_pull_request: pr(['Stop watching', 'Stopping watching', 'Stopped watching', 'a pull request'], 'unwatch-pr'),
-  write_pull_request_guides: tool(['Write', 'Writing', 'Started', 'review guides'], 'write-pr-guides', 'pull-request'),
+  unwatch_pull_request: pr(['Stop watching', 'Unwatching', 'Stopped watching', 'a pull request'], 'unwatch-pr'),
+  write_pull_request_guides: tool(['Write', 'Writing', 'Started writing', 'review guides'], 'write-pr-guides', 'pull-request'),
   read_pull_request_guide: tool(['Read', 'Reading', 'Read', 'a review guide'], 'read-pr-guide', 'pull-request'),
   orchestrator_capabilities: tool(['Get', 'Getting', 'Got', 'orchestration capabilities'], 'capabilities'),
   request_secret: tool(['Ask for', 'Asking for', 'Asked for', 'a secret'], 'secret-request'),
   delegate_task: tool(['Delegate', 'Delegating', 'Delegated', 'a child task'], 'delegate'),
   task_status: tool(['Get', 'Getting', 'Got', 'delegated task status'], 'task-status'),
-  task_cancel: tool(['Cancel', 'Canceling', 'Requested cancellation of', 'delegated task'], 'task-cancel'),
+  task_cancel: tool(['Cancel', 'Canceling', 'Requested cancellation of', 'a delegated task'], 'task-cancel'),
   schedule_task: tool(['Schedule', 'Scheduling', 'Scheduled', 'a recurring task'], 'schedule-create'),
   list_scheduled_tasks: tool(['List', 'Listing', 'Listed', 'scheduled tasks'], 'schedule-list'),
   update_scheduled_task: tool(['Update', 'Updating', 'Updated', 'a scheduled task'], 'schedule-update'),
@@ -278,8 +278,9 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
         const outcomes = selected.flatMap(call => Array.isArray(call.output?.guides) ? call.output.guides.map(guide => record(guide)?.outcome) : []);
         const started = outcomes.filter(outcome => outcome !== 'failed').length, failed = outcomes.length - started;
         failedCount += failed;
-        return outcomes.length > 0 && started === 0 ? `Could not start ${quantity(failed, 'review guide')}`
-          : phrase('Started', 'start', outcomes.length === 0 ? `review guides ${times}` : `${quantity(started, 'review guide')}${failed > 0 ? `, ${failed} failed` : ''}`);
+        if (outcomes.length === 0) return phrase('Started writing', 'start writing', `review guides${selected.length === 1 ? '' : ` ${times}`}`);
+        return started === 0 ? `Could not start ${quantity(failed, 'review guide')}`
+          : phrase('Started', 'start', `${quantity(started, 'review guide')}${failed > 0 ? `, ${failed} failed` : ''}`);
       }
       case 'read-pr-guide': return phrase('Read', 'read', quantity(selected.length, 'review guide'));
       case 'browser': return phrase('Used', 'use', `browser ${times}`);

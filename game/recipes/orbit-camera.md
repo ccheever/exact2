@@ -44,7 +44,7 @@ let mut sim = Sim::<Third>::new(()).unwrap();
 // A quarter turn of pointer motion swings the camera round to the player's side.
 let points = std::f32::consts::FRAC_PI_2 / SENSITIVITY;
 sim.input(InputEvent::Pointer { id: 1, phase: PointerPhase::Move,
-    x: 100., y: 100., dx: points, dy: 0., buttons: 0, at_ms: 0. });
+    x: 100., y: 100., dx: points, dy: 0., buttons: 0, at_ms: 0., player: 0 });
 sim.run(20.);
 let eye = sim.local_position("camera").unwrap();
 let before = sim.local_position("player").unwrap();

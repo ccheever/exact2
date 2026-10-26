@@ -38,7 +38,7 @@ describe('video tiles (isPreviewableComposerVideo, videoMimeType)', () => {
   });
   test('only the draft\'s attached, staged videos become tiles', () => {
     const file = (over: object) => ({ id, name: 'clip.mov', mimeType: 'video/quicktime', contextId: 'file_x', source: 'attached', status: 'staged', draftKey: 'k', ...over });
-    expect(videoTiles([file({})], 'k')).toEqual([{ id, name: 'clip.mov', poster: id, contextId: 'file_x' }]);
+    expect(videoTiles([file({})], 'k')).toEqual([{ id, name: 'clip.mov', src: `app:/data/composer-files/${id}.mov`, contextId: 'file_x' }]);
     expect(videoTiles([file({ draftKey: 'other' })], 'k')).toEqual([]);
     expect(videoTiles([file({ source: 'paste' })], 'k')).toEqual([]);
     expect(videoTiles([file({ name: 'a.md', mimeType: 'text/markdown' })], 'k')).toEqual([]);
@@ -102,11 +102,12 @@ describe('the shelf\'s references and videos in the client', () => {
     const { client, file } = draftClient('');
     expect(fileChipContexts(client, `see [clip.mov](t3-context://v1/file/${file.contextId})`)).toEqual({ [`file/${file.contextId}`]: 'video\t4 KB' });
   });
-  test('Play opens the preview at the first frame\'s size, Close ends it, Remove takes the file, its chips and its staged copy', async () => {
+  test('Play opens the preview at the video\'s size, Close ends it, Remove takes the file, its chips and its staged copy', async () => {
     const { client, native, file } = draftClient(`see [clip.mov](t3-context://v1/file/${file_ctx()}) please`);
-    const { removed } = memoryFiles({ [`${STAGED}/${vid}`]: text('moov'), [`${STAGED}/${vid}.mov`]: text('moov'), [`${DRAFTS}/${vid}.png`]: text('poster') });
+    // An older build's copy, typed link and first-frame poster go too.
+    const { removed, store } = memoryFiles({ [`${STAGED}/${vid}`]: text('moov'), [`${STAGED}/${vid}.mov`]: text('moov'), [`${DRAFTS}/${vid}.png`]: text('poster') });
     rememberVideoFrame(client, { id: vid, videoWidth: 1080, videoHeight: 1920 });
-    expect(composerVideoSnapshot(client)).toEqual({ composerVideos: [{ id: vid, name: 'clip.mov' }], composerVideoPreview: [] });
+    expect(composerVideoSnapshot(client)).toEqual({ composerVideos: [{ id: vid, name: 'clip.mov', src: `app:/data/composer-files/${vid}.mov` }], composerVideoPreview: [] });
     await videoOp(client, native, 'shelf-video-play', vid);
     expect(composerVideoSnapshot(client).composerVideoPreview).toEqual([{ open: true, id: vid, name: 'clip.mov', width: 1080, height: 1920, src: `app:/data/composer-files/${vid}.mov` }]);
     await videoOp(client, native, 'shelf-video-close', '');
@@ -114,8 +115,9 @@ describe('the shelf\'s references and videos in the client', () => {
     await videoOp(client, native, 'shelf-video-remove', vid);
     expect(composerVideoSnapshot(client).composerVideos).toEqual([]);
     expect(client.local.drafts['env:t']).toBe('see please');
-    expect(native.requests.map(request => request.op)).toEqual(['editorEdit', 'writePreferences']);
-    // The staged copy, its typed link and its first frame (composer-staged-copies.ts).
+    expect(native.requests.map(request => request.op)).toEqual(['editorEdit']);
+    expect(JSON.parse(new TextDecoder().decode(store.get('app:/data/t3-code.json'))).composerFiles).toEqual([]); // the draft's files, saved without it
+    // Every name its staged copy has had (composer-staged-copies.ts removeStaged).
     expect(removed.sort()).toEqual([`${STAGED}/${vid}`, `${STAGED}/${vid}.mov`, `${DRAFTS}/${vid}.png`].sort());
     await expect(videoOp(client, native, 'shelf-video-play', vid)).rejects.toThrow('That video is no longer attached.');
     expect(file.name).toBe('clip.mov');

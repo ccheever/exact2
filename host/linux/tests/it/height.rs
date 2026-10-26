@@ -91,8 +91,8 @@ fn no_implicit_height_adoption_and_invalid_registration_is_atomic() {
 #[test]
 fn runner_refuses_multiple_roots_before_registration() {
     let mut plan = contract::compile("component App\n  view\n    box height=100 box-sizing=\"border-box\" testId=\"a\"\n      box height=100 box-sizing=\"border-box\"\n").unwrap();
-    plan.nodes[1].parent = None;
-    plan.nodes[1].order = 1;
+    plan.nodes.to_mut()[1].parent = None;
+    plan.nodes.to_mut()[1].order = 1;
     assert!(matches!(
         Host::boot(
             &plan.encode(),

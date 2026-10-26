@@ -43,11 +43,20 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Wheel => Some("onWheel"),
         EventKind::Drop => Some("onFileDrop"),
         EventKind::Dragenter | EventKind::Dragleave => Some("onFileDrag"),
+        EventKind::Atompress => Some("onAtompress"),
         EventKind::Blur | EventKind::Focus => Some("onFocus"),
         EventKind::Focusin | EventKind::Focusout => Some("onFocusWithin"),
         EventKind::Copy | EventKind::Cut | EventKind::Paste => Some("onClipboard"),
         EventKind::Selectionchange => Some("onSelectionChange"),
         EventKind::Toggle => Some("onToggle"),
+        // @ref LLP 1020.002 D2 — an iframe's guest (the root's `navigate`
+        // is `navigateTo`, emit.rs), with its `FrameNavigation`.
+        EventKind::Navigate
+        | EventKind::Currententrychange
+        | EventKind::Navigatesuccess
+        | EventKind::Navigateerror => Some("onFrameNavigation"),
+        // @ref LLP 1020.002 D7 — a capture's `FrameCapture`, always refused on the web.
+        EventKind::Capture => Some("onFrameCapture"),
         _ => None,
     }
 }
@@ -84,6 +93,7 @@ mod tests {
             Drop,
             Dragenter,
             Dragleave,
+            Atompress,
             Blur,
             Focus,
             Focusin,
@@ -92,6 +102,10 @@ mod tests {
             Cut,
             Paste,
             Selectionchange,
+            Currententrychange,
+            Navigatesuccess,
+            Navigateerror,
+            Capture,
         ] {
             assert!(binder(k).is_some(), "{k:?}");
         }

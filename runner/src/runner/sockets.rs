@@ -61,6 +61,17 @@ impl<D: DataSource> Runner<D> {
         self.store.set_socket_buffered(snapshot);
     }
 
+    /// Read each long poll's backoff wait from the host with `reader`, for
+    /// `state.streams` (LLP 1016.000 D8).
+    pub fn set_retry_reader(&mut self, reader: crate::RetryReader) {
+        self.retry_reader = Some(reader);
+    }
+
+    /// Long poll `ticket`'s backoff wait now, if it is waiting.
+    pub fn retrying(&self, ticket: u64) -> Option<crate::Retrying> {
+        self.retry_reader.as_ref().and_then(|read| read(ticket))
+    }
+
     /// Socket `ticket`'s buffered bytes now: the host's count, else `last`.
     pub fn socket_buffered(&self, ticket: u64, last: u64) -> u64 {
         (self.socket_reader.as_ref())

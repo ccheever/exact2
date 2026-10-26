@@ -17,13 +17,17 @@ const REPORT_BYTES = 60 * 1024;
 export const INSPECT_EVENTS = ["change", "input", "focus", "blur", "focusout", "compositionend", "cancel", "gotpointercapture", "lostpointercapture", "scroll", "scrollend", "drag", "dragenter", "dragover", "dragleave", "dragend", "pointerdown", "pointerup", "pointercancel", "pointerover", "pointerout", "pointerenter", "pointerleave", "click", "dblclick", "auxclick", "contextmenu", "mousedown", "mouseup", "mouseover", "mouseout", "touchstart", "touchmove", "touchend", "touchcancel", "wheel", "keydown", "keyup", "keypress", "beforeinput", "gesturestart", "gesturechange", "gestureend", "dragstart", "drop"];
 
 let env = null, table = null, tableFor = null, live = null;
+// Where this page keeps inspect mode across its reloads (sessionStorage): the variant gallery's page beside the app's
+// on one origin keeps its own (`install`'s `key`).
+let key = "exact.dev.inspect";
 const inspecting = { on: false, banner: null, outline: null, shield: null, cover: null, close: null, selected: null, press: null, seq: null, left: null, session: null };
 
 /** The build's inspect table, fetched once per plan. */
 async function inspectTable() {
   const plan = globalThis.exact?.plan ?? null;
   if (table && tableFor === plan) return table;
-  const got = await fetch("/dev-inspect.json", { cache: "no-store" });
+  // Beside the page (its `<base>`): the app's at the root, the variant gallery's under its path.
+  const got = await (env?.fetch ?? fetch)("dev-inspect.json", { cache: "no-store" });
   if (!got.ok) throw new Error(`this build has no inspect table (${got.status})`);
   const fetched = await got.json();
   // The table of the plan this page runs: a rebuild may have replaced it
@@ -42,7 +46,7 @@ async function liveDesign(t) {
   if (!now || now === t.design) return null;
   if (live?.design === now) return live;
   let tokens = null;
-  try { const got = await fetch("/__dev/design", { cache: "no-store" }); if (got.status === 200) { const s = await got.json(); if (s.design === now) tokens = new Map(s.tokens.map((k) => [k.name, k])); } } catch { /* none known */ }
+  try { const got = await (env?.fetch ?? fetch)("/__dev/design", { cache: "no-store" }); if (got.status === 200) { const s = await got.json(); if (s.design === now) tokens = new Map(s.tokens.map((k) => [k.name, k])); } } catch { /* none known */ }
   return (live = { design: now, tokens });
 }
 /** A token's value text as `node` prints its row: a colour `#rrggbb` when
@@ -223,7 +227,8 @@ async function nodeOf(el) {
       if (row) found = { at, ...ownRow(t, at, row, lv) };
       else if (e?.b && t.implied.includes(name)) { const row = impliedRow(t, at, name, lv); if (row) found = { at, ...row }; }
     }
-    if (found) { const { at, ...row } = found; style[name] = { ...row, source: "inherited", from: viewOf(at) }; continue; }
+    // (And the ancestor's plan site, which the design server names by its source: tamber/1.16 `fromAt`.)
+    if (found) { const { at, ...row } = found; style[name] = { ...row, source: "inherited", from: viewOf(at), ...(siteOf(at) != null ? { fromSite: siteOf(at) } : {}) }; continue; }
     style[name] = { value: t.initial[name], source: "initial" };
   }
   const modes = modesOf(el);
@@ -265,7 +270,7 @@ async function selectedReport(el, click = null) {
   let selected = { node: viewOf(el), type: node.type, testId: node.testId, site: node.site, instance: node.instance, planDigest: x?.plan ?? null, tuple: node.modes ?? null, rows: Object.entries(node.style).map(([name, row]) => ({ name, ...row })), held: globalThis.exact?.heldOf?.(el)?.held ?? null, trimmed: false };
   // (The held node, named by this runtime's ids, where the glue could not number it.)
   if (selected.held && selected.held.node == null && selected.held.el) selected.held.node = viewOf(selected.held.el);
-  if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, token })), trimmed: true };
+  if (bytes(envelope(selected)) > REPORT_BYTES) selected = { ...selected, rows: selected.rows.map(({ name, value, computed: c, source, from, fromSite, token }) => ({ name, value, ...(c ? { computed: c } : {}), source, from, fromSite, token })), trimmed: true };
   while (bytes(envelope(selected)) > REPORT_BYTES && selected.rows.length) selected = { ...selected, rows: selected.rows.slice(0, Math.floor(selected.rows.length / 2)) };
   if (bytes(envelope(selected)) > REPORT_BYTES) return { kind: "unsupported", what: "inspect", detail: "the selected node's identity alone is larger than a report" };
   return envelope(selected);
@@ -285,9 +290,29 @@ async function select(el, clicked = false, click = null) {
     inspecting.selected = { el, click, plan: r.selected.planDigest, site: r.selected.site, instance: JSON.stringify(r.selected.instance) };
     // Kept across the dev loop's reload (a logic edit replaces the page), so
     // a refresh after it finds the node again, or says it is gone.
-    try { const { el: _, ...kept } = inspecting.selected; sessionStorage.setItem("exact.dev.inspect.selected", JSON.stringify({ ...kept, seq: inspecting.seq, session: inspecting.session, clicks })); } catch { /* storage refused */ }
+    try { const { el: _, ...kept } = inspecting.selected; sessionStorage.setItem(key + ".selected", JSON.stringify({ ...kept, seq: inspecting.seq, session: inspecting.session, clicks })); } catch { /* storage refused */ }
   }
   env.report(r);
+}
+// `inspect` `{select: {up, levels, plan, from, instance}}` (tamber/1.16): the selection moves up its call sites, as a click on
+// the node it lands on would select it. `levels` are the plan sites of each enclosing copy that owns a node, nearest
+// first (past the outermost call, the app's own), by the server's map for the selection at site `from` (instance path `instance`) under `plan`:
+// it lands in the first level with a node above the selection, on the outermost there, by this page's own tree.
+async function selectUp({ levels, plan, from, instance }) {
+  const el = inspecting.selected?.el;
+  // (No selection here to move, or none above it of that copy: staleness, not inability; its selection as it is.)
+  if (!inspecting.on || !el?.isConnected || !Array.isArray(levels)) { await refresh(); return; }
+  // (Only the selection, its instance and the plan the server took its sites from. One that moved since on its way
+  // here is no inability (theme2 15:02): the page reports its selection as it is now, and the tool's chain follows.)
+  if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
+  // The first level with a node above the selection, by this page's tree; in it, the outermost.
+  for (const level of levels) {
+    const want = new Set(level);
+    let found = null;
+    for (let at = above(el); at; at = above(at)) if (want.has(siteOf(at))) found = at;
+    if (found) { await select(found); return; }
+  }
+  await refresh();
 }
 async function refresh() {
   const was = inspecting.selected;
@@ -390,15 +415,17 @@ function chrome() {
   (modal ?? document.body).append(cover, box, banner);
   for (const { mark } of marks) (modal ?? document.body).append(mark);
   topLayer(cover); topLayer(box); topLayer(banner);
+  // (Rebuilt with boxes still up: said again.)
+  legend(marks.length);
 }
 function setInspect(on, local = false) {
   if (on === inspecting.on) { if (on) chrome(); return; }
   inspecting.on = on;
-  try { if (on) sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); else sessionStorage.removeItem("exact.dev.inspect"); } catch { /* storage refused */ }
-  if (!on) { inspecting.selected = null; try { sessionStorage.removeItem("exact.dev.inspect.selected"); } catch { /* storage refused */ } }
+  try { if (on) sessionStorage.setItem(key, String(inspecting.seq ?? "")); else sessionStorage.removeItem(key); } catch { /* storage refused */ }
+  if (!on) { inspecting.selected = null; try { sessionStorage.removeItem(key + ".selected"); } catch { /* storage refused */ } }
   if (!on && local) {
     inspecting.left = inspecting.seq;
-    try { sessionStorage.setItem("exact.dev.inspect.left", String(inspecting.seq ?? "")); } catch { /* storage refused */ }
+    try { sessionStorage.setItem(key + ".left", String(inspecting.seq ?? "")); } catch { /* storage refused */ }
     const facts = env.facts();
     env.report({ kind: "selected", selected: null, inspect: inspecting.seq, plan: facts.plan, revision: facts.revision });
   }
@@ -414,18 +441,26 @@ function setInspect(on, local = false) {
 // plan leaves them; an empty one, or `clear`, clears them.
 const marks = [];
 const resized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
-function unmark() { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); }
+function unmark(quiet = false) { resized?.disconnect(); for (const { mark } of marks.splice(0)) mark.remove(); if (!quiet) legend(0); }
+// The banner says what the dashed boxes are while they show (the second hands-on pass, #7): what is outlined, a
+// selection's every copy or what the tool's Outline asked; its words written only when they change (a live region).
+const legend = (n) => {
+  const t = inspecting.banner?.firstChild, words = n > 0 ? `Inspecting: ${n} outlined in dashes (the selection's every copy, or what the tool outlined); click a view to select it` : "Inspecting: click a view to select it";
+  if (t?.nodeType === 3 && t.nodeValue !== words) t.nodeValue = words;
+};
 function place() {
   for (const { mark, el } of marks) {
     const r = el.getBoundingClientRect();
     Object.assign(mark.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, display: el.isConnected ? "block" : "none" });
   }
+  // (A view gone takes its box: the count said is of those still shown.)
+  if (marks.length) legend(marks.filter(({ el }) => el.isConnected).length);
 }
 function outlineSites(frame) {
   if (frame.clear) { unmark(); return; }
   if (!inspecting.on) return;
   if (globalThis.exact?.plan !== frame.plan || !Array.isArray(frame.sites)) return;
-  unmark();
+  unmark(true);
   const wanted = new Set(frame.sites.map(String));
   const found = [...document.querySelectorAll("[data-site]")].filter((el) => wanted.has(el.dataset.site) && !el.closest("[data-exiting]"));
   if (!(inspecting.session && typeof frame.click === "string" && frame.click.startsWith(`${inspecting.session}.`))) found[0]?.scrollIntoView({ block: "nearest" });
@@ -438,6 +473,7 @@ function outlineSites(frame) {
     resized?.observe(el);
   }
   place();
+  legend(found.length);
 }
 
 /** An `inspect` or `outline` frame from the build channel. */
@@ -531,21 +567,23 @@ async function holdNow(m) {
 
 export async function frame(m) {
   if (m.kind === "outline") { outlineSites(m); return; }
+  if (m.select) { await selectUp(m.select); return; }
   if (m.kind === "hold") { await hold(m); return; }
   if (m.refresh) { if (m.status) await env.status(); await refresh(); return; }
   if (m.on && m.seq != null && m.seq === inspecting.left) { const facts = env.facts(); env.report({ kind: "selected", selected: null, inspect: m.seq, plan: facts.plan, revision: facts.revision }); return; }
   inspecting.left = null;
-  try { sessionStorage.removeItem("exact.dev.inspect.left"); } catch { /* storage refused */ }
-  if ((m.seq ?? null) !== inspecting.seq) { inspecting.selected = null; try { sessionStorage.removeItem("exact.dev.inspect.selected"); } catch { /* storage refused */ } }
+  try { sessionStorage.removeItem(key + ".left"); } catch { /* storage refused */ }
+  if ((m.seq ?? null) !== inspecting.seq) { inspecting.selected = null; try { sessionStorage.removeItem(key + ".selected"); } catch { /* storage refused */ } }
   inspecting.seq = m.seq ?? null;
   setInspect(m.on === true);
-  if (inspecting.on) try { sessionStorage.setItem("exact.dev.inspect", String(inspecting.seq ?? "")); } catch { /* storage refused */ }
+  if (inspecting.on) try { sessionStorage.setItem(key, String(inspecting.seq ?? "")); } catch { /* storage refused */ }
 }
 
 /** Installed by the page's dev client: `report(body)` sends a report,
  * `status()` the page's status, `facts()` its `{plan, design, revision}`. */
 export function install(given) {
   env = given;
+  key = given.key ?? key;
   // A held node's instance path, for the held answer (input-glue.js `heldOf`): the inspect table's, once read.
   (globalThis.exact ??= {}).instanceOf = (el) => {
     const entry = table && el?.dataset?.site != null ? table.sites[String(el.dataset.site)] : null;
@@ -560,12 +598,12 @@ export function install(given) {
   // A reload of a tab that was inspecting starts inspecting, until the
   // server's replay on registering says otherwise.
   try {
-    const kept = sessionStorage.getItem("exact.dev.inspect"), left = sessionStorage.getItem("exact.dev.inspect.left");
+    const kept = sessionStorage.getItem(key), left = sessionStorage.getItem(key + ".left");
     if (kept != null) {
       inspecting.seq = kept === "" ? null : Number(kept);
       setInspect(true);
       // The selection made before the reload, and its click session.
-      const was = JSON.parse(sessionStorage.getItem("exact.dev.inspect.selected") ?? "null");
+      const was = JSON.parse(sessionStorage.getItem(key + ".selected") ?? "null");
       if (was && (was.seq ?? null) === inspecting.seq) { inspecting.selected = { el: null, click: was.click, plan: was.plan, site: was.site, instance: was.instance }; inspecting.session = was.session ?? null; clicks = was.clicks ?? 0; }
     }
     else if (left) inspecting.left = Number(left);

@@ -19,6 +19,7 @@ import { jsTargetBuild } from '../serve.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const app = resolveApp('caltrain');
 const dist = process.env.EXACT_MOTION_DIST && resolve(process.env.EXACT_MOTION_DIST);
 const { unavailable: browserUnavailable } = chromium();
@@ -63,7 +64,7 @@ check(`a flick releases at its speed; a slow drag and a pause before lifting nea
   let s;
   try {
     writeFileSync(resolve(tmp, 'pan.contract'), SOURCE);
-    const built = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'pan.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    const built = spawnSync(compiler, ['build', resolve(tmp, 'pan.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
     expect(built.status, built.stderr).toBe(0);
     s = await open({ host: 'web', plan, webDist: dist });
     const drag = async (dx, ms, hold = 0) => {

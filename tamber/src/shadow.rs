@@ -1,12 +1,16 @@
 //! Shadow tokens (LLP 1121 D3, stage 6 D): `box-shadow` and `text-shadow`,
 //! each its row's own syntax, folded per tuple. A length is px (unitless
-//! zero), a length token or dial; a colour is a literal, a colour token, a
-//! role or a colour expression over tokens, folded as a colour token is. A
-//! `rem` or `em` inside one waits on QUEUE's item.
+//! zero), a length token or dial, or over base names the design leaves
+//! unset (a bare one, a token over some, or a length's function over one),
+//! kept as a [`Residual`] each host folds in its column (stage 12 B3); a
+//! colour is a literal, a colour token, a role or a colour expression over
+//! tokens, folded as a colour token is. A `rem` or `em` inside one waits on
+//! QUEUE's item.
 
 use crate::css::Item;
 use crate::fold::{self, fail, FoldError, Folded, Named, Names};
 use crate::measure::{num, Length};
+use crate::residual::Residual;
 
 /// Why a relative length inside a shadow is refused.
 const RELATIVE: &str = "the kernel takes only px in a shadow until QUEUE's item \"`rem`/`em` where the kernel still takes only `px`\"";
@@ -16,10 +20,40 @@ const RELATIVE: &str = "the kernel takes only px in a shadow until QUEUE's item 
 pub struct Shadow {
     /// Inside the padding box (`box-shadow` only).
     pub inset: bool,
-    /// Offset x, offset y, blur, spread, in px: two to four of them.
-    pub lengths: Vec<f64>,
+    /// Offset x, offset y, blur, spread: two to four of them.
+    pub lengths: Vec<ShadowLength>,
     /// Its colour; `None` only in a `text-shadow` (`currentcolor`).
     pub color: Option<Folded>,
+}
+
+/// One of a shadow's lengths: px, or over base names the design leaves
+/// unset, each host's in its column (stage 12 B3), as a length token's
+/// [`Length::Base`] is.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShadowLength {
+    /// Pixels.
+    Px(f64),
+    /// Over base names: a bare one (`space.md`) or an expression.
+    Base(Residual),
+}
+
+impl ShadowLength {
+    /// The text the plan carries: `4px`, `space.md`, `calc(space.md * 0.5)`.
+    pub fn css(&self) -> String {
+        match self {
+            ShadowLength::Px(n) => format!("{}px", num(*n)),
+            ShadowLength::Base(r) => r.css(),
+        }
+    }
+
+    /// Its px, each base name's px `base` gives (a host's column, or outside
+    /// Exact the neutral one's); `None` where [`Residual::fold`] gives none.
+    pub fn px(&self, base: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
+        match self {
+            ShadowLength::Px(n) => Some(*n),
+            ShadowLength::Base(r) => r.fold(base),
+        }
+    }
 }
 
 /// A folded shadow row: `none`, or its shadows (one for a `text-shadow`).
@@ -43,8 +77,8 @@ impl Shadows {
                 out.push_str("inset ");
             }
             for l in &s.lengths {
-                out.push_str(&num(*l));
-                out.push_str("px ");
+                out.push_str(&l.css());
+                out.push(' ');
             }
             match &s.color {
                 Some(c) => out.push_str(&c.css()),
@@ -53,6 +87,37 @@ impl Shadows {
             out
         };
         self.list.iter().map(one).collect::<Vec<_>>().join(", ")
+    }
+
+    /// The base names its lengths read, each once, in order (stage 12 B3).
+    pub fn bases(&self) -> Vec<&str> {
+        let mut out = Vec::new();
+        for s in &self.list {
+            for l in &s.lengths {
+                if let ShadowLength::Base(r) = l {
+                    for b in r.bases() {
+                        if !out.contains(&b) {
+                            out.push(b);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Itself with every length px, each base name's px `base` gives:
+    /// what is written outside Exact (`tamber gen`'s CSS), the neutral
+    /// column's, as a length token's expression is. `None` where one
+    /// doesn't fold.
+    pub fn folded(&self, base: &dyn Fn(&str) -> Option<f64>) -> Option<Shadows> {
+        let mut out = self.clone();
+        for s in &mut out.list {
+            for l in &mut s.lengths {
+                *l = ShadowLength::Px(l.px(base)?);
+            }
+        }
+        Some(out)
     }
 }
 
@@ -76,9 +141,30 @@ pub(crate) fn split(text: &str) -> Vec<&str> {
 }
 
 /// Whether a value reads as a shadow (a list, two or more lengths, a
-/// length token's or dial's name among them, or `inset`), so an unwritten
-/// kind is asked for rather than read as a colour.
-pub(crate) fn looks(text: &str, length: &mut dyn FnMut(&str) -> bool) -> bool {
+/// length token's or dial's name or a length's function among them, or
+/// `inset`), so an unwritten kind is asked for rather than read as a
+/// colour. `length` says a name is a length token's or dial's; `named` a
+/// named length's or an unset base name's, which only a function's
+/// arguments are asked of.
+pub(crate) fn looks(
+    text: &str,
+    length: &mut dyn FnMut(&str) -> bool,
+    named: &dyn Fn(&str) -> bool,
+) -> bool {
+    // A function over a dimension or a length's name, at any depth: one
+    // over plain numbers is a number's (stage 12 B3, round 3, Grok).
+    fn measures(
+        args: &[Vec<Item>],
+        length: &mut dyn FnMut(&str) -> bool,
+        named: &dyn Fn(&str) -> bool,
+    ) -> bool {
+        args.iter().flatten().any(|i| match i {
+            Item::Dim(..) => true,
+            Item::Ident(n) => named(n) || length(n),
+            Item::Func(_, args, _) => measures(args, length, named),
+            _ => false,
+        })
+    }
     let parts = split(text);
     parts.len() > 1
         || crate::css::parse(parts[0]).is_ok_and(|items| {
@@ -88,6 +174,11 @@ pub(crate) fn looks(text: &str, length: &mut dyn FnMut(&str) -> bool) -> bool {
                     Item::Dim(..) => true,
                     Item::Number(n) => *n == 0.0,
                     Item::Ident(name) => length(name),
+                    // A length's function (stage 12 B3, round 2, Grok 1).
+                    Item::Func(f, args, _) => {
+                        matches!(f.as_str(), "calc" | "min" | "max" | "clamp")
+                            && measures(args, length, named)
+                    }
                     _ => false,
                 })
                 .count();
@@ -126,7 +217,7 @@ pub(crate) fn fold(value: &str, text: bool, names: &mut dyn Names) -> Result<Sha
     let mut list = Vec::new();
     for part in parts {
         let items = crate::css::parse(part).map_err(|m| FoldError {
-            id: "tamber-syntax",
+            id: crate::css::refusal_id(part, &m),
             message: m,
         })?;
         list.push(one(&items, text, names)?);
@@ -151,14 +242,14 @@ fn one(items: &[Item], text: bool, names: &mut dyn Names) -> Result<Shadow, Fold
             }
             _ => {}
         }
-        if let Some(px) = length(item, names)? {
+        if let Some(l) = length(item, names)? {
             if closed {
                 return fail(
                     "tamber-kind",
                     "the lengths are written together: <offset-x> <offset-y> [<blur> [<spread>]]",
                 );
             }
-            lengths.push(px);
+            lengths.push(l);
             continue;
         }
         if color.is_some() {
@@ -197,7 +288,9 @@ fn one(items: &[Item], text: bool, names: &mut dyn Names) -> Result<Shadow, Fold
             )
         }
     }
-    if lengths.get(2).is_some_and(|b| *b < 0.0) {
+    // A blur over base names is checked in each column, by the build
+    // (stage 12 B3).
+    if matches!(lengths.get(2), Some(ShadowLength::Px(b)) if *b < 0.0) {
         return fail("tamber-kind", "a blur radius is never negative");
     }
     let color = match color {
@@ -217,13 +310,17 @@ fn one(items: &[Item], text: bool, names: &mut dyn Names) -> Result<Shadow, Fold
     })
 }
 
-/// An item as a shadow's length in px, `None` when it is no length (a
-/// colour, by elimination).
-fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> {
+/// An item as a shadow's length, `None` when it is no length (a colour, by
+/// elimination). One over base names the design leaves unset is kept, as a
+/// length token's is (stage 12 B3): a bare one, or a token aliasing one or
+/// over some (its references inlined). A length's `calc()`, `min()`,
+/// `max()` or `clamp()` folds by the length's own code, whose refusals
+/// stand: px, or over base names.
+fn length(item: &Item, names: &mut dyn Names) -> Result<Option<ShadowLength>, FoldError> {
     // The kernel holds a length as an f32: one past it is no length.
-    let fits = |n: f64| -> Result<Option<f64>, FoldError> {
+    let fits = |n: f64| -> Result<Option<ShadowLength>, FoldError> {
         if n.abs() <= f64::from(f32::MAX) {
-            Ok(Some(n))
+            Ok(Some(ShadowLength::Px(n)))
         } else {
             fail(
                 "tamber-kind",
@@ -231,6 +328,7 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> 
             )
         }
     };
+    let based = |r: Residual| Ok(Some(ShadowLength::Base(r)));
     Ok(match item {
         Item::Dim(n, unit) if unit == "px" => return fits(*n),
         Item::Dim(_, unit) if unit == "rem" || unit == "em" => {
@@ -242,7 +340,7 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> 
                 format!("`{}{unit}`: a shadow's length is px", num(*n)),
             )
         }
-        Item::Number(n) if *n == 0.0 => Some(0.0),
+        Item::Number(n) if *n == 0.0 => Some(ShadowLength::Px(0.0)),
         Item::Number(n) => {
             return fail(
                 "tamber-kind",
@@ -252,15 +350,19 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> 
                 ),
             )
         }
+        // A base name the design leaves unset, bare: each host's.
+        Item::Ident(name) if names.base(name) => return based(Residual::base(name)),
         Item::Ident(name) => match names.named(name)? {
             Named::Length(Length::Px(n)) => return fits(n),
-            // A token over a base name the design leaves unset (stage 12
-            // B2): each host's, which a shadow's lengths are not yet.
-            Named::Length(Length::Named(n)) if names.base(&n) => {
-                return fail("tamber-base-expression", format!("`{name}` in a shadow is the base length `{n}`, each platform's own: a shadow's lengths are px until QUEUE's item (shadows over base names)"))
-            }
-            Named::Length(l @ Length::Base(_)) => {
-                return fail("tamber-base-expression", format!("`{name}` in a shadow is `{}`, over a base length, each platform's own: a shadow's lengths are px until QUEUE's item (shadows over base names)", l.css()))
+            // A token aliasing a base name the design leaves unset, or over
+            // some: inlined, as a length's `calc()` inlines it.
+            Named::Length(Length::Named(n)) if names.base(&n) => return based(Residual::base(&n)),
+            Named::Length(Length::Base(r)) => {
+                // Its base names are read here too, whatever folding leaves.
+                for b in r.bases() {
+                    names.base(b);
+                }
+                return based(r);
             }
             Named::Length(_) => {
                 return fail("tamber-kind", format!("`{name}` in a shadow: {RELATIVE}"))
@@ -274,29 +376,61 @@ fn length(item: &Item, names: &mut dyn Names) -> Result<Option<f64>, FoldError> 
             // A colour by elimination: the colour fold reads it.
             _ => None,
         },
-        // A length's function over a base name (stage 12 B2), which a
-        // shadow doesn't hold yet.
-        Item::Func(f, args, text)
-            if matches!(f.as_str(), "calc" | "min" | "max" | "clamp")
-                && args.iter().any(|a| over_base(a, names)) =>
-        {
-            return fail("tamber-base-expression", format!("`{text}` in a shadow is over a base length, each platform's own: a shadow's lengths are px until QUEUE's item (shadows over base names)"))
+        // A length's function (stage 12 B3): the length's own fold, as a
+        // length token's value folds, so px and length tokens give px, a
+        // base the design sets its px, and one it leaves unset a residual
+        // (`calc(space.md)` is `space.md`); setting the base never turns
+        // the same text into a refusal.
+        Item::Func(f, ..) if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") => {
+            return match crate::measure::length(std::slice::from_ref(item), names, &|_| false)? {
+                Length::Px(n) => fits(n),
+                Length::Named(n) => based(Residual::base(&n)),
+                Length::Base(r) => based(r),
+                // A length's function folds to px or over base names.
+                other => fail(
+                    "tamber-kind",
+                    format!("`{}` in a shadow: {RELATIVE}", other.css()),
+                ),
+            };
         }
         _ => None,
     })
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Whether `items` name a base name the design leaves unset, at any depth,
-/// or a token over one (an alias of one among them).
-fn over_base(items: &[Item], names: &mut dyn Names) -> bool {
-    items.iter().any(|i| match i {
-        Item::Ident(n) if names.base(n) => true,
-        Item::Ident(n) => match names.named(n) {
-            Ok(Named::Length(Length::Base(_))) => true,
-            Ok(Named::Length(Length::Named(m))) => names.base(&m),
-            _ => false,
-        },
-        Item::Func(_, args, _) => args.iter().any(|a| over_base(a, names)),
-        _ => false,
-    })
+    // Stage 12 B3: a length over base names is written as its residual,
+    // reads its bases, and folds with each base's px outside Exact.
+    #[test]
+    fn a_length_over_base_names_is_written_read_and_folded() {
+        let md = Residual::base("space.md");
+        let s = Shadows {
+            text: false,
+            list: vec![Shadow {
+                inset: false,
+                lengths: vec![
+                    ShadowLength::Px(0.0),
+                    ShadowLength::Base(md.clone()),
+                    ShadowLength::Base(md.times(2.0).plus(Residual::base("space.sm"), 1.0)),
+                ],
+                color: None,
+            }],
+        };
+        assert_eq!(
+            s.css(),
+            "0px space.md calc(space.md * 2 + space.sm) currentcolor"
+        );
+        assert_eq!(s.bases(), ["space.md", "space.sm"]);
+        let px = |n: &str| match n {
+            "space.md" => Some(16.0),
+            "space.sm" => Some(8.0),
+            _ => None,
+        };
+        assert_eq!(
+            s.folded(&px).map(|s| s.css()).as_deref(),
+            Some("0px 16px 40px currentcolor")
+        );
+        assert_eq!(s.folded(&|_| None), None);
+    }
 }

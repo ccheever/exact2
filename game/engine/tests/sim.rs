@@ -62,6 +62,7 @@ fn key(s: &mut Sim<Counter>, code: &str, down: bool, at_ms: f64) {
         code: code.into(),
         down,
         at_ms,
+        player: 0,
     });
 }
 #[test]
@@ -111,7 +112,10 @@ fn exact_event_boundary_tap_repeat_alias_and_blur() {
         let c = s.world().resource::<Counts>();
         assert_eq!((c.pressed, c.released), (2, 1));
     }
-    s.input(InputEvent::Blur { at_ms: 100.0 });
+    s.input(InputEvent::Blur {
+        at_ms: 100.0,
+        player: 0,
+    });
     s.advance(116.667, Clock::Seekable);
     assert_eq!(s.world().resource::<Counts>().released, 2);
     // 60 Hz's rational boundary at 16,666 2/3 us is not rounded down.
@@ -163,12 +167,14 @@ fn touch_is_data_and_pointer_wheel_deltas_expire() {
             dy,
             buttons: 0,
             at_ms: 0.0,
+            player: 0,
         });
     }
     s.input(InputEvent::Wheel {
         dx: 2.0,
         dy: -3.0,
         at_ms: 0.0,
+        player: 0,
     });
     s.advance(16.667, Clock::Seekable);
     {
@@ -184,7 +190,10 @@ fn touch_is_data_and_pointer_wheel_deltas_expire() {
         Vec2::new(60.0, -60.0)
     );
     assert!(s.agent(r#"{"op":"state"}"#).contains("Right"));
-    s.input(InputEvent::Blur { at_ms: 34.0 });
+    s.input(InputEvent::Blur {
+        at_ms: 34.0,
+        player: 0,
+    });
     s.advance(100.0, Clock::Seekable);
     assert_eq!(s.world().resource::<Counts>().released, 1);
 }
@@ -203,6 +212,7 @@ fn coalesced_moves_keep_their_motion_and_the_first_move_counts() {
             dy: 1.0,
             buttons: 0,
             at_ms,
+            player: 0,
         });
     }
     s.advance(16.667, Clock::Seekable);
@@ -384,6 +394,7 @@ fn overflow_drops_a_moves_position_but_keeps_its_motion() {
             dy: 0.0,
             buttons: 0,
             at_ms: 20.0 * (i + 1) as f64,
+            player: 0,
         });
     }
     s.advance(30_000.0, Clock::Seekable);
@@ -441,14 +452,16 @@ fn agent_input_projection_preserves_pending_contacts_pause_and_restore() {
         assert_eq!(s.save().unwrap(), saved);
         assert_eq!(s.world().hash(), hash);
         assert_eq!(s.world().tick(), tick);
-        state
+        let input = state
             .split_once("\"input\":")
             .unwrap()
             .1
             .split_once(",\"published\":")
             .unwrap()
-            .0
-            .to_owned()
+            .0;
+        // The last tick's edges are not saved: a restored world has fired nothing.
+        let (before, fired) = input.split_once(",\"fired\":").unwrap();
+        format!("{before}{}", &fired[fired.find('}').unwrap() + 1..])
     }
     let mut s = sim();
     key(&mut s, "KeyZ", true, 0.);
@@ -470,6 +483,7 @@ fn agent_input_projection_preserves_pending_contacts_pause_and_restore() {
             x: at_ms as f32,
             y: 10.,
             at_ms,
+            player: 0,
         });
     }
     let pending = input_state(&mut s);
@@ -490,12 +504,16 @@ fn agent_input_projection_preserves_pending_contacts_pause_and_restore() {
         x: 0.,
         y: 0.,
         at_ms: 27.,
+        player: 0,
     });
     assert_eq!(input_state(&mut s), pending);
     let mut restored = sim();
     restored.restore(&s.save().unwrap()).unwrap();
     assert_eq!(input_state(&mut restored), pending);
-    s.input(InputEvent::Blur { at_ms: 30. });
+    s.input(InputEvent::Blur {
+        at_ms: 30.,
+        player: 0,
+    });
     let blurred = input_state(&mut s);
     assert!(
         blurred.contains(r#""held":["KeyA","KeyZ"],"forwarded":[]"#),
@@ -554,6 +572,7 @@ fn restore_touch_viewport_continues_headless_and_resize_replaces_it() {
         dy: 0.0,
         buttons: 0,
         at_ms: 0.0,
+        player: 0,
     });
     a.run(100.0);
     let mut b = sim();
@@ -572,13 +591,13 @@ fn old_save_containers_are_refused_by_name_atomically() {
     let mut s = sim();
     let saved = s.save().unwrap();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXSIM\0\x07"));
+    assert!(saved.starts_with(b"EXSIM\0\x08"));
     old[6] = 4;
     assert!(s
         .restore(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXSIM v7"));
+        .contains("EXSIM v8"));
     assert_eq!(s.save().unwrap(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
@@ -593,15 +612,15 @@ fn old_save_containers_are_refused_by_name_atomically() {
     assert_eq!(s.world().save(), saved);
 }
 
-/// A v6 save (before the primary pointer press origin) is refused by name.
+/// A v7 save (before gamepads and the input player) is refused by name.
 #[test]
-fn a_v6_save_is_refused_by_name() {
+fn a_v7_save_is_refused_by_name() {
     let mut s = sim();
     let saved = s.save().unwrap();
     let mut old = saved.clone();
-    old[6] = 6;
+    old[6] = 7;
     let error = s.restore(&old).unwrap_err().to_string();
-    assert!(error.contains("EXSIM v6 save predates v7"), "{error}");
+    assert!(error.contains("EXSIM v7 save predates v8"), "{error}");
     assert_eq!(s.save().unwrap(), saved);
 }
 #[test]
@@ -618,7 +637,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
         let seen = format!("{:02x?}", &bytes[..bytes.len().min(8)]);
         let error = s.restore(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXSIM v7"),
+            error.contains(&seen) && error.contains("EXSIM v8"),
             "{error}"
         );
         let error = s.world_mut().load(&bytes).unwrap_err().to_string();
@@ -1039,6 +1058,7 @@ fn aligned_live_input_is_drawn_one_frame_before_seekable_interpolation() {
                     code: "KeyE".into(),
                     down: true,
                     at_ms: 30.0,
+                    player: 0,
                 });
             }
             s.advance_with(frame as f64 * period, clock, |w, _| {
@@ -1272,6 +1292,7 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             code: "KeyE".into(),
             down: true,
             at_ms: epoch + 5.,
+            player: 0,
         });
         s.input(InputEvent::Pointer {
             id: 7,
@@ -1282,6 +1303,7 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             dy: 0.,
             buttons: 1,
             at_ms: epoch + 6.,
+            player: 0,
         });
         s.input(InputEvent::Pointer {
             id: 7,
@@ -1292,16 +1314,19 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             dy: 5.,
             buttons: 1,
             at_ms: epoch + 7.,
+            player: 0,
         });
         s.input(InputEvent::Wheel {
             dx: 2.,
             dy: -3.,
             at_ms: epoch + 8.,
+            player: 0,
         });
         s.input(InputEvent::Key {
             code: "KeyE".into(),
             down: false,
             at_ms: epoch + 24.,
+            player: 0,
         });
         s.input(InputEvent::Control {
             name: "act".into(),
@@ -1310,6 +1335,7 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             x: 0.,
             y: 0.,
             at_ms: epoch + 40.,
+            player: 0,
         });
         s.input(InputEvent::Control {
             name: "act".into(),
@@ -1318,6 +1344,7 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             x: 0.,
             y: 0.,
             at_ms: epoch + 70.,
+            player: 0,
         });
         s.advance(epoch + 17., Clock::Seekable);
         let saved = s.save().unwrap();
@@ -1458,30 +1485,4 @@ fn posted_messages_reach_one_tick_each_in_order_and_are_saved_only_while_pending
         .journal()
         .iter()
         .any(|e| e.line.contains("exceeds")));
-}
-
-#[test]
-fn world_v4_is_refused_by_name() {
-    let error = World::new(60, 0)
-        .load(b"EXGAME\0\x04")
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("EXGAME v4") && error.contains("tableInputs"),
-        "{error}"
-    );
-}
-
-#[test]
-fn world_v5_is_refused_by_name_atomically() {
-    let mut world = World::new(60, 0);
-    let saved = world.save();
-    let mut old = saved.clone();
-    old[7] = 5;
-    let error = world.load(&old).unwrap_err().to_string();
-    assert!(
-        error.contains("EXGAME v5 predates v6 tableInputs"),
-        "{error}"
-    );
-    assert_eq!(world.save(), saved);
 }

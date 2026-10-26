@@ -201,6 +201,12 @@ test('the route table: read, write, and what is never passed', () => {
   for (const p of ['/', '/index.html', '/app.js', '/__dev', '/__dev/page', '/__dev/hello', '/__dev/commands', '/__dev/generation/1/exact.json', '/__dev/map/abc', '/__dev/inspect.js', '/dev-inspect.json', '/exact.json', '/modules/a.js', '/__dev/design']) expect(needs('GET', p)).toBe('read');
   for (const p of ['/__dev/reloaded', '/__dev/painted', '/__dev/gpu', '/__dev/report']) expect(needs('POST', p)).toBe('read');
   for (const p of ['/__dev/design', '/__dev/checkpoint', '/__dev/open']) expect(needs('POST', p)).toBe('write');
+  // A page's files under the build generation it booted (host/web/generations.mjs): that exact form, read; any other
+  // `/.exact` path, a wrong id, the id in capitals, a bare prefix or a POST, never.
+  const gen = '/.exact/gen/0123456789abcdef0123456789abcdef';
+  for (const p of [`${gen}/app.js`, `${gen}/lazy-ab12.js`, `${gen}/assets/a.png`, `${gen}/dev-inspect.json`]) expect([p, needs('GET', p)]).toEqual([p, 'read']);
+  for (const [m, p] of [['GET', `${gen}/`], ['GET', gen], ['GET', '/.exact/gen/0123/app.js'], ['GET', gen.toUpperCase() + '/app.js'], ['GET', '/.exact/gen/0123456789abcdef0123456789abcdeg/app.js'],
+    ['GET', '/.EXACT/gen/0123456789abcdef0123456789abcdef/app.js'], ['GET', '/.exact/install/index.html'], ['POST', `${gen}/app.js`]]) expect([m, p, needs(m, p)]).toEqual([m, p, null]);
   for (const [m, p] of [['GET', '/__tamber'], ['POST', '/__tamber'], ['GET', '/__tamber/token'], ['GET', '/__tamber/tool/'], ['POST', '/__tamber/events'], ['GET', '/__dev/install/ios'], ['POST', '/__exact/trace'], ['GET', '/__exact/trace'], ['GET', '/.exact/install/index.html'], ['POST', '/'], ['PUT', '/x'], ['DELETE', '/'], ['GET', '/canvas/c/'], ['PUT', '/__dev/gpu'], ['GET', '/__TAMBER/token'], ['GET', '/__Tamber'], ['GET', '/.EXACT/install/index.html'], ['GET', '/.Exact/install.json'], ['GET', '/__DEV/open'], ['POST', '/__Dev/open'], ['GET', '/__dev/OPEN']]) expect(needs(m, p)).toBeNull();
 });
 
@@ -852,10 +858,11 @@ test('a session evicted past the cap takes its streams with it; a client has at 
 
 test('the JS loop\'s page reloads afresh when its checkpoint is refused (a canvas below write), and its script still parses', () => {
   const s = readFileSync(new URL('../host/web-js/dev.mjs', import.meta.url), 'utf8');
-  const head = 'const client = (n, revision) => `';
+  // (Its gallery page's options at their defaults: the app's own page.)
+  const head = "const client = (n, revision, { base = '/__dev', stream = '/__dev/page', page = null } = {}) => `";
   const i = s.indexOf(head) + head.length - 1, j = s.indexOf('</script>`;', i) + '</script>`'.length;
   const names = [...new Set([...s.slice(i, j).matchAll(/\$\{([^}]*)\}/g)].flatMap(m => m[1].match(/\b[A-Z_]{3,}\b/g) ?? []))].filter(n => n !== 'JSON');
-  const html = new Function('n', 'revision', ...names, `return ${s.slice(i, j)};`)(3, 'r', ...names.map(() => []));
+  const html = new Function('n', 'revision', 'base', 'stream', 'page', ...names, `return ${s.slice(i, j)};`)(3, 'r', '/__dev', '/__dev/page', null, ...names.map(() => []));
   const code = html.replace(/^<script>/, '').replace(/<\/script>$/, '');
   expect(() => new Function(code)).not.toThrow();
   // The 403 is checked before the failure that keeps the old page.
@@ -957,6 +964,36 @@ test('the canvas port (C2): on B\'s doors with the same certificate, the entry p
     await tunnel.close();
   } finally { await v.stop(); }
 });
+
+// The ghost builds' follow-up (theme2's per-door test): a canvas framed through the TLS door's canvas port stops being
+// a build when it goes. Its requests are handed to the port's HTTP server, whose req 'close' never fires under Bun;
+// the gateway ends the loop's page stream upstream on res 'close'.
+test('a page stream through the canvas port on the TLS door ends upstream when its client leaves', async () => {
+  const w = await wired('default');
+  let doors = null, stream = null;
+  try {
+    const p = await w.pair('read', 'far');
+    doors = await openRemoteCanvas(w.tamber, { remote: { host: '127.0.0.1', port: 0 }, tunnel: null }, loopBase, { say: () => {}, warn: () => {} });
+    const { origin: tool, fingerprint } = doors.info();
+    const canvas = w.tamber.canvas.origin;
+    const minted = JSON.parse((await pinned(`${tool}/__tamber`, fingerprint, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': p.token }, body: '{"method":"canvas"}' })).text).ok;
+    const entry = await pinned(minted.url, fingerprint, { method: 'POST', headers: { origin: canvas, 'content-type': 'application/json' }, body: JSON.stringify({ grant: minted.grant }) });
+    const cookie = entry.headers['set-cookie'][0].split(';')[0];
+    closed.length = 0;
+    const u = new URL(canvas);
+    const first = await new Promise((ok, fail) => {
+      stream = httpsRequest({ host: u.hostname, port: u.port, path: '/__dev/page', headers: { cookie }, rejectUnauthorized: false }, res => { let got = ''; res.on('data', d => { got += d; if (got.includes('\n\n')) ok(got); }); });
+      stream.on('error', fail);
+      stream.end();
+    });
+    expect(first).toContain('"reload":1');
+    expect(closed).not.toContain('/__dev/page');
+    stream.destroy();
+    const t0 = performance.now();
+    while (!closed.includes('/__dev/page') && performance.now() - t0 < 5000) await new Promise(ok => setTimeout(ok, 5));
+    expect(closed).toContain('/__dev/page');
+  } finally { stream?.destroy(); await doors?.close(); await w.stop(); }
+}, 30_000);
 
 test('plain HTTP from a LAN peer (a --lan bind): no session, grant or entry page is honoured by the gateway, and `canvas` is not minted for it', async () => {
   const g = await gateway();

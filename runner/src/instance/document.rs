@@ -300,7 +300,7 @@ impl Build<'_> {
             )));
         }
         let (style, props) = self.fold(n)?;
-        let list = match &n.collection {
+        let list = match n.collection() {
             Some(list) => Some(
                 list.document_children(self.plan)
                     .map_err(|e| DocTreeError::Refused(format!("{e:?}")))?,
@@ -396,9 +396,10 @@ impl Build<'_> {
         let mut patch = StyleProps::default();
         for (i, b) in row.bindings.iter().enumerate() {
             let binding = plan.binding(b);
-            let Some(value) = n.last[i].as_ref() else {
+            let Some(value) = n.emitted(plan, self.sites, i) else {
                 continue;
             };
+            let value = &value;
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, value) {
                     Ok((prop, value)) => {
@@ -427,16 +428,16 @@ impl Build<'_> {
                 }
                 BindingKind::Style => {
                     let (family_value, family_id) =
-                        bridge::family_binding(plan, Some(&*self.fonts), binding, value);
+                        bridge::family_binding(plan, Some(&*self.fonts), &binding, value);
                     let styled = if let Some(id) = family_id {
                         bridge::set_runtime_font_style(
                             &mut patch,
-                            binding,
+                            &binding,
                             id,
                             plan.stacks.len() + self.fonts.borrow().names().len(),
                         )
                     } else {
-                        bridge::set_binding_style(&mut patch, binding, family_value, plan)
+                        bridge::set_binding_style(&mut patch, &binding, family_value, plan)
                     };
                     match styled {
                         Ok(StyleId::Animation) => {

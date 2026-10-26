@@ -9,7 +9,7 @@ import type { Obj } from '../../src/client/domain';
 import { ClientError, type Native } from '../../src/client/protocol';
 import { pullRequestsPage, type PrInput } from '../../src/pull-requests/pages-prs';
 import { prCommand, pullRequestDetail } from '../../src/pull-requests/pages-pr-detail';
-import { PR_REFRESH_KEY, prRefreshEvent } from '../../src/pull-requests/pages-pr-refresh';
+import { PR_REFRESH_KEY, noteInteraction, prRefreshEvent } from '../../src/pull-requests/pages-pr-refresh';
 import { noteNow } from '../../src/composer/composer-controls';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -17,7 +17,7 @@ const MINUTE = 60_000;
 const entries = [{ projectId: 'p1', host: 'github.com', repository: 'acme/playground', number: 158, title: 'Count the vowels in a line', state: 'open', isDraft: false,
   author: { login: 'second' }, updatedAt: '2026-10-08T11:00:00Z', additions: 1, deletions: 0 }];
 
-/** A client whose reader last pointed or typed at `interactedAt` (the activity reporter's answer). */
+/** A client whose reader last pointed or typed at `interactedAt` (app.contract `interacted`). */
 function fixture(interactedAt = NOW, more: Record<string, (payload: Obj) => unknown> = {}) {
   const calls: string[] = [];
   let listed: Obj[] = entries;
@@ -34,7 +34,8 @@ function fixture(interactedAt = NOW, more: Record<string, (payload: Obj) => unkn
     restAccess: () => ({ call: async () => ({ id: '1-1' }) }),
   } as unknown as T3Client;
   client.projectGroups = () => client.shell.projects.map(project => ({ key: String(project.id), name: String(project.title ?? ''), members: [project] }));
-  const native = { available: true, watch: () => {}, later: async (request: Obj) => request.op === 'activityLastInteraction' ? { ok: true, generation: 1, value: { at: interactedAt } } : { ok: true, generation: 1, value: {} } } as unknown as Native;
+  noteInteraction(client, interactedAt, false);
+  const native = { available: true, watch: () => {}, later: async () => ({ ok: true, generation: 1, value: {} }) } as unknown as Native;
   const page = (input: Partial<PrInput> & { visible?: boolean; returns?: number } = {}) =>
     pullRequestsPage(client, native, { open: true, refresh: 0, now: NOW, selected: '', query: '', typed: false, ...input });
   const reads = () => calls.filter(method => method === 'pullRequests.list').length;
@@ -78,7 +79,7 @@ describe('the Pull Requests list reads again as the reference page does (useLive
   });
 
   test('no reads while the reader has been idle past six minutes, or while the window is hidden', async () => {
-    const { page, reads } = fixture(NOW); // the reader's last pointer or key: NOW
+    const { client, page, reads } = fixture(NOW); // the reader's last pointer or key: NOW
     await page();
     await page({ now: NOW + 5 * MINUTE });
     expect(reads()).toBe(2); // five minutes in, the reader was here within six
@@ -86,6 +87,10 @@ describe('the Pull Requests list reads again as the reference page does (useLive
     expect(reads()).toBe(2); // ten minutes untouched: the interval stops
     await page({ now: NOW + 11 * MINUTE, returns: 1 });
     expect(reads()).toBe(2); // an arrival while idle reads nothing either
+    // The reader comes back: the first interaction after six idle minutes is an arrival (useLiveRefresh's resume).
+    noteInteraction(client, NOW + 12 * MINUTE, true);
+    await page({ now: NOW + 12 * MINUTE, returns: 1 });
+    expect(reads()).toBe(3);
     const hidden = fixture(NOW + 5 * MINUTE);
     await hidden.page();
     await hidden.page({ now: NOW + 5 * MINUTE, visible: false });

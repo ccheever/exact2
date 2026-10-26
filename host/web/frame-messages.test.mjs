@@ -9,13 +9,15 @@ test('iframe replies keep order and ownership, with no queue across replacement 
     if (path === '/commands.js') return new Response(Bun.file(new URL('../web-js/commands.js', import.meta.url)));
     if (path === '/navigation.js') return new Response(Bun.file(new URL('./navigation.js', import.meta.url)));
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('./prompt-glue.js', import.meta.url)));
+    if (path === '/alert-message.js') return new Response(Bun.file(new URL('./alert-message.js', import.meta.url)));
+    if (path === '/menu-rows.js') return new Response(Bun.file(new URL('./menu-rows.js', import.meta.url)));
     if (path.startsWith('/guest')) return new Response(`<body>Guest<script>window.received=[];addEventListener('message',e=>{received.push(e.data);document.body.textContent=JSON.stringify(received);parent.postMessage({seen:e.data},'*')})</script>`, { headers: { 'content-type': 'text/html' } });
     return new Response(`<main id="exact-root"></main><script type="module">
       import * as frames from '/frame-messages.js';
       import {commands} from '/commands.js';
       window.framesApi=frames; window.messages=[];window.logs=[];
       addEventListener('message',e=>messages.push(e.data));
-      window.post=(text,id)=>commands(t=>logs.push(t)).postMessage(text,id,'iframe');
+      window.post=(text,id,kind='iframe')=>commands(t=>logs.push(t)).postMessage(text,id,kind);
       window.mount=(id,sandbox=null)=>{const frame=document.createElement('iframe');frame.id=id;if(sandbox!==null)frame.setAttribute('sandbox',sandbox);frame.src='/guest-'+id;frames.commitFrameOrigin(frame);document.querySelector('main').append(frame);return frame};
       mount('known');mount('opaque','allow-scripts');mount('sibling');
     </script>`, { headers: { 'content-type': 'text/html' } });
@@ -50,6 +52,12 @@ test('iframe replies keep order and ownership, with no queue across replacement 
     await page.waitForFunction(() => document.querySelectorAll('#known').length===2);
     await page.evaluate(() => post('ambiguous','known'));
     expect(await page.evaluate(() => logs.some(t=>t.includes('no unique live iframe')))).toBe(true);
+    // A sheet that slides away keeps its ids (navigation.js `sheetLeaves`), but its frame is none of the live ones: a
+    // post by an id it shares reaches the page's, and a surface may take the name of a frame only it holds.
+    await page.evaluate(() => { document.querySelectorAll('#known')[1].remove(); const leaving=document.createElement('div'); leaving.setAttribute('navigationPresentation','modal'); leaving.setAttribute('data-exiting',''); leaving.innerHTML='<iframe id="known"></iframe>'; document.querySelector('main').prepend(leaving); logs.length=0; post('past-leaving','known'); });
+    await page.waitForFunction(() => logs.length || messages.some(m=>m.seen==='past-leaving'));
+    expect(await page.evaluate(() => logs)).toEqual([]);
     expect(await page.evaluate(() => globalThis.exact?.pendingPosts ?? [])).toEqual([]);
+    expect(await page.evaluate(() => { document.querySelector('[data-exiting] iframe').id='only-leaving'; post('drawn','only-leaving','canvas'); const queued=globalThis.exact.pendingPosts.splice(0).map(p=>p.name); return [logs, queued]; })).toEqual([[], ['only-leaving']]);
   } finally { await browser?.close(); server.stop(true); }
 }, 30_000);

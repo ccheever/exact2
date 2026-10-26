@@ -61,7 +61,10 @@ impl Module {
         Ok(Self {
             host: Host {
                 app_id: app_id.into(),
-                grants: GrantSet::parse(grants)?,
+                // The I/O lines only: the device lines are the OS's and the
+                // capability's (`exact_runner::io_grants`), which ibex2's
+                // parser does not know.
+                grants: GrantSet::parse(&exact_runner::io_grants(grants))?,
                 paths: None,
                 partition: None,
             },

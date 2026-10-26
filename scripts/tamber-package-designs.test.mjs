@@ -3,7 +3,7 @@
 // it on disk announced as a hand edit is, and a held proposal planned on
 // the old fold checked again when it is accepted.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,6 +65,68 @@ test('hello and describe list the package designs read-only; a change to one on 
   const taken = await post({ method: 'accept', client: 'person', proposal: held.ok.proposal });
   expect(taken.ok).toBeUndefined();
   expect(JSON.stringify(taken)).toContain('reading.ink');
+}, 120_000);
+
+test('a package SVG its design reads, edited, is announced as a change of the design (stage 13)', async () => {
+  const star = d => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  mkdirSync(join(dir, 'node_modules/@acme/reading/assets'), { recursive: true });
+  writeFileSync(join(dir, 'node_modules/@acme/reading/assets/star.svg'), star('M1 1h22v22H1Z'));
+  let { seq } = await post({ after: 0, wait: false }, '/__tamber/events');
+  writeFileSync(pkg(), 'tamber reading\n\ntheme\n  reading.card = #112233\n\nicons\n  reading.star = icon(sf "star", svg "star.svg")\n');
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/reading/reading.tamber')));
+  ({ seq } = await post({ after: 0, wait: false }, '/__tamber/events'));
+  writeFileSync(join(dir, 'node_modules/@acme/reading/assets/star.svg'), star('M2 2h20v20H2Z'));
+  const drawn = await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/reading/reading.tamber')));
+  expect(drawn.client).toBe(null);
+}, 120_000);
+
+test('a package with no design whose SVG the build reads, edited, is announced (stage 13)', async () => {
+  const star = d => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  const notes = join(dir, 'node_modules/@acme/notes');
+  mkdirSync(join(notes, 'assets'), { recursive: true });
+  writeFileSync(join(notes, 'assets/pin.svg'), star('M1 1h22v22H1Z'));
+  let { seq } = await post({ after: 0, wait: false }, '/__tamber/events');
+  writeFileSync(join(notes, 'index.contract'), 'component NotesCard\n  params\n    glyph: icon = "icon(svg \\"pin.svg\\")"\n  view\n    image "symbol:param.glyph"\n');
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/notes/assets/')));
+  ({ seq } = await post({ after: 0, wait: false }, '/__tamber/events'));
+  writeFileSync(join(notes, 'assets/pin.svg'), star('M2 2h20v20H2Z'));
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/notes/assets/')));
+  writeFileSync(join(notes, 'index.contract'), 'component NotesCard\n  view\n    text "n"\n');
+}, 120_000);
+
+test('a package vendored in the app, reached by a relative use, has its SVG edit announced (stage 13)', async () => {
+  const star = d => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  const vendor = join(dir, 'vendor/shelf');
+  mkdirSync(join(vendor, 'assets'), { recursive: true });
+  writeFileSync(join(vendor, 'package.json'), JSON.stringify({ name: '@acme/shelf', version: '1.0.0', exports: { '.': './index.contract' } }));
+  writeFileSync(join(vendor, 'index.contract'), 'component ShelfCard\n  params\n    glyph: icon = "icon(svg \\"pin.svg\\")"\n  view\n    image "symbol:param.glyph"\n');
+  writeFileSync(join(vendor, 'assets/pin.svg'), star('M1 1h22v22H1Z'));
+  const app = join(dir, 'app.contract');
+  const before = readFileSync(app, 'utf8');
+  let { seq } = await post({ after: 0, wait: false }, '/__tamber/events');
+  writeFileSync(app, `use ShelfCard from "./vendor/shelf/index.contract"\n${before.replace('      NotesCard()\n', '      NotesCard()\n      ShelfCard()\n')}`);
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/shelf/assets/')));
+  ({ seq } = await post({ after: 0, wait: false }, '/__tamber/events'));
+  writeFileSync(join(vendor, 'assets/pin.svg'), star('M2 2h20v20H2Z'));
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/shelf/assets/')));
+  writeFileSync(app, before);
+}, 120_000);
+
+test('a package vendored in the app whose SVG is not there yet has it announced when made (stage 13)', async () => {
+  const star = d => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  const vendor = join(dir, 'vendor/rack');
+  mkdirSync(join(vendor, 'assets'), { recursive: true });
+  writeFileSync(join(vendor, 'package.json'), JSON.stringify({ name: '@acme/rack', version: '1.0.0', exports: { '.': './index.contract' } }));
+  writeFileSync(join(vendor, 'index.contract'), 'component RackCard\n  params\n    glyph: icon = "icon(svg \\"pin.svg\\")"\n  view\n    image "symbol:param.glyph"\n');
+  const app = join(dir, 'app.contract');
+  const before = readFileSync(app, 'utf8');
+  let { seq } = await post({ after: 0, wait: false }, '/__tamber/events');
+  writeFileSync(app, `use RackCard from "./vendor/rack/index.contract"\n${before.replace('      NotesCard()\n', '      NotesCard()\n      RackCard()\n')}`);
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/rack/assets/')));
+  ({ seq } = await post({ after: 0, wait: false }, '/__tamber/events'));
+  writeFileSync(join(vendor, 'assets/pin.svg'), star('M1 1h22v22H1Z'));
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/rack/assets/')));
+  writeFileSync(app, before);
 }, 120_000);
 
 test('a package design made where none was is announced; a client\'s hello never carries paths', async () => {

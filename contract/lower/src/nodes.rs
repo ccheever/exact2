@@ -54,6 +54,7 @@ impl Lowerer<'_> {
         // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
         let button_context = grouped::button_context(attrs);
         let separated = grouped::row_separator(attrs);
+        let acting = grouped::actions::said(attrs);
         let (mut sheet, unmarked) = grouped::split(attrs);
         let attrs = unmarked.as_ref().unwrap_or(attrs);
         // A `delete=` no list row expanded does nothing (`lower-delete-row`).
@@ -78,6 +79,8 @@ impl Lowerer<'_> {
             *span,
         )?;
         let native_button = button.as_ref().is_some_and(|b| b.native);
+        let painted_group =
+            self.painted_radio_group(attrs, expanded.as_deref().unwrap_or(&[]), children, *span)?;
         // A `button` part as the platform draws it (LLP 1139 D6).
         if let Some(b) = button.as_ref() {
             self.button_part(*span, b.native, b.bare_reason.as_deref());
@@ -103,20 +106,33 @@ impl Lowerer<'_> {
             }
             None => attrs.as_slice(),
         };
-        let inked = tags::symbol_ink(tag, positional, &expanded[sheet.len()..]);
-        let expanded = match inked {
-            Some(row) => {
-                let mut rows = expanded.to_vec();
-                rows.push(row);
-                std::borrow::Cow::Owned(rows)
-            }
-            None => std::borrow::Cow::Borrowed(expanded),
+        let face = self.button_context == Some("a native button");
+        let inked = crate::symbols::symbol_ink(
+            tag,
+            positional,
+            &expanded[sheet.len()..],
+            face,
+            !self.fns.contains_key("startsWith")
+                && !contract_types::records::is_record_call("startsWith", &self.types.shapes),
+        );
+        crate::popover_surface::check_authored(expanded)?;
+        let surfaced = crate::popover_surface::implied(expanded, *span);
+        let added: Vec<Attr> = inked
+            .into_iter()
+            .chain(painted_group)
+            .chain(surfaced)
+            .collect();
+        let expanded = match added.is_empty() {
+            false => std::borrow::Cow::Owned([expanded, &added].concat()),
+            true => std::borrow::Cow::Borrowed(expanded),
         };
         let expanded = &*expanded;
         decorations::check_field(tag, expanded)?;
+        atoms::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
+        crate::alert_parts::check_authored(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
         // @ref LLP 1121 D3 — a motion token an expansion carried in (a
         // component's prop, a sheet) is written in before the longhands
@@ -128,6 +144,14 @@ impl Lowerer<'_> {
         let lengths =
             svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
         let expanded = lengths.as_deref().unwrap_or(expanded);
+        // A box's `transform` as the rows it equals (LLP 1055.000 D5's
+        // deferral keeps the rest), before `check_svg` reads the rows.
+        let boxed = crate::box_transform::lower(
+            tag,
+            svg::in_svg(self.svg_depth > 0, parent_tag),
+            expanded,
+        )?;
+        let expanded = boxed.as_deref().unwrap_or(expanded);
         self.check_svg(tag, parent_tag, expanded, *span)?;
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1034 §8 — an inline run paints in its paragraph's
@@ -170,6 +194,8 @@ impl Lowerer<'_> {
         controls::check_progress(tag, expanded, children)?;
         crate::live_time::check(tag, expanded, *span)?;
         let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
+        let parted = self.alert_parts(tag, expanded, children, alert, *span, *instance);
+        let children: &[Node] = parted.as_deref().unwrap_or(children);
         let closedby = menus::implied_closedby(tag, expanded, *span, alert);
         let expanded = closedby.as_deref().unwrap_or(expanded);
         let numeric = controls::range_attrs(tag, control, expanded);
@@ -220,6 +246,7 @@ impl Lowerer<'_> {
         });
         let expanded = row_list.as_deref().unwrap_or(expanded);
         media::check_session(tag, expanded)?;
+        crate::frames::check(tag, positional, expanded)?;
         let audio = media::audio_rows(tag, expanded, *span)?;
         let expanded = audio.as_deref().unwrap_or(expanded);
         // @ref LLP 1074 T1 — a box that contains its absolutely positioned
@@ -267,8 +294,10 @@ impl Lowerer<'_> {
         let sheet_page = self.nav_place.sheet_page(expanded, *span);
         let expanded = sheet_page.as_deref().unwrap_or(expanded);
         let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
-        // @ref LLP 1038 D8 — only the first root selects navigation.
-        if has(&["navigate"])
+        // @ref LLP 1038 D8 — only the first root selects navigation; an
+        // iframe's `navigate` is its guest's (LLP 1020.002 D2).
+        if tag != "iframe"
+            && has(&["navigate"])
             && (parent_tag.is_some()
                 || arm.is_some()
                 || order != 0
@@ -353,6 +382,10 @@ impl Lowerer<'_> {
         if cells {
             let rows = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
+        }
+        if let Some(acting) = acting {
+            let said = self.b.constant(&Value::Bool(acting));
+            bindings.push(prop_row(exact_kernel::PropId::GroupedAction, said, IMPLIED));
         }
         if separated {
             let on = self.b.constant(&Value::Bool(true));
@@ -877,6 +910,8 @@ impl Lowerer<'_> {
             std::borrow::Cow::Owned(rows)
         } else if let Some(face) = face {
             std::borrow::Cow::Owned(face)
+        } else if let Some(parts) = parted {
+            std::borrow::Cow::Owned(parts)
         } else {
             std::borrow::Cow::Borrowed(authored_children.as_slice())
         };

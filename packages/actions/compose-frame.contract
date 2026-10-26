@@ -1,0 +1,198 @@
+use PostButton from "./post-button.contract"
+use iconGallery, iconCamera, iconGif from "./common.contract"
+
+// A toolbar button's icon: Bluesky's (lg, 24), one even-odd path.
+component ToolGlyph
+  props
+    d: string
+    color: string
+  view
+    svg viewBox="0 0 24 24" width="actions.compose-icon" height="actions.compose-icon" aria-hidden=true
+      path fill=color fill-rule="evenodd" d=d
+
+// The composer's frame (the clone's ComposeScreen, theme2's 02:41 ruling):
+// its bar (Cancel, Drafts unless a reply, the Post button with its own
+// params), the app's body as its one slot (the post replied to, the
+// thread's posts, the field, its attachments and pills: the app's), and
+// its toolbar (the gallery, camera and GIF buttons, adding a post, the
+// languages, and what's left of the limit with its ring, a red pie once
+// over). The bar is the view's first node, as a screen's own header is (a
+// route's header bar where the host draws one).
+component ComposeFrame
+  params
+    tint: color = "actions.compose-tint" control = "token" group = "Color" priority = 1 label = "Tint"
+    label: color = "actions.compose-label" control = "token" group = "Color" priority = 2 label = "Languages"
+    surface: color = "actions.compose-surface" control = "token" group = "Color" priority = 2 label = "Surface"
+    divider: color = "actions.compose-divider" control = "token" group = "Color" priority = 3 label = "Divider"
+    // The counter's: what's left, and the ring, which a designer sets together.
+    countInk: color = "actions.compose-count" control = "token" group = "Counter" priority = 3 label = "Count text"
+    over: color = "actions.compose-over" control = "token" group = "Counter" priority = 3 label = "Over the limit"
+    track: color = "actions.compose-track" control = "token" group = "Counter" priority = 3 label = "Ring track"
+    arc: color = "actions.compose-arc" control = "token" group = "Counter" priority = 3 label = "Ring arc"
+  props
+    // Names its bar's testId: compose-bar, or compose-bar-<id> beside others.
+    id: string
+    cancelLabel: string
+    drafts: bool
+    draftsLabel: string
+    // Drafts can't open while it posts.
+    busy: bool
+    postLabel: string
+    postDisabled: bool
+    reply: bool
+    gallery: bool
+    camera: bool
+    gif: bool
+    canAdd: bool
+    langLabel: string
+    count: number
+    limit: number
+    cancel: action
+    openDrafts: action
+    post: action
+    choose: action
+    openCamera: action
+    gifs: action
+    addPost: action
+    languages: action
+  slot
+  parts
+    bar: paint space
+    toolbar: paint space
+    counter: text space
+  derive over = count > limit
+  view
+    header part="bar" testId=(id == "" ? "compose-bar" : `compose-bar-${id}`)
+      display="flex"
+      flex-direction="row"
+      align-items="center"
+      padding-left="actions.compose-bar-lead"
+      padding-right="actions.compose-bar-trail"
+      min-height="actions.compose-bar-height"
+      flex-shrink=0
+      background-color="param.surface"
+      button id="back" appearance="auto"
+        testId="compose-cancel"
+        press=cancel
+        padding-left="actions.compose-text-pad"
+        padding-right="actions.compose-text-pad"
+        height="actions.compose-text-height"
+        text cancelLabel font-size="actions.compose-text-size" font-weight=500 color="param.tint"
+      text "" role="heading" aria-level=2 flex=1
+      // Drafts, not for a reply: left out, not hidden, as a host projects a
+      // screen's header buttons into its own bar.
+      if drafts and not reply
+        button testId="compose-drafts" appearance="auto"
+          aria-label=draftsLabel
+          press=openDrafts
+          disabled=busy
+          padding-left="actions.compose-drafts-pad"
+          padding-right="actions.compose-drafts-pad"
+          margin-left="actions.compose-drafts-gap"
+          margin-right="actions.compose-drafts-gap"
+          height="actions.compose-text-height"
+          text draftsLabel font-size="actions.compose-text-size" font-weight=500 color="param.tint"
+      PostButton(id="", label=postLabel, reply=reply, disabled=postDisabled, press=post)
+    // The app's body, the header's next sibling as a screen's scroller is
+    // (a host runs it under its bar).
+    children
+    // The toolbar, its ground under the home indicator too.
+    column part="toolbar"
+      border-top-width="actions.compose-hairline"
+      border-top-style="solid"
+      border-top-color="param.divider"
+      background-color="param.surface"
+      flex-shrink=0
+      row testId="compose-toolbar"
+        padding-left="actions.compose-toolbar-lead"
+        padding-right="actions.compose-toolbar-trail"
+        padding-top="actions.compose-toolbar-pad"
+        padding-bottom="actions.compose-toolbar-pad"
+        align-items="center"
+        justify-content="space-between"
+        row gap="actions.compose-tool-gap" align-items="center"
+          button testId="compose-gallery-button"
+            aria-label="Gallery"
+            press=choose
+            disabled=(not gallery)
+            opacity=(gallery ? 1 : "actions.compose-dim")
+            padding="actions.compose-tool-pad"
+            border-radius="actions.compose-tool-corner"
+            ToolGlyph(d=iconGallery(), color="param.tint")
+          button testId="openCameraButton"
+            aria-label="Camera"
+            press=openCamera
+            disabled=(not camera)
+            opacity=(camera ? 1 : "actions.compose-dim")
+            padding="actions.compose-tool-pad"
+            border-radius="actions.compose-tool-corner"
+            ToolGlyph(d=iconCamera(), color="param.tint")
+          button testId="compose-gif-button"
+            aria-label="Select GIF"
+            press=gifs
+            disabled=(not gif)
+            opacity=(gif ? 1 : "actions.compose-dim")
+            padding="actions.compose-tool-pad"
+            border-radius="actions.compose-tool-corner"
+            ToolGlyph(d=iconGif(), color="param.tint")
+        row gap="actions.compose-trail-gap" align-items="center"
+          // Add another post to the thread, once this post has something in it.
+          if canAdd
+            button testId="compose-add-post"
+              aria-label="Add another post to thread"
+              press=addPost
+              padding="actions.compose-add-pad"
+              border-radius="actions.compose-tool-corner"
+              image "symbol:add" width="actions.compose-add-icon"
+                height="actions.compose-add-icon"
+                object-fit="contain"
+                color="param.tint"
+          row testId="selectLangBtn"
+            role="button"
+            aria-label=`Post language selection: ${langLabel}`
+            press=languages
+            flex-shrink=0
+            padding="actions.compose-lang-pad"
+            text langLabel max-width="actions.compose-lang-max"
+              font-size="actions.compose-small-size"
+              font-weight=600
+              white-space="nowrap"
+              text-overflow="ellipsis"
+              overflow="hidden"
+              color="param.label"
+          // What's left, beside a ring: the arc of count over limit on a
+          // hairline track; once over, a red pie of how far over.
+          row part="counter"
+            width="actions.compose-counter-width"
+            gap="actions.compose-counter-gap"
+            align-items="center"
+            justify-content="space-between"
+            flex-shrink=0
+            text `${limit - count}` flex-grow=1
+              text-align="right"
+              font-size="actions.compose-small-size"
+              line-height="actions.compose-count-line"
+              font-variant-numeric="tabular-nums"
+              color=(over ? "param.over" : "param.countInk")
+            svg viewBox="0 0 30 30" width="actions.compose-ring" height="actions.compose-ring" aria-hidden=true
+              if over
+                circle cx=15 cy=15 r=13 fill="none" stroke="param.over" stroke-width=4
+                circle cx=15
+                  cy=15
+                  r=5.5
+                  fill="none"
+                  stroke="param.over"
+                  stroke-width=11
+                  stroke-dasharray=`${34.56 * min(count - limit, max(limit, 1)) / max(limit, 1)} 34.56`
+                  transform="rotate(-90 15 15)"
+              else
+                circle cx=15 cy=15 r=14.5 fill="none" stroke="param.track" stroke-width=1
+                circle cx=15
+                  cy=15
+                  r=12.5
+                  fill="none"
+                  stroke="param.arc"
+                  stroke-width=3
+                  stroke-dasharray=`${78.54 * min(max(count, 0), max(limit, 1)) / max(limit, 1)} 78.54`
+                  transform="rotate(-90 15 15)"
+      box height="env(safe-area-inset-bottom)"

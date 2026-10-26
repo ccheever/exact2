@@ -85,7 +85,10 @@ export function deviceHubReadiness(state: Obj | null | undefined): { ready: bool
   const busy = !ready && [str(state?.hostStatus), ...statuses].some(status => status === 'installing' || status === 'starting');
   return { ready, busy };
 }
-/** platformSetupStatus (9c161462c9): a platform only remote hosts support names the first of them. */
+/**
+ * platformSetupStatus (74541bab17): a platform only remote hosts support names the first of them; an EAS host
+ * says it starts its simulators in the cloud.
+ */
 export function platformSetupStatus(state: Obj, platform: string): { ready: boolean; message: string } {
   const availabilities = arr(state.hosts).flatMap(host => arr(host.platforms).filter(candidate => candidate.platform === platform).map(candidate => ({ candidate, host })));
   const supporting = availabilities.filter(entry => entry.candidate.available === true).map(entry => entry.host);
@@ -98,7 +101,8 @@ export function platformSetupStatus(state: Obj, platform: string): { ready: bool
   }
   const remote = supporting.every(host => host.kind !== 'local') ? supporting[0] : undefined;
   const location = remote ? ` on ${str(remote.label)}` : '';
-  return { ready: true, message: platform === 'ios' ? `Xcode and iOS Simulator are available${location}.` : `The Android SDK and Emulator are available${location}.` };
+  return { ready: true, message: remote?.kind === 'eas' ? `${str(remote.label)} starts iOS Simulators in the cloud with EAS Simulator.`
+    : platform === 'ios' ? `Xcode and iOS Simulator are available${location}.` : `The Android SDK and Emulator are available${location}.` };
 }
 /** DeviceHubSetupStatus / AgentDeviceSetupStatus labels. */
 export function hubStatusLabel(state: Obj, pending: boolean): string {

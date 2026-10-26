@@ -30,16 +30,17 @@ import { openFileInPreview } from '../browser/browser-links'; // "Open file in p
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './files-crumbs-mount'; // a mounting preview settles at the end
-import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from '../connections/remote-open'; // remote Open (OpenInPicker)
+import { loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from '../connections/remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from '../diff/diff-file-comments'; // diff-review: line comments on the preview
 import { filesMediaView, markdownMediaChips, markdownMediaUrls, NO_MEDIA, type MediaView } from '../media/media-views'; // image and video files with their menu
 import { letGo } from '../client/let-go';
-import { filesTreeChoice, filesTreeMenuRows, showContextMenu } from './context-menu-actions';
+import { filesTreeChoice, filesTreeMenuRows } from './context-menu-actions';
+import { markdownFileMenuRows, withFileLinkMenus, type FileLinkMenuContext } from '../timeline/file-link-menu';
 import type { MenuRow } from '../sidebar/sidebar-menu';
-import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from '../shared/context-menus';
-import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, mediaMimeTypeFromExtension } from '../media/media-source';
+import { availableEditorIds } from '../shared/context-menus';
+import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath } from '../media/media-source';
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
-import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath, splitPosition, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // the file a chat link means
+import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath, splitPosition } from '../timeline/workspace-file-lookup'; // the file a chat link means
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; loading: boolean; guides: { id: string; left: number }[] };
 /** A crumb: `navigable` moves the browser to its folder (FolderBreadcrumb), `descendant` is below the current one (kept
@@ -69,7 +70,7 @@ export type FilesView = {
   // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
   // `codeCopyNonce` Copy code's check.
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
-  codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
+  codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editPress: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
   url: string; media: MediaView;
 };
 export type MarkdownSource = { id: string; kind: string; title: string; body: string };
@@ -90,6 +91,9 @@ type FilesState = {
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
 // persisted in the client's preference file (files-prefs.ts).
 const states = new WeakMap<T3Client, FilesState>();
+/** The last press that began editing, as the preview numbered it (files-surface.contract FilePreview `beginEdit`); kept
+ * across workspaces, so a press's mark never outlives the module's answer to it. */
+const editPresses = new WeakMap<T3Client, string>();
 export const PATH_SEARCH_LIMIT = 200;
 const EXPAND_ALL_CAP = 200;
 
@@ -328,7 +332,7 @@ async function navigateCrumb(client: T3Client, native: Native, crumbPath: string
 
 /** `shelllocal:surface-files-*`. */
 export async function filesLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
-  if (op === 'link-menu') { await markdownFileMenu(client, native, id, { lookup: value }); return ''; }
+  if (op === 'link-pick') { const newline = value.indexOf('\n'); await markdownFilePick(client, native, id, value.slice(0, newline), { lookup: value.slice(newline + 1) }); return ''; } // link-menus.contract
   if (op === 'row-pick') { await filesTreeChoice(client, native, id, value); return ''; } // context-menu-actions.ts
   const state = filesState(client), preferences = prefsOf(client);
   // A host folder's rows carry host paths (FileBrowserPanel panelPath); its tree is keyed by the folder's own entries.
@@ -346,6 +350,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   // FileSearchField: its Escape closes the search (closeSearch); the field blurs itself (FilesExplorer searchKey).
   if (op === 'search-key') { if (value === 'Escape') { if (host) hostTree(state, host).query = ''; else await search(client, native, ''); } return ''; }
   if (op === 'begin-edit') {
+    if (value) editPresses.set(client, value);
     const read = state.reads.get(id);
     if (read && !read.error && !read.truncated && !isHost(id)) { state.editing = id; state.editorText = read.contents; }
     return '';
@@ -396,26 +401,17 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
 }
 
 /**
- * ChatMarkdown's file-link menu (context-menus.ts markdownFileMenuItems): "Preview media" for a
- * media file, the open item named for the preferred editor and the server-worded reveal only for
- * a resolved local environment, then the copies (the relative one for a file inside the thread's
- * workspace). Open, reveal and the copies act on the file a bare name or a repeated project prefix
- * means (`lookup`, workspace-file-lookup.ts), and a copy says what it copied.
+ * A row of ChatMarkdown's file-link menu (file-link-menu.ts markdownFileMenuRows) for the link `target` (its full path),
+ * acted on only while the menu, built again now, still offers it. Open, reveal and the copies act on the file a bare
+ * name or a repeated project prefix means (`lookup`, workspace-file-lookup.ts), and a copy says what it copied.
  */
-export async function markdownFileMenu(client: T3Client, native: Native, target: string, context: { cwd?: string; previewMedia?: boolean; lookup?: string } = {}): Promise<void> {
+export async function markdownFilePick(client: T3Client, native: Native, target: string, picked: string, context: FileLinkMenuContext & { lookup?: string } = {}): Promise<void> {
   if (!target) return;
-  const environment = client.environmentId, origin = client.origin;
+  const environment = client.environmentId;
   await loadSshAliases(native);
-  const remote = remoteOpenFor(client);
-  const canOpen = canUseMarkdownFileShellActions(environment || null, remote.state.mode, remote.resolved);
-  const available = availableEditorIds(client.config);
-  const editor = preferredEditor(available, lastEditor(client)) || null;
-  const filePath = splitPosition(target).path, name = baseName(filePath), dot = name.lastIndexOf('.');
+  if (!markdownFileMenuRows(client, target, context).some(row => row.id === picked)) return;
+  const editor = preferredEditor(availableEditorIds(client.config), lastEditor(client)) || null;
   const cwd = context.cwd ?? workspaceOf(client).cwd;
-  const canPreviewMedia = context.previewMedia !== false && !!client.threadId && dot >= 0 && mediaMimeTypeFromExtension(name.slice(dot)) !== null;
-  const items = markdownFileMenuItems({ canPreviewMedia, canOpen, preferredEditor: editor, revealLabel: revealLabelFor(client.config, environment || null), canCopyRelative: workspaceRelativeFilePath(filePath, cwd) !== null });
-  const picked = await showContextMenu(client, native, items);
-  if (!picked || client.environmentId !== environment || client.origin !== origin) return;
   // openMarkdownMedia: the expanded media dialog with the link's media (timeline-attachments.ts).
   if (picked === 'preview-media') {
     try { await openMarkdownMediaPreview(client, native, target, cwd); }
@@ -423,10 +419,17 @@ export async function markdownFileMenu(client: T3Client, native: Native, target:
     return;
   }
   const hostPath = () => resolveFileLinkHostPath(client, native, target, context.lookup ?? '', cwd);
-  // Recheck after the native menu closes; a menu from another route cannot execute there.
-  const current = remoteOpenFor(client);
+  // openMarkdownFileInPreview: the file in a new Browser tab beside the thread (a draft gets its thread id first).
+  if (picked === 'open-in-browser') {
+    try {
+      if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
+      const ref = activeRef(client);
+      if (!ref) throw new Error('Environment is not connected.');
+      await openFileInPreview(client, native, ref, splitPosition(target).path, cwd);
+    } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Unable to open file in browser', description: error instanceof Error && error.message ? error.message : 'An error occurred.', stacked: true }); }
+    return;
+  }
   if (picked === 'open' || picked === 'reveal') {
-    if (!canUseMarkdownFileShellActions(environment || null, current.state.mode, current.resolved)) return;
     const failed = (description: string): void => { pushToast(client, { kind: 'error', title: picked === 'open' ? 'Unable to open file' : 'Unable to reveal file', description, stacked: true }); };
     try {
       const host = await hostPath();
@@ -598,16 +601,28 @@ async function openInPreviewBrowser(client: T3Client, native: Native, path: stri
  * the thread, or a draft's own id (FilePreviewPanel's `threadRef` is the draft's), and their references are relative
  * to the workspace (`cwd`), not the folder.
  */
+/**
+ * ChatView's workspaceMutationId: the newest settled file change or command (a command can change files without naming
+ * them) and the newest checkpoint's capture time, or null before either. A rendered Markdown file's images sign again
+ * when it changes.
+ */
+export function workspaceMutationId(client: T3Client): string | null {
+  const projection = obj(client.projection), items = arr(projection.visibleTurnItems).map(row => obj(row.item));
+  const settled = items.findLast(item => (item.type === 'command_execution' || item.type === 'file_change') && !['pending', 'running', 'waiting'].includes(str(item.status)));
+  const checkpoint = arr(projection.checkpoints).findLast(entry => entry.appRunOrdinal != null && entry.runId != null);
+  const itemId = settled ? str(settled.id) : null, capturedAt = checkpoint ? str(checkpoint.capturedAt) || null : null;
+  return itemId === null && capturedAt === null ? null : JSON.stringify([itemId, capturedAt]);
+}
 async function renderedMarkdown(client: T3Client, native: Native, path: string, absolute: string, text: string, editable: boolean, now: number) {
   const folder = absolute.slice(0, Math.max(0, absolute.lastIndexOf('/'))) || '/', scope = { cwd: workspaceOf(client).cwd };
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
   const signs = markdownMediaChips(text, folder, scope).some(chip => chip.icon === 'environment');
   const threadId = client.threadId || (signs && client.draftKey && client.ready ? await ensureDraftThreadId(client, native).catch(error => { if (letGo(error)) throw error; return ''; }) : '');
-  const urls = await markdownMediaUrls(client, native, folder, now, [text], { ...scope, threadId });
+  const urls = await markdownMediaUrls(client, native, folder, now, [text], { ...scope, threadId, mutationId: workspaceMutationId(client) });
   const diagrams = filesMermaid(client, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], `files:${absolute}`, scope, client) }, // the owner names the document
+    md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, folder, [], `files:${absolute}`, scope, client)) }, // the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
@@ -623,7 +638,7 @@ function codePreviewLines(client: T3Client, path: string): number {
 }
 /**
  * A Files preview comment draft on show with the focus holds ⌘↩, as the Diff's does (diff.ts
- * draftHoldsCommandEnter; composer-presentation.ts gives the Send button no chords then). The host sends no blur when a
+ * draftHoldsCommandEnter; composer-presentation.ts gives the composer no send chords then). The host sends no blur when a
  * focused view leaves the tree (LLP 1008), so it holds only on the panel it was taken on, while that panel shows the
  * draft's file as source with the draft's last line (fileCommentLines draws the card there).
  */
@@ -638,7 +653,7 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, searching: false, error: '', query: '', truncated: false, noMatches: false, emptySearch: false, loadingQuiet: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
   explorer: true, showExplorer: true, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
 
 /** FileBrowserPanel's `useState("")`: each file tab mounts its own explorer, so its search starts empty and ends with it. */
@@ -719,7 +734,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
     ...editors, absolutePath: absolute,
     ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), table: parsedTable?.rows ?? [],
-    editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '',
+    editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editPress: editPresses.get(client) ?? '',
     crumbMenu: crumbPath !== null && trail !== null ? crumbMenu(state, projectName, crumbPath, trail) : closedCrumbs(), crumbsMask: crumbPath !== null ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
     url: frame ? page.url : '', media,

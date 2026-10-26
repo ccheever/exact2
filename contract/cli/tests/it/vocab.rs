@@ -17,6 +17,68 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
+/// An event record an arity refusal names (`ScrollEvent`) and a grammar word
+/// a recipe answers (`sequence`, `keyframes`) are one lookup each: euxy ports
+/// 19 and 20 grepped the guides for them.
+#[test]
+fn event_records_and_recipe_words_answer_in_one_lookup() {
+    let out = stdout(&vocab(&["ScrollEvent", "sequence", "keyframes"]));
+    assert!(
+        out.contains(
+            "ScrollEvent: an event record, its fields scrollLeft: number, scrollTop: number"
+        ),
+        "{out}"
+    );
+    assert!(
+        out.contains("\n  `scroll=act` calls `action act(scrollLeft: number, scrollTop: number)`"),
+        "{out}"
+    );
+    assert!(
+        out.contains("sequence: the recipe docs/recipes/sequencer.md"),
+        "{out}"
+    );
+    assert!(
+        out.contains("keyframes: the recipe docs/recipes/motion.md"),
+        "{out}"
+    );
+    let json: Value =
+        serde_json::from_str(&stdout(&vocab(&["--json", "MIDIMessageEvent"]))).unwrap();
+    assert_eq!(
+        json["event"]["handlers"][0]["name"], "midimessage",
+        "{json}"
+    );
+    assert_eq!(json["event"]["fields"][1]["name"], "data", "{json}");
+}
+
+/// A handler's entry leads with the action it calls (the euxy port guessed
+/// `scroll=` passed one `ScrollEvent`; `moved(x, y)` was a later bullet).
+#[test]
+fn a_handler_leads_with_the_action_it_calls() {
+    let out = stdout(&vocab(&["scroll"]));
+    let lines: Vec<&str> = out.lines().collect();
+    let at = lines.iter().position(|l| *l == "scroll: handler attribute");
+    let next = at.and_then(|i| lines.get(i + 1)).copied().unwrap_or("");
+    assert_eq!(
+        next,
+        "  `scroll=act` calls `action act(scrollLeft: number, scrollTop: number)`, or `action act(scrollLeft: number, scrollTop: number, event: ScrollEvent)` for its `ScrollEvent`",
+        "{out}"
+    );
+    let out = stdout(&vocab(&["press"]));
+    assert!(
+        out.contains("`press=act` calls `action act`, or `action act(event: MouseEvent)`"),
+        "{out}"
+    );
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "scroll"]))).unwrap();
+    assert!(
+        json.to_string()
+            .contains("`scroll=act` calls `action act(scrollLeft: number, scrollTop: number)`"),
+        "{json}"
+    );
+    // A record that depends on the element (a field's `InputEvent`) is no one signature.
+    let out = stdout(&vocab(&["selectionchange"]));
+    assert!(!out.contains("`selectionchange=act` calls"), "{out}");
+}
+
 /// LLP 1116.009 D6: a builder guessed a colour role (tip-splitter), so a colour property's entry lists the roles it takes:
 /// Exact's, written `-exact-<role>`, and CSS's system colours by name; a property that is not a colour lists none.
 #[test]
@@ -284,7 +346,7 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("reachstart", "view", "reachstart=done"),
         ("reachend", "view", "reachend=done"),
         ("text-transform", "input", "text-transform=\"uppercase\""),
-        ("transform", "view", "transform=\"scale(0.8)\""),
+        ("transform", "view", "transform=\"skewX(10deg)\""),
         ("selectionchange", "view", "selectionchange=done"),
         ("beforeinput", "view", "beforeinput=done"),
         ("name", "view", "name=\"station\""),
@@ -302,6 +364,30 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("stop", "view", "stop=done"),
         ("seekbackwardOffset", "view", "seekbackwardOffset=15"),
         ("seekforwardOffset", "view", "seekforwardOffset=15"),
+        ("partition", "view", "partition=\"persist:work\""),
+        ("zoom", "view", "zoom=1.5"),
+        ("currententrychange", "view", "currententrychange=done"),
+        ("navigatesuccess", "view", "navigatesuccess=done"),
+        ("navigateerror", "view", "navigateerror=done"),
+        ("newwindow", "view", "newwindow=done"),
+        ("download", "view", "download=done"),
+        ("capture", "view", "capture=done"),
+        ("userpromptopened", "view", "userpromptopened=done"),
+        (
+            "apple.allowsBackForwardNavigationGestures",
+            "view",
+            "apple.allowsBackForwardNavigationGestures=true",
+        ),
+        (
+            "apple.allowsMagnification",
+            "view",
+            "apple.allowsMagnification=true",
+        ),
+        (
+            "apple.inactiveSchedulingPolicy",
+            "view",
+            "apple.inactiveSchedulingPolicy=\"throttle\"",
+        ),
     ];
     let listed: Vec<&str> = contract_lower::vocab::CONTEXTUAL
         .iter()
@@ -982,6 +1068,9 @@ fn wakelock_says_its_two_words_and_where_it_holds() {
         "\"none\"",
         "display: none",
         "state.wakelock",
+        "expect wakelock held",
+        "expect wakelock released",
+        "not whether the OS or browser granted it",
     ] {
         assert!(text.contains(want), "{want}: {text}");
     }

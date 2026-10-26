@@ -706,3 +706,355 @@ fn a_full_width_native_button_row_stays_in_its_card() {
         card.frame
     );
 }
+
+/// A `press` on a box (a card, a pressable column) is on the screen and
+/// taps as a control does, and a click on its text reaches it; a button
+/// inside a pressable column is the click's target there, its own press
+/// alone (QUEUE: "the terminal never taps a pressable box", iosfix's repro).
+const PRESSABLE: &str = r#"component App
+  state solo = 0
+  state card = 0
+  state inner = 0
+  action tapSolo
+    solo = solo + 1
+  action tapCard
+    card = card + 1
+  action tapInner
+    inner = inner + 1
+  view
+    column padding=16
+      box testId="solo" press=tapSolo width=48 height=32
+        text "tap"
+      column testId="card" press=tapCard
+        text "card text"
+        button testId="inner" press=tapInner
+          text "inner"
+      Card(go=tapCard)
+        box testId="filled" press=tapInner width=24 height=16
+          text "fill"
+      text `solo ${solo} card ${card} inner ${inner}`
+
+component Card
+  props
+    go: action
+  slot
+  view
+    column press=go testId="slotted"
+      text "slotted"
+      children
+"#;
+
+#[test]
+fn a_pressable_box_taps_and_clicks_as_a_control_does() {
+    let plan = contract::compile(PRESSABLE).expect("compiles");
+    // Full screen, whose painting starts at row 0, so a click's cell needs
+    // no position report.
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    press(&mut host, &mut vt, "solo");
+    press(&mut host, &mut vt, "card");
+    press(&mut host, &mut vt, "inner");
+    // A pressable box filling a pressable component's slot (library-gate's
+    // marker in a PostCard), and the component's own surface.
+    press(&mut host, &mut vt, "filled");
+    press(&mut host, &mut vt, "slotted");
+    assert!(
+        vt.text(false).contains("solo 1 card 2 inner 2"),
+        "{}",
+        vt.text(false)
+    );
+    let (x, y) = find(&vt, "card text");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    let (x, y) = find(&vt, "tap");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    let (x, y) = find(&vt, "inner");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    let (x, y) = find(&vt, "fil");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    let (x, y) = find(&vt, "slotted");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    assert!(
+        vt.text(false).contains("solo 2 card 4 inner 4"),
+        "{}",
+        vt.text(false)
+    );
+}
+
+/// What a pressable box must not lend its cells to (Astra's round 1): a
+/// link-like run in its text is the click's target, and a button scrolled
+/// out of a list it holds, or a hidden box inside it, is not on the screen.
+const COVERED: &str = r#"component App
+  state outer = 0
+  state run = 0
+  state far = 0
+  action tapOuter
+    outer = outer + 1
+  action tapRun
+    run = run + 1
+  action tapFar
+    far = far + 1
+  view
+    column padding=16
+      column testId="outer" press=tapOuter
+        text
+          text "see "
+          text "this" press=tapRun testId="run"
+          text " here"
+        box testId="ghost" press=tapFar visibility="hidden" height=16
+          text "ghost"
+        scroll max-height="2lh" testId="list"
+          for v in ["a1", "a2", "a3", "a4", "a5"] key=v
+            button press=tapFar testId=v
+              text v
+      text `outer ${outer} run ${run} far ${far}`
+"#;
+
+#[test]
+fn a_pressable_box_lends_no_cells_to_what_it_hides_or_holds_inline() {
+    let plan = contract::compile(COVERED).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    let (x, y) = find(&vt, "this");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    let (x, y) = find(&vt, "see");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    assert!(
+        vt.text(false).contains("outer 1 run 1 far 0"),
+        "{}",
+        vt.text(false)
+    );
+    for hidden in ["ghost", "a5"] {
+        let v = host.by_test_id(hidden).unwrap();
+        assert!(!host.on_screen(v), "#{hidden}:\n{}", vt.text(false));
+    }
+    let shown = host.by_test_id("a1").unwrap();
+    assert!(host.on_screen(shown));
+}
+
+/// A press on a box that can't hold the focus moves the focus away (the
+/// field blurs), as a click on a `div` does, and scrolls nothing into view
+/// (Grok's round 1): a card taller than its scroller stays where it is.
+const BLURS: &str = r#"component App
+  state blurs = 0
+  state presses = 0
+  action blurred
+    blurs = blurs + 1
+  action pressed
+    presses = presses + 1
+  view
+    column
+      input testId="field" blur=blurred appearance="none" placeholder="type"
+      scroll max-height="4lh" testId="port"
+        column testId="card" press=pressed
+          for v in ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"] key=v
+            text v
+      text `blurs ${blurs} presses ${presses}`
+"#;
+
+#[test]
+fn a_press_on_a_box_blurs_the_field_and_scrolls_nothing() {
+    let plan = contract::compile(BLURS).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    press(&mut host, &mut vt, "field");
+    let (x, y) = find(&vt, "c1");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    let screen = vt.text(false);
+    assert!(screen.contains("blurs 1 presses 1"), "{screen}");
+    assert!(
+        screen.contains("c1") && !screen.contains("c8"),
+        "not scrolled: {screen}"
+    );
+}
+
+/// A disabled pressable box, or one inside an `inert` subtree, swallows a
+/// press: neither its own `press` nor an enclosing card's runs, by a tap,
+/// a click, or a click on a styled run of its text; a plain styled label
+/// inside a button leaves the click the button's: its own press runs and
+/// its `commandfor` opens the dialog (Astra's round 2 and its re-check).
+const INELIGIBLE: &str = r#"component App
+  state presses = 0
+  state outer = 0
+  action pressed
+    presses = presses + 1
+  action around
+    outer = outer + 1
+  view
+    column
+      column testId="card" press=around
+        column testId="off" press=pressed disabled=true
+          text
+            text "disabled "
+            text "card" font-weight=700
+      column inert=true
+        box testId="numb" press=pressed
+          text "inert box"
+      button press=pressed commandfor="d" command="show-modal" appearance="none" testId="labelled"
+        text
+          text "open "
+          text "the dialog" font-weight=700
+      text `presses ${presses} outer ${outer}`
+      dialog id="d" testId="dialog"
+        text "opened"
+"#;
+
+#[test]
+fn a_disabled_or_inert_box_takes_no_press_and_a_buttons_label_is_its_own() {
+    let plan = contract::compile(INELIGIBLE).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    for id in ["off", "numb"] {
+        press(&mut host, &mut vt, id);
+    }
+    for text in ["disabled", "card", "inert box"] {
+        let (x, y) = find(&vt, text);
+        host.read_at = host.frames;
+        host.click(x, y);
+        vt.render(&mut host);
+    }
+    assert!(
+        vt.text(false).contains("presses 0 outer 0"),
+        "{}",
+        vt.text(false)
+    );
+    let (x, y) = find(&vt, "the dialog");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    let screen = vt.text(false);
+    assert!(
+        screen.contains("opened") && screen.contains("presses 1"),
+        "{screen}"
+    );
+}
+
+/// An `autofocus` control takes the focus once, as it arrives with nothing
+/// focused (HTML's candidates): a press on a box that can't hold the focus
+/// blurs it and the focus stays empty, so a key types nowhere; one that
+/// arrives later, with nothing focused, takes it (QUEUE: "the terminal
+/// refills autofocus whenever the focus is empty").
+const AUTOFOCUS: &str = r#"component App
+  state draft = ""
+  state other = ""
+  state shown = false
+  state presses = 0
+  state more = false
+  state third = ""
+  action showMore
+    more = true
+  action writeThird(v: string)
+    third = v
+  action write(v: string)
+    draft = v
+  action writeOther(v: string)
+    other = v
+  action pressed
+    presses = presses + 1
+    shown = true
+  view
+    column
+      input testId="field" value=draft input=write autofocus=true appearance="none" placeholder="type"
+      box testId="card" press=pressed
+        text "card"
+      if shown
+        input testId="late" value=other input=writeOther autofocus=true appearance="none" placeholder="late"
+      button testId="more" press=showMore
+        text "more"
+      if more
+        input testId="third" value=third input=writeThird autofocus=true appearance="none" placeholder="third"
+      text `draft [${draft}] other [${other}] third [${third}] presses ${presses}`
+"#;
+
+#[test]
+fn autofocus_takes_the_focus_once_and_never_refills_it() {
+    let plan = contract::compile(AUTOFOCUS).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('a')]);
+    assert!(vt.text(false).contains("draft [a]"), "{}", vt.text(false));
+    // The press blurs the field and shows `late`, which arrives with
+    // nothing focused and takes the focus: the next key is its.
+    let (x, y) = find(&vt, "card");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('b')]);
+    assert!(
+        vt.text(false)
+            .contains("draft [a] other [b] third [] presses 1"),
+        "{}",
+        vt.text(false)
+    );
+    // Pressed again: nothing new arrives, so the focus stays empty.
+    let (x, y) = find(&vt, "card");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('c')]);
+    assert!(
+        vt.text(false)
+            .contains("draft [a] other [b] third [] presses 2"),
+        "{}",
+        vt.text(false)
+    );
+    // One that arrives while something holds the focus (the button just
+    // pressed) is spent: after a blur, a key still types nowhere.
+    press(&mut host, &mut vt, "more");
+    let (x, y) = find(&vt, "card");
+    host.read_at = host.frames;
+    host.click(x, y);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('d')]);
+    assert!(
+        vt.text(false)
+            .contains("draft [a] other [b] third [] presses 3"),
+        "{}",
+        vt.text(false)
+    );
+}
+
+/// With nothing focused the root's `key` handler hears every key, a
+/// printable one and one that would scroll, as the web's `window` listener
+/// hears one at `<body>`.
+#[test]
+fn with_nothing_focused_the_root_hears_keys() {
+    const ROOT_KEYS: &str = r#"component App
+  state heard = ""
+  action keyed(k: string)
+    heard = `${heard}${k};`
+  view
+    column key=keyed
+      text `heard [${heard}]`
+"#;
+    let plan = contract::compile(ROOT_KEYS).expect("compiles");
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 10).expect("boots");
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    read(&mut host, &mut vt, &[Key::Char('a'), Key::Named("End")]);
+    assert!(
+        vt.text(false).contains("heard [a;End;]"),
+        "{}",
+        vt.text(false)
+    );
+}

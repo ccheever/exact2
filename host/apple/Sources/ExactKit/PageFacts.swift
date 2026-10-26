@@ -26,7 +26,7 @@ import Network
 
 package enum PageFacts {
     /// What an agent's `prefer` set, in place of the platform's readings.
-    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canShareFiles: true, canSharePictures: true, canOpenFiles: true, hasFocus: true, rootFontSize: Double?.none) {
+    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canShareFiles: true, canSharePictures: true, canOpenFiles: true, hasFocus: true, iframePartition: true, rootFontSize: Double?.none) {
         didSet { changed() }
     }
     /// What the build channel's `pin` set (LLP 1122 D4), over the platform's
@@ -98,7 +98,16 @@ package enum PageFacts {
     /// is visible. A window not yet shown counts for nothing, so a page boots
     /// visible, as a browser's does.
     static var hidden: Bool {
+        // The drive can hide the page (`prefer visibility-state hidden`); it
+        // cannot make a page visible that the system has put away. A real
+        // background (the touch runner's Home, a system sheet over the
+        // whole screen) shows through, so a lifecycle test under the agent
+        // sees what a person's launch would.
+        #if os(macOS)
         if substituted { return agent.hidden }
+        #else
+        if substituted { return agent.hidden || AppBackground.now }
+        #endif
         #if os(macOS)
         if NSApp.isHidden { return true }
         let windows = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized || closeHid.contains($0) }
@@ -196,6 +205,16 @@ package enum PageFacts {
         #endif
     }
     static var canSharePictures: Bool { substituted ? agent.canSharePictures : canShareFiles }
+    /// An iframe's `partition` is honoured: its guest is a top-level page in
+    /// its own website data store (LLP 1020.002 D1). tvOS has no WebKit.
+    static var iframePartition: Bool {
+        if substituted { return agent.iframePartition }
+        #if os(tvOS)
+        return false
+        #else
+        return true
+        #endif
+    }
     /// The document pickers (LLP 1069.010 D2): the Mac's panels, iOS's
     /// document picker; tvOS has none (studio diary R31).
     static var canOpenFiles: Bool {
@@ -282,13 +301,13 @@ package enum PageFacts {
     /// of `window` and whose view is in `page`: bit 0 hidden, bit 1 offline,
     /// bit 2 a share sheet, bit 3 the document pickers, bit 4 without focus,
     /// bit 7 about to be suspended, bits 8 and 9 a share takes files and
-    /// pictures, bit 10 put away, bits 11–12 the GPU tier, bits 16–31 the
-    /// restores. A session whose
+    /// pictures, bit 10 put away, bits 11–12 the GPU tier, bit 13 an
+    /// iframe's `partition` honoured, bits 16–31 the restores. A session whose
     /// plan does not read `onLine` starts no monitor for it.
     static func bits(_ window: FocusWindow?, page: FocusWindow? = nil, readsOnLine: Bool = true) -> UInt32 {
         let online = readsOnLine ? onLine : lastOnLine
         let transitions = (persisted(page) ? 1024 : 0) | UInt32(restores(page) & 0xFFFF) << 16
-        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | (tier & 3) << 11 | transitions
+        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | (tier & 3) << 11 | (iframePartition ? 8192 : 0) | transitions
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;
@@ -340,8 +359,13 @@ extension ExactSession {
         // Out of the foreground, a press hands nothing on (PressHandoffIOS).
         if view?.window?.windowScene?.activationState != .foregroundActive { presenter.supersedePress() }
         #endif
-        apply(runtime.setPage(PageFacts.bits(pageWindow, page: view?.window, readsOnLine: runtime.readsOnLine())))
+        let reads = runtime.readsOnLine()
+        readsOnLineKnown = (generation, reads)
+        apply(runtime.setPage(PageFacts.bits(pageWindow, page: view?.window, readsOnLine: reads)))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
+        #if os(macOS)
+        if rootZoom != 1 { apply(runtime.setRootFontZoom(rootZoom)) } // a new runner's, View ▸ Zoom In (ZoomMac.swift)
+        #endif
         tellDisplayScale()
     }
     /// LLP 1115.000 D10.3: the display's scale, told with the page's facts

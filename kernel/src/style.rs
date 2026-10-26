@@ -17,6 +17,7 @@ mod backdrop;
 pub use backdrop::{link as link_backdrop_filter, BackdropFilter, BackdropOp};
 mod border;
 pub(crate) mod effects;
+mod engine;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 mod grid;
@@ -53,8 +54,10 @@ pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
 pub mod theme;
+mod variations;
 pub mod wide;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
+pub use variations::FontVariations;
 
 /// Largest explicit grid Taffy lays out on one axis.
 pub const MAX_GRID_TRACKS: usize = 10_000;
@@ -903,6 +906,8 @@ pub enum RowValue<'a> {
     BackdropFilter(&'a BackdropFilter),
     /// CSS `text-shadow` (LLP 1077 D3).
     TextShadow(&'a TextShadow),
+    /// CSS `font-variation-settings` (LLP 1019 D9).
+    FontVariations(&'a FontVariations),
     /// CSS `mask-image`: `none` or one gradient (LLP 1077 D2).
     MaskImage(&'a crate::gradient::BackgroundImage),
     /// CSS `corner-shape` (LLP 1077 D1).
@@ -966,6 +971,7 @@ impl RowValue<'_> {
             | RowValue::TimelineScope(_)
             | RowValue::BackgroundImage(_)
             | RowValue::TextShadow(_)
+            | RowValue::FontVariations(_)
             | RowValue::BoxShadow(_)
             | RowValue::MaskImage(_)
             | RowValue::CornerShape(_)
@@ -1125,24 +1131,6 @@ impl Overflow {
     }
 }
 
-fn overflow(v: Overflow) -> taffy::style::Overflow {
-    match v {
-        Overflow::Visible => taffy::style::Overflow::Visible,
-        Overflow::Hidden => taffy::style::Overflow::Hidden,
-        Overflow::Clip => taffy::style::Overflow::Clip,
-        Overflow::Scroll | Overflow::Auto => taffy::style::Overflow::Scroll,
-    }
-}
-
-fn grid_auto_flow(v: GridAutoFlow) -> taffy::style::GridAutoFlow {
-    match v {
-        GridAutoFlow::Row => taffy::style::GridAutoFlow::Row,
-        GridAutoFlow::Column => taffy::style::GridAutoFlow::Column,
-        GridAutoFlow::Dense | GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
-        GridAutoFlow::ColumnDense => taffy::style::GridAutoFlow::ColumnDense,
-    }
-}
-
 pub(crate) fn set_grid_dynamic(
     style: &mut StyleProps,
     id: StyleId,
@@ -1292,8 +1280,8 @@ impl StyleProps {
         };
         let x = self.overflow_x;
         s.overflow = taffy::geometry::Point {
-            x: overflow(x.computed(y)),
-            y: overflow(y.computed(x)),
+            x: engine::overflow(x.computed(y)),
+            y: engine::overflow(y.computed(x)),
         };
         s.scrollbar_width = 0.0;
 
@@ -1309,8 +1297,8 @@ impl StyleProps {
             width: self.max_width.floor_lpa(env),
             height: self.max_height.floor_lpa(env),
         };
-        s.aspect_ratio = self.aspect_ratio.preferred();
-        s.aspect_ratio_content_box = self.aspect_ratio.content_box();
+        s.aspect_ratio = self.rare.aspect_ratio.preferred();
+        s.aspect_ratio_content_box = self.rare.aspect_ratio.content_box();
 
         s.inset = if self.position_type == PositionType::Sticky {
             let auto = taffy::style::LengthPercentageAuto::auto();
@@ -1365,13 +1353,8 @@ impl StyleProps {
             height: length(cells::gap(env, self.row_gap, down)),
         };
 
-        s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
-        s.grid_template_columns = self.rare.grid_template_columns.taffy_components();
-        s.grid_template_column_names = self.rare.grid_template_columns.line_names();
-        s.grid_template_rows = self.rare.grid_template_rows.taffy_components();
-        s.grid_template_row_names = self.rare.grid_template_rows.line_names();
-        s.grid_column = self.rare.grid_column.taffy();
-        s.grid_row = self.rare.grid_row.taffy();
+        s.grid_auto_flow = engine::grid_auto_flow(self.grid_auto_flow);
+        s.rare = engine::rare(self);
         s
     }
 }
@@ -1439,7 +1422,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         Direction::Rtl => taffy::style::Direction::Rtl,
     };
     s.justify_items = justify_items(arena.style(slot).justify_items, direction);
-    s.multicol = crate::fragment::taffy_multicol(arena, slot);
+    if let Some(multicol) = crate::fragment::taffy_multicol(arena, slot) {
+        s.rare.multicol = Some(multicol);
+    }
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
@@ -1447,7 +1432,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // (with or without a fallback ratio, or a degenerate one): CSS sizes an
     // `<img>` with one dimension given from the other by that ratio. Only a
     // plain `<ratio>` overrides it; natural ratios are of the content box.
-    if arena.node_type(slot).is_replaced() && arena.style(slot).aspect_ratio.defers_to_natural() {
+    if arena.node_type(slot).is_replaced()
+        && arena.style(slot).rare.aspect_ratio.defers_to_natural()
+    {
         if let Some((w, h)) = arena.intrinsic(slot) {
             if w > 0.0 && h > 0.0 {
                 s.aspect_ratio = Some(w / h);
@@ -1469,6 +1456,10 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // A grouped list's card and cell margins, as the platform's list has them.
     crate::grouped::apply_margins(arena, slot, &mut s);
     crate::rows::apply_margins(arena, slot, &mut s);
+    crate::replaced::apply_zoom(arena, slot, &mut s);
+    if direction == Direction::Rtl {
+        sides::mirror_unsaid(arena.style(slot), &mut s);
+    }
     // @ref LLP 1115.002 D8.2 — the containing block a host gave the subtree.
     crate::kernel::apply_block(arena, slot, &mut s);
     // @ref LLP 1074 T1 — a root is the containing block of every absolutely
@@ -1481,18 +1472,14 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
 }
 
 #[cfg(test)]
-mod tests;
-
-#[cfg(test)]
 mod finite_tests;
-
-// A `touch-action` value's pinch and pan parts.
-mod touch_action;
-
 #[cfg(test)]
-mod touch_action_tests;
-
+mod tests;
+pub(crate) mod top_layer;
+// A `touch-action` value's pinch and pan parts.
 mod decoration;
-
 #[cfg(test)]
 mod decoration_tests;
+mod touch_action;
+#[cfg(test)]
+mod touch_action_tests;

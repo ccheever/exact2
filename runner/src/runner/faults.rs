@@ -162,6 +162,12 @@ impl Faults {
         }
     }
 
+    /// Whether a live fault is armed for exactly `point`, uncounted: it holds
+    /// a presence move there until it is passed (LLP 1133.010 §9, drive 4).
+    pub fn holds(&self, point: &str) -> bool {
+        self.table().iter().any(|f| f.live() && f.prefix == point)
+    }
+
     /// Whether the table holds nothing.
     pub fn is_empty(&self) -> bool {
         self.table().is_empty()

@@ -19,11 +19,13 @@ import { importView, resetImport } from '../appearance/settings-appearance-impor
 import { rememberDelivery, updateConfirmation } from './settings-a-about';
 import { killConfirmation } from './settings-a-telemetry';
 import { hostChecks, hostEditorView } from '../device/settings-a-hosts';
+import { easEditorView } from '../device/settings-eas-hosts';
 import { libraryCards, removalPicks } from '../appearance/settings-a-collections';
 import { installedFonts } from '../appearance/appearance-fonts';
 import { fontDiffPreview } from '../appearance/settings-font-previews';
 import { readCliCommand } from './cli-command';
 import { groupOfMember } from './projects-fleet';
+import { quitMode } from './palette-native';
 
 /** The scope sentence keys each label on its text, so a changed label remounts (a reused one-line text kept its old string). */
 const keyedLabel = (label: string) => ({ id: `label:${label}`, label, secondary: '', mark: '', ink: '', surface: '', member: '', selected: true, offline: false });
@@ -123,13 +125,13 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     sections, cliSections: cli ? [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }] : [], projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
     appearanceMode: device.appearanceMode, tiles: modeTiles(device.appearanceMode, prefs, custom), themes: libraryCards(prefs, custom, removalPicks(client, dialogKind === 'remove' ? dialogSubject : '')), typographyAdvanced: prefs.typographyAdvanced, themeLight: prefs.themeLight,
     palette: palette(paint.prefs, paint.custom, paint.mode), editor: editorView(draft, custom), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
-    wordWrap: prefs.wordWrap, panelDuration: prefs.panelAnimationDurationMs,
+    wordWrap: prefs.wordWrap, panelDuration: prefs.panelAnimationDurationMs, quitMode: quitMode(client.local),
     archiveConfirm: archiveConfirmation(client),
     updateConfirm: updateConfirmation(client),
     killConfirm: killConfirmation(client),
-    hostEditor: hostEditorView(client), hostChecks: hostChecks(client),
+    hostEditor: hostEditorView(client), hostChecks: hostChecks(client), easEditor: easEditorView(client),
     // Any settings-a dialog the root must mount (SettingsADialogs).
-    saOpen: updateConfirmation(client) || killConfirmation(client).pid !== '' || hostEditorView(client).open,
+    saOpen: updateConfirmation(client) || killConfirmation(client).pid !== '' || hostEditorView(client).open || easEditorView(client).open,
     background: backgroundDialog(obj(client.config.settings), client.ready && !!client.environmentId && scope.kind !== 'unavailable' && scope.selected.length === 1),
   };
 }

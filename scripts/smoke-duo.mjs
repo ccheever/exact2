@@ -1,18 +1,20 @@
 // The iPhone Duo suite (LLP 1078 D9): `bun scripts/smoke.mjs duo`. Drives
 // `apps/duo-lab` and the `insets` and `keyboard-bar` corpus fixtures, with
-// UIKit's bars and real touches (`--chrome platform`, `--touch platform`), on
-// the Duo simulator fully open, partially folded and closed (the hinge at 180°,
-// 130° and 0°), the hinge set from inside the simulator by
-// `scripts/duo/hinge_helper.c` (compiled per run with the selected Xcode's
+// UIKit's bars and real touches (`--chrome platform`, `--touch platform`; the web
+// leg has the agent's), on the Duo simulator fully open, partially folded and
+// closed (the hinge at 180°, 130° and 0°), the hinge set from inside the simulator
+// by `scripts/duo/hinge_helper.c` (compiled per run with the selected Xcode's
 // simulator SDK). At every pose:
 // the cover-root and inset invariants `smoke ios` checks; the Fold screen's
 // two panes exactly on the division's segments (one pane flat or closed);
 // `devicePosture` folded only when partially folded; no control on the band between
 // the segments; keyboard, sheet, push and scroll state across a fold into,
 // within (130° to 90°) and out of the partially folded state; no
-// sideways range in Reflow's scroller or the Images list; the two-session host's panes; and,
-// in a resizable app session, the Fold screen following each size UIKit gives its window. A failed
-// check leaves one screenshot of the app in the run's directory.
+// sideways range in Reflow's scroller or the Images list; the two-session host's panes;
+// in a resizable app session, the Fold screen following each size UIKit gives its window; and,
+// under the agent's own chrome (the web's layout, its tablist below the routes), the Fold
+// screen's panes and the note sheet ending where the routes do. A failed check leaves one screenshot of
+// the app in the run's directory.
 //
 // Run by hand, like `smoke deploy`: it needs Xcode 27.1 or newer and a Duo
 // simulator (`DEVELOPER_DIR`, `EXACT_SIM`), and the bundles built first:
@@ -20,8 +22,8 @@
 // fixture). Without the Duo it prints `duo: unsupported — …` and the smoke
 // exits 0, the convention for a missing carrier. The device is turned by the
 // same helper (CoreDevice's orientation commands do not turn the Duo, LLP 1008
-// §9): the suite starts it upright, and the rotate leg turns it at each pose.
-// `--only insets,keyboard-bar,lab,host,rotate,resize` runs the named legs; the keyboard checks
+// §9): the suite starts it upright, and the rotate, resize and web legs turn it.
+// `--only insets,keyboard-bar,lab,navigation,navigation-gestures,host-navigation,host,rotate,resize,web` runs the named legs; the keyboard checks
 // run only when a probe shows a software keyboard on this simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -36,6 +38,12 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
+/** The native bar standing for the authored tablist, independent of accessibility grouping. */
+const nativeTabBar = async (s) => (await s.layout('tab-bar')).node.native.tabBar;
+const tabBarFrame = async (s) => {
+  const bar = await nativeTabBar(s);
+  return bar?.visible ? bar.frame : undefined;
+};
 const near = (a, b, eps = 0.01) => typeof a === 'number' && Math.abs(a - b) < eps;
 // A box at a segment's edge, which lies on a half point (455.5, 495.5): iOS draws every box on the device's pixel
 // grid, so the edge lands on the nearest third of a point at 3x.
@@ -103,7 +111,7 @@ async function suite({ open: openSession, check: record }, reset) {
   // The phase a check runs in, and the first failure's since the last screenshot, which names it
   let where = 'start', failedAt = null, shots = 0;
   const check = (ok, what) => { if (!ok) { console.log('  FAIL ' + what); failedAt ??= where; } return record(ok, what); };
-  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null; // insets, keyboard-bar, lab, host, rotate, resize
+  const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null;
   const leg = (name) => !only || only.includes(name);
   const pick = process.env.EXACT_SIM;
   const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
@@ -161,19 +169,23 @@ async function suite({ open: openSession, check: record }, reset) {
   /** A session as a person sees and touches the app: UIKit's bars (`--chrome platform`), and its taps real touches
    * (`--touch platform`; its scrolls stay the agent's wheel, its typing the agent's `type`). Its state-changing
    * operations take a failure's screenshot first (`shot`). The agent's default chrome lays the authored tablist out in
-   * its own place below the routes, as the web does, whereas the Duo shows UIKit's tab bar. */
+   * its own place below the routes, as the web does, whereas the Duo shows UIKit's tab bar; the web leg opens with that
+   * chrome and the agent's taps. */
   const open = async (options) => {
-    const s = await openSession({ chrome: 'platform', touch: 'platform', ...options });
+    const opts = { chrome: 'platform', touch: 'platform', ...options };
+    const s = await openSession(opts);
+    s.chrome = opts.chrome; // what `routesEnd` checks the layout against
     keyboardGone = false; // a new launch has its keyboard again
     for (const op of ['tap', 'type', 'close']) {
       const run = s[op].bind(s);
       s[op] = async (...args) => {
         await shot(s);
         const r = await run(...args);
-        // A tap other than a wheel is a finger's: a real one that misses throws, so this guards the option reaching the
-        // driver. One whose down came after its lift, the app busy, is named; what follows checks its effect. (`viewGone`
-        // is not: UIKit's tab bar gives it on every tab, whose button leaves the window under the finger as it switches.)
-        if (op === 'tap' && !args[1]?.wheel) {
+        // Under real touches a tap other than a wheel is a finger's: one that misses throws, so this guards the option
+        // reaching the driver. One whose down came after its lift, the app busy, is named; what follows checks its effect.
+        // (`viewGone` is not: UIKit's tab bar gives it on every tab, whose button leaves the window under the finger as it
+        // switches.)
+        if (op === 'tap' && !args[1]?.wheel && opts.touch === 'platform') {
           check(r?.delivery === 'platform', `tap ${args[0]} was not a real touch: ${JSON.stringify(r)}`);
           if (r?.downAfterLift) console.log(`  tap ${args[0]}: the window had its down only after the lift`);
         }
@@ -313,6 +325,53 @@ async function suite({ open: openSession, check: record }, reset) {
     where = `${name}-reopened`;
     await pose(s, 180); // closed to open in a live session, checked
   };
+  /** Where duo-lab's routes end in layout `l` of session `s`, its chrome checked. The note screen hides the tablist on
+   * either chrome, so there they end at the viewport's bottom; iOS's
+   * layout lists only views in the window, so its sheet is listed only while it shows. Under UIKit's bars the authored
+   * tablist has no box. Beside UIKit's tab bar along the bottom a tab's route ends below the bar's top by the home
+   * indicator's inset (34 points on the whole panel), which the panes' padding takes; beside its rail, at the viewport's
+   * bottom. Under the agent's own chrome (the web leg) the tablist is laid out below the routes, as the web does,
+   * ending at the viewport's bottom, and they end at its top. */
+  const routesEnd = async (s, l, tag) => {
+    const bar = box(l, 'tab-bar'), laid = bar?.w > 0 && bar?.h > 0, uikit = s.chrome !== 'agent';
+    if (box(l, 'note-sheet')) {
+      check(!laid && (!uikit || (await nativeTabBar(s))?.visible === false), `${tag}: the note screen hides the tablist: ${JSON.stringify(bar)}`);
+      return l.viewport.h;
+    }
+    if (uikit) {
+      check(!laid, `${tag}: under UIKit's bars the authored tablist has no box: ${JSON.stringify(bar)}`);
+      const f = await tabBarFrame(s);
+      if (!check(f, `${tag}: UIKit's tab bar is visible`)) return l.viewport.h;
+      if (f.h > f.w) return l.viewport.h; // a rail at the side
+      check(near(f.x, 0) && near(f.w, l.viewport.w) && near(f.y + f.h, l.viewport.h), `${tag}: UIKit's tab bar runs along the viewport's bottom: ${JSON.stringify(f)} in ${JSON.stringify(l.viewport)}`);
+      return f.y + l.env['safe-area-inset-bottom'];
+    }
+    check(laid && onGrid(bar.y + bar.h, l.viewport.h), `${tag}: the agent's chrome lays the tablist out at the viewport's bottom: ${JSON.stringify(bar)} in ${JSON.stringify(l.viewport)}`);
+    return laid ? bar.y : l.viewport.h;
+  };
+  /** Tap duo-lab's second item and return its detail's title, the selection a leg's folds must keep. */
+  const chooseSecond = async (s) => {
+    const first = byTestId(await s.tree(), 'detail-title')?.props.text;
+    await s.tap('item-2'); await settle(s);
+    const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
+    check(typeof chosen === 'string' && chosen.length > 0 && chosen !== first, `${where}: item-2 selected another detail: ${first} → ${chosen}`);
+    return chosen;
+  };
+  const refusesOtherDisplays = async (s, tag) => {
+    const id = byTestId(await s.tree(), 'item-2').id;
+    const { aim, error } = await s.op({ op: 'tap', id, aim: { press: true } });
+    if (error) { throw new Error(error); }
+    const base = { point: aim.point, screen: aim.fixed };
+    const drag = { ...base, op: 'drag', to: aim.point, screenTo: aim.fixed, press: 0.05, hold: 0, velocity: 0 };
+    for (const display of [[1, 1], undefined]) {
+      for (const request of [{ ...base, op: 'tap' }, drag, { ...drag, path: [{ to: aim.fixed, over: 0, hold: 0.05 }] }]) {
+        const reply = await s.carrier.touches.ask({ ...request, display });
+        check(reply.error?.includes('display does not match'), `${tag}: ${request.op} refuses an unmatched or missing display: ${JSON.stringify(reply)}`);
+      }
+    }
+    const dispatch = await s.op({ op: 'tap', log: aim.seq });
+    check(!dispatch.lost && dispatch.log?.length === 0, `${tag}: refused display requests inject no touches: ${JSON.stringify(dispatch)}`);
+  };
   /** The Fold screen's facts and panes at a pose (`chosen`: the detail selected before). */
   const foldScreen = async (s, l, tag, deg, chosen, whole = true) => {
     const t = await s.tree();
@@ -335,19 +394,20 @@ async function suite({ open: openSession, check: record }, reset) {
     check(text('fact-h') === String(h) && text('fact-v') === String(v), `${tag}: the screen prints ${text('fact-h')}×${text('fact-v')}, layout.env ${h}×${v}`);
     check(text('fact-size') === `${l.viewport.w}×${l.viewport.h}`, `${tag}: fact-size ${text('fact-size')} vs layout ${l.viewport.w}×${l.viewport.h}`);
     check(l.env['device-posture'] === (two ? 'folded' : 'continuous'), `${tag}: layout.env reports posture ${l.env['device-posture']}`);
-    // The panes sit exactly on the two rects, whichever axis the device splits
-    // (across: each pane the viewport's height; down: each the viewport's width).
-    const list = box(l, 'pane-list'), detail = box(l, 'pane-detail');
-    const on = (pane, r, full) => pane && (full ? near(pane.x, r[0]) && near(pane.w, l.viewport.w) && onGrid(pane.y, r[1]) && onGrid(pane.h, r[3]) : onGrid(pane.x, r[0]) && onGrid(pane.w, r[2]) && near(pane.y, r[1]) && near(pane.h, l.viewport.h));
-    if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2) && on(detail, segs[1], v === 2), `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}): list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
-    else check(list && detail && near(list.w, l.viewport.w) && near(detail.w, l.viewport.w) && detail.y >= list.y + list.h - 0.01, `${tag}: one pane, the list above the detail: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
+    // The panes sit exactly on the two rects, cut where the routes end (`routesEnd`), whichever axis the device splits
+    // (across: each pane the routes' height; down: each the viewport's width, the lower one ending with the routes).
+    const list = box(l, 'pane-list'), detail = box(l, 'pane-detail'), end = await routesEnd(s, l, tag);
+    const on = (pane, r, full) => pane && (full ? near(pane.x, r[0]) && near(pane.w, l.viewport.w) && onGrid(pane.y, r[1]) && onGrid(pane.h, Math.min(r[1] + r[3], end) - r[1]) : onGrid(pane.x, r[0]) && onGrid(pane.w, r[2]) && near(pane.y, r[1]) && near(pane.h, end - r[1]));
+    if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2) && on(detail, segs[1], v === 2), `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}) above ${end}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
+    else check(list && detail && near(list.w, l.viewport.w) && near(detail.w, l.viewport.w) && detail.y >= list.y + list.h - 0.01 && onGrid(detail.y + detail.h, end), `${tag}: one pane, the list above the detail, ending with the routes at ${end}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
     check(text('detail-title') === chosen, `${tag}: the selection survived: ${text('detail-title')} (was ${chosen})`);
   };
   /** At a fold, layout `l` has two segments, and no control of the screen shown lies on the band between them, the
    * hinge: a button, a field, a sheet's drag handle (`heightDragFor`). Scrolling content may cross it (Apple's
    * adaptive-layout talk, developer.apple.com/videos/play/tech-talks/111463), so a control inside a scroller is exempt.
-   * So is the authored tablist, which UIKit's tab bar stands for: a rail at the inner panel's right edge upright, a bar
-   * at its bottom turned, under the keyboard while it is up. */
+   * The authored tablist's tabs count: under UIKit's bars they have no box (UIKit's tab bar is a rail at the inner
+   * panel's right edge upright, a bar at its bottom turned), and under the agent's own chrome they keep to the trailing
+   * segment on a book fold. */
   const offBand = async (s, l, tag) => {
     const segs = l.env['viewport-segments'];
     if (!check(segs?.length === 2, `${tag}: two segments to check the band against, not ${JSON.stringify(segs)}`)) return;
@@ -355,7 +415,7 @@ async function suite({ open: openSession, check: record }, reset) {
     const band = near(a[1], b[1]) ? [a[0] + a[2], a[1], b[0] - a[0] - a[2], a[3]] : [a[0], a[1] + a[3], a[2], b[1] - a[1] - a[3]];
     const nodes = new Map((await s.tree()).nodes.map((n) => [n.id, n]));
     const exempt = (n) => {
-      for (let p = nodes.get(n.parent); p; p = nodes.get(p.parent)) if (['ScrollView', 'List'].includes(p.type) || p.props.accessibilityRole === 'tablist') return true;
+      for (let p = nodes.get(n.parent); p; p = nodes.get(p.parent)) if (['ScrollView', 'List'].includes(p.type)) return true;
       return false;
     };
     const control = (n) => ['Pressable', 'Control', 'TextInput'].includes(n.type) || n.props.heightDragFor != null || (n.handlers ?? []).some((h) => ['press', 'input', 'change'].includes(h));
@@ -365,14 +425,18 @@ async function suite({ open: openSession, check: record }, reset) {
     });
     check(on.length === 0, `${tag}: no control on the band ${JSON.stringify(band)}: ${JSON.stringify(on.map((m) => ({ id: m.testId ?? m.id, x: m.x, y: m.y, w: m.w, h: m.h })))}`);
   };
-  /** With the keyboard up where one is expected (layout `l`), the note sheet rides on it: it ends at the shortened
-   * viewport, and below the note's header. */
-  const onKeyboard = async (s, l, tag) => {
-    const sheet = box(l, 'note-sheet'), back = box(l, 'note-back'), kb = l.env['keyboard-inset-height'];
-    check(sheet && back && near(sheet.y + sheet.h, l.viewport.h) && sheet.y >= back.y + back.h && (!(await expected(s, kb)) || kb > 0), `${tag}: the sheet sits on the keyboard-shortened viewport, below the note's header ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}`);
+  /** With the keyboard up where one is expected (layout `l`), the note sheet rides on it: it ends with the routes in the
+   * shortened viewport, below the note's header, with its Dismiss button and its textarea above that end. Given `top`,
+   * the lower segment's before the keyboard, the fold keeps its two segments, the lower one's top there and ending where
+   * the viewport does, never below zero (LLP 1078, the keyboard). */
+  const onKeyboard = async (s, l, tag, top) => {
+    const [, lower] = l.env['vertical-viewport-segments'] === 2 ? l.env['viewport-segments'] : [];
+    if (lower || top !== undefined) check(lower && (top === undefined || near(lower[1], top)) && near(lower[3], Math.max(0, l.viewport.h - lower[1]), 0.02), `${tag}: the keyboard leaves the lower segment's top ${top} and ends it with the viewport ${l.viewport.h}: ${JSON.stringify(lower)}`);
+    const sheet = box(l, 'note-sheet'), back = box(l, 'note-back'), dismiss = box(l, 'note-dismiss'), area = box(l, 'note-textarea'), end = await routesEnd(s, l, tag), kb = l.env['keyboard-inset-height'];
+    check(sheet && back && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!(await expected(s, kb)) || kb > 0), `${tag}: the sheet sits on the keyboard-shortened viewport, ending with the routes at ${end}, below the note's header, Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
   };
   // The insets fixture serves its leg and the keyboard probe, which the legs that type need
-  const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate');
+  const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web') || leg('navigation') || leg('navigation-gestures') || leg('secondary-navigation');
   const plans = {};
   const compile = (name, source) => {
     const plan = resolve(out, `${name}.plan`);
@@ -380,13 +444,16 @@ async function suite({ open: openSession, check: record }, reset) {
     if (check(c.status === 0, `the ${name} fixture did not compile: ${c.stderr}`)) plans[name] = plan;
   };
   for (const name of [probe ? 'insets' : null, leg('keyboard-bar') ? 'keyboard-bar' : null].filter(Boolean)) compile(name, resolve(ROOT, `contract/corpus/${name}.contract`));
+  if (leg('navigation') || leg('navigation-gestures') || leg('host-navigation') || leg('secondary-navigation')) {
+    compile('pushed-title', resolve(ROOT, 'scripts/fixtures/pushed-title.contract'));
+  }
   const lab = resolveApp('duo-lab');
-  // The rotate leg's duo-lab starts its note sheet at 600 points, taller than the lower segment folded like a laptop,
-  // so the limit there is checked: no drag can set it, since a released drag snaps the sheet to 200 or 400 points
-  // (duo-lab's `sheetStop`).
-  if (leg('rotate')) {
+  // The rotate and web legs' duo-lab starts its note sheet at 600 points, taller than the lower segment folded like a
+  // laptop, so the limit there is checked: no drag can set it, since a released drag snaps the sheet to 200 or 400
+  // points (duo-lab's `sheetStop`).
+  if (leg('rotate') || leg('web')) {
     const source = readFileSync(resolve(lab.dir, 'app.contract'), 'utf8'), tall = source.replace('state sheetPx = 400', 'state sheetPx = 600');
-    if (check(tall !== source, 'duo-lab no longer declares `state sheetPx = 400`, which the rotate leg raises to 600')) {
+    if (check(tall !== source, 'duo-lab no longer declares `state sheetPx = 400`, which the rotate and web legs raise to 600')) {
       writeFileSync(resolve(out, 'duo-lab-tall.contract'), tall);
       compile('duo-lab-tall', resolve(out, 'duo-lab-tall.contract'));
     }
@@ -484,6 +551,9 @@ async function suite({ open: openSession, check: record }, reset) {
         if (await rose(s, kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
+          // A fold's segments keep their tops, and the last row ends at the visual viewport's end, the keyboard's top (LLP 1078, the keyboard).
+          const [was, now, end, cols] = [l.env['viewport-segments'] ?? [], l2.env['viewport-segments'] ?? [], l2.viewport.h - kb, l2.env['horizontal-viewport-segments']];
+          check(now.length === was.length && was.every(([, y, , h], i) => near(now[i][1], y) && near(now[i][3], i < was.length - cols ? h : Math.max(0, Math.min(y + h, end) - y), 0.02)), `${tag}: the keyboard ends the last row of segments at the visual viewport's end ${end}: ${JSON.stringify(now)} (were ${JSON.stringify(was)})`);
         }
         // Fold while editing: focus and text survive each fold, the new pose is covered.
         for (const [from, next, fold] of folds(tag, deg)) {
@@ -502,6 +572,7 @@ async function suite({ open: openSession, check: record }, reset) {
         const l3 = await down(s, tag);
         const st3 = await s.state();
         check(st3.slots.focused === false && l3.env['keyboard-inset-height'] === 0 && box(l3, 'note').y === noteBefore.y, `${tag}: dismiss took the keyboard away: focused ${st3.slots.focused}, kb ${l3.env['keyboard-inset-height']}, the field at ${box(l3, 'note')?.y} (was ${noteBefore.y})`);
+        check(JSON.stringify(l3.env['viewport-segments']) === JSON.stringify(l.env['viewport-segments']), `${tag}: the segments are the window's again once the keyboard goes: ${JSON.stringify(l3.env['viewport-segments'])}`);
       });
     } catch (e) { check(false, `insets: ${e.message}`); } finally { await s.close(); }
   }
@@ -553,11 +624,9 @@ async function suite({ open: openSession, check: record }, reset) {
       await settle(s);
       // Fold: the facts, the panes on the segments, a selection kept across every pose.
       check(byTestId(await s.tree(), 'screen-fold') != null, 'duo-lab opens on the Fold screen');
-      const first = byTestId(await s.tree(), 'detail-title')?.props.text;
-      await s.tap('item-2'); await settle(s);
-      const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
-      check(typeof chosen === 'string' && chosen.length > 0 && chosen !== first, `item-2 selected another detail: ${first} → ${chosen}`);
+      const chosen = await chooseSecond(s);
       await eachPose(s, 'fold', async ({ l }, tag, deg) => {
+        await refusesOtherDisplays(s, tag);
         await foldScreen(s, l, tag, deg, chosen);
         if (folded(deg)) await offBand(s, l, tag);
       });
@@ -666,8 +735,241 @@ async function suite({ open: openSession, check: record }, reset) {
     } catch (e) { check(false, `duo-lab: ${e.message}`); } finally { await s.close(); }
   }
 
+  // UIKit's Back, located by XCTest rather than the authored placeholder.
+  if (leg('navigation') && plans['pushed-title']) {
+    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'] });
+    try {
+      await eachPose(s, 'native-back', async (_, tag) => {
+        for (const mode of ['stationary', 'scrolling', 'visual']) {
+          const overflow = mode === 'scrolling', name = `${tag}-${mode}`;
+          await s.tap(mode === 'visual' ? 'home-open-edit-visual' : overflow ? 'home-open-edit-overflow' : 'home-open-edit'); await settle(s);
+          const k = await keyboard(s, true);
+          if (softKeyboard) check(k.reached, `${name}: the pushed editor raises the keyboard`);
+          const draft = `Native Back ${name}`;
+          await s.type('edit-draft', draft); await settle(s);
+          const layout = await s.layout();
+          if (overflow) {
+            check(box(layout, 'app')?.h > layout.viewport.h, `${name}: the document has page overflow`);
+            await s.tap('app', { wheel: [0, 100] }); await settle(s);
+            check((await s.layout('app')).node.scroll.some((scroll) => scroll.viewport && scroll.sy > 0), `${name}: the outer page scrolls`);
+          }
+          check((await s.state()).navigation.url === '/edit', `${name}: the editing route is on top`);
+          await s.back({ native: true }); await settle(s);
+          const state = await s.state();
+          check(state.navigation.url === '/' && state.slots.query === draft,
+            `${name}: tapping UIKit's Back returns to the root and preserves the edit`);
+          if (overflow) { await s.tap('app', { wheel: [0, -100000] }); await settle(s); }
+        }
+      });
+    } catch (e) { check(false, `native-back: ${e.message}`); } finally { await s.close(); }
+    const authored = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'], chrome: 'agent', touch: 'agent' });
+    try {
+      await authored.tap('home-open-edit-overflow'); await settle(authored);
+      const layout = await authored.layout('route-edit');
+      check(layout.node.space.local.h > layout.viewport.h,
+        'authored chrome keeps the overflowing document allocation');
+    } catch (e) { check(false, `authored-navigation: ${e.message}`); } finally { await authored.close(); }
+  }
+
+  const editorClearance = async (s) => {
+    const layout = await s.layout(), route = box(layout, 'route-edit'), content = box(layout, 'edit-scroll');
+    return [content.x - route.x, route.x + route.w - content.x - content.w];
+  };
+  const swipeEditorBack = async (s, startX, cancel, during) => {
+    const { w, h } = box(await s.layout(), 'route-edit'), distance = w * (cancel ? 0.3 : 0.7);
+    await s.tap('route-edit', { drag: {
+      from: [w * startX, h * 0.5], dx: distance, dy: 0, over: 400, hold: 1500, during: [during],
+      ...(cancel ? { path: [{ dx: -distance, dy: 0, over: 400 }] } : {}),
+    } });
+    await settle(s);
+  };
+
+  if (leg('navigation-gestures') && plans['pushed-title']) {
+    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'], timing: 'platform' });
+    try {
+      await eachPose(s, 'swipe-back', async (_, pose) => {
+        for (const [kind, startX] of [['content', 0.2], ['edge', 0.02]]) {
+          const tag = `${pose}-${kind}`;
+          await s.tap('home-open-long'); await settle(s);
+          await s.tap('long-scroll', { wheel: [0, 100] }); await settle(s);
+          const scrollId = byTestId(await s.tree(), 'long-scroll').id;
+          const offset = async () => (await s.layout('long-open-edit')).node.scroll.find((port) => port.id === scrollId)?.sy;
+          const before = await offset();
+          check(before > 0, `${tag}: the destination has a scroll position to restore`);
+          await s.tap('long-open-edit'); await settle(s);
+          const draft = `Swipe Back ${tag}`;
+          await s.type('edit-draft', draft); await settle(s);
+          const start = await s.state(), editor = byTestId(await s.tree(), 'edit-draft').id;
+          check(start.focus.editor === editor && start.focus.native != null, `${tag}: the pushed editor has native focus`);
+          if (softKeyboard) {
+            check((await keyboard(s, true)).reached, `${tag}: the pushed editor raises the keyboard`);
+          }
+          const clearance = () => editorClearance(s);
+          const sides = await clearance();
+          const swipe = async (cancel) => {
+            console.log(`  ${tag}: ${cancel ? 'cancel' : 'complete'} Back`);
+            await swipeEditorBack(s, startX, cancel, async () => {
+              const state = await s.state();
+              check(state.navigation.transition.interactive && state.navigation.transition.phase === 'in-progress',
+                `${tag}: UIKit owns the interactive Back gesture before release`);
+              check(state.navigation.url === '/edit', `${tag}: a held swipe has not committed Back`);
+              const held = await clearance();
+              check(held.every((side, i) => near(side, sides[i], 0.5)),
+                `${tag}: the departing screen keeps its horizontal clearance during Back: ${sides} → ${held}`);
+            });
+          };
+          await swipe(true);
+          const cancelled = await s.state();
+          check(cancelled.navigation.url === '/edit' && cancelled.navigation.transition.phase === 'cancelled'
+            && JSON.stringify(cancelled.navigation.stack) === JSON.stringify(start.navigation.stack) && cancelled.slots.query === draft,
+          `${tag}: cancelling Back preserves the route, stack and edit`);
+          check(cancelled.focus.editor === editor && cancelled.focus.native === start.focus.native,
+            `${tag}: cancelling Back restores the same native editor`);
+          const restored = await clearance();
+          check(restored.every((side, i) => near(side, sides[i], 0.5)), `${tag}: cancelling Back preserves horizontal clearance`);
+          if (softKeyboard) {
+            check((await keyboard(s, true)).reached, `${tag}: cancelling Back restores the software keyboard`);
+          }
+          await swipe(false);
+          const completed = await s.state();
+          check(completed.navigation.url === '/long' && completed.navigation.transition.phase === 'completed'
+            && JSON.stringify(completed.navigation.stack) === JSON.stringify(start.navigation.stack.slice(0, -1)) && completed.slots.query === draft,
+          `${tag}: completing Back pops exactly one route and preserves the edit`);
+          if (softKeyboard) {
+            check((await keyboard(s, false)).reached, `${tag}: completing Back dismisses the software keyboard`);
+          }
+          check(near(await offset(), before, 0.5), `${tag}: Back restores the destination's scroll position`);
+          await s.back(); await settle(s);
+        }
+      });
+    } catch (e) { check(false, `swipe-back: ${e.message}`); } finally { await s.close(); }
+  }
+
+  if (leg('secondary-navigation') && plans['pushed-title']) {
+    console.log('duo: Back in an unfolded secondary navigation stack');
+    hinge(180);
+    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['pushed-title'], timing: 'platform' });
+    try {
+      await reached(s, 180);
+      await orient('portrait', s);
+      await settle(s);
+      await s.tap('home-open-inline'); await settle(s);
+      const background = (await s.state()).navigation;
+      check(typeof background.nativeBack === 'string', 'secondary: the background stack has its own native Back');
+      await s.tap('inline-open-sheet'); await settle(s);
+      const layout = await s.layout(), sheet = box(layout, 'route-sheet');
+      check(sheet && sheet.x > 0 && sheet.x + sheet.w < layout.viewport.w && near(sheet.x + sheet.w / 2, layout.viewport.w / 2, 0.5),
+        `secondary: UIKit centers the sheet inside the unfolded display: ${JSON.stringify(sheet)} in ${JSON.stringify(layout.viewport)}`);
+      const root = (await s.state()).navigation;
+      check(root.url === '/sheet' && root.presentation === 'modal' && root.stack.length === 1 && root.nativeBack == null,
+        `secondary: the sheet root does not expose the background Back button: ${JSON.stringify(root)}`);
+      await s.tap('sheet-open-long'); await settle(s);
+      await s.tap('long-scroll', { wheel: [0, 100] }); await settle(s);
+      const scrollId = byTestId(await s.tree(), 'long-scroll').id;
+      const offset = async () => (await s.layout('long-open-edit')).node.scroll.find((port) => port.id === scrollId)?.sy;
+      const before = await offset();
+      check(before > 0, 'secondary: the sheet destination has a scroll position to restore');
+      await s.tap('long-open-edit'); await settle(s);
+      const draft = 'Secondary navigation draft';
+      await s.type('edit-draft', draft); await settle(s);
+      const secondary = (await s.state()).navigation;
+      check(typeof secondary.nativeBack === 'string' && secondary.nativeBack !== background.nativeBack,
+        'secondary: the editor identifies its own native Back container');
+      await s.back({ native: true }); await settle(s);
+      let state = await s.state();
+      check(state.navigation.url === '/long' && state.navigation.presentation === 'modal' && state.slots.query === draft
+        && near(await offset(), before, 0.5), `secondary: native Back pops inside the sheet and restores its destination: ${JSON.stringify(state.navigation)}`);
+      for (const [kind, startX] of [['content', 0.2], ['edge', 0.02]]) {
+        const tag = `secondary-${kind}`;
+        console.log(`  ${tag}: cancel and complete Back`);
+        await s.tap('long-open-edit'); await settle(s);
+        const start = await s.state(), editor = byTestId(await s.tree(), 'edit-draft').id;
+        check(start.focus.editor === editor && start.focus.native != null, `${tag}: the secondary editor has native focus`);
+        if (softKeyboard) { check((await keyboard(s, true)).reached, `${tag}: the secondary editor raises the keyboard`); }
+        const clearance = () => editorClearance(s);
+        const sides = await clearance();
+        const swipe = async (cancel) => {
+          await swipeEditorBack(s, startX, cancel, async () => {
+            const held = await s.state();
+            check(held.navigation.transition.interactive && held.navigation.transition.phase === 'in-progress'
+              && held.navigation.url === '/edit' && held.navigation.presentation === 'modal', `${tag}: UIKit holds Back within the sheet: ${JSON.stringify(held.navigation)}`);
+            const insets = await clearance();
+            check(insets.every((side, i) => near(side, sides[i], 0.5)), `${tag}: the held screen preserves horizontal clearance`);
+          });
+        };
+        await swipe(true);
+        state = await s.state();
+        check(state.navigation.url === '/edit' && state.navigation.presentation === 'modal'
+          && state.navigation.transition.phase === 'cancelled' && JSON.stringify(state.navigation.stack) === JSON.stringify(start.navigation.stack)
+          && state.slots.query === draft && state.focus.editor === editor && state.focus.native === start.focus.native,
+        `${tag}: cancelling Back preserves the secondary stack, draft and native focus: ${JSON.stringify(state)}`);
+        const restored = await clearance();
+        check(restored.every((side, i) => near(side, sides[i], 0.5)), `${tag}: cancellation preserves horizontal clearance`);
+        if (softKeyboard) { check((await keyboard(s, true)).reached, `${tag}: cancelling Back restores the software keyboard`); }
+        await swipe(false);
+        state = await s.state();
+        check(state.navigation.url === '/long' && state.navigation.presentation === 'modal' && state.navigation.transition.phase === 'completed'
+          && JSON.stringify(state.navigation.stack) === JSON.stringify(start.navigation.stack.slice(0, -1)) && state.slots.query === draft
+          && near(await offset(), before, 0.5), `${tag}: completing Back pops one secondary route and restores its scroll position: ${JSON.stringify(state.navigation)}`);
+        if (softKeyboard) { check((await keyboard(s, false)).reached, `${tag}: completing Back dismisses the software keyboard`); }
+      }
+      await s.back({ native: true }); await settle(s);
+      state = await s.state();
+      check(state.navigation.url === '/sheet' && state.navigation.presentation === 'modal' && state.navigation.nativeBack == null,
+        'secondary: native Back reaches the sheet root without dismissing it');
+      let refused = false;
+      try { await s.back({ native: true }); } catch (e) { refused = e.message.includes('native Back needs'); }
+      check(refused && (await s.state()).navigation.url === '/sheet', 'secondary: the sheet root cannot tap Back behind the presentation');
+      await s.back(); await settle(s);
+      state = await s.state();
+      check(state.navigation.url === background.url && state.navigation.presentation == null && state.navigation.nativeBack === background.nativeBack
+        && JSON.stringify(state.navigation.stack) === JSON.stringify(background.stack), 'secondary: dismissing the sheet restores the unchanged background stack');
+      await s.back({ native: true }); await settle(s);
+      check((await s.state()).navigation.url === '/', 'secondary: the background Back button still works after dismissal');
+    } catch (e) { check(false, `secondary-navigation: ${e.message}`); } finally { await s.close(); }
+  }
+
   // 4. The two-session sample host: both panes follow the pose.
   const hostBundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator', host: true }).bundle;
+  if (leg('host-navigation') && plans['pushed-title'] && check(existsSync(hostBundle), 'build the host fixture before testing embedded Back: bun host/apple/build.mjs --ios --host')) {
+    const s = await open({ host: 'host-ios', session: 'a', plan: plans['pushed-title'] });
+    try {
+      const offset = async () => {
+        const id = byTestId(await s.tree(), 'long-scroll').id;
+        return (await s.layout('long-top')).node.scroll.find((port) => port.id === id)?.sy;
+      };
+      await eachPose(s, 'embedded-back', async (_, pose) => {
+        for (const chosen of ['a', 'b']) {
+          const tag = `${pose}-${chosen}`, before = {};
+          for (const label of ['a', 'b']) {
+            s.session = label;
+            await s.tap('home-open-long'); await settle(s);
+            await s.tap('long-scroll', { wheel: [0, 100] }); await settle(s);
+            before[label] = { state: await s.state(), offset: await offset() };
+            check(before[label].offset > 0, `${tag}: session ${label} has a scroll position to preserve`);
+          }
+          const first = before.a.state.navigation.nativeBack, second = before.b.state.navigation.nativeBack;
+          check(typeof first === 'string' && typeof second === 'string' && first !== second,
+            `${tag}: both embedded stacks identify their own Back container`);
+          s.session = chosen;
+          await s.back({ native: true }); await settle(s);
+          check((await s.state()).navigation.url === '/', `${tag}: UIKit's Back pops session ${chosen}`);
+          let refused = false;
+          try { await s.back({ native: true }); } catch (e) { refused = e.message.includes('native Back needs'); }
+          check(refused, `${tag}: the session at its root cannot tap the other session's Back`);
+          const other = chosen === 'a' ? 'b' : 'a';
+          s.session = other;
+          const remaining = await s.state();
+          check(remaining.navigation.url === '/long'
+            && JSON.stringify(remaining.navigation.stack) === JSON.stringify(before[other].state.navigation.stack)
+            && near(await offset(), before[other].offset, 0.5), `${tag}: session ${other} keeps its route, stack and scroll position`);
+          await s.back(); await settle(s);
+          s.session = chosen;
+          check((await s.state()).navigation.url === '/', `${tag}: session ${chosen} remains at its root`);
+        }
+      });
+    } catch (e) { check(false, `embedded-back: ${e.message}`); } finally { await s.close(); }
+  }
   if (!leg('host')) { /* not asked for */ }
   else if (!existsSync(hostBundle)) console.log('duo host: unsupported — run bun host/apple/build.mjs --ios --host first');
   else {
@@ -691,21 +993,21 @@ async function suite({ open: openSession, check: record }, reset) {
   // the segments, which run down the inner display turned on its side. Partially folded like a laptop that way, the note
   // sheet keeps to the lower segment until the keyboard, which fills it, carries the sheet into the upper one.
   /** The note screen partially folded like a laptop (`tag` the turn), its sheet's height set to 600 points: no control on
-   * the band; the sheet stops at the lower segment's top, then rides on the keyboard below the header; and a fold to
-   * 90° with the keyboard up keeps the title's text and focus and the sheet's place. */
+   * the band; the sheet stops at the lower segment's top and ends with the routes, then rides on the keyboard below the
+   * header; and a fold to 90° with the keyboard up keeps the title's text and focus and the sheet's place. */
   const laptop = async (s, tag) => {
     await s.tap('tab-combos'); await settle(s);
     await offBand(s, await s.layout(), `${tag} combos`);
     await s.tap('open-note'); await settle(s);
     let l = await s.layout();
-    const lower = l.env['viewport-segments'][1], sheet = box(l, 'note-sheet');
-    check(sheet && onGrid(sheet.y, lower[1]) && near(sheet.y + sheet.h, l.viewport.h), `${tag}: the note sheet stops at the lower segment's top ${lower[1]}: ${JSON.stringify(sheet)}`);
+    const lower = l.env['viewport-segments'][1], sheet = box(l, 'note-sheet'), end = await routesEnd(s, l, tag);
+    check(sheet && onGrid(sheet.y, lower[1]) && near(sheet.y + sheet.h, end), `${tag}: the note sheet stops at the lower segment's top ${lower[1]} and ends with the routes at ${end}: ${JSON.stringify(sheet)}`);
     await offBand(s, l, `${tag} note`);
     const title = `laptop ${tag}`;
     await s.type('note-title-input', title);
     ({ l } = await keyboard(s, true));
     if (await rose(s, l.env['keyboard-inset-height'], tag)) {
-      await onKeyboard(s, l, tag);
+      await onKeyboard(s, l, tag, lower[1]);
       await offBand(s, l, `${tag} editing`);
     }
     const before = await editing(s, 'noteFocused', 'note-title-input');
@@ -715,7 +1017,7 @@ async function suite({ open: openSession, check: record }, reset) {
     ({ l } = await keyboard(s, true));
     const st = await s.state();
     check(back && st.slots.title === title && st.slots.noteFocused === true && st.focus.editor === before.node && st.focus.native === before.native && clean(st, before), `${tag}→90°: the title and its focus survived ${JSON.stringify({ title: st.slots.title, noteFocused: st.slots.noteFocused })}`);
-    if (await rose(s, l.env['keyboard-inset-height'], `${tag}→90°`)) await onKeyboard(s, l, `${tag}→90°`);
+    if (await rose(s, l.env['keyboard-inset-height'], `${tag}→90°`)) await onKeyboard(s, l, `${tag}→90°`, lower[1]);
     await offBand(s, l, `${tag}→90° editing`);
     await pose(s, 130);
     await s.tap('note-dismiss'); await down(s, tag);
@@ -760,10 +1062,7 @@ async function suite({ open: openSession, check: record }, reset) {
         where = 'rotate';
         await pose(s, 180);
         applies(await s.layout());
-        const first = byTestId(await s.tree(), 'detail-title')?.props.text;
-        await s.tap('item-2'); await settle(s);
-        const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
-        check(typeof chosen === 'string' && chosen.length > 0 && chosen !== first, `${where}: item-2 selected another detail: ${first} → ${chosen}`);
+        const chosen = await chooseSecond(s);
         for (const [tag, deg] of POSES) {
           where = `rotate-${tag}`;
           const posed = Date.now();
@@ -811,10 +1110,7 @@ async function suite({ open: openSession, check: record }, reset) {
       where = 'resize';
       await pose(s, 180);
       applies(await s.layout());
-      const first = byTestId(await s.tree(), 'detail-title')?.props.text;
-      await s.tap('item-2'); await settle(s);
-      const chosen = byTestId(await s.tree(), 'detail-title')?.props.text;
-      check(typeof chosen === 'string' && chosen.length > 0 && chosen !== first, `${where}: item-2 selected another detail: ${first} → ${chosen}`);
+      const chosen = await chooseSecond(s);
       await orient('landscape-right', s);
       // The scene turns after CoreDevice reports it, and a session asked for before then is refused. Twice in about ten
       // probes no scene turned until the hinge next moved (QUEUE), so the hinge moves once if the turn is lost.
@@ -868,5 +1164,38 @@ async function suite({ open: openSession, check: record }, reset) {
       await orient('portrait', s);
       await s.close().catch((e) => check(false, `resize: the session did not close: ${e.message}`));
     }
+  }
+
+  // 7. The web's layout: duo-lab under the agent's own chrome, which lays the authored tablist out below the routes as
+  // the web does, so the routes end above the panel's bottom. Flat, and partially folded side by side and, the device
+  // turned, one above the other, the Fold screen's panes sit on the segments where the routes end, and on a book fold
+  // the tabs keep to the trailing segment; folded like a laptop, the note screen, which hides the tablist, keeps its
+  // sheet to the lower segment, and the sheet rides on the keyboard once it is up with its textarea above it, as the
+  // rotate leg checks under UIKit's bars. Its taps are the agent's: the agent refuses a real touch on the tablist this
+  // chrome shows in place of UIKit's tab bar (LLP 1080.000 D7, stage 3).
+  if (leg('web')) {
+    const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['duo-lab-tall'], chrome: 'agent', touch: 'agent' });
+    try {
+      where = 'web';
+      await pose(s, 180);
+      applies(await s.layout());
+      const chosen = await chooseSecond(s);
+      await foldScreen(s, await s.layout(), where, 180, chosen);
+      where = 'web-130';
+      await pose(s, 130);
+      let l = await s.layout();
+      await foldScreen(s, l, where, 130, chosen);
+      await offBand(s, l, where);
+      const drawn = await tabBarFrame(s), trailing = l.env['viewport-segments'][1];
+      check(drawn && drawn.x >= trailing[0] - 0.01 && drawn.x + drawn.w <= trailing[0] + trailing[2] + 0.01, `${where}: the tab bar keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(drawn)}`);
+      where = 'web-130-landscape-right';
+      await orient('landscape-right', s);
+      for (let i = 0; i < 50 && l.env['vertical-viewport-segments'] !== 2; i++) { await sleep(100); l = await s.layout(); }
+      await settle(s);
+      l = await s.layout();
+      await foldScreen(s, l, where, 130, chosen);
+      await offBand(s, l, where);
+      await laptop(s, where);
+    } catch (e) { check(false, `${where}: ${e.message}`); } finally { await orient('portrait', s); await s.close(); }
   }
 }

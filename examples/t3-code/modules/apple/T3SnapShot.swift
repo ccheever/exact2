@@ -23,7 +23,30 @@ struct T3SnapshotPermissionSystem {
     func granted(_ permission: T3MacPermission) -> Bool { permission == .screenRecording ? screenRecording() : accessibility() }
 }
 
+/// How the macOS test capture failed (DesktopSnapShotSetupError's `status` for the window capture step): no window
+/// to capture, the command timed out, exited with a code, or failed otherwise (it did not start, or wrote no PNG).
+enum T3TestCaptureFailure: Equatable { case missing, timedOut, exited(Int32), failed }
+
 final class T3SnapShot {
+    /// DesktopSnapShotSetupError's test-mac-capture message. The window is this app's own, so finding it cannot fail
+    /// as the reference's osascript can; only its capture names a step. `appName` is the app as Privacy & Security
+    /// lists it, since macOS can report both grants as allowed while they belong to another install.
+    static func testCaptureMessage(_ failure: T3TestCaptureFailure, appName: String? = nil) -> String {
+        let summary = "Could not capture a test snapshot."
+        let failed: String
+        switch failure {
+        case .missing: return "\(summary) No window is available to capture."
+        case .timedOut: failed = "Capturing the window timed out."
+        case .exited(let code): failed = "Capturing the window failed: screencapture exited with code \(code)."
+        case .failed: failed = "Capturing the window failed."
+        }
+        guard let appName else { return "\(summary) \(failed)" }
+        return "\(summary) \(failed) macOS grants Screen Recording and Accessibility to each app separately. In System Settings, open Privacy & Security and check that \"\(appName)\" is allowed for both."
+    }
+    /// The running app's name (Electron's app name, `environment.displayName`).
+    static func appName(_ bundle: Bundle = .main) -> String {
+        bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String ?? ProcessInfo.processInfo.processName
+    }
     private let directory: URL
     private let agent: Bool
     private struct Capture { let path: URL; let owner: String; let metadata: [String: Any] }
@@ -255,9 +278,23 @@ final class T3SnapShot {
         defer { pairHeld = both }
         if enabled && both && !pairHeld { captureFrontWindow() }
     }
+    /// DesktopSnapShot SHORTCUT_COOLDOWN_NS.
+    static let shortcutCooldown: TimeInterval = 0.2
+    private var lastShortcutAt: TimeInterval?
+    /// captureFromShortcut: a press while a capture flies to its attachment is dropped, so it cannot tear that
+    /// flight down and start another; one within the cooldown of the last accepted press is dropped too.
+    static func acceptsShortcut(animating: Bool, now: TimeInterval, last: TimeInterval?) -> (verified: Bool, capture: Bool) {
+        if animating { return (false, false) }
+        return (true, last.map { now - $0 >= shortcutCooldown } ?? true)
+    }
     private func captureFrontWindow() {
         guard enabled, !shortcut.recording else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let accepted = Self.acceptsShortcut(animating: feedback.isAnimating, now: now, last: lastShortcutAt)
+        guard accepted.verified else { return }
         verified = true
+        guard accepted.capture else { return }
+        lastShortcutAt = now
         guard let front = NSWorkspace.shared.frontmostApplication,
               let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
               let window = windows.first(where: { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == front.processIdentifier && ($0[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 }),
@@ -347,9 +384,7 @@ final class T3SnapShot {
                   let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
                   width > 0, height > 0 else { fail("Could not read the saved draft image."); return }
             let scale = min(1, 2048 / Double(max(width, height)))
-            var facts: [String: Any] = ["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()]
-            if let average = T3ComposerImageChip.average(at: path) { facts["average"] = average }
-            complete(facts)
+            complete(["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()])
         case "snapshotRead":
             guard let id = request["id"] as? String, let capture = pending[id], capture.owner == (request["owner"] as? String ?? "") else { fail("This snapshot is no longer available."); return }
             do { complete(capture.metadata.merging(["id": id, "owner": capture.owner, "mimeType": "image/png", "base64": try Data(contentsOf: capture.path).base64EncodedString()]) { _, new in new }) }
@@ -384,15 +419,25 @@ final class T3SnapShot {
             }
             // Exercise the real capture path on this app's own window; the image is discarded.
             guard CGPreflightScreenCaptureAccess() else { fail("Allow Screen Recording in System Settings, then restart T3 Code."); return }
-            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.windowNumber > 0 }) else { fail("No window is available to test capture."); return }
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.windowNumber > 0 }) else { fail(Self.testCaptureMessage(.missing)); return }
             let number = window.windowNumber, test = FileManager.default.temporaryDirectory.appendingPathComponent("t3-snapshot-test-\(UUID().uuidString).png")
+            let appName = Self.appName()
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
                 process.arguments = ["-l", String(number), "-o", "-x", "-t", "png", test.path]
                 process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
-                let ok = (try? process.run()) != nil && { process.waitUntilExit(); return process.terminationStatus == 0 }() && ((try? Data(contentsOf: test))?.starts(with: [0x89, 0x50, 0x4e, 0x47]) == true)
+                // Set before `run`, so a command that exits at once still signals.
+                let exited = DispatchSemaphore(value: 0)
+                process.terminationHandler = { _ in exited.signal() }
+                let failure: T3TestCaptureFailure? = {
+                    guard (try? process.run()) != nil else { return .failed }
+                    // MacSnapShot.ts MAC_SCREEN_CAPTURE_TIMEOUT_MS: execFile's timeout kills the command.
+                    if exited.wait(timeout: .now() + 15) == .timedOut { process.terminate(); process.waitUntilExit(); return .timedOut }
+                    if process.terminationStatus != 0 { return .exited(process.terminationStatus) }
+                    return (try? Data(contentsOf: test))?.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) == true ? nil : .failed
+                }()
                 try? FileManager.default.removeItem(at: test)
-                DispatchQueue.main.async { ok ? complete(["action": action]) : fail("macOS did not return a test snapshot. Check Screen Recording in System Settings.") }
+                DispatchQueue.main.async { failure.map { fail(Self.testCaptureMessage($0, appName: appName)) } ?? complete(["action": action]) }
             }
         case "snapshotRequestPermissions":
             // Reference requestPermissions (setup's Continue, Include app text): prompt

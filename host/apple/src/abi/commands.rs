@@ -5,7 +5,8 @@
 //! builds (LLP 1069.001 D5), a radio's group (x2apps survey #2), a
 //! grouped list's sections (LLP 1084), and
 //! whether a followed link names one of the app's routes (LLP 1038 §7),
-//! and where the host's own Back goes (LLP 1115 D5).
+//! where the host's own Back goes (LLP 1115 D5), and a package's call of
+//! the app's handler (LLP 1133.016 D15 item 1).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
@@ -80,6 +81,31 @@ impl<D: DataSource> Bridge<D> {
         )
     }
 
+    /// `exact_module_invoke`: a package's call of the app's handler,
+    /// `{"extension", "handle", "handler", "args"}` in the input buffer.
+    /// `reply(ctx, answer, len)` is called once with the runner's JSON, now
+    /// or when the handler's own work lands. Not a batch.
+    pub fn module_invoke(&mut self, len: usize, reply: InvokeReply, ctx: *mut std::ffi::c_void) {
+        let body = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        // The context crosses threads as an address: the host's, which `reply` frees.
+        let ctx = ctx as usize;
+        let answer: Box<dyn FnOnce(String) + Send> = Box::new(move |text: String| {
+            reply(
+                ctx as *mut std::ffi::c_void,
+                text.as_ptr(),
+                text.len() as u32,
+            )
+        });
+        match self.host.as_mut() {
+            Some(h) => h.runner_mut().invoke_module(&body, answer),
+            None => answer(r#"{"error":"InvalidStateError","message":"no session runs"}"#.into()),
+        }
+        // The handler's requests, for the host to run.
+        if let Some(executor) = self.executor.as_deref() {
+            executor.notify();
+        }
+    }
+
     /// `exact_location_beneath`: the location of the visit beneath visit
     /// `id` on its stack, UTF-8 in the output buffer, empty when there is
     /// none — where the host's own Back goes for a route with no authored
@@ -91,6 +117,17 @@ impl<D: DataSource> Bridge<D> {
             .and_then(|h| h.runner().location_beneath(id))
             .unwrap_or_default();
         self.output = location.into_bytes();
+        self.output.len() as u32
+    }
+
+    /// A retained visit's canonical location, UTF-8; empty when absent.
+    pub fn visit_location(&mut self, id: u64) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().visit_location(id))
+            .unwrap_or_default()
+            .into_bytes();
         self.output.len() as u32
     }
 
@@ -235,6 +272,19 @@ impl<D: DataSource> Bridge<D> {
         0
     }
 
+    /// How a presence check the host made ended (`exact_presence`, LLP
+    /// 1133.010 D13): the value goes to the waiting call alone.
+    pub fn presence(&mut self, len: usize) -> u32 {
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut()
+                .presence_reply(&self.input[..len.min(self.input.len())]);
+        }
+        if let Some(x) = self.executor.as_deref() {
+            x.notify();
+        }
+        0
+    }
+
     /// A button's face (`exact_press_face`, LLP 1069.011.000 D1; LLP 1069.011
     /// D2, D5), custom or native, as JSON in the output buffer:
     /// `{"button","title","symbol","raster","leading","label","fits","style",
@@ -351,7 +401,7 @@ impl<D: DataSource> Bridge<D> {
                 && root.style.display == Display::Flex
                 && column(root.style.flex_direction)
                 && matches!(
-                    bar.style.position_type,
+                    bar.layout_position(),
                     PositionType::Static | PositionType::Relative
                 )
                 && !column(bar.style.flex_direction);
@@ -433,10 +483,24 @@ impl<D: DataSource> Bridge<D> {
             }
             json.push_str(",\"font\":");
             match l.font {
-                Some(f) => json.push_str(&format!(
-                    "{{\"size\":{},\"weight\":{},\"italic\":{},\"family\":{},\"numeric\":{}}}",
-                    f.size, f.weight, f.italic, f.family, f.numeric
-                )),
+                Some(f) => {
+                    let [size, weight, italic, family, numeric] = exact_kernel::TextFont::SAID;
+                    let part = |bit: u8, value: String| {
+                        if f.said & bit != 0 {
+                            value
+                        } else {
+                            "null".into()
+                        }
+                    };
+                    json.push_str(&format!(
+                        "{{\"size\":{},\"weight\":{},\"italic\":{},\"family\":{},\"numeric\":{}}}",
+                        part(size, f.size.to_string()),
+                        part(weight, f.weight.to_string()),
+                        part(italic, f.italic.to_string()),
+                        part(family, f.family.to_string()),
+                        part(numeric, f.numeric.to_string())
+                    ));
+                }
                 None => json.push_str("null"),
             }
             json.push('}');
@@ -523,3 +587,6 @@ impl<D: DataSource> Bridge<D> {
         0
     }
 }
+
+/// The host's answer to a package's call back: `reply(ctx, answer, len)`.
+pub type InvokeReply = extern "C" fn(*mut std::ffi::c_void, *const u8, u32);

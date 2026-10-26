@@ -7,7 +7,7 @@
 // components/CommandPalette.logic.ts (buildLinkedThreadActionItems), lib/openPullRequestLink.ts.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
-import { ClientError, bridgeReply, type Files, type Native } from '../client/protocol';
+import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 import { findProjectForChangeRequest, findProjectOnChangeRequestHost, linkMode, parseChangeRequestUrl, threadPullRequestKey } from '../palette/palette-linkpr';
@@ -23,6 +23,7 @@ import { relativeLabel } from './pages-prs';
 import { row, closedView, type Item, type PaletteView } from '../palette/palette';
 import { openLink as openLinkByTarget } from '../browser/browser-links';
 import { activeRef } from '../terminal/terminal-drawer-view';
+import { openExternal } from '../client/external-open';
 
 // ── The panel's link context ────────────────────────────────────────────────
 
@@ -237,7 +238,7 @@ export async function linkFromPicker(client: T3Client, native: Native, storage: 
 
 // ── Link previews (PullRequestLinkPreview) and their click ─────────────────
 
-export type LinkChip = { id: string; href: string; kind: string; label: string; size: string; tip: string; detail: string; icon: string; target: string; owner: string };
+export type LinkChip = { id: string; href: string; kind: string; label: string; size: string; tip: string; detail: string; icon: string; target: string; owner: string; menu: never[] };
 type Preview = { key: string; detail: Obj | null; error: string; read: boolean };
 const previews = new WeakMap<object, Map<string, Preview>>();
 const previewsOf = (client: object) => { let map = previews.get(client); if (!map) { map = new Map(); previews.set(client, map); } return map; };
@@ -265,7 +266,7 @@ export function linkChips(client: T3Client, environmentId: string, links: { href
       pullRequestsEnabled: readsPullRequests(environment), url: candidate }) : null;
     if (!target && link.kind !== 'commit') return [];
     const ref = target ? JSON.stringify({ ...target.input, ...(environment.focused ? {} : { environmentId: environment.id }) }) : '';
-    return [{ id: `pr-link-${seen.size}`, href: link.href, kind: 'pr-link', label: '', size: '', tip: link.href, detail: link.kind, icon: '', target: ref, owner: candidate ?? '' }];
+    return [{ id: `pr-link-${seen.size}`, href: link.href, kind: 'pr-link', label: '', size: '', tip: link.href, detail: link.kind, icon: '', target: ref, owner: candidate ?? '', menu: [] }];
   });
 }
 
@@ -315,7 +316,7 @@ export function forgetPreviews(client: object): void { previews.delete(client); 
 export async function openLink(client: T3Client, native: Native, page: boolean, value: string, openSurface: (url: string, target: string) => Promise<void>): Promise<string> {
   // The fourth line: the click's own modifiers (markdown.contract PrLinkRun `open`).
   const [kind = '', target = '', href = '', held = ''] = value.split('\n');
-  const browser = async (url: string) => { if (url) await bridgeReply(native, { op: 'remoteEditorsOpen', url }); return ''; };
+  const browser = async (url: string) => { if (url) openExternal(url); return ''; };
   if (held) return browser(href);
   // No project to open it beside, or "Open pull requests in T3 Code" turned off: an ordinary link, which follows "Open links
   // in" (useOpenPrLink → useOpenLink; browser-links.ts).

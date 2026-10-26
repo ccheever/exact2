@@ -1,3 +1,7 @@
+# A text that presses presses on every click (first: every host takes it,
+# the Linux comparison included, which stops at the first selection).
+tap code
+tap code
 # One click selects the whole element: a paragraph, an inline run, a box.
 tap path
 tap run
@@ -8,6 +12,3 @@ tap folder at 4 8
 tap bound
 tap flip
 tap bound
-# A text that presses presses on every click.
-tap code
-tap code

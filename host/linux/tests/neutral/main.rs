@@ -3,6 +3,7 @@
 //! plan boots, and every other test of this host holds the look of a process
 //! that said none, which is Android's reader's. One test, so nothing here
 //! reads a colour or a metric while the switch is moving.
+mod buttons;
 mod fields;
 mod tabs;
 
@@ -39,6 +40,22 @@ const APP: &str = r##"component App
         text "Go"
       button appearance="auto" width=84 height=24 testId="sized"
         text "Go"
+      button appearance="auto" buttonStyle="plain" padding=0 testId="flush"
+        text "Go"
+      button appearance="auto" buttonStyle="plain" padding-top=0 testId="one-side"
+        text "Go"
+      button appearance="auto" padding=0 testId="outline"
+        text "Go"
+      row role="radiogroup" align-items="flex-start"
+        button role=(taps % 2 == 0 ? "radio" : "button") buttonStyle="plain" padding=0 press=go testId="segment-padded"
+          text "Go"
+        button role="radio" buttonStyle="plain" testId="segment-unsaid"
+          text "Go"
+      column role=(taps % 2 == 0 ? "menu" : "group") align-items="flex-start"
+        button buttonStyle="plain" padding=0 testId="menu-padded"
+          text "Go"
+        button buttonStyle="plain" testId="menu-unsaid"
+          text "Go"
       input type="checkbox" testId="check"
       input type="checkbox" checked=true testId="checked"
       input type="radio" testId="radio"
@@ -58,6 +75,12 @@ const APP: &str = r##"component App
         button appearance="auto" buttonStyle="filled" testId="dark-filled"
           text "Go"
         input type="checkbox" testId="dark-check"
+        input type="checkbox" role="switch" testId="dark-switch"
+        input type="checkbox" role="switch" checked=true testId="dark-switch-on"
+      button appearance="auto" -exact-control-size="mini" testId="mini"
+        text "Go"
+      button appearance="auto" -exact-control-size="small" testId="small"
+        text "Go"
 "##;
 
 // neutral.css styles every direct route header, including one whose two
@@ -196,6 +219,7 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     );
     std::env::set_var("EXACT_FONT", "DejaVu Sans");
     exact_linux::app::show_neutral_look();
+    buttons::plain_faces_fade_without_a_wash();
     fields::focus_changes_during_flow_damage();
     fields::select_and_date_focus();
     invalid_non_fields_keep_their_accent_ring();
@@ -229,12 +253,33 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     // A size the author wrote is the box: the look's floor and padding step
     // aside.
     assert_eq!(size(&mut p, "sized"), (84.0, 24.0));
+    assert_eq!(size(&mut p, "flush").1, 20.0);
+    assert_eq!(size(&mut p, "one-side").1, 27.0);
+    assert_eq!(size(&mut p, "outline").1, 22.0);
+    for role in ["segment", "menu"] {
+        assert_eq!(size(&mut p, &format!("{role}-padded")), (36.0, 36.0));
+        assert_eq!(size(&mut p, &format!("{role}-unsaid")).1, 36.0);
+    }
+    for expected in [20.0, 36.0] {
+        p.tap(id(&p, "segment-padded")).unwrap();
+        assert_eq!(size(&mut p, "segment-padded").1, expected);
+        assert_eq!(size(&mut p, "menu-padded").1, expected);
+    }
     // The look's lengths are of the control's font size, which a control
     // inherits as it does on a page.
     assert_eq!(size(&mut p, "large").1, 45.0);
     assert_eq!(size(&mut p, "large-check"), (25.0, 25.0));
     // A field has no floor: its line, its padding and its edge.
     assert_eq!(size(&mut p, "large-field").1, 25.0 + 2.0 * 8.75 + 2.0);
+    // A mini or small button is titled as the page titles it at a 16 px root,
+    // in the subheadline's 14 px: its line, its padding and its edge.
+    for name in ["mini", "small"] {
+        assert_eq!(
+            size(&mut p, name).1,
+            14.0 * 1.25 + 2.0 * 14.0 * 0.4375 + 2.0,
+            "{name}"
+        );
+    }
 
     // The colours are the role table's neutral column. The page's ground is
     // white; a line that marks a control's edge is the label's ink at 45%.
@@ -248,8 +293,8 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "check", 10.0, 0.0), line);
     assert_eq!(pixel(&mut p, "checked", 10.0, 1.0), blue);
     assert_eq!(pixel(&mut p, "radio", 10.0, 0.0), line);
-    // The switch: the control's line with a thumb in the page's ground at
-    // its start; on, the accent with the thumb at its end.
+    // The switch: the control's line with a white thumb at its start; on,
+    // the accent with the thumb at its end.
     assert_eq!(pixel(&mut p, "switch", 30.0, 10.0), line);
     assert_eq!(pixel(&mut p, "switch", 10.0, 10.0), white);
     assert_eq!(pixel(&mut p, "switch-on", 10.0, 10.0), blue);
@@ -269,6 +314,9 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "dark", 2.0, 2.0), [0x12; 3]);
     assert_eq!(pixel(&mut p, "dark-filled", 3.0, 18.0), [0x68, 0xa5, 0xfe]);
     assert_eq!(pixel(&mut p, "dark-check", 10.0, 10.0), [0x1e; 3]);
+    // A switch's thumb is white there too, off or on.
+    assert_eq!(pixel(&mut p, "dark-switch", 10.0, 10.0), white);
+    assert_eq!(pixel(&mut p, "dark-switch-on", 26.0, 10.0), white);
 
     // A state adds one thing: where a pointer hovers, a wash of the label's
     // ink over the outline button; held down, a stronger one.
@@ -281,6 +329,14 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "unsaid", 3.0, 18.0), [237; 3]);
     p.pointer_cancel(0.0).unwrap();
     assert_eq!(pixel(&mut p, "filled", 3.0, 18.0), blue, "and no other");
+    // Held, a filled button shows UIKit's highlight instead: its fill at 75%
+    // in light, mixed 20% with white in dark.
+    for (name, held) in [("filled", [72, 140, 224]), ("dark-filled", [134, 183, 254])] {
+        let (x, y, _, _) = p.rect_of(id(&p, name)).unwrap();
+        assert!(p.pointer_down(x + 4.0, y + 4.0, 0.0).unwrap());
+        assert_eq!(pixel(&mut p, name, 3.0, 18.0), held, "{name} held");
+        p.pointer_cancel(0.0).unwrap();
+    }
 
     // A list's rows (LLP 1115.000 D16), as the page's sheet draws them: one
     // line in the separator's role inside each row's bottom edge but the

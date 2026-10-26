@@ -21,9 +21,13 @@ struct SkinVertex { joints:vec4<u32>, weights:vec4<f32> }
 // A skinned draw's blended joint matrix at `vertex` (the palette is not u32::MAX).
 fn skin_of(draw:ModelInstance,vertex:u32)->mat4x4<f32> {
     if (draw.palette & 2147483648u)!=0u {return skin_matrix(draw.palette & 2147483647u);}
+    // A part merged into a skin marks its unused joints u32::MAX (models/merge.rs),
+    // so its weights need not be read.
+    let joints=skin_vertices[vertex].joints;
+    if joints.y==4294967295u { return skin_matrix(draw.palette+joints.x); }
     var m=mat4x4<f32>();
     let v=skin_vertices[vertex];
-    // Rigid parts merged into a skin retain exactly one joint.
+    // A skin's vertex with all its weight on one joint.
     if all(v.weights == vec4(1.0,0.0,0.0,0.0)) { return skin_matrix(draw.palette+v.joints.x); }
     for(var i=0u;i<4u;i++) { m+=skin_matrix(draw.palette+v.joints[i])*v.weights[i]; }
     return m;

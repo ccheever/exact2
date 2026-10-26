@@ -1,0 +1,189 @@
+use Name, Avatar, VerifiedBadge from "./common.contract"
+
+// A moderation pill on a profile (the clone's ProfileHeaderAlerts): its
+// name, its icon, and its id for the details its press opens.
+shape ProfileAlert
+  id: string
+  label: string
+  icon: enum<"warning", "eyeslash", "ban", "info">
+
+// Its icon token: a computed `symbol:` source over the enum, which keeps
+// every alert's icon in the plan (D7).
+fn alertIcon(icon: string): string = (icon == "warning" ? "symbol:cards.warning" : (icon == "eyeslash" ? "symbol:cards.eye-slash" : (icon == "ban" ? "symbol:cards.ban" : "symbol:cards.circle-info")))
+
+// A profile's header (the clone's ProfileHeader, narrowed by theme2's 23:51
+// ruling): its banner, the avatar overlapping it, the name with its badge,
+// the handle with "Follows you", and the counts; the app's buttons (follow,
+// message, the menu) are its one slot, above the names. The app keeps its
+// data and its actions, places its back button and pull spinner over the
+// banner, and its bio and "Followed by" below. `pull` grows the banner from
+// its bottom edge as a list is pulled past its top (0 to 150, scale 1 to 2).
+component ProfileHeader
+  params
+    banner: color = "cards.banner" control = "token" group = "Color" priority = 1 label = "Banner"
+    surface: color = "cards.profile-surface" control = "token" group = "Color" priority = 2 label = "Surface"
+    meta: color = "cards.meta" control = "token" group = "Color" priority = 2 label = "Meta text"
+    badge: color = "cards.badge" control = "token" group = "Color" priority = 3 label = "Badge"
+    badgeMark: color = "cards.badge-mark" control = "token" group = "Color" priority = 3 label = "Badge mark"
+    alert: color = "cards.alert" control = "token" group = "Color" priority = 3 label = "Alert"
+    alertGround: color = "cards.alert-ground" control = "token" group = "Color" priority = 3 label = "Alert ground"
+  props
+    id: string
+    bannerSrc: string
+    avatarSrc: string
+    // The avatar's flight to the viewer (a shared element's name), "" for none.
+    avatarFlight: string
+    name: string
+    handle: string
+    badge: enum<"none", "verified", "verifier">
+    followsYou: bool
+    // Worded counts, and the followers' noun ("follower" or "followers").
+    followers: string
+    followersNoun: string
+    follows: string
+    posts: string
+    // Its moderation pills (blocked, muted, a label), between the names and the counts.
+    alerts: ProfileAlert[]
+    // In place of the counts (an account that couldn't be read), "" for none.
+    note: string
+    blocked: bool
+    compact: bool
+    pull: number
+    openAvatar: action
+    openFollowers: action
+    openFollows: action
+    openAlert: action
+  slot
+  parts
+    banner: paint shape
+    avatar: space
+    names: text space
+    alerts: paint text space
+    counts: text space
+    actions: space
+  view
+    column position="relative" background-color="param.surface" testId=`profile-header-${id}`
+      column part="banner"
+        height=(compact ? "cards.banner-compact" : "cards.banner-height")
+        position="relative"
+        background-color="param.banner"
+        overflow="hidden"
+        transform-origin="bottom"
+        scale=(1 + min(pull, 150) / 150)
+        if bannerSrc != ""
+          image bannerSrc position="absolute" inset=0 width="100%" height="100%" object-fit="cover" alt=""
+        // A dark fade under the status bar, its reach below the safe area's top
+        // the box's bottom padding.
+        box position="absolute"
+          top=0
+          left=0
+          right=0
+          height="env(safe-area-inset-top)"
+          padding-bottom="cards.banner-shade-reach"
+          background-image="linear-gradient(to bottom, cards.banner-shade, transparent)"
+      column part="avatar"
+        position="absolute"
+        z-index=1
+        top=(compact ? "cards.avatar-top-compact" : "cards.avatar-top")
+        left="cards.profile-avatar-left"
+        width="cards.profile-avatar-box"
+        height="cards.profile-avatar-box"
+        border-radius="cards.avatar-corner"
+        background-color="param.surface"
+        align-items="center"
+        justify-content="center"
+        if avatarSrc != ""
+          column testId=`profile-avatar-${id}`
+            role="button"
+            aria-label=`View ${handle}'s avatar`
+            press=openAvatar
+            position="relative"
+            width="cards.profile-avatar"
+            height="cards.profile-avatar"
+            border-radius="cards.avatar-corner"
+            overflow="hidden"
+            Avatar(src=avatarSrc, size="cards.profile-avatar")
+            if avatarFlight != ""
+              image avatarSrc id=avatarFlight
+                sharedElement=avatarFlight
+                position="absolute"
+                inset=0
+                width="100%"
+                height="100%"
+                object-fit="cover"
+                alt=""
+                aria-hidden=true
+        else
+          Avatar(src=avatarSrc, size="cards.profile-avatar")
+      column padding-left="cards.profile-pad" padding-right="cards.profile-pad" padding-top="cards.profile-top" padding-bottom="cards.profile-bottom"
+        row part="actions"
+          padding-left="cards.profile-actions-lead"
+          justify-content="flex-end"
+          gap="cards.profile-actions-gap"
+          padding-bottom="cards.profile-actions-under"
+          min-height="cards.profile-actions-height"
+          children
+        column part="names" gap="cards.profile-names-gap" padding-bottom="cards.profile-names-under" padding-top="cards.profile-names-top"
+          row align-items="center"
+            text name testId=`profile-name-${id}`
+              flex-shrink=1
+              font-size="cards.profile-name-size"
+              font-weight=700
+              line-height="cards.profile-name-line"
+              class=Name
+            if badge != "none"
+              column padding-left="cards.profile-badge-gap" margin-top="cards.profile-badge-drop" flex-shrink=0
+                VerifiedBadge(badge=badge, size="cards.profile-badge", ink="param.badge", mark="param.badgeMark")
+          row gap="cards.profile-handle-gap" align-items="center"
+            if followsYou
+              text "Follows you" testId=`profile-follows-you-${id}`
+                font-size="cards.small-size"
+                padding-top="cards.pill-pad-block"
+                padding-bottom="cards.pill-pad-block"
+                padding-left="cards.pill-pad-inline"
+                padding-right="cards.pill-pad-inline"
+                border-radius="cards.pill-corner"
+                background-color="cards.pill"
+                class=Name
+            text `@${handle}` font-size="cards.text-size" line-height="cards.profile-meta-line" color="param.meta"
+        // The moderation pills, each opening its details.
+        row part="alerts" flex-wrap="wrap" gap="cards.alert-gap" padding-bottom="cards.alert-under" display=(alerts.length > 0 ? "flex" : "none")
+          for a in alerts key = a.id
+            button testId=`alert-${a.id}`
+              aria-label=a.label
+              press=openAlert(a.id)
+              display="flex"
+              flex-direction="row"
+              align-items="center"
+              gap="cards.alert-icon-gap"
+              padding-top="cards.alert-pad-block"
+              padding-bottom="cards.alert-pad-block"
+              padding-left="cards.alert-pad-inline"
+              padding-right="cards.alert-pad-inline"
+              border-radius="cards.pill-corner"
+              background-color="param.alertGround"
+              -exact-press-scale=1
+              image alertIcon(a.icon)
+                width="cards.alert-icon"
+                height="cards.alert-icon"
+                flex-shrink=0
+                aria-hidden=true
+                color="param.alert"
+              text a.label font-size="cards.small-size" font-weight=600 color="param.alert"
+        // The counts, or a note in their place; across a block, neither.
+        column part="counts" display=(blocked ? "none" : "flex")
+          if note != ""
+            text note font-size="cards.text-size" color="param.meta"
+          else
+            row gap="cards.profile-counts-gap" flex-wrap="wrap"
+              row press=openFollowers role="button" testId=`profile-followers-${id}` aria-label=`${followers} ${followersNoun}`
+                text font-size="cards.text-size" line-height="cards.profile-meta-line" color="param.meta"
+                  text followers font-weight=600 class=Name
+                  text ` ${followersNoun}`
+              row press=openFollows role="button" testId=`profile-follows-${id}` aria-label=`${follows} following`
+                text font-size="cards.text-size" line-height="cards.profile-meta-line" color="param.meta"
+                  text follows font-weight=600 class=Name
+                  text " following"
+              text font-size="cards.text-size" line-height="cards.profile-meta-line" color="param.meta"
+                text posts font-weight=600 class=Name
+                text " posts"

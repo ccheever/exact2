@@ -22,8 +22,8 @@ export type Look = {
   wizardSteps: string; wizardPanel: string;
   chatMax: number; artwork: boolean; pill: string; diff: string;
   diffAdd: string; diffDel: string; diffAddSurface: string; diffDelSurface: string; diffAddLine: string; diffDelLine: string;
-  terminalLight: string; terminalDark: string; terminalFont: string; terminalSize: number;
-  fontSans: string; fontSize: number; promptSize: number; promptFont: string; codeFont: string; codeSize: number; wordWrap: boolean; smoothing: boolean; panelMs: number;
+  terminalLight: string; terminalDark: string; terminalFont: string; terminalSize: number; terminalFace: string;
+  fontSans: string; fontSize: number; promptSize: number; promptFont: string; codeFont: string; codeSize: number; wordWrap: boolean; math: boolean; smoothing: boolean; panelMs: number;
   contextStrip: boolean; contextMeter: boolean; richText: boolean; skillsInSlash: boolean; followUp: string; legacySidebar: boolean;
   confirmUnpin: boolean; confirmArchive: boolean; confirmDelete: boolean;
 };
@@ -73,12 +73,13 @@ export function look(client: T3Client): Look {
     terminalLight: terminalTheme(prefs.themeLight, 'light', custom), terminalDark: terminalTheme(prefs.themeDark, 'dark', custom),
     terminalFont: prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode,
     terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
+    terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode),
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
     message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
     diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), artwork: prefs.environmentIdentificationMode === 'artwork', pill: prefs.environmentIdentificationMode === 'pill' ? 'Nightly' : '',
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
     fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize, promptSize: clampPromptFontSize(prefs.fontSizePrompt), promptFont: fontStack(prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
-    codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
+    codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, math: prefs.mathRenderingEnabled, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
     contextStrip: prefs.persistComposerContextStrip, contextMeter: prefs.contextWindowMeterEnabled, richText: prefs.composerRichTextEnabled,
     skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior, legacySidebar: prefs.legacySidebarEnabled,
     confirmUnpin: prefs.confirmThreadUnpin, confirmArchive: prefs.confirmThreadArchive, confirmDelete: prefs.confirmThreadDelete,
@@ -129,6 +130,11 @@ const TERMINAL_PALETTES: Record<string, readonly [string, string]> = {
   iris: ['#f8f7f9 #241523 #7253b9 #e0d9ee', '#1d1929 #fffaff #9d7df2 #4a3c70'],
 };
 /** JSON for the native terminal bridge; custom/editor roles override the standard palette. */
+/** The terminal page's font (terminal-frame.contract `font`): the family and size as JSON, an empty family the page's default. */
+export function terminalFace(family: string, size: number): string {
+  return JSON.stringify({ ...(family.trim() ? { family } : {}), ...(Number.isFinite(size) ? { size } : {}) });
+}
+
 export function terminalTheme(id: string, mode: 'light' | 'dark', custom: CustomTheme[]): string {
   const own = custom.find(theme => theme.id === id);
   const roles = { ...STANDARD[mode], ...(own?.[mode] ?? {}) };

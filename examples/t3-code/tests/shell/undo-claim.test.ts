@@ -7,6 +7,7 @@ import { chordKey, keyboardDispatch, keyboardDispatchSource, type DispatchContex
 import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { parseWhen } from '../../src/settings/keybinding-view';
 import { sidebarSession } from '../../src/sidebar/sidebar-state';
+import { contractFns } from '../support/contract-fn-fixture';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
 
 const undoBinding = (() => {
@@ -70,6 +71,8 @@ describe('the window releases the claim and swallows a held chord\'s repeats', (
       shortcutModifierStateAfterKeyboardEvent: (current: unknown) => current, areShortcutModifierStatesEqual: () => true, emptyShortcutModifierState: emptyModifiers,
       preventDefault: () => calls.push('preventDefault'), stopPropagation: () => calls.push('stopPropagation'),
       releaseUndoClaim: () => { calls.push('release'); root.call('releaseUndoClaim', state, { data }, []); },
+      quitHoldKey: () => {}, // the quit shortcut's hold (quit-hold.test.ts)
+      quitTypesLatin: contractFns('src/shell/quit-hold.contract', ['QuitHoldState']).quitTypesLatin,
     };
     return { calls, state, scope, data };
   }

@@ -307,3 +307,73 @@ fn compile_terminal_applies_the_terminal_profile() {
     // The same source compiles for every other surface.
     contract::compile(pixels).expect("a pixel width elsewhere");
 }
+
+/// LLP 1016.000 D8 in the terminal: a long poll attached to the module's own
+/// work (a continuation) is refused before that work runs, and the source
+/// parses the refusal.
+#[derive(Default)]
+struct PollsOtherWork {
+    ran: Arc<AtomicBool>,
+}
+
+impl DataSource for PollsOtherWork {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Ok(Value::record(vec![Value::str("asking")]))
+    }
+
+    fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+        Ok(Answer::Later(
+            Request::continuation(7).long_poll("since", "seq"),
+        ))
+    }
+
+    fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        let ran = self.ran.clone();
+        Some(Box::new(move || {
+            ran.store(true, Ordering::SeqCst);
+            Outcome::Storage(Vec::new())
+        }))
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let said = match outcome {
+            Outcome::Failed { message, .. } if message.starts_with("exactLongPoll") => "refused",
+            _ => "ran",
+        };
+        Ok(Answer::Now(Value::record(vec![Value::str(said)])))
+    }
+}
+
+#[test]
+fn a_long_poll_on_other_work_is_refused_before_its_work_runs() {
+    let src = "shape Word\n  text: string\ncomponent App\n  resource word = word(\"x\") as shape Word\n  view\n    text `word ${word.text}`\n";
+    let plan = contract::compile(src).expect("compiles");
+    let source = PollsOtherWork::default();
+    let ran = source.ran.clone();
+    let mut host = Host::boot(plan, source, Mode::Fullscreen, 30, 4).expect("boots");
+    let woken = Arc::new(AtomicBool::new(false));
+    let flag = woken.clone();
+    host.listen(Arc::new(move || flag.store(true, Ordering::SeqCst)));
+    let start = Instant::now();
+    loop {
+        // (asked as it booted, before the loop listened: its refusal waits for the loop's next turn)
+        woken.store(false, Ordering::SeqCst);
+        host.announced();
+        if host.frame().grid.text().contains("word refused") {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{}",
+            host.frame().grid.text()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!ran.load(Ordering::SeqCst), "its work never ran");
+}

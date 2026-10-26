@@ -5,7 +5,6 @@ import { commandOutputEvent } from '../timeline/command-output';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from '../snapshot/snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { decodeCustomThemes, type CustomTheme } from '../appearance/settings-themes';
-import { quitMode } from '../settings/palette-native';
 import { shellFailure, shellSuccess, settingsFailure } from '../shell/shell-commands';
 import { trackRpc } from '../shell/shell-slow';
 import { configEventSideEffects } from './protocol-config';
@@ -32,7 +31,9 @@ import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logi
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from '../connections/local-environment';
 import { groupLabel, repositoryGroupingKey } from '../sidebar/project-groups';
 import { adoptModelPrefs } from '../providers/settings-b-models';
-import { type RequestDraft } from '../composer/requests';
+import { openQuestionDraft, questionAttachmentKey, type RequestDraft } from '../composer/requests';
+import { pinSnapshot, snapshotAttachmentKey } from '../composer/question-attachments';
+import { reservedAttachments } from '../composer/composer-editor-attach';
 import { DiffState, DIFF_LOCAL_OPS } from '../diff/diff';
 import { TELEMETRY_KEY, telemetryEvent } from '../settings/settings-a-telemetry';
 import { mostRecentProjectId } from '../pages/pages-home';
@@ -63,12 +64,12 @@ import { codexHandoffEvent } from '../providers/codex-handoff-events'; // the ha
 import { adoptTerminalPrefs } from '../terminal/terminal-ui-state';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
-import { ClientError, bridgeReply, reply, providerAvailable, applyConfig, type BridgeReply, type Native, type Files } from './protocol';
+import { ClientError, PREFERENCE_PATH, bridgeReply, reply, providerAvailable, applyConfig, type BridgeReply, type Native, type Files } from './protocol';
 import { detachDraftLaunch, isDraftLaunch, launchId, restoreDetachedLaunch } from '../composer/draft-launch';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { windowAppearanceMode } from '../appearance/settings-appearance-look'; // the window draws in the resolved mode
+import { heldImageIds } from '../composer/composer-copied-chips'; // the latest composer copy's images keep their bytes
 
-const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
 export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean;
   /** A draft's launch a new-thread flow left while it was in flight, with the sent images the composer gave up (draft-launch.ts). */
@@ -156,6 +157,8 @@ export class T3Client {
   private snapshotNotices = new Map<string, boolean>();
   /** SnapShotCoordinator reportOnce: the failures each capture has already shown (a missing project, a failed delivery). */
   private snapshotReported = new Map<string, Set<'missing-project' | 'delivery'>>();
+  /** resolveSnapShotAttachmentTarget's pins: each capture's question draft when first seen, or null. */
+  private snapshotQuestionPins = new Map<string, string | null>();
   /** Streams the transport scheduled to resubscribe on this session (`_retryDue`), and their failure text. */
   private streamRetryDue = new Set<string>();
   private streamError = '';
@@ -173,7 +176,9 @@ export class T3Client {
   get threadStopOffered(): boolean { return obj(obj(this.config.environment).capabilities).threadStop === true; }
   get pending(): Pending | undefined { return this.local.pending[this.environmentId]; }
   get draftKey(): string { return `${this.environmentId}:${this.threadId || `new:${this.projectId}`}`; }
-  get snapshotDrafts(): Obj[] { return this.local.snapshotDrafts[this.draftKey] || []; }
+  /** The draft the composer's attachments join: the question it answers (questionAttachmentTarget), else its own. */
+  get attachmentKey(): string { return questionAttachmentKey(this) ?? this.draftKey; }
+  get snapshotDrafts(): Obj[] { return this.local.snapshotDrafts[this.attachmentKey] || []; }
   get draft(): string { return this.local.drafts[this.draftKey] || ''; }
   get projection(): Obj { return this.thread?.projection || {}; }
 
@@ -226,7 +231,7 @@ export class T3Client {
   private async load(storage: Files): Promise<void> {
     if (this.loaded) return;
     let text = '';
-    try { text = new TextDecoder().decode(await storage.fs.readFile(localPath)); }
+    try { text = new TextDecoder().decode(await storage.fs.readFile(PREFERENCE_PATH)); }
     catch (error) {
       if (error instanceof ClientError) throw error;
       // Files adapters may report a missing first-launch file as an exception.
@@ -299,9 +304,7 @@ export class T3Client {
   }
   async persist(storage: Files): Promise<void> {
     if (this.environmentId) this.local.selections[this.environmentId] = { projectId: this.projectId, threadId: this.threadId };
-    // The native adapter serializes writes inside this app's transport queue.
-    // A later answer must never await an abandoned answer's promise.
-    await storage.fs.atomicWriteFile(localPath, new TextEncoder().encode(JSON.stringify({ version: 1, ...this.local })));
+    await storage.fs.atomicWriteFile(PREFERENCE_PATH, new TextEncoder().encode(JSON.stringify({ version: 1, ...this.local })));
   }
   /** shell-prefs.ts: whether the saved preferences were read, and a save outside a command (a toast's dismissal). */
   get preferencesLoaded(): boolean { return this.loaded; }
@@ -335,8 +338,8 @@ export class T3Client {
     this.statusMessage = str(value.message);
     // A ref list scrolled toward its end asks its source again for the next page (ref-paging.ts).
     const scrolled = JSON.stringify(obj(value.presentation).scrollEnds ?? {}) !== JSON.stringify(this.presentation.scrollEnds ?? {});
-    // A Browser tab's page state (T3BrowserSessions.swift) redraws its tab and chrome row.
-    const browsed = JSON.stringify(obj(value.presentation).browserTabs ?? {}) !== JSON.stringify(this.presentation.browserTabs ?? {})
+    // A Browser tab's page as its hatch reports it (T3BrowserPage.swift: its size, separate window and recording).
+    const browsed = JSON.stringify(obj(value.presentation).browserPages ?? {}) !== JSON.stringify(this.presentation.browserPages ?? {})
       || obj(value.presentation).browserWindowZoom !== this.presentation.browserWindowZoom; // the window's zoom lays the tabs out again
     this.presentation = obj(value.presentation);
     if (scrolled || browsed) this.changed();
@@ -372,7 +375,7 @@ export class T3Client {
     native.watch('t3.notify'); // a command's wake redraws the composer (Send's "Preparing machine")
     try {
       await this.load(storage);
-      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       const ticket = statusTicket(this);
       const status = await this.raw(native, { op: 'status' });
       if (status.ok) settleTraces(this, obj(status.value), ticket);
@@ -767,14 +770,14 @@ export class T3Client {
     let resultMessage = '';
     try {
       await this.load(storage);
-      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
       else {
         if (providers) providers.requireWrite(); else this.requireWrite(); // a provider write on another environment needs that one's session
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
         else throw new ClientError(`Unknown action: ${op}`);
       }
-      if ((op === 'device-setting' || op === 'settings-core') && native?.available) await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      if ((op === 'device-setting' || op === 'settings-core') && native?.available) await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       await this.save(storage);
       await this.flushSnapshotReleases(native, storage);
       shellSuccess(this, op, value, resultMessage, id);
@@ -921,6 +924,7 @@ export class T3Client {
       const state = await this.snapshotState(native, true);
       if (!connected()) return;
       const pending = Array.isArray(state.captures) ? arr(state.captures) : scopeStrings(state.pending).map(id => ({ id, owner: this.snapshotOwner }));
+      this.pinSnapshotQuestions(scopeStrings(state.capturing), pending);
       for (const item of pending) {
         if (!connected()) return;
         const id = str(item.id), owner = str(item.owner), identity = snapshotIdentity(owner, origin, environment);
@@ -932,7 +936,8 @@ export class T3Client {
         const threadId = identity[3], active = arr(catalog.threads).find(thread => thread.id === threadId);
         // Reference defaultProjectRef; this client keeps no project-order preference.
         const projectId = identity[2] || str(active?.projectId) || snapshotDefaultProject(arr(catalog.projects), environment);
-        const key = `${environment}:${threadId || `new:${projectId}`}`;
+        const threadKey = `${environment}:${threadId || `new:${projectId}`}`;
+        let key = this.snapshotKey(id, owner, threadKey);
         // null: connection/preferences changed (retry later); false: fresh catalog lost the destination.
         const fresh = async () => { const value = await this.http(native, '/api/orchestration/shell'); return connected() ? snapshotDestinationExists(value, projectId, threadId) : null; };
         const strand = async (saved: boolean) => {
@@ -944,7 +949,7 @@ export class T3Client {
         if (!snapshotDestinationExists(catalog, projectId, threadId)) { await strand(false); continue; }
         try {
           if (!(local.snapshotDrafts[key] || []).some(image => image.id === id)) {
-            if ((local.snapshotDrafts[key] || []).length >= 100) throw new ClientError('Remove an attachment, then try this capture again.');
+            if (this.snapshotDraftFull(key)) throw new ClientError('Remove an attachment, then try this capture again.');
             const capture = await this.call(native, { op: 'snapshotRead', id, owner });
             if (capture.owner !== owner || capture.id !== id || capture.mimeType !== 'image/png' || num(capture.sizeBytes) < 1 || num(capture.sizeBytes) > 10 * 1024 * 1024) throw new ClientError('The captured window is too large or invalid.');
             // The saved draft is scaled to the attachment edge when the capture is over it (deliverSnapShot's compressImageToByteLimit).
@@ -954,6 +959,9 @@ export class T3Client {
             const destination = await fresh();
             if (destination === null) return;
             if (!destination) { await strand(true); continue; }
+            // deliverSnapShot resolves the target again once the capture is read: a question closed meanwhile gives it to the thread's draft.
+            key = this.snapshotKey(id, owner, threadKey);
+            if (this.snapshotDraftFull(key)) { local.snapshotReleases.push(id); throw new ClientError('Remove an attachment, then try this capture again.'); }
             local.snapshotDrafts[key] = [...(local.snapshotDrafts[key] || []), { id, name: str(capture.name), mimeType: 'image/png', sizeBytes: num(saved.sizeBytes) || num(capture.sizeBytes), source: obj(capture.source) }];
             try { await this.persist(storage); }
             catch (error) { withoutSnapshot(local.snapshotDrafts, key, id); local.snapshotReleases.push(id); throw error; }
@@ -967,8 +975,8 @@ export class T3Client {
             this.projectId = projectId; this.threadId = ''; this.chooseDefaults(); this.changed();
             await this.snapshotState(native, true).catch(() => undefined);
           }
-          await this.call(native, { op: 'snapshotAcknowledge', id, owner, focus: key === this.draftKey, focusOwner: JSON.stringify([origin, environment, projectId, threadId]) });
-          this.snapshotNotices.delete(id); this.snapshotReported.delete(id);
+          await this.call(native, { op: 'snapshotAcknowledge', id, owner, focus: key === this.attachmentKey, focusOwner: JSON.stringify([origin, environment, projectId, threadId]) });
+          this.snapshotNotices.delete(id); this.snapshotReported.delete(id); this.snapshotQuestionPins.delete(id);
         } catch (error) {
           if (error instanceof ClientError && ['stale', 'superseded'].includes(error.kind)) throw error;
           await dismiss(id, owner); report(id, 'delivery', snapshotFailureMessage(id, message(error)));
@@ -976,12 +984,35 @@ export class T3Client {
       }
     } finally { if (this.snapshotAdopting === adopting) this.snapshotAdopting = -1; }
   }
+  /**
+   * Pins each capture seen running or pending to the question open now, when it is this composer's (SnapShotCoordinator
+   * pins at `requested` and `started`, and before reading a capture that arrived without them); a pin whose capture is
+   * gone goes.
+   */
+  private pinSnapshotQuestions(capturing: string[], pending: Obj[]): void {
+    const open = openQuestionDraft(this)?.key ?? null, seen = new Set(capturing);
+    for (const id of capturing) pinSnapshot(this.snapshotQuestionPins, id, open);
+    for (const item of pending) {
+      seen.add(str(item.id));
+      pinSnapshot(this.snapshotQuestionPins, str(item.id), str(item.owner) === this.snapshotOwner ? open : null);
+    }
+    for (const id of [...this.snapshotQuestionPins.keys()]) if (!seen.has(id)) this.snapshotQuestionPins.delete(id);
+  }
+  /** The draft a capture joins: its pinned question while that question is open on its thread, else `threadKey`. */
+  private snapshotKey(id: string, owner: string, threadKey: string): string {
+    return snapshotAttachmentKey(this.snapshotQuestionPins, id, threadKey, owner === this.snapshotOwner ? openQuestionDraft(this)?.key ?? null : null);
+  }
+  /** A question's answer and a message each take 100 attachments; a question's count is its whole request's, file chips included. */
+  private snapshotDraftFull(key: string): boolean {
+    return (openQuestionDraft(this)?.key === key ? reservedAttachments(this) : (this.local.snapshotDrafts[key] || []).length) >= 100;
+  }
   async flushSnapshotReleases(native: Native, storage: Files): Promise<void> {
     if (!this.local.snapshotReleases.length) return;
     // First persist acknowledgment/removal and retry identities. Never delete
     // a file still referenced by the last durable draft or uncertain submission.
     try { await this.persist(storage); } catch { return; }
-    const referenced = new Set(Object.values(this.local.snapshotDrafts).flat().map(image => str(image.id)));
+    // The latest composer copy's images keep their bytes for a paste into another draft (composer-copied-chips.ts).
+    const referenced = new Set([...Object.values(this.local.snapshotDrafts).flat().map(image => str(image.id)), ...heldImageIds(this.local)]);
     for (const id of [...new Set(this.local.snapshotReleases)]) {
       if (referenced.has(id)) continue;
       try {
@@ -991,11 +1022,12 @@ export class T3Client {
     }
     await this.save(storage);
   }
-  async uploadSnapshots(native: Native, storage: Files): Promise<Obj[]> {
-    const key = this.draftKey, generation = this.generation, owner = this.snapshotOwner;
-    const current = () => key === this.draftKey && generation === this.generation && owner === this.snapshotOwner;
+  /** Uploads the draft `key`'s images (the thread's draft, or a question's for its answer) and returns their attachments. */
+  async uploadSnapshots(native: Native, storage: Files, key = this.draftKey, assertOwner?: () => void): Promise<Obj[]> {
+    const draftKey = this.draftKey, generation = this.generation, owner = this.snapshotOwner;
+    const current = () => { assertOwner?.(); return draftKey === this.draftKey && generation === this.generation && owner === this.snapshotOwner; };
     const attachments: Obj[] = [];
-    for (const image of this.snapshotDrafts) {
+    for (const image of this.local.snapshotDrafts[key] || []) {
       if (!current()) throw new ClientError('The draft changed before upload.');
       let attachmentId = str(image.uploadId);
       if (!attachmentId) {

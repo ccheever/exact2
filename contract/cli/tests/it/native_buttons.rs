@@ -78,6 +78,49 @@ fn the_precedence_fixture_keeps_exacts_bare_contact_target() {
     assert_eq!(r.slot("pressed"), Some(&Value::Number(1.0)));
 }
 #[test]
+fn raster_native_faces_are_refused_until_every_graphical_host_draws_them() {
+    for source in [
+        "\"photo.png\"",
+        "(busy ? \"symbol:sf/photo\" : \"photo.png\")",
+        "`photos/${n}.png`",
+    ] {
+        let body = format!("button appearance=\"auto\"\n  image {source}\n  text \"Photo\"");
+        let error = contract::compile(&app(&body)).unwrap_err();
+        assert_eq!(error.id, "lower-button-content", "{error}");
+        assert!(error.message.contains("every graphical host"), "{error}");
+        assert!(error.message.contains("appearance=\"none\""), "{error}");
+        boot(&app(
+            &body.replace("appearance=\"auto\"", "appearance=\"none\"")
+        ));
+    }
+}
+
+#[test]
+fn a_custom_raster_face_keeps_its_image_identity_subtitle_and_size() {
+    let mut r = boot(&app(
+        "button appearance=\"none\" testId=\"photo\"\n  image \"photo.png\"\n  text \"Photo\"\n  text \"Choose a picture\"",
+    ));
+    let face = r.kernel().press_face(view_of(&r, "photo")).unwrap();
+    assert!(face.raster);
+    assert_eq!(face.subtitle.as_deref(), Some("Choose a picture"));
+    let image = face.image.unwrap();
+    assert_eq!(image.source, "photo.png");
+    assert_eq!(image.size, None);
+    r.kernel_mut()
+        .set_intrinsic_size(image.view, Some((32.0, 20.0)))
+        .unwrap();
+    assert_eq!(
+        r.kernel()
+            .press_face(view_of(&r, "photo"))
+            .unwrap()
+            .image
+            .unwrap()
+            .size,
+        Some((32.0, 20.0))
+    );
+}
+
+#[test]
 fn its_face_is_its_children_read_live() {
     let mut r = boot(&app(
         "button appearance=\"auto\" press=go testId=\"b\"\n  image \"symbol:send\"\n  if n == 0\n    text \"Send\"\n  else\n    text \"Sent  again\"",
@@ -91,6 +134,7 @@ fn its_face_is_its_children_read_live() {
             placement: exact_kernel::ButtonImagePlacement::Leading,
             symbol: Some("send".into()),
             raster: false,
+            image: None,
             leading: true,
             label: None,
             fits: true,
@@ -172,6 +216,39 @@ fn the_style_is_a_name_in_the_table_on_a_native_button_only() {
 }
 
 #[test]
+fn face_diagnostics_name_images_and_give_rasters_a_custom_layout() {
+    for (body, says) in [
+        (
+            "button appearance=\"auto\"\n  image \"symbol:add\"",
+            "only an image",
+        ),
+        (
+            "button appearance=\"auto\"\n  image \"symbol:add\"\n  image \"symbol:close\"",
+            "one `image`",
+        ),
+    ] {
+        let (_, message) = refused(body);
+        assert!(message.contains(says), "{message}");
+    }
+    let (_, message) =
+        refused("button appearance=\"auto\"\n  image \"photo.png\" width=32\n  text \"Photo\"");
+    assert!(message.contains("raster"), "{message}");
+    assert!(message.contains("appearance=\"none\""), "{message}");
+    assert!(!message.contains("font-size"), "{message}");
+}
+
+#[test]
+fn a_coloured_symbol_is_told_its_tint_not_a_custom_button() {
+    // LLP 1141.001 D11: two ports' builders read "write a custom `button`" here and drew
+    // their own circle where the original floats iOS's glass.
+    let (_, message) = refused(
+        "button buttonStyle=\"glass\" aria-label=\"Bookmark\"\n  image \"symbol:sf/bookmark\" color=\"red\"",
+    );
+    assert!(message.contains("-exact-tint-color"), "{message}");
+    assert!(message.contains("buttonStyle=\"glass\""), "{message}");
+}
+
+#[test]
 fn its_face_is_a_title_a_symbol_or_both() {
     boot(&app("button appearance=\"auto\" press=go aria-label=\"Add\"\n  image (busy ? \"symbol:close\" : \"symbol:add\")"));
     // A role by Apple's name for it or an alias (LLP 1116.007 D3.1).
@@ -204,12 +281,8 @@ fn its_face_is_a_title_a_symbol_or_both() {
             "takes no `font-family`",
         ),
         (
-            "button appearance=\"auto\" press=go aria-label=\"x\"\n  image \"photo.png\"",
-            "is a symbol",
-        ),
-        (
             "button appearance=\"auto\" press=go aria-label=\"x\"\n  image \"symbol:sf/\"",
-            "is a symbol",
+            "needs a symbol",
         ),
         (
             "button appearance=\"auto\" press=go\n  if busy\n    text \"Wait\"",
@@ -321,6 +394,7 @@ fn every_button_has_a_face_custom_or_native() {
             placement: exact_kernel::ButtonImagePlacement::Leading,
             symbol: Some("send".into()),
             raster: false,
+            image: None,
             leading: true,
             label: Some("Save it".into()),
             fits: true,
@@ -463,7 +537,6 @@ fn every_refused_face_row_names_the_custom_button() {
         "height=24",
         "object-fit=\"contain\"",
         "padding=2",
-        "color=\"red\"",
     ] {
         let (id, message) = refused(&format!(
             "button appearance=\"auto\"\n  image \"symbol:send\" {row}\n  text \"Go\""
@@ -831,4 +904,50 @@ fn bare_reasons_live_only_in_the_development_map_and_migration_uses_merged_rows(
     );
     let (_, map) = contract::compile_path_source_mapped(&path, &source).unwrap();
     assert_eq!(map.button_migrations().len(), 1);
+}
+
+/// LLP 1115 and 1104 D2 for a radio group: a radio that writes a
+/// background, border or radius on any arm (a one-sided class included)
+/// makes its group `appearance: none`, written, decided once in the plan,
+/// so no host projects it to the platform's segmented control and back as
+/// the selection moves. Unpainted radios, and a group that says its own
+/// `appearance`, are left to the platform.
+#[test]
+fn a_radio_group_whose_radios_paint_is_the_authors_once() {
+    let group = |radio: &str, own: &str| {
+        let src = format!(
+            "style Chosen\n  background-color=\"-exact-system-blue\"\nstyle Plain\n  padding=4\n{}",
+            app(&format!(
+                "row role=\"radiogroup\" aria-label=\"Size\" testId=\"g\"{own}\n  for p in [1, 2] key=p\n    button role=\"radio\" aria-checked=(n == p) press=go {radio}\n      text `${{p}}`"
+            ))
+        );
+        let r = boot(&src);
+        let node = r.kernel().node(view_of(&r, "g")).unwrap();
+        (
+            node.style.appearance,
+            node.style.written.has(exact_kernel::StyleId::Appearance),
+        )
+    };
+    use exact_kernel::Appearance::{Auto, None};
+    for painted in [
+        "background-color=\"-exact-fill\"",
+        "border-radius=8",
+        "class=(n == p ? Chosen : Plain)",
+        "background-color=(n == p ? \"-exact-fill\" : \"transparent\")",
+    ] {
+        assert_eq!(group(painted, ""), (None, true), "{painted}");
+    }
+    for plain in [
+        "",
+        "padding=4",
+        "class=Plain",
+        "color=\"-exact-system-blue\"",
+    ] {
+        assert_eq!(group(plain, ""), (Auto, false), "{plain}");
+    }
+    assert_eq!(
+        group("border-radius=8", " appearance=\"auto\""),
+        (Auto, true),
+        "the group's own word stands"
+    );
 }

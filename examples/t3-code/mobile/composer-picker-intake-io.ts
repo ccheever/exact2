@@ -1,5 +1,6 @@
 // Actual native picker intake, with invocation-only IO and immutable retry input.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
+import { mobileComposerFileScope } from './composer-file-scope';
 import type { ComposerMountedIdentity } from './composer-editor-state';
 import type { FileHoldTarget } from './composer-file-holds-io';
 import type { ThreadSendTransferCompletion } from './thread-send-transfer-model';
@@ -44,9 +45,7 @@ function frozen<T>(raw:T):T {
   const freeze=(a:unknown):void=>{if(a&&typeof a==='object'){Object.values(a).forEach(freeze);Object.freeze(a)}};freeze(v);return v;
 }
 function scope(v:unknown,i:ComposerMountedIdentity,generation:number):v is FileHoldTarget {
-  if(!plain(v)||!keys(v,['origin','environmentId','threadId','draftKey'])||!Object.values(v).every(text)
-    ||String(v.threadId).startsWith('new:')||String(v.draftKey).includes('~queued-edit~')||v.draftKey!==`${v.environmentId}:${v.threadId}`)return false;
-  try{const o:unknown=JSON.parse(i.owner);return Array.isArray(o)&&(o.length===5||o.length===6)&&o[0]==='ordinary'&&o[1]===v.origin&&o[2]===v.environmentId&&o[3]===generation&&o[4]===v.draftKey}catch{return false}
+  return mobileComposerFileScope(i.owner,v)?.generation===generation;
 }
 function publication(v:unknown,i:ComposerMountedIdentity,generation:number):boolean {
   if(!plain(v)||!keys(v,['after','acceptedIds','discardedIds'])||!plain(v.after)||!keys(v.after,['document','text','context','images','files','attachmentIds','attachmentOrder'])

@@ -1,0 +1,591 @@
+// Excord's transcript on the fixture server (Excord LLP 0001 §3, §4.4), over the
+// real protocol client: the test run starts the fixture with --world transcript
+// --reset-on-identify, so each launch's IDENTIFY starts from the same world.
+// The world's newest message is five minutes before this epoch; #general holds
+// 10,000 messages with its last 37 unread, #help 1,200 with its last 260 unread.
+// A channel opens on one page of 50 messages (49 shown: the first waits for the
+// one before it), and the window grows a page at a time as the reader nears its
+// top (llp/0001 §2), so a test reads back by landing the reader there.
+// A test asserts what every host reports alike: the window (`anchor`, `win`), the
+// rows mounted, the reader's first visible row where nothing has just been
+// estimated. Where a property is a position on screen, a drive measures it.
+// The gateway's READY follows HELLO and IDENTIFY on real time, which no clock step
+// waits for: each launch lets 500 ms of it pass.
+epoch "2026-10-22T18:00:00Z"
+time-zone "America/Los_Angeles"
+
+test "a channel opens at its newest message, live (§3.1)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect state win.hasAfter == false
+  expect tree has "message-1562887009075210000"
+  expect tree missing "jump-present"
+
+test "unread: the bar says how many since when, and lands on the New divider (§3.2)"
+  clock +500 real
+  tap "channel-help"
+  clock settle
+  expect text "unread-bar" == "50+ new messages since 7:47 AM"
+  expect tree missing "new-divider"
+  tap "unread-bar"
+  clock settle
+  expect tree has "new-divider"
+  expect state anchor == "1554504989743776684"
+  expect state target == ""
+  expect tree missing "unread"
+
+test "a channel reopens where its reader left it (§3.3)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  expect state anchor == "1562740055536051951"
+  back
+  clock settle
+  tap "channel-random"
+  clock settle
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == "1562740055536051951"
+  expect state away == true
+  expect tree has "message-1562755578936174328"
+
+test "reading back moves the window a page ahead of the reader, who stays put (§3.4)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  expect state anchor == "1562618399954052832"
+  expect state win.firstId == "1562033782335219374"
+  expect state win.rows.0 .key == "1562033782335219374"
+  expect tree has "message-1562732896249194217"
+
+test "changes above the viewport leave the reader's row where it is (§3.5)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562867046130132736"
+  clock settle
+  expect state topKey == "1562867046130132736"
+  expect state topOffset == 0
+  tap "fixture"
+  tap "inject-edit-above"
+  clock data
+  tap "fixture"
+  tap "inject-react-above"
+  clock data
+  tap "fixture"
+  tap "inject-embed-above"
+  clock data
+  tap "fixture"
+  tap "inject-delete-above"
+  clock data
+  clock settle
+  expect state topKey == "1562867046130132736"
+  expect state topOffset == 0
+
+test "a reply's original far back loads around it, lit, and Jump to Present returns (§3.6)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562624645306263268"
+  clock settle
+  tap "reply-to-1562624645306263268"
+  clock settle
+  expect state anchor == "1518635600276626020"
+  expect state highlight == "1518635600276626020"
+  expect tree has "message-1518635600276626020"
+  expect state win.hasAfter == true
+  expect text "jump-present" == "Jump to Present"
+  clock +3000
+  expect state highlight == ""
+  tap "jump-present"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect state win.hasAfter == false
+  expect tree missing "jump-present"
+
+test "at the end a burst follows; nothing to jump to (§3.7)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "inject-burst"
+  clock settle
+  expect state away == false
+  expect state win.rows.54 .author == "Lin Chen"
+  expect state win.rows.49 .author == "Ada"
+  expect tree missing "jump-present"
+
+test "away from the end nothing moves, and a pill counts what arrived (§3.8)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  tap "fixture"
+  tap "inject-burst"
+  clock settle
+  expect state anchor == "1562740055536051951"
+  expect tree has "message-1562755578936174328"
+  expect text "jump-present" == "6 new messages"
+  tap "jump-present"
+  clock settle
+  expect state away == false
+  expect tree missing "jump-present"
+
+test "a send shows at once, dimmed, and its confirmation keeps its row (§3.9)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  request POST "/control/hold-sends" {"on": true}
+  type "composer" "Shipping the anchor fix now"
+  tap "send"
+  clock +1
+  expect text "composer" == ""
+  // The row's key is the send's nonce, the app's clock at the send, which differs
+  // by host; render.test.ts holds it across the confirmation.
+  expect state win.rows.49 .state == "pending"
+  expect state win.rows.49 .plain == "Shipping the anchor fix now"
+  request POST "/control/hold-sends" {"on": false}
+  clock data
+  clock settle
+  expect state win.rows.49 .state == "sent"
+  expect state win.rows.49 .plain == "Shipping the anchor fix now"
+  expect state win.rows.49 .id == "1562888267366400000"
+
+test "a failed send stays, marked, and Retry sends it (§3.9)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "inject-fail-next"
+  type "composer" "This one will fail"
+  tap "send"
+  clock +350
+  clock settle
+  expect state win.rows.49 .state == "failed"
+  request POST "/control/hold-sends" {"on": true}
+  tap "Retry"
+  clock +1
+  expect state win.rows.49 .state == "pending"
+  request POST "/control/hold-sends" {"on": false}
+  clock data
+  clock settle
+  expect state win.rows.49 .state == "sent"
+  expect tree missing "failed-1562888267366400000"
+
+test "Return sends and Shift-Return breaks the line (§3.12, §3.13)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "first line"
+  type "composer" key "Shift+Enter"
+  expect text "composer" == "first line\n"
+  type "composer" "first line\nsecond line"
+  type "composer" key "Enter"
+  clock settle
+  expect text "composer" == ""
+  expect state win.rows.49 .plain == "first line\nsecond line"
+
+test "a draft survives switching channels and relaunching (§3.12)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  type "composer" "half a thought"
+  back
+  clock settle
+  tap "channel-random"
+  clock settle
+  expect text "composer" == ""
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect text "composer" == "half a thought"
+  back
+  clock settle
+  reload
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  expect text "composer" == "half a thought"
+
+test "one author within seven minutes is one group; a day change draws its date (§3.15)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  expect tree has "author-1562882770722629389"
+  expect tree missing "author-1562883971870631694"
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  expect text "day-1562732896249194217" == "Oct 22, 2026"
+  expect tree missing "day-1562733934096164586"
+
+// The reviews of the first commit (Sol, Grok): one test a finding.
+
+test "a send from history returns to the live tail and lands at its end (review: Sol 2, Grok 1)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  expect state anchor == "1562618399954052832"
+  type "composer" "Back to the present"
+  tap "send"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect state endGap == 0
+  expect tree has "message-1562888267366400000"
+
+test "a send from a window pinned inside the tail shows at the end (review: Sol 2, Grok 1)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  type "composer" "Still here"
+  tap "send"
+  clock settle
+  expect state anchor == ""
+  expect state endGap == 0
+  expect tree has "message-1562888267366400000"
+
+test "Edit starts from the message's Markdown, spoilers kept (review: Sol 1)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "||secret|| and **bold**"
+  tap "send"
+  clock +350
+  clock settle
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  expect text "composer" == "||secret|| and **bold**"
+
+test "an edit the server refuses keeps its text and says why (review: Sol 4)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "first try"
+  tap "send"
+  clock +350
+  clock settle
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  type "composer" "second try"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-delete"
+  tap "delete-confirm"
+  clock settle
+  tap "send"
+  clock settle
+  expect text "composer" == "second try"
+  expect tree has "edit-error"
+
+test "a send settles while its reader is in another channel (review: Sol 5)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "sent then left"
+  tap "send"
+  back
+  clock settle
+  tap "channel-random"
+  clock settle
+  clock +1000
+  back
+  clock settle
+  tap "channel-general"
+  clock data
+  expect state win.rows.49 .state == "sent"
+
+test "the unread jump survives the first unread message's deletion (review: Sol 6)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "fixture"
+  tap "inject-delete-unread"
+  clock settle
+  tap "unread-bar"
+  clock settle
+  expect tree has "new-divider"
+  expect state target == ""
+
+test "the pill counts arrivals; a deletion does not cancel one (review: Sol 7, Grok 3)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  tap "fixture"
+  tap "inject-delete-above"
+  clock settle
+  tap "fixture"
+  tap "inject-message"
+  clock settle
+  expect text "jump-present" == "1 new message"
+
+test "within one row's height of the end, a new message is followed (review: Sol 8, Grok 2)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" drag 0 40 hold 150
+  clock settle
+  expect state away == false
+  tap "fixture"
+  tap "inject-message"
+  clock settle
+  expect state endGap == 0
+  expect tree missing "jump-present"
+
+test "a reply to a deleted message does not jump (review: Grok 5)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  tap "transcript" into "1562068155507943107"
+  clock settle
+  expect state anchor == "1562618399954052832"
+  tap "reply-to-1562068155507943107"
+  clock settle
+  expect state anchor == "1562618399954052832"
+  expect state highlight == ""
+
+test "what was read at the end is acknowledged (review: Grok 4)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "inject-burst"
+  clock settle
+  clock +2000
+  back
+  clock settle
+  expect state channels.0 .unread == 0
+
+test "paging is not refused while another refresh is in flight (review: Grok 6)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "toggle-slow"
+  clock data
+  tap "fixture"
+  tap "inject-typing"
+  clock data
+  tap "transcript" into "1562732896249194217"
+  clock +400
+  clock settle
+  expect state win.firstId == "1562033782335219374"
+
+test "a jump whose history arrives later still lands on its target (review: Sol 3)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562624645306263268"
+  clock settle
+  tap "fixture"
+  tap "toggle-slow"
+  clock data
+  tap "reply-to-1562624645306263268"
+  clock data
+  expect state win.anchor == "1562618399954052832"
+  expect state target == "1518635600276626020"
+  clock +400
+  clock settle
+  expect state win.anchor == "1518635600276626020"
+  expect state target == ""
+  expect state highlight == "1518635600276626020"
+  expect tree has "message-1518635600276626020"
+
+// The reviews' second round (Sol, Grok): one test a finding.
+
+test "leaving a channel from its end acknowledges what was on screen (re-check: Grok 4)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "inject-burst"
+  clock data
+  back
+  clock settle
+  expect state channels.0 .unread == 0
+
+test "scrolling up from the end acknowledges what was on screen (re-check: Grok 4)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "inject-burst"
+  clock data
+  tap "transcript" into "1562755578936174328"
+  clock data
+  expect state away == true
+  expect state channels.0 .unread == 0
+
+test "an edit settled after leaving its channel leaves the other channel's draft alone (re-check: Sol 1)"
+  clock +500 real
+  tap "channel-random"
+  clock settle
+  type "composer" "a draft for random"
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "first try"
+  tap "send"
+  clock +350
+  clock settle
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  type "composer" "second try"
+  tap "send"
+  back
+  tap "channel-random"
+  clock settle
+  expect text "composer" == "a draft for random"
+  expect state editing == ""
+
+test "nothing is acknowledged while the channel list shows (re-check: Sol 2)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  clock +1500
+  tap "fixture"
+  tap "toggle-live"
+  back
+  clock settle
+  clock +4000
+  expect state channels.0 .unread == 1
+
+test "Mark As Read away from the end reads the channel (re-check: Sol 3)"
+  clock +500 real
+  tap "channel-help"
+  clock settle
+  tap "transcript" into "1562230937540887704"
+  clock data
+  expect state away == true
+  tap "mark-read"
+  clock data
+  back
+  clock settle
+  expect state channels.1 .unread == 0
+
+test "a send while the list is still moving lands at the live end (re-check: Grok new 1)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  type "composer" "sent mid-fling"
+  tap "transcript" drag 0 500 over 60
+  tap "send"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect tree has "message-1562888267366400000"
+
+test "an arrival the reader watches gets no New divider (re-check: Grok new 2)"
+  clock +500 real
+  tap "channel-random"
+  clock settle
+  tap "fixture"
+  tap "inject-message"
+  clock settle
+  expect tree missing "new-divider"
+
+test "paging continues while the pin request is out (re-check: Grok new 3)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "fixture"
+  tap "toggle-slow"
+  clock data
+  tap "transcript" into "1562755578936174328"
+  tap "transcript" into "1562624645306263268"
+  clock +400
+  clock settle
+  expect state win.firstId == "1562033782335219374"
+
+// The wiring's reviews (Sol, Grok): one test a finding the view shows.
+
+test "a failed ack at the end is sent again (wiring review: Grok 4)"
+  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages/1562887009075210000/ack" times 1
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  clock +1100
+  clock data
+  clock +1100
+  clock data
+  expect state chan.unread == 0
+
+test "a channel never read jumps to its first message (wiring review: Sol 8)"
+  clock +500 real
+  tap "channel-announcements"
+  clock settle
+  expect text "unread-bar" == "50+ new messages since 8:27 AM"
+  tap "unread-bar"
+  clock settle
+  expect state anchor == "0"
+  expect tree has "new-divider"
+  expect tree has "message-1432427377459200001"
+
+test "the server menu switches the list to the direct messages, which open like a channel, and is kept"
+  clock +500 real
+  tap "server"
+  tap "server-@me"
+  clock settle
+  expect state server == "@me"
+  expect tree missing "channel-general"
+  tap "Weekend rides"
+  clock settle
+  expect state chan.name == "Weekend rides"
+  expect state win.hasAfter == false
+  back
+  clock settle
+  reload
+  clock +500 real
+  expect state server == "@me"

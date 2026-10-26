@@ -89,8 +89,8 @@ extension NavigationHost {
             }
             return container
         }()
-        mount(holder, in: parent, at: p.root)
         tabOwner = holder
+        mount(holder, in: parent, at: p.root)
         tint(tabs.tablist)
         // Kept under the agent too, where the authored tablist shows in the
         // bar's place: a real touch refuses it (LLP 1080.000 D7).
@@ -104,11 +104,15 @@ extension NavigationHost {
 
     private func mount(_ holder: UIViewController, in parent: UIViewController, at root: NodeView) {
         parent.addChild(holder)
+        if holder.view.accessibilityIdentifier == nil {
+            holder.view.accessibilityIdentifier = "exact-navigation-\(UUID().uuidString)"
+        }
         // Sized before it enters the window, where UIKit lays it out.
-        holder.view.frame = root.bounds
+        holder.view.frame = ownerFrame(holder, in: root)
         holder.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         root.addSubview(holder.view)
         holder.view.setPaintForeground(aboveAuthored: false)
+        fitOwner()
         holder.didMove(toParent: parent)
     }
 
@@ -161,8 +165,8 @@ extension NavigationHost {
         container.view.removeFromSuperview()
         container.removeFromParent()
         tabController = nil
-        mount(owned, in: parent, at: root)
         tabOwner = owned
+        mount(owned, in: parent, at: root)
         presenter.session?.log("hatch: the app's \(type(of: owned)) holds the tabs; the content moved after the first frame")
     }
 
@@ -256,6 +260,13 @@ extension NavigationHost {
         syncItems(tabs, navs: navs)
     }
 
+    /// The file a tab's raster source names: the app's own under `app:/`,
+    /// else a bundled asset of the session's resolver.
+    private func rasterURL(_ source: String) -> URL? {
+        if source.hasPrefix("app:/") { return AppFiles.url(source) }
+        return presenter.session?.app.resolver?.url(source, maximumBytes: 4 << 20)
+    }
+
     /// The items, from the authored tabs: each tab's own item, written in
     /// place when its face changes, so what else the app set on it (a badge)
     /// and a handle to it stay good.
@@ -275,14 +286,16 @@ extension NavigationHost {
         let traits = tabController.flatMap { $0.tabBar.window == nil ? nil : $0.tabBar.traitCollection }
             ?? presenter.session?.view?.traitCollection ?? UITraitCollection.current
         let points = FaceSymbol.tabBarPoints(traits)
-        let signature = zip(faces, ids).map { face, id in "\(points)|\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
+        let signature = zip(faces, ids).map { face, id in "\(points)|\(id)|\(face.base ?? "")|\(face.raster ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
-            // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states.
+            // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states;
+            // a bundled raster the same way, as a hand-built bar takes a custom image.
             let image = face.base.flatMap { FaceSymbol.image($0, points: FaceSymbol.tabBarPoints(traits)) }
+                ?? face.raster.flatMap { rasterURL($0) }.flatMap { TabFace.rasterImage(at: $0, points: FaceSymbol.tabBarPoints(traits)) }
             item.title = face.title
             item.image = image
-            item.selectedImage = face.base.flatMap { FaceSymbol.isPath($0) ? nil : UIImage(systemName: $0 + ".fill") } ?? image
+            item.selectedImage = face.base.flatMap(TabFace.filled) ?? image
             item.accessibilityIdentifier = ids[index]
             item.isEnabled = !face.disabled
             if face.disabled || face.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
@@ -296,13 +309,25 @@ extension NavigationHost {
         tint(tabs.tablist)
     }
 
-    /// The tablist's `accent-color` tints the bar's selected item, as it
-    /// tints a control (recipes F20, shop F28); `auto` keeps the system's.
+    /// The selected tab's own tint, else the tablist's accent colour, tints
+    /// the bar's selected item; an inherited tab tint leaves that fallback.
     /// The row is inherited, as in CSS, and reaches the host only on the
     /// node that sets it: the nearest ancestor that does is read. Resolved
     /// per appearance, so dark mode follows.
     func tint(_ list: NodeView) {
         guard let bar = tabController?.tabBar else { return }
+        if let tabs = tabItemsSource?.0, tabs.tablist === list, tabs.tabs.indices.contains(routerTab) {
+            let selected = tabs.tabs[routerTab]
+            if selected.ownColor("tint_color") != nil,
+               let light = selected.channels("tint_color", dark: false), let dark = selected.channels("tint_color", dark: true) {
+                let wanted = [light, dark]
+                guard tabTint != wanted || !tabTintOwn else { return }
+                tabTint = wanted
+                tabTintOwn = true
+                bar.tintColor = UIColor { TextEngine.color($0.userInterfaceStyle == .dark ? dark : light) }
+                return
+            }
+        }
         var view: UIView? = list
         while let at = view, (at as? NodeView)?.channels("accent_color", dark: false) == nil { view = at.superview }
         let source = view as? NodeView
@@ -312,14 +337,16 @@ extension NavigationHost {
         // an alert or a menu is already dimmed (`tintAdjustmentMode`), and
         // the bar would dim it a second time.
         if case .object(let o)? = source?.style["accent_color"], o["sys"]?.string == "@tint", let source, inheritsSameTint(bar, as: source) {
-            guard tabTint != [] else { return }
+            guard tabTint != [] || tabTintOwn else { return }
             tabTint = []
+            tabTintOwn = false
             bar.tintColor = nil
             return
         }
         let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
-        guard wanted != tabTint else { return }
+        guard wanted != tabTint || tabTintOwn else { return }
         tabTint = wanted
+        tabTintOwn = false
         // Never `.tintColor` in its place: that is the bar's own tint, this
         // colour, and a tablist whose accent went before the next sync (a
         // style that drops it) resolved it until the stack ran out. The
@@ -376,11 +403,14 @@ extension NavigationHost {
     /// UIKit's tab bar does not do this itself: a selected tab tapped again
     /// scrolls nothing in UIKit alone (iOS 27, a real touch).
     func scrollToTop(_ c: RouteController) {
-        guard let node = contentScroller(of: c), let sv = shownScroll(node) else { return }
-        guard sv.contentOffset.y > 0.5 - sv.adjustedContentInset.top else { return }
+        guard let sv = contentScrollView(of: c) else { return }
+        let node = contentScroller(of: c)
+        // At its top under a collapsed title it goes on to the open title's
+        // inset, as UIKit's status-bar tap does, and opens it.
+        let inset = max(sv.adjustedContentInset.top, node != nil && node === c.collapseScroll ? node?.scrollOrigin ?? 0 : 0)
+        guard sv.contentOffset.y > 0.5 - inset else { return restAtTop(sv, in: c) }
         guard scrollsToTopAnimated else { return restAtTop(sv, in: c) }
-        let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
-        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
+        sv.setContentOffset(PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -inset), in: sv, clamped: false), animated: true)
     }
 
     /// Where `scrollToTop` ends, in one turn, under the agent's frozen clock,
@@ -392,7 +422,7 @@ extension NavigationHost {
     /// unanimated: no frame shows the pull. This is the one place Exact moves
     /// a large title itself.
     func restAtTop(_ sv: UIScrollView, in c: RouteController) {
-        sv.contentOffset.y = -sv.adjustedContentInset.top
+        sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv, clamped: false)
         // tvOS has no large titles.
         #if !os(tvOS)
         guard c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
@@ -403,11 +433,11 @@ extension NavigationHost {
             // UIKit grows the inset by what the pull opened of it.
             for _ in 0..<4 {
                 let top = sv.adjustedContentInset.top
-                sv.contentOffset.y = -top - nav.navigationBar.frame.height
+                sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -top - nav.navigationBar.frame.height), in: sv, clamped: false)
                 nav.view.layoutIfNeeded()
                 if sv.adjustedContentInset.top <= top + 0.5 { break }
             }
-            sv.contentOffset.y = -sv.adjustedContentInset.top
+            sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv, clamped: false)
         }
         #endif
     }
@@ -444,6 +474,7 @@ extension NavigationHost {
         tabItems = []
         tabItemsSource = nil
         tabTint = nil
+        tabTintOwn = false
         adoptedTablist = nil
         tablistAppearanceNone = false
         measuredTablist = nil
@@ -470,11 +501,38 @@ extension NavigationHost {
         if list.convert(list.bounds, to: view) != measuredTablist { reportCovers() }
     }
 
+    /// A bar visible in its window, including every ancestor's visibility.
+    static func shownBar(_ bar: UIView?) -> UIView? {
+        guard let bar, let window = bar.window else { return nil }
+        var at: UIView? = bar
+        while let view = at {
+            if view.isHidden || view.alpha < 0.01 { return nil }
+            at = view.superview
+        }
+        let frame = bar.convert(bar.bounds, to: window)
+        return frame.width > 1 && frame.height > 1 && frame.intersects(window.bounds) ? bar : nil
+    }
+
     /// Whether a tab container takes this tablist's place.
     func adopts(tablist: NodeView) -> Bool {
         adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.authoredChrome &&
             !(tablist.wrote("appearance") && tablist.style["appearance"]?.string == "none")
     }
+}
+
+extension UITabBarController {
+    /// The bar the controller projects, including iPadOS's floating list of tab items.
+    var projectedTabBar: UIView? {
+        if #available(iOS 18.0, tvOS 18.0, *), isTabBarHidden { return nil }
+        #if os(iOS)
+        return tabBar.window != nil ? tabBar : floatingTabList
+        #else
+        return tabBar
+        #endif
+    }
+
+    /// The projected bar, when it is visibly on screen.
+    var shownTabBar: UIView? { NavigationHost.shownBar(projectedTabBar) }
 }
 
 #if os(iOS)

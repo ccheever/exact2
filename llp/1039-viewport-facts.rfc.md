@@ -227,6 +227,30 @@ the viewport facts are unchanged; agent `layout` shows the Mac's area. Tests:
 `kernel/tests/it/titlebar.rs`, `exact-apple`'s calculation snapshot, and
 `TitleBarAreaMacTests`.
 
+**The tall title row (2026-10-22).** An app without routes may ask for the
+title row a hand-built Mac window that draws its own title bar has: the web
+manifest's [`display_override`](https://wicg.github.io/manifest-incubations/#display_override-member)
+with `window-controls-overlay` first among the modes a Mac window takes
+(`standalone`, `minimal-ui`, `browser`; the others are skipped, as a browser
+skips a mode it does not support). The manifest field is the web's own, so
+Chrome takes the same declaration for the installed app. The window then gets
+an empty toolbar in AppKit's `.unified` style, a transparent title bar and
+full-size content, whatever the page's `viewport-fit`: AppKit draws the row
+at its own height (52 points on macOS 27) and centres the traffic lights in
+it, and the title-bar area is that row less the traffic lights, as above.
+`exactViewport().displayMode` reads `window-controls-overlay`. In full screen
+the toolbar leaves as the window enters and comes back after it leaves, as
+Chrome's overlay does, and the area is zero. The row is on in any window of
+the app while that window has no toolbar of the session's own: a route's
+toolbar (LLP 1115.002 D2) replaces it, under the agent's chrome too, and the
+area is zero again. This amends the ruling's "no
+manifest field" with the web manifest's own field, and "Nothing moves the
+traffic lights or sets the title bar's height" only in that the row is the
+unified toolbar's: the host still sets no height and moves no traffic light.
+Other hosts read the field as before: the web writes it into
+`manifest.json`; iOS, Linux, Windows and Android ignore it. Implementer:
+Claude, 2026-10-22.
+
 ## 4. Interview, as it would read
 
 The navigation root stays `main` and the routes stay its direct children

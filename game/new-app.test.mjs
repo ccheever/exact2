@@ -270,6 +270,10 @@ test('a new app refuses a name no host crate can carry, and a directory that is 
   try {
     assert.throws(() => createApp(resolve(parent, 'Field_Log')), /lowercase-hyphenated/);
     assert.throws(() => createApp(resolve(parent, 'field-web')), /no host suffix/);
+    // A folder named after the SDK would write exact-apple, exact-linux and exact-web beside exact2's own.
+    assert.throws(() => createApp(resolve(parent, 'exact')), /the folder's name exact would make the crate exact-apple, which is one of exact2's own/);
+    assert.throws(() => createApp(resolve(parent, 'exact-js')), /would make the crate exact-js-web/);
+    assert.ok(!existsSync(resolve(parent, 'exact')) && !existsSync(resolve(parent, 'exact-js')), 'a refused name writes nothing');
     mkdirSync(resolve(parent, 'field-log'));
     writeFileSync(resolve(parent, 'field-log/stray'), '');
     assert.throws(() => createApp(resolve(parent, 'field-log')), /not empty/);
@@ -351,6 +355,13 @@ test('failed creation removes the half-written app', () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /cargo was not found/);
     assert.equal(existsSync(dir), false);
+    // An empty directory the author made stays theirs: emptied, not removed.
+    mkdirSync(dir);
+    const again = spawnSync(process.execPath, ['--eval', `import { createApp } from ${JSON.stringify(resolve(import.meta.dir, 'new.mjs'))}; createApp(${JSON.stringify(dir)});`], {
+      env: { ...process.env, PATH: '', CARGO_HOME: resolve(parent, 'no-rustup') }, encoding: 'utf8',
+    });
+    assert.match(again.stderr, /cargo was not found/);
+    assert.deepEqual([existsSync(dir), readdirSync(dir)], [true, []]);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 

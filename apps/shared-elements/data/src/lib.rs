@@ -73,19 +73,19 @@ impl DataSource for Shared {
                     "c1",
                     "Morning",
                     "Coffee, then the long walk along the shore while the light is still low.",
-                    "#e8d5b7",
+                    "light-dark(#e8d5b7, #403326)",
                 ),
                 card(
                     "c2",
                     "Afternoon",
                     "The glasshouse in the heat of the day, and a nap in the shade after.",
-                    "#cfe3d4",
+                    "light-dark(#cfe3d4, #263d30)",
                 ),
                 card(
                     "c3",
                     "Evening",
                     "Last light over the ridge; dinner when the stars come out.",
-                    "#d6d3ec",
+                    "light-dark(#d6d3ec, #343047)",
                 ),
             ])),
             "tasks" => Ok(Value::list(vec![

@@ -7,6 +7,9 @@
 //! host's own policy (glue.js `prepareFonts`: a face not ready within about
 //! 100 ms stays unused for the page, no swap after paint) — and a preload in
 //! the served head, so a face is usually there before the text that needs it.
+//! The page's first render waits for its faces up to those 100 ms, as the wasm
+//! host's does (build.mjs's `main.js`): an `optional` face first needed while
+//! still loading would otherwise never be used, as with an uncached font file.
 
 use exact_plan::{Opcode, Plan};
 use exact_runner::vm::instructions;

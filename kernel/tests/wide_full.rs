@@ -35,3 +35,42 @@ fn refusals_age_a_full_table_until_it_admits_again() {
     assert!(tries > 0, "refused at first");
     assert_eq!(wide::refusals(), refusals + tries as u64);
 }
+
+#[cfg(unix)]
+#[test]
+fn full_table_refusal_survives_blocked_stderr() {
+    use std::io::{ErrorKind, Write};
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+    use std::process::Command;
+
+    let (mut writer, _reader) = UnixStream::pair().unwrap();
+    writer.set_nonblocking(true).unwrap();
+    loop {
+        match writer.write(b"x") {
+            Ok(n) => assert!(n > 0),
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+            Err(e) => panic!("fill stderr: {e}"),
+        }
+    }
+    assert_eq!(
+        writer.write(b"x").unwrap_err().kind(),
+        ErrorKind::WouldBlock
+    );
+
+    // Isolate stderr from this harness; capture would hide eprintln!'s failure.
+    // Keep the reader open and undrained until the child exits.
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "refusals_age_a_full_table_until_it_admits_again",
+            "--nocapture",
+        ])
+        .stderr(OwnedFd::from(writer))
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{}: {stdout}", output.status);
+    assert!(stdout.contains("1 passed"), "{stdout}");
+}

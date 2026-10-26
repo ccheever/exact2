@@ -4,7 +4,10 @@
 // Plain's root has no header until `titled`, a level-1 heading whose large
 // title collapses with the scroller right after it; its field keeps the
 // focus as the route moves into the navigation controller. Open Two pushes
-// two routes in one batch. Titled starts with a bar.
+// two routes in one batch. Titled starts with a bar. Bump changes a text no
+// tab shows, Rename the Titled tab's own: a tab's face is read again only
+// after the second (NavigationTabsIOSTests). Detail in Plain, from Titled,
+// selects Plain and pushes onto its held stack in one update.
 routes nav
   tab plain "/"
     detail "/detail"
@@ -15,12 +18,16 @@ routes nav
 component HeldTab
   state titled = false
   state draft = ""
+  state bumps = 0
+  state renamed = false
   action pick(name: string)
     nav = select(nav, name)
   action open
     nav = push(nav, "/detail")
   action openTwo
     nav = push(push(nav, "/detail"), "/detail/more")
+  action openFromTitled
+    nav = open(nav, "/detail")
   action openSheet
     nav = push(nav, "/sheet")
   action back
@@ -31,6 +38,10 @@ component HeldTab
     titled = not titled
   action write(text: string)
     draft = text
+  action bump
+    bumps = bumps + 1
+  action rename
+    renamed = not renamed
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
@@ -55,7 +66,16 @@ component HeldTab
                       text "Sheet"
                     button press=title testId="title"
                       text "Title"
+                    button press=bump testId="bump"
+                      text "Bump"
+                    button press=rename testId="rename"
+                      text "Rename"
                     column height=1600
+                  // Outside the scroller, so its batch is projected (`onlyListRows`).
+                  text `Bumped ${bumps}` testId="bumps"
+                if e.name == "titled"
+                  button press=openFromTitled testId="open-from-titled"
+                    text "Detail in Plain"
                 if e.name == "sheet"
                   button id="back" press=back testId="close"
                     text "Close"
@@ -63,4 +83,4 @@ component HeldTab
         button role="tab" aria-controls="panel-plain" aria-selected=(nav.tab == "plain") press=pick("plain") testId="tab-plain" flex=1
           text "Plain"
         button role="tab" aria-controls="panel-titled" aria-selected=(nav.tab == "titled") press=pick("titled") testId="tab-titled" flex=1
-          text "Titled"
+          text (renamed ? "Renamed" : "Titled")

@@ -11,8 +11,18 @@
 // FFI to the JNI, jnigraphics and AHardwareBuffer APIs.
 #![allow(unsafe_code)]
 
+#[path = "jni_bytes.rs"]
+mod byte_arrays;
+pub use byte_arrays::{bytes, utf8};
+
 #[path = "jni_extensions.rs"]
 pub mod jni_extensions;
+#[path = "jni_keys.rs"]
+mod jni_keys;
+#[path = "jni_picture.rs"]
+pub mod jni_picture;
+#[path = "jni_pad.rs"]
+mod pad;
 
 /// Define the JNI for an app over `CanvasHost<$data>` with the plan and
 /// compat the app's build script writes to `OUT_DIR` (`app.plan`,
@@ -88,6 +98,7 @@ macro_rules! canvas_jni {
             }
 
             $crate::canvas_jni_extensions!();
+            $crate::canvas_jni_keys!();
 
             fn flag(b: bool) -> jboolean {
                 if b {
@@ -141,6 +152,7 @@ macro_rules! canvas_jni {
                 // The reader hosts the app's text fields (LLP 1115.001 D8).
                 $crate::canvas::field::attach(env, scale);
                 $crate::canvas::legacy::attach(env);
+                $crate::canvas::presence::attach(env);
                 let dir = string(env, dir);
                 pipeline_cache();
                 std::env::set_var("HOME", &dir);
@@ -202,6 +214,7 @@ macro_rules! canvas_jni {
                 }
                 $crate::canvas::field::attach(env, scale);
                 $crate::canvas::legacy::attach(env);
+                $crate::canvas::presence::attach(env);
                 // The environment is set here, before any other thread reads it.
                 let dir = string(env, dir);
                 pipeline_cache();
@@ -279,6 +292,7 @@ macro_rules! canvas_jni {
                 bold_text: jboolean,
                 high_contrast: jboolean,
                 touch: jboolean,
+                tv: jboolean,
                 touch_slop: jfloat,
                 dates: jstring,
             ) {
@@ -292,6 +306,7 @@ macro_rules! canvas_jni {
                     bold_text: bold_text == JNI_TRUE,
                     high_contrast: high_contrast == JNI_TRUE,
                     touch: touch == JNI_TRUE,
+                    tv: tv == JNI_TRUE,
                     touch_slop,
                     dates: string(env, dates),
                 };
@@ -1022,18 +1037,7 @@ macro_rules! canvas_jni {
                 $crate::canvas::jni::release_window(window as *mut c_void);
             }
 
-            /// A key typed at the focused field: `code` a Unicode scalar, or 0
-            /// with `backspace` set; `'\n'` is Enter.
-            #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_key(
-                _env: *mut JNIEnv,
-                _class: jclass,
-                code: jint,
-                backspace: jboolean,
-            ) {
-                let ch = char::from_u32(code as u32).filter(|_| code > 0);
-                with(|h| h.key(ch, backspace == JNI_TRUE));
-            }
+            $crate::canvas_jni_pad!();
 
             /// Pictures announced and not yet fetched, as id, width, height triples:
             /// a reader on its own thread makes them before the stream that draws
@@ -1157,14 +1161,6 @@ macro_rules! canvas_jni {
                 $crate::canvas::field::java(env, &reply)
             }
 
-            /// System Back: whether the app took it.
-            #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_back(
-                _env: *mut JNIEnv,
-                _class: jclass,
-            ) -> jboolean {
-                flag(with(|h| h.back()).unwrap_or(false))
-            }
         }
     };
 }
@@ -1447,30 +1443,6 @@ pub unsafe fn copy_buffer(env: *mut JNIEnv, id: u32, buffer: jobject) -> bool {
     );
     AHardwareBuffer_unlock(hb, std::ptr::null_mut());
     true
-}
-
-/// A Java `byte[]` of UTF-8 as a string (what is not UTF-8 is replaced).
-///
-/// # Safety
-/// `env` and `array` are the JNI call's.
-pub unsafe fn utf8(env: *mut JNIEnv, array: jni_sys::jbyteArray) -> String {
-    let len = ((**env).GetArrayLength.expect("jni"))(env, array).max(0);
-    let mut buf = vec![0u8; len as usize];
-    ((**env).GetByteArrayRegion.expect("jni"))(env, array, 0, len, buf.as_mut_ptr().cast());
-    String::from_utf8_lossy(&buf).into_owned()
-}
-
-/// `bytes` as a new Java `byte[]`.
-///
-/// # Safety
-/// `env` is the JNI call's.
-pub unsafe fn bytes(env: *mut JNIEnv, bytes: &[u8]) -> jni_sys::jbyteArray {
-    let len = bytes.len() as i32;
-    let array = ((**env).NewByteArray.expect("jni"))(env, len);
-    if !array.is_null() {
-        ((**env).SetByteArrayRegion.expect("jni"))(env, array, 0, len, bytes.as_ptr().cast());
-    }
-    array
 }
 
 /// A `Surface`'s `ANativeWindow`, or null.

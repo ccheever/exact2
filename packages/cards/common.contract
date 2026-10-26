@@ -1,21 +1,9 @@
 // @exact/cards's shared pieces: what its components draw with, not
 // exported (the entry names only the components; LLP 1139 D0).
 
-// Icons on a 24 box, as paths for Glyph.
-fn iconRepost(): string = "M16.793 2.293a1 1 0 0 1 1.414 0L20.5 4.586a2 2 0 0 1 0 2.828l-2.293 2.293a1 1 0 0 1-1.414-1.414L18.086 7H7a2 2 0 0 0-2 2v2a1 1 0 1 1-2 0V9a4 4 0 0 1 4-4h11.086l-1.293-1.293a1 1 0 0 1 0-1.414ZM20 12a1 1 0 0 1 1 1v2a4 4 0 0 1-4 4H5.914l1.293 1.293a1 1 0 1 1-1.414 1.414L3.5 19.414a2 2 0 0 1 0-2.828l2.293-2.293a1 1 0 0 1 1.414 1.414L5.914 17H17a2 2 0 0 0 2-2v-2a1 1 0 0 1 1-1Z"
-fn iconPin(): string = "M6.5 3a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v3.997a6.25 6.25 0 0 0 1.83 4.42l.377.376A1 1 0 0 1 20 12.5V15a1 1 0 0 1-1 1h-6v5a1 1 0 1 1-2 0v-5H5a1 1 0 0 1-1-1v-2.5a1 1 0 0 1 .293-.707l.376-.377A6.25 6.25 0 0 0 6.5 6.996V3.001Zm2 1v2.997a8.25 8.25 0 0 1-2.416 5.834L6 12.914V14h12v-1.086l-.084-.083A8.25 8.25 0 0 1 15.5 6.997V4h-7Z"
-fn iconCornerDownRight(): string = "M15.793 10.293a1 1 0 0 1 1.338-.068l.076.068 3.293 3.293a2 2 0 0 1 .138 2.677l-.138.151-3.293 3.293a1 1 0 1 1-1.414-1.414L18.086 16H8a5 5 0 0 1-5-5V5a1 1 0 0 1 2 0v6a3 3 0 0 0 3 3h10.086l-2.293-2.293-.068-.076a1 1 0 0 1 .068-1.338Z"
+// The Attie mark, an even-odd path on a 24 box (AtCard draws it). The
+// one-colour icons are the design's icon tokens (cards.tamber's `icons`).
 fn attieIcon(): string = "M14.398 2c4.502 0 8.151 3.634 8.151 8.117q0 .678-.108 1.325a5.67 5.67 0 0 1 1.507 3.855c0 8.837-23.948 8.837-23.948 0a5.68 5.68 0 0 1 1.977-4.31 5 5 0 0 1-.153-1.234c0-2.775 2.259-5.025 5.046-5.025q.67.002 1.289.166A8.15 8.15 0 0 1 14.399 2Zm-5.07 9.032a1.6 1.6 0 0 0-.46.008 1.09 1.09 0 0 1-1.628 1.414c-.137.3-.236.637-.284.997-.198 1.484.543 2.807 1.656 2.956 1.112.148 2.174-.934 2.372-2.419s-.544-2.807-1.656-2.956Zm6.008 0a1.6 1.6 0 0 0-.46.008 1.09 1.09 0 0 1-1.628 1.414c-.137.3-.236.637-.284.997-.198 1.484.544 2.807 1.656 2.956 1.112.148 2.174-.935 2.372-2.419s-.544-2.807-1.656-2.956Z"
-
-// An icon: one path on a 24 box, in a colour.
-component Glyph
-  props
-    d: string
-    size: string
-    color: string
-  view
-    svg viewBox="0 0 24 24" width=size height=size flex-shrink=0 aria-hidden=true
-      path fill=color d=d
 
 style Name
   color="cards.name"
@@ -54,6 +42,9 @@ component VerifiedBadge
   props
     badge: string
     size: string
+    // Its ground and its check's colours (a card's tokens, a header's params).
+    ink: string
+    mark: string
   view
     if badge == "verified"
       svg testId="verified-badge"
@@ -63,8 +54,8 @@ component VerifiedBadge
         width=size
         height=size
         flex-shrink=0
-        circle cx=12 cy=12 r=11.5 fill="cards.badge"
-        path fill="cards.badge-mark"
+        circle cx=12 cy=12 r=11.5 fill=ink
+        path fill=mark
           fill-rule="evenodd"
           d="M17.659 8.175a1.36 1.36 0 0 1 0 1.925l-6.224 6.223a1.36 1.36 0 0 1-1.925 0L6.4 13.212a1.361 1.361 0 0 1 1.925-1.925l2.149 2.148 5.26-5.26a1.36 1.36 0 0 1 1.925 0Z"
     else if badge == "verifier"
@@ -75,9 +66,9 @@ component VerifiedBadge
         width=size
         height=size
         flex-shrink=0
-        path fill="cards.badge"
+        path fill=ink
           fill-rule="evenodd"
           d="M8.792 1.615a4.154 4.154 0 0 1 6.416 0 4.15 4.15 0 0 0 3.146 1.515 4.154 4.154 0 0 1 4 5.017 4.15 4.15 0 0 0 .777 3.404 4.154 4.154 0 0 1-1.427 6.255 4.15 4.15 0 0 0-2.177 2.73 4.154 4.154 0 0 1-5.781 2.784 4.15 4.15 0 0 0-3.492 0 4.154 4.154 0 0 1-5.78-2.784 4.15 4.15 0 0 0-2.178-2.73A4.154 4.154 0 0 1 .87 11.551a4.15 4.15 0 0 0 .776-3.404 4.154 4.154 0 0 1 4-5.017 4.15 4.15 0 0 0 3.146-1.515Z"
-        path fill="cards.badge-mark"
+        path fill=mark
           fill-rule="evenodd"
           d="M17.861 8.26a1.44 1.44 0 0 1 0 2.033l-6.571 6.571a1.437 1.437 0 0 1-2.033 0L5.97 13.58a1.438 1.438 0 0 1 2.033-2.033l2.27 2.269 5.554-5.555a1.437 1.437 0 0 1 2.033 0Z"

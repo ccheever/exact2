@@ -6,6 +6,28 @@ use exact_kernel::CommitReceipt;
 const UNCHANGED: &str = "{\"ops\":[],\"unchanged\":true}";
 
 impl<D: DataSource> Host<D> {
+    /// The common post-pixel activation order for committed sources.
+    pub(crate) fn activate_source(source: &mut D) -> Result<(), exact_runner::DataError> {
+        Self::configure_storage(source)?;
+        source.activate()
+    }
+
+    /// Activate the source (a TypeScript module evaluates its top level
+    /// here) without committing, so the presenter can run this on the owner
+    /// thread while its own thread stays free, then commit with
+    /// `activate_data`. Does nothing once activated, or while the source is
+    /// still loading its image: `activate_data` answers pending then.
+    pub fn prepare_data(&mut self) {
+        if self.data_activated || self.source_prepared.is_some() {
+            return;
+        }
+        if !matches!(self.runner.data_ref().preload(), Ok(true)) {
+            return;
+        }
+        self.source_prepared =
+            Some(Self::activate_source(self.runner.data()).map_err(|e| format!("{e:?}")));
+    }
+
     /// Load deferred app logic only after the presenter reports first pixel.
     pub fn activate_data(&mut self) -> String {
         if self.data_activated {
@@ -19,8 +41,12 @@ impl<D: DataSource> Host<D> {
             Err(error) => return self.commit(&[], Some(format!("prepare data: {error:?}"))),
             Ok(true) => {}
         }
-        if let Err(error) = Self::activate_source(self.runner.data()) {
-            return self.commit(&[], Some(format!("activate data: {error:?}")));
+        let activated = match self.source_prepared.take() {
+            Some(prepared) => prepared,
+            None => Self::activate_source(self.runner.data()).map_err(|e| format!("{e:?}")),
+        };
+        if let Err(error) = activated {
+            return self.commit(&[], Some(format!("activate data: {error}")));
         }
         self.data_activated = true;
         self.store_activation_pending = true;
@@ -100,6 +126,14 @@ impl<D: DataSource> Host<D> {
     }
 
     fn store_read_finished(&mut self, read: crate::store::StoreRead) {
+        // An accepted peer value supersedes the local value still owed to disk.
+        self.pending_store_writes.retain(|write| {
+            read.values
+                .iter()
+                .find(|(name, _)| name == &write.name)
+                .map(|(_, value)| value.as_slice())
+                == write.value.as_deref()
+        });
         self.store_refresh_pending = !read.complete || !read.omitted.is_empty();
         self.store_retry_names = if read.complete {
             read.omitted
@@ -132,4 +166,11 @@ impl<D: DataSource> Host<D> {
             .collect();
         self.commit_into(&receipts, error, batch)
     }
+}
+
+/// The process's app-wide module state, which every session shares: an
+/// embedder's sessions are one app (LLP 1133.004 §7, `"scope": "app"`).
+pub(super) fn app_state() -> exact_runner::AppState {
+    static STATE: std::sync::OnceLock<exact_runner::AppState> = std::sync::OnceLock::new();
+    STATE.get_or_init(Default::default).clone()
 }

@@ -94,6 +94,9 @@ final class SoundOutput {
     /// of a sequence's fills can hand over more than the ring holds.
     private var backlog: [(kind: UInt32, id: UInt64, sound: UInt32, at: Double, gain: Float, rate: Float, pan: Float)] = []
     private var draining = false
+    /// The latest start of a voice handed to the arm, host seconds: a voice
+    /// still ahead keeps the output from counting as idle.
+    private var latestStart = 0.0
     /// Seconds after a failure before a voice tries again; settable for tests.
     var retryAfter = 1.0
     /// The host clock, on CACurrentMediaTime's timebase; settable for tests.
@@ -121,8 +124,24 @@ final class SoundOutput {
         backlog = []
         close()
         #if os(iOS) || os(tvOS)
+        AudioSession.forgetIdle(ObjectIdentifier(self))
         AudioSession.release(ObjectIdentifier(self))
         #endif
+    }
+
+    /// The owner is about to change the session for speech (LLP 1133.012
+    /// D4): an output with no voice submitted and not ended stops and gives
+    /// its hold back, and the next voice opens it again, as after a route
+    /// change. Whether it let the hold go.
+    func stopIfIdle() -> Bool {
+        guard let arm else { return true }
+        guard backlog.isEmpty, counts(arm)[0] == 0, now() > latestStart + 0.05 else { return false }
+        say("sound: the idle output stopped so the audio session can change; the next sound opens it again")
+        close()
+        #if os(iOS) || os(tvOS)
+        AudioSession.release(ObjectIdentifier(self))
+        #endif
+        return true
     }
 
     /// A batch's `sound` op: the files at a boot (the last boot's voices end
@@ -144,6 +163,7 @@ final class SoundOutput {
             case "play":
                 if interrupted { say("sound skipped: interrupted"); continue }
                 guard let arm = ready(), let library = library() else { skipped += 1; continue }
+                latestStart = max(latestStart, host)
                 send(arm, library, (1, id, UInt32((op["sound"] as? NSNumber)?.intValue ?? 0), host, (op["gain"] as? NSNumber)?.floatValue ?? 1,
                                     (op["playbackRate"] as? NSNumber)?.floatValue ?? 1, (op["pan"] as? NSNumber)?.floatValue ?? 0))
             case "end":
@@ -217,6 +237,7 @@ final class SoundOutput {
         #if os(iOS) || os(tvOS)
         // The session before the engine: an output made with no active session is AURemoteIO's to fail.
         do { try AudioSession.hold(ObjectIdentifier(self)) } catch { fail("the audio session did not activate: \(error.localizedDescription)"); return nil }
+        AudioSession.stopsWhenIdle(ObjectIdentifier(self)) { [weak self] in self?.stopIfIdle() ?? true }
         observe()
         #endif
         let c = files.map { strdup(resolve($0)) }

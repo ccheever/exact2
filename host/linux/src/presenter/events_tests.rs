@@ -325,6 +325,59 @@ fn capture_precedes_target_and_bubble_and_controls_the_default() {
     );
 }
 
+/// With nothing focused, at launch or after the focused node unmounts, the
+/// root's `keycapture`, `key` and `keyup` hear a key, as the DOM's `window`
+/// listeners hear one at `<body>`; it takes no focus, and a prevented Tab
+/// moves none.
+#[test]
+fn with_nothing_focused_the_root_hears_keys() {
+    const SOURCE: &str = r#"component App
+  state heard = ""
+  state gone = false
+  action captured(k: string)
+    heard = `${heard}C${k};`
+  action down(k: string)
+    heard = `${heard}D${k};`
+    if k == "Tab"
+      preventDefault()
+  action up(k: string)
+    heard = `${heard}U${k};`
+  action leave
+    gone = true
+  view
+    column keycapture=captured key=down keyup=up testId="root" width=300 height=200
+      if not gone
+        button "Leave" press=leave testId="leave"
+      text heard testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(SOURCE),
+        Keeps,
+        (300., 200.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(p.focus, None);
+    // A keyboard's, as the window delivers it (Linux, Windows).
+    p.hardware_key("ShiftLeft", "Shift", true, false);
+    p.hardware_key("ShiftLeft", "Shift", false, false);
+    p.hardware_key("KeyA", "a", true, false);
+    assert_eq!(log(&p), "CShift;DShift;UShift;Ca;Da;");
+    let leave = id(&p, "leave");
+    p.set_focus(Some(leave), 3.);
+    p.type_key(leave, "Enter", "Enter", true, false).unwrap();
+    assert_eq!(p.focus, None, "the focused button unmounted");
+    p.key_down_with("Tab", "Tab", false, 4.);
+    assert_eq!(
+        p.focus, None,
+        "the root prevented Tab's default and took no focus"
+    );
+    assert!(log(&p).ends_with("CTab;DTab;"), "{}", log(&p));
+}
+
 #[test]
 fn keys_skip_disabled_controls_without_cutting_off_ancestors() {
     const SOURCE: &str = r#"component App

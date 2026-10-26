@@ -16,6 +16,12 @@ export type DocumentRuntime = {
   host: McpAppHost; jobs: Job[]; deadlines: Map<() => void, number>; now: number;
   permission: { serial: number; text: string; settle: (approved: boolean) => void } | null;
   closed: boolean; fullscreen: boolean; owned: () => boolean;
+  /**
+   * Whether the message being received came right after a tap or key press in the app's own frame (McpAppFrame's
+   * full-screen guard): the adapter page reports its focus and `navigator.userActivation` with each message. Input
+   * elsewhere in the app never activates the frame's separate web view, which the reference's five-second rule stands in for.
+   */
+  activated: boolean;
 };
 export function makeDocumentRuntime(client: T3Client, input: {
   app: McpAppReference; sourceThreadId: string; itemId: string; conversationThreadId: string;
@@ -23,7 +29,7 @@ export function makeDocumentRuntime(client: T3Client, input: {
   beforePermission?: () => void;
   height: (height: number) => void; width: () => number; viewportHeight: () => number; canExpand: () => boolean;
 }): DocumentRuntime {
-  const runtime: DocumentRuntime = { host: null!, jobs: [], deadlines: new Map(), now: 0, permission: null, closed: false, fullscreen: false, owned: input.owned };
+  const runtime: DocumentRuntime = { host: null!, jobs: [], deadlines: new Map(), now: 0, permission: null, closed: false, fullscreen: false, owned: input.owned, activated: false };
   const requireOwner = () => { if (!runtime.owned() || runtime.closed) { disposeDocumentRuntime(runtime); throw new McpAppHostRefusal('This document is no longer open.'); } };
   const queue = <T>(run: (native: Native, storage?: Files) => Promise<T>): Promise<T> => {
     requireOwner();
@@ -63,7 +69,7 @@ export function makeDocumentRuntime(client: T3Client, input: {
       await queue(async (native, storage) => { requireOwner(); if (!storage || client.threadId !== input.conversationThreadId) throw new McpAppHostRefusal('This conversation is no longer selected.'); await client.command('send', '', text, 0, native, storage); });
     },
     updateModelContext: context => queue(async native => { await client.rpc(native, 'mcpApps.updateModelContext', obj({ ...target, ...context, conversationThreadId: input.conversationThreadId }), true); }),
-    requestDisplayMode: async mode => { requireOwner(); if (mode === 'inline') runtime.fullscreen = false; else if (mode === 'fullscreen' && input.canExpand()) runtime.fullscreen = true; client.revision++; return runtime.fullscreen ? 'fullscreen' : 'inline'; },
+    requestDisplayMode: async mode => { requireOwner(); if (mode === 'inline') runtime.fullscreen = false; else if (mode === 'fullscreen' && runtime.activated && input.canExpand()) runtime.fullscreen = true; client.revision++; return runtime.fullscreen ? 'fullscreen' : 'inline'; },
     downloadFile: async files => {
       if (!await ask(`Save ${files.map(file => file.name).join(', ')} from ${input.app.server}?`)) throw new McpAppHostRefusal('Declined by the user.');
       for (const file of files) await queue(async native => {

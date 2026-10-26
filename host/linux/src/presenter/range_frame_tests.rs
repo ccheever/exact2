@@ -2,11 +2,11 @@
 use super::*;
 use std::path::PathBuf;
 
-fn boot(source: &str) -> Presenter<()> {
+pub(super) fn boot(source: &str) -> Presenter<()> {
     boot_at(source, 1.)
 }
 
-fn boot_at(source: &str, scale: f32) -> Presenter<()> {
+pub(super) fn boot_at(source: &str, scale: f32) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
         &crate::test_plan(source),
         (),
@@ -35,18 +35,18 @@ fn boot_at(source: &str, scale: f32) -> Presenter<()> {
     p
 }
 
-fn view(p: &Presenter<()>, test_id: &str) -> ViewId {
+pub(super) fn view(p: &Presenter<()>, test_id: &str) -> ViewId {
     let k = p.host.kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
-fn tap(p: &mut Presenter<()>, test_id: &str) {
+pub(super) fn tap(p: &mut Presenter<()>, test_id: &str) {
     let id = view(p, test_id);
     p.tap(id).unwrap();
     p.run_commands(|| ());
 }
 
-fn slot(p: &Presenter<()>, name: &str) -> serde_json::Value {
+pub(super) fn slot(p: &Presenter<()>, name: &str) -> serde_json::Value {
     let state: serde_json::Value =
         serde_json::from_str(&p.host.agent("{\"op\":\"state\"}")).unwrap();
     state["slots"][name].clone()
@@ -355,6 +355,11 @@ fn the_conform_fixture_reads_its_facts() {
         slot(&p, "geometry"),
         "caret width 0 mention on its line true from it true wide true inside true past true"
     );
+    tap(&mut p, "measure-lines");
+    assert_eq!(
+        slot(&p, "lines"),
+        "empty line at the start true between true height true width 0; empty field where a typed one starts true width 0"
+    );
 }
 
 /// Where two directions meet the caret ends the run its offset closes, as
@@ -383,9 +388,8 @@ fn a_caret_between_directions_ends_the_run_before_it() {
 
 /// A collapsed range answers where the caret is painted (theme2's 18:42
 /// ruling, G3): an empty field's at its start, an empty line's on that
-/// line, with the text's height there. (Chrome's own answers there, a zero
-/// rectangle at the viewport's origin and the preceding text's end, are the
-/// web's stated deviation.)
+/// line, with the text's height there, as the web's glue now measures it
+/// too (conform's decorations fixture compares the facts).
 #[test]
 fn an_empty_field_and_an_empty_lines_caret_are_where_it_is_painted() {
     let mut p = boot(&app("width=200 height=120", "", &[(0, 0)], ""));

@@ -67,58 +67,70 @@ fn logical_copy_omits_control_labels_in_unmounted_rows() {
         &[],
         None,
     );
-    let text = code(&mut b, |a| {
-        a.load_item(0).call(exact_plan::Stdlib::ToString);
-    });
+    // A text a press acts on is a control; a text's run a press acts on is
+    // its paragraph's, as the page selects it.
+    let tap = b.code(Asm::new());
+    let tap = b.action("tap", &[], &[], tap);
+    let pressed = [(exact_plan::EventKind::Press, tap, &[][..])];
+    let label = b.constant(&Value::str("Tap to retry"));
     b.node(
         NodeType::Text as u8,
         Some(row),
         Some(arms[0]),
         2,
+        &[binding(BindingKind::Prop, PropId::Text as u16, label)],
+        &pressed,
+        None,
+    );
+    let text = code(&mut b, |a| {
+        a.load_item(0).call(exact_plan::Stdlib::ToString);
+    });
+    let paragraph = b.node(
+        NodeType::Text as u8,
+        Some(row),
+        Some(arms[0]),
+        3,
         &[binding(BindingKind::Prop, PropId::Text as u16, text)],
         &[],
+        None,
+    );
+    let run = b.constant(&Value::str(" more"));
+    b.node(
+        NodeType::Text as u8,
+        Some(paragraph),
+        Some(arms[0]),
+        0,
+        &[binding(BindingKind::Prop, PropId::Text as u16, run)],
+        &pressed,
         None,
     );
     let h = Harness::from_parts(b.finish().unwrap(), vec![]);
     let view = h.snapshot().view;
     let mounted = h.snapshot().rows.len();
     assert!(mounted < 128);
-    let sites = crate::instance::SiteIndex::new(&h.plan);
     let mut ids = Ids::default();
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let mut u = Update::new(env(&h.plan, &h.slots), &h.sites, &mut ids);
     for policy in [crate::ListTextPolicy::Web, crate::ListTextPolicy::MacOS] {
         let copied = h.tree.list_text(&mut u, view, None, policy).unwrap();
-        let web = policy == crate::ListTextPolicy::Web;
         let rows = |range: std::ops::Range<usize>| {
             range
-                .map(|i| {
-                    if web {
-                        format!("Pressable label\n\n{i}")
-                    } else {
-                        i.to_string()
-                    }
-                })
+                .map(|i| format!("{i} more"))
                 .collect::<Vec<_>>()
                 .join("\n\n")
         };
         assert_eq!(copied, rows(0..128));
+        // A native button's title is a paragraph on the web, none on the Mac.
+        let web = policy == crate::ListTextPolicy::Web;
         let at = |key, offset| crate::ListTextPosition {
             key,
-            paragraph: if web { 2 } else { 1 },
+            paragraph: if web { 3 } else { 2 },
             offset,
         };
         let copied = h
             .tree
             .list_text(&mut u, view, Some((at("n:1", 0), at("n:127", 2))), policy)
             .unwrap();
-        assert_eq!(
-            copied,
-            format!(
-                "1\n\n{}\n\n{}12",
-                rows(2..127),
-                if web { "Pressable label\n\n" } else { "" }
-            )
-        );
+        assert_eq!(copied, format!("1 more\n\n{}\n\n12", rows(2..127)));
     }
     assert_eq!(h.snapshot().rows.len(), mounted, "copy mounts no rows");
     assert!(u.ops.is_empty());
@@ -209,9 +221,8 @@ fn logical_copy_omits_hidden_and_inert_text() {
     let view = h.snapshot().view;
     let mounted = h.snapshot().rows.len();
     assert!(mounted < 128);
-    let sites = crate::instance::SiteIndex::new(&h.plan);
     let mut ids = Ids::default();
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let mut u = Update::new(env(&h.plan, &h.slots), &h.sites, &mut ids);
     let rows = |range: std::ops::Range<usize>| {
         range
             .map(|i| format!("{i}\n\nAgain"))
@@ -271,9 +282,8 @@ fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
     );
     assert_eq!(h.tree.list_index(view, "n:127"), Some(127));
     assert_eq!(h.tree.list_index(view, "n:128"), None);
-    let sites = crate::instance::SiteIndex::new(&h.plan);
     let mut ids = Ids::default();
-    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let mut u = Update::new(env(&h.plan, &h.slots), &h.sites, &mut ids);
     let all = h
         .tree
         .list_text(&mut u, view, None, crate::ListTextPolicy::Web)

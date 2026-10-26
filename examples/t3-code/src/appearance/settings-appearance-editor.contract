@@ -49,6 +49,7 @@ component ThemeEditorHost
 component ThemeEditorPanel
   inject
     rem: number
+    interacted: action
   props
     editor: EditorView
     inspecting: bool
@@ -92,6 +93,7 @@ component ThemeEditorPanel
   action inspectUp(e: PointerEvent)
     inspectPointer(true, e)
   action inspectPointer(pick: bool, e: PointerEvent)
+    interacted()
     let hits = elementsFromPoint(e.clientX, e.clientY)
     let matches = hits.filter((id) => usage.filter((group) => group.nodes.map((node) => node.id).includes(id)).length > 0)
     let hitId = matches.slice(0, 1).join("")
@@ -236,7 +238,7 @@ component ThemeEditorPanel
                   row gap="0.5rem" align-items="center" padding-top="0.125rem" flex-shrink=0
                     text "Advanced" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
                     button press=toggleAdvanced role="switch" aria-checked=editor.advanced aria-label="Advanced Use advanced theme colors" class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(editor.advanced ? pal.accent : pal.switchOff) testId="theme-editor-advanced" title=""
-                      box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=pal.thumb margin-left=(editor.advanced ? "0.75rem" : "0px")
+                      box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=(editor.advanced ? pal.thumb : pal.thumbOff) margin-left=(editor.advanced ? "0.75rem" : "0px")
               if editor.advanced
                 column width="100%" gap="1.25rem"
                   for group in editor.groups key=group.id

@@ -274,9 +274,8 @@ describe('the split row, its card and the tab icon', () => {
   test('the card flips to end-aligned where it would cross the window', () => {
     const long = prCard(detail({ title: 'Fix sidebar overflow on narrow windows', number: 101, headBranch: 'feature/conflict' }), 'open', 283);
     expect(long.flipped).toBe(true);
-    // #101 inline: its link half ends 168.7pt in (Resolve 92.3 + the hairline), so the 289pt card is held inside the details card.
-    expect(prCard(detail({ title: 'Fix sidebar overflow on narrow windows', number: 101, headBranch: 'feature/conflict' }), 'open', 283, { width: 262, linkRight: 168.7 })).toMatchObject({ flipped: true, clamped: true, maxWidth: 278 });
-    expect(prCard(detail(), 'open', 283, { width: 262, linkRight: 145 })).toMatchObject({ flipped: false, clamped: false, maxWidth: 270 });
+    // Its size goes to the window's hover layer, which keeps it inside the window; the details card no longer bounds it.
+    expect(long).toMatchObject({ width: 290, height: 130 });
     expect(prCard(detail(), 'open', 283).flipped).toBe(false);
     expect(prCard(detail({ isDraft: true, mergeability: 'conflicting' }), 'draft', 283)).toMatchObject({ stateLabel: 'Draft', conflictText: 'Merge conflicts with main' });
     expect(prCard(detail({ changedFiles: 1, additions: 0, deletions: 0, state: 'merged' }), 'merged', 283)).toMatchObject({ files: '1 file', additions: '', checksShown: false });

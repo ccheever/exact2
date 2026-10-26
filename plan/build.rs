@@ -12,6 +12,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 const SCHEMA_PATH: &str = "tables/format.json";
+const LENT_TABLES: &[&str] = &["bindings", "nodes"];
 
 #[derive(Deserialize)]
 struct Schema {
@@ -137,6 +138,201 @@ fn rust_type(c: &Codec) -> String {
     }
 }
 
+fn codec_width(codec: &Codec) -> usize {
+    match codec {
+        Codec::U8 | Codec::Bool | Codec::Enum(_) => 1,
+        Codec::U16 => 2,
+        Codec::U32 | Codec::I32 | Codec::Str | Codec::Idx(_) | Codec::Opt(_) => 4,
+        Codec::F64 | Codec::Range(_) | Codec::Code | Codec::Bytes => 8,
+    }
+}
+
+fn row_width(table: &Table) -> usize {
+    table
+        .fields
+        .iter()
+        .map(|f| codec_width(&parse_codec(&f.codec)))
+        .sum()
+}
+
+fn read_at(codec: &Codec, offset: usize) -> String {
+    let number = |ty: &str, width: usize, at: usize| {
+        let bytes = (at..at + width)
+            .map(|i| format!("bytes[{i}]"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{ty}::from_le_bytes([{bytes}])")
+    };
+    let u32_at = |at| number("u32", 4, at);
+    match codec {
+        Codec::U8 => format!("bytes[{offset}]"),
+        Codec::U16 => number("u16", 2, offset),
+        Codec::U32 => u32_at(offset),
+        Codec::I32 => number("i32", 4, offset),
+        Codec::F64 => number("f64", 8, offset),
+        Codec::Bool => format!("bytes[{offset}] == 1"),
+        Codec::Str => format!("StrId({})", u32_at(offset)),
+        Codec::Enum(e) => format!("{e}::from_wire(bytes[{offset}]).unwrap_or({e}::ALL[0])"),
+        Codec::Idx(t) => format!("{}Id({})", pascal(t), u32_at(offset)),
+        Codec::Opt(t) => format!(
+            "{{ let v = {}; (v != u32::MAX).then_some({}Id(v)) }}",
+            u32_at(offset),
+            pascal(t)
+        ),
+        Codec::Range(t) => format!(
+            "{}Range {{ start: {}, len: {} }}",
+            pascal(t),
+            u32_at(offset),
+            u32_at(offset + 4)
+        ),
+        Codec::Code | Codec::Bytes => format!(
+            "{} {{ offset: {}, len: {} }}",
+            rust_type(codec),
+            u32_at(offset),
+            u32_at(offset + 4)
+        ),
+    }
+}
+
+fn rows(w: &mut String) {
+    w.push_str(
+        r#"
+mod rows {
+    pub trait Row: Copy {
+        const WIDTH: usize;
+        fn read(bytes: &[u8]) -> Self;
+    }
+
+    #[derive(Clone)]
+    enum Storage<R> {
+        Owned(Vec<R>),
+        Lent(&'static [u8]),
+    }
+
+    /// Fixed-width rows, owned or read from validated static plan bytes.
+    #[derive(Clone)]
+    pub struct Rows<R> {
+        storage: Storage<R>,
+    }
+
+    impl<R> Default for Rows<R> {
+        fn default() -> Self {
+            Self { storage: Storage::Owned(Vec::new()) }
+        }
+    }
+
+    impl<R: Row> Rows<R> {
+        // Only the validating decoder may lend bytes to a table.
+        pub(super) fn lent(bytes: &'static [u8]) -> Self {
+            Self { storage: Storage::Lent(bytes) }
+        }
+
+        /// Number of rows.
+        #[inline]
+        pub fn len(&self) -> usize {
+            match &self.storage {
+                Storage::Owned(rows) => rows.len(),
+                Storage::Lent(bytes) => bytes.len() / R::WIDTH,
+            }
+        }
+
+        /// Whether the table has no rows.
+        #[inline]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        /// Read one row by index.
+        #[inline]
+        pub fn get(&self, i: usize) -> Option<R> {
+            match &self.storage {
+                Storage::Owned(rows) => rows.get(i).copied(),
+                Storage::Lent(bytes) => {
+                    let start = i.checked_mul(R::WIDTH)?;
+                    bytes.get(start..start.checked_add(R::WIDTH)?).map(R::read)
+                }
+            }
+        }
+
+        /// Read rows in table order.
+        #[inline]
+        pub fn iter(&self) -> RowsIter<'_, R> {
+            match &self.storage {
+                Storage::Owned(rows) => RowsIter::Owned(rows.iter()),
+                Storage::Lent(bytes) => RowsIter::Lent(bytes.chunks_exact(R::WIDTH)),
+            }
+        }
+
+        /// Copy lent rows on first mutation and return the owned vector.
+        pub fn to_mut(&mut self) -> &mut Vec<R> {
+            if matches!(self.storage, Storage::Lent(_)) {
+                self.storage = Storage::Owned(self.iter().collect());
+            }
+            match &mut self.storage {
+                Storage::Owned(rows) => rows,
+                Storage::Lent(_) => unreachable!(),
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn is_lent(&self) -> bool {
+            matches!(self.storage, Storage::Lent(_))
+        }
+    }
+
+    /// [`Rows::iter`]: rows by value, a lent table's read from its bytes in turn.
+    pub enum RowsIter<'a, R> {
+        Owned(std::slice::Iter<'a, R>),
+        Lent(std::slice::ChunksExact<'a, u8>),
+    }
+
+    impl<R: Row> Iterator for RowsIter<'_, R> {
+        type Item = R;
+        #[inline]
+        fn next(&mut self) -> Option<R> {
+            match self {
+                RowsIter::Owned(rows) => rows.next().copied(),
+                RowsIter::Lent(rows) => rows.next().map(R::read),
+            }
+        }
+        #[inline]
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            match self {
+                RowsIter::Owned(rows) => rows.size_hint(),
+                RowsIter::Lent(rows) => rows.size_hint(),
+            }
+        }
+    }
+
+    impl<R: Row> DoubleEndedIterator for RowsIter<'_, R> {
+        #[inline]
+        fn next_back(&mut self) -> Option<R> {
+            match self {
+                RowsIter::Owned(rows) => rows.next_back().copied(),
+                RowsIter::Lent(rows) => rows.next_back().map(R::read),
+            }
+        }
+    }
+
+    impl<R: Row> ExactSizeIterator for RowsIter<'_, R> {}
+
+    impl<R: Row + std::fmt::Debug> std::fmt::Debug for Rows<R> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_list().entries(self.iter()).finish()
+        }
+    }
+
+    impl<R: Row + PartialEq> PartialEq for Rows<R> {
+        fn eq(&self, other: &Self) -> bool {
+            self.len() == other.len() && self.iter().eq(other.iter())
+        }
+    }
+}
+pub use rows::{Rows, RowsIter};
+"#,
+    );
+}
+
 fn validate(schema: &Schema) {
     assert_eq!(
         schema.format_version, 5,
@@ -144,6 +340,17 @@ fn validate(schema: &Schema) {
     );
     let tables: BTreeSet<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(tables.len(), schema.tables.len(), "format: duplicate table");
+    for name in LENT_TABLES {
+        let table = schema
+            .tables
+            .iter()
+            .find(|t| &t.name == name)
+            .expect("format: lent table exists");
+        assert!(
+            row_width(table) > 0,
+            "format: lent rows must have a nonzero width"
+        );
+    }
     for f in &schema.header {
         // @ref LLP 1038 D2 — optional table references in the header.
         if f.codec != "string" {
@@ -517,6 +724,8 @@ fn main() {
     let _ = writeln!(w, "}}");
     let _ = writeln!(w);
 
+    rows(&mut w);
+
     // ---- ids, ranges, rows ------------------------------------------------
     for t in &schema.tables {
         let p = pascal(&t.name);
@@ -539,7 +748,12 @@ fn main() {
         let _ = writeln!(w, "    pub fn is_empty(self) -> bool {{ self.len == 0 }}");
         let _ = writeln!(w, "}}");
         let _ = writeln!(w, "/// One `{}` row.", t.name);
-        let _ = writeln!(w, "#[derive(Debug, Clone, PartialEq)]");
+        let copy = if LENT_TABLES.contains(&t.name.as_str()) {
+            ", Copy"
+        } else {
+            ""
+        };
+        let _ = writeln!(w, "#[derive(Debug, Clone{copy}, PartialEq)]");
         let _ = writeln!(w, "pub struct {p}Row {{");
         for f in &t.fields {
             let _ = writeln!(w, "    /// `{}`", f.name);
@@ -551,6 +765,21 @@ fn main() {
             );
         }
         let _ = writeln!(w, "}}");
+        if LENT_TABLES.contains(&t.name.as_str()) {
+            let width = row_width(t);
+            let _ = writeln!(
+                w,
+                "impl rows::Row for {p}Row {{ const WIDTH: usize = {width};"
+            );
+            let _ = writeln!(w, "    #[inline] fn read(bytes: &[u8]) -> Self {{ Self {{");
+            let mut offset = 0;
+            for f in &t.fields {
+                let codec = parse_codec(&f.codec);
+                let _ = writeln!(w, "        {}: {},", f.name, read_at(&codec, offset));
+                offset += codec_width(&codec);
+            }
+            let _ = writeln!(w, "    }} }} }}");
+        }
         let _ = writeln!(w);
     }
 
@@ -595,7 +824,17 @@ fn main() {
     let _ = writeln!(w, "    pub data: std::borrow::Cow<'static, [u8]>,");
     for t in &schema.tables {
         let _ = writeln!(w, "    /// `{}` rows.", t.name);
-        let _ = writeln!(w, "    pub {}: Vec<{}Row>,", t.name, pascal(&t.name));
+        let container = if LENT_TABLES.contains(&t.name.as_str()) {
+            "Rows"
+        } else {
+            "Vec"
+        };
+        let _ = writeln!(
+            w,
+            "    pub {}: {container}<{}Row>,",
+            t.name,
+            pascal(&t.name)
+        );
     }
     let _ = writeln!(w, "}}");
     let _ = writeln!(w);
@@ -612,11 +851,15 @@ fn main() {
         } else {
             singular.to_string()
         };
-        let _ = writeln!(
-            w,
-            "    pub fn {accessor}(&self, id: {p}Id) -> &{p}Row {{ &self.{}[id.0 as usize] }}",
-            t.name
-        );
+        if LENT_TABLES.contains(&t.name.as_str()) {
+            let _ = writeln!(w, "    #[inline] pub fn {accessor}(&self, id: {p}Id) -> {p}Row {{ self.{}.get(id.0 as usize).expect(\"validated row id\") }}", t.name);
+        } else {
+            let _ = writeln!(
+                w,
+                "    pub fn {accessor}(&self, id: {p}Id) -> &{p}Row {{ &self.{}[id.0 as usize] }}",
+                t.name
+            );
+        }
     }
     let _ = writeln!(w, "    /// One interned string.");
     let _ = writeln!(
@@ -639,7 +882,11 @@ fn main() {
             .iter()
             .filter(|fl| matches!(parse_codec(&fl.codec), Codec::Code))
         {
-            let _ = write!(w, " for r in &self.{} {{ f(r.{}); }}", t.name, fl.name);
+            let _ = write!(
+                w,
+                " for r in self.{}.iter() {{ f(r.{}); }}",
+                t.name, fl.name
+            );
         }
     }
     let _ = writeln!(w, " }}");
@@ -656,9 +903,14 @@ fn main() {
             .iter()
             .filter(|fl| matches!(parse_codec(&fl.codec), Codec::Bytes))
         {
+            let mutable = if LENT_TABLES.contains(&t.name.as_str()) {
+                ".to_mut()"
+            } else {
+                ""
+            };
             let _ = write!(
                 w,
-                " for r in &mut self.{} {{ f(&mut r.{}); }}",
+                " for r in self.{}{mutable}.iter_mut() {{ f(&mut r.{}); }}",
                 t.name, fl.name
             );
         }
@@ -695,7 +947,7 @@ fn main() {
     );
     for t in &schema.tables {
         let _ = writeln!(w, "        w.u32(self.{}.len() as u32);", t.name);
-        let _ = writeln!(w, "        for r in &self.{} {{", t.name);
+        let _ = writeln!(w, "        for r in self.{}.iter() {{", t.name);
         for f in &t.fields {
             let stmt = match parse_codec(&f.codec) {
                 Codec::U8 => format!("w.u8(r.{});", f.name),
@@ -747,7 +999,7 @@ fn main() {
             }
             let _ = writeln!(
                 w,
-                "        for r in &self.{} {{ values[r.{}.0 as usize] = false; }}",
+                "        for r in self.{}.iter() {{ values[r.{}.0 as usize] = false; }}",
                 t.name, f.name
             );
         }
@@ -791,7 +1043,7 @@ fn main() {
     );
     for t in &schema.tables {
         let _ = writeln!(w, "        w.u32(self.{}.len() as u32);", t.name);
-        let _ = writeln!(w, "        for r in &self.{} {{", t.name);
+        let _ = writeln!(w, "        for r in self.{}.iter() {{", t.name);
         for f in &t.fields {
             // A token's value is the design's, a role override's too (LLP
             // 1121 stage 5), unless it names a profile's colour.
@@ -891,22 +1143,28 @@ fn main() {
         let p = pascal(&t.name);
         // A row's encoded size, every field fixed-width: the rows the bytes
         // left can hold bound the reservation.
-        let row: usize = t
-            .fields
-            .iter()
-            .map(|f| match parse_codec(&f.codec) {
-                Codec::U8 | Codec::Bool | Codec::Enum(_) => 1,
-                Codec::U16 => 2,
-                Codec::U32 | Codec::I32 | Codec::Str | Codec::Idx(_) | Codec::Opt(_) => 4,
-                Codec::F64 | Codec::Range(_) | Codec::Code | Codec::Bytes => 8,
-            })
-            .sum();
-        let _ = writeln!(
-            w,
-            "        let n = s.count(); let mut {} = Vec::with_capacity(s.reserve(n, {row})); for _ in 0..n {{ if s.failed() {{ break; }}",
-            t.name
-        );
-        let _ = writeln!(w, "            {} .push({p}Row {{", t.name);
+        let row = row_width(t);
+        let lent = LENT_TABLES.contains(&t.name.as_str());
+        if lent {
+            let _ = writeln!(
+                w,
+                "        let n = s.count(); let at = s.position(); let mut {} = Rows::default();",
+                t.name
+            );
+            let _ = writeln!(
+                w,
+                "        if lent.is_none() {{ {}.to_mut().reserve(s.reserve(n, {row})); }}",
+                t.name
+            );
+        } else {
+            let _ = writeln!(
+                w,
+                "        let n = s.count(); let mut {} = Vec::with_capacity(s.reserve(n, {row}));",
+                t.name
+            );
+        }
+        let _ = writeln!(w, "        for _ in 0..n {{ if s.failed() {{ break; }}");
+        let _ = writeln!(w, "            let row = {p}Row {{");
         for f in &t.fields {
             let expr = match parse_codec(&f.codec) {
                 Codec::U8 => "s.u8()".to_string(),
@@ -927,8 +1185,20 @@ fn main() {
             };
             let _ = writeln!(w, "                {}: {expr},", f.name);
         }
-        let _ = writeln!(w, "            }});");
+        let _ = writeln!(w, "            }};");
+        if lent {
+            let _ = writeln!(
+                w,
+                "            if lent.is_none() {{ {}.to_mut().push(row); }}",
+                t.name
+            );
+        } else {
+            let _ = writeln!(w, "            {}.push(row);", t.name);
+        }
         let _ = writeln!(w, "        }}");
+        if lent {
+            let _ = writeln!(w, "        if let Some(bytes) = lent {{ if !s.failed() {{ {} = Rows::lent(&bytes[at..s.position()]); }} }}", t.name);
+        }
     }
     let _ = writeln!(w, "        let r = s.finish()?;");
     let _ = writeln!(

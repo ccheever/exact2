@@ -4,10 +4,8 @@ import { requestComposerField } from '../composer/composer-field-request';
 // fileContextMenu.ts useFileContextMenu.activate, and pullRequestLinkContextMenu.ts
 // showPullRequestLinkContextMenu. Items come from context-menus.ts. Both are Contract context
 // popovers (files-surface.contract FilesExplorer, pages-prs.contract PrLinkMenu), whose rows
-// name their pick here. `showContextMenu` is the module's menu at the pointer (T3ContextMenu.swift)
-// for the chat's file and web link menus.
+// name their pick here.
 import type { T3Client } from '../client/client';
-import { obj, str, type Obj } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
@@ -16,13 +14,7 @@ import { workspaceOf } from './panel-surfaces';
 import { buildFileContextMenuItems, fileActionFailureTitle, fileContextMenuCapabilities, fileTreeContextMenuItems, menuItemIds,
   pullRequestLinkContextMenuItems, resolveFileContextMenuAbsolutePath } from '../shared/context-menus';
 import { menuRows, type MenuItem, type MenuRow } from '../sidebar/sidebar-menu';
-
-/** The module's menu at the pointer; the picked id, or '' when it closed without a choice. */
-export async function showContextMenu(client: T3Client, native: Native, items: MenuItem[]): Promise<string> {
-  const result = obj(await client.restAccess(native).call({ op: 'contextMenu', items: items as unknown as Obj[] }));
-  const picked = str(result.clicked);
-  return menuItemIds(items).includes(picked) ? picked : '';
-}
+import { openExternal } from '../client/external-open';
 
 /**
  * The Files tree's one context popover (files-surface.contract FilesExplorer `files-tree-menu`): showEntryContextMenu's
@@ -85,8 +77,7 @@ export async function pullRequestLinkPick(client: T3Client, native: Native, valu
       const reply = await bridgeReply(native, { op: 'copyText', text: url });
       if (!reply.ok) throw new Error(reply.error?.message);
     } else {
-      const result = await client.call(native, { op: 'terminalOpenExternal', url });
-      if (result.opened !== true) throw new Error('not opened');
+      if (!openExternal(url)) throw new Error('not opened');
     }
   } catch (error) {
     if (letGo(error)) throw error;

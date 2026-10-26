@@ -8,7 +8,7 @@
 // tree has ended is retired: its player stops and it reports nothing more,
 // so a late `pause`, `timeupdate` or refused play never reaches whatever now
 // holds its place (jukebox F1, F5, F6, F20).
-import { onEnd, inflight, journal, data, clock } from "./rt.js";
+import { onEnd, inflight, journal, data, clock } from "./rt.js"; import { liveById } from "./navigation.js";
 
 // The media session's actions (LLP 1098 D2, D6): the glue sends them as it
 // sends the element's events, with `seekOffset seekTime fastSeek`.
@@ -26,28 +26,14 @@ function flush() {
   Dirty.clear();
   if (later.length) requestAnimationFrame(() => { for (const e of later) install(e); });
 }
-// The wasm host does not count a load with no source, or one that stalls or
-// empties, as in flight. An opening seek still holds, so `clock settle` is
-// not taken between `seeking` and `seeked` (synthetic-media).
-function mediaSource(e) {
-  return e.currentSrc || (typeof e.getAttribute === "function" && e.getAttribute("src")) || e.exactMedia?.props?.src || "";
-}
+// A load or a seek in flight holds a settle (media-glue.js `mediaHold`, the wasm host's too), one hold at a time.
 function holdUntilPlayable(e) {
-  if (e.$media.hold || e.error || (e.readyState >= 3 && e.seeking !== true)) return;
-  if (e.seeking !== true && !mediaSource(e)) return;
+  if (e.$media.hold) return;
+  const held = globalThis.exact.mediaHold(e, () => { e.$media.hold = false; inflight.n--; });
+  if (!held) return;
   e.$media.hold = true;
   inflight.n++;
-  const names = ["seeked", "canplay", "error", "emptied", "stalled"];
-  const release = () => { if (!e.$media.hold) return; e.$media.hold = false; inflight.n--; for (const n of names) e.removeEventListener(n, check); };
-  const check = (ev) => {
-    if (e.$media.retired || e.error) return release();
-    const kind = ev && ev.type;
-    if (kind === "emptied" || kind === "stalled") return release();
-    if (e.seeking !== true && !mediaSource(e)) return release();
-    if (e.readyState >= 3 && e.seeking !== true) release();
-  };
-  e.$media.release = release;
-  for (const n of names) e.addEventListener(n, check);
+  e.$media.release = held.release;
 }
 function install(e) {
   if (e.$media.retired) return;
@@ -148,7 +134,7 @@ export function mediaOn(e, kind, f) {
 // the screen, as HTML's Element.requestFullscreen(); the glue reports
 // `fullscreenchange`.
 export const requestFullscreen = id => {
-  const el = document.getElementById(String(id ?? ""));
+  const el = liveById(String(id ?? ""));
   if (!el?.$media) return journal.push(`t=${clock.now} requestFullscreen: refused: no video with id "${id}"`);
   el.requestFullscreen().catch(e => journal.push(`t=${clock.now} requestFullscreen: refused: ${e.name}`));
 };

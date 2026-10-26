@@ -4,8 +4,10 @@ use SecretCardView from "../timeline/secret-card.contract"
 use CodeToken from "../timeline/markdown.contract"
 use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
 use CodeHighlight from "../timeline/markdown.contract"
-use MermaidDiagram from "../timeline/markdown.contract"
+use MermaidDiagram from "../timeline/mermaid-frame.contract"
+use MathFrame from "../timeline/markdown-math.contract"
 use MarkdownEnv from "../timeline/markdown.contract"
+use ChatLinkMenu from "../timeline/link-menus.contract"
 use WorktreeSetupView from "../timeline/timeline-worktree-shapes.contract"
 use MinimapItem from "../timeline/timeline-minimap.contract"
 use FindLine from "../timeline/thread-find.contract"
@@ -390,7 +392,12 @@ shape UpdateEverythingView
   summary: string
   ticking: bool
   machines: UpdateMachineView[]
+// The latest link to open outside the app (external-open.ts); app.contract's externalOpen task opens it once per serial.
+shape ExternalOpen
+  serial: number
+  url: string
 shape Snapshot
+  externalOpen: ExternalOpen
   updateEverything: UpdateEverythingView
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool
@@ -407,6 +414,8 @@ shape Snapshot
   snapshotOwner: string
   // ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
   chatgptPlan: ChatGptPlanNotice[]
+  // A Markdown web link's menu rows (external-link-menu.ts chatLinkMenuView).
+  linkMenu: ChatLinkMenu
   revision: number
   // Resource telemetry samples drained (client.ts drain): Diagnostics' live Resource monitor redraws on it alone.
   telemetry: number
@@ -552,6 +561,8 @@ shape Snapshot
   // The thread's last code copy (Copy code, Copy table); the root clears its check after 1.2 s (#123).
   codeCopyNonce: number
   diagramPreview: MermaidDiagram[]
+  // What the math pages reported (markdown-math.ts), which every MathBlock reads.
+  mathFrames: MathFrame[]
   planSaveOpen: bool
   planSavePath: string
   planSaveRoot: string

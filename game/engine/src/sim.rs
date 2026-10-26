@@ -4,7 +4,9 @@ use std::{collections::VecDeque, marker::PhantomData};
 
 mod assets;
 mod diagnostics;
+mod pads;
 mod paranoid;
+mod queue;
 mod snapshot;
 
 /// One immutable simulation instant; Copy keeps world borrows short in game code.
@@ -67,6 +69,12 @@ pub trait Game: 'static {
     /// Discoverable controls.
     fn actions() -> Actions {
         Actions::default()
+    }
+    /// The player's stored bindings (`Bindings::parse`'s text), copied into the
+    /// `Bindings` resource when a new game starts. Bind a `#[live]` argument
+    /// from app storage here, so a changed preference never restarts the game.
+    fn bindings(_args: &Self::Args) -> String {
+        String::new()
     }
     /// Refuse domain-invalid arguments before any simulation mutation.
     fn validate(_args: &Self::Args) -> Result<(), String> {
@@ -289,6 +297,10 @@ impl<G: Game> Sim<G> {
         }
         Self::register(&mut world, args);
         world.setup_tables();
+        let bindings = G::bindings(args);
+        if !bindings.trim().is_empty() {
+            crate::input::seed(&mut world, &G::actions(), &bindings);
+        }
         G::setup(&mut world, args);
         if let Some(name) = world.presentation_written() {
             panic!("Game::setup wrote presentation component `{name}`; write presentation state in Game::present, which runs right after setup");
@@ -528,168 +540,6 @@ impl<G: Game> Sim<G> {
     pub fn validate_input(&self, event: &InputEvent) -> Result<(), String> {
         self.input.validate(event)
     }
-    /// Queue a raw event in stamp order, preserving arrival order at equal stamps.
-    /// Paused input updates held state directly, without edges or queued wheel deltas.
-    pub fn input(&mut self, event: InputEvent) {
-        if let Err(error) = self.validate_input(&event) {
-            self.world.log(error);
-            return;
-        }
-        self.invalidate();
-        // A posted message waits for the next tick, paused or not.
-        if G::paused(&self.args) && !matches!(event, InputEvent::Message { .. }) {
-            self.input.apply_paused(event);
-            return;
-        }
-        let host_us = micros(event.at_ms());
-        let e = Queued {
-            host_us,
-            world_us: self
-                .last_us
-                .filter(|last| host_us <= *last)
-                .map(|_| self.world_us),
-            event,
-        };
-        let position = self
-            .queue
-            .partition_point(|old| self.projected(old) <= self.projected(&e));
-        if let InputEvent::Key { code, down, .. } = &e.event {
-            let previous = self
-                .queue
-                .range(..position)
-                .rev()
-                .find_map(|old| match &old.event {
-                    InputEvent::Key {
-                        code: key, down, ..
-                    } if key == code => Some(*down),
-                    InputEvent::Blur { .. } => Some(false),
-                    _ => None,
-                })
-                .unwrap_or_else(|| self.input.keys.contains(code));
-            if previous == *down {
-                return;
-            }
-        }
-        // Only coalesce across other moves/wheels: contact and key edges retain
-        // the positions and device state that were current when they arrived.
-        let boundary = self.boundary(&e);
-        for i in (0..position).rev() {
-            if self.boundary(&self.queue[i]) != boundary {
-                break;
-            }
-            match (&mut self.queue[i].event, &e.event) {
-                (old, new) if old.same_motion(new) => {
-                    let mut e = e;
-                    e.event.add_motion(old);
-                    self.queue.remove(i);
-                    self.queue.insert(position - 1, e);
-                    return;
-                }
-                (InputEvent::Wheel { dx, dy, .. }, InputEvent::Wheel { dx: x, dy: y, .. }) => {
-                    *dx += x;
-                    *dy += y;
-                    return;
-                }
-                (
-                    InputEvent::Pointer {
-                        phase: PointerPhase::Move,
-                        ..
-                    }
-                    | InputEvent::Control {
-                        phase: PointerPhase::Move,
-                        ..
-                    }
-                    | InputEvent::Wheel { .. },
-                    _,
-                ) => {}
-                _ => break,
-            }
-        }
-        let (mut position, mut e) = (position, e);
-        if self.queue.len() < QUEUE_LIMIT {
-            // Below the limit an overflow episode is over: the next one journals again.
-            self.overflow_logged = false;
-            self.posts_logged = false;
-        }
-        if self.queue.len() == QUEUE_LIMIT {
-            // A posted message is never dropped silently: a full queue refuses
-            // the new post, by name, and a device event never displaces one.
-            let message = |e: &Queued| matches!(e.event, InputEvent::Message { .. });
-            let drop = (!message(&e))
-                .then(|| {
-                    let moves = self.queue.iter().position(|e| e.event.is_move());
-                    moves.or_else(|| self.queue.iter().position(|e| !message(e)))
-                })
-                .flatten();
-            let Some(drop) = drop else {
-                self.refused_posts += u64::from(message(&e));
-                // Once per overflow episode for each kind; state counts each post.
-                let logged = if message(&e) {
-                    &mut self.posts_logged
-                } else {
-                    &mut self.overflow_logged
-                };
-                if !*logged {
-                    *logged = true;
-                    self.world.log(if message(&e) {
-                        "postMessage refused: the input queue holds 1024 events; post less often (state input.refusedPosts counts them)"
-                    } else {
-                        "input queue overflow: every queued event is a posted message; dropped the new event"
-                    });
-                }
-                return;
-            };
-            let was_move = self.queue[drop].event.is_move();
-            let dropped = self.queue.remove(drop).expect("a queued event");
-            position -= usize::from(drop < position);
-            // A dropped move's motion joins that pointer's next event, so a
-            // flood of moves loses positions, never the turn they add up to.
-            if let InputEvent::Pointer { id, .. } = dropped.event {
-                let same =
-                    |ev: &InputEvent| matches!(ev, InputEvent::Pointer { id: n, .. } if *n == id);
-                let (mut before, mut after) = (drop..position, position..self.queue.len());
-                if let Some(i) = before.find(|&i| same(&self.queue[i].event)) {
-                    self.queue[i].event.add_motion(&dropped.event);
-                } else if same(&e.event) {
-                    e.event.add_motion(&dropped.event);
-                } else if let Some(i) = after.find(|&i| same(&self.queue[i].event)) {
-                    self.queue[i].event.add_motion(&dropped.event);
-                }
-            }
-            if !self.overflow_logged {
-                self.world.log(if was_move {
-                    "input queue overflow: dropped oldest move"
-                } else {
-                    "input queue overflow: dropped oldest event"
-                });
-                self.overflow_logged = true;
-            }
-        }
-        self.queue.insert(position, e);
-    }
-    fn flush_paused(&mut self, now: i64) {
-        let mut held = VecDeque::new();
-        while self
-            .queue
-            .front()
-            .is_some_and(|e| e.world_us.is_some() || e.host_us <= now)
-        {
-            let e = self.queue.pop_front().unwrap();
-            if let InputEvent::Message { .. } = e.event {
-                // Restamped at the pause's end, so it reaches the first tick after.
-                held.push_back(Queued {
-                    world_us: None,
-                    host_us: now,
-                    ..e
-                });
-            } else {
-                self.input.apply_paused(e.event);
-            }
-        }
-        held.append(&mut self.queue);
-        self.queue = held;
-        self.input.clear_edges();
-    }
     /// Host display period in milliseconds; zero means not yet known. Applied
     /// only by the next accepted live advance, never by a backwards sample.
     pub fn frame_period(&mut self, period_ms: f64) {
@@ -905,6 +755,7 @@ impl<G: Game> Sim<G> {
             self.world.spans.borrow_mut().begin(self.world.tick() + 1);
             self.world.begin_tick();
             self.input.clear_edges();
+            self.sync_input();
             self.world.deliver_events(&mut self.input);
             let end = (self.world.tick() as u128 + 1) * 1_000_000;
             let mut delivered = false;
@@ -914,20 +765,19 @@ impl<G: Game> Sim<G> {
                     stamp < end || (clock == Clock::Live && stamp == end)
                 })
             }) {
-                let event = self.queue.pop_front().unwrap().event;
-                if let InputEvent::Message { text, .. } = &event {
+                let e = self.queue.pop_front().unwrap();
+                let edit = matches!(&e.event, InputEvent::Message { text, .. }
                     if crate::world::edit::command(text).is_some()
-                        && self.world.apply_set(text, self.development_edits)
-                    {
-                        self.edits_admitted = true;
-                    } else {
-                        self.input.apply(event);
-                    }
+                        && self.world.apply_set(text, self.development_edits));
+                if edit {
+                    self.edits_admitted = true;
                 } else {
-                    self.input.apply(event);
+                    self.deliver(e.event, e.world_us.unwrap_or(self.world_us), false);
                 }
                 delivered = true;
             }
+            // Holds mature on world time, whether or not an event arrived.
+            self.mature_input(end);
             self.restored = false;
             self.restored_from = None;
             delivered |= self.world.activate_tables();
@@ -1094,6 +944,7 @@ impl<G: Game> Sim<G> {
             code: code.into(),
             down,
             at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+            player: 0,
         });
     }
     /// Post a message into the world at the current clock, as Contract's
@@ -1149,6 +1000,26 @@ impl<G: Game> Sim<G> {
         self.input(InputEvent::Message {
             text: text.into(),
             at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+            player: 0,
+        });
+    }
+    /// Queue a sample of `sensor` at the current clock, as a canvas input
+    /// (`startSensorInput`) delivers one: `values` are x, y, z and w.
+    pub fn sensor(&mut self, sensor: crate::SensorKind, values: [f32; 4]) {
+        self.input(InputEvent::Sensor {
+            sensor,
+            values,
+            dropped: 0,
+            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+            player: 0,
+        });
+    }
+    /// Queue the end of `sensor`'s input at the current clock.
+    pub fn sensor_ended(&mut self, sensor: crate::SensorKind) {
+        self.input(InputEvent::SensorEnded {
+            sensor,
+            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+            player: 0,
         });
     }
     /// Queue both key edges at the current clock.
@@ -1202,10 +1073,12 @@ impl<G: Game> Sim<G> {
     /// Pending input and unobserved mutations prevent rest unless time is paused.
     pub fn quiescent(&self) -> bool {
         self.check_epoch();
+        // A pending hold or tap window changes the world on its own (I2).
         let settled = !self.setup_pending
             && self.queue.is_empty()
             && (G::paused(&self.args) || self.world.table_pending_tick().is_none())
-            && (G::paused(&self.args) || self.world.quiescent());
+            && (G::paused(&self.args)
+                || (self.world.quiescent() && self.input.next_deadline().is_none()));
         if settled {
             self.settle_delay.set(100);
         }
@@ -1241,6 +1114,9 @@ impl<G: Game> Sim<G> {
         if !self.queue.is_empty() && reasons.len() < 8 {
             reasons.push("input queued".into());
         }
+        if let Some((_, action)) = self.input.next_deadline().filter(|_| reasons.len() < 8) {
+            reasons.push(format!("input trigger {action}"));
+        }
         reasons
     }
     pub(crate) fn settle_at(&self, settle: bool) -> f64 {
@@ -1249,10 +1125,17 @@ impl<G: Game> Sim<G> {
         let tick_us = |tick: u64| {
             i64::try_from((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)).unwrap_or(i64::MAX)
         };
-        let deadline = self
-            .world
-            .settle_tick()
-            .filter(|tick| *tick > self.world.tick());
+        // A pending trigger's tick (it fires before that tick's end) is a
+        // deadline as the world's own are: settling goes straight to it.
+        let trigger = self
+            .input
+            .next_deadline()
+            .map(|(due, _)| (due.max(0) as u128 * G::HZ as u128 / 1_000_000) as u64 + 1);
+        let deadline = [self.world.settle_tick(), trigger]
+            .into_iter()
+            .flatten()
+            .filter(|tick| *tick > self.world.tick())
+            .min();
         let delay = self.settle_delay.get();
         let mut next = deadline.map_or(self.world_us.saturating_add(delay as i64 * 1000), tick_us);
         if let Some(event) = self.queue.front() {
@@ -1277,7 +1160,7 @@ impl<G: Game> Sim<G> {
         }
         let mut input = self.input.clone();
         for queued in &self.queue {
-            input.apply_paused(queued.event.clone());
+            input.apply_paused(queued.event.clone(), self.projected(queued));
         }
         std::borrow::Cow::Owned(input)
     }

@@ -1,0 +1,30 @@
+test "a new conversation takes the chosen model and effort"
+  size 1100x720
+  tap "new"
+  tap "new-effort-high"
+  tap "model-anthropic/claude-sonnet-5.5"
+  tap "new-start"
+  clock data
+  expect text "chat-title" == "New Conversation"
+  expect text "composer-caption" == "Claude Sonnet 5.5 · High thinking"
+  expect tree has "chat-empty"
+
+test "a sent message lands, the composer clears, and the sidebar lists it"
+  size 1100x720
+  tap "new"
+  tap "new-start"
+  clock data
+  type "composer" "What is liquid glass?"
+  tap "send"
+  clock data
+  expect text "composer" == ""
+  expect text "msg-m2" == "What is liquid glass?"
+  expect text "title-c1" == "What is liquid glass?"
+
+test "a search finds a model beyond the featured ones"
+  size 1100x720
+  tap "new"
+  type "model-search" "haiku"
+  clock data
+  expect tree has "model-anthropic/claude-haiku-5.5"
+  expect tree missing "model-openai/gpt-6.1-sol"

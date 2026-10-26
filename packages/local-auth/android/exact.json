@@ -1,0 +1,44 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/local-auth@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidAuthentication": {
+      "authenticationType": "enum<biometric|deviceCredential>"
+    },
+    "AndroidLocalAuthStatus": {
+      "canAuthenticate": "AndroidCanAuthenticate",
+      "label": "option<string>"
+    },
+    "AndroidCanAuthenticate": {
+      "biometricStrong": "number",
+      "biometricWeak": "number",
+      "deviceCredential": "number"
+    }
+  },
+  "options": {
+    "authenticate": {
+      "allowedAuthenticators": "enum<BIOMETRIC_STRONG|BIOMETRIC_WEAK|DEVICE_CREDENTIAL>[]",
+      "subtitle": "strings-key",
+      "description": "strings-key",
+      "negativeButtonText": "strings-key",
+      "confirmationRequired": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "promptBuilder",
+    "keyBuilder"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.localauth.LocalAuthModule"
+}

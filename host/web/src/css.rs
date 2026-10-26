@@ -5,8 +5,11 @@
 //! Unsupported rows are reported in [`Skipped`].
 
 mod clears;
+pub mod control_size;
 mod decorations;
 mod fonts;
+mod selection;
+pub mod text_style;
 pub use decorations::decoration_styles;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
@@ -68,6 +71,7 @@ fn css_text_in(
                 num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
                 out.push_str("rem");
             }
+            Unit::TextStyleAtMost(_) => out.push_str(&unit.capped_css(n)),
             // @ref LLP 1115.000 D10.3 — one device pixel: the page's sheet
             // keeps `--exact-hairline` at it, whatever the display's scale.
             Unit::Hairline => out.push_str(HAIRLINE),
@@ -282,19 +286,9 @@ fn css_text_in(
             (StyleId::ColorScheme, RowValue::Enum("normal")) => {
                 out.push_str("color-scheme:inherit;")
             }
-            // WebKit parses `user-select` but selects by the prefixed name only.
-            (StyleId::UserSelect, RowValue::Enum(v)) => {
-                push_text!(&mut out, "-webkit-user-select:{};user-select:{};", v, v)
-            }
-            // LLP 1069.011.001 D8–D9: browser-owned absolute sizes and corners.
-            (StyleId::ControlSize, RowValue::Enum(size)) => {
-                let size = match *size {
-                    "mini" => "x-small",
-                    size @ ("small" | "large") => size,
-                    _ => "medium",
-                };
-                push_text!(&mut out, "--exact-control-font-size:{};", size);
-            }
+            (StyleId::UserSelect, RowValue::Enum(v)) => selection::push(&mut out, v),
+            (StyleId::ControlSize, RowValue::Enum(size)) => control_size::push(&mut out, size),
+            // LLP 1069.011.001 D9: browser-owned corners.
             (StyleId::ControlCornerStyle, RowValue::Enum(corner)) => {
                 out.push_str("--exact-control-radius:");
                 out.push_str(if *corner == "capsule" {
@@ -394,8 +388,21 @@ fn css_text_in(
             // boundary's tuple (LLP 1121 D7): nothing to write, none skipped (F30).
             (StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent, _) => {}
             (StyleId::Mode, _) => {}
+            // Where a grouped row's separator starts (index.html), inherited
+            // as the direction is.
+            (StyleId::Direction, RowValue::Enum(dir)) => {
+                push_text!(
+                    &mut out,
+                    "direction:{};--exact-separator-x:{};",
+                    dir,
+                    if *dir == "rtl" { "100%" } else { "0" }
+                );
+            }
             _ if lowered(id, &value) => {
-                property(&mut out, id);
+                match unsaid_side(style, id) {
+                    Some(logical) => out.push_str(logical),
+                    None => property(&mut out, id),
+                }
                 out.push(':');
                 if !authored(&mut out, id) {
                     declared(&mut out, id, &value);
@@ -599,6 +606,40 @@ pub(crate) fn translate_axis(out: &mut String, px: f32, pct: f32) {
     }
 }
 
+/// A padding or margin side only the platform's sheet set, its author
+/// writing neither side of the pair and neither naming an edge, as CSS's
+/// logical property: right to left it mirrors, as the kernel mirrors it
+/// (`style::sides::mirror_unsaid`).
+fn unsaid_side(style: &StyleProps, id: StyleId) -> Option<&'static str> {
+    let (pair, logical) = match id {
+        StyleId::PaddingLeft => (
+            [&style.padding_left, &style.padding_right],
+            "padding-inline-start",
+        ),
+        StyleId::PaddingRight => (
+            [&style.padding_left, &style.padding_right],
+            "padding-inline-end",
+        ),
+        StyleId::MarginLeft => (
+            [&style.margin_left, &style.margin_right],
+            "margin-inline-start",
+        ),
+        StyleId::MarginRight => (
+            [&style.margin_left, &style.margin_right],
+            "margin-inline-end",
+        ),
+        _ => return None,
+    };
+    let other = match id {
+        StyleId::PaddingLeft => StyleId::PaddingRight,
+        StyleId::PaddingRight => StyleId::PaddingLeft,
+        StyleId::MarginLeft => StyleId::MarginRight,
+        _ => StyleId::MarginLeft,
+    };
+    (!style.written.has(id) && !style.written.has(other) && pair.iter().all(|d| d.directionless()))
+        .then_some(logical)
+}
+
 fn property(out: &mut String, id: StyleId) {
     static NAMES: [std::sync::OnceLock<String>; 256] = [const { std::sync::OnceLock::new() }; 256];
     out.push_str(NAMES[id as usize].get_or_init(|| {
@@ -710,6 +751,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => out.push_str(&g.css()),
         RowValue::TextShadow(s) => out.push_str(&s.css()),
+        RowValue::FontVariations(v) => out.push_str(&v.css()),
         RowValue::BoxShadow(s) => out.push_str(&s.css()),
         RowValue::CornerShape(c) => out.push_str(&c.css()),
         RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}
@@ -739,6 +781,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::Orphans
             | StyleId::FontWeight
             | StyleId::Scale
+            // CSS `zoom`, an iframe's alone (LLP 1020.002 D6).
+            | StyleId::Zoom
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
             | StyleId::FillOpacity
             | StyleId::StrokeOpacity
@@ -937,77 +981,7 @@ fn num_into(out: &mut String, n: f32) {
 }
 
 #[cfg(test)]
-mod flow_tests {
-    use super::*;
-    #[test]
-    fn clamp_does_not_replace_layout_visibility_or_scrolling() {
-        for (row, value) in [
-            (StyleId::Display, "flex"),
-            (StyleId::Display, "grid"),
-            (StyleId::Display, "none"),
-            (StyleId::OverflowX, "scroll"),
-            (StyleId::OverflowY, "scroll"),
-        ] {
-            let mut style = StyleProps::default();
-            style
-                .set_dynamic(row, &exact_kernel::StyleValue::Text(value.into()))
-                .unwrap();
-            let (before, _) = css_text(&style, &[]);
-            style
-                .set_dynamic(StyleId::LineClamp, &exact_kernel::StyleValue::Number(2.0))
-                .unwrap();
-            let (after, skipped) = css_text(&style, &[]);
-            assert_eq!(before, after, "{row:?}: {value}");
-            assert_eq!(
-                skipped.iter().map(|s| s.row).collect::<Vec<_>>(),
-                [StyleId::LineClamp]
-            );
-            style
-                .set_dynamic(StyleId::LineClamp, &exact_kernel::StyleValue::Number(0.0))
-                .unwrap();
-            assert!(css_text(&style, &[]).1.is_empty());
-        }
-    }
-
-    #[test]
-    fn exclusion_rows_keep_authored_css_visible() {
-        let mut s = StyleProps::default();
-        for (id, value) in [
-            (StyleId::WrapFlow, "both"),
-            (StyleId::ShapeOutside, "circle()"),
-            (StyleId::ShapeMargin, "8px"),
-        ] {
-            s.set_dynamic(id, &exact_kernel::StyleValue::Text(value.into()))
-                .unwrap();
-        }
-        let (css, skipped) = css_text(&s, &[]);
-        assert!(css.contains("shape-outside:circle(closest-side at 50% 50%);"));
-        assert!(css.contains("shape-margin:8px;"));
-        assert!(css.contains("wrap-flow:both;"));
-        assert!(skipped.is_empty());
-    }
-
-    /// LLP 1034 §8: the browser resolves `light-dark()` by the inherited
-    /// `color-scheme`; an unset (`normal`) row follows the parent's.
-    #[test]
-    fn color_scheme_is_passed_through() {
-        for (value, want) in [
-            ("dark", "color-scheme:dark;"),
-            ("light", "color-scheme:light;"),
-            ("normal", "color-scheme:inherit;"),
-        ] {
-            let mut s = StyleProps::default();
-            s.set_dynamic(
-                StyleId::ColorScheme,
-                &exact_kernel::StyleValue::Text(value.into()),
-            )
-            .unwrap();
-            let (css, skipped) = css_text(&s, &[]);
-            assert!(css.contains(want), "{value}: {css}");
-            assert!(skipped.is_empty());
-        }
-    }
-}
+mod flow_tests;
 
 #[cfg(test)]
 mod writer_tests {
@@ -1071,26 +1045,10 @@ mod writer_tests {
             .map(|n| n.trim_start_matches(','))
             .collect();
         assert_eq!(
-            names,
-            [
-                "opacity 1s ease 0s,stroke-dashoffset",
-                "r",
-                "color",
-                "background-color",
-                "fill",
-                "stroke",
-                "cx",
-                "cy",
-                "x",
-                "y",
-                "rx",
-                "ry",
-                "border-color",
-                "--exact-tint",
-                "box-shadow",
-                "d",
-                ""
-            ]
+            names.join(" "),
+            "opacity 1s ease 0s,stroke-dashoffset r color background-color fill stroke cx cy x y \
+             rx ry border-color --exact-tint box-shadow font-weight font-stretch \
+             font-variation-settings d "
         );
     }
 }
@@ -1263,7 +1221,10 @@ mod declaration_tests {
                 vec![(StyleId::AspectRatio, StyleValue::Auto)],
                 "aspect-ratio:auto;",
             ),
-            (vec![(StyleId::Direction, t("rtl"))], "direction:rtl;"),
+            (
+                vec![(StyleId::Direction, t("rtl"))],
+                "direction:rtl;--exact-separator-x:100%;",
+            ),
             // LLP 1061 D6: canonical, each axis a percentage or px.
             (
                 vec![(StyleId::TransformOrigin, t("top left"))],

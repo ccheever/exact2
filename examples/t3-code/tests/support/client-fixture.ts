@@ -20,6 +20,30 @@ export function storage(initial?: Obj) {
   } };
   return { files, data: () => obj(JSON.parse(saved || '{}')), writes: () => writes };
 }
+/** An error as Exact's storage rejects with one (js/src/prelude.js storageError). */
+export const storageError = (message: string, code: string) => Object.assign(new Error(message), { kind: 'Unavailable', code });
+/**
+ * Exact's app storage as a native host answers it: app:/data/t3-code.json kept in `text`; a missing file is ENOENT,
+ * and `refuse` makes the next reads or writes fail with that code (`agent` as a drive with no scratch store writes).
+ */
+export function appStorage(initial = '') {
+  const box = { text: initial, writes: 0, reads: 0, refuse: { read: '', write: '' } };
+  const files: Files & { fs: { stat(path: string): Promise<{ size: number }> } } = { fs: {
+    async mkdir() {},
+    async stat(path) { if (!box.text) throw storageError(`filesystem: no such file or directory: ${path}`, 'ENOENT'); return { size: new TextEncoder().encode(box.text).byteLength }; },
+    async readFile(path) {
+      box.reads++;
+      if (box.refuse.read) throw storageError(`denied: ${path}`, box.refuse.read);
+      if (!box.text) throw storageError(`filesystem: no such file or directory: ${path}`, 'ENOENT');
+      return new TextEncoder().encode(box.text).buffer;
+    },
+    async atomicWriteFile(path, bytes) {
+      if (box.refuse.write) throw storageError(`storage refused (${box.refuse.write}): ${path}`, box.refuse.write);
+      box.writes++; box.text = new TextDecoder().decode(bytes);
+    },
+  } };
+  return { box, files };
+}
 /** A generation newer than every one app.ts's client has adopted. The client adopts only a newer generation (client.ts
  *  adoptStatus), and the test files that drive app.ts's answer() share that one client in whatever order the runner
  *  takes them, so each draws its servers' generations from here. */
@@ -40,7 +64,10 @@ export class Backend implements Native {
   events: Obj[] = [];
   scopes = ['orchestration:read', 'orchestration:operate'];
   failure: '' | 'before' | 'after' = '';
-  preferencesText = '';
+  /** The app's storage (Exact's `storage.fs`): the preference file is its `box.text`. */
+  readonly disk = appStorage();
+  get preferencesText(): string { return this.disk.box.text; }
+  set preferencesText(text: string) { this.disk.box.text = text; }
   seen = new Set<string>();
   committed: Obj[] = [];
   shell: Obj = { snapshotSequence: 10, projects: [{ id: 'p1', title: 'Example', workspaceRoot: '/repo' }], threads: [thread(), thread('t2')], archivedThreads: [] };
@@ -66,8 +93,6 @@ export class Backend implements Native {
     const request = obj(input); this.calls.push(request);
     if (typeof request.generation === 'number' && request.generation !== this.generation) return this.bad('stale');
     const op = request.op;
-    if (op === 'readPreferences') return this.good({ text: this.preferencesText });
-    if (op === 'writePreferences') { this.preferencesText = str(request.text); return this.good({}); }
     if (op === 'devicePresentation') return this.good({});
     if (op === 'copyText') return this.good({ copied: true });
     if (op === 'status') return this.good(this.status());

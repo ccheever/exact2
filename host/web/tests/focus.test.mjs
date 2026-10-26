@@ -2,6 +2,17 @@ import {test,expect} from 'bun:test';
 import {focusController} from '../navigation.js';
 import {createInputHandlers} from '../input-glue.js';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
+import { readFileSync } from 'node:fs';
+import { glueDeclarations } from './glue-fixture.mjs';
+
+// The wasm host's key wire, and the early queue's copy of it (#140): the chord, its code, repeat and isComposing.
+test('the key wire carries isComposing on its fourth line',()=>{
+  for (const file of ['../glue.js','../document-glue.js']) {
+    const keyChord=Function(`${glueDeclarations(readFileSync(new URL(file,import.meta.url),'utf8'),['keyChord'])}; return keyChord;`)();
+    expect(keyChord({key:'Enter',code:'Enter',repeat:false,isComposing:true})).toBe('Enter\nEnter\nfalse\ntrue');
+    expect(keyChord({key:'b',code:'KeyB',metaKey:true,repeat:true})).toBe('Meta+b\nKeyB\ntrue\nfalse');
+  }
+});
 
 // Production focus transaction, including autofocus during the dispatched commit.
 test('E11 only enclosing canvases receive pointer focus; new autofocus wins',()=>{
@@ -88,14 +99,16 @@ test('a carried restart keeps focus at its place and autofocuses nothing',()=>{
 });
 
 test('declared shortcuts support named keys and leave text input and composition with editors',()=>{
-  const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle};
+  const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle,MutationObserver:globalThis.MutationObserver,Element:globalThis.Element,matchMedia:globalThis.matchMedia};
   const handlers=new Map();
   let chord='',presses=0,editing=false,inert=false,modal=null,shown=[],activates=false;
+  // What the input glue reads as it starts that no chord here touches: its sheets' observers, hover, looks.
+  Object.assign(globalThis,{MutationObserver:class{observe(){}disconnect(){}takeRecords(){return [];}},Element:class{},matchMedia:()=>({matches:false,addEventListener(){}})});
   const button={isConnected:true,disabled:false,getClientRects:()=>[{}],getAttribute:()=>chord,click:()=>presses++};
   const root={addEventListener(){},querySelectorAll:s=>s.includes('aria-modal')?shown:[button],contains:()=>false};
   const target={matches:s=>s.startsWith('button')?activates:editing,closest:()=>modal};
   // Every listener on the document hears the key, in order, as a browser's would.
-  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,[...(handlers.get(name)??[]),handler]),activeElement:target};
+  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,[...(handlers.get(name)??[]),handler]),activeElement:target,getElementById:id=>(id==='exact-snap'?{}:null),styleSheets:[]};
   globalThis.getComputedStyle=()=>({visibility:'visible'});
   const key=(key,mods={},extra={})=>{
     const event={key,metaKey:false,ctrlKey:false,altKey:false,shiftKey:false,...mods,...extra,
@@ -260,7 +273,9 @@ test('action dialog commands keep modal focus and preserve bare close as window 
     const page = await browser.newPage();
     await page.setContent('<div id="exact-root"><button id="opener">Open</button><button id="outside">Outside</button><dialog id="form"><button id="first">First</button><button id="last">Last</button></dialog><div id="box"></div></div><dialog id="other"></dialog>');
     const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '').replace('export const commands', 'const commands');
-    await page.addScriptTag({content: `${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
+    // Of commands.js's imports the dialog commands reach only navigation.js's `liveById`; nothing leaves here, so
+    // finding by id is enough.
+    await page.addScriptTag({content: `const liveById = id => document.getElementById(id);\n${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
     const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
     const runtime = readFileSync(new URL('../../web-js/rt.js', import.meta.url), 'utf8');
     await page.addScriptTag({content: `(() => {

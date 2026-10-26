@@ -14,7 +14,7 @@
 // the key's default still happens: Enter submits (files diary F8). A key's
 // release reaches the page's `keyup` handler with its physical `code`, a
 // modifier's too (its own flag no longer held), and a held key's downs after
-// the first are `repeat`s (#140).
+// the first are `repeat`s; none came composing (`isComposing`; #140).
 component Keys
   state text = ""
   state heard = ""
@@ -26,7 +26,7 @@ component Keys
   state pressed = 0
   state ups = ""
   action released(k: string, e: KeyboardEvent)
-    ups = `${ups}${k}:${e.code}${e.metaKey ? ":m" : ""}${e.repeat ? ":r" : ""};`
+    ups = `${ups}${k}:${e.code}${e.metaKey ? ":m" : ""}${e.repeat ? ":r" : ""}${e.isComposing ? ":c" : ""};`
   action submitted
     submits = submits + 1
   action typed(v: string)

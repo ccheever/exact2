@@ -1,6 +1,6 @@
 // The Compact chip: a large Claude thread whose prompt cache expired compacts
 // before its next send, adapted from T3 Code (MIT); see LICENSE-T3. Sources at
-// 9c161462c9: ChatView.tsx (resumeCompactionTokens, keepFullHistory,
+// 74541bab17: ChatView.tsx (resumeCompactionTokens, keepFullHistory,
 // compactThreadUnavailable, compactBeforeSend), chat/ContextWindowMeter.logic.ts
 // (shouldOfferResumeCompaction, hasDismissedResumeCompaction), lib/contextWindow.ts
 // (latestProviderTurnTokenUsage) and packages/shared/src/claudeCompaction.ts.
@@ -13,7 +13,9 @@ import { planFollowUp, resumeState } from './composer-controls';
 import { fanoutSelections } from './composer-controls-fanout';
 
 // Used when the provider did not report its cache TTL: Claude's 1h cache plus slack.
-const FALLBACK_MS = 70 * 60_000, RESUME_TOKENS = 100_000;
+const FALLBACK_MS = 70 * 60_000;
+// COMPACTION_SUGGESTION_MIN_TOKENS: below it T3 neither suggests nor runs a Claude compaction (Claude Code's idleCompaction default).
+const RESUME_TOKENS = 200_000;
 export const NEVER_ANSWER = "Don't ask again";
 const QUESTION = /^This session is (?:\d+h \d+m|\d+m) old and uses \d{1,3}(?:,\d{3})* tokens\. Compact it before continuing\?$/u;
 

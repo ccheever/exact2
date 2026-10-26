@@ -9,11 +9,14 @@ use crate::cull::{
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Resolve this frame's draw groups (one per batch and winding) and upload a
     /// new setup only when they or the retained structure changed.
+    /// `hooked`: render hooks draw in the frame, which may read the sun's
+    /// shadows anywhere, as a custom material's shader may.
     pub(super) fn prepare_cull(
         &mut self,
         frame: &FrameInput<'_>,
         cascades: Option<&Cascades>,
         custom: &[crate::hooks::CustomMaterial],
+        hooked: bool,
         size: (u32, u32),
     ) {
         self.cull_groups(frame, cascades.map_or(0, |c| c.count), custom);
@@ -90,9 +93,22 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if let Some(c) = cascades {
             views[1..1 + count].copy_from_slice(&c.matrices[..count]);
         }
+        // Only the engine's own receivers keep a cascade's casters within its
+        // outline: each shades on its pixel's ray, in its cascade's slice. Not
+        // quite under MSAA, which shades a pixel whose centre a triangle misses
+        // at the centre: a sliver's position there, extrapolated from snapped
+        // vertices, can lie off the ray and outside the slice, and read a
+        // texel only a culled caster wrote. Such samples are shaded off their
+        // triangle already; the owner accepts that they, and what bloom then
+        // spreads from them, may differ.
+        let outlines = cascades.filter(|_| custom.is_empty() && !hooked).map_or(
+            [[crate::shadows::PASS_ALL; 6]; crate::shadows::MAX_CASCADES],
+            |c| c.outlines,
+        );
         self.cull.write_views(
             &self.queue,
             &views[..1 + count],
+            &outlines,
             self.slot_list.len() as u32,
             self.occluding,
         );

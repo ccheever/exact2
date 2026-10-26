@@ -343,6 +343,11 @@ socket frames (LLP 1121 D13). So D4 adds both directions.
 - **Ownership and cleanup.** Each command belongs to the client that sent it.
   - When that client disconnects or its token is revoked, the server clears its inspect,
     outlines, holds and pins on every build.
+  - A client is connected while it holds a subscription, or a long poll open or answered within
+    the last 35 s (the poll's 25 s and some). A client on the GET long poll (`exactLongPoll`,
+    tamber/1.17, stage 14 D) stays connected 90 s after its answer: the host re-asks it after a
+    backoff of up to 30 s (the server never asks for longer on that route), so 35 s would drop
+    its pins in a wait it did not choose (theme2's ruling, 2026-10-23).
   - A build that reconnects (a JS reload is a new document; a wasm program rebuild is a page
     reload) gets its current pins and holds replayed with its new hello. A hold is replayed
     only where the server finds exactly one corresponding site in the new plan, through the
@@ -641,6 +646,9 @@ An agent is a client with the same token, reads and writes.
   - **If a file has moved since**, or only some items were accepted, the server recomputes
     the transaction on the current files. The tool shows the recomputed diff, and the person
     accepts that, never the old operations replayed onto new bases.
+  - **Editing a value** before accepting (an import's token, in one mode) is `edit-held` (tamber/1.17): the server
+    sets that value and holds the rest again in the proposal's place, the proposer's still, with no ops sent
+    (theme2's ruling, 2026-10-24). A server before 1.17 is sent the edited list held again, and the old one dropped.
 - **Prompt-as-tweak** (0158 §9). A selection-scoped request goes to an agent with a bundle:
   - the selection's provenance;
   - the rungs;
@@ -1069,7 +1077,7 @@ T1 and T1a are complete.
 - **Builds and pins:** the build list comes from the server, with each build's effective facts from
   its status, and pinning, pinned or handing back by revision (`pinRevision`, *1.3*). Each build's
   last refusal is listed (`unsupported`). The tool names itself on its long poll, so its pins hold
-  while it runs and are handed back about 35 s after it closes.
+  while it runs and are handed back about 90 s after it closes (its GET long poll's window, D4).
 - **Scrubs:** "Scrub live" sits beside Apply, an explicit choice and never the default. A
   scrub opens on that button rather than on pressing a control, since no press reaches the tool.
   - One frame is in flight at a time, the latest value.
@@ -1280,7 +1288,7 @@ T2c went before T2b's JS half (the lead's order, 2026-10-17).
 | A shadow list (inset, token colours) scrubs live; Keep writes one line | **Met** on `shadow.header`. A blur and an unsaid spread were edited; the untouched words were kept as written. |
 | A motion edit rebuilds | **Met**: "Rebuilds" before the gesture, no scrub, Apply only. |
 | Icons read only | **Met**: the clone's 64 icons, listed with their sources. |
-| theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool.test.mjs). |
+| theme-fixture's JS-loop e2e | **Met** (`kindsOnTheJsLoop`, every run of scripts/design-tool-scrub.test.mjs, split from design-tool.test.mjs). |
 
 ### T3, components (step 1 `4600797f5`, `fcfca3753`, `80544178c`, `5684f39d3`, `a8cfb59f7`, `18bf8d9d8`; steps 2-3 `a8c3a089a`, `31290cd65`, `ed742c171`, `5dc1d9dc4`; step 4 `212c41b73`, `8e20080a6`, `b372bf692`, `f45cc65ed`, `8209bcef9`; optional *1.11* rung `param`)
 

@@ -20,6 +20,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync,
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync, parseSync } from 'rolldown/utils';
+import { copyGpuCache } from './gpu-cache.mjs';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
@@ -173,7 +174,7 @@ const compiler = webCompiler();
 const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: checkOnly ? ['ignore', 'ignore', 'pipe'] : 'inherit', encoding: 'utf8', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) { if (checkOnly) process.stderr.write(cargo.stderr ?? ''); process.exit(cargo.status ?? 1); }
 compiler.done();
-for (const f of ['rt.js', 'editor.js', 'live-time.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js', 'said.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'rt-link.js', 'generation-reload.js', 'elements.js', 'editor.js', 'live-time.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js', 'said.js', 'held.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The live table's runtime is the dev loop's build's alone.
 if (!devReload) writeFileSync(resolve(gen, 'modes.js'), withoutDev(readFileSync(resolve(here, 'modes.js'), 'utf8')));
 // Inspect mode's hooks in the runtime are the dev loop's build's alone (module.mjs `withInspectHooks`).
@@ -205,7 +206,9 @@ if (moduleFlag.extensions.length) {
   const bound = webImplementations(appDir);
   for (const extension of moduleFlag.extensions) {
     const at = bound.get(extension);
-    writeFileSync(resolve(gen, `ext-${extension}.js`), at ? `export { implementation } from ${JSON.stringify(at)};\n` : 'export const implementation = null;\n');
+    // `roster`: the views it serves (views.js), where it exports one.
+    const views = at && /\bexport\s+(const|let|var|function)\s+roster\b|\bexport\s*\{[^}]*\broster\b/.test(readFileSync(at, 'utf8'));
+    writeFileSync(resolve(gen, `ext-${extension}.js`), at ? `export { implementation${views ? ', roster' : ''} } from ${JSON.stringify(at)};\n` : 'export const implementation = null;\n');
   }
 }
 // A source a data module answers: not one the runtime reserves (`exact…`), nor a native module's.
@@ -392,7 +395,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(notifies ? ["import './notify.js';"] : []),
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   ...(wakelock ? ["import { install as wakelock } from './wakelock.js'; wakelock();"] : []),
-  "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations, writeRecords } from './rt.js';",
+  "import { data, journal, clock, advance, commit, inflight, heldAsks, heldReplies, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations, writeRecords, agentMode } from './rt.js';",
   ...(production ? [] : ["import { develop } from './perf.js';", "import { goTo } from './rt.js';"]),
   // A data module's answers, watched from before the app asks (seam.js).
   ...(production || !asks ? [] : ["import { seam } from './perf.js';", 'seam();']),
@@ -400,8 +403,8 @@ writeFileSync(resolve(gen, 'main.js'), [
     "import { sourceTypes } from './names.js';",
     "import { reportTime, reportPlace } from './navigation.js';",
     "data.reserved = { exactTime: () => {",
-    "  const [epochAtZero, utcOffset] = reportTime(clock.now), [locale, timeZone, seed] = reportPlace().split('\\0');",
-    "  const f = { epochAtZero, utcOffset, locale, timeZone, seed: Number(seed), resolvedLocale: resolvedLocale() };",
+    "  const [epochAtZero, utcOffset] = reportTime(clock.now), [locale, timeZone, seed, formatLocale] = reportPlace().split('\\0');",
+    "  const f = { epochAtZero, utcOffset, locale, timeZone, seed: Number(seed), formatLocale: formatLocale || locale, resolvedLocale: resolvedLocale() };",
     "  return Object.keys(sourceTypes.exactTime[1]).map(k => f[k]);",
     "} };",
     // The zone's offset follows the clock (habits F6): a timer, a `then` or the agent's `clock` that finds the offset
@@ -409,28 +412,53 @@ writeFileSync(resolve(gen, 'main.js'), [
     "let told = reportTime(clock.now)[1];",
     "Clocked.push(() => { const o = reportTime(clock.now)[1]; if (o === told) return; told = o; commit(() => { for (const r of Resources) if (r.source === 'exactTime') R(r); }, 'time'); });",
   ] : []),
-  ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`] : []),
+  ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`,
+    // Held fetches (LLP 1016.000 D9): ts-fetch.js counts them through held.js, which it does not import.
+    "import { answering } from './ts-fetch.js'; import { heldReply, looseFetch } from './held.js'; Object.assign(answering, { loose: looseFetch, heldReply });"] : []),
+  // The schemes `openURL` may hand to the browser beyond its own (app.json `open_url`, navigation.js `declaredScheme`).
+  ...(manifest.open_url?.schemes?.length ? [`globalThis.exact = Object.assign(globalThis.exact ?? {}, { openSchemes: ${JSON.stringify(manifest.open_url.schemes)} });`] : []),
   "const start = () => {",
   "  const state = app();",
   ...(devReload ? ["  finishDev();"] : []),
-  "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources, mutations: Mutations, writes: writeRecords });",
+  "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, heldAsks, heldReplies, views: Views, viewId, After, resources: Resources, mutations: Mutations, writes: writeRecords });",
   // The hatch words the web handles, when app.json gives words their platforms (LLP 1075.003.000.001 §4.3, §5): a word it leaves out is shown and never called (hatches.js).
   ...(manifest.hatches && !Array.isArray(manifest.hatches) ? [`  globalThis.exact.hatchWords = ${JSON.stringify(hatchWords(manifest, 'web'))};`] : []),
   // A development page counts its work and samples its frames (LLP 1079); the agent adapter, only when the agent drives it.
   // The served plan's digest, which a development page's `perf` names (LLP 1079 D2).
   ...(production ? [] : [`  globalThis.exact.plan = ${JSON.stringify(createHash('sha256').update(readFileSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'))).digest('hex'))};`, "  globalThis.exact.goTo = goTo;", "  develop(globalThis.exact).catch(console.error);", "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
+  "  booted?.();",
   "};",
+  // The declared fonts are the stylesheet's `font-display: optional` faces (src/faces.rs): a face first needed while it
+  // still loads is never used on the page, so with a slow or uncached font file the page kept the fallback for good,
+  // where the wasm host waits up to 100 ms for its faces before its first render (glue.js prepareFonts). The first
+  // render here waits the same way: each face loads, for at most 100 ms, and one loaded by then is used.
+  // Only the plan's own faces (`ExactPlanStack<n>`, exact_web::host::fonts), never another stylesheet's. While it
+  // waits, `exact.ready` is a promise the boot settles, so a reader that finds the TypeScript data's early
+  // `globalThis.exact` (the dev client, inspect) waits for the runtime rather than reading a half-made one.
+  "const faces = typeof document === 'object' && document.fonts ? [...document.fonts].filter(f => /^\"?ExactPlanStack\\d+\"?$/.test(f.family) && f.status !== 'loaded') : [];",
+  "const fonts = faces.length ? Promise.race([Promise.all(faces.map(f => f.load().catch(() => {}))), new Promise(r => setTimeout(r, 100))]) : null;",
+  "let booted; if (fonts) (globalThis.exact ??= {}).ready = new Promise(r => { booted = r; });",
+  // What armed itself at module load (sounds' output, a native page module's connection) reads `clock.agent` in a
+  // callback that a font wait lets run before the first render, where `mount` sets it: set it now.
+  "if (fonts) clock.agent = agentMode();",
+  "const go = f => fonts ? fonts.then(f) : f();",
+  // Under the agent, an animation the first renders start (an indeterminate progress's turn) is held at the clock it
+  // began at after each commit, before a frame shows it, until agent.js, which loads after the first render, takes it
+  // (its `register`): never left on the browser's clock, nor turned on the compositor first (LLP 1069.001: a spinner
+  // follows the agent's clock), as the wasm host holds each commit's at once.
+  "if (agentMode()) { const early = (globalThis.exact ??= {}).early = new WeakMap(); After.push(globalThis.exact.holdEarly = () => { for (const a of document.getAnimations()) if (!early.has(a) && a.playState === 'running' && (!a.timeline || a.timeline instanceof DocumentTimeline)) { early.set(a, clock.now); a.pause(); a.currentTime = 0; } }); }",
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready;
     // a plan with a resource that has no compiled value waits for it.
     // Counted in flight, so `clock settle` waits for the source to be ready.
     "const load = () => import('./rust-data.js').then(m => m.install(data, sources)).finally(() => inflight.n--);",
     "inflight.n++;",
-    `if (wait || ${mixed}) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }`,
-  ] : ['start();']),
-  ...(containerHatches ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers())));"] : []),
+    `if (wait || ${mixed}) load().then(() => go(start)); else go(() => { start(); requestAnimationFrame(() => setTimeout(load)); });`,
+  ] : ['go(start);']),
+  // After the first render, which a font wait may defer (`containers()` reads the runtime's `globalThis.exact`).
+  ...(containerHatches ? ["go(() => requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers()))));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'samples.js', 'wakes.js', 'views.js', 'pictures.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
 // navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own
@@ -477,7 +505,9 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   "import { data, clock, inflight, Resources, routeAt, Head } from './rt.js';",
   "import { types, sourceTypes, pages } from './names.js';",
   "import { answers } from './checkpoint.js';",
-  ...(ts ? ["import { install as ts } from './ts-data.js';"] : []),
+  "import { markBars } from './navigation.js';",
+  "import { markRoutes } from './document.js';",
+  ...(ts ? ["import { install as ts } from './ts-data.js';", "import { answering } from './ts-fetch.js'; import { heldReply, looseFetch } from './held.js'; Object.assign(answering, { loose: looseFetch, heldReply });"] : []),
   ...(rust ? ["import { install } from './rust-data.js';"] : []),
   // Two steps, so a server can send the page's head between them
   // (render.mjs): the app starts and names its route, then settles.
@@ -494,8 +524,10 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   'globalThis.__render = async deadline => {',
   '  const end = t0 + deadline;',
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
+  '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
+  '  markRoutes(document.getElementById("exact-root"));',
   '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
-  '    pending: Resources.filter(r => r.ticket).map(r => r.name), render: performance.now() - t0 };',
+  '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0 };',
   '};',
 ].join('\n'));
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
@@ -535,9 +567,10 @@ const scopedModule = (code, id, lower = false) => {
   if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
   if (implementationRoots.some(root => inside(id, root) || inside(realpathSync(id), root))) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
-  // and the browser's own I/O, as the wasm target's realm refuses it.
+  // the scheduler's yield (LLP 1141.001 D10), and the browser's own I/O, as
+  // the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
-    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto'];
+    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'scheduler', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'crypto'];
   // The DOM and Node's globals are absent, as on Hermes (js/bake/src/typescript.mjs `packageRefusals`).
   const absent = ['window', 'self', 'frames', 'parent', 'top', 'opener', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
     'indexedDB', 'HTMLElement', 'Element', 'getComputedStyle', 'customElements', 'alert', 'process', 'Buffer', 'global'];
@@ -552,7 +585,7 @@ const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).
 // These hooks are optional. Keep their static accesses for tree-shaking,
 // but suppress missing-export warnings only at the generated glue's path.
 const optionalHookWarning = (id, message) => generatedRoots.some(root => id === resolve(root, 'ts-data.js'))
-  && /Import ["`](?:kept|overlay)["`] will always be undefined because there is no matching export/.test(message);
+  && /Import ["`](?:kept|overlay|tools)["`] will always be undefined because there is no matching export/.test(message);
 const bundle = async (options) => {
   const r = await Bun.build({ ...options, plugins: [...(replay ? [{ name: 'captured-replay', setup: replay.bun }] : []), { name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
@@ -704,13 +737,17 @@ if (existsSync(gpuLib)) {
   const target = resolveApp(app), cache = resolve(target.target, 'web-js-gpu', target.name);
   const crates = [['gpu', target.crate('gpu')], ...gpuModules(target.manifest).map(({ name }) => [`gpu/${name}`, target.crate(`gpu-${name}`)])];
   const shaders = shaderWatchRoots(target).filter(existsSync);
-  if (!crates.every(([stem, crate]) => fresh(resolve(cache, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders))) {
-    rmSync(cache, { recursive: true, force: true });
-    const gpu = webGpuArtifacts(target, cache, { cargo: true });
-    if (!gpu.built) { rmSync(cache, { recursive: true, force: true }); console.error(`${app}: ${gpu.note}`); process.exit(1); }
-    copyShaders(target, resolve(cache, 'shaders'));
-  }
-  cpSync(cache, out, { recursive: true });
+  // Shared by every loop of the app on this target: built in a stage and renamed over the cache (gpu-cache.mjs).
+  try {
+    copyGpuCache(cache, out, {
+      fresh: dir => crates.every(([stem, crate]) => fresh(resolve(dir, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders)),
+      build: stage => {
+        const gpu = webGpuArtifacts(target, stage, { cargo: true });
+        if (!gpu.built) throw new Error(gpu.note);
+        copyShaders(target, resolve(stage, 'shaders'));
+      },
+    });
+  } catch (error) { console.error(`${app}: ${error.message}`); process.exit(1); }
   await copyLazyModules(['gpu-glue.js']);
 }
 if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });
@@ -719,11 +756,14 @@ if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve
 if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');
 // The web host's own picker and storage adapters beside the page, fetched on
 // first use (files.js; a source's `storage`, ts-data.js and rust-data.js; an
-// `app:/` image's file, symbols.js, or media element's, media.js): what
-// host/web/build.mjs ships.
-if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {
+// `app:/` image's file, symbols.js, or media element's, media.js; a module
+// implementation's files, modules.js; a module view's `app:/` file, native.js):
+// what host/web/build.mjs ships.
+const extensionFiles = moduleFlag.extensions.length > 0;
+if (files || moduleStorage || extensionFiles || pageModules || /^\s*(?:fs|sqlite)\./m.test(grants)) {
   const storageGrants = /^\s*(?:fs|sqlite)\./m.test(grants);
-  const seeds = [resolve(gen, 'symbols.js'), files && resolve(gen, 'files.js'), (moduleStorage || storageGrants) && resolve(gen, 'admission.js'), storageGrants && resolve(gen, 'ts-data.js')].filter(Boolean);
+  const seeds = [resolve(gen, 'symbols.js'), files && resolve(gen, 'files.js'), (moduleStorage || storageGrants) && resolve(gen, 'admission.js'), storageGrants && resolve(gen, 'ts-data.js'),
+    extensionFiles && resolve(gen, 'modules.js'), (pageModules || extensionFiles) && resolve(gen, 'native.js')].filter(Boolean);
   const roots = seeds.flatMap(seed => literalModuleURLs(readFileSync(seed, 'utf8'))).map(specifier => specifier.replace(/^\.\//, ''));
   await copyLazyModules(roots);
 }

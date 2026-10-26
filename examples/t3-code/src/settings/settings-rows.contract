@@ -277,7 +277,7 @@ component CoreSections
                 row gap="0.5rem" align-items="center"
                   text "Advanced" font-size="0.875rem" line-height="1.25rem" color=pal.muted id=`paint-CoreSections-3-${section.id}` data-paint="mutedForeground" data-pick="mutedForeground"
                   button press=change("typography-advanced", "typographyAdvanced", section.toggle ? "false" : "true") role="switch" aria-checked=section.toggle aria-label="Advanced Show advanced typography settings" disabled=busy class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(section.toggle ? pal.accent : pal.switchOff) testId="setting-typography-advanced" title="" id="setting-typography-advanced" data-paint=`${(section.toggle ? "accent" : "input")}` data-pick=((section.toggle ? "accent" : "input") != "" ? (section.toggle ? "accent" : "input") : "")
-                    box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=pal.thumb margin-left=(section.toggle ? "0.75rem" : "0px") box-shadow="0 1px 3px #0000000d" id=`paint-CoreSections-5-${section.id}` data-paint="canvas" data-pick="canvas"
+                    box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=(section.toggle ? pal.thumb : pal.thumbOff) margin-left=(section.toggle ? "0.75rem" : "0px") box-shadow="0 1px 3px #0000000d" id=`paint-CoreSections-5-${section.id}` data-paint="canvas" data-pick="canvas"
           if not section.collapsible or legacyOpen
             column width="100%" border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box" id=`paint-CoreSections-6-${section.id}` data-paint="border surface" data-pick="surface"
               for row in section.rows key=row.id
@@ -347,7 +347,7 @@ component CoreRowView
           row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" opacity=(row.inert ? 0.5 : 1) position="relative"
             if row.kind == "switch"
               // D15: a mixed switch turns the setting on for every selected target.
-              ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.inert or row.disabled), faded=row.disabled, on=pal.accent, off=pal.switchOff, thumb=pal.thumb, reduced=reduced, switchId=`setting-${row.id}`, press=change(row.id, row.target, row.mixed or not row.checked ? "true" : "false"))
+              ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.inert or row.disabled), faded=row.disabled, on=pal.accent, off=pal.switchOff, thumb=pal.thumb, thumbOff=pal.thumbOff, reduced=reduced, switchId=`setting-${row.id}`, press=change(row.id, row.target, row.mixed or not row.checked ? "true" : "false"))
             if row.kind == "select"
               CoreSelect(rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
               if row.value2 == "configure"

@@ -15,6 +15,20 @@
 import AppKit
 
 extension NodeView {
+    var materialPaintsBorder: Bool { let p = boxPlan; return !p.own || p.drawn }
+
+    /// Borders share the material's paint pass so its fill cannot cover them.
+    func drawBoxBorder() {
+        guard !cssVisibilityHidden, surface == nil, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let uniform = number("border_width")
+        let sides = ["top", "right", "bottom", "left"]
+        let widths = sides.map { devicePixels(number("border_width_" + $0, uniform)) }
+        let top = color("border_color_top", .clear)
+        let colors = sides.map { color("border_color_" + $0, top).cgColor }
+        let styles = sides.map { style["border_style_" + $0]?.string ?? "solid" }
+        BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: BorderPaint.radii(style, in: bounds), styles: styles, shape: CornerShape(style["corner_shape"]))
+    }
+
     /// A node whose box can ride its layer: not a paragraph (its raster and
     /// its own drawing hold the box), a canvas or a web view (drawn views).
     var layerBoxEligible: Bool {
@@ -28,7 +42,7 @@ extension NodeView {
     /// Paint only `draw(_:)` makes (outside a capture).
     var drawsPaint: Bool {
         if let cached = layerPaintCache { return cached }
-        let paints = boxNeedsDraw || (kind == "image" && symbolView == nil && raster != nil && imagePlan == nil)
+        let paints = boxNeedsDraw || (kind == "image" && !hasSymbolLeaf && raster != nil && imagePlan == nil)
         layerPaintCache = paints
         return paints
     }
@@ -39,6 +53,7 @@ extension NodeView {
         var radius: CGFloat = 0
         var corners: CACornerMask = []
         var oneRadius = true
+        var partialCorners = false
         var widths: [CGFloat] = [0, 0, 0, 0]
         var colors: [CGColor] = []
         var oneBorder = true
@@ -71,7 +86,7 @@ extension NodeView {
         // CGColors straight from the rows: an NSColor's `cgColor` is made
         // anew on each call, and this runs for every repaint.
         // In a sheet, the window's background is the sheet's own ground, which AppKit draws (SheetsMac.swift).
-        p.fill = standsOnSheetGround ? nil : cgColor("background_color").flatMap { $0.alpha > 0 ? $0 : nil }
+        p.fill = materialContent != nil || standsOnSheetGround || standsOnSplitGround ? nil : (cgColor("background_color") ?? fieldGround).flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
         p.widths = sides.map { number("border_width_" + $0, uniform) }
@@ -101,6 +116,7 @@ extension NodeView {
         p.oneRadius = cornerSizes(in: bounds).allSatisfy { abs($0.width - $0.height) < 0.01 } && radii.allSatisfy { $0 == 0 || abs($0 - p.radius) < 0.01 }
             && p.radius <= min(bounds.width, bounds.height) / 2 + 0.01
         p.corners = cornerMask(radii)
+        p.partialCorners = p.radius > 0 && radii.contains(0)
         let gradient = style["background_image"] != nil
         // A `corner-shape` the layer cannot say draws (LLP 1077 D1).
         let shape = CornerShape(style["corner_shape"])
@@ -160,11 +176,11 @@ extension NodeView {
         guard let layer else { return }
         let onLayer = !p.drawn
         let away = surface != nil
-        let border = !onLayer || away || cssVisibilityHidden ? nil : p.edges ? p.sideColor : p.widths[0] > 0 ? p.colors[0] : nil
+        let border = (materialContent != nil && !p.own) || !onLayer || away || cssVisibilityHidden ? nil : p.edges ? p.sideColor : p.widths[0] > 0 ? p.colors[0] : nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if let box = clipBox?.layer {
-            let clipRadius = p.oneRadius && !p.shaped ? p.radius : 0
+            let clipRadius = p.oneRadius && !p.shaped && !p.partialCorners ? p.radius : 0
             if box.cornerRadius != clipRadius { box.cornerRadius = clipRadius }
             if clipRadius > 0, box.maskedCorners != p.corners { box.maskedCorners = p.corners }
             if box.cornerCurve != p.curve { box.cornerCurve = p.curve }
@@ -173,7 +189,7 @@ extension NodeView {
         // (setting one sets `masksToBounds`), so the backing layer carries a
         // radius only where the overflow clips; a rounded box that does not
         // clip fills a sublayer of its own under the children.
-        let layerRadius = clipsToBounds && p.oneRadius && !p.shaped ? p.radius : 0
+        let layerRadius = clipsToBounds && p.oneRadius && !p.shaped && !p.partialCorners ? p.radius : 0
         // A flight interpolates the radius itself (LLP 1013.000 D4).
         if flightLook == nil, layer.cornerRadius != layerRadius { layer.cornerRadius = layerRadius }
         if layerRadius > 0, layer.maskedCorners != p.corners { layer.maskedCorners = p.corners }
@@ -183,25 +199,46 @@ extension NodeView {
         let bg = fillsSublayer ? nil : fill
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
         if fillsSublayer, let fill {
-            let f = boxFill ?? CALayer()
+            // CALayer.render ignores maskedCorners. A path preserves the same
+            // outline in the window and in a filtered ancestor's picture.
+            if let old = boxFill, (old is CAShapeLayer) != p.partialCorners { old.removeFromSuperlayer(); boxFill = nil }
+            let f = boxFill ?? (p.partialCorners ? CAShapeLayer() : CALayer())
             boxFill = f
             if f.superlayer !== layer { insertBoxSublayer(f) }
             if f.frame != bounds { f.frame = bounds }
-            if f.backgroundColor != fill { f.backgroundColor = fill }
-            if f.cornerRadius != p.radius { f.cornerRadius = p.radius }
+            if let shape = f as? CAShapeLayer {
+                shape.path = BorderPaint.roundedRect(bounds, cornerSizes(in: bounds), shape: CornerShape(style["corner_shape"]))
+                shape.fillColor = fill
+            } else {
+                if f.backgroundColor != fill { f.backgroundColor = fill }
+                if f.cornerRadius != p.radius { f.cornerRadius = p.radius }
+            }
             if f.maskedCorners != p.corners { f.maskedCorners = p.corners }
             if f.cornerCurve != p.curve { f.cornerCurve = p.curve }
         } else if let f = boxFill { f.removeFromSuperlayer(); boxFill = nil }
         let cornerRadius = p.oneRadius ? p.radius : 0
-        let ownWidth = p.own && border != nil ? devicePixels(p.widths[0]) : 0
+        let ownWidth = p.own && !p.partialCorners && border != nil ? devicePixels(p.widths[0]) : 0
         if layer.borderWidth != ownWidth { layer.borderWidth = ownWidth }
         if ownWidth > 0, layer.borderColor != border { layer.borderColor = border }
-        guard let border, !p.own else { boxBorder?.removeFromSuperlayer(); boxBorder = nil; return }
-        if let old = boxBorder, (old is CAShapeLayer) != p.edges { old.removeFromSuperlayer(); boxBorder = nil }
-        let b = boxBorder ?? (p.edges ? CAShapeLayer() : CALayer())
+        guard let border, !p.own || p.partialCorners else { boxBorder?.removeFromSuperlayer(); boxBorder = nil; return }
+        if let old = boxBorder, (old is CAShapeLayer) != (p.edges || p.partialCorners) { old.removeFromSuperlayer(); boxBorder = nil }
+        let b = boxBorder ?? ((p.edges || p.partialCorners) ? CAShapeLayer() : CALayer())
         boxBorder = b
-        if b.superlayer !== layer { insertBoxSublayer(b) }
+        if b.superlayer !== layer { if p.own { layer.addSublayer(b) } else { insertBoxSublayer(b) } }
         if b.frame != bounds { b.frame = bounds }
+        if let shape = b as? CAShapeLayer, p.partialCorners {
+            let width = devicePixels(p.widths[0]), cornerShape = CornerShape(style["corner_shape"])
+            let outerRadii = cornerSizes(in: bounds)
+            let inner = CGRect(x: bounds.minX + width, y: bounds.minY + width,
+                width: max(0, bounds.width - 2 * width), height: max(0, bounds.height - 2 * width))
+            let innerRadii = BorderPaint.reduced(outerRadii.map {
+                CGSize(width: max(0, $0.width - width), height: max(0, $0.height - width))
+            }, in: inner)
+            let path = BorderPaint.roundedRect(bounds, outerRadii, shape: cornerShape)
+            path.addPath(BorderPaint.roundedRect(inner, innerRadii, shape: cornerShape))
+            shape.path = path; shape.fillRule = .evenOdd; shape.fillColor = border
+            return
+        }
         if let shape = b as? CAShapeLayer {
             let (w, h) = (bounds.width, bounds.height)
             let path = CGMutablePath()
@@ -241,7 +278,7 @@ extension NodeView {
     /// layer holds, with the box's one radius; a box `draw(_:)` paints
     /// paints its gradient there instead.
     private func applyGradientLayer(_ p: BoxPlan) {
-        guard let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, !cssVisibilityHidden, let gradient = Gradient(style["background_image"]), !gradient.needsDrawing else {
+        guard materialContent == nil, let layer, layerBoxEligible, !(hasBoxPaint && p.drawn), surface == nil, !cssVisibilityHidden, let gradient = Gradient(style["background_image"]), !gradient.needsDrawing else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -251,11 +288,13 @@ extension NodeView {
         if g.superlayer !== layer { insertBoxSublayer(g) }
         if g.frame != layer.bounds { g.frame = layer.bounds }
         let radius = p.radius
-        let round = radius > 0 && p.oneRadius
+        let round = radius > 0 && p.oneRadius && !p.partialCorners
         if g.cornerRadius != (round ? radius : 0) { g.cornerRadius = round ? radius : 0 }
         if round, g.maskedCorners != p.corners { g.maskedCorners = p.corners }
         if g.cornerCurve != p.curve { g.cornerCurve = p.curve }
         if g.masksToBounds != round { g.masksToBounds = round }
+        g.mask = p.partialCorners ? ClipPath.mask(BorderPaint.roundedRect(bounds,
+            cornerSizes(in: bounds), shape: CornerShape(style["corner_shape"]))) : nil
         gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark, limit: style["dynamic_range_limit"]?.string)
     }
 
@@ -273,7 +312,7 @@ extension NodeView {
     /// only when it is the whole content box and that is the border box, or
     /// when no corner is rounded. `nil`: `draw(_:)` paints them.
     private var imagePlan: (shown: CGRect, unit: CGRect, radius: CGFloat, corners: CACornerMask)? {
-        guard kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image else { return nil }
+        guard kind == "image", !hasSymbolLeaf, style["tint_color"] == nil, let bitmap = raster?.image else { return nil }
         let content = contentBox()
         let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
         let shown = rect.intersection(content)
@@ -297,12 +336,12 @@ extension NodeView {
 
     /// An image whose pixels are a sublayer the capture hides, so that
     /// `draw(_:)` paints them into the shot (`Capture.hideBoxFills`).
-    var capturesPixels: Bool { kind == "image" && symbolView == nil && raster?.image != nil && imageLayer != nil }
+    var capturesPixels: Bool { kind == "image" && !hasSymbolLeaf && raster?.image != nil && imageLayer != nil }
 
     /// The image's pixels onto a sublayer, or none (`draw(_:)` paints them).
     func applyImageLayer() {
         if cssVisibilityHidden { imageLayer?.removeFromSuperlayer(); imageLayer = nil; return }
-        if let look = flightLook, let layer, kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image ?? look.stand?.image {
+        if let look = flightLook, let layer, kind == "image", !hasSymbolLeaf, style["tint_color"] == nil, let bitmap = raster?.image ?? look.stand?.image {
             // Flying (LLP 1013.000 D4): the whole image where the flight
             // puts it; the view's own bounds and radius clip it.
             CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -381,7 +420,7 @@ extension NodeView {
         applyBoxMask()
         // What the plan just decided is what `wantsUpdateLayer` answers
         // until something it reads changes.
-        layerPaintCache = (hasBoxPaint && p.drawn) || (kind == "image" && symbolView == nil && raster != nil && imageLayer == nil)
+        layerPaintCache = (hasBoxPaint && p.drawn) || (kind == "image" && !hasSymbolLeaf && raster != nil && imageLayer == nil)
     }
 }
 #endif

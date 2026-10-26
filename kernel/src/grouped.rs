@@ -104,6 +104,7 @@ pub struct GroupedRow {
     /// symbol before it at most, and nothing at its trailing edge, whose
     /// title the platform's list draws in the tint (LLP 1116.019 D6), as
     /// the sheet's `grouped-action-color` does (`contract/lower/src/grouped.rs`).
+    /// A row with `aria-selected` is a choice, never one.
     pub action: bool,
     /// `destructive`.
     pub destructive: bool,
@@ -159,6 +160,16 @@ pub struct TextFont {
     pub family: u16,
     /// `font-variant-numeric`'s bits (1: `tabular-nums`).
     pub numeric: u8,
+    /// Which of the five its author said, by [`TextFont::SAID`]'s bits: the
+    /// host keeps the platform's own for the rest (LLP 1115.000 D2), so a
+    /// family written on the page leaves a cell's size and weight UIKit's.
+    pub said: u8,
+}
+
+impl TextFont {
+    /// The bits of `said`, in [`FONT`]'s order: size, weight, style, family
+    /// and numerals.
+    pub const SAID: [u8; 5] = [1, 2, 4, 8, 16];
 }
 
 /// The rows a text's font is made of.
@@ -182,16 +193,22 @@ impl TextLook {
             rows.set(row);
         }
         let s = node.computed_style(rows);
+        let said = FONT
+            .iter()
+            .zip(TextFont::SAID)
+            .filter(|(row, _)| node.says(**row))
+            .fold(0, |said, (_, bit)| said | bit);
         let font = TextFont {
             size: s.font_size,
             weight: s.font_weight,
             italic: s.font_style == FontStyle::Italic,
             family: s.font_family,
             numeric: s.font_variant_numeric,
+            said,
         };
         let mut look = TextLook {
             color: node.says(StyleId::TextColor).then_some(s.text_color),
-            font: FONT.iter().any(|row| node.says(*row)).then_some(font),
+            font: (said != 0).then_some(font),
             ..TextLook::default()
         };
         let clamp = node.style.line_clamp;
@@ -475,8 +492,15 @@ impl Kernel {
         {
             out.custom = true;
         }
+        // A row that says whether it is selected (`aria-selected`, true or
+        // false) is a choice, as a checkmark list's rows are: its title is
+        // the label's whether or not its mark shows now, never an action's.
+        // The sheet's word, where it gave one (`groupedAction`), wins over
+        // the shape that shows now: an unpicked choice row is no action.
         out.action = out.pressable
+            && row.props.bool(PropId::GroupedAction) != Some(false)
             && row.props.str(PropId::Href).is_none()
+            && !row.props.contains(PropId::AccessibilitySelected)
             && out.accessory == Accessory::None
             && out.secondary.is_none()
             && !out.subtitle

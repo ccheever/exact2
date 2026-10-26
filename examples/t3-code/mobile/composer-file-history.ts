@@ -1,5 +1,6 @@
 // File half of T3 Code365aa87982 createComposerDraftContextHistory (MIT, LICENSE-T3).
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
+import { mobileComposerFileScope } from './composer-file-scope';
 import type { DraftFile } from './shared/composer-editor-files';
 import type { ComposerMountedIdentity } from './composer-editor-state';
 import type { FileHoldTarget, HeldFile } from './composer-file-holds-io';
@@ -50,11 +51,7 @@ function identity(value:unknown):value is ComposerMountedIdentity {
   return plain(value)&&keys(value,identityFields)&&identityFields.every(key=>text(value[key]));
 }
 function scope(i:unknown,t:unknown):boolean {
-  if(!identity(i)||!plain(t)||!keys(t,['origin','environmentId','threadId','draftKey'])||!Object.values(t).every(text)
-    ||String(t.threadId).startsWith('new:')||String(t.draftKey).includes('~queued-edit~')||t.draftKey!==`${t.environmentId}:${t.threadId}`)return false;
-  try {const owner:unknown=JSON.parse(i.owner);return Array.isArray(owner)&&(owner.length===5||owner.length===6)
-    &&owner[0]==='ordinary'&&owner[1]===t.origin&&owner[2]===t.environmentId&&integer(owner[3])&&owner[4]===t.draftKey}
-  catch {return false}
+  return identity(i)&&mobileComposerFileScope(i.owner,t)!==null;
 }
 function file(value:unknown,target:FileHoldTarget):value is DraftFile {
   if(!plain(value)||!uuid(value.id)||!integer(value.sizeBytes)||value.sizeBytes>50*1024*1024
@@ -69,7 +66,7 @@ function held(value:unknown,i:ComposerMountedIdentity,t:FileHoldTarget):value is
   if(!plain(value)||!keys(value,['request','receipt'])||!plain(value.request)||!plain(value.receipt))return false;
   const q=value.request,r=value.receipt;
   return keys(q,['op','action','generation','identity','requestId','target','file'])&&q.op==='composerFileHold'&&q.action==='acquire'
-    &&integer(q.generation)&&q.generation===(JSON.parse(i.owner) as unknown[])[3]&&uuid(q.requestId)
+    &&integer(q.generation)&&q.generation===mobileComposerFileScope(i.owner,t)?.generation&&uuid(q.requestId)
     &&equal(q.identity,i)&&equal(q.target,t)&&file(q.file,t)&&q.file.source==='attached'
     &&keys(r,['identity','requestId','holdId','fileIdentity','id','sizeBytes'])&&equal(r.identity,i)
     &&r.requestId===q.requestId&&uuid(r.holdId)&&uuid(r.fileIdentity)&&r.id===q.file.id&&r.sizeBytes===q.file.sizeBytes;

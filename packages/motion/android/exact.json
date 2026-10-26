@@ -1,0 +1,60 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/motion@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidMotionStatus": {
+      "highSamplingRate": "bool",
+      "rateLimited": "bool"
+    }
+  },
+  "options": {
+    "accelerometer": {
+      "samplingPeriodUs": "number",
+      "maxReportLatencyUs": "number",
+      "uncalibrated": "bool"
+    },
+    "linearAccelerationSensor": {
+      "samplingPeriodUs": "number",
+      "maxReportLatencyUs": "number"
+    },
+    "gravitySensor": {
+      "samplingPeriodUs": "number",
+      "maxReportLatencyUs": "number"
+    },
+    "gyroscope": {
+      "samplingPeriodUs": "number",
+      "maxReportLatencyUs": "number",
+      "uncalibrated": "bool"
+    },
+    "magnetometer": {
+      "samplingPeriodUs": "number",
+      "maxReportLatencyUs": "number",
+      "uncalibrated": "bool"
+    },
+    "absoluteOrientationSensor": {
+      "samplingPeriodUs": "number",
+      "maxReportLatencyUs": "number",
+      "sensorType": "enum<rotationVector|geomagneticRotationVector>"
+    },
+    "relativeOrientationSensor": {
+      "samplingPeriodUs": "number",
+      "maxReportLatencyUs": "number"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "sensorManager"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.motion.MotionModule"
+}

@@ -10,7 +10,7 @@ import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { forgetDraftThreadId, launchThreadId } from '../composer/draft-thread-id';
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission, sendQueuesBehindSetup, isCompacting } from '../composer/composer-controls';
-import { additiveGesture, fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from '../composer/composer-controls-fanout';
+import { fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from '../composer/composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from '../composer/composer-controls-commands';
 import { keepsFullHistory, resumeCompactionTokens, setKeepFullHistory } from '../composer/composer-controls-resume';
 import { contextSnapshot } from '../composer/composer-controls-view';
@@ -24,16 +24,17 @@ import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../co
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from '../composer/composer-feedback';
 import { threadContextRecords, withMessageContext } from '../composer/composer-editor';
 import { projectPendingUserInputAnswer } from '../timeline/thread-links';
+import { holdSubmitting, questionDraftKey } from '../composer/question-attachments';
 import { pendingThreadImports } from '../composer/composer-thread-import';
 import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from '../browser/browser-annotation'; // an annotation's send
 import { markAnnotationSend } from '../browser/browser-annotation';
 import { annotationDispatchCurrent, takeAnnotationDispatch } from '../browser/browser-capture';
 import { composerChipFinishCurrent, takeComposerChipFinish } from '../composer/composer-chip-bridge';
-import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
+import { pressGesture, composerRequiresModifier, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
 import { promptLengthMessage } from '../composer/composer-editor-menu';
 import { composerFileAttachments, draftFiles } from '../composer/composer-editor-files';
-import { activeInput, pendingRequests, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload, declinePendingApprovals } from '../composer/requests';
+import { activeInput, pendingRequests, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload, declinePendingApprovals, questionAttachmentsStaging } from '../composer/requests';
 import { pushToast } from '../shell/toast';
 import { machineLabel, unreadableThreads } from '../composer/composer-thread-machines';
 import { releaseHeldRequests } from '../composer/composer-typing-guard';
@@ -93,6 +94,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
       op = 'send'; id = ''; value = annotation.value;
     }
     if (['send', 'submit-answers', 'advance-question', 'pick-option'].includes(op) && pendingThreadImports(this)) throw new ClientError('Still bringing attached context into this message. Send again once its chip resolves.');
+    if ((['submit-answers', 'advance-question', 'pick-option'].includes(op) || (op === 'send' && composerInput(this))) && questionAttachmentsStaging(this)) throw new ClientError('Still attaching files to this answer. Submit again once they appear.');
     // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
     // thread, and sending releases the request. A shown approval leaves it theirs too: the send declines it and
     // redirects the agent (declineForRedirect).
@@ -169,12 +171,12 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   // An edit typed while the context refreshed is the newer draft; it is not overwritten.
   if ((!submission || submission.interactionMode === 'plan') && (this.local.drafts[this.draftKey] ?? '') === promptAtSend) this.local.drafts[this.draftKey] = text;
   const draftKey = this.draftKey, attachmentsAtSend = attachmentIds(this, draftKey);
-  // A pointer press names its own modifiers (`pointer:meta+alt`, app.contract `send`); any other press reads the Return
-  // gesture the module recorded (T3ComposerIntent: a key press, or none once a click has retired it).
-  const gesture = pressGesture(pressed) ?? await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
+  // The press names its gesture (app.contract `submit`): a pointer press's modifiers, or a send chord's from the composer.
+  const gesture = pressGesture(pressed);
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
   // An annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
-  const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
+  const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this),
+    composerRequiresModifier(this.local.deviceSettings.sendShortcut, value || this.draft));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
   // onSend's !providerAvailable: no provider entry, or Antigravity's block reason. A listed provider whose probe failed
   // still sends, and the server's failure shows on the thread.
@@ -295,13 +297,11 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   }
   const locked = lockedProviderReason(this, providerId);
   if (locked) throw new ClientError(locked);
-  // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it. The picker says so
-  // (the press's own shiftKey); the native gesture covers a press it could not see. That press is
-  // taken on every pick, first (T3ComposerIntent hands it out once): left behind, it would toggle again the one model a
-  // removal leaves, or make the next pick within 2 s (a ⌘N jump) additive. The model a toggle leaves is a plain pick.
+  // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it. The picker says
+  // so (model-picker.contract: the press's shiftKey, a row's or the search field's Shift+Return). The model a toggle
+  // leaves is a plain pick.
   if (op === 'model' && !toggled) {
-    const pressed = await additiveGesture(this, native);
-    if ((shift && fanoutSupported(this)) || pressed) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId, false, true); }
+    if (shift && fanoutSupported(this)) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId, false, true); }
   }
   setFanout(this, null);
   const remembered = rememberModel(this, providerId, modelId);
@@ -364,7 +364,10 @@ function carryAnswer(this: T3Client, text: string): void {
   const prompt = this.local.drafts[this.draftKey] || '';
   this.local.drafts[this.draftKey] = prompt.trim() ? `${prompt.trimEnd()}\n\n${text}` : text;
 }
-/** The composer's Submit/Next and Return advance; the last question answers the provider. */
+/**
+ * The composer's Submit/Next and Return advance; the last question answers the provider, each question's attachments
+ * beside its answer (onRespondToUserInput): its shelf's images, then the files its answer's chips name.
+ */
 async function submitAnswers(this: T3Client, native: Native, storage: Files, id: string, custom?: string): Promise<void> {
   if (custom !== undefined && custom !== '') setCustomAnswer(this, custom);
   const requestId = id || activeInput(this)?.input.requestId || '';
@@ -378,13 +381,19 @@ async function submitAnswers(this: T3Client, native: Native, storage: Files, id:
     };
     const projected = Object.fromEntries(Object.entries(answers).map(([id, answer]) => [id, projectPendingUserInputAnswer(answer, threadContextRecords(this, typeof answer === 'string' ? answer : ''))]));
     const attachmentsByQuestionId: Obj = {};
-    for (const [id, answer] of Object.entries(answers)) {
-      assertOwner();
-      const attachments = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '', assertOwner);
-      assertOwner();
-      if (attachments.length) attachmentsByQuestionId[id] = attachments;
-    }
-    await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: owner.threadId, requestId, answers: projected,
-      ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}) }, 'Answers', assertOwner);
+    // The request is submitting from its first upload: its shelves take no drop or SnapShot and give up no image.
+    const release = holdSubmitting(this, requestId);
+    try {
+      for (const [id, answer] of Object.entries(answers)) {
+        assertOwner();
+        const images = await this.uploadSnapshots(native, storage, questionDraftKey(owner.environmentId, owner.threadId, requestId, id), assertOwner);
+        assertOwner();
+        const files = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '', assertOwner);
+        assertOwner();
+        if (images.length || files.length) attachmentsByQuestionId[id] = [...images, ...files];
+      }
+      await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: owner.threadId, requestId, answers: projected,
+        ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}) }, 'Answers', assertOwner);
+    } finally { release(); }
   }
 }

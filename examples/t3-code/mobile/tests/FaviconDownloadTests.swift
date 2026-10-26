@@ -98,8 +98,18 @@ private final class FaviconServer {
     }
     static func value(_ result: Result<String, Error>?) -> String? { if case .success(let value) = result { return value }; return nil }
     static func error(_ result: Result<String, Error>?) -> Error? { if case .failure(let error) = result { return error }; return nil }
-    static func owner(queue: DispatchQueue = .global()) -> T3MobileFaviconDownload {
-        T3MobileFaviconDownload(callbackQueue: queue, protocolClasses: [FaviconProtocol.self])
+    static let network = DispatchGroup()
+    static let callbacks = DispatchQueue(label: "favicon.test.callbacks")
+    static let codecs = DispatchQueue(label: "favicon.test.codecs")
+    static func owner(queue: DispatchQueue = callbacks) -> T3MobileFaviconDownload {
+        network.enter()
+        return T3MobileFaviconDownload(callbackQueue: queue, protocolClasses: [FaviconProtocol.self],
+            decodeQueue: codecs, onInvalidated: { network.leave() })
+    }
+    static func waitFor(_ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(3)
+        while !condition() && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        return condition()
     }
     fileprivate static func load(_ owner: T3MobileFaviconDownload, _ name: String, _ fixture: FaviconProtocol.Fixture, id: String? = nil) -> Reply {
         FaviconProtocol.lock.lock(); FaviconProtocol.fixtures["/" + name] = fixture; FaviconProtocol.lock.unlock()
@@ -173,6 +183,7 @@ private final class FaviconServer {
         let replaceQueue = DispatchQueue(label: "favicon.test.replacement"); replaceQueue.suspend()
         let replaceOwner = owner(queue: replaceQueue)
         let pendingOld = load(replaceOwner, "pending-old.png", .init(chunks: [png]), id: "pending")
+        check(waitFor { replaceOwner.pendingSuccessCount == 1 }, "old decoded success is queued before replacement")
         let pendingNew = load(replaceOwner, "pending-new.png", .init(chunks: [png]), id: "pending")
         replaceQueue.resume()
         check(error(pendingOld.wait()) is CancellationError, "replacement cancels old callback queued on suspended queue")
@@ -182,14 +193,14 @@ private final class FaviconServer {
         let suspended = DispatchQueue(label: "favicon.test.suspended"); suspended.suspend()
         let delayedOwner = owner(queue: suspended)
         let pending = load(delayedOwner, "queued.png", .init(chunks: [png]))
-        // A deterministic queue barrier gates callback delivery; cancellation must win even if decoding already ended.
-        Thread.sleep(forTimeInterval: 0.1)
+        check(waitFor { delayedOwner.pendingSuccessCount == 1 }, "decoded success is queued before cancellation")
         delayedOwner.cancel(requestId: "queued.png"); suspended.resume()
         check(error(pending.wait()) is CancellationError, "cancellation defeats queued success")
         delayedOwner.shutdown()
         let teardownQueue = DispatchQueue(label: "favicon.test.teardown"); teardownQueue.suspend()
         let teardownOwner = owner(queue: teardownQueue)
         let queuedTeardown = load(teardownOwner, "teardown-queued.png", .init(chunks: [exact]))
+        check(waitFor { teardownOwner.pendingSuccessCount == 1 }, "decoded success is queued before shutdown")
         teardownOwner.shutdown(); teardownQueue.resume()
         check(error(queuedTeardown.wait()) is CancellationError, "shutdown refuses queued decode or success completion")
         let shutdownA = load(download, "shutdown-a.png", .init(chunks: [png], delay: 0.3))
@@ -204,17 +215,19 @@ private final class FaviconServer {
         check(weakOwner == nil, "session delegate does not retain owner")
         check(error(releaseReply.wait()) is CancellationError, "deinit cancels and completes request")
         let decodeQueue = DispatchQueue(label: "favicon.test.decode"); decodeQueue.suspend()
-        var decodeOwner: T3MobileFaviconDownload? = T3MobileFaviconDownload(callbackQueue: .global(), protocolClasses: [FaviconProtocol.self], decodeQueue: decodeQueue)
+        network.enter()
+        var decodeOwner: T3MobileFaviconDownload? = T3MobileFaviconDownload(callbackQueue: callbacks, protocolClasses: [FaviconProtocol.self],
+            decodeQueue: decodeQueue, onInvalidated: { network.leave() })
         weak let weakDecodeOwner = decodeOwner
         let decodeReply = load(decodeOwner!, "release-decode.png", .init(chunks: [exact]))
-        let decodeDeadline = Date().addingTimeInterval(3)
-        while decodeOwner!.activeDecodeCount == 0 && Date() < decodeDeadline { Thread.sleep(forTimeInterval: 0.001) }
-        check(decodeOwner!.activeDecodeCount == 1, "real URLSession stream reaches suspended decode queue")
+        check(waitFor { decodeOwner!.activeDecodeCount == 1 }, "real URLSession stream reaches suspended decode queue")
         decodeOwner = nil
         check(weakDecodeOwner == nil, "queued codec work does not retain the download owner")
         check(error(decodeReply.wait()) is CancellationError, "deinit completes cancellation while decode queue is suspended")
         decodeQueue.resume()
-        Thread.sleep(forTimeInterval: 0.4)
+        check(network.wait(timeout: .now() + 8) == .success, "all cancelled URLSession delegates finish")
+        decodeQueue.sync {}; codecs.sync {}
+        callbacks.sync {}; replaceQueue.sync {}; suspended.sync {}; teardownQueue.sync {}
         check(decodeReply.count == 1, "abandoned queued decode never delivers another result")
         check(cancel.count == 1 && old.count == 1 && shutdownA.count == 1 && shutdownB.count == 1 && releaseReply.count == 1,
               "late network work never delivers a second callback")

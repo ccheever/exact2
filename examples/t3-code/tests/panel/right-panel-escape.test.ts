@@ -47,7 +47,7 @@ function keysOf(row: string): (facts: Record<string, boolean>) => string {
 
 // The thread details popover (`detailsOpen`, the window's above a sheet) holds it as the topmost layer.
 const holders = ['detailsOpen', 'panel.deviceSetup', 'panel.files.editing', 'searchFocused', 'panel.browser.capture.pickActive'];
-const none = Object.fromEntries(holders.map(name => [name, false]));
+const none = { ...Object.fromEntries(holders.map(name => [name, false])), renameHoldsKeys: false };
 
 describe('right-panel-escape: the right panel takes Escape only as a sheet', () => {
   const header = keysOf(line(source('panel.contract'), 'testId="panel-toggle-right"'));
@@ -60,13 +60,14 @@ describe('right-panel-escape: the right panel takes Escape only as a sheet', () 
   test('as a sheet it declares Escape, except while a nested dialog or menu, the file editor or the page\'s pick keeps it', () => {
     expect(header({ sheet: true, ...none })).toBe('Escape');
     for (const holder of holders) expect(header({ sheet: true, ...none, [holder]: true })).toBe('');
+    expect(header({ sheet: true, ...none, renameHoldsKeys: true })).toBe(''); // the device tab's rename field takes its Escape
   });
 
   test('the launcher\'s bar (no surface yet) declares Escape only as a sheet with no details popover over it', () => {
     const launcher = keysOf(line(source('shell-panels.contract'), 'testId="panel-toggle-right"'));
-    expect(launcher({ sheet: false, detailsOpen: false })).toBe('');
-    expect(launcher({ sheet: true, detailsOpen: false })).toBe('Escape');
-    expect(launcher({ sheet: true, detailsOpen: true })).toBe('');
+    expect(launcher({ sheet: false, detailsOpen: false, renameHoldsKeys: false })).toBe('');
+    expect(launcher({ sheet: true, detailsOpen: false, renameHoldsKeys: false })).toBe('Escape');
+    expect(launcher({ sheet: true, detailsOpen: true, renameHoldsKeys: false })).toBe('');
   });
 });
 

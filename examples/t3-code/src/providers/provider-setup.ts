@@ -12,15 +12,16 @@ import { providerWritable } from './provider-permissions';
 // The reference coalesces presses with pendingRef while a command runs; Contract sends
 // setup commands through a queue mutation, which runs a second press after the first
 // instead, so every command carries the state token its button was drawn from and a
-// press is dropped when that state moved on or a command already succeeded from it. Opening the browser is the native `remoteEditorsOpen`
-// op: the clone's port of ElectronShell.openExternal (T3RemoteEditors.swift; an agent
-// run records the URL instead of opening it). Terminal sign-in input goes through the
-// terminal view (provider-auth-terminal.ts, T3TerminalSessions.swift).
+// press is dropped when that state moved on or a command already succeeded from it. Opening the browser is
+// ElectronShell.openExternal (external-open.ts, Contract's `openURL`; an agent run
+// journals the URL instead of opening it). Terminal sign-in input goes over the terminal
+// page's own socket (provider-auth-terminal.ts).
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import type { ProviderHost } from './providers';
 import { letGo } from '../client/let-go';
 import { terminalEventError } from './provider-auth-terminal';
+import { openExternal } from '../client/external-open';
 
 export type SetupStream = { state: Obj | null; error: string; subscription: string; requested: boolean };
 export type ProviderSetupEntry = {
@@ -169,8 +170,7 @@ export async function providerSetupOp(host: Host, native: Native, op: string, id
       // Consent is recorded on the environment before the provider URL opens here.
       if (interaction.type === 'browser' && interaction.requiresConsent === true && !(await respond({ type: 'browser', action: 'accept' }))) return;
       try {
-        const reply = await bridgeReply(native, { op: 'remoteEditorsOpen', url });
-        if (!reply.ok || obj(reply.value).opened !== true) throw new ClientError('Unable to open link.');
+        if (!openExternal(url)) throw new ClientError('Unable to open link.');
         entry.authError = '';
       } catch (error) { if (letGo(error)) throw error; entry.authError = 'Could not open the sign-in page. Copy the link and open it in your browser.'; }
       return;
@@ -201,7 +201,7 @@ export async function providerSetupOp(host: Host, native: Native, op: string, id
       return;
     }
     case 'setup:auth-event': {
-      // The sign-in terminal's own failures (T3TerminalView auth mode), scoped to the flow it was drawn for.
+      // The sign-in terminal page's own failures, scoped to the flow it was drawn for.
       const event = obj(JSON.parse(value || '{}'));
       if (str(event.authFlow) && str(event.authFlow) !== authDraftId(auth)) return;
       if (!str(auth?.flowId) || interaction.type !== 'terminal') return;

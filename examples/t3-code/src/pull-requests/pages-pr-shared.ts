@@ -47,7 +47,9 @@ export function sharedPullRequestLinks(client: T3Client, links: Obj[], projectId
   return links.map(link => {
     const reference = { projectId, host: str(link.host), repository: str(link.repository), number: num(link.number) };
     const snapshot = sharedPullRequestSummary(client, reference, link.snapshot ? obj(link.snapshot) : null, environmentId);
-    // Sync time belongs to this thread's saved link, not a newer host summary.
-    return snapshot ? { ...link, snapshot: { ...snapshot, syncedAt: obj(link.snapshot).syncedAt } } : link;
+    // Sync time belongs to this thread's saved link, not a newer host summary; so do the line counts, which a linked row
+    // reads from the link's own snapshot (ThreadPullRequestsPanel LinkRow) and a summary may leave out.
+    const saved = obj(link.snapshot), counts = Object.fromEntries(['additions', 'deletions', 'changedFiles'].filter(field => saved[field] !== undefined).map(field => [field, saved[field]]));
+    return snapshot ? { ...link, snapshot: { ...snapshot, ...counts, syncedAt: saved.syncedAt } } : link;
   });
 }

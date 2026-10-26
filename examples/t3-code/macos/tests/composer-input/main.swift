@@ -1,11 +1,10 @@
 import AppKit
 import XCTest
 
-// T3ComposerInput.swift: the composer's focus reaches its node on a click, not only on
-// typing; formatting keys pass to the shared field; a press elsewhere
-// ends composition first. The transcript's remembered position moved to Contract (ChatColumn in
-// app-main.contract); its cases are in timeline-anchor.test.ts.
-// Real AppKit views in a real window; compiled with every file in modules/apple.
+// The composer's keys around the shared field (T3Composer.handle): formatting keys pass to it, under Korean
+// too, and leave its composition alone. Its focus on a click and the commit of its composition on a press
+// elsewhere are Exact's (the host's KeyUpMacTests). Real AppKit views in a real window; compiled with every
+// file in modules/apple.
 
 private let hatchResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
 private let hatchAct: ExactHatches.ActFn = { _, _, _ in 0 }
@@ -22,12 +21,8 @@ private func makeHooks() -> ExactHatches {
     return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
 }
 
-/// Stands in for Exact's node, the text view's real delegate: focus on begin-editing, blur on end.
-final class Node: NSObject, NSTextViewDelegate {
-    var events: [String] = []
-    func textDidBeginEditing(_ notification: Notification) { events.append("focus") }
-    func textDidEndEditing(_ notification: Notification) { events.append("blur") }
-}
+/// Stands in for Exact's node, the text view's real delegate.
+final class Node: NSObject, NSTextViewDelegate {}
 private func tick(_ seconds: TimeInterval = 0.02) { let end = Date(timeIntervalSinceNow: seconds); while Date() < end { RunLoop.current.run(mode: .default, before: end) } }
 
 final class ComposerFixture {
@@ -38,7 +33,6 @@ final class ComposerFixture {
     let button = NSButton(frame: NSRect(x: 0, y: 160, width: 80, height: 30))
     let node = Node()
     let composer = T3Composer()
-    let composerInput = T3ComposerInput()
     let element: ExactElement
     init() {
         _ = NSApplication.shared
@@ -51,57 +45,15 @@ final class ComposerFixture {
         element.view = scroller; element.platform = editor
         element.data = ExactData(["snapshot-owner": "owner-a"])
         composer.install(element) // the real delegate proxy goes in front of the node
-        composerInput.install(element)
     }
-    deinit { composerInput.destroy(); composer.destroy(); window.close() }
+    deinit { composer.destroy(); window.close() }
     func key(_ characters: String, _ ignoring: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [.command]) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
             characters: characters, charactersIgnoringModifiers: ignoring, isARepeat: false, keyCode: code)!
     }
-    func press(at point: NSPoint) -> NSEvent {
-        NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-    }
 }
 
 final class ComposerInputTests: XCTestCase {
-    func testClickFocusReachesTheNodeOnce() {
-        let f = ComposerFixture()
-        f.window.makeFirstResponder(f.button); tick()
-        XCTAssertEqual(f.node.events.filter { $0 == "focus" }.count, 0)
-        // A click into an existing draft: first responder only, no edit.
-        f.editor.string = "existing draft"
-        f.window.makeFirstResponder(f.editor); tick()
-        XCTAssertEqual(f.node.events.filter { $0 == "focus" }.count, 1, "focus reaches Exact's node through the proxy without typing")
-        XCTAssertTrue(f.composerInput.composerFocused)
-        f.window.makeFirstResponder(f.button); tick()
-        XCTAssertEqual(f.node.events.last, "blur")
-        XCTAssertFalse(f.composerInput.composerFocused)
-        f.window.makeFirstResponder(f.editor); tick()
-        XCTAssertEqual(f.node.events.filter { $0 == "focus" }.count, 2, "each return of the focus is a new focus")
-        XCTAssertEqual(f.composerInput.bridged, 2)
-    }
-
-    func testRemovedComposerStopsPendingFocusBridge() {
-        let f = ComposerFixture()
-        f.window.makeFirstResponder(f.button); tick()
-        let before = f.composerInput.bridged
-        f.composerInput.remove(f.element)
-        f.window.makeFirstResponder(f.editor)
-        f.composerInput.responderChanged(f.window); tick()
-        XCTAssertEqual(f.composerInput.bridged, before)
-        XCTAssertFalse(f.composerInput.composerFocused)
-        f.composerInput.install(f.element)
-        XCTAssertTrue(f.composerInput.composerFocused)
-    }
-
-    func testChordKeyUnderAKoreanSource() {
-        let f = ComposerFixture()
-        XCTAssertEqual(T3ComposerInput.chordKey(f.key("b", "b", 11)), "b")
-        XCTAssertEqual(T3ComposerInput.chordKey(f.key("ㅠ", "ㅠ", 11)), "b", "Korean 2-Set reports ㅠ for the B key")
-        XCTAssertEqual(T3ComposerInput.chordKey(f.key("ㅑ", "ㅑ", 34)), "i")
-        XCTAssertEqual(T3ComposerInput.chordKey(f.key("ㅠ", "ㅠ", 99)), "ㅠ", "an unmapped key keeps its characters")
-    }
-
     func testFormattingKeysPassThroughAfterAClickAndUnderKorean() {
         let f = ComposerFixture()
         f.editor.string = "draft"
@@ -125,18 +77,6 @@ final class ComposerInputTests: XCTestCase {
         XCTAssertTrue(f.editor.hasMarkedText())
         XCTAssertTrue(f.editor.string.hasPrefix("안녕"), "the composed syllable stays: \(f.editor.string)")
         XCTAssertFalse(f.editor.string.contains("**"))
-    }
-
-    func testPressElsewhereEndsComposition() {
-        let f = ComposerFixture()
-        f.window.makeFirstResponder(f.editor); tick()
-        f.editor.string = ""
-        f.editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
-        f.composerInput.handle(f.press(at: NSPoint(x: 20, y: 60))) // inside the composer: composition goes on
-        XCTAssertTrue(f.editor.hasMarkedText())
-        f.composerInput.handle(f.press(at: NSPoint(x: 20, y: 175))) // on the button
-        XCTAssertFalse(f.editor.hasMarkedText())
-        XCTAssertEqual(f.editor.string, "한")
     }
 
     func testReopenedFieldKeepsExplicitSelectAll() {

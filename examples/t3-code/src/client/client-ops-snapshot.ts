@@ -5,10 +5,11 @@ import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { snapshotShortcut, snapshotConflict, commandLabel } from '../snapshot/snapshot-shortcut';
 import { removeAttachmentReferences } from '../composer/composer-attachments';
+import { requestPresentation } from '../composer/requests';
 import { isSnapshotPermissionMessage } from '../snapshot/snapshot-settings';
 import { shortcutInput } from '../settings/keybinding-settings';
 import { obj, str, arr } from './domain';
-import { ClientError, nativeFiles, type Native, type Files } from './protocol';
+import { ClientError, preferenceFiles, type Native, type Files } from './protocol';
 import { letGo } from './let-go';
 
 /** Draft captures and the SnapShot settings: shortcut, sound, setup and options. */
@@ -20,9 +21,10 @@ export async function snapshotOps(this: T3Client, op: string, id: string, value:
       const previous = this.snapshotDrafts;
       const image = previous.find(image => image.id === id);
       if (!image) throw new ClientError('That draft attachment is unavailable.');
-      const key = this.draftKey;
+      const key = this.attachmentKey;
+      if (key !== this.draftKey && requestPresentation(this).questions[0]?.responding) throw new ClientError('Wait for the answer to finish submitting before removing its attachments.');
       const changedSource = await removeAttachmentReferences(this, native, key, 'image', id, { focus: value, removedImage: id, applied: async current => {
-        const files = nativeFiles(current), latest = this.local.snapshotDrafts[key] ?? [];
+        const files = preferenceFiles(), latest = this.local.snapshotDrafts[key] ?? [];
         this.local.snapshotDrafts[key] = latest.filter(entry => entry.id !== id);
         try { await this.persist(files); } catch (error) { this.local.snapshotDrafts[key] = latest; throw error; }
         this.local.snapshotReleases.push(id);

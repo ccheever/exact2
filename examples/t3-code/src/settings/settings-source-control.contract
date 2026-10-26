@@ -32,6 +32,8 @@ use BrandGitCafe from "./settings-brands.contract"
 use BrandForgejo from "./settings-brands.contract"
 use DeviceHostsView from "../device/settings-a-hosts.contract"
 use DeviceHostsRow from "../device/settings-a-hosts.contract"
+use EasHostsView from "../device/settings-eas-hosts.contract"
+use EasDeviceHostsRow from "../device/settings-eas-hosts.contract"
 use SimulatorSupportRow from "../device/device-support.contract"
 use SimulatorSupportSettingsRow from "../device/device-support.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
@@ -149,6 +151,9 @@ shape IntegrationsPage
   agentTool: DeviceTool
   hostsRow: ScopedRow
   deviceHosts: DeviceHostsView
+  // EAS Simulator hosts (settings-eas-hosts.ts), shown when the device state says `supportsEasHosts`.
+  easHostsRow: ScopedRow
+  easHosts: EasHostsView
   simulatorSupport: SimulatorSupportRow[]
   // Browser profiles and the import wizard (browser-profiles-settings.ts).
   browserProfiles: BrowserProfilesView
@@ -509,6 +514,10 @@ component IntegrationsPanel
             DeviceHostsRow(view=data.deviceHosts, busy=busy, rest=rest)
               if data.hostsRow.summary != ""
                 Inheritance(row=data.hostsRow, rest=rest)
+            if data.easHosts.supported
+              EasDeviceHostsRow(view=data.easHosts, busy=busy, rest=rest)
+                if data.easHostsRow.summary != ""
+                  Inheritance(row=data.easHostsRow, rest=rest)
 
 component DeviceRow
   props
@@ -528,7 +537,7 @@ component DeviceRow
         text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
         DeviceVersions(tool=tool, busy=busy, rest=rest)
-        ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff14)", thumb="light-dark(#fcfcfc, #0a0a0a)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
+        ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff14)", thumb="light-dark(#fcfcfc, #0a0a0a)", thumbOff="light-dark(#fcfcfc, #818181)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
 
 // "Open links in" (BrowserLinkTargetRow) between the tab defaults and Auto-show.
 component BrowserDefaults

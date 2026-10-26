@@ -166,6 +166,7 @@ fn a_place_known_at_launch_is_read_from_the_first_frame() {
         locale: locale.into(),
         time_zone: "America/Los_Angeles".into(),
         seed: 7.0,
+        format_locale: String::new(),
     };
     let mut r = boot(Some(place("fr-FR")));
     assert_eq!(text(&r), "fr-FR/America/Los_Angeles/7");
@@ -175,6 +176,51 @@ fn a_place_known_at_launch_is_read_from_the_first_frame() {
         .is_none());
     assert_eq!(text(&boot(Some(place("")))), "en-US/UTC/0");
     assert_eq!(text(&boot(None)), "en-US/UTC/0");
+}
+
+/// The regional format beside the language: the locale until a host tells
+/// one apart (the place's fourth field), kept by a place call that names
+/// none, as the seed is; one that does not validate is refused.
+#[test]
+fn the_format_locale_answers_the_locale_until_a_host_tells_one() {
+    const APP: &str = "shape Time\n  locale: string\n  formatLocale: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.formatLocale}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(APP).unwrap(), NoData).unwrap();
+    let boot = |place: Option<exact_runner::time::Place>| {
+        let launch = exact_runner::time::Launch {
+            place,
+            ..exact_runner::time::Launch::NONE
+        };
+        exact_runner::time::launching_with(launch, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let mut r = boot(None);
+    assert_eq!(text(&r), "en-US/en-US");
+    assert!(r.set_place("en-US", "Asia/Seoul", None).unwrap().is_some());
+    assert_eq!(text(&r), "en-US/en-US");
+    r.set_place_formatted("en-US", "Asia/Seoul", None, Some("en-KR"))
+        .unwrap();
+    assert_eq!(text(&r), "en-US/en-KR");
+    assert!(r.set_place("en-US", "Asia/Seoul", None).unwrap().is_none());
+    assert_eq!(text(&r), "en-US/en-KR");
+    assert!(r
+        .set_place_formatted("en-US", "Asia/Seoul", None, Some("en KR"))
+        .is_err());
+    assert_eq!(text(&r), "en-US/en-KR");
+    let launched = exact_runner::time::Place::launched("en-US\0Asia/Seoul\x007\0ko-KR");
+    assert_eq!(text(&boot(launched)), "en-US/ko-KR");
+    let three = exact_runner::time::Place::launched("fr-FR\0UTC\x007");
+    assert_eq!(text(&boot(three)), "fr-FR/fr-FR");
+    // A format locale no host would report refuses the whole place, as a
+    // bad zone does: the boot reads the defaults.
+    assert!(exact_runner::time::Place::launched("fr-FR\0UTC\x007\0fr FR").is_none());
 }
 
 /// Euxy's library: a store-reading source passed the date after `with`,

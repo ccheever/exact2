@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dir, '..');
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const schema = name => JSON.parse(readFileSync(resolve(ROOT, 'tamber/tests/dtcg', name), 'utf8'));
 
 /** Every error of `value` against draft-07 `root`, by JSON pointer. */
@@ -77,7 +78,7 @@ function exported(design) {
   const dir = mkdtempSync(resolve(tmpdir(), 'tamber-dtcg-'));
   try {
     copyFileSync(design, resolve(dir, 'app.tamber'));
-    const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'export', 'dtcg', resolve(dir, 'app.tamber')], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
+    const r = spawnSync(compiler, ['tamber', 'export', 'dtcg', resolve(dir, 'app.tamber')], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
     if (r.status !== 0) throw new Error(r.stderr);
     // Each export keeps its baseline beside the design, ignored by its own file.
     const kept = resolve(dir, '.exact/tamber-dtcg');

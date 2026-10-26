@@ -27,6 +27,31 @@ final class GroupedActionsIOSTests: GroupedListFixture {
         XCTAssertFalse(try cell(p, 12).accessibilityTraits.contains(.button), "a row that presses nothing is not")
     }
 
+    func testAStandardRowsContextMenuLiftsItsNativeCellAndFollowsReuse() throws {
+        let p = presenter { self.model() }
+        defer { window.isHidden = true }
+        let row = try XCTUnwrap(p.views[10])
+        row.applyProps(set: ["contextPopover": "row-menu"], clear: [])
+        p.apply(wireBatch([
+            ["op": "create", "id": 40, "kind": "view", "props": ["popover": "auto", "id": "row-menu"], "style": [:], "handlers": []],
+            ["op": "create", "id": 41, "kind": "button", "props": ["text": "Archive"], "style": [:], "handlers": ["press"]],
+            ["op": "children", "id": 40, "ids": [41]],
+            ["op": "children", "id": 1, "ids": [2, 3, 40]],
+        ]))
+        let native = try cell(p, 10)
+        let interaction = try XCTUnwrap(native.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let menu = p.menus.context
+        let configuration = try XCTUnwrap(menu.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: 20, y: 20)))
+        XCTAssertTrue(menu.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: configuration)?.view === native)
+        let owner = try XCTUnwrap(menu.open)
+        XCTAssertTrue(owner.source === row)
+        XCTAssertEqual(menu.menu(owner)?.children.count, 1)
+        menu.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        row.applyProps(set: [:], clear: ["contextPopover"])
+        try list(p).mount()
+        XCTAssertFalse(native.interactions.contains { $0 is UIContextMenuInteraction })
+    }
+
     func testALabelledTextSpeaksItsWordsAsItsValue() {
         let p = Presenter()
         let readout = NodeView(id: 30, kind: "text", presenter: p)

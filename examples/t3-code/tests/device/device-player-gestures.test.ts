@@ -13,6 +13,7 @@ import { resizePreviewMiniPlayer, resolveDeviceMiniPlayerSourceSize, type Browse
 import { floatMiniDevice, miniStoreOf } from '../../src/device/device-session';
 import { DETAILS_FRAMES } from '../../src/details/thread-details-card-layout';
 import { contractComponent } from '../support/contract-action-fixture';
+import { setLayoutFrames } from '../support/layout-frames';
 
 const iphone = { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 17 Pro' };
 const KEY = 'device:local:IPHONE';
@@ -29,7 +30,8 @@ let state: Record<string, unknown>;
 let clock: number;
 
 beforeEach(() => {
-  client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: { frames }, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
+  client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: {}, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
+  setLayoutFrames(client, frames);
   canvasArgs = {};
   state = player.state();
   clock = 5000;
@@ -117,7 +119,7 @@ describe('the docked details card while the top edge grows and shrinks the playe
   // (231 with its borders); the workspace row and the resting Git group show only in `full` (compact = 231 − 64).
   const card = { ...frames, [DETAILS_FRAMES.content]: [988, 64, 280, 229], [DETAILS_FRAMES.fullTop]: [996, 72, 264, 32], [DETAILS_FRAMES.fullGit]: [996, 200, 264, 32] };
   beforeEach(() => {
-    client.presentation = { frames: card };
+    setLayoutFrames(client, card);
     canvasArgs = { detailsInline: true };
   });
   const canvas = async () => chatCanvasView(client, native, args(canvasArgs));
@@ -143,7 +145,7 @@ describe('the docked details card while the top edge grows and shrinks the playe
 describe('the player at 840 × 620', () => {
   // The sidebar is 208 at 840 wide: the canvas is 632 × 568.
   const small = { chat: [208, 0, 632, 620], overlay: [228, 451, 592, 165] };
-  beforeEach(() => { client.presentation = { frames: small }; });
+  beforeEach(() => { setLayoutFrames(client, small); });
 
   test('a draft (the hero composer, not overlaid) keeps the 240 pt minimum at the reference\'s cell (624,124 on screen)', async () => {
     const { mini } = await chatCanvasView(client, native, args({ width: 632, viewportHeight: 620, overlaid: false }));

@@ -758,14 +758,14 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.15');
+      expect(hello.protocol).toBe('tamber/1.17');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.
       expect(hello.page).toBe(base);
       const page = await fetch(`${base}/`, { headers: { accept: 'text/html' } });
       expect(page.status).toBe(200);
-      expect(page.headers.get('content-security-policy')).toBe("frame-ancestors 'self' http://127.0.0.1:7740");
+      expect(page.headers.get('content-security-policy')).toBe(FRAME_ANCESTORS);
       expect(page.headers.get('x-frame-options')).toBe(null);
       // Every other HTML the loop answers: an install page (the fixture has
       // no auth callback, nor a resident loop for `/__dev/open`; the wasm

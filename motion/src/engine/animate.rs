@@ -398,7 +398,7 @@ impl Engine {
         };
         for p in plays.iter_mut().filter(|p| p.dark != dark) {
             p.dark = dark;
-            for frame in &p.animation.keyframes.0 {
+            for frame in p.animation.keyframes.0.iter() {
                 for (property, _) in &frame.dark {
                     self.dirty.insert((node, *property));
                 }

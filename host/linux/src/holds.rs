@@ -1,8 +1,95 @@
-//! Native tokens never cross a numeric bridge or enter a historical handle map.
+//! Retained actions and native motion holds. Tokens stay native.
 use super::*;
 use exact_motion::{HoldEnd, HoldStart, HoldToken, Value};
 
 impl<D: DataSource> Host<D> {
+    fn retained_input_eligible(
+        &self,
+        key: NodeKey,
+        binding: &exact_runner::runner::ActionBinding,
+        kind: exact_plan::EventKind,
+        held: Option<HoldToken>,
+    ) -> bool {
+        matches!(
+            kind,
+            exact_plan::EventKind::Press | exact_plan::EventKind::Swiperight
+        ) && self.retained_action_eligible(key)
+            && self.runner.validate_action_binding(binding, kind).is_ok()
+            && held.is_none_or(|token| {
+                token.property() == Property::Translate
+                    && token.node() == motion_node(key)
+                    && self.has_hold(token)
+            })
+    }
+
+    /// None refuses the input before sampling. Some reports whether timers
+    /// committed, including commits that leave the kernel epoch unchanged.
+    pub(crate) fn advance_retained_input(
+        &mut self,
+        key: NodeKey,
+        binding: &exact_runner::runner::ActionBinding,
+        kind: exact_plan::EventKind,
+        held: Option<HoldToken>,
+        now_ms: f64,
+    ) -> Option<bool> {
+        if !now_ms.is_finite()
+            || now_ms < self.now_ms
+            || !self.retained_input_eligible(key, binding, kind, held)
+        {
+            return None;
+        }
+        // A live commit can finish later, but the release that follows
+        // still carries the input's presentation timestamp.
+        self.now_ms = now_ms;
+        let advanced = self.runner.advance_timed(now_ms);
+        let committed = !advanced.receipts.is_empty();
+        if let Some(error) = self.commit(
+            &advanced.receipts,
+            advanced.error.map(|error| format!("{error:?}")),
+        ) {
+            // A timer error does not say whether the input was delivered.
+            self.log(error);
+        }
+        Some(committed)
+    }
+
+    /// The presenter revalidates its complete retained target after advancing.
+    /// Recheck the binding and hold here; only a dispatched action can return Err.
+    pub(crate) fn dispatch_retained(
+        &mut self,
+        key: NodeKey,
+        binding: &exact_runner::runner::ActionBinding,
+        kind: exact_plan::EventKind,
+        held: Option<HoldToken>,
+    ) -> Result<bool, String> {
+        if !self.retained_input_eligible(key, binding, kind, held) {
+            return Ok(false);
+        }
+        let event = match kind {
+            exact_plan::EventKind::Press => Event::Press,
+            exact_plan::EventKind::Swiperight => Event::Swiperight,
+            _ => return Ok(false),
+        };
+        let result = self.runner.dispatch_bound(binding, event);
+        if matches!(
+            result,
+            Err(exact_runner::runner::ActionBindingError::Refused(_))
+        ) {
+            return Ok(false);
+        }
+        let error = match result {
+            Ok(receipt) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
+        };
+        error.map_or(Ok(true), Err)
+    }
+
     /// A distinct acknowledged picture cannot inherit an old contact's hold.
     /// Only its exact held/returning Translate token may snap to the current target;
     /// this never ends a replacement hold/curve or advances either clock.
@@ -28,21 +115,6 @@ impl<D: DataSource> Host<D> {
             .map_err(|e| format!("retained hold snap: {e:?}"))?;
         self.present();
         Ok(true)
-    }
-    pub(crate) fn dispatch_retained_held(
-        &mut self,
-        token: HoldToken,
-        key: NodeKey,
-        binding: &exact_runner::runner::ActionBinding,
-        now_ms: f64,
-    ) -> Result<bool, String> {
-        if token.property() != Property::Translate
-            || token.node() != motion_node(key)
-            || !self.has_hold(token)
-        {
-            return Ok(false);
-        }
-        self.dispatch_retained(key, binding, exact_plan::EventKind::Swiperight, now_ms)
     }
     /// Sample at recognition, in milliseconds. Unknown/inert nodes do not adopt slots.
     pub fn hold_begin(

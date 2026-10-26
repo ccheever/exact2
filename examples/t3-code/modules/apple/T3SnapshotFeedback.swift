@@ -33,6 +33,8 @@ final class T3SnapshotFeedback {
     var screens: () -> [CGRect] = { NSScreen.screens.map(\.frame) }
     /// Every ended flight (landed, dismissed, timed out, cancelled) reports its id once.
     var ended: (String) -> Void = { _ in }
+    /// SnapShotTransition.isAnimating: a capture is flying to its attachment. A card still over its source window is not.
+    var isAnimating: Bool { flights.values.contains { $0.landing && !$0.finished } }
 
     func play(_ choice: String) -> Bool {
         let file = choice == "soft-pop" ? "snap-shot-whoosh.mp3" : choice == "camera-shutter" ? "snap-shot-click.mp3" : ""

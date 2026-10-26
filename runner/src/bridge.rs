@@ -184,6 +184,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
                 .map_err(|_| mismatch())?
                 .into(),
         )
+    } else if prop == PropId::AtomFaces {
+        PropValue::Str(
+            crate::decorations::atom_faces(value)
+                .map_err(|_| mismatch())?
+                .into(),
+        )
     } else {
         match (prop.kind(), value) {
             (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
@@ -583,10 +589,13 @@ pub fn inherited_varying(
             && r.slices.len > 0
             && plan.str(r.name) == text
     });
-    // Its children: its own nodes, and a choice's or a list's under it.
-    let children = plan.nodes.iter().any(|n| n.parent == Some(node))
-        || plan.regions.iter().any(|r| r.parent == Some(node));
-    if b.kind == exact_plan::BindingKind::Style && varying && children {
+    // Its children: its own nodes, and a choice's or a list's under it. A
+    // scan of the plan, so only for a row that varies.
+    let children = || {
+        plan.nodes.iter().any(|n| n.parent == Some(node))
+            || plan.regions.iter().any(|r| r.parent == Some(node))
+    };
+    if b.kind == exact_plan::BindingKind::Style && varying && children() {
         return Err(BridgeError::StyleKind {
             style: row,
             value: value.clone(),

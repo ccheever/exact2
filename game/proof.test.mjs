@@ -697,7 +697,8 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
 
 test('clock settle diagnostic names busy, held input, and logs on a real unsettled reply', async () => {
   const source=readFileSync(resolve(import.meta.dir,'../scripts/agent.mjs'),'utf8');
-  const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
+  const a=source.indexOf("    async clock("), b=source.indexOf('\n    /** Pixels as PNG',a);
+  expect(a).toBeGreaterThanOrEqual(0); expect(b).toBeGreaterThan(a);
   const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
   // The method reads the module's step constant and growth rule; pass them in as the module would.
   // A settle asks each drawing world for its tells (agent-inspect.mjs): none here.

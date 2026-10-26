@@ -87,9 +87,15 @@ impl Resolve<'_> {
         }
     }
 
-    /// `v` with each alias inside it replaced by what it names.
+    /// `v` with each alias inside it replaced by what it names. Each
+    /// composite is a level, as each alias is, of the checker's
+    /// [`crate::bound::MAX_REFERENCE_DEPTH`]: aliases each nesting the next
+    /// count both.
     fn inner(&self, v: &Value, visiting: &mut BTreeSet<String>) -> Result<Value, String> {
         crate::budget::spend(1)?;
+        let Some(_deeper) = crate::bound::deeper() else {
+            return Err(crate::bound::too_deep().1);
+        };
         match v {
             Value::Object(o) => o
                 .iter()

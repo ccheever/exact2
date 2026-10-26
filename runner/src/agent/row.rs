@@ -139,6 +139,7 @@ pub fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::PositionTryFallbacks(s) => quote(&s.css(), out),
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => quote(&g.css(), out),
         RowValue::TextShadow(s) => quote(&s.css(), out),
+        RowValue::FontVariations(v) => quote(&v.css(), out),
         RowValue::BoxShadow(s) => quote(&s.css(), out),
         RowValue::CornerShape(c) => quote(&c.css(), out),
         RowValue::RotateAxis(a) => quote(&a.css(), out),

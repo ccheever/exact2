@@ -226,13 +226,29 @@ fn truncated_intrinsics_keeps_state() {
 
 #[test]
 fn truncated_covers_keeps_state() {
-    preserves_state(
-        |bridge, _| {
-            let len = bridge.input_write(&[0]);
-            bridge.covers(len)
-        },
-        "covers: truncated record",
-    );
+    let placement = |kind: u32| {
+        let mut record = vec![0; 28];
+        record[4..8].copy_from_slice(&kind.to_le_bytes());
+        record
+    };
+    for record in [vec![0], placement(6), placement(13)] {
+        preserves_state(
+            |bridge, view| {
+                if record.len() == 28 {
+                    let mut complete = record.clone();
+                    complete.resize(36, 0);
+                    complete[..4].copy_from_slice(&view.to_le_bytes());
+                    complete[24..28].copy_from_slice(&view.to_le_bytes());
+                    let len = bridge.input_write(&complete);
+                    let batch = bridge.covers(len);
+                    assert!(output(bridge, batch)["error"].is_null());
+                }
+                let len = bridge.input_write(&record);
+                bridge.covers(len)
+            },
+            "covers: truncated record",
+        );
+    }
 }
 
 #[test]
@@ -263,6 +279,74 @@ fn malformed_view_keeps_state() {
         },
         "view: malformed",
     );
+}
+
+/// `exact_view`'s words: the mask, eight floats, the regions' count and
+/// `regions`, then `tail` (the segments' count and rects).
+fn view_words(mask: u32, regions: &[f32], tail: &[u32]) -> Vec<u8> {
+    let mut words = vec![mask];
+    words.extend([0.0f32; 8].map(f32::to_bits));
+    words.push(regions.len() as u32);
+    words.extend(regions.iter().map(|r| r.to_bits()));
+    words.extend(tail);
+    words.iter().flat_map(|w| w.to_le_bytes()).collect()
+}
+
+/// The segments' rects (mask 16) without their count, or with a count the
+/// buffer does not hold or holds more than, are refused, never read past
+/// the buffer.
+#[test]
+fn a_view_whose_segments_are_short_keeps_state() {
+    for (regions, tail) in [
+        (vec![], vec![]),
+        (vec![0.0; 20], vec![]),
+        (vec![], vec![2]),
+        (vec![], vec![1, 0, 0, 0, 0, 0, 0, 0, 0]),
+        (vec![], vec![u32::MAX]),
+    ] {
+        preserves_state(
+            |bridge, _| {
+                let len = bridge.input_write(&view_words(16, &regions, &tail));
+                bridge.view(len)
+            },
+            "view: malformed",
+        );
+    }
+}
+
+/// A keyboard's rects (mask 16) after the regions, with and without them,
+/// reach the kernel's grid with the viewport.
+#[test]
+fn a_view_carries_a_keyboards_segment_rects() {
+    let plan = contract::compile("component App\n  view\n    column\n")
+        .unwrap()
+        .encode();
+    for regions in [vec![], vec![0.0f32; 20]] {
+        let mut bridge = Bridge::new();
+        bridge.boot(&plan, Dot, Hooks::none(), 402., 874.);
+        let rects = |h: f32| [0., 0., 402., 400., 0., 440., 402., h].map(f32::to_bits);
+        bridge.input_write(
+            &rects(434.)
+                .iter()
+                .flat_map(|w| w.to_le_bytes())
+                .collect::<Vec<_>>(),
+        );
+        bridge.segments(1, 1, 2, 2);
+        let mut tail = vec![2];
+        tail.extend(rects(15.));
+        let mask = 16 | 8 | if regions.is_empty() { 0 } else { 4 };
+        let mut words = view_words(mask, &regions, &tail);
+        words[28..36].copy_from_slice(&[402.0f32.to_le_bytes(), 455.0f32.to_le_bytes()].concat());
+        let len = bridge.input_write(&words);
+        bridge.view(len);
+        let env = bridge.host.as_ref().unwrap().runner().kernel().env();
+        assert_eq!((env.cols, env.rows), (1, 2));
+        assert_eq!(
+            env.segments[1],
+            exact_kernel::Rect::new(0., 440., 402., 15.)
+        );
+        assert_eq!(env.viewport_height, 455.);
+    }
 }
 
 #[test]
@@ -331,4 +415,77 @@ component App
             .journal()
             .any(|line| line.contains("dlopen: missing activity arm")));
     }
+}
+
+#[test]
+fn a_same_clock_signed_zero_change_refuses_the_stale_candidate() {
+    let plan = contract::compile(
+        "component App\n  state value = 0\n  action negate\n    value = -value\n  view\n    button press=negate testId=\"negate\"\n      text `${value}`\n",
+    ).unwrap().encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, Dot, Hooks::none(), 390., 844.);
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let before = bridge.host.as_ref().unwrap().carry();
+    let kernel = bridge.host.as_ref().unwrap().runner().kernel();
+    let button = kernel
+        .node_by_key(kernel.find_by_test_id("negate")[0])
+        .unwrap()
+        .id;
+    bridge.dispatch(button, 0, 0, before.now_ms);
+    let latest = bridge.host.as_ref().unwrap().carry();
+    assert_eq!(latest.now_ms, before.now_ms);
+    let value = |bridge: &Bridge<Dot>| {
+        bridge
+            .host
+            .as_ref()
+            .unwrap()
+            .runner()
+            .slot("value")
+            .unwrap()
+            .as_number()
+            .unwrap()
+            .to_bits()
+    };
+    assert_eq!(value(&bridge), (-0.0f64).to_bits());
+    let len = bridge.commit_plan();
+    assert_eq!(output(&bridge, len)["pending"], true);
+    assert_eq!(value(&bridge), (-0.0f64).to_bits());
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let len = bridge.commit_plan();
+    assert_ne!(output(&bridge, len)["pending"], true);
+    assert_eq!(value(&bridge), (-0.0f64).to_bits());
+}
+
+#[test]
+fn a_clock_only_change_refuses_a_candidate_that_would_rewind_time() {
+    let plan = contract::compile("component App\n  state value = 0\n  view\n    text `${value}`\n")
+        .unwrap()
+        .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, Dot, Hooks::none(), 390., 844.);
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let before = bridge.host.as_ref().unwrap().carry();
+    bridge.advance(before.now_ms + 1000., 0);
+    let latest = bridge.host.as_ref().unwrap().carry();
+    assert_eq!(before.slots, latest.slots, "only time changed");
+    assert_eq!(before.store, latest.store);
+    assert_eq!(before.resources, latest.resources);
+    assert_eq!(latest.now_ms, before.now_ms + 1000.);
+    assert_eq!(
+        bridge.prepared.as_ref().unwrap().host.carry().now_ms,
+        before.now_ms,
+        "accepting this host would replace the live clock with its earlier value"
+    );
+    let len = bridge.check_prepared();
+    assert_eq!(output(&bridge, len)["pending"], true);
+    assert!(bridge.prepared.is_none());
+    assert_eq!(bridge.host.as_ref().unwrap().carry().now_ms, latest.now_ms);
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let len = bridge.commit_plan();
+    assert_ne!(output(&bridge, len)["pending"], true);
+    assert_eq!(bridge.host.as_ref().unwrap().carry().now_ms, latest.now_ms);
 }

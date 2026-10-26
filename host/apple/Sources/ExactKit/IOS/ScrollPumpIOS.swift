@@ -124,6 +124,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         // Nor is a smooth correction's frame (`OffsetDriver`).
         if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) { sample(node, now: lastScroll) }
         p.leaves.scrolled()
+        p.menus.rehostPopovers()
         // What this frame shows has its text before it commits. A pass
         // follows only for work owed: a paragraph still without all its
         // pixels, or a list's rows. A screen painted up front scrolls with
@@ -135,6 +136,11 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
+        if let p = presenter, p.navigation.pinsPrimaryViewport {
+            // Apply frame-guide movement before sampling placements and popover anchors
+            if !p.applying { p.navigation.fitOwner() }
+            p.owners.publish()
+        }
         presenter?.stickies.scrolled(nil); scrolled(nil)
     }
     // The page's element reveals (`IntoView.swift`).

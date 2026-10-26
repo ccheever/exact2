@@ -45,24 +45,31 @@ extension KeyCodes {
 
 /// A key event for the runner (#140): DOM's `keydown` (`key`, ABI kind 6)
 /// or `keyup` (43), or a capture keydown (44): its chord (`Shift+Meta+b`, `Event::key`), its
-/// `KeyboardEvent.code` ("" when the host cannot tell) and `repeat`. It
-/// prints as its chord, which the hosts' tests read.
+/// `KeyboardEvent.code` ("" when the host cannot tell), `repeat` and
+/// `isComposing`. It prints as its chord, which the hosts' tests read.
 struct KeyPress: ExpressibleByStringLiteral, CustomStringConvertible {
     var chord: String
     var code = ""
     var repeats = false
     var up = false
     var capture = false
-    init(_ chord: String, code: String = "", repeats: Bool = false, up: Bool = false) {
+    /// `isComposing`: the key passed an input method's composition
+    /// (`passesComposition`), which only a modifier's own press and release
+    /// do with the text still marked.
+    var composing = false
+    init(_ chord: String, code: String = "", repeats: Bool = false, up: Bool = false, composing: Bool = false) {
         self.chord = chord
         self.code = code == "Unidentified" || !code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) ? "" : code
         self.repeats = repeats && !up
         self.up = up
+        self.composing = composing
     }
     init(stringLiteral chord: String) { self.init(chord) }
     var description: String { chord }
     /// The payload `KeyboardEvent::parse` reads.
-    var payload: String { code.isEmpty && !repeats ? chord : "\(chord)\n\(code)\n\(repeats)" }
+    var payload: String {
+        composing ? "\(chord)\n\(code)\n\(repeats)\ntrue" : code.isEmpty && !repeats ? chord : "\(chord)\n\(code)\n\(repeats)"
+    }
 }
 
 extension NodeView {
@@ -76,17 +83,29 @@ extension NodeView {
 }
 
 extension Presenter {
+    /// The session's first root: what hears a key, and a cut, copy or paste,
+    /// while nothing holds the focus, as the DOM's `window` listeners hear
+    /// one whose target is `<body>` (docs/contract-grammar.md#keys). It takes
+    /// no focus by it: no `focus` event, no ring, no Tab stop.
+    var keyRoot: NodeView? {
+        guard let node = root.subviews.first as? NodeView, views[node.id] === node else { return nil }
+        return node
+    }
     /// The `key` handlers at `target` and above it hear `name` with the
     /// modifiers `held` (a chord prefix, `KeyCodes.held`), the physical key
-    /// (`code`) and whether it is an auto-repeat, the path fixed before the
+    /// (`code`), whether it is an auto-repeat and whether it came during a
+    /// composition (`composing`), the path fixed before the
     /// first runs, as the DOM fixes an event's; one that called
     /// `stopPropagation()` is the last. True when one called
     /// `preventDefault()`: the caller skips the default action.
-    func keyDown(at target: NodeView?, _ name: String, held: String = "", code: String = "", repeats: Bool = false) -> Bool {
+    func keyDown(at target: NodeView?, _ name: String, held: String = "", code: String = "", repeats: Bool = false, composing: Bool = false) -> Bool {
         #if canImport(UIKit)
         supersedePress()
         #endif
-        let prevented = keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats))
+        let prevented = keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats, composing: composing))
+        #if os(iOS)
+        if !prevented, (name == "ContextMenu" && held.isEmpty || name == "F10" && held == "Shift+"), contextMenuKey() { return true }
+        #endif
         #if canImport(UIKit)
         if !prevented, name == "Escape", !repeats, menus.dismissPopover() { return true }
         #endif
@@ -95,8 +114,8 @@ extension Presenter {
     /// The `keyup` handlers at `target` and above hear a key's release, in
     /// the same order (#140). True when one called `preventDefault()`.
     @discardableResult
-    func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "") -> Bool {
-        keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true))
+    func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "", composing: Bool = false) -> Bool {
+        keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true, composing: composing))
     }
     /// One bubbling dispatch (the pointer's down or up, a wheel): a handler
     /// it runs that calls `stopPropagation()` sets `propagationStopped` for
@@ -223,9 +242,10 @@ extension Presenter {
     func keyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
         guard event.type == .keyDown || event.type == .flagsChanged && KeyCodes.pressed(event) else { return false }
         let responder = (window ?? event.window)?.firstResponder
+        let composing = composes(event, at: responder)
         if !passesComposition(event, at: responder) { return false }
-        return keyEvent("key", at: keyTarget(responder), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
-                        code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat), inline: (responder as? InlineKeyView)?.id)
+        return keyEvent("key", at: keyPath(responder, in: window ?? event.window), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
+                        code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat, composing: composing), inline: (responder as? InlineKeyView)?.id)
     }
     /// A keyup at the window's first responder, a modifier's (a flags change
     /// that released it) included (#140): the `keyup` handlers there and
@@ -236,8 +256,16 @@ extension Presenter {
         guard event.type == .keyUp || event.type == .flagsChanged && KeyCodes.released(event) else { return }
         let responder = (window ?? event.window)?.firstResponder
         if !passesComposition(event, at: responder) { return }
-        _ = keyEvent("keyup", at: keyTarget(responder), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
-                     code: KeyCodes.code(event), up: true), inline: (responder as? InlineKeyView)?.id)
+        _ = keyEvent("keyup", at: keyPath(responder, in: window ?? event.window), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
+                     code: KeyCodes.code(event), up: true, composing: composes(event, at: responder)), inline: (responder as? InlineKeyView)?.id)
+    }
+    /// A key's `isComposing`: a modifier's own press or release while an
+    /// input method composes text at `responder`, as Chrome reports one
+    /// (#140). A ⌘ chord's keydown commits the composition before its
+    /// handlers run (`passesComposition`), so it is not composing; no other
+    /// key reaches them during one.
+    func composes(_ event: NSEvent, at responder: NSResponder?) -> Bool {
+        event.type == .flagsChanged && (responder as? NSTextInputClient)?.hasMarkedText() == true
     }
     /// Whether a key reaches the handlers while an input method composes
     /// text at `responder` (#140). Without a composition, every key. During
@@ -268,10 +296,32 @@ extension Presenter {
         node.commitComposition(in: editor)
         composedChord = event
     }
+    /// A press (a mouse-down) outside a node's field or textarea while an
+    /// input method composes text in it commits the text as it stands
+    /// before the press runs, as Chrome's mousedown ends a composition (its
+    /// `compositionend` comes before the press's `click`). AppKit leaves it
+    /// marked through a click on a button, so a press that sends and clears
+    /// the field left the input method a syllable the app no longer had. A
+    /// press inside the field's node (its text, padding or scroller) is the
+    /// input method's own or the field's.
+    func commitCompositionBefore(_ press: NSEvent) {
+        guard let window = press.window, let editor = window.firstResponder as? NSTextView, editor.hasMarkedText(),
+              let node = keyTarget(editor), !node.bounds.contains(node.convert(press.locationInWindow, from: nil)) else { return }
+        node.commitComposition(in: editor)
+    }
     /// A keydown that was a ⌘ chord ending a composition (`endComposition`).
     func endedComposition(_ event: NSEvent?) -> Bool {
         guard let event, let chord = composedChord, event.type == .keyDown else { return false }
         return event === chord || event.timestamp == chord.timestamp && event.keyCode == chord.keyCode && event.windowNumber == chord.windowNumber
+    }
+    /// Where a key at `responder` starts its path: the node it is the focus
+    /// of, or the first root (`keyRoot`) while nothing of this session's in
+    /// `window` holds the focus (`windowHoldsFocus`): at launch, or after the
+    /// focused node unmounted and AppKit gave the window its own focus.
+    func keyPath(_ responder: NSResponder?, in window: NSWindow?) -> NodeView? {
+        if let node = keyTarget(responder) { return node }
+        guard let window, windowHoldsFocus(window) else { return nil }
+        return keyRoot
     }
     /// The node a responder is the focus of: the node itself, or its field
     /// (and the field editor editing it), textarea, native button or date/select control. Any other view a node
@@ -370,15 +420,22 @@ extension NodeView {
     /// method's composition keeps its keys, but for a modifier's own and a
     /// ⌘ chord (`passesComposition`).
     func editorKeyDown(_ presses: Set<UIPress>) -> Bool {
-        guard !formDisabled, let key = presses.first?.key,
-              passesComposition(KeyCodes.hid(key.keyCode.rawValue), command: key.modifierFlags.contains(.command), down: true) else { return false }
-        return hardwareKey(key, down: true)
+        guard !formDisabled, let key = presses.first?.key else { return false }
+        let code = KeyCodes.hid(key.keyCode.rawValue), composing = composes(code)
+        guard passesComposition(code, command: key.modifierFlags.contains(.command), down: true) else { return false }
+        return hardwareKey(key, down: true, composing: composing)
     }
     /// A hardware key's release at this node's field or textarea (#140).
     func editorKeyUp(_ presses: Set<UIPress>) {
-        guard !formDisabled, let key = presses.first?.key,
-              passesComposition(KeyCodes.hid(key.keyCode.rawValue), command: key.modifierFlags.contains(.command), down: false) else { return }
-        _ = hardwareKey(key, down: false)
+        guard !formDisabled, let key = presses.first?.key else { return }
+        let code = KeyCodes.hid(key.keyCode.rawValue), composing = composes(code)
+        guard passesComposition(code, command: key.modifierFlags.contains(.command), down: false) else { return }
+        _ = hardwareKey(key, down: false, composing: composing)
+    }
+    /// macOS's `composes` (#140): a modifier's own key while an input
+    /// method composes text here is `isComposing`.
+    func composes(_ code: String) -> Bool {
+        KeyCodes.modifier(code) && (selectionField?.markedTextRange ?? textArea?.markedTextRange) != nil
     }
     /// macOS's `passesComposition` (#140): while an input method composes
     /// text here, a modifier's own press and release still reach the
@@ -405,12 +462,12 @@ extension NodeView {
     /// above, with its `code`; UIKit reports no auto-repeat on a press, so
     /// `repeat` stays false. A modifier's own keydown holds it, its keyup
     /// no longer does, as DOM's.
-    func hardwareKey(_ key: UIKey, down: Bool) -> Bool {
+    func hardwareKey(_ key: UIKey, down: Bool, composing: Bool = false) -> Bool {
         let code = KeyCodes.hid(key.keyCode.rawValue), name = NodeView.keyName(key)
         var held = KeyCodes.held(key.modifierFlags)
         if KeyCodes.modifier(code) { held = KeyCodes.held(held, name, down) }
-        return down ? presenter?.keyDown(at: self, name, held: held, code: code) == true
-            : presenter?.keyUp(at: self, name, held: held, code: code) == true
+        return down ? presenter?.keyDown(at: self, name, held: held, code: code, composing: composing) == true
+            : presenter?.keyUp(at: self, name, held: held, code: code, composing: composing) == true
     }
 }
 #endif

@@ -10,6 +10,7 @@ import { resolveDeviceMiniPlayerSourceSize } from '../../src/device/previewMiniP
 import { closeMiniDevice, floatMiniDevice, miniDeviceOf, miniStoreOf, selectDeviceTarget } from '../../src/device/device-session';
 import { panelKey, panelState, surfaceLocal } from '../../src/panel/panel-surfaces';
 import { toggleInline } from '../../src/shell/shell-prefs';
+import { setLayoutFrames } from '../support/layout-frames';
 
 const iphone = { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' };
 const pixel = { hostId: 'local', deviceId: 'emulator-5554', platform: 'android', name: 'Pixel 9' };
@@ -20,7 +21,8 @@ let client: T3Client;
 const native = null as unknown as Native;
 
 beforeEach(() => {
-  client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: { frames }, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
+  client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: {}, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
+  setLayoutFrames(client, frames);
 });
 
 describe('the chat canvas (ChatCanvas, chatCanvasLayout)', () => {
@@ -40,11 +42,11 @@ describe('the chat canvas (ChatCanvas, chatCanvasLayout)', () => {
       padding: 48, maxChatWidth: 736, minChatWidth: 640, composerHeight: 172 });
     expect(expected.frame).toEqual({ x: 772, y: 256, width: 240, height: 520 });
     // A short canvas fits the height above the composer and the player overlaps chat (allows message overlap).
-    client.presentation = { frames: { chat: [0, 0, 600, 552], overlay: [0, 400, 600, 100] } };
+    setLayoutFrames(client, { chat: [0, 0, 600, 552], overlay: [0, 400, 600, 100] });
     const short = await chatCanvasView(client, native, args({ width: 600, viewportHeight: 552 }));
     expect(short.overlapsChat).toBe(true);
     expect(short.mini.top - 52 + short.mini.height).toBeLessThanOrEqual(500 - 100 - 12);
-    client.presentation = { frames };
+    setLayoutFrames(client, frames);
     // A landscape stream floats a wide box; an Android player rounds its corners like the phone.
     closeMiniDevice(client, 't1');
     floatMiniDevice(client, 't1', pixel);
@@ -114,12 +116,12 @@ describe('the chat canvas (ChatCanvas, chatCanvasLayout)', () => {
     floatMiniDevice(client, 't1', iphone);
     miniStoreOf(client).resize('t1', 'device:local:IPHONE', 330, { x: 600, y: 40 });
     const before = await chatCanvasView(client, native, args());
-    client.presentation = { frames: { chat: [0, 0, 700, 452], overlay: [0, 300, 700, 100] } };
+    setLayoutFrames(client, { chat: [0, 0, 700, 452], overlay: [0, 300, 700, 100] });
     const narrow = await chatCanvasView(client, native, args({ width: 700, viewportHeight: 452 }));
     expect(narrow.mini.width).toBeLessThan(before.mini.width);
     expect(narrow.mini.x + narrow.mini.width).toBeLessThanOrEqual(700 - 12);
     expect(miniStoreOf(client).get('t1')).toMatchObject({ width: 330, position: { x: 600, y: 40 } });
-    client.presentation = { frames };
+    setLayoutFrames(client, frames);
     // The same answer, but the narrow window switched the card's mode to the popover and back (two switches).
     expect(await chatCanvasView(client, native, args())).toEqual({ ...before, popoverEpoch: before.popoverEpoch + 2 });
   });
@@ -127,7 +129,7 @@ describe('the chat canvas (ChatCanvas, chatCanvasLayout)', () => {
   test('with the inline card the player tucks below it and the card folds only when no slot is left', async () => {
     floatMiniDevice(client, 't1', iphone);
     // A full layout of the card (its workspace rows report `details-full-top`): the canvas keeps its full height.
-    client.presentation = { frames: { chat: [0, 0, 1584, 1040], overlay: [400, 860, 736, 180], 'details-content': [1292, 64, 280, 325], 'details-full-top': [1300, 72, 264, 32] } };
+    setLayoutFrames(client, { chat: [0, 0, 1584, 1040], overlay: [400, 860, 736, 180], 'details-content': [1292, 64, 280, 325], 'details-full-top': [1300, 72, 264, 32] });
     const wide = client;
     const canvas = await chatCanvasView(wide, native, args({ width: 1584, viewportHeight: 1040, detailsInline: true }));
     expect([canvas.cardShown, canvas.overlapsDetailsCard, canvas.cardHeight]).toEqual([true, false, 988 - 24]);

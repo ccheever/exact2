@@ -44,10 +44,12 @@
   /* LLP 1115.000 D4.12: the resets a careful web app ships. A phone does not inflate the text in landscape (normalize.css
      and Tailwind's preflight say the same). A control answers a tap at once: a second quick tap on it is a second tap,
      not the browser's zoom (panning and pinching from it are unchanged). And a shell that scrolls inside itself (every
-     page but a `scroll document` one, where the document is the scroller and keeps the browser's own ends) does not
-     hand a scroller's end to the page: a list at its top does not pull the page to refresh or drag the window. */
+     page but a `scroll document` one, where the document is the scroller and keeps the browser's own ends) stays put,
+     as an app's window does: a list at its top does not pull the page to refresh, and a drag no scroller takes (on a
+     bar, or over content that fits or is still loading) does not move the page and its bars. `contain` would still let
+     the page bounce, a local boundary default action (CSS Overscroll Behavior). */
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-  html:not([data-scrolldocument]), html:not([data-scrolldocument]) body { overscroll-behavior: contain; }
+  html:not([data-scrolldocument]), html:not([data-scrolldocument]) body { overscroll-behavior: none; }
   #exact-root :is(button, a[href], input, select, textarea, summary, [data-exact-on~="press"]) { touch-action: manipulation; }
   /* LLP 1115.000 D4.14: a symbol, and an image in something pressable, is part of the control, not content: no long-press
      callout and no image drag (the navigation glue cancels the drag where the engine has no property for it). */
@@ -56,8 +58,9 @@
      with a `press` that declares no feedback shows 65% of its opacity, the iOS
      host's dim (PressFeedback.swift), while the browser holds it `:active` (a
      mouse button, Space on a button) or the input glue holds it
-     `data-pressed` (a finger, Space on a box it presses by key). It goes at once on release: iOS's fades back, and a transition here
-     would stay dimmed under the agent's clock until the clock moved.
+     `data-pressed` (a finger, Space on a box it presses by key). On release
+     the input glue holds it at least 0.1 s from the press and fades it back
+     over 0.2 s, as iOS does (PressFeedback.swift `dimHold`, `dimFade`).
      Only the innermost pressable shows it (the last line). Not dimmed, in the
      selector's order: a disabled button; a native control, which keeps its own
      feedback, and a game's action button, which is held; an authored press,
@@ -126,7 +129,9 @@
      `button`, under an author's class. (`\20 ` is the inline style's space, which the JS build's minifier would take from
      a colon.) A percentage bottom padding is no length here, and the line stands at the
      foot of the content box (`--exact-padding-bottom`, element.rs). */
-  :where(#exact-root) [data-groupedrowseparator]:where(:has(~ :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]))):not([aria-hidden="true"], :is([data-exact-said~="border-bottom"], [data-exact-bottom-width], [data-exact-bottom-style]), :is([data-exact-said~="background-image"], [data-exact-background-image]), [swipecontent]:has(> :is([data-exact-said~="border-bottom"], [data-exact-bottom-width], [data-exact-bottom-style])), :has(+ :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])):is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ [swipecontent]:not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])) > :is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ :is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]) + :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])):is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ :is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]) + [swipecontent]:not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])) > :is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])))) { background-image: none, linear-gradient(var(--exact-grouped-separator), var(--exact-grouped-separator)), none; background-origin: padding-box, content-box, padding-box; background-clip: border-box, padding-box, border-box; background-repeat: repeat, no-repeat, repeat; background-size: auto, 100vw 1px, auto; background-position: 0 0, 0 calc(100% + var(--exact-padding-bottom, 0px)), 0 0; }
+  :where(#exact-root) [data-groupedrowseparator]:where(:has(~ :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]))):not([aria-hidden="true"], :is([data-exact-said~="border-bottom"], [data-exact-bottom-width], [data-exact-bottom-style]), :is([data-exact-said~="background-image"], [data-exact-background-image]), [swipecontent]:has(> :is([data-exact-said~="border-bottom"], [data-exact-bottom-width], [data-exact-bottom-style])), :has(+ :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])):is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ [swipecontent]:not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])) > :is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ :is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]) + :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])):is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ :is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]) + [swipecontent]:not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])) > :is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])))) { background-image: none, linear-gradient(var(--exact-grouped-separator), var(--exact-grouped-separator)), none; background-origin: padding-box, content-box, padding-box; background-clip: border-box, padding-box, border-box; background-repeat: repeat, no-repeat, repeat; background-size: auto, 100vw 1px, auto; background-position: 0 0, var(--exact-separator-x, 0) calc(100% + var(--exact-padding-bottom, 0px)), 0 0; }
+  /* Right to left the line runs from the content box's right edge to the padding box's left, as the row's insets mirror (`exact_web::css`'s logical sides): a `direction` declaration says where (css.rs), and a document's `dir` here. */
+  :where([dir="rtl"]) { --exact-separator-x: 100%; } :where([dir="ltr"]) { --exact-separator-x: 0; }
   progress::-webkit-progress-bar { position: relative; top: calc(50% - 2px); height: 4px; border-radius: 2px; background-color: var(--exact-fill); }
   progress::-webkit-progress-value { border-radius: 2px; background-color: var(--exact-accent, AccentColor); }
   @supports (-moz-appearance: none) {
@@ -166,8 +171,13 @@
   #exact-root input:not([data-native]):focus-visible,
   #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
-     typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
-  #exact-root [data-native], input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
+     typed, as the kernel measures it and native fields draw it (LLP 1064 D6). The Markdown editor stands in for a textarea. */
+  #exact-root [data-native], input, textarea, .exact-markdown-editor { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
+  /* A control's label is no text to select, as a platform's controls have none: a long press or a drag on one
+     presses it or does nothing (\`all: unset\` made it selectable as a page's text). A control is what the native
+     hosts and the runner's list copy count as one (TextSelectable.swift, runner/src/instance/text.rs): a button, a
+     link or a box that a press acts on, or a control's role. A text's runs (a link, a pressed run) are its text. */
+  #exact-root :is(button, a[data-view][href], [data-exact-on~="press"], [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="treeitem"]):not(input, select, textarea, .exact-markdown-editor, [data-exact-text] *) { -webkit-user-select: none; user-select: none; }
   /* A checkbox, radio, range or date control is the platform's again (LLP 1069.001 D3, D6): its
      size is the UA's; `appearance: none` on the node hands it to the author. Its margin is not the UA's (LLP
      1115.000 D10.1): a checkbox's `3px 3px 3px 4px`, a radio's `3px 3px 0 5px` and a range's `2px` are zero here, as
@@ -179,7 +189,9 @@
   input[type="checkbox"], input[type="radio"] { box-sizing: border-box; }
   /* LLP 1104 D4: native buttons inherit the page's typography. Face fields
      use grid areas so a subtitle remains under its title beside a symbol.
-     The empty gap is a real space glyph, D3's declared web approximation.
+     Between image and title is a space, as wide or tall as the gap the
+     author or the look gives it; with neither, a space glyph (neutral.css;
+     LLP 1069.011.001 D3).
      Every style has 8 px corners (a `capsule` corner style still rounds
      fully) and weight 500; neutral.css supplies its size and padding. The title column
      keeps its min-content floor, so a narrow row overflows rather than
@@ -187,17 +199,20 @@
      line (`white-space`, which writes --exact-button-title-min: 0px)
      truncates. `overflow: clip` clips without making the box a scroll
      container, whose automatic minimum size would be 0. */
-  #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); font-weight: 500; border-radius: var(--exact-control-radius, 8px); align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(var(--exact-button-title-min, min-content), auto); overflow: clip; -webkit-user-select: none; user-select: none;
-    --exact-control-font-size: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-title-min: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; }
+  #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); font-weight: 500; --exact-said-font-weight: ; border-radius: var(--exact-control-radius, 8px); align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(var(--exact-button-title-min, min-content), auto); overflow: clip; -webkit-user-select: none; user-select: none;
+    --exact-control-font-size: initial; --exact-touch-floor: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-title-min: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; --exact-button-stacked: initial; }
   #exact-root button[data-button-style]:has(> img) { grid-template-areas: var(--exact-button-leading-areas, "image space title"); grid-template-columns: var(--exact-button-columns, auto auto minmax(var(--exact-button-title-min, min-content), auto)); }
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-areas, "title space image"); }
   #exact-root button[data-button-style]:has(> img):has(> [data-exact-text] ~ [data-exact-text]) { grid-template-areas: var(--exact-button-leading-subtitle-areas, "image space title" "image space subtitle"); }
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-subtitle-areas, "title space image" "subtitle space image"); }
-  #exact-root button[data-button-style]:has(> img:only-child) { grid-template-areas: "image"; grid-template-columns: auto; }
-  #exact-root button[data-button-style]:has(> img):has(> [data-exact-text])::before { content: var(--exact-button-space); white-space: pre; grid-area: space; line-height: 0; width: var(--exact-button-space-width,var(--exact-button-column-gap,auto)); height: var(--exact-button-space-height,0px); }
+  #exact-root button[data-button-style]:has(> img):not(:has(> :not(img, [data-exact-text]:empty))) { grid-template-areas: "image"; grid-template-columns: auto; }
+  #exact-root button[data-button-style]:has(> img):has(> [data-exact-text]:not(:empty))::before { content: var(--exact-button-space); white-space: pre; grid-area: space; line-height: 0; --exact-said-line-height: ; width: var(--exact-button-space-width,var(--exact-button-column-gap,auto)); height: var(--exact-button-space-height,0px); }
   #exact-root button[data-button-style] > [data-exact-text] { grid-area: title; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: inherit; display: var(--exact-button-title-display, block) !important; -webkit-box-orient: vertical; -webkit-line-clamp: var(--exact-button-clamp, none); }
+  /* Empty face text takes no grid track (LLP 1011 §3; LLP 1115.000). */
+  #exact-root button[data-button-style] > [data-exact-text]:empty { display: none !important; }
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
-  #exact-root button[data-button-style] > img { grid-area: image; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: 1em; height: 1em; }
+  /* An image stacked over its title is centred on it, as the Linux host paints it. */
+  #exact-root button[data-button-style] > img { grid-area: image; justify-self: center; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: calc(var(--exact-symbol-scale, 1) * 1em); height: calc(var(--exact-symbol-scale, 1) * 1em); }
   /* LLP 1116.003 D4: a native button taller than its face (a round button's
      80 by 80) centres the face, as UIKit and a browser's own button do; the
      grid's empty subtitle row no longer takes half the height. */
@@ -244,27 +259,51 @@
   #exact-root button[data-button-style="prominent-clear-glass"]:disabled { background-color: light-dark(#ffffff26, #ffffff1a); }
   /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. */
   :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
+  /* LLP 1116.000 D4: the Back control a pushed route's header holds is pressed through the Back its bar draws
+     (navigation.js), which stands for it, so it is not shown. A tap the agent aims at it lands on that Back
+     (input-glue.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the
+     press (scripts/agent.mjs, the tap's `why`) passes such a hit only for a target with `pointer-events: none`. */
+  #exact-root [data-exact-bar-back] { display: none !important; pointer-events: none; }
+  /* The Back a route's bar draws (navigation.js), chevron and words, is its navigation root's accent. UIKit tints its
+     Back with the tint its navigation controller's view inherits from the navigation root's node, which holds that view
+     (NavigationIOS.swift): the accent that node or one around it says (SystemColor.swift `applyAccentTint`), else the
+     app's (AppAccentIOS.swift). An accent a route or its header says does not reach it, as none reaches UIKit's bar. */
+  #exact-root [navigationBack] { --exact-bar-accent: var(--exact-accent, AccentColor); }
   /* A dialog's padding is its author's (LLP 1115.000 D4.14): the user agent's own `1em` is a box the kernel does not
      know, so a plain `dialog` has none; the alert's is the page's, below. */
   :where(#exact-root dialog) { padding: 0; }
   :where(#exact-root dialog[role="alertdialog"]) { box-sizing: border-box; display: flex; flex-wrap: wrap; }
-  :where(#exact-root dialog[role="alertdialog"][aria-label])::before { content: attr(aria-label) / ""; flex-basis: 100%; font-weight: 600; }
+  :where(#exact-root dialog[role="alertdialog"][aria-label])::before { content: attr(aria-label) / ""; flex-basis: 100%; font-weight: 600; --exact-said-font-weight: ; }
   :where(#exact-root dialog[role="alertdialog"] > :not(button)) { flex-basis: 100%; }
   #exact-root dialog[role="alertdialog"] > button { flex: 1 1 0; }
+  /* An alert the compiler grouped (`alertPart`, contract/lower/src/alert_parts.rs) is a column, as the kernel lays it
+     out (kernel/src/arena/alert.rs): its message box shrinks to fit the dialog, whose height the user agent caps at
+     the viewport's, and scrolls, while its title, a prompt's field and its actions keep their size; the dialog's
+     own overflow is for when they alone do not fit. A message or actions box its `if` leaves empty takes no room,
+     over the compiler's own `display` on it. Its actions share a row and wrap, as a flat alert's do. */
+  :where(#exact-root dialog[role="alertdialog"]:has(> [data-alertpart="actions"])) { flex-direction: column; flex-wrap: nowrap; }
+  :where(#exact-root dialog[role="alertdialog"]:has(> [data-alertpart="actions"]))::before, :where(#exact-root dialog[role="alertdialog"] > :is([data-alertpart="title"], [data-alertpart="actions"])) { flex: 0 0 auto; }
+  :where(#exact-root dialog[role="alertdialog"] > [data-alertpart="message"]) { flex: 0 1 auto; min-height: 0; overflow: auto; }
+  :where(#exact-root dialog[role="alertdialog"] > :is([data-alertpart="message"], [data-alertpart="actions"]):empty) { display: none !important; }
+  :where(#exact-root dialog[role="alertdialog"] > [data-alertpart="actions"]) { flex-wrap: wrap; }
+  #exact-root dialog[role="alertdialog"] > [data-alertpart="actions"] > button { flex: 1 1 0; }
   /* A prompt's text field is a line of its own, as the native alerts draw it. */
   #exact-root dialog[role="alertdialog"] input { flex-basis: 100%; box-sizing: border-box; }
+  #exact-root dialog[role="alertdialog"]:has(> [data-alertpart="actions"]) > input { flex: 0 0 auto; }
   /* Fields and `select` at a tap size (36 px at the body size) with one look:
      a 1 px line, 8 px corners, the field's own background. A select's height
      is its line height, so an authored padding adds to it as to the UA's and
      its box keeps the recorded rules (kernel/tests/it/browser_controls.rs);
      its chevron is drawn in its ink, at its inline end. A date, time or local date-time control
      whose appearance is the platform's (`data-exact-field`) is a border box
-     the same way (LLP 1116.001 D1); the browser keeps its picker and icon. */
+     the same way (LLP 1116.001 D1); the browser keeps its picker and icon.
+     This leading is not a kernel start. The conditional shell property is
+     invalid without an inherited said marker, letting a bare text style fill it. */
   #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid; border-radius: 8px; }
-  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: 8px; background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
+  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: var(--exact-control-line-height); --exact-control-line-height: 2.125; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: 8px; background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
   /* LLP 1115.000 D4.14: the chevron is at the inline end, so on a right-to-left page it is at the left. */
   #exact-root select:not([multiple]):dir(rtl) { background-position: left .75em center, left calc(.75em + 4px) center, 0 0; }
-  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: 2; padding: 0 .75em; border: 1px solid; border-radius: 8px; }
+  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: var(--exact-control-line-height); --exact-control-line-height: 2; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding: 0 .75em; border: 1px solid; border-radius: 8px; }
   /* LLP 1116.005 D8: a field the author marks invalid (`aria-invalid=true`,
      beside its error text's `aria-describedby`) is outlined in the system
      red, and focused its ring is red too, as a well-made web form marks

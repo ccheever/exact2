@@ -33,10 +33,10 @@ pub fn rules(at: &str, looks: &[(u8, String)]) -> String {
             .map(|row| format!("{row}!important;"))
             .collect();
         // A hover look is the whole hover, as `:active` is the whole press: it
-        // replaces the neutral look's unsaid wash on this node (neutral.css,
-        // LLP 1129), and no image of the author's.
+        // replaces the neutral look's unsaid wash on this node, and a bar
+        // button's dim (neutral.css, LLP 1129), and no image of the author's.
         if *state == LOOK_HOVER {
-            rows.push_str("--exact-hover-wash:none!important;");
+            rows.push_str("--exact-hover-wash:none!important;--exact-hover-dim:1!important;");
         }
         match *state {
             // A held state (LLP 1122 D8, `data-exact-held`) is the state's own
@@ -103,9 +103,9 @@ mod tests {
         );
         assert!(css.contains("opacity:0.5!important"), "{css}");
         assert_eq!(
-            css.matches("--exact-hover-wash:none!important").count(),
+            css.matches("--exact-hover-wash:none!important;--exact-hover-dim:1!important").count(),
             2,
-            "the hover replaces the unsaid wash, held too, and the focus does not: {css}"
+            "the hover replaces the unsaid wash and a bar button's dim, held too, and the focus does not: {css}"
         );
         assert!(
             !css.contains("transition"),

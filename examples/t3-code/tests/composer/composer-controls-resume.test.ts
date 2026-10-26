@@ -18,11 +18,11 @@ async function claudeThread(options: { used?: number; idle?: number; compact?: b
   const projection = obj(native.details.t1!.projection);
   Object.assign(obj(projection.thread), { modelSelection: { instanceId: 'claude', model: 'model-a' }, activeProviderThreadId: 'pt' });
   projection.providerThreads = [{ id: 'pt', appThreadId: 't1', providerInstanceId: 'claude', updatedAt: minutesAgo(options.idle ?? 75),
-    contextUsage: { usedTokens: options.used ?? 123_456, maxTokens: 200_000 } }];
+    contextUsage: { usedTokens: options.used ?? 234_567, maxTokens: 1_000_000 } }];
   await context.command('select-thread', 't1');
   await context.client.refresh(context.native, context.disk);
   const loaded = context.client.thread!.projection;
-  if (options.ttl) loaded.providerTurns = [{ tokenUsage: { usedTokens: options.used ?? 123_456, maxTokens: 200_000, updatedAt: minutesAgo(options.idle ?? 75), promptCacheTtlMs: options.ttl } }];
+  if (options.ttl) loaded.providerTurns = [{ tokenUsage: { usedTokens: options.used ?? 234_567, maxTokens: 1_000_000, updatedAt: minutesAgo(options.idle ?? 75), promptCacheTtlMs: options.ttl } }];
   loaded.runs = [{ id: 'r1', ordinal: 1, status: 'completed', startedAt: minutesAgo(80), completedAt: minutesAgo(75) }];
   loaded.visibleTurnItems = [{ item: { type: 'user_message', text: 'Build the parser', attachments: [] } }];
   return context;
@@ -30,9 +30,9 @@ async function claudeThread(options: { used?: number; idle?: number; compact?: b
 const resume = (client: Parameters<typeof snapshot>[0]) => snapshot(client, NOW).composer.notices.find(notice => notice.title === 'Resume with less context');
 
 describe('resume with less context (a976f8c74c)', () => {
-  test('offered for a Claude session idle 70 minutes with 100k tokens', () => {
-    expect(shouldOffer({ driver: 'claudeAgent', usedTokens: 100_000, updatedAt: minutesAgo(70.5), now: NOW })).toBe(true);
-    expect(shouldOffer({ driver: 'claudeAgent', usedTokens: 99_999, updatedAt: minutesAgo(90), now: NOW })).toBe(false);
+  test('offered for a Claude session idle 70 minutes with 200k tokens', () => {
+    expect(shouldOffer({ driver: 'claudeAgent', usedTokens: 200_000, updatedAt: minutesAgo(70.5), now: NOW })).toBe(true);
+    expect(shouldOffer({ driver: 'claudeAgent', usedTokens: 199_999, updatedAt: minutesAgo(90), now: NOW })).toBe(false);
     expect(shouldOffer({ driver: 'codex', usedTokens: 500_000, updatedAt: minutesAgo(90), now: NOW })).toBe(false);
     // The clock counts whole minutes (12:00): 70 minutes and 20 seconds ago is still 69m40s before it.
     expect(shouldOffer({ driver: 'claudeAgent', usedTokens: 200_000, updatedAt: new Date(NOW - 70 * 60_000 - 20_000).toISOString(), now: NOW })).toBe(false);
@@ -40,7 +40,7 @@ describe('resume with less context (a976f8c74c)', () => {
   test('the banner: tokens from earlier, Compact, Keep full history', async () => {
     const { client, command } = await claudeThread();
     const notice = resume(client)!;
-    expect(notice).toMatchObject({ variant: 'info', icon: 'minimize', description: '123k tokens from earlier', action: 'cc:compact', actionLabel: 'Compact',
+    expect(notice).toMatchObject({ variant: 'info', icon: 'minimize', description: '235k tokens from earlier', action: 'cc:compact', actionLabel: 'Compact',
       actionReason: '', dismissLabel: 'Keep full history' });
     await command(notice.dismiss, notice.dismissId);
     expect(resume(client)).toBeUndefined();
@@ -57,7 +57,7 @@ describe('resume with less context (a976f8c74c)', () => {
     expect(resume((await claudeThread({ idle: 30 })).client)).toBeUndefined();
     const { client } = await claudeThread();
     client.thread!.projection.runtimeRequests = [{ id: 'q', kind: 'user_input', status: 'resolved',
-      answers: { 'This session is 1h 15m old and uses 123,456 tokens. Compact it before continuing?': NEVER_ANSWER } }];
+      answers: { 'This session is 1h 15m old and uses 234,567 tokens. Compact it before continuing?': NEVER_ANSWER } }];
     expect(resume(client)).toBeUndefined();
     client.thread!.projection.runtimeRequests = [];
     expect(resume(client)).toBeUndefined();
@@ -121,9 +121,9 @@ describe('Woke dismissal syncs (c5a929e1ac)', () => {
 describe('cache-aware Compact chip', () => {
   test('TTL controls expiry; Full toggles per thread, measured chip width wins', async () => {
     const { client, command } = await claudeThread({ idle: 6, ttl: 300_000 });
-    expect(snapshot(client, NOW).composer).toMatchObject({ compactTokens: '123k', compactKeepFull: false, compactSend: true, sendLabel: 'Compact and send' });
+    expect(snapshot(client, NOW).composer).toMatchObject({ compactTokens: '235k', compactKeepFull: false, compactSend: true, sendLabel: 'Compact and send' });
     expect(resume(client)).toBeUndefined();
-    client.presentation.anchors = { 'compact:Compact:123k': [0, 157] };
+    client.presentation.anchors = { 'compact:Compact:235k': [0, 157] };
     expect(snapshot(client, NOW).composer.compactWidth).toBe(157);
     await command('cclocal:compact-full');
     expect(snapshot(client, NOW).composer).toMatchObject({ compactKeepFull: true, compactSend: false, sendLabel: 'Submit message' });

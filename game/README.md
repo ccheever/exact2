@@ -119,7 +119,7 @@ the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` wor
 A game outside this checkout — `bun scripts/exact.mjs new ../my-game --game` makes
 one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.md`:
 `bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
-(`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
+(each `*.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
 `prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
 Generation resolves the generated workspace offline against the current SDK lock, so
 the first locked test and proof need no lock refresh. Generation writes only inside that game. A game is the files its author writes; bakes
@@ -362,6 +362,79 @@ warnings beside every other diagnostic, and `contract types` and `contract rust`
 never stop on them; a bake checks them against the declaration it has just written.
 The dev compiler retains its last good plan on an error.
 
+### Controls
+
+`Game::actions` declares the controls once, by name; the tick reads them with
+`input.held(name)`, `input.pressed(name)`, `input.released(name)` and
+`input.stick(name)`. `pressed` is a rising edge since the last tick, even when the
+release lands in the same tick; `held` is the state at the tick's end, so a quick
+tap is `pressed` and never `held`.
+
+A key is its `KeyboardEvent.code` (`KeyW`, `Space`); a mouse button is `MouseLeft`,
+`MouseRight` or `MouseMiddle`; a pad button is its position in the W3C Gamepad API's
+standard mapping, so an Xbox pad's A and a Nintendo pad's B are both `GamepadSouth`:
+`GamepadSouth`, `GamepadEast`, `GamepadWest`, `GamepadNorth`, `GamepadL1`, `GamepadR1`,
+`GamepadL2`, `GamepadR2`, `GamepadSelect`, `GamepadStart`, `GamepadL3`, `GamepadR3`,
+`GamepadUp`, `GamepadDown`, `GamepadLeft`, `GamepadRight`, `GamepadHome` (`PAD_BUTTONS`;
+another `Gamepad…` name panics at declaration). One action takes keys and pad buttons
+together: it is held while any is down and released when the last lifts, so switching
+device mid-hold neither presses again nor drops.
+
+| Task | Declare and read |
+|---|---|
+| A fire button, one shot per press | `.button("fire", &["KeyF", "MouseLeft", "GamepadR2"])` read with `input.pressed("fire")` |
+| Fire while held, and on a quick tap | `input.held("fire") \|\| input.pressed("fire")` (Rivals): `held` alone misses a tap whose press and release share a tick |
+| Move with keys, a stick or touch | `Stick::wasd().or_arrows().or_pad(Pad::Left).or_touch(Region::Left)`; `.dead_zone(0.15)` (radial, the default) and `.curve(Curve::Power(1.5))` shape the pad's reading (Beacons) |
+| Throttle and brake | `Stick::pad(Pad::Triggers)`: forward is `GamepadR2`'s travel less `GamepadL2`'s |
+| Move by tilting the device | `Stick::wasd().or_tilt(Tilt { max_degrees: 20.0, dead_zone: 2.0 })`, fed by the app's `startSensorInput(surface="world", sensor="gravity")` (LLP 1133.013 D6): full deflection at `max_degrees` from level, nothing within `dead_zone` degrees, nothing before the first sample or after the input ends (`exact_game::tilt_stick` is the map). Level is the first sample, or what the tick sets with `w.set_tilt_neutral("move", gravity)` from a posted reading, from the next tick (Beacons' `tilt x y z`) |
+| Read a sensor every frame | `input.sensor(SensorKind::Gyroscope)`, the latest sample, which holds through ticks that receive none and is gone after the input ends; `input.sensor_samples(kind)`, this tick's own samples, every one the host delivered |
+| Sprint after holding a key | `.hold("sprint", &["ShiftLeft", "GamepadL1"], 0.2)`: `pressed` when held 200 ms, `held` until release; a shorter press fires nothing (Beacons) |
+| A double tap | `.double("roll", &["Space"], 0.25)`: `pressed` on a second press within 250 ms |
+| A short press distinct from a hold | `.tap("dash", &["ShiftLeft"])`: `pressed` and `released` together when a press of at most 200 ms (`Actions::TAP`; `tap_within` for another) lifts, so it fires late by design |
+| A chord | `.chord("special", &["ShiftLeft", "KeyE"])`: `pressed` when the last key goes down while the others are held |
+| Controls for one mode | `.context("driving", \|a\| a.button("brake", &["KeyB"]))` and `w.input_context("driving", true)`: its actions read only while it is active (Beacons' `light`, within reach of a beacon) |
+| Let the player rebind | `w.rebind("jump", &["GamepadNorth"])`, or `w.rebind_text("jump GamepadNorth")` from a settings screen's `postMessage` |
+| Keep the player's bindings for every game | `fn bindings(args: &Args) -> String` returning a `#[live]` argument the app binds from its storage: a new game copies it into `Bindings` |
+
+Every window is world time: a trigger fires on the tick that contains its instant,
+from the stamps of the events that moved its keys, so `clock +N` and a 60 Hz panel
+fire the same ticks. A pending hold, tap or double window is work: `clock settle`
+runs to its deadline and `state`'s `changing` names it (`input trigger sprint`). A context or a binding the tick changes applies from the next
+tick: leaving the context, or rebinding a held action, releases it then (a journal line
+names each), and a key already down as an action enters a context or gets it reads up
+until it lifts and goes down again.
+
+A host reports a pad's whole state when a button or an axis changed (in 1/256 steps),
+stamped like a key; a press keeps its own stamp, and only a sticks-only change may fold
+into a later one in the same tick. Pads go to the canvas that has the focus (on the Mac,
+in the key window; on Linux, Windows and Android, with nothing focused, to the first
+canvas that takes input; an editor's focus takes them from every canvas). When the focus
+or the key window moves them, the canvas they leave hears each pad go, whether the focus
+left the canvas or a control in it, and the canvas that takes them hears each connected
+pad as the host last read it (the table says when that is). A blur releases everything
+the world held, and a disconnect what that pad held; a pad that connects again at that
+index is a fresh device. Of several pads, a stick reads the one pushed furthest (of two
+pushed as far, the lower index); a button is down while any pad holds it. Per host:
+
+| Host | Reads | Limits |
+|---|---|---|
+| Web | the Gamepad API, polled each frame while a pad is connected; a pad without the standard mapping is reported (`pad 1 connected unmapped` in the journal) and delivers nothing | as the browser exposes pads |
+| macOS, iOS, tvOS | GameController's extended gamepad, on each change, and every pad as it is now when a canvas or a control in it takes or gives up the focus, when the app becomes active, and on the Mac when a window becomes or stops being key | a controller without the extended profile (the Siri Remote) is unmapped; on iPadOS with several windows the pads go to the earliest-made canvas holding the focus in any of them, not to the key window's |
+| Android | gamepad keys and joystick axes; each trigger with an axis (LTRIGGER or BRAKE for the left, RTRIGGER or GAS for the right) reports its travel, one without its key | every pad is reported standard; the host reads no pad's state on its return from the background, so a pad reports itself with its next event, and a button held through the background reads up until pressed again |
+| Linux | evdev, at each report, stamped with the report's time moved into the host's clock by one origin per read and kept when that report moves the pads to a canvas, so readings buffered in one read keep their spacing and several pads' arrive in the order they happened (ties by index, then as read); in the kernel's gamepad layout (Xbox drivers' letters read as their positions); a pad's state is read when it opens and delivered ahead of the reports buffered since | pads present at launch only; every pad is reported standard |
+| Windows | XInput's four slots, every 8 ms while one is connected and every 250 ms otherwise, while the window has focus, and all four at once when it regains focus, so a pad unplugged meanwhile reads gone | `GamepadHome` is never down (XInput does not report the guide button); a reading is stamped at its poll |
+
+What is saved and what is hashed differ. A save holds the input queue and the keys,
+pads and contacts held, which the world hash leaves out. The world hash covers the world
+the input changed, plus resources that exist only once a game uses them:
+`InputContexts`, `Bindings`, and `InputState`: the triggers' gestures in progress, the
+latched actions, and the contexts and bindings as last applied. So two worlds whose holds
+started at different times differ, as do two whose context or rebind has yet to apply,
+and a restore mid-hold continues the hold. A sensor input's samples wait in the queue a save holds;
+the latest sample of each sensor and the tilt neutrals are a fourth resource, `SensorState`, which
+exists only once a sample arrives or a neutral is set. `InputEvent`'s `player` is 0 from every host and means
+nothing yet.
+
 ### Movement and appearance
 
 | Task | Existing engine operation |
@@ -395,7 +468,7 @@ The dev compiler retains its last good plan on an error.
 | Mouse look | `input.pointer()`'s `delta` is the device's motion this tick, not a difference of positions. Mark the canvas `data-pointer-lock="true"` (declared in `app.json`'s `data`) and a mouse press captures the mouse on the web, macOS and iPadOS (`GCMouse`) until Escape or blur, so the delta never stops at an edge; the Linux host always sends evdev's relative motion. |
 | Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
 | Right or middle mouse button | Bind it as a key: `.button("aim", &["MouseRight"])`; `MouseLeft` and `MouseMiddle` too (`MOUSE_BUTTONS`). Touch contacts press none. |
-| Start a selection rectangle | `input.pointer().and_then(\|p\| p.press_origin)` is the latest MouseLeft/touch Down point, even if movement and Up reach the same tick. Gate commands on your action's pressed/released edges. The origin survives normal Up and saves; Cancel, Blur or replacement clears it. EXSIM v7 saves are required. |
+| Start a selection rectangle | `input.pointer().and_then(\|p\| p.press_origin)` is the latest MouseLeft/touch Down point, even if movement and Up reach the same tick. Gate commands on your action's pressed/released edges. The origin survives normal Up and saves; Cancel, Blur or replacement clears it. |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
 jumped and landed. `near`/`near_xz` use current global poses, inclusive radii and
@@ -689,6 +762,14 @@ Use Exact2's same ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 trace separately from these session operations. The CLI also accepts `check`,
 `sample`, `resize`, `close`, `back`, `pick`, `reload`, `fail fetch` and `pass fetch`,
 and `post`, a form of `type` (above). An entity is addressed as `world:player`.
+
+The agent drives a pad as it drives keys: `type world key GamepadSouth [for <ms>]`
+presses a pad button and `tap world stick left 0.7 -0.2 [for <ms>]` moves a stick, in
+the Gamepad API's axes (positive y is down). Each is the agent's pad 0, held across
+requests and queued as a host queues a real pad (`delivery: synthesized`); without
+`for`, `tap world stick left 0 0` lets the stick go. `state world input` lists the
+declared actions and their keys, the keys and pads held, contexts, bindings, the
+actions held, and the actions pressed and released at the last tick.
 
 ```sh
 EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/artifacts/web-dist bun scripts/agent.mjs web \

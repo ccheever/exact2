@@ -1337,7 +1337,7 @@ const serve = async (req, res) => {
   if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
   const url = webRequestURL(req.url);
   if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-  if (tamber && await tamber.handle(req, res, url, access)) return;
+  if (tamber && await tamber.handle(req, res, url, access)) return; if (url.pathname === '/__dev/gallery' || url.pathname.startsWith('/__dev/gallery/')) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('the gallery runs on the JS dev loop (host/web-js/dev.mjs), not this one\n'); return; } // the variant gallery's
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
   // The build channel (LLP 1122 D4): a build's reports up, with its stream's
   // nonce; a build that holds no stream (Linux) opens a polled one.
@@ -1418,9 +1418,10 @@ const serve = async (req, res) => {
     // A build's nonce for the build channel: this loop's own, or, serving as
     // another loop's producers, that loop's, whose commands are relayed.
     const write = frame => res.write(`data: ${JSON.stringify(frame)}\n\n`);
-    // Listening for its close before the relay's hello, which takes a while.
+    // Its close heard before the relay's (slow) hello; ended once, by either close (Bun: a handed-off socket's req never closes).
     let gone = false, opened = null;
-    req.on('close', () => { gone = true; opened?.close(); });
+    const end = () => { if (gone) return; gone = true; opened?.close(); clients.delete(res); };
+    req.on('close', end); res.on('close', end);
     opened = tamber?.channel.open(write) ?? (servedAs != null ? await relayChannel(`http://127.0.0.1:${servedAs}`, write, 250, () => res.end()) : null);
     if (gone) { opened?.close(); return; }
     res.write(`data: ${hello(opened?.nonce)}\n\n`);
@@ -1430,7 +1431,6 @@ const serve = async (req, res) => {
     if (designSnapshot) res.write(`data: ${JSON.stringify(designNotice(designSnapshot))}\n\n`);
     clients.add(res);
     console.log(`page connected (${clients.size})`);
-    req.on('close', () => clients.delete(res));
     return;
   }
   if (url.pathname === '/__dev/reloaded') {
@@ -1452,7 +1452,7 @@ const serve = async (req, res) => {
   }
   // Negotiate the live envelope from current plan bytes (LLP 1023 D1–D2).
   // Resolve files and extensionless locations first (LLP 1038 D7).
-  const { found, index } = await readWebRequest(dist, url.pathname, acceptsHTML(req.headers.accept) ? 'text/html' : '');
+  const { found, index } = await readWebRequest(dist, url.pathname, acceptsHTML(req.headers.accept) ? 'text/html' : '', current?.files.get('app.plan'));
   const wantsEnvelope = url.pathname === '/exact.json'
     || (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
   if (wantsEnvelope) {

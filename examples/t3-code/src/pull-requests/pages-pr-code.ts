@@ -486,11 +486,12 @@ function lineDrag(ctx: CodeLocalContext, code: CodeState, action: string, side: 
   return '';
 }
 const SET_FILES_VIEWED = 'pullRequests.setFilesViewed';
-/** Viewed writes the host accepted whose readers are not told yet: the router's `afterWrite`, run by the panel's next answer. */
+/** Viewed writes the host answered whose readers are not told yet: the router's `afterWrite`, run by the panel's next answer. */
 const accepted = new WeakMap<object, { origin: string; payload: Obj }[]>();
 /**
- * The reference's `finish` for each accepted Viewed write (pullRequestRouting.ts): the servers read through for the pull
- * request get `filesViewedOnly` invalidations, before the read that follows the write. One the answer let go stays for the next.
+ * The reference's `finish` for each answered Viewed write (pullRequestRouting.ts), accepted or failed, since a failed batch
+ * may have applied some paths: the servers read through for the pull request get `filesViewedOnly` invalidations, before
+ * the read that follows the write. One the answer let go stays for the next.
  */
 async function tellReaders(client: T3Client, native: Native): Promise<void> {
   const pending = accepted.get(client);
@@ -532,14 +533,16 @@ async function flushViewed(client: T3Client, native: Native, code: CodeState, re
   }
   if (!out.sent) return;
   void out.sent.reply.then(answer => {
-    if (answer.ok) { const pending = accepted.get(client) ?? []; pending.push({ origin, payload }); accepted.set(client, pending); }
+    // A superseded write never reached the host; any other answer may have changed what the readers hold.
+    if (answer.ok || answer.error.kind !== 'superseded') { const pending = accepted.get(client) ?? []; pending.push({ origin, payload }); accepted.set(client, pending); }
     // The reader has moved on: what is on screen has nothing to do with this answer.
     if (peekCode(client)?.key !== key) return;
     if (answer.ok) { code.viewed.landed(taken, 'ok'); return; }
     if (answer.error.kind === 'superseded') { code.viewed.requeue(taken); return; }
     // Silent when the connection went away mid-flight (the host may have it; the next read says).
     const { reverted } = code.viewed.landed(taken, answer.interrupted ? 'unknown' : 'failed');
-    if (!answer.interrupted && reverted) pushToast(client, { kind: 'error', title: 'Could not update viewed files' });
+    // A partly applied batch: the marks are read again rather than left where the revert put them.
+    if (!answer.interrupted && reverted) { pushToast(client, { kind: 'error', title: 'Could not update viewed files' }); code.viewed.due = true; }
   });
 }
 /** The native sleep (command-waits.ts settle), but a let-go answer stops here. */

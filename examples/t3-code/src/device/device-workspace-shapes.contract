@@ -18,6 +18,10 @@ shape DeviceStreamState
   message: string
   error: bool
   inputNotice: string
+shape DeviceHub // resolveDeviceHubAccess: the origin and a fresh ticket, the stream node's data-device-origin, -ticket and -ask
+  origin: string
+  ticket: string
+  ask: string // the module's ask it answers, `<module>:<count>`
 shape DeviceWorkspace
   key: string
   name: string
@@ -31,6 +35,7 @@ shape DeviceWorkspace
   rail: DeviceRail
   controls: DeviceControls
   folding: DeviceFolding
+  hub: DeviceHub
 shape DeviceSessionView
   mode: string
   pendingKey: string
@@ -50,4 +55,5 @@ shape DeviceMini
   deviceId: string
   hostId: string
   stream: DeviceStreamState
+  hub: DeviceHub
   sourceKey: string // previewMiniPlayerSourceKey: a gesture names the source it began on (the frame is the chat canvas's)

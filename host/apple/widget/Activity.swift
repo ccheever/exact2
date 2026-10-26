@@ -58,7 +58,7 @@ struct ExactActivityPlacement: View {
             let environment = SnapshotEnvironment(family: .liveActivity, placement: placement, placeholder: rendering.placeholder,
                 linkBase: (Bundle.main.object(forInfoDictionaryKey: "ExactLinkBase") as? String).flatMap(URL.init(string:)),
                 imageRoots: [rendering.root, Bundle.main.bundleURL, Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()],
-                appGroup: WidgetContainer.root, entryDate: Date())
+                appGroup: WidgetContainer.root, appID: WidgetContainer.appID, entryDate: Date())
             #if EXACT_INSPECT
             // The render's cost so far (§5 Q4): the layouts this state has
             // run and their time, at each placement's turn, then once more

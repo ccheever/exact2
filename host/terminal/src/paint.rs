@@ -35,6 +35,8 @@ pub struct Painted {
     /// Inline runs a click reaches (a `text` inside a paragraph, as an
     /// HTML `a` or `span` is): the run's node and its cells on one line.
     pub runs: Vec<(ViewId, CellRect)>,
+    /// Every node painted with visible cells: what a tap may name.
+    pub shown: Vec<ViewId>,
 }
 
 /// What the walk needs from the host.
@@ -59,6 +61,10 @@ pub struct Scene<'a> {
     pub center: bool,
     /// The kernel's environment: its border rule among it.
     pub env: exact_kernel::Env,
+    /// Whether a node has a `press` of its own (a `box press=`, a card):
+    /// a press can hit it as it hits a control (whether that press runs is
+    /// the host's: a disabled or inert box swallows it).
+    pub presses: Box<dyn Fn(ViewId) -> bool + 'a>,
 }
 
 /// Paint document rows `top..top + rows` of the roots into a grid of
@@ -71,6 +77,7 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         images: Vec::new(),
         layer: None,
         runs: Vec::new(),
+        shown: Vec::new(),
     };
     let clip = out.grid.bounds();
     let dy = top as f32 * ROW;
@@ -85,6 +92,7 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         out.hits.clear();
         out.scrollers.clear();
         out.runs.clear();
+        out.shown.clear();
         let (dx, ldy) = placement(scene, layer, cols, rows, dy);
         if let Some(n) = scene.kernel.node(layer) {
             let f = n.frame;
@@ -97,8 +105,16 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
 }
 
 /// Where an open layer paints: where it was laid out, or centred in the
-/// grid when it names no inset (as the Mac host centres a dialog).
-fn placement(scene: &Scene<'_>, layer: ViewId, cols: usize, rows: usize, dy: f32) -> (f32, f32) {
+/// grid when it names no inset (as the Mac host centres a dialog). A
+/// popover laid out in the viewport's block (stage 14 B) is placed by its
+/// insets in the grid, which stays put as the document scrolls.
+pub(crate) fn placement(
+    scene: &Scene<'_>,
+    layer: ViewId,
+    cols: usize,
+    rows: usize,
+    dy: f32,
+) -> (f32, f32) {
     let Some(n) = scene.kernel.node(layer) else {
         return (0.0, dy);
     };
@@ -116,7 +132,12 @@ fn placement(scene: &Scene<'_>, layer: ViewId, cols: usize, rows: usize, dy: f32
         .iter()
         .all(|d| *d == Dimension::Auto);
     if !auto {
-        return (0.0, dy);
+        // In the viewport's block: by its insets in the grid.
+        let grid = (cols as f32 * COLUMN, rows as f32 * ROW);
+        return match scene.kernel.top_layer_origin(layer, grid) {
+            Some((x, y)) => (f.x - x, f.y - y),
+            None => (0.0, dy),
+        };
     }
     let w = (f.width / COLUMN).round();
     let gx = ((cols as f32 - w) / 2.0).floor().max(0.0);
@@ -213,11 +234,16 @@ fn node(
         },
         |c| cells(f.x - dx + c.x, f.y - dy + c.y, c.width, c.height),
     );
+    let seen = rect.intersect(clip);
+    if visible && seen.w > 0 && seen.h > 0 {
+        out.shown.push(id);
+    }
     if matches!(
         n.node_type,
         NodeType::Pressable | NodeType::TextInput | NodeType::Control
-    ) {
-        out.hits.push((id, rect.intersect(clip)));
+    ) || (visible && (scene.presses)(id))
+    {
+        out.hits.push((id, seen));
     }
     if visible {
         match n.node_type {

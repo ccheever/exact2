@@ -273,11 +273,12 @@ final class SmoothCollectionIOSTests: XCTestCase {
         let node = try XCTUnwrap(p.views[1])
         host.view.addSubview(node)
         let scroll = try XCTUnwrap(node.scroll)
+        // Keep the bottom adjustment constant while the top moves under the bar.
+        scroll.contentInsetAdjustmentBehavior = .always
         p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": "0", "offset": 2000, "smooth": false])]))
         let end = { scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height }
         XCTAssertEqual(scroll.contentOffset.y, end(), accuracy: 0.5, "opened at its end, below the bar")
         let start = try XCTUnwrap(p.collections.geometry(1)).offset
-        scroll.contentInsetAdjustmentBehavior = .always
         p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 400.0]]))
         XCTAssertEqual(scroll.adjustedContentInset.top, bar, accuracy: 0.5, "under the bar, which UIKit insets it by")
         XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, start, accuracy: 0.5, "the port starts where it did")

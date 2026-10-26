@@ -47,3 +47,50 @@ fn a_web_boot_reads_the_base_scale_in_the_neutral_column() {
         "{op}"
     );
 }
+
+/// Stage 12 B3: a shadow token whose lengths are over base names reads
+/// through the kernel (`theme::measure`) on the wasm web too, each length
+/// the neutral column's px, which the batch's `box-shadow` writes.
+#[test]
+fn a_web_boot_folds_a_shadow_over_base_names_in_the_neutral_column() {
+    let dir = std::env::temp_dir().join(format!("exact-web-shadow-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  card.shadow: box-shadow = 0 space.md calc(space.sm * 2) #000\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column testId=\"box\" box-shadow=\"card.shadow\"\n      text \"a\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract"))
+        .unwrap()
+        .encode();
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut bridge: Bridge<NoData> = Bridge::new();
+    let len = bridge.boot(&plan, NoData, 390.0, 844.0, "/");
+    let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
+    let px = |expr: &str| scale::evaluate(expr, metrics::Column::Neutral).unwrap();
+    // The neutral column's, not the Mac's: they differ for space.md.
+    assert_ne!(
+        px("calc(space.md)"),
+        scale::evaluate("calc(space.md)", metrics::Column::Mac).unwrap()
+    );
+    let at = batch
+        .find("\"data-testid\":\"box\"")
+        .unwrap_or_else(|| panic!("{batch}"));
+    let start = batch[..at].rfind("{\"op\":").unwrap();
+    let end = batch[at..].find("{\"op\":").map_or(batch.len(), |n| at + n);
+    let op = &batch[start..end];
+    assert!(
+        op.contains(&format!(
+            "box-shadow:0px {}px {}px 0px",
+            px("calc(space.md)"),
+            px("calc(space.sm * 2)")
+        )),
+        "{op}"
+    );
+}

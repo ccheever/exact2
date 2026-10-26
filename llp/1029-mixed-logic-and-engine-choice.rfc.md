@@ -1,7 +1,7 @@
 # LLP 1029: Mixed by default — TypeScript and Rust behind one seam, and the engines an app chooses to carry
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Superseded by [LLP 1029.000](1029.000-rust-development-reload.rfc.md) for development and engine choice (Charlie, 2026-10-22). The mixed-language Summary remains the record; §8 records the rulings.
 **Systems:** Runner (the executor slot: a third executor, `exact-wasm` on wasmtime, beside the native crate and `exact-js`; routing by source name and by digest), Build (bake compiles the data crate to wasm once and to precompiled code per target; per-source digests; the app template scaffolds both languages), Apple host and Linux host (which executors a binary links, chosen per app in one line), Delivery (LLP 1026's module card becomes per target; the runtime version carries the wasmtime version; Level A stays the default for the Rust half), Agent API (`state` reports which sources are interpreted), Contract (unchanged above the seam)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-03
@@ -10,15 +10,12 @@
 
 ## Summary
 
-**Development refinement (2026-09-09):**
-[LLP 1029.000](1029.000-rust-development-reload.rfc.md) records Charlie's
-request for live Rust edits: native initially, native shared-library
-replacement on desktop, browser Wasm, and Pulley replacements on physical
-iOS. It proposes replacing this draft's development portions of D2–D5/§7,
-starting with whole modules and separating development from release engine
-selection. Production Rust delivery and automatic per-source digests move
-behind that work. Both documents remain Draft; the mixed-language direction
-below is unchanged and is not part of the child implementation scope.
+**Ruled (Charlie, 2026-10-22):**
+[LLP 1029.000](1029.000-rust-development-reload.rfc.md) supersedes this
+RFC for development and engine choice. Its §2 uses wasmi on iOS and
+makes replacement the default, with `"rust": false` to opt out. The
+mixed-language rulings below remain the record; §8 answers the questions
+against what is built.
 
 Three rulings from Charlie on 2026-09-03, in his words, after LLP 1028's
 numbers were on the table:
@@ -504,41 +501,29 @@ implementer and a date are owed before any stage is a spec
    directory at the next launch, `state` says `["board"]`, and the
    next binary says `[]`.
 
-## 8. Open questions (for Charlie)
+## 8. Questions and rulings
 
-1. **Pulley or wasmi on iOS?** Pulley: one engine, 0.58 MB, no
-   validator on the device, 13× native on the call-heavy
-   microbenchmark. wasmi: 1.0 MB, 5.4×, two engines in the program.
-   Leaning: Pulley, and let stage 0's phone number reverse it if the
-   seam-shaped tax is what a user would feel — it is per resource
-   change, in microseconds, and only for changed sources.
-2. **Does the dev client link the executor only when the app opted
-   in** (D2), narrowing 1026 D12's "Level B in the dev client
-   regardless"? Leaning: yes — the ruling was "the option to not ship
-   wasmtime," and a dev client that carries what the release will not
-   is a surprise; the cloud agent's loop (1026 §1) opts its apps in.
-3. **Per-source routing in stage 1 or stage 2?** Leaning: stage 2;
-   whole-module identity is 1026 D10 as written and is enough to
-   prove the executor; the digest walk is its own small lane.
-4. **The mixed scaffold: both files from day one** (D1), or `app.ts`
-   alone with `data/` added on the first hot source? Leaning: both
-   from day one — an empty crate costs nothing, and "move a source to
-   Rust" should be a file edit, not a restructure.
-5. **Weird Castle under the default?** Its logic is Rust today. Moving
-   it to TypeScript with the seam's fixture holding each source equal
-   is the first real exercise of D1; it is Charlie's app and his call.
-6. **The macOS entitlement in App Store release builds** — accept it
-   for opted-in apps? Leaning: yes; it is the same entitlement every
-   browser and Electron app carries, and Level A needs none.
-7. **The JavaScript `WebAssembly` global** — leave it to ibex2 with
-   the Rive/Lottie trigger (D7)? Leaning: yes.
-8. **Naming.** `exact-wasm`, `Swappable`, `app.module.<target>.cwasm`
-   — or the implementer's.
+**Charlie, 2026-10-22:**
+
+1. **Pulley or wasmi on iOS?** wasmi, ratifying LLP 1029.000 §2.
+2. **Does the dev client link the executor only when the app opted in?**
+   Overtaken: replacement is on by default; `"rust": false` opts out
+   (LLP 1029.000 §2).
+3. **Per-source routing in stage 1 or stage 2?** Deferred under
+   LLP 1029.000 §8; whole modules remain the unit.
+4. **The mixed scaffold?** Overtaken: `exact new` makes a TypeScript-only
+   app (`game/new.mjs`, `createApp`).
+5. **Weird Castle under the default?** Open; no work waits on it.
+6. **The macOS JIT entitlement?** Obsolete: wasmi needs no JIT entitlement.
+7. **The JavaScript `WebAssembly` global?** Open; no work waits on it.
+8. **The executor's name?** Built as `exact-logic` (`logic/`).
+
+`bake/src/compat.rs` still labels a `Swappable` executor `wasmtime`.
+Rename it once, deliberately: it changes the compatibility ids that include
+the label. The policy-selected executor already says `wasmi`; this is the
+`Swappable` path. The work is in `QUEUE.md`.
 
 ## Ratification note
 
-Draft r1, 2026-09-03, written the day of the rulings and after LLP
-1028's probe ran; unreviewed. The numbers are this Mac's; the phone's
-are stage 0. Nothing in the repo changes until Charlie accepts and an
-implementer and a date are named; the amendment notes of §D8 are made
-at acceptance.
+Superseded for development and engine choice (Charlie, 2026-10-22).
+LLP 1029.000 owns that work; the Summary keeps the mixed-language rulings.

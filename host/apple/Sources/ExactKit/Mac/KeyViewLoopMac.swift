@@ -177,7 +177,7 @@ extension Presenter {
     /// Whether nothing of this session's in `window` holds the focus: the
     /// window is its own first responder, or a view that stands for the
     /// whole page is.
-    private func windowHoldsFocus(_ window: NSWindow) -> Bool {
+    func windowHoldsFocus(_ window: NSWindow) -> Bool {
         let current = window.firstResponder
         return current == nil || current === window || current === window.contentView || current === viewport || current === session?.view
     }

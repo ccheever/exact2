@@ -125,7 +125,9 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     // A value-only edit (its batch, then its verifying build, held at its
     // end) and another while that build runs: the second's batch applies
     // at once, the build is set aside, and the next carries the value.
-    await until(() => count(/design reader ready/g) >= 3, 120_000);
+    // (The reader's build is a cargo build on the shared target/, queued
+    // behind its lock while another build holds it: a build's bound.)
+    await until(() => count(/design reader ready/g) >= 3, 300_000);
     const supersededBefore = count(/edit → a build superseded/g);
     writeFileSync(join(dir, 'app.tamber'), design('#202020'));
     await until(() => count(/edit → batch ready/g) >= 1, 60_000);
@@ -144,20 +146,27 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     expect(JSON.stringify(served)).toContain('#303030');
     // And during a full build (app.json's, which leaves the design's shape):
     // the batch applies at once, and the build after serves it.
-    const batches = count(/edit → batch ready .*no build/g), plans = count(/edit → plan ready/g);
-    const readers = count(/design reader ready/g), asideBefore = count(/edit → a build superseded/g);
-    writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Stopped again', app: { id: 'com.exact.stopped', name: 'Stopped' } }));
     // Past the age an edit stops a build at, with the design reader built
     // again after it (any edit but a design's builds it), and the build
-    // still running (held at its end).
-    await new Promise(ok => setTimeout(ok, 2200));
-    await until(() => count(/design reader ready/g) > readers, 60_000);
-    expect(count(/edit → plan ready|edit → checked/g)).toBe(plans + 1);
+    // still running (held at its end). The reader's build is a cargo build
+    // on the shared target/, queued behind its lock while another build
+    // holds it: back after the full build has ended, the step is staged again.
+    let batches, settled, asideBefore;
+    for (let tries = 0; ; tries++) {
+      if (tries === 5) throw new Error(`the design reader was not built again while a full build ran, in 5 tries: ${said().slice(-2000)}`);
+      batches = count(/edit → batch ready .*no build/g); settled = count(/edit → plan ready|edit → checked/g);
+      asideBefore = count(/edit → a build superseded/g);
+      const readers = count(/design reader ready/g);
+      writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: `Stopped again ${tries}`, app: { id: 'com.exact.stopped', name: 'Stopped' } }));
+      await new Promise(ok => setTimeout(ok, 2200));
+      await until(() => count(/design reader ready/g) > readers, 300_000);
+      if (count(/edit → plan ready|edit → checked/g) === settled) break;
+    }
     const full = Date.now();
     writeFileSync(join(dir, 'app.tamber'), design('#404040'));
     await until(() => count(/edit → batch ready .*no build/g) > batches, 60_000);
     expect(Date.now() - full).toBeLessThan(3000);
-    await until(() => count(/edit → plan ready|edit → checked/g) > plans + 1, 300_000);
+    await until(() => count(/edit → plan ready|edit → checked/g) > settled, 300_000);
     expect(count(/edit → a build superseded/g)).toBe(asideBefore + 1);
     expect(JSON.stringify(await (await fetch(`${base}/__dev/design`)).json())).toContain('#404040');
   } finally {
@@ -197,5 +206,31 @@ test("the JS loop: an edit to theme-fixture's `when` token builds with setMode a
   } finally {
     await loop?.stop().catch(() => {});
     rmSync(dir, { recursive: true, force: true });
+  }
+}, 1_200_000);
+
+test('the JS loop: two loops on two apps under one target/ build at once, each into its own stage', async () => {
+  const app = (name) => {
+    const dir = mkdtempSync(join(tmpdir(), `exact-stage-${name}-`));
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ name, app: { id: `com.exact.${name}`, name } }));
+    writeFileSync(join(dir, 'app.contract'), `component App\n  view\n    text "${name}"\n`);
+    writeFileSync(join(dir, 'app.tamber'), `tamber ${name}\n\ntheme\n  ink = #000000\n`);
+    return dir;
+  };
+  const dirs = [app('stagea'), app('stageb')];
+  let loops = [];
+  try {
+    // The first's end held 8 s: the second's whole build lands inside it (one stage between them was emptied under
+    // the first, which then built nothing, or the other's files).
+    // One target/ for both, named (an app outside a workspace otherwise gets <its dir>/target).
+    const target = process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target');
+    loops = await Promise.all([devLoop(dirs[0], { EXACT_DEV_BUILD_HOLD_MS: '8000', CARGO_TARGET_DIR: target }), devLoop(dirs[1], { CARGO_TARGET_DIR: target })]);
+    for (const [i, name] of ['stagea', 'stageb'].entries()) {
+      expect(loops[i].said()).not.toContain('does not build');
+      expect(JSON.parse(readFileSync(join(loops[i].dist, '.exact-build.json'), 'utf8')).app.id).toBe(`com.exact.${name}`);
+    }
+  } finally {
+    await Promise.all(loops.map(l => l.stop()));
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   }
 }, 1_200_000);

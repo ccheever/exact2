@@ -2,7 +2,8 @@
 //! (LLP 1132 D11). A shown button's shortcut takes its chord, its key with
 //! exactly its modifiers, before the focused world hears it, on every host,
 //! so that press of a key both declare reaches the world only while no such
-//! button shows; the key with other modifiers reaches it either way.
+//! button shows; the key with other modifiers reaches it either way. And
+//! the chords that never reach an app on Windows (LLP 1115.004 D9.6).
 
 use crate::{AnalyzeError, Related};
 use contract_syntax::{Attr, Expr, File, Node, Span};
@@ -15,14 +16,7 @@ use std::collections::BTreeMap;
 /// it only with Shift) and `Control+Plus` likewise. No codes for a chord no
 /// host matches.
 pub fn chord_codes(chord: &str) -> (Vec<&str>, Vec<String>) {
-    let (modifiers, key) = if chord == "+" {
-        ("", "+")
-    } else if let Some(held) = chord.strip_suffix("++") {
-        (held, "+")
-    } else {
-        chord.rsplit_once('+').unwrap_or(("", chord))
-    };
-    let modifiers: Vec<&str> = modifiers.split('+').filter(|m| !m.is_empty()).collect();
+    let (modifiers, key) = split_chord(chord);
     if !modifiers
         .iter()
         .all(|m| matches!(*m, "Meta" | "Control" | "Alt" | "Shift"))
@@ -31,6 +25,22 @@ pub fn chord_codes(chord: &str) -> (Vec<&str>, Vec<String>) {
     }
     let shift = modifiers.contains(&"Shift");
     (modifiers, key_codes(key, shift))
+}
+
+/// A chord as ARIA spells it split into its modifiers and its key, `+` for
+/// the plus key spelled `+` (`Control++`); `Plus` stays as written.
+fn split_chord(chord: &str) -> (Vec<&str>, &str) {
+    let (modifiers, key) = if chord == "+" {
+        ("", "+")
+    } else if let Some(held) = chord.strip_suffix("++") {
+        (held, "+")
+    } else {
+        chord.rsplit_once('+').unwrap_or(("", chord))
+    };
+    (
+        modifiers.split('+').filter(|m| !m.is_empty()).collect(),
+        key,
+    )
 }
 
 fn key_codes(key: &str, shift: bool) -> Vec<String> {
@@ -133,15 +143,31 @@ pub fn declares_shortcuts(file: &File) -> bool {
     file.components.iter().any(|c| any(&c.view))
 }
 
-/// Every button whose `aria-keyshortcuts` names a key a surface's
-/// `Actions` bind: `bound` maps each surface to its keys, each key to the
-/// actions it drives. A literal value is checked, a conditional's two
-/// literals, and a component prop's literal arguments at each use; a value
-/// computed otherwise is not. Warnings, never refusals.
-pub fn check_shortcut_keys(
-    file: &File,
-    bound: &BTreeMap<String, BTreeMap<String, Vec<String>>>,
-) -> Vec<AnalyzeError> {
+/// A button's `aria-keyshortcuts`: the button's attributes, the attribute,
+/// and each literal value it can take with the span that wrote it.
+struct ButtonShortcut<'a> {
+    attrs: &'a [Attr],
+    shortcut: &'a Attr,
+    values: Vec<(&'a str, Span)>,
+}
+
+impl ButtonShortcut<'_> {
+    /// Where a value passed through a component prop was written.
+    fn related(&self, text: &str, written: Span) -> Vec<Related> {
+        match self.shortcut.value {
+            Expr::Str(..) => Vec::new(),
+            _ => vec![Related {
+                span: written,
+                note: format!("\"{text}\" is passed here"),
+            }],
+        }
+    }
+}
+
+/// Every button's `aria-keyshortcuts` in `file`, with the values it can
+/// take: a literal, a conditional's two literals, and a component prop's
+/// literal arguments at each use; a value computed otherwise has none.
+fn button_shortcuts(file: &File) -> Vec<ButtonShortcut<'_>> {
     // Each component prop's arguments: (component, prop) → (using component, value).
     let mut args: BTreeMap<(&str, &str), Vec<(&str, &Expr)>> = BTreeMap::new();
     fn uses<'a>(
@@ -224,8 +250,8 @@ pub fn check_shortcut_keys(
         }
     }
     let mut out = Vec::new();
-    let mut walk = |component: &str, nodes: &[Node]| {
-        let mut stack: Vec<&Node> = nodes.iter().collect();
+    for component in &file.components {
+        let mut stack: Vec<&Node> = component.view.iter().collect();
         while let Some(node) = stack.pop() {
             match node {
                 Node::Element {
@@ -238,61 +264,24 @@ pub fn check_shortcut_keys(
                     if tag != "button" {
                         continue;
                     }
-                    let own =
-                        attrs
-                            .iter()
-                            .find(|a| a.name == "action")
-                            .and_then(|a| match &a.value {
-                                Expr::Str(s, _) => Some(s.as_str()),
-                                _ => None,
-                            });
                     let Some(shortcut) = attrs.iter().find(|a| a.name == "aria-keyshortcuts")
                     else {
                         continue;
                     };
                     let mut values = Vec::new();
-                    literals(&shortcut.value, component, &props, &args, 0, &mut values);
-                    for (text, written) in values {
-                        for chord in text.split_whitespace() {
-                            let (modifiers, codes) = chord_codes(chord);
-                            for code in codes {
-                                for (surface, keys) in bound {
-                                    let Some(actions) = keys.get(&code) else {
-                                        continue;
-                                    };
-                                    let names = actions
-                                        .iter()
-                                        .map(|a| format!("`{a}`"))
-                                        .collect::<Vec<_>>()
-                                        .join(", ");
-                                    let same = own.is_some_and(|o| actions.iter().any(|a| a == o));
-                                    let fix = if same {
-                                        format!("the button's own `action` is one of them, so the key already reaches the world through it while it shows; drop {code} from `Actions` or the shortcut")
-                                    } else {
-                                        format!("drop {code} from `Actions` or the shortcut, or bind another key")
-                                    };
-                                    out.push(AnalyzeError {
-                                        id: "analyze-shortcut-world-key",
-                                        message: {
-                                            let held = match modifiers.is_empty() {
-                                                true => "no modifier".to_owned(),
-                                                false => format!("exactly {}", modifiers.join("+")),
-                                            };
-                                            format!("`aria-keyshortcuts` \"{chord}\" takes {code} pressed with {held} held: while this button shows, surface `{surface}` does not hear that press as {names}, though {code} with other modifiers still reaches it; the shortcut presses the button first on every host (LLP 1132 D11); {fix}")
-                                        },
-                                        span: shortcut.span,
-                                        related: match shortcut.value {
-                                            Expr::Str(..) => Vec::new(),
-                                            _ => vec![Related {
-                                                span: written,
-                                                note: format!("\"{text}\" is passed here"),
-                                            }],
-                                        },
-                                    });
-                                }
-                            }
-                        }
-                    }
+                    literals(
+                        &shortcut.value,
+                        &component.name,
+                        &props,
+                        &args,
+                        0,
+                        &mut values,
+                    );
+                    out.push(ButtonShortcut {
+                        attrs,
+                        shortcut,
+                        values,
+                    });
                 }
                 Node::Use { children, .. } => stack.extend(children),
                 Node::Each { body, .. } => stack.extend(body),
@@ -309,9 +298,175 @@ pub fn check_shortcut_keys(
                 Node::Children { .. } => {}
             }
         }
+    }
+    out
+}
+
+/// Every button whose `aria-keyshortcuts` names a key a surface's
+/// `Actions` bind: `bound` maps each surface to its keys, each key to the
+/// actions it drives. Values are found as [`button_shortcuts`] finds them.
+/// Warnings, never refusals.
+pub fn check_shortcut_keys(
+    file: &File,
+    bound: &BTreeMap<String, BTreeMap<String, Vec<String>>>,
+) -> Vec<AnalyzeError> {
+    let mut out = Vec::new();
+    for button in button_shortcuts(file) {
+        let own = button
+            .attrs
+            .iter()
+            .find(|a| a.name == "action")
+            .and_then(|a| match &a.value {
+                Expr::Str(s, _) => Some(s.as_str()),
+                _ => None,
+            });
+        for &(text, written) in &button.values {
+            for chord in text.split_whitespace() {
+                let (modifiers, codes) = chord_codes(chord);
+                for code in codes {
+                    for (surface, keys) in bound {
+                        let Some(actions) = keys.get(&code) else {
+                            continue;
+                        };
+                        let names = actions
+                            .iter()
+                            .map(|a| format!("`{a}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let same = own.is_some_and(|o| actions.iter().any(|a| a == o));
+                        let fix = if same {
+                            format!("the button's own `action` is one of them, so the key already reaches the world through it while it shows; drop {code} from `Actions` or the shortcut")
+                        } else {
+                            format!(
+                                "drop {code} from `Actions` or the shortcut, or bind another key"
+                            )
+                        };
+                        let held = match modifiers.is_empty() {
+                            true => "no modifier".to_owned(),
+                            false => format!("exactly {}", modifiers.join("+")),
+                        };
+                        out.push(AnalyzeError {
+                            id: "analyze-shortcut-world-key",
+                            message: format!("`aria-keyshortcuts` \"{chord}\" takes {code} pressed with {held} held: while this button shows, surface `{surface}` does not hear that press as {names}, though {code} with other modifiers still reaches it; the shortcut presses the button first on every host (LLP 1132 D11); {fix}"),
+                            span: button.shortcut.span,
+                            related: button.related(text, written),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by_key(|e| (e.span.line, e.span.col));
+    out.dedup_by(|a, b| a.span == b.span && a.message == b.message);
+    out
+}
+
+/// What Windows does with a chord holding no Windows key (`Meta`) instead
+/// of giving it to the app, for the chords it keeps; `key` as
+/// [`split_chord`] gives it.
+fn windows_keeps(modifiers: &[&str], key: &str) -> Option<&'static str> {
+    let held = |m: &str| modifiers.contains(&m);
+    let only = |ms: &[&str]| modifiers.len() == ms.len() && ms.iter().all(|m| held(m));
+    match key.to_ascii_lowercase().as_str() {
+        "tab" if held("Alt") => Some("switching windows"),
+        "escape" if only(&["Control", "Shift"]) => Some("opening Task Manager"),
+        "escape" if only(&["Control"]) => Some("opening Start"),
+        "delete" if only(&["Control", "Alt"]) => Some("its security screen"),
+        "f4" if only(&["Alt"]) => Some("closing the window"),
+        "space" if only(&["Alt"]) => Some("the window's system menu"),
+        _ => None,
+    }
+}
+
+/// The chord with `Control` held where it holds `Meta`: its key and other
+/// modifiers kept, and `Meta` only dropped where `Control` is held too.
+fn control_sibling(modifiers: &[&str], key: &str) -> String {
+    let mut chord: Vec<&str> = Vec::new();
+    for m in modifiers {
+        let m = if *m == "Meta" { "Control" } else { m };
+        if !chord.contains(&m) {
+            chord.push(m);
+        }
+    }
+    chord.push(if key == "+" { "Plus" } else { key });
+    chord.join("+")
+}
+
+/// Whether two chords are one: the same modifiers in any order and the
+/// key compared without case, as the hosts match it.
+fn same_chord(a: &str, b: &str) -> bool {
+    let ((a_held, a_key), (b_held, b_key)) = (split_chord(a), split_chord(b));
+    let key = |k: &str| match k {
+        "+" => "plus".to_owned(),
+        k => k.to_ascii_lowercase(),
     };
-    for component in &file.components {
-        walk(&component.name, &component.view);
+    a_held.len() == b_held.len()
+        && a_held.iter().all(|m| b_held.contains(m))
+        && key(a_key) == key(b_key)
+}
+
+/// Every button `aria-keyshortcuts` chord that never presses its button on
+/// Windows (LLP 1115.004 D9.6), for an app with a Windows host. Each host
+/// matches a chord as written, and on Windows `Meta` is the Windows key,
+/// whose chords the shell takes first; so a `Meta` chord whose list holds
+/// no `Control` sibling is `analyze-shortcut-meta-only`, naming the sibling
+/// to add, and a chord Windows keeps for itself without the Windows key
+/// (Alt+Tab, Alt+F4, Control+Escape…) is `analyze-shortcut-windows-reserved`.
+/// Values are found as [`button_shortcuts`] finds them. Warnings, never
+/// refusals.
+pub fn check_windows_shortcuts(file: &File) -> Vec<AnalyzeError> {
+    let mut out = Vec::new();
+    for button in button_shortcuts(file) {
+        for &(text, written) in &button.values {
+            let chords: Vec<&str> = text.split_whitespace().collect();
+            for &chord in &chords {
+                let (modifiers, key) = split_chord(chord);
+                if !modifiers
+                    .iter()
+                    .all(|m| matches!(*m, "Meta" | "Control" | "Alt" | "Shift"))
+                {
+                    continue;
+                }
+                let (id, message) = if modifiers.contains(&"Meta") {
+                    let sibling = control_sibling(&modifiers, key);
+                    if chords.iter().any(|c| same_chord(c, &sibling)) {
+                        continue;
+                    }
+                    let (sibling_held, sibling_key) = split_chord(&sibling);
+                    let advice = match windows_keeps(&sibling_held, sibling_key) {
+                        Some(kept) => format!("its Control chord, \"{sibling}\", Windows keeps for {kept}, so add another"),
+                        None => {
+                            let list = chords
+                                .iter()
+                                .flat_map(|&c| match c == chord {
+                                    true => vec![c, sibling.as_str()],
+                                    false => vec![c],
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            format!("add \"{sibling}\" beside it: \"{list}\"")
+                        }
+                    };
+                    (
+                        "analyze-shortcut-meta-only",
+                        format!("`aria-keyshortcuts` \"{chord}\" has no Control chord beside it: on Windows `Meta` is the Windows key, whose chords the shell takes before the app hears them, and a host matches a chord as written, so this shortcut never fires there; {advice} (LLP 1115.004 D9.6)"),
+                    )
+                } else if let Some(kept) = windows_keeps(&modifiers, key) {
+                    (
+                        "analyze-shortcut-windows-reserved",
+                        format!("`aria-keyshortcuts` \"{chord}\" is a chord Windows keeps for {kept}, so on Windows it never presses this button; choose another (LLP 1115.004 D9.6)"),
+                    )
+                } else {
+                    continue;
+                };
+                out.push(AnalyzeError {
+                    id,
+                    message,
+                    span: button.shortcut.span,
+                    related: button.related(text, written),
+                });
+            }
+        }
     }
     out.sort_by_key(|e| (e.span.line, e.span.col));
     out.dedup_by(|a, b| a.span == b.span && a.message == b.message);

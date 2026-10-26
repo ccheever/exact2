@@ -15,14 +15,17 @@ export const run = (cmd, args, cwd, env = process.env) => {
 };
 
 /** The fixture app's directory and its bundle id. `dependencies` are added to
- * its package.json beside this package (`file:` by default). */
-export function makeFixture({ geolocation = `file:${pkg}`, dependencies = {} } = {}) {
+ * its package.json beside this package (`file:` by default); `approximate`
+ * grants the approximate line (D7) in place of the precise one. */
+export function makeFixture({ geolocation = `file:${pkg}`, dependencies = {}, approximate = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'exact-geolocation-')), app = join(dir, 'geofixture');
   run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
   for (const f of ['app.contract', 'app.ts', 'strings']) cpSync(join(here, 'fixture', f), join(app, f), { recursive: true });
   rmSync(join(app, 'app.test.contract'), { force: true });
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
-  writeFileSync(join(app, 'app.ts'), readFileSync(join(app, 'app.ts'), 'utf8').replace('__APP_ID__', id));
+  let ts = readFileSync(join(app, 'app.ts'), 'utf8').replace('__APP_ID__', id);
+  if (approximate) ts = ts.replace("'device.geolocation ", "'device.geolocation-approximate ");
+  writeFileSync(join(app, 'app.ts'), ts);
   const manifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
   manifest.dependencies = { ...manifest.dependencies, '@exact/geolocation': geolocation, ...dependencies };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));

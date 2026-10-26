@@ -12,6 +12,34 @@ import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
 import { render, stateOp } from './agent-inspect.mjs';
 
+test('a simulator console retries one stale FIFO failure and leaves other exits alone', async () => {
+  const { simulatorConsole } = await import('./agent-wire.mjs');
+  const { EventEmitter } = await import('node:events');
+  for (const output of ['Unable to establish FIFO data/tmp/launch_console-123-1: File exists', 'launch failed: app crashed']) {
+    const launched = [], observed = [], lines = [];
+    const launch = simulatorConsole(() => {
+      const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+      launched.push(child); return child;
+    }, lines, child => observed.push(child));
+    assert.equal(launch.retry(), false);
+    launch.process.stderr.write(output.slice(0, 24)); launch.process.stderr.write(output.slice(24));
+    launch.process.emit('close', 1, null);
+    const exited = launch.exited;
+    assert.deepEqual(await exited, { code: 1, signal: null });
+    assert.equal(launch.retry(), output.includes('FIFO'));
+    if (output.includes('FIFO')) {
+      assert.equal(launch.done, false);
+      assert.notEqual(launch.exited, exited);
+      launch.process.stderr.write(output); launch.process.emit('close', 1, null);
+      await launch.exited;
+      assert.equal(launch.retry(), false);
+    }
+    assert.equal(launched.length, output.includes('FIFO') ? 2 : 1);
+    assert.deepEqual(observed, launched);
+    assert.match(lines.join('\n'), /app: /);
+  }
+});
+
 need('chrome', chromium().unavailable)('the web agent keeps desktop input facts through preferences and injected touches', async () => {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
     '<!doctype html><main id="exact-root" data-boot-ms="0"></main><script>globalThis.exact = {ready: Promise.resolve(), agentSettled: async () => ({})};</script>',
@@ -288,6 +316,28 @@ test('compare: the regions up close, a row each, cut from both pictures at their
   assert.match(report(result, [], { reference: 'r', diff: 'd', close: 'c' }).split('\n')[0], new RegExp(`; up close, c \\(a row a region, 1 to ${n}\\)$`));
 });
 
+test('compare: the two pictures side by side at half size, each region outlined on both', async () => {
+  const { grid, compareGrids, sideImage, report } = await import('./agent-compare.mjs');
+  // A 3x screen with a box the reference lacks, at 60,20 40×10 pt.
+  const ref = picture(120, 200, [], 3), screen = picture(120, 200, [[60, 20, 40, 10]], 3);
+  const A = grid(ref, 120, 200), B = grid(screen, 120, 200), result = compareGrids(A, B);
+  const side = sideImage(A, B, result), band = side.height - 100;
+  // Two panels of 60×100 px, 4 apart, under the labels' band.
+  assert.equal(side.width, 2 * 60 + 4);
+  const at = (x, y) => Array.from(side.data.subarray(((y + band) * side.width + x) * 4, ((y + band) * side.width + x) * 4 + 3));
+  // The box, at 30,10 20×5 px: black on the screen's panel, white on the reference's; outlined in amber on both.
+  assert.deepEqual([at(35, 12), at(64 + 35, 12)], [[255, 255, 255], [20, 20, 20]]);
+  for (const ox of [0, 64]) assert.deepEqual([at(ox + 29, 12), at(ox + 50, 12), at(ox + 35, 9), at(ox + 35, 15)], Array(4).fill([240, 170, 0]));
+  // An odd width (393 pt on an iPhone 16) halves to a scale other than ½: the outline stays outside the ink at the
+  // right edge, where a 2:1 map would draw over its last column.
+  const odd = compareGrids(grid(picture(121, 201, []), 121, 201), grid(picture(121, 201, [[100, 21, 20, 10]]), 121, 201));
+  const oddSide = sideImage(grid(picture(121, 201, []), 121, 201), grid(picture(121, 201, [[100, 21, 20, 10]]), 121, 201), odd);
+  const oddAt = (x, y) => Array.from(oddSide.data.subarray(((y + oddSide.height - 101) * oddSide.width + x) * 4, ((y + oddSide.height - 101) * oddSide.width + x) * 4 + 3));
+  // Its last pixel holds half a point of ink and half of white: grey, not amber.
+  assert.deepEqual(oddAt(65 + 60, 13), [138, 138, 138]);
+  assert.match(report(result, [], { reference: 'r', diff: 'd', side: 's' }).split('\n')[0], /; diff d \(reference \| screen \| differences\); side by side at half size, s \(reference \| screen, the regions outlined\)$/);
+});
+
 test('compare: an edge\'s anti-aliasing is no colour of the picture it is in', async () => {
   // The reference's box has a soft left edge (three grey columns), the screen's a hard one 7 pt further left: the
   // reference's differing cells are white and that edge's greys, which are no ink of its own (euxy port: "#bbb").
@@ -458,6 +508,27 @@ test('a native named store is kept unless the drive resets it, under its lock; a
   } finally { [console.log, console.error] = quiet; }
 });
 
+// The euxy port's `tap play` missed on a mode an earlier drive persisted, and the miss read like a broken view.
+test('a miss on a drive that kept its store says so, and how to start empty', async () => {
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const sessions = [];
+    const injected = { driveServer: async () => null, exclusiveNativeStore: async (key, launch) => launch(), resolveDevice: () => 'a device',
+      open: async () => { const s = { state: async () => ({}), close: async () => {} }; sessions.push(s); return s; } };
+    for (const [flags, kept] of [[[], 'default'], [['--storage', 's1'], 's1'], [['--reset-storage'], undefined], [['screenshot a.png compare ref.png'], undefined]]) {
+      await main(['ios', ...flags, 'state'], injected).catch((e) => (/compare/.test(e.message) ? 0 : Promise.reject(e)));
+      assert.equal(sessions.at(-1).keptStore, kept, flags.join(' '));
+    }
+  } finally { console.error = quiet; }
+  const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+    async ask(req) { return req.op === 'tree' ? { nodes: [{ id: 1, type: 'View', props: { testId: 'stop' }, children: [] }] } : { epoch: 0, clock: 0 }; } };
+  const s = await open({ reuse: carrier });
+  await assert.rejects(s.find('play'), (e) => !/kept the store/.test(e.message));
+  s.keptStore = 'default';
+  await assert.rejects(s.find('play'), /; this drive kept the store `default` from earlier drives, so the screen can show what they saved \(a `persist` state\): --reset-storage starts it empty$/);
+});
+
 test('storage advice preserves canvas journal entries through the host seam', async () => {
   const { driveNotes } = await import('./agent-test.mjs');
   for (const probe of [s => s.landed({ tapped: true }), s => driveNotes(s, { host: 'linux' })('tap')]) {
@@ -572,6 +643,20 @@ test('a drive with no store says its storage was refused after the first op that
   } finally { console.error = quiet; }
 });
 
+test('a drive whose app played an undeclared sound says so once, with the line to declare it', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  const said = [], quiet = console.error;
+  const lines = ['t=0 sequence groove: track 1 step 1 dropped: "assets/audio/808/kick.wav" is not a declared sound',
+    't=0 sound dropped: "assets/audio/808/snare.wav" is not a declared sound'];
+  const s = { launchFacts: {}, op: async ({ since }) => ({ lines: lines.slice(since ?? 0), next: lines.length }), state: async () => ({}) };
+  console.error = (line) => said.push(line);
+  try {
+    const notes = driveNotes(s, { host: 'ios', storage: 's1' });
+    await notes('tap'); await notes('end'); await notes('end');
+    assert.deepEqual(said, ['note: the app played "assets/audio/808/kick.wav", which no `sound` line declares, so the runner dropped it and nothing sounded (`logs` names each drop); declare every file a played path can name at the top level: `sound "assets/audio/808/kick.wav"`']);
+  } finally { console.error = quiet; }
+});
+
 test('a screenshot with a system sheet held says it is not drawn, and where the real one is', async () => {
   const { driveNotes } = await import('./agent-test.mjs');
   const said = [], quiet = console.error;
@@ -579,11 +664,9 @@ test('a screenshot with a system sheet held says it is not drawn, and where the 
   const s = (touch, extra = {}) => ({ launchFacts: {}, carrier: { touch, ...extra }, op: async () => ({ lines: [], next: 0 }), state: async () => ({ pending }) });
   console.error = (line) => said.push(line);
   try {
-    await driveNotes(s('agent', { installNote: 'kept the Release build', axNote: 'accessibility is on' }), { host: 'ios', storage: 's1' })('screenshot');
-    assert.equal(said.length, 4);
+    await driveNotes(s('agent', { installNote: 'kept the Release build' }), { host: 'ios', storage: 's1' })('screenshot');
+    assert.equal(said.length, 3);
     assert.match(said[0], /^note: kept the Release build$/);
-    assert.match(said[1], /^note: accessibility is on$/);
-    said.splice(1, 1);
     assert.match(said[1], /no share sheet: under the agent it is held \(@1\).*under --touch platform the real one is presented/);
     assert.doesNotMatch(said[2], /--touch platform/);
     said.length = 0;
@@ -676,7 +759,10 @@ test('compare on a capture: nodes where the window has them, its safe area not s
     const shot = { screenshot: resolve(dir, 'shot.png'), w: 120, h: 200, scale: 2, window: true, statusBar: false, safeArea: { top: 10, bottom: 12 }, note: 'the status bar is not in the capture (simctl io screenshot: failed)' };
     const r = await compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }), resolve(dir, 'ref.png'), async () => ({ ...shot }));
     assert.match(r.text, /under card \[10,40 60×30\]/);
-    assert.doesNotMatch(r.text, /draws at/);
+    assert.doesNotMatch(r.text, /draws at|painted by the agent/);
+    // A menu the agent painted is said on the score's line, which a reader filtering for `compare` keeps (euxy port).
+    const painted = await compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }), resolve(dir, 'ref.png'), async () => ({ ...shot, paintedNote: 'the agent painted it' }));
+    assert.match(painted.text.split('\n')[0], /^compare .* matches \(.*\), with the open menu or popover painted by the agent, not UIKit's \(--touch platform shows UIKit's\); diff /);
     // A floating sheet the platform draws scaled is said, in compare's report and in `layout`'s.
     const floating = { ...ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }) };
     const plain = floating.layout;
@@ -744,4 +830,30 @@ test('logs after reload include the new document host diagnostics', async () => 
   assert.deepEqual((await s.logs()).host,['before']);
   await reloadWeb(s);
   assert.deepEqual((await s.logs()).host,['after']);
+});
+
+test('a native missing target names the requests in its tree without another transport read', async () => {
+  let pending = [{name:'added'}, {name:'entries'}];
+  const requests = [];
+  const carrier = {host:'ios', browser:'chrome', launchFacts:launchFacts({}), reset() {}, async ask(req) {
+    requests.push(req.op);
+    assert.equal(req.op,'tree','a miss must not issue a state request');
+    return {nodes:[], pending};
+  }};
+  const s = await open({reuse:carrier});
+  await assert.rejects(() => s.find('new-row'), /2 requests are still in flight \(added, entries\).*clock data/);
+  pending = [];
+  await assert.rejects(() => s.find('new-row'), e => /no view matches/.test(e.message) && !/still in flight/.test(e.message));
+  assert.ok(requests.every(op => op === 'tree'));
+});
+
+test('main parses drag after a quoted target and across tab separators', async () => {
+  const calls = [];
+  const fake = { tap: async (target, opts) => { calls.push([target, opts.drag]); return { tapped: 7 }; }, close: async () => {} };
+  const ops = ['tap "Please drag me" drag 0 120', 'tap\tgrip\tdrag\t0\t120',
+    'tap "Please drag me"\tdrag\t0 120 hold 500 during "state" then 0 -120'];
+  for (const op of ops) assert.equal(await main(['web', op], { open: async () => fake, driveServer: async () => null }), 0);
+  assert.deepEqual(calls.map(([target, drag]) => [target, drag.dx, drag.dy]), [['Please drag me', 0, 120], ['grip', 0, 120], ['Please drag me', 0, 120]]);
+  assert.equal(calls[2][1].during.length, 1);
+  assert.deepEqual(calls[2][1].path, [{ dx: 0, dy: -120 }]);
 });

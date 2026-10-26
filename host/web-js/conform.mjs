@@ -498,9 +498,10 @@ async function drive(t, report, fail, dir, ws, js) {
     // Linux), `mediasession <target> <action> [seconds]` (the platform's
     // media session action, LLP 1098 D10) — each compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
-    const settle = async () => { await pair(() => W.clock('settle'), () => J.clock('settle')); await onLinux('settle', L => L.clock('settle')); };
+    // A page whose settle still owes a list's reader a scroll event is compared too soon: that fails the step.
+    const settle = async step => { const replies = await pair(() => W.clock('settle'), () => J.clock('settle')); for (const [side, r] of [[reference, replies[0]], [other, replies[1]]]) if (r?.reason === 'scroll-event') fail(step, `${side}: clock settle was not settled: a list's reader's scroll event still owed or still running`); await onLinux('settle', L => L.clock('settle')); };
     driveAt = 'boot settle';
-    await settle();
+    await settle('boot');
     // Each step's bound refusals, on every target (the journals read from here on).
     const bounds = async step => {
       const [{ bounds: rw, sounds: sw }, { bounds: rj, sounds: sj }] = await pair(() => journal(W), () => journal(J));
@@ -548,7 +549,7 @@ async function drive(t, report, fail, dir, ws, js) {
       // it fails the step and ends the comparison.
       await onLinux(line, L => !LINUX_OPS.includes(op) ? (refused === null ? Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)) : undefined)
         : run(L).then(() => { answered('linux'); if (refused !== null) throw new Error('took a step marked refused'); }, e => { if (e.malformed === true) { fail(line, e.message); throw e; } if (refused === null) throw e; }));
-      await settle();
+      await settle(line);
       await bounds(line);
       tree = await compare(line);
     }
@@ -563,7 +564,7 @@ async function drive(t, report, fail, dir, ws, js) {
       try { await J.tap(id); } catch (e) { fail(`tap ${id}`, `${other}: ${e.message.split('\n')[0]}`); diverged = true; break; }
       await onLinux(`tap ${id}`, L => L.tap(id));
       // What the press sent lands on both first (a fetch races the compare otherwise).
-      await settle();
+      await settle(`tap ${id}`);
       await bounds(`tap ${id}`);
       tree = await compare(`tap ${id}`);
     }
@@ -768,10 +769,10 @@ const LINUX_APART = {
   'markdown-stress': ['tap toggle-single', "its editor's selection report (formats, links) is the web's markup editor's, which the Linux host's text field does not make"],
   'native-fixture': [null, 'its views are native modules (LLP 1024), which the web and Apple hosts load and the Linux host does not'],
   'photo-editor': [null, 'its editor is a native module (LLP 1024), which the web and Apple hosts load and the Linux host does not'],
-  messages: ['tap conversation-maya', 'its data sources write drafts and reads to storage on the Linux host, where the page refuses storage in agent mode without --storage (QUEUE)'],
   'interaction-gallery': ['drag sheet-handle 0 -150 300', "the sheet's full stop is its bay's height (`frame`), under three rows of 12 px buttons whose text each host sets in its own sans: Chrome's system-ui, and on macOS the Linux host's Arial (text/fonts.rs, no fontconfig), a row 1 px shorter, so 521 against the page's 518"],
   'synthetic-iframes': ['tap show', 'the Linux host loads no iframe, whose load and message only a browser delivers'],
   'synthetic-decorations': { slots: ['sizes'], why: "rangeFrame's sizes are each host's fonts' (wasm and JS compare them; Linux's are pinned in host/linux's range_frame_tests.rs)" },
+  'synthetic-user-select-all': ['tap path', "Linux has no text selection on a `text` (`user-select: all` is `auto` there, declared in LLP 1001), so `selectionchange` never fires and the path stays empty (docs/contract-grammar.md, text selection)", { slot: 'path', value: '' }],
   'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
 };
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };

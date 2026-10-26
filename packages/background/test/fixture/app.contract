@@ -1,0 +1,49 @@
+// The conformance fixture (LLP 1133.001 D7): @exact/background's names, read
+// and sent as an app would, each answer shown by testId for the suite. The
+// root's `sync` and `periodicsync` handlers pull from the suite's server,
+// which answers or refuses as the suite says.
+use backgroundSyncStatus, syncTags, sync, periodicsync, BackgroundSyncStatus, SyncEvent, SyncRegistration from "@exact/background"
+
+shape Pulled
+  ok: bool
+  tag: string
+  sent: bool
+  lastChance: bool
+
+shape Said
+  text: string
+
+component Fixture
+  resource status = backgroundSyncStatus() as shape BackgroundSyncStatus
+  resource tags = syncTags() as shape SyncRegistration[]
+  mutation queued as shape Said
+  mutation pulled as shape Pulled
+  mutation periodic as shape Said
+  action queue(tag: string)
+    send queued = queueSync(tag)
+  action heard(tag: string, e: SyncEvent)
+    send pulled = pull(tag, e.lastChance)
+  action tryPeriodic
+    send periodic = periodicSync()
+  action ticked(tag: string)
+    send pulled = pull(tag, false)
+  view
+    column sync=heard periodicsync=ticked gap=8 padding=16
+      text `${status.available} ${status.state} ${status.periodic} ${status.sync}` testId="status"
+      text tags.map(t => t.tag).join(" ") testId="tags"
+      match pulled
+        case some(p)
+          text `${p.tag} ${p.sent} ${p.lastChance}` testId="pulled"
+        case none
+          text "none" testId="pulled"
+      match periodic
+        case some(p)
+          text p.text testId="periodic"
+        case none
+          text "none" testId="periodic"
+      button press=queue("t1") testId="queue-t1"
+        text "Queue t1"
+      button press=queue("t2") testId="queue-t2"
+        text "Queue t2"
+      button press=tryPeriodic testId="try-periodic"
+        text "Periodic"

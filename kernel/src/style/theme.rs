@@ -270,6 +270,22 @@ fn measure_at(
                 ));
             }
         }
+        // A shadow whose lengths are over base names the design left unset
+        // (stage 12 B3): each such length folded as an expression's is, in
+        // this process's column, each base read as a bare alias reads it
+        // (the design's own first, the read recorded, as the row's own rule
+        // on a token that varies says); the rest kept, so the row's codec
+        // reads px.
+        if matches!(kind, Kind::BoxShadow | Kind::TextShadow)
+            && depth < 8
+            && !super::scale::named_in(alias).is_empty()
+        {
+            let length = |k: Kind, varies: bool| k == Kind::Length && takes(kind, varies);
+            let text = super::scale::fold_lengths(alias, |base| {
+                measure_at(base, &length, depth + 1).map(|(_, t)| t.into())
+            })?;
+            return Some((kind, text.into()));
+        }
         return Some((kind, value));
     }
     // A base name no entry defines (LLP 1121 stage 11 B): the scale's length

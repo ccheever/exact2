@@ -17,6 +17,7 @@ import { serveBuildTree } from '../serve.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
@@ -52,7 +53,7 @@ const MENUS = `component Menus
 check('a contextmenu from a checkbox, switch, radio, range, date or time input is its node\'s; a text field keeps the browser\'s menu', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-contextmenu-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
   writeFileSync(contract, MENUS);
-  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
   const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8' });
   expect(build.status, build.stderr).toBe(0);

@@ -1,0 +1,17 @@
+// A live headless session (LLP 1126.002 D3): a repeating timer that missed
+// beats fires once on the live clock, and a native button's title follows its
+// text (HeadlessLiveTests). Compiled by build.mjs --test.
+component HeadlessLive
+  state ticks = 0
+  state on = false
+  action tick
+    ticks = ticks + 1
+  action flip
+    on = not on
+  task ticker mount
+    every(1000, tick)
+  view
+    column
+      text `${ticks}` testId="ticks"
+      button appearance="auto" width="8rem" press=flip testId="flip"
+        text on ? "Stop" : "Play"

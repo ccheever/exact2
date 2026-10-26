@@ -40,6 +40,9 @@ public struct SnapshotEnvironment {
     /// The app group's container, where `app:/data/…`, `app:/cache/…` and
     /// `app:/tmp/…` resolve (the app's dirs, shared with its extensions).
     public var appGroup: URL?
+    /// The app's identifier, under which its directories sit in the group
+    /// (`SnapshotRasters.appRoots`); nil resolves no `app:/` image.
+    public var appID: String?
     /// The invocation's decoded rasters: budgeted, released with it.
     public var rasters: SnapshotRasters
     /// The system's `widgetContentMargins` when nil.
@@ -51,9 +54,9 @@ public struct SnapshotEnvironment {
     /// An agent read freezes live leaves at its clock; WidgetKit leaves this nil.
     public var frozenDate: Date?
 
-    public init(family: Family, entryName: String = "snapshot", placement: ActivityPlacement? = nil, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil,
+    public init(family: Family, entryName: String = "snapshot", placement: ActivityPlacement? = nil, placeholder: Bool = false, linkBase: URL? = nil, imageRoots: [URL] = [Bundle.main.bundleURL], appGroup: URL? = nil, appID: String? = nil,
                 rasters: SnapshotRasters = SnapshotRasters(), contentMargins: EdgeInsets? = nil, rootFontSize: CGFloat? = nil, entryDate: Date = .now, frozenDate: Date? = nil) {
-        self.entryName = entryName; self.family = family; self.placement = placement; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup
+        self.entryName = entryName; self.family = family; self.placement = placement; self.placeholder = placeholder; self.linkBase = linkBase; self.imageRoots = imageRoots; self.appGroup = appGroup; self.appID = appID
         self.rasters = rasters; self.contentMargins = contentMargins; self.rootFontSize = rootFontSize; self.entryDate = entryDate; self.frozenDate = frozenDate
     }
 
@@ -120,14 +123,17 @@ public enum SnapshotDriver {
     }
 
     /// A paragraph's styled runs remain one leaf. Hidden subtrees contribute none.
+    /// The rule is the compiler's (`contract/cli/src/snapshot/inline.rs`) over
+    /// the wire's names: a `link` arrives as `"button"` (a pressable), a `time`
+    /// as `"text"`.
     package static func admitsInline(_ snapshot: HeadlessSession.Snapshot) -> Bool {
         var stack = snapshot.roots, text = 0, images = 0, other = 0
         while let id = stack.popLast() {
             guard let node = snapshot.nodes[id], node.style["display"]?.string != "none" else { continue }
             switch node.kind {
-            case "text", "time": text += 1
+            case "text": text += 1
             case "image": images += 1
-            case "view", "pressable":
+            case "view", "button":
                 if node.props["type"] != "progress" && ["", "main", "section", "header", "footer", "article", "aside"].contains(node.props["semanticTag"] ?? "") {
                     stack.append(contentsOf: node.children)
                 } else { other += 1 }

@@ -1,16 +1,17 @@
 import AppKit
 import XCTest
 
-// In real full screen AppKit drew T3WindowChrome's 52-pt toolbar as an opaque
-// band over the title row, as a person's real full screen showed. The toolbar leaves as the window enters full screen and
-// comes back when it is windowed again; the window's own notifications drive it.
-final class WindowChromeFullScreenTests: XCTestCase {
+// The tall title row is the host's (app.json `display_override`): T3WindowChrome installs no toolbar and keeps
+// the traffic lights at the reference's x = 16 through a resize and a return from full screen, which lay them out
+// again; the window's own notifications drive it.
+final class WindowChromeTests: XCTestCase {
     func window() -> NSWindow {
         _ = NSApplication.shared
         return NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 840),
                         styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                         backing: .buffered, defer: true)
     }
+    var closeX: (NSWindow) -> CGFloat = { $0.standardWindowButton(.closeButton)?.frame.minX ?? -1 }
 
     /// Posts `name` for `window` and runs the main queue until `done` holds (observers use `queue: .main`).
     func post(_ name: Notification.Name, _ window: NSWindow, until done: () -> Bool) {
@@ -18,46 +19,39 @@ final class WindowChromeFullScreenTests: XCTestCase {
         let limit = Date().addingTimeInterval(5)
         while !done() && Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
     }
+    func moveLights(_ window: NSWindow, to x: CGFloat) {
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(kind) else { continue }
+            button.setFrameOrigin(NSPoint(x: button.frame.minX + x - closeX(window), y: button.frame.minY))
+        }
+    }
 
-    func testToolbarLeavesForFullScreenAndReturnsWindowed() {
+    func testTheLightsKeepTheReferencesInsetAndNoToolbarIsInstalled() {
         let window = window(), chrome = T3WindowChrome()
         chrome.attach(window)
-        let toolbar = window.toolbar
-        XCTAssertEqual(toolbar?.identifier, "com.exact.t3code.titlebar", "windowed: the title row's toolbar")
-        XCTAssertEqual(window.toolbarStyle, .unified)
-
-        post(NSWindow.willEnterFullScreenNotification, window) { window.toolbar == nil }
-        XCTAssertNil(window.toolbar, "entering full screen: no toolbar band over the title row")
-
-        post(NSWindow.didExitFullScreenNotification, window) { window.toolbar != nil }
-        XCTAssertTrue(window.toolbar === toolbar, "windowed again: the same toolbar is back")
-        XCTAssertEqual(window.standardWindowButton(.closeButton)?.frame.minX, 16, "the traffic lights keep their inset")
+        XCTAssertNil(window.toolbar, "the host's toolbar, not the module's")
+        moveLights(window, to: 20)
+        post(NSWindow.didResizeNotification, window) { closeX(window) == 16 }
+        XCTAssertEqual(closeX(window), 16, accuracy: 0.5, "a resize")
+        moveLights(window, to: 20)
+        post(NSWindow.didExitFullScreenNotification, window) { closeX(window) == 16 }
+        XCTAssertEqual(closeX(window), 16, accuracy: 0.5, "back from full screen")
         chrome.destroy()
     }
 
-    func testDestroyInFullScreenStopsFollowingTheWindow() {
+    func testDestroyStopsFollowingTheWindow() {
         let window = window(), chrome = T3WindowChrome()
         chrome.attach(window)
-        post(NSWindow.willEnterFullScreenNotification, window) { window.toolbar == nil }
         chrome.destroy()
-        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: window)
+        moveLights(window, to: 20)
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
         RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
-        XCTAssertNil(window.toolbar, "a destroyed chrome puts nothing back")
-    }
-
-    func testAttachingTheSameWindowAgainKeepsOneToolbar() {
-        let window = window(), chrome = T3WindowChrome()
-        chrome.attach(window)
-        let toolbar = window.toolbar
-        chrome.attach(window)
-        XCTAssertTrue(window.toolbar === toolbar)
-        chrome.destroy()
-        XCTAssertNil(window.toolbar)
+        XCTAssertEqual(closeX(window), 20, accuracy: 0.5)
     }
 }
 
-let suite = XCTestSuite(forTestCaseClass: WindowChromeFullScreenTests.self)
+let suite = XCTestSuite(forTestCaseClass: WindowChromeTests.self)
 suite.run()
 let run = suite.testRun!
-print("Window chrome full-screen tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
+print("Window chrome tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
 exit(run.totalFailureCount == 0 ? 0 : 1)

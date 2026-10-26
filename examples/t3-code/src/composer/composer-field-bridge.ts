@@ -180,7 +180,6 @@ export function composerFieldNative(host: ComposerFieldHost, native: Native, cur
     const replacement = composerFieldReplacement(request, { snapshot: current, draftOwner: host.draftKey, mode: session.mode, chips: session.chips,
       blockOrigins: session.matches(current.owner, current.value) ? session.blockOrigins : undefined });
     if (replacement.kind === 'refused') return reply({ accepted: false, queued: false, applied: false, reason: replacement.reason });
-    if (replacement.fold !== null) await native.later({ op: 'editorForgetFold', id: replacement.fold });
     field(host, currentOwner());
     const latest = entry.commands.read();
     if (entry.inputSerial !== inputSerial || !latest || latest.start !== current.start || latest.end !== current.end || latest.value !== current.value || latest.composing)

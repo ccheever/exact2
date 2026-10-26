@@ -40,7 +40,7 @@ import { isScratch } from '../composer/scratch-machine';
 import { draftLaunching } from '../composer/draft-launch';
 import { tableMenuSnapshot } from '../timeline/table-menu';
 import { sidebarMinimumWidth, workspaceControlsLeft } from '../sidebar/sidebar-min-width';
-import { adoptHostLocale } from '../shared/timestamp-format'; // the Mac's locale, from the status presentation (T3Locale.swift)
+import { adoptHostLocale } from '../shared/timestamp-format'; // the Region's format locale, exactTime().formatLocale
 import { serverUpdateView } from '../connections/server-update-notices';
 import { composerOwner } from '../composer/auto-balance-owner';
 import { providerBanner } from '../providers/provider-status-message'; // the banner and its setup button
@@ -83,13 +83,15 @@ export function projectIdentity(name: string) {
   return { projectMark: mark, projectInk: `light-dark(${light}, ${dark})`,
     projectSurface: `light-dark(${light}24, ${dark}24)` };
 }
-// Provider account marks follow the source instance-display helper, including
-// disabled sibling instances: their configured identities still disambiguate.
+// Provider account marks follow the source instance-display helper (providerInstanceDisplay.ts
+// shouldShowInstanceBadge, 74541bab17).
 export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
   const accent = str(provider?.accentColor).trim();
   const color = /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : '';
   const driver = str(provider?.driver);
+  // A disabled sibling does not badge an enabled instance; historical threads still tell disabled accounts apart.
   const siblings = providers.filter(candidate=>candidate.driver === driver
+    && !(provider?.enabled === true && candidate.enabled !== true)
     && (driver !== 'acpRegistry' || candidate.acpRegistryAgentId === provider?.acpRegistryAgentId));
   if (!provider || !color && siblings.length <= 1) return {providerBadge:'',providerBadgeColor:''};
   const words = str(provider.displayName, str(provider.instanceId)).replace(/[_-]+/g,' ').split(/\s+/u).filter(Boolean);
@@ -103,9 +105,10 @@ export { providerBanner };
 
 /** T3's timeline rows (timeline-presentation.ts transcriptRows). */
 export function transcriptPresentation(client: T3Client): Message[] { return withFeedbackRows(client, [...subagentLead(client), ...transcriptRows(client)]); }
-/** `displayMode`: Contract's `exactViewport().displayMode` (app.contract passes it with the snapshot request). */
-export function snapshot(client: T3Client, now = 0, displayMode = '') {
-  adoptHostLocale(client.presentation.systemLocale);
+/** `displayMode` and `formatLocale`: Contract's `exactViewport().displayMode` and `exactTime().formatLocale`
+ *  (app.contract passes them with the snapshot request). */
+export function snapshot(client: T3Client, now = 0, displayMode = '', formatLocale = '') {
+  adoptHostLocale(formatLocale || null);
   noteSubagentRequests(client.shell.threads); // the sidebar's parents carry their hidden subagents' requests (subagent-requests.ts)
   const fullScreen = displayMode === 'fullscreen'; // the viewport's display mode, not a native fact
   const project = client.shell.projects.find(project => project.id === client.projectId);

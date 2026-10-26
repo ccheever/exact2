@@ -1,6 +1,6 @@
 // MCP Apps host protocol, adapted from T3 Code 9c161462c9 (MIT; LICENSE-T3).
 import { MCP_APP_PROTOCOL_VERSION, type McpAppReference } from "./mcp-app";
-import { fromBase64 } from "../browser/browser-import-io";
+import { fromBase64 } from "../shared/base64";
 const Predicate = { isObject: (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value) };
 
 const MAX_MESSAGE_BYTES = 256 * 1024;

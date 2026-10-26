@@ -5,7 +5,7 @@ import { T3Client } from '../../src/client/client';
 import { snapshot, modelCatalog } from '../../src/client/presentation';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
-import { noteNow, composerNow, resolveDispatchMode, withDispatchMode, submissionIntent, resolvePlanSubmission, proposedPlanTitle, decodeComposerControls, latestProposedPlan, resumeState } from '../../src/composer/composer-controls';
+import { noteNow, composerNow, resolveDispatchMode, withDispatchMode, resolvePlanSubmission, proposedPlanTitle, decodeComposerControls, latestProposedPlan, resumeState } from '../../src/composer/composer-controls';
 import { applyOptionChoice, providerLock, wokeAt } from '../../src/composer/composer-controls-commands';
 import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork, tasksProgress } from '../../src/composer/composer-controls-view';
 import { traitsMenu, withNoticeDetails } from '../../src/composer/composer-presentation';
@@ -166,10 +166,6 @@ describe('follow-up dispatch', () => {
     expect(resolveDispatchMode(true, 'steer', false)).toBe('steer');
     expect(withDispatchMode({ deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } }, 'queue')).toEqual({ dispatchMode: { type: 'queue_after_active' } });
     expect(withDispatchMode({}, 'steer')).toEqual({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });
-    expect(submissionIntent({ modifiers: 'meta', source: 'key', ageMs: 5 }, true, false)).toBe('alternate');
-    expect(submissionIntent({ modifiers: 'meta', source: 'pointer', ageMs: 5 }, false, false)).toBe('foreground');
-    expect(submissionIntent({ modifiers: 'meta+alt', source: 'key', ageMs: 5 }, false, true)).toBe('background');
-    expect(submissionIntent({ modifiers: 'meta', source: 'key', ageMs: 5000 }, true, false)).toBe('foreground');
   });
   test('a message sent during a run queues by default, steers with ⌘ or the Steer setting', async () => {
     const { client, native, command } = await opened();
@@ -187,13 +183,12 @@ describe('follow-up dispatch', () => {
     expect(snapshot(client).composer).toMatchObject({ sendRunning: true, sendLabel: 'Steer message', sendIcon: 'corner-up-right' });
     client.local.clientSettings.followUpBehavior = 'queue';
     expect(snapshot(client).composer).toMatchObject({ sendLabel: 'Queue message', sendIcon: 'list-plus', sendTooltip: 'Click to queue, Ctrl/⌘-click or ⌘Enter to steer' });
-    client.presentation = { ...client.presentation, modifiers: 'meta' };
-    expect(snapshot(client).composer).toMatchObject({ sendLabel: 'Steer message', sendIcon: 'corner-up-right' });
+    // ⌘ or Control held (the window's shortcutModifiers): the alternate's label and icon.
+    expect(snapshot(client).composer).toMatchObject({ sendHeldLabel: 'Steer message', sendHeldIcon: 'corner-up-right' });
   });
   test('⌥⌘↩ in a draft starts the thread in the background and keeps a fresh draft', async () => {
     const { client, native, command } = await connected();
-    native.gesture = { modifiers: 'meta+alt', source: 'key', ageMs: 3 };
-    await command('send', '', 'Background work');
+    await command('send', 'key:meta+alt', 'Background work');
     expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread' });
     expect(client.threadId).toBe('');
     expect(client.draft).toBe('');

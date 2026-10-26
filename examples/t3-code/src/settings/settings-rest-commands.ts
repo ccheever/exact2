@@ -18,6 +18,7 @@ import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
 import { openLogsFolder } from './diagnostics-view';
 import { browserProfilesLocal } from '../browser/browser-profiles-settings';
 import { deviceHostsCommand } from '../device/settings-a-hosts';
+import { easAccountCheck, easHostsCommand } from '../device/settings-eas-hosts';
 import { deviceScopedCommand } from '../device/settings-integrations-scope';
 import { planProjectOverridesClear, persistScopedSettingsPatch, scopedPlanNotice } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopedWriter } from './settings-scope-sources';
@@ -137,6 +138,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     return '';
   }
   if (op.startsWith('hosts-')) return deviceHostsCommand(client, native, op, params(value), splitScope(scope).projectId !== ''); // settings-a-hosts.ts
+  if (op.startsWith('eas-')) return easHostsCommand(client, native, op, params(value), splitScope(scope).projectId !== ''); // settings-eas-hosts.ts
   // A background environment's project (Settings › Projects over every environment): its writes go through that
   // environment under its own project id (projects-fleet.ts).
   const focused = client, background = fleetScope(scope);
@@ -262,6 +264,7 @@ export async function restLocal(client: T3Client, native: Native, storage: Files
   if (op === 'theme-pick') { const bar = value.lastIndexOf('|'); toggleRemovalPick(client, value.slice(0, bar), value.slice(bar + 1)); return ''; }
   // thread.copyReference: the PR link, else the thread ID, with the reference's toasts (thread-reference.ts).
   if (op === 'copy-thread') return copyThreadReference(client, native);
-  if (op.startsWith('browser-')) return browserProfilesLocal(client, native, storage, op, value); // Browser profiles and the cookie import
+  if (op.startsWith('browser-')) return browserProfilesLocal(client, native, storage, op, value); // Browser profiles and the browser defaults
+  if (op === 'eas-check') return easAccountCheck(client, native, params(value)); // the EAS host editor's account check
   throw new ClientError(`Unknown settings action: ${op}`);
 }

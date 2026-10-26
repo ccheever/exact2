@@ -140,9 +140,10 @@ fn tokens(folding: &exact_tamber::Folding) -> Vec<Token> {
         .collect()
 }
 
-/// A length, or a type token's size, as CSS outside Exact: a text style,
-/// an `em` or the hairline as px at the default root size (16px), which
-/// the header of `tamber.css` says (stage 6 G); the rest as written.
+/// A length, a type token's size or a shadow's lengths, as CSS outside
+/// Exact: a text style, an `em` or the hairline as px at the default root
+/// size (16px), which the header of `tamber.css` says (stage 6 G); the rest
+/// as written.
 fn outside(v: &exact_tamber::Value, vocab: &exact_tamber::Vocab) -> String {
     use exact_tamber::{Length, Value};
     let named = |name: &str| {
@@ -170,6 +171,8 @@ fn outside(v: &exact_tamber::Value, vocab: &exact_tamber::Vocab) -> String {
             }
             None => v.css(),
         },
+        // A shadow's lengths over base names likewise (stage 12 B3).
+        Value::Shadow(s) => s.folded(&named).map_or_else(|| v.css(), |s| s.css()),
         _ => v.css(),
     }
 }

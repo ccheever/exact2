@@ -33,7 +33,7 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
             return Some("independent HTTP response limit must be 1..=64 MiB");
         }
     }
-    request.timeout_refusal().or(request.body_from_refusal())
+    (request.timeout_refusal().or(request.body_from_refusal())).or(request.long_poll_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -628,6 +628,10 @@ impl Batch {
         if let Some(ms) = r.request.timeout_ms {
             push_text!(&mut s, ",\"timeoutMs\":{}", ms);
         }
+        // `exactHeld` (LLP 1016.000 D9): the page lists it, and no clock waits on it.
+        if r.request.is_held() {
+            s.push_str(",\"held\":true");
+        }
         s.push_str(",\"method\":");
         quote(&r.request.method, &mut s);
         s.push_str(",\"url\":");
@@ -664,6 +668,17 @@ impl Batch {
         // body as events and delivers each as a message (kind 8).
         if r.request.stream {
             s.push_str(",\"stream\":true");
+        }
+        // A long poll (D8): the page asks again with each reply's cursor.
+        if let Some(poll) = &r.request.long_poll {
+            s.push_str(",\"longPoll\":{\"cursor\":");
+            quote(&poll.cursor, &mut s);
+            s.push_str(",\"from\":");
+            quote(&poll.from, &mut s);
+            s.push_str(match poll.same_cursor_event {
+                true => ",\"sameCursorEvent\":true}",
+                false => ",\"sameCursorEvent\":false}",
+            });
         }
         s.push('}');
         self.ops.push(s);

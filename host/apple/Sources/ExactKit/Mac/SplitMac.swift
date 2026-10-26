@@ -79,7 +79,7 @@ final class SplitHost {
     /// the title and the list's stays over its rows. Either way each
     /// header's buttons are over its own column (`splitHeaderRoutes`,
     /// HeaderMac.swift; `WindowToolbarHost.present`).
-    static let listOwnsWindow = true
+    var listOwnsWindow = true { didSet { if listOwnsWindow != oldValue { sync() } } }
     /// A stack that pushes, not a split: the driver's own chrome (`--chrome
     /// agent`), as it paints the header, the tablist and a list's rows. A
     /// test of the pushed stack says so.
@@ -110,6 +110,18 @@ final class SplitHost {
     /// Whether a window shows the split: the stack splits, and the window's
     /// owner composed a controller that holds this session's view.
     var active: Bool { shown != nil && capable }
+    /// The session's document spans both panes while its window is split.
+    var agentRoot: NSView { active ? controller?.view ?? presenter.viewport : presenter.viewport }
+    /// Captures keep the layout/pointer origin at the page's clip, and
+    /// extend across the detail rather than including the window's chrome.
+    var agentCaptureArea: CGRect {
+        let root = agentRoot
+        guard active else { return CGRect(origin: .zero, size: root.bounds.size) }
+        let clip = presenter.viewport.contentView, rect = root.convert(clip.bounds, from: clip)
+        let x = rect.minX - root.bounds.minX
+        let y = root.isFlipped ? rect.minY - root.bounds.minY : root.bounds.maxY - rect.maxY
+        return CGRect(x: x, y: y, width: root.bounds.width - x, height: clip.bounds.height)
+    }
     private var capable: Bool { controller?.holds(presenter) == true }
     /// Whether the window's owner should compose a controller: a stack of
     /// this session has split. It stays wanted while the session runs, so a
@@ -134,11 +146,19 @@ final class SplitHost {
     /// The stacks that split no longer: their routes go back to the page.
     private var ended = Set<UInt32>()
     private var lastDetail: UInt32?
+    private weak var groundList: NodeView?
     private var queued = false
 
     /// Whether `route` is in the detail's pane: out of its tabpanel's
     /// views, so what hides and inerts the panel must reach it by name.
     func holds(_ route: NodeView) -> Bool { held[route.id]?.route === route }
+    /// The ancestor's exit ended; its pane route can now leave the window.
+    func retire(_ route: NodeView) {
+        guard holds(route) else { return }
+        held[route.id] = nil
+        presenter.blocks.release(route)
+        schedule()
+    }
     /// Where in its stack the selected route's Back stops: the pane's first
     /// route, which has none (BackMac.swift). Zero for a stack that pushes.
     var base: Int { active ? shown?.base ?? 0 : 0 }
@@ -241,27 +261,42 @@ final class SplitHost {
     /// and laid out at its size, and the list's selected row.
     private func present() {
         queued = false
-        held = held.filter { presenter.views[$0.key] === $0.value.route }
+        // A painted popover goes where its invoker now is: the pane or the page.
+        defer { presenter.menus.layout() }
+        for (id, entry) in held where presenter.views[id] !== entry.route && !presenter.isLeaving(entry.route) {
+            held[id] = nil
+            presenter.blocks.release(entry.route)
+        }
         rowOf = rowOf.filter { presenter.views[$0.key] != nil }
         seen = seen.filter { presenter.views[$0] != nil }
         guard let controller, capable else {
             release { _ in true }
+            groundList?.sheetGroundChanged(); groundList = nil
             lastDetail = nil
             return
         }
         release { ended.contains($0) }
         ended.removeAll()
         guard let shown else {
-            controller.split(false, width: nil, empty: false)
+            if !held.values.contains(where: { presenter.isLeaving($0.route) }) { controller.split(false, width: nil, empty: false) }
+            groundList?.sheetGroundChanged(); groundList = nil
             lastDetail = nil
             return
         }
         controller.split(true, width: shown.width, empty: shown.detail == nil)
+        if groundList !== shown.list {
+            groundList = shown.list
+            shown.list.sheetGroundChanged()
+        }
         let pane = controller.detailPane
         pane.sizeChanged = { [weak self] size in self?.resized(size) }
-        for route in shown.routes where held[route.id]?.route !== route {
+        pane.positionChanged = { [weak self, weak pane] in
+            if let pane { self?.resized(pane.bounds.size) }
+        }
+        for route in shown.routes where held[route.id]?.route !== route && presenter.views[route.id] === route {
             held[route.id] = (route, shown.list.id)
-            presenter.blocks.show(route, in: pane, block: .size(pane.bounds.size))
+            presenter.blocks.show(route, in: pane, block: .size(pane.bounds.size), placement: placement(of: route, in: pane))
+            route.sheetGroundChanged()
             presenter.keyViewLoopStale = true
         }
         select(shown)
@@ -269,15 +304,36 @@ final class SplitHost {
     }
 
     private func release(where gone: (UInt32) -> Bool) {
-        for (id, entry) in held where gone(entry.list) {
+        for (id, entry) in held where gone(entry.list) && !presenter.isLeaving(entry.route) {
             held[id] = nil
             presenter.blocks.release(entry.route)
+            entry.route.sheetGroundChanged()
             presenter.keyViewLoopStale = true
         }
     }
 
+    private func placement(of route: NodeView, in pane: NSView) -> BlockPlacement? {
+        var parent = presenter.blocks.parent(of: route)
+        while let view = parent {
+            if let node = view as? NodeView, node.window === pane.window {
+                return BlockPlacement(rect: node.convertNativePresentation(pane.bounds, from: pane), within: node.id)
+            }
+            parent = view.superview
+        }
+        return nil
+    }
+
+    private var samplingPlacement = false
+    /// Runtime reads sample native movement even when the pane's model frame is unchanged.
+    func samplePlacement() {
+        guard !samplingPlacement, active, !held.isEmpty, let pane = controller?.detailPane else { return }
+        samplingPlacement = true
+        defer { samplingPlacement = false }
+        resized(pane.bounds.size)
+    }
+
     private func resized(_ size: CGSize) {
-        for entry in held.values { presenter.blocks.resize(entry.route, .size(size)) }
+        for entry in held.values { presenter.blocks.resize(entry.route, .size(size), placement: controller.map { placement(of: entry.route, in: $0.detailPane) } ?? nil) }
     }
 
     /// The list's selected row is the row whose detail the pane shows; when
@@ -325,6 +381,16 @@ final class SplitHost {
                 "authoredWidth": shown.width.map { Agent.r2($0) } ?? NSNull(),
                 "routes": shown.routes.map { Int($0.id) }, "detail": shown.detail.map { Int($0.id) } ?? NSNull(),
                 "base": shown.base, "row": shown.row.map { Int($0) } ?? NSNull(), "empty": controller.detail.saysNothing ?? NSNull()]
+    }
+}
+
+extension NodeView {
+    /// The implicit form ground uses AppKit's desktop tint in both panes.
+    var standsOnSplitGround: Bool {
+        guard !wrote("background_color"), case .object(let role)? = style["background_color"],
+              role["sys"]?.string == "windowBackgroundColor", let presenter,
+              presenter.navigation.split.active else { return false }
+        return isDescendant(of: presenter.viewport) || presenter.navigation.split.pane(holding: self) != nil
     }
 }
 #endif

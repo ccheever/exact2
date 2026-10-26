@@ -6,14 +6,31 @@
       "name": "exact2",
       "dependencies": {
         "@exact/actions": "workspace:*",
+        "@exact/background": "workspace:*",
+        "@exact/browser": "workspace:*",
+        "@exact/browser-automation": "workspace:*",
+        "@exact/calendar": "workspace:*",
+        "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
+        "@exact/contacts": "workspace:*",
         "@exact/geolocation": "workspace:*",
+        "@exact/language-model": "workspace:*",
+        "@exact/lists": "workspace:*",
+        "@exact/local-auth": "workspace:*",
+        "@exact/media-capture": "workspace:*",
+        "@exact/motion": "workspace:*",
+        "@exact/passkeys": "workspace:*",
+        "@exact/photos": "workspace:*",
         "@exact/reading": "workspace:*",
+        "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
+        "@exact/speech-recognition": "workspace:*",
+        "@exact/speech-synthesis": "workspace:*",
       },
       "devDependencies": {
         "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+        "fflate": "0.8.3",
         "playwright-core": "1.64.1",
         "rolldown": "1.2.9",
         "snapback4": "0.4.33",
@@ -24,17 +41,85 @@
       "name": "@exact/actions",
       "version": "0.1.0",
     },
+    "packages/background": {
+      "name": "@exact/background",
+      "version": "1.0.0",
+    },
+    "packages/browser": {
+      "name": "@exact/browser",
+      "version": "1.0.0",
+    },
+    "packages/browser-automation": {
+      "name": "@exact/browser-automation",
+      "version": "1.0.0",
+    },
+    "packages/calendar": {
+      "name": "@exact/calendar",
+      "version": "1.0.0",
+    },
+    "packages/camera": {
+      "name": "@exact/camera",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
+    },
     "packages/cards": {
       "name": "@exact/cards",
       "version": "0.1.0",
+    },
+    "packages/contacts": {
+      "name": "@exact/contacts",
+      "version": "1.0.0",
     },
     "packages/geolocation": {
       "name": "@exact/geolocation",
       "version": "1.0.0",
     },
+    "packages/language-model": {
+      "name": "@exact/language-model",
+      "version": "1.0.0",
+    },
+    "packages/lists": {
+      "name": "@exact/lists",
+      "version": "0.1.0",
+    },
+    "packages/local-auth": {
+      "name": "@exact/local-auth",
+      "version": "1.0.0",
+    },
+    "packages/media-capture": {
+      "name": "@exact/media-capture",
+      "version": "1.0.0",
+    },
+    "packages/motion": {
+      "name": "@exact/motion",
+      "version": "1.0.0",
+    },
+    "packages/passkeys": {
+      "name": "@exact/passkeys",
+      "version": "1.0.0",
+    },
+    "packages/photos": {
+      "name": "@exact/photos",
+      "version": "1.0.0",
+    },
     "packages/reading": {
       "name": "@exact/reading",
       "version": "0.1.0",
+    },
+    "packages/recording": {
+      "name": "@exact/recording",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
     },
     "packages/scale-fixture-cards": {
       "name": "@exact/scale-fixture-cards",
@@ -44,19 +129,65 @@
       "name": "@exact/scale-fixture-notes",
       "version": "0.1.0",
     },
+    "packages/speech-recognition": {
+      "name": "@exact/speech-recognition",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
+    },
+    "packages/speech-synthesis": {
+      "name": "@exact/speech-synthesis",
+      "version": "1.0.0",
+    },
   },
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
 
+    "@exact/background": ["@exact/background@workspace:packages/background"],
+
+    "@exact/browser": ["@exact/browser@workspace:packages/browser"],
+
+    "@exact/browser-automation": ["@exact/browser-automation@workspace:packages/browser-automation"],
+
+    "@exact/calendar": ["@exact/calendar@workspace:packages/calendar"],
+
+    "@exact/camera": ["@exact/camera@workspace:packages/camera"],
+
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
+    "@exact/contacts": ["@exact/contacts@workspace:packages/contacts"],
 
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 
+    "@exact/language-model": ["@exact/language-model@workspace:packages/language-model"],
+
+    "@exact/lists": ["@exact/lists@workspace:packages/lists"],
+
+    "@exact/local-auth": ["@exact/local-auth@workspace:packages/local-auth"],
+
+    "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
+
+    "@exact/motion": ["@exact/motion@workspace:packages/motion"],
+
+    "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
+
+    "@exact/photos": ["@exact/photos@workspace:packages/photos"],
+
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
+
+    "@exact/recording": ["@exact/recording@workspace:packages/recording"],
 
     "@exact/scale-fixture-cards": ["@exact/scale-fixture-cards@workspace:packages/scale-fixture-cards"],
 
     "@exact/scale-fixture-notes": ["@exact/scale-fixture-notes@workspace:packages/scale-fixture-notes"],
+
+    "@exact/speech-recognition": ["@exact/speech-recognition@workspace:packages/speech-recognition"],
+
+    "@exact/speech-synthesis": ["@exact/speech-synthesis@workspace:packages/speech-synthesis"],
 
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
 
@@ -133,6 +264,8 @@
     "@typescript/typescript-win32-arm64": ["@typescript/typescript-win32-arm64@7.0.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-Gyl1Vy6OsWesLzmq+EP0Fb7b4Nid5232AvcA2SFcdYreldpNtYFFofPjnt62y9hQy7VTaZp65ICJjuAQRaVcIQ=="],
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
+
+    "fflate": ["fflate@0.8.3", "", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
 
     "jose": ["jose@6.2.12", "", {}, "sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw=="],
 

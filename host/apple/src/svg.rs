@@ -79,6 +79,8 @@ pub(crate) struct SvgState {
     elements: IdMap<ViewId, ViewId>,
     /// Scenes to rebuild.
     dirty: IdSet<ViewId>,
+    #[cfg(test)]
+    pub(crate) scene_builds: usize,
     /// The last scene sent per `svg`, and its content box.
     sent: IdMap<ViewId, (String, Rect)>,
     /// Environment used by the cached scenes, including the window unit basis.
@@ -94,8 +96,7 @@ pub(crate) struct SvgState {
     /// leaves the engine.
     played: IdSet<ViewId>,
     /// Each played transition's spec and the transition it was made for.
-    pub(crate) played_specs:
-        std::collections::BTreeMap<(u64, usize), (exact_motion::TransitionEnds, String)>,
+    pub(crate) played_specs: std::collections::BTreeMap<(u64, usize), super::svg_lower::PlayedSpec>,
     /// SVG elements with a press handler (LLP 1055.000 D17).
     pressable: IdSet<ViewId>,
     /// Whether a `foreignObject` was met: its boxes are then looked for
@@ -104,8 +105,8 @@ pub(crate) struct SvgState {
     /// Whether boxes' transforms and background colours are lowered
     /// ([`BOX_LOWERED`]): iOS.
     pub(crate) box_motion: bool,
-    /// Whether Core Animation plays boxes' opacity and background-colour
-    /// transitions (`svg_lower::hand_over_transitions`): iOS.
+    /// Whether Core Animation plays boxes' eligible transforms, opacity and
+    /// background-colour transitions (`svg_lower::hand_over_transitions`): iOS.
     pub(crate) play_transitions: bool,
 }
 
@@ -260,6 +261,10 @@ impl SvgState {
                 continue;
             };
             let bx = content_box(kernel, &node);
+            #[cfg(test)]
+            {
+                self.scene_builds += 1;
+            }
             let scene = scene(kernel, engine, &self.pressable, &node, bx);
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);
@@ -326,7 +331,7 @@ impl SvgState {
                 &underlying,
                 Some((size.0 as f64, size.1 as f64)),
             );
-            let played = transition_specs(engine, key, &mut self.played_specs);
+            let played = transition_specs(engine, key, size, &mut self.played_specs);
             if played.is_empty() {
                 self.played.remove(&id);
             } else {
@@ -354,6 +359,22 @@ impl SvgState {
     }
 }
 
+/// An SVG file's scene as the `svg` op carries one (LLP 1011.001 D4): no
+/// animation runs in a picture, so the engine is empty and nothing presses.
+/// `Err` names the cost limit a scene passed (D2).
+pub(crate) fn image_scene(
+    kernel: &Kernel,
+    node: &NodeRef<'_>,
+    bx: (f32, f32, f32, f32),
+) -> Result<String, String> {
+    let engine = Engine::new();
+    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(&engine));
+    match resolved.over {
+        Some(limit) => Err(limit.to_string()),
+        None => Ok(serialize(&resolved, &engine, &IdSet::default(), bx)),
+    }
+}
+
 /// `{"box":[x,y,w,h],"t":[a,b,c,d,e,f]|null,"els":[…]}`: `t` null renders
 /// nothing (a view box with no area). The scene is the kernel's resolved
 /// one (LLP 1055.000 D1); this only serializes it with the lowered
@@ -368,6 +389,16 @@ fn scene(
     // A sampled animation's value now; a lowered one is Core Animation's,
     // so the scene carries its underlying value and the spec.
     let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(engine));
+    serialize(&resolved, engine, press, bx)
+}
+
+/// A resolved scene as [`scene`] sends it.
+fn serialize(
+    resolved: &exact_kernel::svg::Scene,
+    engine: &Engine,
+    press: &IdSet<ViewId>,
+    bx: (f32, f32, f32, f32),
+) -> String {
     let mut s = String::new();
     let _ = write!(
         s,

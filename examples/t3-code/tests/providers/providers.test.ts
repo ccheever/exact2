@@ -1,10 +1,12 @@
-import { test, expect } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 import { providerRows, providerPage, providerWizard, acpRegistry, runProviderOp, providerFieldValues, healthInterval, type ProviderHost } from '../../src/providers/providers';
-import { withUpkeep } from '../../src/providers/providers-upkeep';
-import { providerSummary, versionAdvisory, checkedLabel, validateInstanceId } from '../../src/providers/providers-meta';
+import { withUpkeep, versionAdvisoryPresentation } from '../../src/providers/providers-upkeep';
+import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, validateInstanceId } from '../../src/providers/providers-meta';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
+import { contractComponent } from '../support/contract-action-fixture';
+import { contractFns } from '../support/contract-fn-fixture';
 
 const legacy = () => ({
   codex: { enabled: false, binaryPath: 'codex', homePath: '', shadowHomePath: '', launchArgs: '', customModels: [] },
@@ -90,6 +92,41 @@ test('summary, advisory and checked labels mirror providerStatus.ts', () => {
   expect(validateInstanceId('codex', new Set(['codex']))).toBe("An instance named 'codex' already exists.");
 });
 
+// providerStatus.test.ts "Antigravity with unchecked sign-in".
+describe('Antigravity with unchecked sign-in', () => {
+  const unchecked = { instanceId: 'antigravity', driver: 'antigravity', enabled: true, installed: true, status: 'warning', auth: { status: 'unknown' },
+    message: 'Antigravity is installed. Google account access is not checked yet.' };
+  test('an unchecked Google sign-in reads neutrally, without claiming sign-in is required', () => {
+    for (const auth of [unchecked.auth, { status: 'unknown', type: 'oauth-personal' }]) {
+      expect(providerSummary({ ...unchecked, auth })).toEqual({ headline: 'Installed · Sign-in not checked', detail: unchecked.message });
+      expect(providerStatusKey({ ...unchecked, auth })).toBe('neutral');
+    }
+  });
+  test('actionable warnings, failures and disabled states keep their reading', () => {
+    const cases: [string, Obj, string, string][] = [
+      ['confirmed sign-out', { auth: { status: 'unauthenticated' } }, 'Not authenticated', 'warning'],
+      ['warning despite known authentication', { auth: { status: 'authenticated' } }, 'Needs attention', 'warning'],
+      ['probe failure', { status: 'error' }, 'Unavailable', 'error'],
+      ['missing CLI', { installed: false }, 'Not found', 'warning'],
+      ['API key authentication', { auth: { status: 'unknown', type: 'gemini-api-key' } }, 'Needs attention', 'warning'],
+      ['Agent Platform authentication', { auth: { status: 'unknown', type: 'agent-platform' } }, 'Needs attention', 'warning'],
+      ['another provider', { driver: 'codex' }, 'Needs attention', 'warning'],
+      ['disabled provider', { enabled: false }, 'Disabled', 'disabled'],
+    ];
+    for (const [name, change, headline, status] of cases) expect([name, providerSummary({ ...unchecked, ...change }).headline, providerStatusKey({ ...unchecked, ...change })]).toEqual([name, headline, status]);
+  });
+});
+
+test('no update is offered that cannot clear a limited-support warning (providerStatus.test.ts)', () => {
+  // OpenCode 1.18.35 is the newest `opencode-ai`; the recommended 2.x ships as another package.
+  const advisory = { status: 'current', currentVersion: '1.18.35', latestVersion: '1.18.35', updateCommand: 'npm install -g opencode-ai@latest', canUpdate: true, message: null };
+  const compatibilityAdvisory = { status: 'graceful', latestVersionStatus: 'graceful', message: null, recommendedRange: '>=2.0.18', recommendedVersion: null };
+  expect(versionAdvisory({ versionAdvisory: advisory, compatibilityAdvisory }, true)).toEqual({ title: 'Limited support', warning: true, detail: 'Use >=2.0.18 for full support.', command: '' });
+  expect(versionAdvisory({ versionAdvisory: { ...advisory, status: 'behind_latest', currentVersion: '1.18.34' }, compatibilityAdvisory }, true)?.command).toBe(advisory.updateCommand);
+  expect(versionAdvisoryPresentation(advisory, compatibilityAdvisory)).toEqual({ title: 'Limited support', detail: 'Use >=2.0.18 for full support.', updateCommand: null, emphasis: 'normal', targetVersion: null });
+  expect(versionAdvisoryPresentation({ ...advisory, status: 'behind_latest', currentVersion: '1.18.34' }, compatibilityAdvisory)?.updateCommand).toBe(advisory.updateCommand);
+});
+
 test('wizard derives a free instance id from the label and reserves dirty legacy slots', () => {
   const server = new FakeServer();
   expect(providerWizard(server, true, 1, 'codex', false, '', false, '')).toMatchObject({ label: 'Codex', instanceId: 'codex_2', idError: '', sessions: [{ key: 'wizard:1' }] });
@@ -127,6 +164,9 @@ test('ACP registry search and prepare fill the identity step without installing 
   const result = await acpRegistry(server, native, ' dev ', true, ['devin']);
   expect(result).toMatchObject({ ready: true, status: '1 compatible agent found.', agents: [{ id: 'devin', added: true, link: 'https://docs.devin.ai/cli' }] });
   expect(obj(server.calls.at(-1)!.payload)).toEqual({ query: 'dev' });
+  // The unsearched list asks for the whole compatible catalog, not the server's default 20 (#19145).
+  await acpRegistry(server, native, '  ', true, []);
+  expect(obj(server.calls.at(-1)!.payload)).toEqual({ query: '', limit: 512 });
   providerWizard(server, true, 7, 'acpRegistry', false, '', false, '');
   expect(await runProviderOp(server, native, 'acp-prepare', '', JSON.stringify({ key: 'devin', value: 'Devin' }))).toBe('');
   const wizard = providerWizard(server, true, 7, 'acpRegistry', false, '', false, '');
@@ -332,4 +372,20 @@ test('new settings use instance mutations for enablement and reset without the r
   expect(writes(server).every(call => obj(obj(call.payload).patch).providers === undefined)).toBe(true);
   await runProviderOp(server, native, 'provider-reset', 'codex', '');
   expect(obj(server.settings.providerInstances).codex).toBeUndefined();
+});
+
+// ProviderModelsSection's name tooltip goes to the window's hover layer (kind "model-name": 600 ms, name over the mono slug).
+test('a model name hands its tooltip to the hover layer, with the slug when it differs', () => {
+  const line = contractComponent('providers.contract', 'ProviderModelLine');
+  const { hoverTipAtFrame } = contractFns('hover-layer.contract', ['HoverTip']);
+  const tips: unknown[][] = [];
+  const scope = { rem: 16, instanceId: 'codex', model: { slug: 'gpt-6-astra', name: 'GPT-6 Astra', showSlug: true }, hoverTipAtFrame,
+    frame: (id: string) => ({ id, x: 40, y: 200, width: 120, height: 16 }), hoverTipAt: (...args: unknown[]) => { tips.push(args); } };
+  const state = line.state();
+  line.call('nameTip', state, scope, [true]);
+  line.call('nameTip', state, scope, [false]);
+  expect(tips.map(([tip, part, inside]) => [obj(tip).kind, obj(tip).text, obj(tip).lines, obj(tip).side, obj(tip).align, obj(tip).x, part, inside])).toEqual([
+    ['model-name', 'GPT-6 Astra', ['gpt-6-astra'], 'top', 'start', 40, 'trigger', true], ['model-name', 'GPT-6 Astra', ['gpt-6-astra'], 'top', 'start', 40, 'trigger', false]]);
+  const { hoverOpenDelay } = contractFns('hover-layer.contract', ['HoverTip']);
+  expect(hoverOpenDelay('model-name')).toBe(600);
 });

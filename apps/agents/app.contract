@@ -1,0 +1,367 @@
+// Agents: a messenger whose contacts are models. The sidebar lists conversations; a
+// conversation is one model at one thinking effort; New Conversation is a sheet that picks both.
+// app.ts keeps the conversations in a file and streams answers from service.ts, which holds
+// the OpenRouter key; the view polls while an answer streams. "On this device" is the device's own
+// model (@exact/language-model, LLP 1133.016 §10), which app.ts prompts with no service at all.
+use EmptyState from "exact:content"
+use languageModelAvailability, createLanguageModel, LanguageModelAvailability, LanguageModelInfo, LanguageModelTool from "@exact/language-model"
+
+// What the on-device model's tool is given: the topic to look up in earlier conversations.
+shape ConversationQuery
+  query: string
+
+routes nav
+  chats "/"
+    chat "/c/:id"
+    new "/new"
+
+shape Row
+  id: string
+  title: string
+  subtitle: string
+  preview: string
+  time: string
+  streaming: bool
+
+shape Cell
+  key: string
+  text: string
+  align: string
+  first: bool
+
+shape TableRow
+  key: string
+  head: bool
+  cells: Cell[]
+
+// A reply's run of Markdown, or a pipe table drawn as a grid.
+shape Part
+  key: string
+  table: bool
+  text: string
+  rows: TableRow[]
+
+shape Bubble
+  id: string
+  mine: bool
+  body: string
+  parts: Part[]
+  error: string
+  thinking: string
+  thought: string
+  waiting: bool
+  live: bool
+  last: bool
+  searched: string
+  forgot: bool
+
+shape Snapshot
+  revision: number
+  connected: bool
+  mock: bool
+  notice: string
+  rows: Row[]
+  found: bool
+  id: string
+  title: string
+  subtitle: string
+  model: string
+  effort: string
+  streaming: bool
+  messages: Bubble[]
+  empty: bool
+
+shape Option
+  id: string
+  name: string
+  maker: string
+  reasoning: bool
+
+shape Change
+  revision: number
+  id: string
+
+shape Time
+  epochAtZero: number
+  utcOffset: number
+
+style Round
+  width=30 height=30 border-radius=15 flex-shrink=0 display="flex" align-items="center" justify-content="center"
+
+fn effortName(e: string): string = e == "none" ? "No Thinking" : e == "low" ? "Low" : e == "medium" ? "Medium" : e == "high" ? "High" : "Max"
+
+component Agents
+  state query = ""
+  state draft = ""
+  state newModel = "anthropic/claude-opus-5.5" persist
+  state newEffort = "medium" persist
+  state modelQuery = ""
+  state opened = []
+  state tick = 0
+  resource time = exactTime() as shape Time
+  mutation changed as shape Change refreshes data then afterChange
+  mutation pulsed as shape Change refreshes data
+  derive selected = match stack(nav).filter(e => e.name == "chat").at(-1) { case some(e) => e.params.id, case none => "" }
+  derive revision = (match changed { case some(c) => c.revision, case none => 0 }) + (match pulsed { case some(c) => c.revision, case none => 0 })
+  resource data = snapshot(selected, query, revision, time.epochAtZero + tick, time.utcOffset) as shape Snapshot
+  resource models = catalog(modelQuery, top(nav).name == "new") as shape Option[] else empty()
+  derive streaming = data.rows.filter(r => r.streaming).length > 0
+  derive canSend = draft.trim() != "" and not data.streaming and not pending(changed)
+  // The device's model: offered unless this device or platform can never run one.
+  resource device = languageModelAvailability() as shape LanguageModelAvailability else empty()
+  mutation fetched as shape LanguageModelInfo then afterFetch
+  derive deviceReason = match device.reason { case some(r) => r, case none => "" }
+  derive deviceOffered = not (device.availability == "unavailable" and (deviceReason == "device-not-eligible" or deviceReason == "not-supported"))
+  derive deviceReady = device.availability == "available"
+  derive deviceProgress = match device.progress { case some(p) => round(p * 100), case none => 0 }
+  derive deviceLine = deviceReady ? "Private and offline: nothing leaves this device." : deviceReason == "not-enabled" ? "Turn on Apple Intelligence in Settings to use this model." : deviceReason == "model-not-ready" ? "The on-device model isn’t ready yet." : device.availability == "downloading" ? `Downloading… ${deviceProgress}%` : device.availability == "downloadable" ? "Downloaded once, then it runs on this device." : "The on-device model isn’t available."
+
+  task stream when streaming
+    every(120, poll)
+  task health mount
+    every(20000, poll)
+  action poll
+    tick = performanceNow()
+    if not pending(pulsed)
+      send pulsed = pulse(time.epochAtZero + performanceNow())
+
+  action follow(url: string)
+    nav = top(nav).name == "chat" and url.startsWith("/c/") ? replace(nav, url) : go(nav, url)
+    draft = ""
+  action back
+    nav = back(nav)
+  action search(v: string)
+    query = v
+  action openNew
+    modelQuery = ""
+    nav = top(nav).name == "new" ? nav : push(nav, "/new")
+  action pickModel(id: string)
+    newModel = id
+  action pickEffort(e: string)
+    newEffort = e
+  action searchModels(v: string)
+    modelQuery = v
+  action create
+    send changed = command("new", "", `${newModel}|${newEffort}`, time.epochAtZero + performanceNow())
+  // A download is the person's act (LLP 1133.016 D5): this press creates the session that fetches the model,
+  // with the conversation tool where the platform runs tools (D9).
+  action download
+    if device.tools
+      send fetched = createLanguageModel(tools=[LanguageModelTool(name="findConversations", description="Finds the person’s earlier conversations about a topic, with their titles and an excerpt of each.", inputSchema="ConversationQuery")])
+    else
+      send fetched = createLanguageModel()
+  action afterFetch
+    match fetched
+      case some(f)
+        send changed = command("new", "", `device|none|${f.id}`, time.epochAtZero + performanceNow())
+      case none
+        tick = tick
+  // A new conversation replaces the sheet with itself, beside the list.
+  action afterChange
+    match changed
+      case some(c)
+        if top(nav).name == "new" and c.id != ""
+          nav = go(nav, path("chat", c.id))
+          draft = ""
+      case none
+        tick = tick
+  action edit(v: string)
+    draft = v
+  action sendDraft
+    if canSend
+      send changed = command("send", selected, draft.trim(), time.epochAtZero + performanceNow())
+      draft = ""
+  // Return sends; Shift-Return is a new line.
+  action composerKey(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.shiftKey and not e.altKey
+      preventDefault()
+      sendDraft()
+  action stop
+    send changed = command("stop", selected, "", time.epochAtZero + performanceNow())
+  action retry
+    send changed = command("retry", selected, "", time.epochAtZero + performanceNow())
+  action setEffort(e: string)
+    send changed = command("effort", selected, e, time.epochAtZero + performanceNow())
+  action setModel(id: string)
+    send changed = command("model", selected, id, time.epochAtZero + performanceNow())
+  action askDelete
+    showModal("delete")
+  action remove
+    send changed = command("delete", selected, "", time.epochAtZero + performanceNow())
+    nav = back(nav)
+  action toggleThought(id: string)
+    opened = opened.includes(id) ? opened.filter(x => x != id) : opened.concat([id])
+
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      accent-color="-exact-system-indigo"
+      for e in stack(nav) key=e.id
+        if e.name == "chats"
+          column navigationKey=`${e.id}` navigationScroll="chats" position="absolute" inset=0 display="flex" flex-direction="column"
+            header display="flex" align-items="center" gap=8 padding="8px 16px"
+              text "Agents" role="heading" aria-level=1 flex=1
+              input type="search" value=query input=search placeholder="Search" testId="search"
+              button press=openNew aria-label="New Conversation" aria-keyshortcuts="Meta+N" -exact-menu="file" testId="new"
+                image "symbol:compose"
+            column flex=1 min-height=0 position="relative" display="flex" flex-direction="column"
+              list id="chats" appearance="auto" listStyle="plain" flex=1 min-height=0 testId="chat-list"
+                section
+                  for r in data.rows key=r.id
+                    link href=path("chat", r.id) testId=`row-${r.id}`
+                      column flex=1 min-width=0 gap=2 padding-top=6 padding-bottom=6
+                        row gap=8 align-items="baseline"
+                          text r.title font="-exact-headline" flex=1 min-width=0 line-clamp=1 testId=`title-${r.id}`
+                          text r.time font="-exact-footnote" color="-exact-secondary-label"
+                        text r.subtitle font="-exact-footnote" color="AccentColor" line-clamp=1
+                        text r.preview font="-exact-subheadline" color="-exact-secondary-label" line-clamp=2 testId=`preview-${r.id}`
+                      image "symbol:forward-chevron"
+              if data.empty and not pending(data)
+                column position="absolute" inset=0 display="flex" justify-content="center" testId="empty"
+                  EmptyState(symbol="symbol:sparkles", title=(query == "" ? "No Conversations" : "No Results"), message=(query == "" ? "Start one with any model, at any effort." : "Nothing matches that search."))
+                    if query == ""
+                      button press=openNew buttonStyle="filled" testId="empty-new"
+                        text "New Conversation"
+        if e.name == "chat"
+          column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 display="flex" flex-direction="column"
+            interactive-widget="resizes-content"
+            header display="flex" align-items="center" gap=8 padding="8px 16px"
+              text (data.found or pending(data) ? data.title : "Not Found") role="heading" aria-level=2 testId="chat-title"
+              button popovertarget="model-menu" aria-label="Model" testId="model"
+                image "symbol:sf/cpu"
+              if data.model != "device"
+                button popovertarget="effort-menu" aria-label="Thinking Effort" testId="effort"
+                  image "symbol:sf/brain"
+              button press=askDelete aria-label="Delete Conversation" testId="delete"
+                image "symbol:delete"
+            column id="model-menu" popover="auto" role="menu" position="absolute" aria-label="Model"
+              if deviceOffered
+                button press=setModel("device") role="menuitemradio" aria-checked=(data.model == "device") disabled=(data.streaming or not deviceReady) popovertarget="model-menu" popovertargetaction="hide" testId="model-item-device"
+                  text "On this device"
+              for o in models key=o.id
+                button press=setModel(o.id) role="menuitemradio" aria-checked=(data.model == o.id) disabled=data.streaming popovertarget="model-menu" popovertargetaction="hide" testId=`model-item-${o.id}`
+                  text o.name
+            column id="effort-menu" popover="auto" role="menu" position="absolute" aria-label="Thinking Effort"
+              for x in ["none", "low", "medium", "high", "xhigh"] key=x
+                button press=setEffort(x) role="menuitemradio" aria-checked=(data.effort == x) popovertarget="effort-menu" popovertargetaction="hide" testId=`effort-${x}`
+                  text effortName(x)
+            list id="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0 padding-top=12 padding-bottom=110 testId="transcript"
+              for m in data.messages key=m.id
+                column align-items="center" padding="0 20px" testId=`turn-${m.id}`
+                  if m.mine
+                    row justify-content="flex-end" padding="6px 0 6px 64px" width="100%" max-width=760 box-sizing="border-box"
+                      row position="relative" overflow="hidden" border-radius=18 max-width=560
+                        view position="absolute" inset=0 opacity=0.3 background-color="AccentColor"
+                        text m.body padding="9px 14px" position="relative" overflow-wrap="anywhere" user-select="text" testId=`msg-${m.id}`
+                  else
+                    column gap=6 padding="8px 0 10px" max-width=760 width="100%" box-sizing="border-box"
+                      if m.forgot
+                        text "Earlier messages no longer fit in the on-device model’s memory" font="-exact-footnote" color="-exact-secondary-label" testId=`forgot-${m.id}`
+                      if m.searched != ""
+                        row gap=6 align-items="center"
+                          image "symbol:search" width=12 height=12 color="-exact-secondary-label"
+                          text m.searched font="-exact-footnote" color="-exact-secondary-label" testId=`searched-${m.id}`
+                      if m.thought != ""
+                        button press=toggleThought(m.id) buttonStyle="borderless" align-self="flex-start" testId=`thought-${m.id}`
+                          image (opened.includes(m.id) ? "symbol:sf/chevron.down" : "symbol:forward-chevron")
+                          text m.thought
+                        if opened.includes(m.id) or (m.waiting and m.thinking != "")
+                          row gap=10
+                            view width=2 border-radius=1 background-color="-exact-separator"
+                            text m.thinking flex=1 min-width=0 font="-exact-footnote" color="-exact-secondary-label" user-select="text" testId=`thinking-${m.id}`
+                      if m.waiting and m.thinking == ""
+                        text "Thinking…" color="-exact-secondary-label" testId=`waiting-${m.id}`
+                      if m.body != ""
+                        column gap=12 testId=`msg-${m.id}`
+                          for p in m.parts key=p.key
+                            if p.table
+                              column border-width=1 border-style="solid" border-color="-exact-separator" border-radius=8 overflow="hidden" testId=`table-${m.id}-${p.key}`
+                                for r in p.rows key=r.key
+                                  row border-top-width=(r.head ? 0 : 1) border-right-width=0 border-bottom-width=0 border-left-width=0 border-style="solid" border-color="-exact-separator"
+                                    background-color=(r.head ? "-exact-secondary-background" : "transparent")
+                                    for c in r.cells key=c.key
+                                      text c.text markup="markdown" user-select="text" overflow-wrap="anywhere" flex="1 1 0" min-width=0
+                                        padding="6px 10px" text-align=c.align border-top-width=0 border-right-width=0 border-bottom-width=0 border-left-width=(c.first ? 0 : 1) border-style="solid" border-color="-exact-separator"
+                            else
+                              text p.text markup="markdown" user-select="text" overflow-wrap="anywhere"
+                      if m.error != ""
+                        row gap=8 align-items="center" flex-wrap="wrap"
+                          image "symbol:alert" width=14 height=14 color="-exact-system-red"
+                          text m.error font="-exact-footnote" color="-exact-system-red" flex=1 min-width=0 testId=`error-${m.id}`
+                          if m.last
+                            button press=retry buttonStyle="bordered" testId="retry"
+                              text "Try Again"
+            if data.messages.length == 0 and data.found
+              column position="absolute" top=0 left=0 right=0 bottom=110 display="flex" justify-content="center" align-items="center" gap=6 padding=24 testId="chat-empty"
+                image "symbol:sparkles" width=28 height=28 color="AccentColor"
+                text data.subtitle font="-exact-title3" text-align="center"
+                text "Ask anything." color="-exact-secondary-label" text-align="center"
+            // The composer floats over the transcript's end on glass, the transcript showing through.
+            column position="absolute" left=0 right=0 bottom=0 align-items="center" padding="10px 16px 10px" gap=6
+              backdrop-filter="blur(24px) saturate(1.8)" background-color="light-dark(rgba(255,255,255,0.55), rgba(30,30,32,0.55))"
+              row width="100%" max-width=760 box-sizing="border-box" align-items="flex-end" gap=8 padding="5px 5px 5px 16px" border-radius=22
+                background-color="light-dark(rgba(255,255,255,0.85), rgba(58,58,62,0.7))" border-width=1 border-style="solid" border-color="-exact-separator"
+                box-shadow="0 2px 12px rgba(0,0,0,0.08)"
+                textarea id="composer" value=draft input=edit key=composerKey placeholder="Message"
+                  aria-label="Message" appearance="none" field-sizing="content" rows=1 max-height=220 flex=1 min-width=0
+                  padding="6px 0" border-width=0 outline="none" background-color="transparent" autofocus=true testId="composer"
+                if data.streaming
+                  button appearance="none" press=stop aria-label="Stop" aria-keyshortcuts="Meta+." testId="stop" class=Round
+                    background-color="-exact-label"
+                    image "symbol:stop-fill" width=12 height=12 color="-exact-background"
+                else
+                  button appearance="none" press=sendDraft disabled=(not canSend) aria-label="Send" testId="send" class=Round
+                    background-color="AccentColor" opacity=(canSend ? 1 : 0.35)
+                    image "symbol:sf/arrow.up" width=14 height=14 color="-exact-background"
+              text (data.connected or data.model == "device" ? data.subtitle : "Can’t reach the Agents service. Start it with: bun service.ts")
+                font="-exact-caption1" color="-exact-secondary-label" text-align="center" testId="composer-caption"
+        if e.name == "new"
+          column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="new-form" position="absolute" inset=0 width="min(520px, 100vw)"
+            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+              button id="back" press=back testId="new-cancel"
+                text "Cancel"
+              text "New Conversation" role="heading"
+              button press=create buttonStyle="filled" disabled=(pending(changed) or (newModel == "device" and not deviceReady)) testId="new-start"
+                text "Start"
+            list id="new-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              if deviceOffered and modelQuery == ""
+                section
+                  button press=pickModel("device") role="radio" aria-checked=(newModel == "device") disabled=(device.availability == "unavailable") testId="model-device"
+                    column flex=1 min-width=0 gap=1
+                      text "On this device" line-clamp=1
+                      text deviceLine font="-exact-footnote" color="-exact-secondary-label" testId="device-line"
+                    if newModel == "device"
+                      image "symbol:checkmark" color="AccentColor"
+                  if newModel == "device" and device.availability == "downloadable"
+                    button press=download disabled=pending(fetched) testId="download"
+                      text "Download On-Device Model"
+              if newModel != "device"
+                section
+                  header
+                    text "Thinking"
+                  row
+                    row role="radiogroup" aria-label="Thinking effort" flex=1
+                      for x in ["none", "low", "medium", "high", "xhigh"] key=x
+                        button role="radio" aria-checked=(newEffort == x) press=pickEffort(x) flex=1 testId=`new-effort-${x}`
+                          text (x == "none" ? "Off" : effortName(x))
+                  footer
+                    text (newEffort == "none" ? "Answers right away, without reasoning first." : newEffort == "xhigh" ? "Thinks as long as it needs. Slowest, most thorough." : "How long the model reasons before it answers.")
+              section
+                header
+                  text "Model"
+                row
+                  input type="search" value=modelQuery input=searchModels placeholder="Search all models" aria-label="Search models" flex=1 min-width=0 testId="model-search"
+                for m in models key=m.id
+                  button press=pickModel(m.id) role="radio" aria-checked=(newModel == m.id) testId=`model-${m.id}`
+                    column flex=1 min-width=0 gap=1
+                      text m.name line-clamp=1
+                      text m.maker font="-exact-footnote" color="-exact-secondary-label"
+                    if newModel == m.id
+                      image "symbol:checkmark" color="AccentColor"
+                if models.length == 0 and not pending(models)
+                  text "No models match." color="-exact-secondary-label" testId="no-models"
+      dialog id="delete" role="alertdialog" aria-label="Delete Conversation?"
+        text "This conversation will be deleted from this Mac."
+        button press=remove destructive=true commandfor="delete" command="close" testId="delete-confirm"
+          text "Delete"
+        button commandfor="delete" command="close" testId="delete-cancel"
+          text "Cancel"

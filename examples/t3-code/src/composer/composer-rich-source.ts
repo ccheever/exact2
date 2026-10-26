@@ -6,6 +6,12 @@ import { composerSourceSession } from './composer-rich-state';
 import { composerHistoryAvailability } from './composer-prompt-history';
 import { CODE_BLOCK_LANGUAGES } from './composer-code-languages';
 import { composerChipFaces, type ComposerChipFace } from './composer-chip-presentation';
+import { offeredSkillNames } from './composer-editor-menu';
+import { selectedProvider, workspaceCwd } from './composer-editor';
+import { workspaceValues } from './composer-workspace-snapshots';
+
+/** SettingsFontPreviews PREVIEW_SKILLS: the prompt sample's one skill. */
+export const PREVIEW_SKILLS = ['frontend-design'];
 
 type ComposerSourceChipView = {
   kind: string; start: number; end: number; source: string; label: string;
@@ -27,7 +33,9 @@ export function composerRichSource(client: T3Client, input: {
   const styling = current && !preview && obj(client.local.clientSettings).composerRichTextEnabled !== false;
   const literal = !current || !preview && composerInput(client)?.active?.initialAnswer !== undefined;
   const session = composerSourceSession(client, preview ? 'preview' : 'composer');
-  if (current) session.observe(input.owner, input.value, input.inputType, literal ? 'literal' : styling ? 'rich' : 'plain');
+  // Only the skills the provider offers users become chips (composerSkillMeta).
+  const skills = preview ? PREVIEW_SKILLS : offeredSkillNames(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills'));
+  if (current) session.observe(input.owner, input.value, input.inputType, literal ? 'literal' : styling ? 'rich' : 'plain', skills);
   const chips = current ? session.chips : [];
   const projection = composerRichProjection({
     owner: current ? input.owner : '', value: input.value,

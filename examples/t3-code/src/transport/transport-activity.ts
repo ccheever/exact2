@@ -2,9 +2,9 @@
 // the debounce, cadence and scopes for every connection, and sends
 // `server.reportClientActivity` to each connected environment. `visible` and `focused` are the
 // page's (`exactPage()` visibilityState and hasFocus), handed over when they change
-// (`activityFacts`); when the reader last pointed, typed or scrolled comes from the module's input
-// monitor (the reference's window listeners), read with each status. A data module has no timers:
-// the transport's tick runs the debounce and the 25 s cadence on its clock.
+// (`activityFacts`); when the reader last pointed, typed or scrolled is the window's
+// (app.contract `interacted`, the reference's window listeners), to the second. A data module has
+// no timers: the transport's tick runs the debounce and the 25 s cadence on its clock.
 
 export const REPORT_INTERVAL_MS = 25_000;
 export const LEASE_TTL_MS = 45_000;
@@ -51,7 +51,8 @@ export class ActivityReporter {
   private reporting = false;
   private reportAgain = false;
   private remaining = 0;
-  private lastInteraction = 0;
+  /** The reporter's start until the window reports an interaction, as the reference's starts at its clock. */
+  private lastInteraction: number | null = null;
   private visible = false;
   private focused = false;
   /** A reporter whose facts come from the page holds its first report until they arrive. */
@@ -70,10 +71,10 @@ export class ActivityReporter {
     this.visible = visible; this.focused = focused; this.factsKnown = true;
     this.requestReport();
   }
-  /** The input monitor's last interaction (Unix ms): becoming recent again is reported, as the reference's listeners do. */
-  interaction(at: number, now: number): void {
-    if (!(at > this.lastInteraction)) return;
-    const recent = recentlyInteracted(this.lastInteraction, now);
+  /** The window's last interaction, on the tick's clock: becoming recent again is reported, as the reference's listeners do. */
+  interaction(at: number): void {
+    if (this.lastInteraction !== null && !(at > this.lastInteraction)) return;
+    const recent = this.lastInteraction !== null && recentlyInteracted(this.lastInteraction, at);
     this.lastInteraction = at;
     if (!recent) this.requestReport();
   }
@@ -96,6 +97,7 @@ export class ActivityReporter {
 
   /** The tick: the debounce, then the cadence. */
   tick(now: number): void {
+    this.lastInteraction ??= now;
     if (this.asked) { this.asked = false; this.dueAt = now + DEBOUNCE_MS; }
     if (this.connections.size && now >= this.nextCadenceAt) {
       if (this.nextCadenceAt) this.dueAt = this.dueAt ?? now;
@@ -116,7 +118,7 @@ export class ActivityReporter {
     this.remaining = targets.length;
     for (const entry of targets) {
       entry.send({ environmentId: entry.environment, clientId, clientKind: 'desktop-renderer', visible: this.visible, focused: this.focused,
-        recentlyInteracted: recentlyInteracted(this.lastInteraction, now), appState: this.visible ? 'active' : 'background', ttlMs: LEASE_TTL_MS,
+        recentlyInteracted: recentlyInteracted(this.lastInteraction ?? now, now), appState: this.visible ? 'active' : 'background', ttlMs: LEASE_TTL_MS,
         observedAt: this.wall(now), scopes: [{ type: 'provider-status' }, ...this.scopes.values(entry.environment)] }, () => {
         this.remaining -= 1;
         if (this.remaining > 0) return;

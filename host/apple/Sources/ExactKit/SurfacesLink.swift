@@ -64,6 +64,11 @@ package protocol Canvases: AnyObject {
     func surfaceName(_ view: UInt32) -> String?
     func surfaceNames() -> [String]
     func waiting(_ name: String) -> Bool
+    /// A sensor input's event for the live canvas of surface `name` (LLP 1133.013 D6); false when none is live.
+    @discardableResult func sensor(_ name: String, _ event: [String: Any]) -> Bool
+    /// A package's sample for surface `surface`'s canvas input, or its end
+    /// (LLP 1133.013 D6): kept until the next display frame delivers it.
+    func sensorWrite(_ surface: String, _ sensor: String, _ values: [Double], dropped: Int, at: Double, ended: Bool)
     func period(_ ms: Double)
     func tick(now: Double) -> Bool
     func settle(now: Double)
@@ -140,6 +145,10 @@ package protocol MetalView: UIView {
 /// A GPU surface's input: the pointer, keys and touches it takes.
 package protocol CanvasInput: AnyObject {
     func blur()
+    /// The canvas, or a control in it, took the focus.
+    func focused()
+    /// The canvas, or a control in it, gave the focus up.
+    func focusLeft()
     #if os(macOS)
     func pointer(_ event: NSEvent, phase: String) -> Bool
     func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool
@@ -149,6 +158,10 @@ package protocol CanvasInput: AnyObject {
     func touches(_ values: Set<UITouch>, phase: String, source: NodeView, event: UIEvent?) -> Bool
     func presses(_ presses: Set<UIPress>, down: Bool, source: NodeView) -> Bool
     #endif
+}
+extension CanvasInput {
+    package func focused() {}
+    package func focusLeft() {}
 }
 
 /// The Surfaces module, installed by the composition.
@@ -180,6 +193,8 @@ final class NoCanvases: Canvases {
     func surfaceName(_ view: UInt32) -> String? { nil }
     func surfaceNames() -> [String] { [] }
     func waiting(_ name: String) -> Bool { false }
+    func sensor(_ name: String, _ event: [String: Any]) -> Bool { false }
+    func sensorWrite(_ surface: String, _ sensor: String, _ values: [Double], dropped: Int, at: Double, ended: Bool) {}
     func period(_ ms: Double) {}
     func tick(now: Double) -> Bool { false }
     func settle(now: Double) {}

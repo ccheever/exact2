@@ -41,6 +41,23 @@ pub(crate) struct UseFix {
 }
 
 impl Loader<'_> {
+    /// The module name for data code alone (`"contract": false`, LLP
+    /// 1133.011 D12) that a `use` would bring, if one of `found` is.
+    pub(super) fn data_only(
+        &self,
+        unique: &[HashMap<(Kind, String), String>],
+        found: &[(Kind, String)],
+    ) -> Option<&contract_syntax::ModuleDecl> {
+        let brought = |u: usize, m: &contract_syntax::ModuleDecl| {
+            let to = unique[u].get(&(Kind::Call, m.name.clone()));
+            to.is_some_and(|to| found.iter().any(|(k, f)| *k == Kind::Call && f == to))
+        };
+        (self.units.iter().enumerate())
+            .flat_map(|(u, unit)| unit.file.modules.iter().map(move |m| (u, m)))
+            .find(|&(u, m)| m.data_only && brought(u, m))
+            .map(|(_, m)| m)
+    }
+
     /// The fix for unit `index`, whose references `misses` name declarations
     /// of other files, in the order written.
     pub(super) fn use_fix(&self, index: usize, misses: Vec<(Missing, Elsewhere)>) -> UseFix {
@@ -406,9 +423,10 @@ pub(crate) fn apply(src: &str, lines: &[UseLine]) -> String {
 }
 
 /// A loader holding the root at `root_key` alone, `src` its text.
-fn root_loader<'a>(app_root: &'a Path, root_key: &Path, src: &str) -> Loader<'a> {
+fn root_loader<'a>(app_root: &'a Path, root: &Path, root_key: &Path, src: &str) -> Loader<'a> {
     Loader {
         app_root,
+        root_given: root.to_path_buf(),
         sources: Sources {
             paths: vec![root_key.to_path_buf()],
             origins: vec![Origin::App],
@@ -449,7 +467,7 @@ pub(crate) fn use_fixes(
     let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut left_out: HashSet<PathBuf> = HashSet::new();
     loop {
-        let mut loader = root_loader(app_root, &root_key, src);
+        let mut loader = root_loader(app_root, path, &root_key, src);
         let resolve = |sources: &Sources, all: Vec<CompileError>| {
             all.into_iter()
                 .map(|e| sources.resolve(e))

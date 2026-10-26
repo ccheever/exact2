@@ -526,7 +526,7 @@ component CommandPaletteBody
           if view.jumpKeys.filter((c) => c == chord).length > 0
             preventDefault()
             stopPropagation()
-          else
+          else if not e.isComposing
             onKey(k)
   derive dialogTargets = [(view.addon == "back" ? "palette-back" : "palette-input"), (view.footerAction != "" ? "palette-footer-action" : (view.toggles ? "palette-regex" : "palette-input"))]
   view

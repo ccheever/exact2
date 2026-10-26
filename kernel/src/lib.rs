@@ -105,7 +105,7 @@ pub use text::case::{
     linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
 };
 pub use text::{
-    Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
+    Markup, MarkupAtoms, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
     TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
 };
 pub use transform::TransformDragBinding;
@@ -120,3 +120,10 @@ pub use region::{
 /// CSS authored and resolved exclusion geometry (LLP 1043.000).
 pub use exact_textflow::{FlowShape, ShapeOutside};
 pub use flow::FlowRefusal;
+
+// A terminal host's stderr can share stdout's nonblocking open file description.
+// Drop diagnostics on write failure so stopped output cannot panic the host.
+fn diagnostic(args: std::fmt::Arguments<'_>) {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr().lock(), "{args}");
+}

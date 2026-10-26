@@ -127,9 +127,9 @@ impl Game for SmallGame {
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
-            .stick("move", Stick::wasd().or_arrows())
-            .button("light", &["KeyE"])
-            .button("jump", &["Space"])
+            .stick("move", Stick::wasd().or_arrows().or_pad(Pad::Left))
+            .button("light", &["KeyE", "GamepadWest"])
+            .button("jump", &["Space", "GamepadSouth"])
             .button("feed", &["Digit1"])
             .button("shoes", &["Digit2"])
     }

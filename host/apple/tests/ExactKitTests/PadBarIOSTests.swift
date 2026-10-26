@@ -29,6 +29,16 @@ final class PadBarIOSTests: XCTestCase {
         sessionWindow = nil
         super.tearDown()
     }
+    private func waitFor(_ what: String, file: StaticString = #filePath, line: UInt = #line, _ ready: () -> Bool) {
+        func done() -> Bool {
+            guard let p = session?.presenter, !p.navigation.inTransition, !p.modals.inTransition else { return false }
+            return ready()
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        XCTAssertTrue(done(), what, file: file, line: line)
+    }
+
     private func field(_ props: [String: String], handlers: Set<String> = ["input"]) -> (Presenter, NodeView, UIWindow) {
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
@@ -110,6 +120,9 @@ final class PadBarIOSTests: XCTestCase {
     private let keys: CGFloat = 524
 
     func testTheBarPaintsNoBandAndTheFieldsSectionStaysAboveIt() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
         let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_PAD_BAR_PLAN"], "build.mjs --test --ios compiles the pad-bar fixture")
         ExactGroupedLists.install()
         let session = ExactApp.shared.makeSession(label: "pad-bar")
@@ -118,16 +131,20 @@ final class PadBarIOSTests: XCTestCase {
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.frame = window.screen.bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.addSubview(view)
         sessionWindow = window
-        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: CGSize(width: 402, height: 874)).error)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
         let p = session.presenter
+        waitFor("the initial route and its controls are laid out") {
+            p.navigation.primaryNavigation?.view.window != nil && p.views.values.contains {
+                $0.props["testId"] == "swap" && $0.window != nil && $0.convert($0.bounds, to: nil).maxY > self.keys
+            }
+        }
         func node(_ id: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == id && $0.window != nil }, "no \(id)") }
         func box(_ v: UIView) -> CGRect { v.convert(v.bounds, to: nil) }
         let from = try node("from-value"), swap = try node("swap")
@@ -138,7 +155,7 @@ final class PadBarIOSTests: XCTestCase {
         // The bar: ± and Done, the keyboard's own glass keys, and no fill
         // across it, opaque or not, over what is behind it.
         let bar = try XCTUnwrap(from.field?.inputAccessoryView as? PadBar, "± and Done in the accessory bar")
-        bar.frame.size.width = 402
+        bar.frame.size.width = window.bounds.width
         bar.layoutIfNeeded()
         func paints(_ v: UIView) -> Bool {
             if v.frame.width >= bar.bounds.width - 1, let c = v.backgroundColor, c.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 { return true }
@@ -149,25 +166,44 @@ final class PadBarIOSTests: XCTestCase {
         // Focused, as UIKit tells a field that becomes first responder, and
         // the keys come up, the bar counted in their frame.
         from.textFieldDidBeginEditing(try XCTUnwrap(from.field))
-        p.applyKeyboard(top: keys, duration: 0, curve: 0)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        setKeyboard(p, top: keys)
         let nav = try XCTUnwrap(p.navigation.primaryNavigation)
-        XCTAssertEqual(box(p.viewport).maxY, keys, accuracy: 0.5, "the viewport ends at the keys' top, the bar's included")
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        waitFor("content draws under the accessory while its fields clear it") {
+            abs(route.node.bounds.height - self.keys) < 0.5
+                && abs(box(list).maxY - self.keys - bar.bounds.height) < 0.5
+                && list.adjustedContentInset.bottom >= bar.bounds.height
+                && [from, swap].allSatisfy { box($0).maxY <= self.keys + 0.5 && box($0).minY >= box(nav.navigationBar).maxY - 0.5 }
+        }
+        XCTAssertEqual(box(p.viewport), window.bounds, "the native container remains full-size under the accessory")
+        XCTAssertEqual(box(list).maxY, keys + bar.bounds.height, accuracy: 0.5, "the edge scroller draws under the glass keys")
+        XCTAssertGreaterThanOrEqual(list.adjustedContentInset.bottom, bar.bounds.height, "its content clears the accessory")
+        XCTAssertEqual(route.contentViewport?.frame, route.view.bounds, "the native scroll view fills its controller")
+        var ancestor = list.superview
+        while let view = ancestor {
+            if view.clipsToBounds {
+                XCTAssertGreaterThanOrEqual(box(view).maxY, keys + bar.bounds.height - 0.5, "the accessory's drawing band survives ancestor clipping")
+            }
+            ancestor = view.superview
+        }
         for v in [from, swap] {
             XCTAssertLessThanOrEqual(box(v).maxY, keys + 0.5, "\(v.props["testId"] ?? "") above the bar: \(box(v))")
             XCTAssertGreaterThanOrEqual(box(v).minY, box(nav.navigationBar).maxY - 0.5, "\(v.props["testId"] ?? "") below the navigation bar: \(box(v))")
         }
-        // Behind the bar, below the viewport: the list's background goes on,
-        // not the canvas's band.
+        // The background continues below the scroller, where the keys begin.
         let behind = try XCTUnwrap(view.backgroundColor).resolvedColor(with: view.traitCollection)
         XCTAssertEqual(behind, try XCTUnwrap(list.backgroundColor).resolvedColor(with: view.traitCollection), "the list's background behind the bar")
         XCTAssertNotEqual(behind, canvas.resolvedColor(with: view.traitCollection), "not the canvas's")
 
         // The keys gone, the canvas again.
         from.field?.resignFirstResponder()
-        p.applyKeyboard(top: nil, duration: 0, curve: 0)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        setKeyboard(p, top: nil)
+        waitFor("the drawing band and its background leave with the keyboard") {
+            p.keyboardTop == nil && p.views.values.first { $0.props["testId"] == "content" }?.pageBand.bottom == 0
+                && view.backgroundColor?.resolvedColor(with: view.traitCollection) == canvas.resolvedColor(with: view.traitCollection)
+        }
         XCTAssertEqual(view.backgroundColor?.resolvedColor(with: view.traitCollection), canvas.resolvedColor(with: view.traitCollection))
+        XCTAssertEqual(try node("content").pageBand.bottom, 0, "the accessory inset leaves with the keyboard")
     }
 
     func testAOneTimeCodeGetsNoBarAndABarTakesTheFieldsTint() throws {

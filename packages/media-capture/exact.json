@@ -1,0 +1,228 @@
+{
+  "kind": "interface",
+  "name": "@exact/media-capture",
+  "version": "1.0.0",
+  "grants": [
+    "device.microphone",
+    "device.camera"
+  ],
+  "substitute": "implementation",
+  "permission": [
+    {
+      "name": "microphone",
+      "status": "microphoneStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "grants": [
+        "device.microphone"
+      ]
+    },
+    {
+      "name": "camera",
+      "status": "cameraStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "grants": [
+        "device.camera"
+      ]
+    }
+  ],
+  "shapes": {
+    "MediaStream": {
+      "id": "string",
+      "active": "bool",
+      "tracks": "MediaStreamTrack[]"
+    },
+    "MediaStreamTrack": {
+      "id": "string",
+      "kind": "enum<audio|video>",
+      "label": "string",
+      "enabled": "bool",
+      "muted": "bool",
+      "muteReason": "option<enum<idle|interrupted|background|silenced|in-use|multitasking|system-pressure>>",
+      "readyState": "enum<live|ended>",
+      "settings": "MediaTrackSettings",
+      "apple": "option<AppleTrack>",
+      "android": "option<AndroidTrack>",
+      "capabilities": "option<MediaTrackCapabilities>"
+    },
+    "MediaTrackSettings": {
+      "deviceId": "option<string>",
+      "groupId": "option<string>",
+      "sampleRate": "option<number>",
+      "sampleSize": "option<number>",
+      "channelCount": "option<number>",
+      "echoCancellation": "option<bool>",
+      "autoGainControl": "option<bool>",
+      "noiseSuppression": "option<bool>",
+      "latency": "option<number>",
+      "facingMode": "option<string>",
+      "width": "option<number>",
+      "height": "option<number>",
+      "aspectRatio": "option<number>",
+      "frameRate": "option<number>",
+      "resizeMode": "option<string>",
+      "zoom": "option<number>",
+      "torch": "option<bool>"
+    },
+    "MediaTrackConstraints": {
+      "deviceId": "option<string>",
+      "groupId": "option<string>",
+      "sampleRate": "option<number>",
+      "sampleSize": "option<number>",
+      "channelCount": "option<number>",
+      "echoCancellation": "option<bool>",
+      "autoGainControl": "option<bool>",
+      "noiseSuppression": "option<bool>",
+      "latency": "option<number>",
+      "facingMode": "option<string>",
+      "width": "option<number>",
+      "height": "option<number>",
+      "aspectRatio": "option<number>",
+      "frameRate": "option<number>",
+      "resizeMode": "option<string>",
+      "zoom": "option<number>",
+      "torch": "option<bool>"
+    },
+    "MediaDeviceInfo": {
+      "deviceId": "string",
+      "kind": "enum<audioinput|videoinput|audiooutput>",
+      "label": "string",
+      "groupId": "string",
+      "facingMode": "option<string>"
+    },
+    "MediaDeviceList": {
+      "devices": "MediaDeviceInfo[]"
+    },
+    "MicrophoneStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "apple": "option<AppleMicrophoneStatus>",
+      "android": "option<AndroidMicrophoneStatus>"
+    },
+    "DoubleRange": {
+      "min": "number",
+      "max": "number",
+      "step": "option<number>"
+    },
+    "MediaTrackCapabilities": {
+      "facingMode": "option<string[]>",
+      "width": "option<DoubleRange>",
+      "height": "option<DoubleRange>",
+      "aspectRatio": "option<DoubleRange>",
+      "frameRate": "option<DoubleRange>",
+      "zoom": "option<DoubleRange>",
+      "torch": "option<bool>"
+    },
+    "CameraStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "apple": "option<AppleCameraStatus>",
+      "android": "option<AndroidCameraStatus>"
+    }
+  },
+  "names": [
+    {
+      "send": "getUserMedia",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "grants": {
+        "audio": "device.microphone",
+        "audioConstraints": "device.microphone",
+        "video": "device.camera",
+        "videoConstraints": "device.camera"
+      },
+      "options": {
+        "audio": "option<bool>",
+        "audioConstraints": "option<MediaTrackConstraints>",
+        "video": "option<bool>",
+        "videoConstraints": "option<MediaTrackConstraints>"
+      },
+      "answers": "MediaStream",
+      "handles": {
+        "id": "stream",
+        "tracks[].id": "track"
+      }
+    },
+    {
+      "send": "applyConstraints",
+      "grants": [
+        "device.camera"
+      ],
+      "options": {
+        "track": "handle<track>",
+        "facingMode": "option<string>",
+        "width": "option<number>",
+        "height": "option<number>",
+        "aspectRatio": "option<number>",
+        "frameRate": "option<number>",
+        "resizeMode": "option<string>",
+        "zoom": "option<number>",
+        "torch": "option<bool>"
+      },
+      "answers": "MediaStreamTrack"
+    },
+    {
+      "send": "stopTrack",
+      "options": {
+        "track": "handle<track>"
+      },
+      "answers": "MediaStreamTrack"
+    },
+    {
+      "send": "setTrackEnabled",
+      "origin": "app",
+      "foreground": true,
+      "when": {
+        "enabled": true
+      },
+      "options": {
+        "track": "handle<track>",
+        "enabled": "bool"
+      },
+      "answers": "MediaStreamTrack"
+    },
+    {
+      "source": "mediaStreamTrack",
+      "live": true,
+      "options": {
+        "track": "handle<track>"
+      },
+      "answers": "MediaStreamTrack"
+    },
+    {
+      "source": "enumerateDevices",
+      "live": true,
+      "answers": "MediaDeviceList"
+    },
+    {
+      "source": "microphoneStatus",
+      "live": true,
+      "answers": "MicrophoneStatus",
+      "sync": {
+        "name": "microphoneStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true
+        }
+      }
+    },
+    {
+      "source": "cameraStatus",
+      "live": true,
+      "answers": "CameraStatus",
+      "sync": {
+        "name": "cameraStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true
+        }
+      }
+    }
+  ]
+}

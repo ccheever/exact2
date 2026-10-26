@@ -25,6 +25,8 @@ final class T3MobileFaviconDownload: @unchecked Sendable {
     }
     private final class Delegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         weak var owner: T3MobileFaviconDownload?
+        var onInvalidated: () -> Void = {}
+        func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) { onInvalidated() }
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
             completionHandler(owner?.receive(response, task: dataTask) == true ? .allow : .cancel)
@@ -49,7 +51,8 @@ final class T3MobileFaviconDownload: @unchecked Sendable {
 
     // Protocol classes are injectable for executable URLSession tests; production uses platform networking.
     init(callbackQueue: DispatchQueue = .main, protocolClasses: [AnyClass]? = nil,
-         decodeQueue: DispatchQueue = DispatchQueue(label: "t3.favicon.decode", qos: .utility)) {
+         decodeQueue: DispatchQueue = DispatchQueue(label: "t3.favicon.decode", qos: .utility),
+         onInvalidated: @escaping () -> Void = {}) {
         self.callbackQueue = callbackQueue; self.decodeQueue = decodeQueue
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
@@ -57,13 +60,21 @@ final class T3MobileFaviconDownload: @unchecked Sendable {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 30; configuration.timeoutIntervalForResource = 60
         if let protocolClasses { configuration.protocolClasses = protocolClasses }
-        let delegate = Delegate(); delegate.owner = self
+        let delegate = Delegate(); delegate.owner = self; delegate.onInvalidated = onInvalidated
         let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
         session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: queue)
     }
     deinit { shutdown() }
 
     var activeRequestCount: Int { lock.lock(); defer { lock.unlock() }; return reads.count }
+
+    var pendingSuccessCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return reads.values.filter { read in
+            if case .some(.success(_)) = read.result { return !read.delivered }
+            return false
+        }.count
+    }
 
     var activeDecodeCount: Int {
         lock.lock(); defer { lock.unlock() }

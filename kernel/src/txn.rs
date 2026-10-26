@@ -729,6 +729,8 @@ pub(crate) fn continue_document(
                     arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
                     view_box_changed(arena, layout, slot, *prop, receipt);
                     // A first `value` makes a `progress` the bar (LLP 1116 D8).
+                    receipt.layout_invalidated |=
+                        crate::style::top_layer::prop_changed(arena, layout, slot, *prop);
                     if matches!(
                         prop,
                         PropId::Type | PropId::AccessibilityRole | PropId::Href
@@ -767,6 +769,8 @@ pub(crate) fn continue_document(
                         }
                         arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
                         view_box_changed(arena, layout, slot, *prop, receipt);
+                        receipt.layout_invalidated |=
+                            crate::style::top_layer::prop_changed(arena, layout, slot, *prop);
                         if matches!(
                             prop,
                             PropId::Type | PropId::AccessibilityRole | PropId::Href | PropId::Value
@@ -1142,8 +1146,16 @@ fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) 
         return;
     };
     let _entries = layout.sync_children(arena, parent, node);
-    if arena.neutral_alert(parent) {
-        for child in arena.children(parent) {
+    // An alert's defaults read its children: whether it is grouped or a part
+    // box empty (its own and, for its actions' margin, its siblings'), and a
+    // row's place among them (arena/alert.rs)
+    if arena.neutral_alert(parent) || arena.alert_group(parent) {
+        layout.restyle(arena, parent, node);
+        let siblings = match arena.parent(parent) {
+            Some(alert) if arena.alert_group(parent) => arena.children(alert),
+            _ => &[],
+        };
+        for child in arena.children(parent).iter().chain(siblings) {
             if let Some(node) = arena.taffy(*child) {
                 layout.restyle(arena, *child, node);
                 layout.mark_dirty(node);
@@ -1378,13 +1390,8 @@ fn style_changed(
         {
             sync_children(arena, layout, slot);
         }
-        // A replaced header's padding is part of its route's top cover.
-        if arena.cover(slot) == Some(crate::kernel::HostCover::Whole) {
-            if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
-                layout.restyle(arena, p, node);
-                layout.mark_dirty(node);
-            }
-        }
+        // What a cover takes of the box's parent or covered box (`cover::style_changed`).
+        crate::kernel::cover_style_changed(arena, layout, slot, &mask);
         receipt.layout_invalidated = true;
     }
     if mask.intersects(StyleMask::TEXT) {

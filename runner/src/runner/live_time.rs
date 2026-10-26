@@ -418,4 +418,44 @@ mod tests {
         r.advance(60000.).unwrap();
         assert_eq!(r.live_times.0[&id].text.as_deref(), Some("3 min. ago"));
     }
+
+    /// A keyed jump builds the rows it lands on in a commit of its own
+    /// (`update_into_views`): their `time` nodes take their text there, and
+    /// the rows it retires take their live entries with them.
+    #[test]
+    fn rows_a_jump_builds_show_their_time() {
+        let source = r#"component App
+  view
+    list virtualized=true scroll-start="end" estimated-item-height=60 height=800
+      for i in range(300) key=i
+        column
+          time datetime=(1792000000000 + i * 86400000) format="date-long" testId=`d-${i}`
+          text `row ${i}`
+"#;
+        let mut r = Runner::boot(
+            contract::compile(source).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let list = r.collections()[0].view;
+        let before: Vec<_> = r.live_times.0.keys().copied().collect();
+        r.scroll_into_view_at(list, "100", "start", "nearest")
+            .unwrap();
+        let shown = |i: usize| {
+            let key = r.kernel.find_first_by_test_id(&format!("d-{i}"))?;
+            let node = r.kernel.node_by_key(key).unwrap();
+            Some(node.props.str(P::Text).map(str::to_string))
+        };
+        assert_eq!(shown(100), Some(Some("January 22, 2027".into())));
+        let blank: Vec<_> = (0..300).filter(|i| shown(*i) == Some(None)).collect();
+        assert_eq!(blank, Vec::<usize>::new(), "rows with no text");
+        assert!(
+            before.iter().any(|id| r.kernel.node(*id).is_none()),
+            "the jump retired rows"
+        );
+        assert!(r.live_times.0.keys().all(|id| r.kernel.node(*id).is_some()));
+    }
 }

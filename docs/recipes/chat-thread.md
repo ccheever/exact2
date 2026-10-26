@@ -37,7 +37,7 @@ component Chat
           list id="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
             for m in thread key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
-                text m.body padding="8px 12px" border-radius=18 max-width="75%" overflow-wrap="break-word"
+                text m.body padding="8px 12px" border-radius=18 max-width="75%" overflow-wrap="anywhere"
                   background-color=(m.mine ? "AccentColor" : "-exact-fill") color=(m.mine ? "AccentColorText" : "-exact-label")
                   testId=`message-${m.id}`
           row align-items="flex-end" margin="6px 12px" padding="4px 4px 4px 12px" border-radius=20
@@ -73,7 +73,7 @@ test "a sent message lands; the composer clears"
   expect text "message-1" == "Yes, at noon"
 ```
 
-- Bubbles are not cells (`appearance="none"`); `scroll-start="end"` opens at the newest;
-  `interactive-widget` keeps the composer over the keyboard; Send keeps it up.
-- Yours: the solid accent under `AccentColorText` (a filled button's ink; 3:1 `check`), no name;
-  a group names others'.
+- Bubbles are not cells (`appearance="none"`); `interactive-widget` keeps the composer over
+  the keyboard; Send keeps it up.
+- `anywhere` breaks a long word (a URL) whichever box bounds the bubble, as UIKit does.
+- Yours: the accent under `AccentColorText`, no name; a group names others'.

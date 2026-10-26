@@ -1,0 +1,31 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/passkeys@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {
+    "create": {
+      "securityKey": "bool"
+    },
+    "get": {
+      "securityKey": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "registrationRequest",
+    "assertionRequest"
+  ],
+  "sources": {
+    "swift": [
+      "Passkeys.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "PasskeysModule"
+}

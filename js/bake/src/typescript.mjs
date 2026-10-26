@@ -8,18 +8,22 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { builtinModules } from 'node:module';
+import { builtinModules, createRequire } from 'node:module';
 import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
+
+function httpOrigin(value, label) {
+  let url; try { url=new URL(value); } catch { throw new Error(`${label}: expected an http(s) origin`); }
+  if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.pathname!=='/' || url.search || url.hash)
+    throw new Error(`${label}: expected an http(s) origin without credentials, path, query or fragment`);
+  return url.origin;
+}
 
 /** Explicit build input, ahead of an ignored app-local development selection. */
 export function backendOriginSelection(app, env=process.env) {
   const file=resolve(app,'.exact/backend-origin');
   const value=env.EXACT_BACKEND_ORIGIN ?? (existsSync(file) ? readFileSync(file,'utf8').trim() : null);
   if (value===null) return null;
-  let url; try { url=new URL(value); } catch { throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin'); }
-  if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.pathname!=='/' || url.search || url.hash)
-    throw new Error('EXACT_BACKEND_ORIGIN: expected an http(s) origin without credentials, path, query or fragment');
-  return { origin: url.origin, source: env.EXACT_BACKEND_ORIGIN != null ? 'EXACT_BACKEND_ORIGIN' : '.exact/backend-origin' };
+  return { origin: httpOrigin(value,'EXACT_BACKEND_ORIGIN'), source: env.EXACT_BACKEND_ORIGIN != null ? 'EXACT_BACKEND_ORIGIN' : '.exact/backend-origin' };
 }
 export const backendOrigin = (app, env=process.env) => backendOriginSelection(app, env)?.origin ?? null;
 
@@ -35,29 +39,121 @@ export function backendOriginWarning(code, selection, parse) {
   if (!literal || literal.replace(/\/+$/,'')===selection.origin) return null;
   return `.exact/backend-origin selects ${selection.origin}, overriding the app.ts origin literal ${JSON.stringify(literal)}. Edit or remove .exact/backend-origin to use the changed literal; EXACT_BACKEND_ORIGIN overrides both.`;
 }
-/** Rewrite only the top-level literal origin and its exact net.fetch grant literals in the captured copy. */
-export function injectBackendOrigin(code, origin, parse) {
-  if (origin===null) return code;
+/** The socket origin at an http(s) origin's host: ws for http, wss for https. */
+const socketOrigin = (origin) => origin.replace(/^http/, 'ws');
+// Validate every entry, including those this bake does not select. No value
+// in this form goes through the constant evaluator or the plain form's grant
+// URL rewrite. The entry is the selected origin's own; in a development build
+// only, an origin at a private-network address with no entry takes the entry
+// of the same server at loopback (same scheme and port), its fetch and socket
+// lines moved to that address: a phone reaching the fixture on this Mac's LAN.
+// A production build refuses it as any missing entry.
+function keyedGrants(node, origin, at, development) {
+  const entries=new Map();
+  const refuse=(node, why)=>{ throw new Error(`app.ts:${at(node.start)}: grants: ${why}`); };
+  const line=(node, place)=>{
+    if (node?.type!=='Literal' || typeof node.value!=='string')
+      refuse(node ?? place, `expected a string literal grant line, got ${node?.type ?? 'array hole'}`);
+    if (/[\r\n\u2028\u2029]/.test(node.value)) refuse(node,'each string literal must contain one grant line');
+    return node.value;
+  };
+  for (const property of node.properties) {
+    if (property.type==='SpreadElement') refuse(property,'spread entries are not allowed');
+    if (property.computed) refuse(property.key,'computed keys are not allowed');
+    if (property.method || property.kind!=='init') refuse(property,'methods and accessors are not allowed');
+    const key=property.key;
+    if (key.type!=='Literal' || typeof key.value!=='string') refuse(key,`expected a string literal origin key, got ${key.type}`);
+    // A key is written as the origin it means, so two spellings of one origin cannot both appear.
+    const canonical=httpOrigin(key.value,`app.ts:${at(key.start)}: grants key ${JSON.stringify(key.value)}`);
+    if (canonical!==key.value) refuse(key,`write the origin key ${JSON.stringify(key.value)} as ${JSON.stringify(canonical)}`);
+    if (entries.has(key.value)) refuse(key,`duplicate key ${JSON.stringify(key.value)}`);
+    const value=property.value;
+    entries.set(key.value,value.type==='ArrayExpression' ? value.elements.map(n=>line(n,value)).join('\n') : line(value,value));
+  }
+  const wanted=new URL(origin).origin;
+  if (entries.has(wanted)) return entries.get(wanted);
+  const local=development && privateNetwork(wanted) ? [...entries.keys()].filter(key=>sameServer(key,wanted)) : [];
+  if (local.length>1) refuse(node,`origin ${JSON.stringify(wanted)} is the server of more than one loopback key: ${local.map(k=>JSON.stringify(k)).join(', ')}`);
+  if (!local.length) refuse(node,`no entry for origin ${JSON.stringify(wanted)}; keys: ${[...entries.keys()].map(k=>JSON.stringify(k)).join(', ') || '(none)'}`);
+  return movedLines(entries.get(local[0]),local[0],wanted);
+}
+
+/** A build that is not production (`EXACT_UPDATE_TRUST` unset or `development`, as `bake/src/compat.rs` reads it). */
+const developmentTrust = (env) => env.EXACT_UPDATE_TRUST === undefined || env.EXACT_UPDATE_TRUST === 'development';
+
+/** Whether an origin's host is a private-network address: RFC 1918 IPv4, link-local IPv4 (RFC 3927),
+ * unique-local IPv6 (fc00::/7, RFC 4193) or link-local IPv6 (fe80::/10, RFC 4291). */
+export function privateNetwork(origin) {
+  const host=new URL(origin).hostname;
+  const v4=host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (v4) {
+    const [a,b]=[Number(v4[1]),Number(v4[2])];
+    return a===10 || (a===172 && b>=16 && b<=31) || (a===192 && b===168) || (a===169 && b===254);
+  }
+  if (!host.startsWith('[')) return false;
+  const first=host.slice(1).split(':')[0];
+  if (!first) return false;
+  const bits=parseInt(first,16);
+  return (bits & 0xfe00)===0xfc00 || (bits & 0xffc0)===0xfe80;
+}
+
+/** Whether key `key` is a loopback origin of the server `origin` names: its scheme and port. */
+function sameServer(key, origin) {
+  const [k,o]=[new URL(key),new URL(origin)];
+  return ['127.0.0.1','localhost','[::1]'].includes(k.hostname) && k.protocol===o.protocol && k.port===o.port;
+}
+
+/** A loopback entry's lines for the same server at `to`: each `net.fetch` and `net.websocket` line at the
+ * loopback origin moves to `to`, keeping its path; every other line stays as written. */
+function movedLines(lines, from, to) {
+  const move=(target, a, b)=>target===a || target.startsWith(a+'/') ? b+target.slice(a.length) : target;
+  return lines.split('\n').map(line=>{
+    const m=line.match(/^(net\.fetch|net\.websocket) (\S+)(.*)$/);
+    if (!m) return line;
+    const [a,b]=m[1]==='net.fetch' ? [from,to] : [socketOrigin(from),socketOrigin(to)];
+    return `${m[1]} ${move(m[2],a,b)}${m[3]}`;
+  }).join('\n');
+}
+
+/** Select literal keyed grants, or move the plain form's matching fetch and
+ * socket grant lines with the origin. Only the captured copy is rewritten. */
+export function injectBackendOrigin(code, origin, parse, env=process.env) {
   const parsed=parse('app.ts',code);
-  if (parsed.errors.length) throw new Error('EXACT_BACKEND_ORIGIN: app.ts must parse before selecting a backend');
-  const declarations=parsed.program.body.flatMap(s=>(s.type==='ExportNamedDeclaration' ? s.declaration : s)?.declarations ?? []);
+  if (parsed.errors.length) {
+    if (origin===null) return code;
+    throw new Error('EXACT_BACKEND_ORIGIN: app.ts must parse before selecting a backend');
+  }
+  const statements=parsed.program.body.map(s=>s.type==='ExportNamedDeclaration' ? s.declaration : s);
+  const declarations=statements.flatMap(s=>s?.declarations ?? []);
+  const grants=declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='grants');
+  const keyed=grants.filter(d=>bare(d.init)?.type==='ObjectExpression');
+  if (origin===null && !keyed.length) return code;
   const targets=declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='origin');
   const init=targets[0]?.init;
   const literal=init?.type==='Literal' && typeof init.value==='string' ? init.value
     : init?.type==='TemplateLiteral' && !init.expressions.length ? init.quasis[0].value.cooked : null;
   if (targets.length!==1 || !literal || !/^https?:\/\//.test(literal))
-    throw new Error('EXACT_BACKEND_ORIGIN: app.ts needs one top-level literal const origin; use it in net.fetch ${origin}');
-  const edits=[[init.start,init.end,JSON.stringify(origin)]];
+    throw new Error(keyed.length ? `app.ts:${lineColumn(code)(init?.start ?? keyed[0].start)}: grants keyed by origin need one top-level literal const origin`
+      : 'EXACT_BACKEND_ORIGIN: app.ts needs one top-level literal const origin; use it in net.fetch ${origin}');
+  const edits=origin===null ? [] : [[init.start,init.end,JSON.stringify(origin)]];
+  const at=lineColumn(code);
+  if (keyed.length) {
+    for (const d of [...targets,...keyed]) if (!statements.some(s=>s?.kind==='const' && s.declarations.includes(d)))
+      throw new Error(`app.ts:${at(d.start)}: grants keyed by origin require const ${d.id.name}`);
+    httpOrigin(origin ?? literal,`app.ts:${at(init.start)}: grants origin`);
+    for (const d of keyed) edits.push([d.init.start,d.init.end,JSON.stringify(keyedGrants(bare(d.init),origin ?? literal,at,developmentTrust(env)))]);
+  }
   const previous=literal.replace(/\/+$/,'');
-  const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}` : line).join('\n');
+  const replace=value=>value.split('\n').map(line=>line===`net.fetch ${previous}` || line===`net.fetch ${previous}/` ? `net.fetch ${origin}`
+    : line===`net.websocket ${socketOrigin(previous)}` || line===`net.websocket ${socketOrigin(previous)}/` ? `net.websocket ${socketOrigin(origin)}` : line).join('\n');
   const walk=node=>{
     if (!node || typeof node!=='object') return;
     if (node.type==='Literal' && typeof node.value==='string') { const next=replace(node.value); if(next!==node.value) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
     if (node.type==='TemplateLiteral' && !node.expressions.length) { const next=replace(node.quasis[0].value.cooked); if(next!==node.quasis[0].value.cooked) edits.push([node.start,node.end,JSON.stringify(next)]); return; }
-    if (node.type==='TemplateElement') { if(replace(node.value.cooked)!==node.value.cooked) throw new Error('EXACT_BACKEND_ORIGIN: use net.fetch ${origin} in an interpolated grants template'); return; }
+    if (node.type==='TemplateElement') { if(replace(node.value.cooked)!==node.value.cooked) throw new Error('EXACT_BACKEND_ORIGIN: use net.fetch ${origin} in an interpolated grants template, and write a net.websocket line at its host as a string of its own'); return; }
     for(const child of Object.values(node)) if(Array.isArray(child)) child.forEach(walk); else if(child && typeof child==='object') walk(child);
   };
-  declarations.filter(d=>d.id.type==='Identifier' && d.id.name==='grants').forEach(d=>walk(d.init));
+  if (origin!==null) grants.filter(d=>!keyed.includes(d)).forEach(d=>walk(d.init));
   for(const [start,end,value] of edits.sort((a,b)=>b[0]-a[0])) code=code.slice(0,start)+value+code.slice(end);
   return code;
 }
@@ -751,7 +847,8 @@ export function snapbackMutationTypes(declarations) {
  * read from its syntax: no build runs app or package code to learn them. Each
  * of `appId` and `grants` is a constant: a string, a template, `+` or an
  * array's `.join(…)` of constants, or a top-level `const` holding one; any
- * other is refused by name and place. An absent one is `undefined`. */
+ * other is refused by name and place. Keyed grants have already become a
+ * string in `injectBackendOrigin`. An absent one is `undefined`. */
 export function staticFacts(code, parse) {
   const parsed=parse('app.ts',code);
   if (parsed.errors?.length) return { appId: undefined, grants: undefined, exported: [] };
@@ -774,7 +871,7 @@ export function staticFacts(code, parse) {
       node=bare(node);
       const refuse=()=>{ throw new Error(`app.ts:${at(node?.start ?? 0)}: ${name} must be a constant the build reads without running the module: a string, a template or + of constants, an array of them .join('\\n'), or a top-level const holding one`); };
       if (!node) refuse();
-      if (node.type==='Literal' && ['string','number'].includes(typeof node.value)) return String(node.value);
+      if (node.type==='Literal' && ['string','number'].includes(typeof node.value)) return node.value;
       if (node.type==='TemplateLiteral') return node.quasis.map((q,i)=>q.value.cooked+(i<node.expressions.length ? constant(node.expressions[i]) : '')).join('');
       if (node.type==='BinaryExpression' && node.operator==='+') return constant(node.left)+constant(node.right);
       if (node.type==='Identifier' && consts.has(node.name) && !seen.has(node.name)) { seen.add(node.name); const v=constant(consts.get(node.name)); seen.delete(node.name); return v; }
@@ -782,7 +879,10 @@ export function staticFacts(code, parse) {
         return bare(bare(node.callee).object).elements.map(constant).join(node.arguments.length ? constant(node.arguments[0]) : ',');
       return refuse();
     };
-    return constant(consts.get(exported.get(name)) ?? null);
+    // A number is refused: native evaluation reads `grants: string`, and an app id is a string too.
+    const v=constant(consts.get(exported.get(name)) ?? null);
+    if (typeof v!=="string") throw new Error(`app.ts: ${name} must be a string; it is the number ${v}`);
+    return v;
   };
   return { appId: value('appId'), grants: value('grants'), exported: [...exported.keys()] };
 }
@@ -884,7 +984,7 @@ function moduleBindings(stage, app) {
   for (const {name,declaration,implementations} of moduleInterfaces(app)) {
     const file='__exact_modules/'+name.replace(/^@/,'').replace(/\//g,'__')+'.ts';
     mkdirSync(resolve(stage,'__exact_modules'),{recursive:true});
-    const text=moduleBinding(name,declaration,implementations.map(i=>i.json)), at=resolve(stage,file);
+    const text=moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names)), at=resolve(stage,file);
     if (!existsSync(at) || readFileSync(at,'utf8')!==text) writeFileSync(at,text);
     out.set(name,'./'+file);
   }
@@ -961,13 +1061,55 @@ function rustSources(app) {
   return walk(join(app,'data','src')).join('\n');
 }
 
+/** The app's own source text that can name an interface: `app.ts`, and every
+ * `.contract` file in the app's tree, since a root `app.contract` may import
+ * the components that use one from a subdirectory. */
+function appText(app) {
+  const contracts=(d)=>{ try { return readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory() ? (/^(\.|node_modules$|target$)/.test(e.name) ? [] : contracts(join(d,e.name))) : e.name.endsWith('.contract') ? [join(d,e.name)] : []); } catch { return []; } };
+  return [join(app,'app.ts'),...contracts(app)].map(f=>{ try { return readFileSync(f,'utf8'); } catch { return ''; } }).join('\n');
+}
+
+/** The packages the app imports, wherever it imports them (LLP 1133.004
+ * stage 0, LLP 1133 D6 rule 6): every Contract file `app.contract` reaches
+ * through relative `use … from "./…"`, and every TypeScript file `app.ts`
+ * reaches through relative imports, each bare specifier taken to its
+ * package's name. `text` is those files' text, where a literal option a
+ * build reads (an Info.plist key) is found. */
+export function usedPackages(app) {
+  const names=new Set(), seen=new Set(), texts=[];
+  const packageName=(spec)=>{ const parts=spec.split('/'); return spec.startsWith('@') ? parts.slice(0,2).join('/') : parts[0]; };
+  // A TypeScript import may name the emitted file (`./x.js` for `./x.ts`).
+  const tsFile=(base)=>[...['', '.ts', '.tsx', '.mts', '.js', '.mjs', '/index.ts', '/index.js'].map(e=>base+e), base.replace(/\.m?js$/,'.ts'), base.replace(/\.m?js$/,'.tsx')].find(f=>{ try { return statSync(f).isFile(); } catch { return false; } });
+  const visit=(file, contract)=>{
+    if (!file || seen.has(file) || file.split(sep).includes('node_modules')) return;
+    seen.add(file);
+    let text='';
+    try { text=readFileSync(file,'utf8'); } catch { return; }
+    texts.push(text);
+    // Comments name nothing, and a type-only import links nothing.
+    const code=text.replace(/\/\*[\s\S]*?\*\//g,'').replace(/(^|[^:'"\\])\/\/.*$/gm,'$1');
+    const specs=contract
+      ? [...code.matchAll(/^\s*use\b[^\n]*?\bfrom\s+"([^"]+)"/gm)].map(m=>m[1])
+      : [...code.matchAll(/\b(import|export)(\s+type\b)?[^'";]*?\bfrom\s*(['"])([^'"\n]+)\3|\bimport\s*\(?\s*(['"])([^'"\n]+)\5/g)]
+          .filter(m=>!m[2]).map(m=>m[4] ?? m[6]);
+    for (const spec of specs) {
+      if (spec.startsWith('.')) visit(contract ? resolve(dirname(file),spec) : tsFile(resolve(dirname(file),spec)), contract);
+      else if (!spec.startsWith('exact:') && !spec.startsWith('node:')) names.add(packageName(spec));
+    }
+  };
+  visit(join(app,'app.contract'), true);
+  visit(tsFile(join(app,'app')), false);
+  return { names, text: texts.join('\n') };
+}
+
 /** The Swift implementations the app's interfaces carry for `target` (`ios`,
  * `macos`, `tvos`), of the interfaces the app names in `app.contract` or
  * `app.ts` (LLP 1133.001 D4): each extension, its own Swift module's name,
- * its class, and its source files. */
+ * its class, its source files, and the system frameworks it needs from an OS
+ * version (`frameworks`, LLP 1133.016 D15). */
 export function appleImplementations(app, target) {
-  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
-  return moduleInterfaces(app).filter(i=>named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)).flatMap(i=>{
+  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
+  return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,target);
     const files=impl?.json.platform==='apple' && impl.json.sources?.swift;
     if (!impl || !files?.length || !impl.json.class) return [];
@@ -982,18 +1124,34 @@ export function appleImplementations(app, target) {
       for (const [,value] of rustSources(app).matchAll(new RegExp(`\\b${snake}\\s*:\\s*(?:Some\\()?"([^"]+)"`,'g'))) keys.add(value);
       return {key,keys:[...keys].sort()};
     }).filter(p=>p.keys.length);
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist}];
+    // An interface that declares an authenticator entry (LLP 1133.010 D13): its class serves it in process.
+    const authenticator=!!i.declaration?.authenticator?.apple;
+    const events=(i.declaration.names ?? []).some(n=>n.event);
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator,frameworks:impl.json.frameworks??{}}];
   });
 }
 
+/** The view tags an implementation serves (LLP 1133.001 D1): every view its interface declares, and its own. */
+function packageViewTags(iface, impl) {
+  const tags=v=>Array.isArray(v) ? v.filter(t=>typeof t==='string') : v && typeof v==='object' ? Object.keys(v) : [];
+  return [...new Set([...tags(iface.declaration.views), ...tags(impl?.json.views)])].sort();
+}
+
+/** Whether `app` uses interface `i`: names it in a `use` or an import, or places a view it declares. */
+function usesInterface(i, named) {
+  if (named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)) return true;
+  return packageViewTags(i, null).some(tag => new RegExp(`(^|[^\\w-])${tag}([^\\w-]|$)`).test(named));
+}
+
 /** The Kotlin implementations bound for Android (LLP 1133.001 D4) of the interfaces the app names: each extension,
- * its class, and its source directories, which join the APK's Kotlin. */
+ * its class, its source directories, which join the APK's Kotlin, and the Maven coordinates it names, which join the
+ * one locked Gradle graph (LLP 1133.008 D8 item 5). */
 export function androidImplementations(app) {
-  const named = ['app.contract','app.ts'].map(f=>{ try { return readFileSync(join(app,f),'utf8'); } catch { return ''; } }).join('\n');
-  return moduleInterfaces(app).filter(i=>named.includes(`"${i.name}"`) || named.includes(`'${i.name}'`)).flatMap(i=>{
+  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
+  return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];
-    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d))}];
+    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl),maven:Array.isArray(impl.json.maven) ? impl.json.maven : []}];
   });
 }
 
@@ -1008,28 +1166,74 @@ export function webImplementations(app) {
   return out;
 }
 
+/** The declarations of the DOM's `names` (WebAuthn's JSON dictionaries, LLP
+ * 1133.011 D10), and of each type they name, copied from the TypeScript
+ * compiler's own `lib.dom.d.ts`, which the data module's libraries leave
+ * out: the binding is in the stage, so the check reads them there. A name
+ * the library lacks is an opaque object. */
+function domDeclarations(app, names) {
+  let text='';
+  // The compiler above the app, else exact2's own (an app outside the repo installs none).
+  for (const from of [resolve(app,'package.json'), import.meta.url]) {
+    try {
+      const pkg=createRequire(from).resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`);
+      text=readFileSync(resolve(dirname(pkg),'lib','lib.dom.d.ts'),'utf8');
+      break;
+    } catch { /* neither has one: each name is opaque */ }
+  }
+  const found=new Map(), queue=[...names];
+  const declared=n=>new RegExp(`^(interface ${n}\\b[^{]*\\{\\n[\\s\\S]*?\\n\\}|type ${n} = [^;]*;)`,'m').exec(text)?.[1];
+  while (queue.length) {
+    const n=queue.shift();
+    if (found.has(n)) continue;
+    const decl=declared(n);
+    found.set(n, decl ? 'export '+decl : `export type ${n} = Record<string, unknown>;`);
+    if (decl) for (const [ref] of decl.slice(decl.indexOf(n)+n.length).matchAll(/\b[A-Z][A-Za-z0-9]*\b/g)) if (!found.has(ref) && declared(ref)) queue.push(ref);
+  }
+  return [...found.values()];
+}
+
 /** A declaration's type (`option<number>`, `enum<a|b>`, `T[]`) as TypeScript's. */
 function moduleType(t, inList=false) {
+  // A path option (LLP 1133.009 D10 item 4) is a string; a handle (item 10) is its id.
+  if (t && typeof t==='object' && t.type==='path') t=t.optional ? 'option<string>' : 'string';
+  // An option with bounds or a default (`{"type", "min", "max", "default"}`, LLP 1133.013 D12 item 2) is its `type`.
+  else if (t && typeof t==='object' && typeof t.type==='string') t=t.type;
   t=String(t).trim();
+  if (/^handle<[^>]*>$/.test(t)) return 'string';
+  // A WebAuthn dictionary passed whole (LLP 1133.011 D10) is the DOM's own type.
+  const json=/^json<([A-Za-z0-9_]+)>$/.exec(t);
+  if (json) return json[1];
+  if (t==='unit') return 'void';
   if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
   let m, union;
   if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
   else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
-  else return {number:'number',string:'string',bool:'boolean','strings-key':'string'}[t] ?? t;
+  // A `surface` is a canvas's surface name (LLP 1133.013 D12 item 3).
+  // A `shape-name` is a JSON Schema object in data code (LLP 1133.016 D8).
+  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string','shape-name':'Record<string, unknown>'}[t] ?? t;
   return inList ? '('+union+')' : union;
 }
 
 /** The binding of one interface: its shapes, each name's options (a
  * platform's words under its key), and each name as a function. */
-export function moduleBinding(name, declaration, implementations) {
+export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
   const extension=name.split('/').at(-1), lines=[`// Generated by the bake from ${name}'s exact.json (LLP 1133.002 D13). Never edited.`];
   const shapes={...declaration.shapes};
   for (const i of implementations) Object.assign(shapes,i.shapes ?? {});
   for (const [shape,fields] of Object.entries(shapes)) {
     lines.push(`export interface ${shape} {`, ...Object.entries(fields).map(([f,t])=>`  ${f}: ${moduleType(t)};`), '}');
   }
-  const optional=(t)=>{ const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
+  // The DOM dictionaries the names pass whole (`json<T>`).
+  const dictionaries=new Set((declaration.names ?? []).flatMap(e=>[e.answers,...Object.values(e.options ?? {})])
+    .flatMap(t=>[...String(typeof t==='string' ? t : '').matchAll(/json<([A-Za-z0-9_]+)>/g)].map(m=>m[1])));
+  if (dictionaries.size) lines.push(...dom([...dictionaries]));
+  // A path option is a string; a bounded one (`{"type", "min", …}`) is its `type`.
+  const pathless=(t)=>t && typeof t==='object' ? (t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t.type) : t;
+  const optional=(t)=>{ t=pathless(t); const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
   for (const entry of declaration.names ?? []) {
+    // An event is the root's to hear, never data code's (LLP 1133.004 §11).
+    if (entry.event) continue;
     const fn=entry.source ?? entry.send, type=fn[0].toUpperCase()+fn.slice(1)+'Options';
     const fields=Object.entries(entry.options ?? {}).map(([f,t])=>{ const [q,ts]=optional(t); return `  ${f}${q}: ${ts};`; });
     for (const i of implementations) {
@@ -1037,34 +1241,57 @@ export function moduleBinding(name, declaration, implementations) {
       if (words && Object.keys(words).length) fields.push(`  ${i.platform}?: { ${Object.entries(words).map(([w,t])=>`${w}?: ${moduleType(t)}`).join('; ')} };`);
     }
     lines.push(`export interface ${type} {`, ...fields, '}');
-    const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(t).trim()));
+    // An answer typed by an argument (LLP 1133.016 D15 item 4) is `else` in data code, whose constraint is a schema.
+    const answers=entry.answers && typeof entry.answers==='object' ? entry.answers.else : entry.answers;
+    const required=Object.values(entry.options ?? {}).some(t=>!/^option</.test(String(pathless(t)).trim()));
     const verb=entry.source ? 'source' : 'send';
-    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${moduleType(entry.answers)}> {`,
-      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options });`, '}');
+    // A send that answers nothing resolves `undefined` (LLP 1133.004 D5).
+    const promised=entry.answers===null ? 'void' : moduleType(answers);
+    lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${promised}> {`,
+      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options })${entry.answers===null ? '.then(() => undefined)' : ''};`, '}');
     // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
-    if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(entry.answers)} {`,
+    if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(answers)} {`,
       `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
   }
   lines.push(
     'function call(body: { extension: string; source?: string; send?: string; args: unknown }): Promise<any> {',
     '  const via = (globalThis as any).__exact_module;',
     '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
-    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw new Error(t || "the module did not answer"); }));',
+    '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw failed(t || "the module did not answer", "UnknownError"); }));',
     '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
     '}',
     'function callNow(body: { extension: string; sync: string; args: unknown }): any {',
     '  const now = (globalThis as any).__exact_module_sync;',
     '  let v: any;',
     '  try { v = now ? now(body) : { error: "NotSupportedError" }; }',
-    '  catch (e: any) { throw Object.assign(new Error(`${body.extension}.${body.sync}: NotSupportedError (${e?.message ?? e})`), { code: "NotSupportedError" }); }',
+    '  catch (e: any) { throw failed(`${body.extension}.${body.sync}: ${e?.message ?? e}`, "NotSupportedError"); }',
     '  return answered(v, `${body.extension}.${body.sync}`);',
     '}',
+    // A module's error (LLP 1133.006 D8 item 2): a `DOMException` of its name where the runtime has one, else an
+    // `Error` of that name, with the code as `code` and each platform's own detail (LLP 1133.011 D1).
     'function answered(v: any, name: string): any {',
-    '  if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 1 && typeof v.error === "string") {',
-    '    throw Object.assign(new Error(`${name}: ${v.error}`), { code: v.error });',
+    '  const keys = v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v) : [];',
+    '  if (typeof v?.error === "string" && keys.every(k => ["error", "message", "apple", "android"].includes(k))) {',
+    '    const message = v.message ? `${name}: ${v.error}: ${v.message}` : `${name}: ${v.error}`;',
+    '    const e: any = typeof DOMException === "function" ? new DOMException(message, v.error) : Object.assign(new Error(message), { name: v.error });',
+    '    Object.defineProperty(e, "code", { value: v.error, enumerable: true });',
+    '    if (v.apple) e.apple = v.apple;',
+    '    if (v.android) e.android = v.android;',
+    '    throw e;',
     '  }',
     '  return v;',
+    '}',
+    'function failed(message: string, name: string): Error {',
+    '  const D = (globalThis as any).DOMException;',
+    '  return D ? new D(message, name) : Object.assign(new Error(message), { name });',
     '}', '');
+  // The web's objects (LLP 1133.011 D10 item 3): each group's members, a declared name or a source's field.
+  for (const [group,members] of Object.entries(declaration.groups ?? {})) {
+    const entries=Array.isArray(members) ? members.map(m=>[m,m]) : Object.entries(members);
+    const body=entries.map(([member,of])=>typeof of==='string' ? `  ${member}: ${of},`
+      : `  ${member}: (): Promise<boolean> => ${of.over}().then(v => (v as any)?.${of.field} === true),`);
+    lines.push(`export const ${group} = {`, ...body, '};');
+  }
   return lines.join('\n');
 }
 

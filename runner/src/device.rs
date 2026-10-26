@@ -26,8 +26,14 @@ pub struct Device {
     /// iOS `Info.plist` keys set to true.
     pub ios_flags: &'static [&'static str],
     /// Android's runtime permissions (`<uses-permission>`), asked in one
-    /// request (LLP 1133.002 D6).
+    /// request (LLP 1133.002 D6). One the platform retired at an API level
+    /// is written `<name> maxSdkVersion=<level>`, which the manifest
+    /// declares as `android:maxSdkVersion` (LLP 1133.019 D4).
     pub android: &'static [&'static str],
+    /// Android permissions derived beside `android` only where the app uses
+    /// a module name that writes under the line (`"writes": true` in its
+    /// declaration; LLP 1133.018 D11: `WRITE_CALENDAR` for `saveEvent`).
+    pub android_writes: &'static [&'static str],
     /// macOS `Info.plist` usage keys.
     pub macos: &'static [&'static str],
     /// The macOS hardened-runtime entitlement: without it a notarised build is
@@ -35,6 +41,9 @@ pub struct Device {
     pub hardened: Option<&'static str>,
     /// The web `Permissions-Policy` feature, where the feature is policy-controlled.
     pub web: Option<&'static str>,
+    /// Further `Permissions-Policy` features the row turns on beside `web`:
+    /// motion's three sensors are three features (LLP 1133.013 D11).
+    pub policy: &'static [&'static str],
     /// iOS signing entitlements the device needs beside its usage strings
     /// (LLP 1069.008.000 D2): HealthKit authorizes nothing without its own.
     pub ios_entitlements: &'static [&'static str],
@@ -51,6 +60,14 @@ pub struct Device {
     /// `geolocation-approximate` is of `geolocation`, LLP 1133.002 D7): an app
     /// grants one or the other, never both (`grant-twice`).
     pub narrows: Option<&'static str>,
+    /// Whether the line names a purpose: false for a row no platform asks
+    /// the person about, written `device.<name>` alone (LLP 1133.017 D14).
+    pub purpose: bool,
+    /// iOS `UIBackgroundModes` entries the row needs (LLP 1069.008 D4).
+    pub ios_modes: &'static [&'static str],
+    /// The `BGTaskScheduler` identifiers the row permits, each after the
+    /// bundle id and a dot in `BGTaskSchedulerPermittedIdentifiers`.
+    pub ios_tasks: &'static [&'static str],
 }
 
 /// What a row has unless it says otherwise.
@@ -59,14 +76,19 @@ const ROW: Device = Device {
     ios: &[],
     ios_flags: &[],
     android: &[],
+    android_writes: &[],
     macos: &[],
     hardened: None,
     web: None,
+    policy: &[],
     ios_entitlements: &[],
     companion: None,
     tvos: true,
     keeps_no_answers: false,
     narrows: None,
+    purpose: true,
+    ios_modes: &[],
+    ios_tasks: &[],
 };
 
 /// Every device grant. Adding a row is one entry here and no host code.
@@ -77,16 +99,18 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSMicrophoneUsageDescription"],
         hardened: Some("com.apple.security.device.audio-input"),
         web: Some("microphone"),
+        android: &["android.permission.RECORD_AUDIO"],
         ..ROW
     },
-    // A camera is a native module's (`rules/DEFERRED.md`, moved 2026-10-02):
-    // the row is what that module declares.
+    // The camera, `@exact/camera`'s (LLP 1133.008 D6). Its Android features
+    // are declared not required where the permission is (app/build.gradle.kts).
     Device {
         name: "camera",
         ios: &["NSCameraUsageDescription"],
         macos: &["NSCameraUsageDescription"],
         hardened: Some("com.apple.security.device.camera"),
         web: Some("camera"),
+        android: &["android.permission.CAMERA"],
         ..ROW
     },
     Device {
@@ -141,13 +165,45 @@ pub const DEVICES: &[Device] = &[
         ..ROW
     },
     // Deviation, same reason: saving to the library. PhotoKit under the
-    // hardened runtime needs the library entitlement for a write too.
+    // hardened runtime needs the library entitlement for a write too. Apple
+    // lists the add key for iOS alone and the read key for macOS too, so
+    // macOS writes both (LLP 1133.019 D4).
     Device {
         name: "photos-add",
         ios: &["NSPhotoLibraryAddUsageDescription"],
-        macos: &["NSPhotoLibraryAddUsageDescription"],
+        macos: &[
+            "NSPhotoLibraryAddUsageDescription",
+            "NSPhotoLibraryUsageDescription",
+        ],
         hardened: Some("com.apple.security.personal-information.photos-library"),
         web: None,
+        ..ROW
+    },
+    // Reading the library, `@exact/photos` (LLP 1133.019 D4): a deviation,
+    // the web has no library. iOS never shows its automatic limited-access
+    // alert, which a tool's or a wake's read would otherwise raise (D6). An
+    // app reading it keeps no answers (D6, ruling 6). Android's read is a
+    // permission per API range: `READ_EXTERNAL_STORAGE` to 32,
+    // `READ_MEDIA_IMAGES` from 33, `READ_MEDIA_VISUAL_USER_SELECTED` (a
+    // partial grant) from 34; and `ACCESS_MEDIA_LOCATION`, without which
+    // another app's photo reads with its location redacted (D4). A level
+    // ignores a permission it does not define, so only a range's end is
+    // written; the implementation asks those its level has. Adding needs no
+    // permission from API 29, the host's oldest.
+    Device {
+        name: "photos",
+        ios: &["NSPhotoLibraryUsageDescription"],
+        ios_flags: &["PHPhotoLibraryPreventAutomaticLimitedAccessAlert"],
+        android: &[
+            "android.permission.READ_EXTERNAL_STORAGE maxSdkVersion=32",
+            "android.permission.READ_MEDIA_IMAGES",
+            "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+            "android.permission.ACCESS_MEDIA_LOCATION",
+        ],
+        macos: &["NSPhotoLibraryUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.photos-library"),
+        web: None,
+        keeps_no_answers: true,
         ..ROW
     },
     // HealthKit (LLP 1069.008.000): Apple only, a deviation (the web has no
@@ -175,6 +231,50 @@ pub const DEVICES: &[Device] = &[
         keeps_no_answers: true,
         ..ROW
     },
+    // The person's address book, `@exact/contacts` (LLP 1133.018 D11): a
+    // deviation, the web has no store. Choosing contacts needs no line (D4).
+    // An app reading it keeps no answers (D8).
+    Device {
+        name: "contacts",
+        ios: &["NSContactsUsageDescription"],
+        macos: &["NSContactsUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.addressbook"),
+        android: &["android.permission.READ_CONTACTS"],
+        tvos: false,
+        keeps_no_answers: true,
+        ..ROW
+    },
+    // The person's calendars, `@exact/calendar` (D11): full access, and
+    // `WRITE_CALENDAR` on Android only where the app writes (`android_writes`).
+    // Neither calendar line narrows the other: Apple's path between them is
+    // an upgrade, so an app may write both.
+    Device {
+        name: "calendar",
+        ios: &["NSCalendarsFullAccessUsageDescription"],
+        macos: &["NSCalendarsFullAccessUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.calendars"),
+        android: &["android.permission.READ_CALENDAR"],
+        android_writes: &["android.permission.WRITE_CALENDAR"],
+        tvos: false,
+        keeps_no_answers: true,
+        ..ROW
+    },
+    // Apple's write-only calendar access (iOS 17, macOS 14). Android has no
+    // narrower grant: an insert names a calendar row, which only a read finds,
+    // so the line derives both permissions there (D11).
+    Device {
+        name: "calendar-write-only",
+        ios: &["NSCalendarsWriteOnlyAccessUsageDescription"],
+        macos: &["NSCalendarsWriteOnlyAccessUsageDescription"],
+        hardened: Some("com.apple.security.personal-information.calendars"),
+        android: &[
+            "android.permission.READ_CALENDAR",
+            "android.permission.WRITE_CALENDAR",
+        ],
+        tvos: false,
+        keeps_no_answers: true,
+        ..ROW
+    },
     // Local network privacy (TN3179): macOS 15 and iOS 14 ask before the app
     // first reaches a LAN address, and show this text. Deviation: the web's
     // Local Network Access prompt is the browser's own, and Android asks
@@ -185,12 +285,60 @@ pub const DEVICES: &[Device] = &[
         macos: &["NSLocalNetworkUsageDescription"],
         ..ROW
     },
+    // @ref LLP 1133.010 D12 — local authentication. iOS shows the purpose the
+    // first time Face ID is used, and refuses Face ID without the key; Touch ID
+    // and macOS ask nothing. A declared deviation: the web has no name (its
+    // cell is `later`, over passkeys). Not on tvOS, which has no biometry.
+    Device {
+        name: "local-auth",
+        ios: &["NSFaceIDUsageDescription"],
+        android: &["android.permission.USE_BIOMETRIC"],
+        tvos: false,
+        ..ROW
+    },
     // @ref LLP 1125 D6 — Web MIDI's permission and policy feature. Apple asks
     // for nothing, so no usage key; tvOS has no CoreMIDI (`unavailable`).
     Device {
         name: "midi",
         web: Some("midi"),
         tvos: false,
+        ..ROW
+    },
+    // @ref LLP 1133.013 D11 — `@exact/motion`. A declared deviation: the
+    // Registry has three names and one line grants all three, the
+    // magnetometer's whatever the app reads. iOS and Android ask nothing for
+    // these sensors (`NSMotionUsageDescription` is the activity and
+    // pedometer APIs'), and tvOS has none of Core Motion's streams.
+    Device {
+        name: "motion",
+        web: Some("accelerometer"),
+        policy: &["gyroscope", "magnetometer"],
+        tvos: false,
+        ..ROW
+    },
+    // Background work (LLP 1133.017 D14): nothing asks the person, so no
+    // line names a purpose. The WICG specifications name the first two
+    // (the Permissions Registry lists none of the three). The host keeps
+    // one refresh identifier and two processing ones, by constraints (D8);
+    // a `sync` waiting asks for both kinds. tvOS's refresh is later (D17):
+    // its build writes none.
+    Device {
+        name: "background-sync",
+        purpose: false,
+        ios_modes: &["fetch", "processing"],
+        ios_tasks: &["refresh", "processing.network", "processing.network-power"],
+        ..ROW
+    },
+    Device {
+        name: "periodic-background-sync",
+        purpose: false,
+        ios_modes: &["fetch"],
+        ios_tasks: &["refresh"],
+        ..ROW
+    },
+    Device {
+        name: "background-fetch",
+        purpose: false,
         ..ROW
     },
 ];
@@ -200,7 +348,8 @@ pub const DEVICES: &[Device] = &[
 pub struct DeviceGrant<'a> {
     /// The table's row.
     pub device: &'static Device,
-    /// The strings key whose text is the purpose.
+    /// The strings key whose text is the purpose; empty for a row that
+    /// names none.
     pub purpose: &'a str,
 }
 
@@ -230,6 +379,19 @@ pub fn device_grants(spec: &str) -> Result<Vec<DeviceGrant<'_>>, Vec<String>> {
             errors.push(format!(
                 "`{line}`: the purpose is a strings key (LLP 1060), not a literal: `device.{name} purpose.{name}`, with `\"purpose.{name}\": \"…\"` in strings/en.json"
             ));
+            continue;
+        }
+        if !device.purpose {
+            match words.next() {
+                Some(word) => errors.push(format!(
+                    "`{line}`: nothing asks the person for `device.{name}`, so its line names no purpose: write `device.{name}` (not `{word}`)"
+                )),
+                None if grants.iter().any(|g| g.device.name == name) => {}
+                None => grants.push(DeviceGrant {
+                    device,
+                    purpose: "",
+                }),
+            }
             continue;
         }
         let (Some(purpose), None) = (words.next(), words.next()) else {
@@ -283,7 +445,8 @@ pub fn permissions_policy(spec: &str) -> String {
     let granted = device_grants(spec).unwrap_or_default();
     // A feature two rows share (`geolocation`) is named once: on when either is granted.
     let mut features: Vec<&str> = Vec::new();
-    for feature in DEVICES.iter().filter_map(|d| d.web) {
+    let of = |d: &'static Device| d.web.into_iter().chain(d.policy.iter().copied());
+    for feature in DEVICES.iter().flat_map(of) {
         if !features.contains(&feature) {
             features.push(feature);
         }
@@ -291,7 +454,7 @@ pub fn permissions_policy(spec: &str) -> String {
     features
         .into_iter()
         .map(|feature| {
-            let on = granted.iter().any(|g| g.device.web == Some(feature));
+            let on = granted.iter().any(|g| of(g.device).any(|f| f == feature));
             format!("{feature}=({})", if on { "self" } else { "" })
         })
         .collect::<Vec<_>>()
@@ -338,6 +501,12 @@ mod tests {
         assert!(errors[0].contains("not a device grant"));
         assert!(errors[2].contains("not a literal"));
         assert!(errors[4].contains("two purposes"));
+        // A row nothing asks about names no purpose (LLP 1133.017 D14).
+        let quiet =
+            device_grants("device.background-sync\ndevice.periodic-background-sync").unwrap();
+        assert!(quiet.iter().all(|g| g.purpose.is_empty()));
+        let errors = device_grants("device.background-fetch purpose.x").unwrap_err();
+        assert!(errors[0].contains("names no purpose"), "{errors:?}");
     }
 
     #[test]
@@ -372,11 +541,21 @@ mod tests {
     fn the_policy_allows_what_is_granted_and_denies_the_rest() {
         assert_eq!(
             permissions_policy("device.microphone p\ndevice.speech-recognition q"),
-            "microphone=(self), camera=(), geolocation=(), midi=()"
+            "microphone=(self), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
         );
         assert_eq!(
             permissions_policy(""),
-            "microphone=(), camera=(), geolocation=(), midi=()"
+            "microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
         );
+    }
+
+    /// LLP 1133.013 D11: one line turns on the three sensors' features.
+    #[test]
+    fn motion_is_one_line_for_three_policy_features() {
+        let policy = permissions_policy("device.motion purpose.motion");
+        for feature in ["accelerometer", "gyroscope", "magnetometer"] {
+            assert!(policy.contains(&format!("{feature}=(self)")), "{policy}");
+        }
+        assert!(policy.contains("microphone=()"), "{policy}");
     }
 }

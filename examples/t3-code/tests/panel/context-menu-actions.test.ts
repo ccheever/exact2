@@ -1,6 +1,6 @@
-// What the Files tree row and pull request number menus (Contract context popovers) and the chat
-// file-link menu (the module's `contextMenu` op) show and do with the pick (FileBrowserPanel
-// showEntryContextMenu, fileContextMenu.ts activate, pullRequestLinkContextMenu.ts, ChatMarkdown showFileContextMenu).
+// What the Files tree row, pull request number and chat file-link menus (Contract context popovers) show
+// and do with the pick (FileBrowserPanel showEntryContextMenu, fileContextMenu.ts activate,
+// pullRequestLinkContextMenu.ts, ChatMarkdown showFileContextMenu).
 import { afterEach, describe, expect, test } from 'bun:test';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 import { appPath } from '../support/app-files';
@@ -11,9 +11,12 @@ import { T3Client } from '../../src/client/client';
 import { toasts } from '../../src/shell/toast';
 import { filesTreeChoice, filesTreeMenuRows, pullRequestLinkPick } from '../../src/panel/context-menu-actions';
 import { openOnHostLabel } from '../../src/shared/context-menus';
-import { filesState, markdownFileMenu } from '../../src/panel/files-surface';
+import { filesState, markdownFilePick } from '../../src/panel/files-surface';
+import { markdownFileMenuRows } from '../../src/timeline/file-link-menu';
+import { loadSshAliases } from '../../src/connections/remote-open';
 import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
 import { attachmentUrls, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView } from '../../src/timeline/timeline-attachments';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 function fixture(config: Obj = {}) {
   resetRemoteEditorsForTests();
@@ -23,14 +26,12 @@ function fixture(config: Obj = {}) {
   owner.shell.projects = [{ id: 'p', title: 'project', workspaceRoot: '/srv/project' }];
   owner.config = { availableEditors: ['cursor', 'vscode', 'file-manager'], shellRevealInFileManager: true, environment: { platform: { os: 'darwin' } }, ...config };
   const calls: Obj[] = [], requests: Obj[] = [];
-  let picked = '', editor: Obj = { applied: true };
+  let editor: Obj = { applied: true };
   const native: Native = { available: true, watch() {}, later: async (input: unknown) => {
     const request = obj(input); calls.push(request);
     let value: Obj = {};
     if (request.op === 'sshHosts') value = { targets: {} };
-    if (request.op === 'contextMenu') value = { clicked: picked || null };
     if (request.op === 'editorEdit') value = editor;
-    if (request.op === 'terminalOpenExternal') value = { opened: true };
     return { ok: true, generation: 0, value };
   } };
   owner.restAccess = ((n: Native) => ({ call: (request: Obj) => owner.call(n, request), request: async (method: string, body: Obj) => { requests.push({ method, ...body }); return {}; } })) as unknown as T3Client['restAccess'];
@@ -41,7 +42,7 @@ function fixture(config: Obj = {}) {
   owner.connection = 'connected';
   owner.rpc = (async (_native: Native, method: string, payload: Obj) => { signed.push({ method, ...payload }); if (refuse) throw new Error('not found'); return { relativeUrl: `/api/assets/${signed.length}` }; }) as T3Client['rpc'];
   const menu = () => calls.find(call => call.op === 'contextMenu');
-  return { owner, native, calls, requests, menu, signed, refuseSigning: () => { refuse = true; }, pick: (value: string) => { picked = value; }, composer: (value: Obj) => { editor = value; } };
+  return { owner, native, calls, requests, menu, signed, refuseSigning: () => { refuse = true; }, composer: (value: Obj) => { editor = value; } };
 }
 
 // The tree's one context popover (files-surface.contract FilesTreeMenu): its rows from the files view, its row's
@@ -96,8 +97,9 @@ describe('Pull request number menu', () => {
     const { owner, native, menu, calls } = fixture();
     await pullRequestLinkPick(owner, native, 'copy-link\ngitlab https://gitlab.com/a/b/-/merge_requests/7');
     expect(calls.find(call => call.op === 'copyText')?.text).toBe('https://gitlab.com/a/b/-/merge_requests/7');
+    resetExternalOpensForTests();
     await pullRequestLinkPick(owner, native, 'open-external\ngithub https://github.com/a/b/pull/7');
-    expect(calls.find(call => call.op === 'terminalOpenExternal')?.url).toBe('https://github.com/a/b/pull/7');
+    expect(externalOpensForTests()).toEqual(['https://github.com/a/b/pull/7']);
     expect(toasts(owner)).toEqual([]);
     expect(menu()).toBeUndefined(); // no native menu
     expect([openOnHostLabel('github'), openOnHostLabel('gitlab'), openOnHostLabel('azure-devops'), openOnHostLabel('')]).toEqual(['Open on GitHub', 'Open on GitLab', 'Open on Azure DevOps', 'Open on host']);
@@ -105,10 +107,12 @@ describe('Pull request number menu', () => {
 
   test('does nothing without a link or for a row it does not have', async () => {
     const { owner, native, calls } = fixture();
+    resetExternalOpensForTests();
     await pullRequestLinkPick(owner, native, 'copy-link\ngithub ');
     await pullRequestLinkPick(owner, native, 'delete\ngithub https://github.com/a/b/pull/7');
     await pullRequestLinkPick(owner, native, 'github https://github.com/a/b/pull/7');
-    expect(calls.filter(call => call.op === 'copyText' || call.op === 'terminalOpenExternal')).toEqual([]);
+    expect(calls.filter(call => call.op === 'copyText')).toEqual([]);
+    expect(externalOpensForTests()).toEqual([]);
   });
 
   test('the popover lists Copy link, then the row\'s Open on <host>, each picking with the row\'s link', async () => {
@@ -126,22 +130,26 @@ describe('Pull request number menu', () => {
   });
 });
 
+// The chip's rows (file-link-menu.ts), which its context popover shows (link-menus.contract), and the row's pick.
 describe('Chat file link menu', () => {
   test('a media link previews media; open and reveal follow the preferred editor and the server platform', async () => {
     const media = fixture({ environment: { platform: { os: 'linux' } } });
-    await markdownFileMenu(media.owner, media.native, '/srv/project/shots/a.png');
-    expect(obj(media.menu()).items).toEqual([{ id: 'preview-media', label: 'Preview media' }, { id: 'open', label: 'Open in Cursor' },
+    expect(markdownFileMenuRows(media.owner, '/srv/project/shots/a.png').map(row => row.id)).toEqual(['preview-media', 'copy-relative', 'copy-full']); // the SSH aliases not read yet: no shell actions
+    await loadSshAliases(media.native);
+    expect(markdownFileMenuRows(media.owner, '/srv/project/shots/a.png')).toEqual([{ id: 'preview-media', label: 'Preview media' }, { id: 'open', label: 'Open in Cursor' },
       { id: 'reveal', label: 'Reveal in Files' }, { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }]);
     const code = fixture({ availableEditors: ['file-manager'], shellRevealInFileManagerKind: 'file-explorer' });
-    await markdownFileMenu(code.owner, code.native, '/srv/project/src/index.ts:12');
-    expect(obj(code.menu()).items).toEqual([{ id: 'open', label: 'Open in editor' }, { id: 'reveal', label: 'Reveal in File Explorer' },
+    await loadSshAliases(code.native);
+    expect(markdownFileMenuRows(code.owner, '/srv/project/src/index.ts:12')).toEqual([{ id: 'open', label: 'Open in editor' }, { id: 'reveal', label: 'Reveal in File Explorer' },
       { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }]);
+    // The pull request page has no thread to preview media in.
+    expect(markdownFileMenuRows(media.owner, '/srv/project/shots/a.png', { previewMedia: false })[0]?.id).toBe('open');
+    expect(media.menu()).toBeUndefined(); // no native menu
   });
 
   test('Preview media signs the link\'s media as a media-file of the thread, then opens the expanded media dialog with it alone', async () => {
-    const { owner, native, pick, signed } = fixture();
-    pick('preview-media');
-    await markdownFileMenu(owner, native, '/srv/project/shots/a.png');
+    const { owner, native, signed } = fixture();
+    await markdownFilePick(owner, native, '/srv/project/shots/a.png', 'preview-media');
     expect(signed).toEqual([{ method: 'assets.createUrl', resource: { _tag: 'media-file', path: '/srv/project/shots/a.png', threadId: 't' } }]);
     const view = imagePreviewView(owner);
     expect(view).toMatchObject({ imagePreviewId: 'media:/srv/project/shots/a.png', imagePreviewName: 'a.png', imagePreviewVideo: false, imagePreviewPrevious: false, imagePreviewNext: false, imagePreviewPosition: '' });
@@ -157,27 +165,48 @@ describe('Chat file link menu', () => {
     owner.threadId = 't';
     expect(imagePreviewView(owner).imagePreviewId).toBe('');
     const video = fixture();
-    video.pick('preview-media');
-    await markdownFileMenu(video.owner, video.native, '/srv/project/clips/b.mp4');
+    await markdownFilePick(video.owner, video.native, '/srv/project/clips/b.mp4', 'preview-media');
     expect(imagePreviewView(video.owner)).toMatchObject({ imagePreviewId: 'media:/srv/project/clips/b.mp4', imagePreviewVideo: true });
     imagePreviewAction(video.owner, 'image-close', '', '');
     expect(imagePreviewView(video.owner).imagePreviewId).toBe('');
   });
 
   test('a refused media opens no dialog and says Media unavailable', async () => {
-    const { owner, native, pick, refuseSigning } = fixture();
+    const { owner, native, refuseSigning } = fixture();
     refuseSigning();
-    pick('preview-media');
-    await markdownFileMenu(owner, native, '/srv/project/shots/a.png');
+    await markdownFilePick(owner, native, '/srv/project/shots/a.png', 'preview-media');
     expect(imagePreviewView(owner).imagePreviewId).toBe('');
     expect(toasts(owner).map(toast => [toast.title, toast.description])).toEqual([['Media unavailable', 'not found']]);
   });
 
-  test('reveal strips the line and asks the file manager to reveal', async () => {
-    const { owner, native, requests, pick } = fixture();
-    pick('reveal');
-    await markdownFileMenu(owner, native, '/srv/project/src/index.ts:12');
+  test('a page or a PDF offers Open in integrated browser after Open, where the thread\'s Browser can open, and opens it there', async () => {
+    const { owner, native, signed, refuseSigning } = fixture();
+    await loadSshAliases(native);
+    const ids = (path: string, context = {}) => markdownFileMenuRows(owner, path, context).map(row => row.id);
+    expect(ids('/srv/project/site/index.html')).toEqual(['open', 'reveal', 'copy-relative', 'copy-full']); // no preview:operate yet
+    Object.assign(owner, { configLive: true, shellLive: true, threadLive: true, scopes: ['preview:operate'], available: true });
+    expect(markdownFileMenuRows(owner, '/srv/project/site/index.html:3')).toEqual([{ id: 'open', label: 'Open in Cursor' }, { id: 'open-in-browser', label: 'Open in integrated browser' },
+      { id: 'reveal', label: 'Reveal in Finder' }, { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }]);
+    expect(ids('/srv/project/docs/spec.PDF')).toContain('open-in-browser');
+    expect(ids('/srv/project/src/index.ts')).not.toContain('open-in-browser');
+    expect(ids('/srv/project/site/index.html', { previewMedia: false })).not.toContain('open-in-browser'); // the pull request page
+    owner.available = false;
+    expect(ids('/srv/project/site/index.html')).not.toContain('open-in-browser');
+    owner.available = true;
+    // The pick signs the page as a workspace file of the thread (openFileInPreview); a refusal is the reference's toast.
+    refuseSigning();
+    await markdownFilePick(owner, native, '/srv/project/site/index.html:3', 'open-in-browser');
+    expect(signed).toEqual([{ method: 'assets.createUrl', resource: { _tag: 'workspace-file', threadId: 't', path: '/srv/project/site/index.html' } }]);
+    expect(toasts(owner).map(toast => [toast.title, toast.description])).toEqual([['Unable to open file in browser', 'not found']]);
+  });
+
+  test('reveal strips the line and asks the file manager to reveal; a row the menu does not offer does nothing', async () => {
+    const { owner, native, requests } = fixture();
+    await markdownFilePick(owner, native, '/srv/project/src/index.ts:12', 'reveal');
     expect(requests).toEqual([{ method: 'shell.openInEditor', cwd: '/srv/project/src/index.ts', editor: 'file-manager', reveal: true }]);
+    await markdownFilePick(owner, native, '/srv/project/src/index.ts:12', 'preview-media');
+    await markdownFilePick(owner, native, '/srv/project/src/index.ts:12', 'delete');
+    expect(requests).toHaveLength(1);
   });
 });
 

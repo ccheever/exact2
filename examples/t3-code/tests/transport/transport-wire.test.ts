@@ -26,6 +26,7 @@ describe('Exit failures as Cause.squash reports them', () => {
   test('an unavailable pull request host reads its stable sentence; an untagged error its message', () => {
     expect(failure({ _tag: 'Fail', error: { _tag: 'PullRequestUnavailableError', reason: 'cli-missing', provider: 'gitlab' } }).message).toBe(pullRequestUnavailable('cli-missing', 'gitlab'));
     expect(failure({ name: 'Error', message: 'plain' }).message).toBe('plain');
+    expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceEasAccountError', reason: 'Expo rejected the credential (HTTP 401).' } }).message).toBe('Expo rejected the credential (HTTP 401).');
     expect(failure({ _tag: 'Interrupt' }).kind).toBe('Interrupt');
     expect(failure({ _tag: 'Fail', error: { _tag: 'Mystery' } }).message).toBe('The server refused the request (Mystery).');
   });

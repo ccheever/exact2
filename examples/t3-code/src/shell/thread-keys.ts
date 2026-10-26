@@ -6,9 +6,9 @@
 // chat/ChatComposer.tsx (openControl, isCaretAtStart).
 // Changes: each command is a dispatch row (keyboard-dispatch.ts), present only
 // when the reference would consume the key, so an absent row leaves the key to
-// the focused view. ⌥↑ is no menu chord: its row is a composer key button the
-// native composer presses only with the caret at the very start
-// (T3ComposerQueueKey.swift); anywhere else the text view moves the caret. Key
+// the focused view. ⌥↑ is no menu chord: its row is a composer key the
+// composer's own key action takes only with the caret at the very start
+// (app.contract composerKeyEvent); anywhere else the key moves the caret. Key
 // repeat is consumed and ignored by the host for every dispatch button.
 import { str } from '../client/domain';
 import type { T3Client } from '../client/client';

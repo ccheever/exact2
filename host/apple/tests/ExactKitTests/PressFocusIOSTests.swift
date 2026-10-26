@@ -29,7 +29,9 @@ final class PressFocusIOSTests: XCTestCase {
     private func presenter(_ ops: [[String: Any]], useSession: Bool = false) -> Presenter {
         if useSession { session = ExactApp.shared.makeSession(label: "press-inline") }
         let p = session?.presenter ?? Presenter()
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
@@ -481,6 +483,9 @@ final class PressFocusIOSTests: XCTestCase {
     /// A plain button keeps the keyboard and its field, as a `UIButton` does:
     /// what was typed is committed (`change`) and the field is not blurred.
     func testAPlainButtonKeepsTheKeyboardAndCommitsTheEdit() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "a keyboard-preserving press needs the hosted app responder chain")
+        }
         let p = composer()
         try XCTUnwrap(p.views[2]).handlers = ["change", "blur"]
         var pressed: [UInt32] = [], changed: [String] = [], blurred: [UInt32] = []
@@ -544,6 +549,9 @@ final class PressFocusIOSTests: XCTestCase {
     /// composer) while another field keeps the keyboard: the new field takes
     /// the focus, as it would from the button.
     func testAButtonPressMountingAnAutofocusTakesTheKeptFieldsFocus() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "a keyboard-preserving press needs the hosted app responder chain")
+        }
         let p = composer()
         let field = try XCTUnwrap(p.views[2]?.field), button = try XCTUnwrap(p.views[3])
         XCTAssertTrue(field.becomeFirstResponder())
@@ -672,14 +680,21 @@ final class PressFocusIOSTests: XCTestCase {
         _ = Agent(session: session).clock(["take": true])
         let opener = try XCTUnwrap(fixtureNode(p, "open-focused-note"))
         tap(opener)
-        until { self.window.rootViewController?.presentedViewController?.isBeingPresented == false }
+        until { self.window.rootViewController?.presentedViewController != nil && !p.modals.inTransition }
+        XCTAssertFalse(p.modals.inTransition, "the sheet finished presenting before dismissal")
         let sheet = try XCTUnwrap(window.rootViewController?.presentedViewController)
         XCTAssertNil(fixtureNode(p, "note-text"), "dismissed before the answer")
         XCTAssertNotNil(p.pressHandoff, "the sheet's route holds the handoff till then")
         let controller = try XCTUnwrap(sheet.presentationController)
         // A finished swipe: UIKit dismisses the sheet, then tells its delegate.
-        sheet.presentingViewController?.dismiss(animated: false)
-        p.modals.presentationControllerDidDismiss(controller)
+        let dismissed = expectation(description: "the sheet finished dismissing")
+        let presenting = try XCTUnwrap(sheet.presentingViewController)
+        presenting.dismiss(animated: false) {
+            p.modals.presentationControllerDidDismiss(controller)
+            dismissed.fulfill()
+        }
+        wait(for: [dismissed], timeout: 10)
+        XCTAssertNil(presenting.presentedViewController, "UIKit removed the sheet")
         XCTAssertNil(p.pressHandoff, "the sheet went: its press hands nothing on")
     }
 

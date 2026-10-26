@@ -6,11 +6,14 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { checkOp, judge, ratio } from '../../scripts/agent-check.mjs';
 import { decodePng } from '../../scripts/png.mjs';
 import { serveBuildTree } from './serve.mjs';
+
+const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 
 // One view per finding class, each named by its testId; `fits`, `ellipsis`, `covered-card` (a card under a view drawn over
 // it), `blob` (a shape holding no text or control that shows) and `grouped` (a list, whose ground is the page's, whatever its role) are what
@@ -186,9 +189,9 @@ const built = (() => {
     if (!ready.has(name)) ready.set(name, (async () => {
       const dir = mkdtempSync(join(tmpdir(), `exact-check-${name}-`)), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
       writeFileSync(contract, source);
-      const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding: 'utf8' });
+      const compile = spawnSync(compiler, ['build', contract, '-o', plan], { encoding: 'utf8' });
       if (compile.status !== 0) throw new Error(compile.stderr);
-      const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: new URL('../../', import.meta.url).pathname, encoding: 'utf8' });
+      const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8' });
       if (build.status !== 0) throw new Error(build.stderr);
       const server = createServer((request, response) => serveBuildTree(dist, request, response));
       await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -260,16 +263,6 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(found([{ ...text, fg: [197, 197, 198, 1], inactive: true }])).toEqual([]); // a disabled control's label (WCAG's inactive component)
   expect(found([{ ...text, fg: [60, 60, 67, 0.6] }])).toEqual([]); // the secondary label's value, unnamed (a section footer's), is its
   expect(found([{ ...text, fg: [255, 56, 60, 1] }])).toEqual([]); // the grouped sheet's red (a destructive row's title), UIKit's at 3:1
-  // LLP 1115.000 D4: a role known only by its drawn value is read in the column its host draws. A page in the neutral look
-  // says so (`look`): there the table's neutral red (#c90f1a, 3.5:1 on this grey) is the platform's, at 3:1, and Apple's
-  // red is some author's colour, at 4.5:1. An Apple host that names no look (iOS) draws Apple's.
-  const onGrey = { ...text, fg: [201, 15, 26, 1], bg: [200, 200, 200], on: 'own' };
-  expect(found([onGrey], { look: 'neutral' })).toEqual([]);
-  expect(found([onGrey])).toEqual(['contrast:1']);
-  expect(found([{ ...text, fg: [255, 56, 60, 1] }], { look: 'neutral' })).toEqual(['contrast:1']);
-  // The neutral column's ink on the accent in dark is black: by value alone it is no role, so an author's black text
-  // on a dark grey (3.5:1) is held to 4.5:1 there too.
-  expect(found([{ ...text, fg: [0, 0, 0, 1], bg: [100, 100, 100], on: 'own' }], { look: 'neutral', scheme: 'dark' })).toEqual(['contrast:1']);
   expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true }])).toEqual(['clipped:1']);
   expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true, clamp: true, ellipsis: true }])).toEqual([]);
   // A card on white whose fill is white shows nothing; on grey it shows; with an edge it shows.
@@ -277,11 +270,6 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const invisible = judge(obs([card]), png);
   expect(invisible.map((f) => f.kind)).toEqual(['card']);
   expect(invisible[0].hint).toContain('-exact-secondary-background');
-  // The hint knows a plain page by the column's own ground: #121212 is the neutral look's in dark, and nobody's in Apple's.
-  const night = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).map((_, i) => i % 4 === 3 ? 255 : 18) };
-  const hint = (look) => judge(obs([{ ...card, fill: [18, 18, 18, 1] }], { scheme: 'dark', ...(look ? { look } : {}) }), night)[0].hint;
-  expect(hint('neutral')).toContain('on a plain page a card is -exact-secondary-background');
-  expect(hint()).not.toContain('on a plain page a card is');
   expect(found([{ ...card, x: 24 }])).toEqual([]);
   expect(found([{ ...card, edge: true }])).toEqual([]);
   // A side is read only where the capture shows the card's fill over what lies outside it. A red card under a white view
@@ -350,6 +338,37 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(spill.map((f) => [f.kind, f.id, f.detail.past, f.detail.of])).toEqual([['overflow', 9, 6, 8]]);
 });
 
+// LLP 1115.000 D4: a role known only by its drawn value is read in what its host draws, as the page says it (`palette`).
+test('an ink and a page\'s ground are known by what the page draws each role in', () => {
+  const png = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).fill(255) };
+  const obs = (items, extra = {}) => ({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items, ...extra });
+  const text = { id: 1, x: 2, y: 2, w: 16, h: 16, text: 'Hi', size: 16, weight: 400 };
+  const found = (items, extra) => judge(obs(items, extra), png).map((f) => `${f.kind}:${f.id}`);
+  const card = { id: 2, x: 4, y: 4, w: 12, h: 12, fill: [255, 255, 255, 1], radius: 8, fillRole: 'secondary-grouped-background' };
+  // A web page says what it draws each role in (`palette`, check.js): where its red is #c90f1a (3.5:1 on this grey)
+  // that red is the platform's, at 3:1, and Apple's red is some author's colour, at 4.5:1. An Apple host that says none
+  // (iOS) draws Apple's pairs.
+  const onGrey = { ...text, fg: [201, 15, 26, 1], bg: [200, 200, 200], on: 'own' };
+  const page = (scheme, roles) => ({ palette: { light: {}, dark: {}, [scheme]: roles } });
+  expect(found([onGrey], page('light', { 'system-red': [201, 15, 26, 1] }))).toEqual([]);
+  expect(found([onGrey])).toEqual(['contrast:1']);
+  expect(found([{ ...text, fg: [255, 56, 60, 1] }], page('light', { 'system-red': [201, 15, 26, 1] }))).toEqual(['contrast:1']);
+  // Safari on a Mac draws the secondary label as half black, no pair's value (3.9:1 on white): the page says it is the
+  // platform's secondary label, at 3:1.
+  const safariSecondary = { ...text, fg: [0, 0, 0, 0.498] };
+  expect(found([safariSecondary], page('light', { 'secondary-label': [0, 0, 0, 0.498] }))).toEqual([]);
+  expect(found([safariSecondary])).toEqual(['contrast:1']);
+  // An ink on the accent may be black: by value alone it is no role, so an author's black text on a dark grey (3.5:1)
+  // is held to 4.5:1 there too.
+  expect(found([{ ...text, fg: [0, 0, 0, 1], bg: [100, 100, 100], on: 'own' }], { scheme: 'dark', ...page('dark', { AccentColorText: [0, 0, 0, 1] }) })).toEqual(['contrast:1']);
+  // The hint knows a plain page by the ground its page draws: #121212 where the page says so, and nobody's in Apple's pairs,
+  // whose dark ground is black.
+  const night = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).map((_, i) => i % 4 === 3 ? 255 : 18) };
+  const hint = (extra) => judge(obs([{ ...card, fill: [18, 18, 18, 1] }], { scheme: 'dark', ...extra }), night)[0].hint;
+  expect(hint(page('dark', { background: [18, 18, 18, 1] }))).toContain('on a plain page a card is -exact-secondary-background');
+  expect(hint({})).not.toContain('on a plain page a card is');
+});
+
 // LLP 1116.009 D5: the judge names the cause: the written width, the padding, and the parent it runs past.
 test('a padded percentage width past its parent is an overflow that names its cause and its repair', () => {
   const png = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).fill(255) };
@@ -362,6 +381,19 @@ test('a padded percentage width past its parent is an overflow that names its ca
   expect(ios.map((x) => [x.kind, x.detail.past, x.detail.of, x.detail.pad, x.detail.written, x.detail.unit])).toEqual([['overflow', 14, 3, 14, undefined, 'pt']]);
   // The viewport's own overflow is still there beside it, not instead: the cause is named first, once.
   expect(judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [{ ...padded, outX: 14 }] }, png)).toHaveLength(1);
+});
+
+test('two texts drawn over each other run together, unless one stands on the opaque fill of the view laid over the other', () => {
+  const vp = { viewport: { w: 200, h: 100 }, scheme: 'light', target: 24 };
+  const row = { id: 3, text: 'Row 5', x: 0, y: 40, w: 60, h: 20 }, tab = { id: 7, text: 'Tab', x: 10, y: 45, w: 30, h: 20, on: 6 };
+  const kindsOf = (items) => judge({ ...vp, items }, null).map((f) => `${f.id} ${f.kind}`);
+  expect(kindsOf([row, tab])).toEqual(['3 overlap']); // no say about what is drawn over what: they run together
+  const bar = { by: 6, x: 0, y: 40, w: 200, h: 30 };
+  expect(kindsOf([{ ...row, beneath: bar }, { ...tab, solid: true }])).toEqual([]); // the row is under the bar (view 6) the tab's fill is
+  expect(kindsOf([{ ...row, beneath: bar }, tab])).toEqual(['3 overlap']); // a see-through bar: the row shows through it
+  expect(kindsOf([{ ...row, beneath: { ...bar, by: 9 } }, { ...tab, solid: true }])).toEqual(['3 overlap']); // under something else
+  // The tab's label running past its bar's edge meets the row outside the fill: they run together there.
+  expect(kindsOf([{ ...row, beneath: { ...bar, x: 20, w: 15 } }, { ...tab, solid: true }])).toEqual(['3 overlap']);
 });
 
 test('a page with every finding class has each found, by testId, in the scheme it shows in; a clean page has none', async () => {
@@ -381,8 +413,10 @@ test('a page with every finding class has each found, by testId, in the scheme i
     // row, so the longer title is cut at its button's edge (LLP 1116 D1's look let the button spill past the row).
     expect(l['opt-b']).toEqual(['clipped']);
     expect(l['opt-a']).toBeUndefined();
-    // The page says the look it draws, which is every build's (LLP 1115.000 D4 part B): its roles are judged in that column.
-    expect((await session.op({ op: 'check' })).look).toBe('neutral');
+    // The page says what it draws each of Exact's roles in, light and dark (Apple's colours, LLP 1115.000 D4): an ink is
+    // judged by that palette.
+    const { palette } = await session.op({ op: 'check' });
+    expect([palette?.light?.['secondary-label'], palette?.dark?.background]).toEqual([[60, 60, 67, 0.6], [0, 0, 0, 1]]);
     expect(l.faint).toEqual(['contrast']);
     expect(l.card).toEqual(['card']);
     // A card under a view drawn over it does not show because of that view, not its fill; a shape holding no text or

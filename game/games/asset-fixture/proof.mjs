@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import {checkSteadyResidency} from '../../render/tests/residency.mjs';
-import { proof } from '../../proof.mjs';
+import { proof, proofSDK } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 import {residencyProbe, checkResidency, checkTextureFamily, bakedTexture} from '../../render/tests/residency.mjs';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -30,7 +30,8 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
     // The web build minifies host modules (af5dfdf4); the probes below name
     // gpu-glue's own functions and anchor on its text, so they instrument the
     // source these files were built from.
-    const hostSource = name => Bun.file(resolve(import.meta.dir, '../../../host/web', name)).text();
+    // The SDK's host sources, not the snapshot's: a proof runs from a copy of the game.
+    const hostSource = name => Bun.file(resolve(proofSDK, 'host/web', name)).text();
     if(path === '/gpu-assets.js') {
       // The delivery gate follows the asset module; the renderer probe stays
       // in gpu-glue. Neither probe changes the shipped source.

@@ -5,14 +5,65 @@ use super::{accessory, hidden, over, s, symbol, with, LABEL, MARK, TERTIARY};
 use contract_syntax::Node;
 
 /// Whether a row's shown parts are an action cell's: one text, a symbol
-/// that is no accessory before it at most.
+/// that is no accessory before it at most. A symbol an `if` shows (every
+/// branch a symbol or nothing) is one before it at most too.
+/// The sheet's word on whether a grouped `button` row is an action cell,
+/// which the lowering sets as `groupedAction`, no author can write, and the
+/// kernel takes over the shape it sees (`GroupedRow::action`): the sheet
+/// sees every state of the source, a choice row's mark and an `if`'s two
+/// branches, where the kernel sees the one that shows.
+pub(crate) const ACTION_MARK: &str = "ua:grouped-action";
+
+/// The mark for a `button` row (`button`), saying `acting`.
+pub(super) fn mark(
+    button: bool,
+    acting: bool,
+    span: contract_syntax::Span,
+) -> Option<contract_syntax::Attr> {
+    button.then(|| contract_syntax::Attr {
+        name: ACTION_MARK.into(),
+        value: contract_syntax::Expr::Bool(acting, span),
+        span,
+        written: crate::IMPLIED,
+    })
+}
+
+/// The sheet's word on a row's attributes, if it gave one.
+pub(crate) fn said(attrs: &[contract_syntax::Attr]) -> Option<bool> {
+    attrs
+        .iter()
+        .find(|a| a.name == ACTION_MARK)
+        .and_then(|a| match a.value {
+            contract_syntax::Expr::Bool(b, _) => Some(b),
+            _ => None,
+        })
+}
+
 pub(super) fn action_cell(children: &[Node]) -> bool {
     let shown: Vec<&Node> = children.iter().filter(|c| !hidden(c)).collect();
     let text = |n: &Node| matches!(n, Node::Element { tag, .. } if tag == "text");
     match shown.as_slice() {
         [title] => text(title),
-        [icon, title] => symbol(icon).is_some_and(|s| accessory(s).is_none()) && text(title),
+        [icon, title] => leading(icon) && text(title),
         _ => false,
+    }
+}
+
+/// A symbol that is no accessory, or an `if` whose every branch shows one
+/// such at most.
+fn leading(node: &Node) -> bool {
+    match node {
+        Node::When {
+            then, otherwise, ..
+        } => [then, otherwise].iter().all(|branch| {
+            let shown: Vec<&Node> = branch.iter().filter(|c| !hidden(c)).collect();
+            match shown.as_slice() {
+                [] => true,
+                [one] => leading(one),
+                _ => false,
+            }
+        }),
+        _ => symbol(node).is_some_and(|s| accessory(s).is_none()),
     }
 }
 

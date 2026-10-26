@@ -515,6 +515,24 @@ fn dialog_id(p: &Presenter<()>) -> ViewId {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_id("clear-confirm")[0]).unwrap().id
 }
+/// The fixture with its alert's `from` written as `to`.
+fn with_alert(from: &str, to: &str) -> String {
+    let source = APP.replace(from, to);
+    assert_ne!(source, APP, "the fixture's alert");
+    source
+}
+/// A message long enough to overflow the alert at 320 by 640.
+fn long() -> String {
+    "The count goes back to zero, and every earlier count is lost. ".repeat(60)
+}
+/// `source` at 320 px with its alert open.
+fn opened(source: &str) -> Presenter<()> {
+    let mut p = boot(source, 320.);
+    p.tap(id(&p, "ask-clear")).unwrap();
+    p.run_commands(|| ());
+    p.frame();
+    p
+}
 fn boot(source: &str, width: f32) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
@@ -940,3 +958,386 @@ fn coordinate_and_keyboard_modal_input(closedby: &str) {
     assert!(p.rect_of(clear).is_none());
     assert_eq!(p.focus(), Some(trigger));
 }
+
+/// An alert the compiler grouped (`alertPart`, contract/lower/src/alert_parts.rs)
+/// is laid out by the kernel as the web lays it out (host/web/index.html): a
+/// long message shrinks to its box, which scrolls, while the title and the
+/// buttons stay inside the dialog and the window.
+#[test]
+fn a_grouped_alerts_long_message_scrolls_and_its_title_and_buttons_stay() {
+    setup();
+    let words = long();
+    let mut p = opened(&with_alert(
+        "      dialog id=\"clear-confirm\" role=\"alertdialog\" aria-label=\"Clear the count?\" padding=16\n        text \"The count goes back to zero.\"",
+        &format!("      dialog id=\"clear-confirm\" role=\"alertdialog\" padding=16\n        text \"Clear the count?\" testId=\"title\"\n        text \"{words}\" testId=\"message\""),
+    ));
+    let dialog = dialog_id(&p);
+    let rect = visible(p.rect_of(dialog), 320., 640.);
+    let k = p.host().kernel();
+    let node = |name: &str| k.node(id(&p, name)).unwrap();
+    let title = node("title");
+    let message = k.node(node("message").parent.unwrap()).unwrap();
+    assert_eq!(
+        message.props.str(exact_kernel::PropId::AlertPart),
+        Some("message")
+    );
+    assert!(
+        message.content.1 > message.frame.height + 1.,
+        "the message scrolls in its box"
+    );
+    assert!(
+        title.frame.y < message.frame.y,
+        "the title above the message"
+    );
+    let below = message.frame.y + message.frame.height;
+    for button in ["clear-confirm-clear", "clear-confirm-cancel"] {
+        let (_, y, _, h) = visible(p.rect_of(id(&p, button)), 320., 640.);
+        assert!(
+            y >= below && y + h <= rect.1 + rect.3 && y + h <= 640.,
+            "{button} in view"
+        );
+    }
+    assert!(
+        rect.1 >= 0. && rect.1 + rect.3 <= 640.,
+        "the dialog in the window"
+    );
+}
+
+/// On Linux the long message paints inside its box, clear of the buttons,
+/// the accessibility tree has the box as a scroller, and the wheel over it
+/// scrolls the box: the end of the message is reached (paint.rs
+/// `effective_overflow` reads the alert's defaults for its parts).
+#[test]
+fn a_grouped_alerts_long_message_paints_in_its_box_and_the_wheel_scrolls_it() {
+    setup();
+    let words = long();
+    let mut p = opened(&with_alert(
+        "        text \"The count goes back to zero.\"",
+        &format!("        text \"{words}\" testId=\"message\""),
+    ));
+    let text = id(&p, "message");
+    let message = p.host().kernel().node(text).unwrap().parent.unwrap();
+    let painted =
+        |p: &mut Presenter<()>, id: ViewId| *p.boxes().iter().find(|b| b.id == id).unwrap();
+    let held = painted(&mut p, message).rect;
+    let clip = painted(&mut p, text)
+        .clip
+        .expect("the message's text is clipped");
+    let cancel = visible(p.rect_of(id(&p, "clear-confirm-cancel")), 320., 640.);
+    assert!(
+        clip.1 >= held.1 - 0.5 && clip.1 + clip.3 <= held.1 + held.3 + 0.5,
+        "the text paints inside its box: {clip:?} in {held:?}"
+    );
+    assert!(
+        clip.1 + clip.3 <= cancel.1,
+        "clear of the buttons: {clip:?} above {cancel:?}"
+    );
+    // The accessibility tree says so too: the box is a scroller
+    let (nodes, _, _) = p.access_tree();
+    let scroller = nodes.iter().find(|n| n.view == message).map(|n| n.role);
+    assert_eq!(
+        scroller,
+        Some(exact_linux::presenter::access::role::SCROLLER),
+        "the box is a scroller to assistive technology"
+    );
+    let top = painted(&mut p, text).rect.1;
+    p.wheel(message, 0., 200.).unwrap();
+    p.frame();
+    assert_eq!(
+        p.scroll_of(message),
+        (0., 200.),
+        "the wheel scrolls the box"
+    );
+    assert_eq!(
+        painted(&mut p, text).rect.1,
+        top - 200.,
+        "the text moves up"
+    );
+}
+
+/// The message box keeps a gutter at its inline end for an overlay scroll
+/// indicator, as the web's does (host/web/neutral.css): on the right, on the
+/// left in right-to-left text, whatever padding the alert has.
+#[test]
+fn a_grouped_alerts_message_keeps_a_gutter_for_the_scroll_indicator() {
+    setup();
+    let words = long();
+    for (written, inset, gutter) in [
+        ("", 24., (0., 8.)),
+        (" padding=16", 16., (0., 8.)),
+        (" direction=\"rtl\"", 24., (8., 0.)),
+    ] {
+        let p = opened(&with_alert(
+            "aria-label=\"Clear the count?\" padding=16\n        text \"The count goes back to zero.\"",
+            &format!("aria-label=\"Clear the count?\"{written}\n        text \"{words}\" testId=\"message\""),
+        ));
+        let k = p.host().kernel();
+        let t = k.node(id(&p, "message")).unwrap().frame;
+        let m = k
+            .node(k.node(id(&p, "message")).unwrap().parent.unwrap())
+            .unwrap()
+            .frame;
+        let d = k.node(dialog_id(&p)).unwrap().frame;
+        // The box's inline insets from the alert's edges, and the gutters
+        // between the words and the box's left and right edges
+        let right = |f: exact_kernel::Frame| f.x + f.width;
+        assert_eq!(
+            (
+                m.x - d.x,
+                right(d) - right(m),
+                (t.x - m.x, right(m) - right(t))
+            ),
+            (inset, inset, gutter),
+            "{written:?}"
+        );
+    }
+}
+
+/// The message box leaves color to its texts, as the web's does
+/// (host/web/neutral.css): a text that inherits its color takes the alert's,
+/// and any other, one an `if` adds too, the secondary label a flat alert's
+/// text takes.
+#[test]
+fn a_grouped_alerts_texts_take_their_colors_as_a_flat_alerts_do() {
+    setup();
+    let source = with_alert(
+        "      dialog id=\"clear-confirm\" role=\"alertdialog\" aria-label=\"Clear the count?\" padding=16\n        text \"The count goes back to zero.\"",
+        "      dialog id=\"clear-confirm\" role=\"alertdialog\" aria-label=\"Clear the count?\" padding=16 color=\"-exact-link\"\n        text \"The alert's.\" color=\"inherit\" testId=\"inherits\"\n        text \"Its own.\" testId=\"own\"\n        if count > 7\n          text \"Added.\" testId=\"added\"",
+    );
+    let mut p = boot(&source, 320.);
+    // A row the `if` adds to the box once it is there
+    p.tap(id(&p, "bump")).unwrap();
+    p.run_commands(|| ());
+    p.tap(id(&p, "ask-clear")).unwrap();
+    p.run_commands(|| ());
+    p.frame();
+    let k = p.host().kernel();
+    let color = |v: ViewId| k.node(v).unwrap().text_color();
+    let message = k.node(id(&p, "own")).unwrap().parent.unwrap();
+    assert_eq!(
+        k.node(message)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::AlertPart),
+        Some("message")
+    );
+    let alert = color(dialog_id(&p));
+    assert_eq!(color(id(&p, "inherits")), alert, "the alert's color");
+    let own = color(id(&p, "own"));
+    assert_ne!(own, alert, "the secondary label");
+    assert_eq!(k.node(id(&p, "added")).unwrap().parent, Some(message));
+    assert_eq!(color(id(&p, "added")), own, "an added row's");
+    assert_eq!(color(message), alert, "the box leaves the alert's color");
+}
+
+/// A message box its `if` leaves empty takes no room, as the web's does
+/// (host/web/index.html): the alert lays out as the same alert with no
+/// message, titled by its label or by a text (the actions keep no margin
+/// where nothing is above them); once the `if` holds, the message comes
+/// between as it does in an alert whose `if` held from the start.
+#[test]
+fn a_grouped_alerts_empty_message_takes_no_room() {
+    setup();
+    for title in [
+        "aria-label=\"Clear the count?\" padding=16\n",
+        "padding=16\n        text \"Clear the count?\"\n",
+    ] {
+        let alert = |rows: &str| {
+            with_alert(
+                "aria-label=\"Clear the count?\" padding=16\n        text \"The count goes back to zero.\"\n",
+                &format!("{title}{rows}"),
+            )
+        };
+        let message = |when: &str| {
+            alert(&format!(
+                "        if count > {when}\n          text \"The count goes back to zero.\"\n"
+            ))
+        };
+        // The first button's top in the dialog, and the dialog's height
+        let place = |source: &str, bump: bool| {
+            let mut p = boot(source, 320.);
+            if bump {
+                p.tap(id(&p, "bump")).unwrap();
+                p.run_commands(|| ());
+            }
+            p.tap(id(&p, "ask-clear")).unwrap();
+            p.run_commands(|| ());
+            p.frame();
+            let k = p.host().kernel();
+            let dialog = k.node(dialog_id(&p)).unwrap().frame;
+            let clear = k.node(id(&p, "clear-confirm-clear")).unwrap().frame;
+            (clear.y - dialog.y, dialog.height)
+        };
+        let bare = place(&alert(""), false);
+        assert_eq!(place(&message("7"), false), bare, "{title:?}: empty");
+        let held = place(&message("7"), true);
+        assert_eq!(held, place(&message("6"), false), "{title:?}: held");
+        assert!(held.0 > bare.0 && held.1 > bare.1, "{title:?}: between");
+    }
+}
+
+/// A change to a part's mark, or to the alert's role or tag, reaches what reads it,
+/// incrementally as a rebuild lays it out: the dialog and its title's box
+/// (layout/alert.rs), and the buttons in its actions box, two levels down
+/// (txn/defaults.rs).
+#[test]
+fn a_part_or_role_change_lays_out_as_a_rebuild_does() {
+    use exact_kernel::{
+        Kernel, MonospaceMeasurer, NodeType, Offer, Op, PropId, PropValue, StyleId, StyleProps,
+        StyleValue,
+    };
+    setup();
+    let set = |id, prop, value: &str| Op::SetProp {
+        id,
+        prop,
+        value: PropValue::Str(value.into()),
+    };
+    let style = |id: u32, rows: &[(StyleId, &str)]| {
+        let mut patch = StyleProps::default();
+        for (row, value) in rows {
+            patch
+                .set_dynamic(*row, &StyleValue::Text((*value).into()))
+                .unwrap();
+        }
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    };
+    let views = [
+        (1, NodeType::View),
+        (2, NodeType::View),
+        (3, NodeType::Text),
+        (4, NodeType::View),
+        (5, NodeType::Pressable),
+        (6, NodeType::Text),
+    ];
+    let mut ops: Vec<Op> = views
+        .iter()
+        .map(|&(id, node_type)| Op::CreateView { id, node_type })
+        .collect();
+    ops.extend([
+        set(1, PropId::SemanticTag, "dialog"),
+        set(1, PropId::AccessibilityRole, "alertdialog"),
+        set(1, PropId::AccessibilityLabel, "Clear the count?"),
+        set(2, PropId::AlertPart, "message"),
+        set(3, PropId::Text, &"Every earlier count is lost. ".repeat(40)),
+        set(4, PropId::AlertPart, "actions"),
+        set(6, PropId::Text, "OK"),
+        style(
+            2,
+            &[
+                (StyleId::Display, "flex"),
+                (StyleId::FlexDirection, "column"),
+            ],
+        ),
+        style(
+            4,
+            &[(StyleId::Display, "flex"), (StyleId::FlexDirection, "row")],
+        ),
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 4],
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3],
+        },
+        Op::SetChildren {
+            id: 4,
+            children: vec![5],
+        },
+        Op::SetChildren {
+            id: 5,
+            children: vec![6],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut k = Kernel::with_monospace();
+    k.apply(0, 1, &ops).unwrap();
+    k.set_alert_prefix(1, true).unwrap();
+    let offer = Offer::definite(320., 400.);
+    let frames = |k: &Kernel| {
+        (
+            k.alert_prefix_frame(1),
+            [1, 2, 3, 4, 5].map(|v| k.node(v).unwrap().frame),
+        )
+    };
+    let same = |k: &mut Kernel, why: &str| {
+        k.compute_layout(1, offer).unwrap();
+        let mut rebuilt = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+        rebuilt.compute_layout(1, offer).unwrap();
+        assert_eq!(frames(k), frames(&rebuilt), "{why}");
+        frames(k)
+    };
+    let grouped = same(&mut k, "grouped");
+    k.apply(
+        0,
+        2,
+        &[Op::ClearProp {
+            id: 4,
+            prop: PropId::AlertPart,
+        }],
+    )
+    .unwrap();
+    let (title, rows) = same(&mut k, "the actions' mark taken away");
+    assert_eq!(
+        title.unwrap().width,
+        rows[0].width - 48.,
+        "a flat alert's title is a line of its own"
+    );
+    k.apply(0, 3, &[set(4, PropId::AlertPart, "actions")])
+        .unwrap();
+    assert_eq!(same(&mut k, "the mark given back"), grouped);
+    k.apply(0, 3, &[style(1, &[(StyleId::Direction, "rtl")])])
+        .unwrap();
+    let (_, rows) = same(&mut k, "right to left");
+    assert_eq!(rows[2].x, rows[1].x + 8., "the gutter on the left");
+    let mut direction = exact_kernel::StyleMask::EMPTY;
+    direction.set(StyleId::Direction);
+    k.apply(
+        0,
+        3,
+        &[Op::ClearStyle {
+            id: 1,
+            mask: direction,
+            written: false,
+        }],
+    )
+    .unwrap();
+    assert_eq!(same(&mut k, "left to right again"), grouped);
+    k.apply(0, 4, &[set(1, PropId::AccessibilityRole, "dialog")])
+        .unwrap();
+    same(&mut k, "no longer an alert");
+    k.apply(0, 5, &[set(1, PropId::AccessibilityRole, "alertdialog")])
+        .unwrap();
+    assert_eq!(same(&mut k, "the role given back"), grouped);
+    k.apply(
+        0,
+        6,
+        &[Op::ClearProp {
+            id: 1,
+            prop: PropId::SemanticTag,
+        }],
+    )
+    .unwrap();
+    same(&mut k, "no longer a dialog");
+    k.apply(0, 7, &[set(1, PropId::SemanticTag, "dialog")])
+        .unwrap();
+    assert_eq!(same(&mut k, "the tag given back"), grouped);
+    // An actions box its `if` leaves empty takes no room, as an empty message
+    // box takes none: the alert ends at its message and padding
+    let actions = |children| Op::SetChildren { id: 4, children };
+    k.apply(0, 8, &[actions(vec![])]).unwrap();
+    let (_, rows) = same(&mut k, "no button showing");
+    let end = rows[1].y + rows[1].height + 24.;
+    assert!(
+        (rows[0].y + rows[0].height - end).abs() < 0.01,
+        "the alert ends at its message: {rows:?}"
+    );
+    k.apply(0, 9, &[actions(vec![5])]).unwrap();
+    assert_eq!(same(&mut k, "the button back"), grouped);
+}
+
+#[path = "neutral_alert/keyboard.rs"]
+mod keyboard;

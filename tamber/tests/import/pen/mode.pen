@@ -1,0 +1,17 @@
+{
+  "version": "2.11",
+  "themes": { "mode": ["default", "dark"] },
+  "variables": {
+    "color.page-bg": { "type": "color", "value": [
+      { "value": "#f0f2f5", "theme": { "mode": "default" } },
+      { "value": "#303133", "theme": { "mode": "dark" } }
+    ] },
+    "color.border": { "type": "color", "value": "#DCDFE6" },
+    "radius.card": { "type": "number", "value": 8 },
+    "space.page": { "type": "number", "value": 16 }
+  },
+  "children": [
+    { "type": "frame", "id": "board", "theme": { "mode": "dark" }, "fill": "$color.page-bg", "cornerRadius": "$radius.card",
+      "padding": "$space.page", "stroke": { "fill": "$color.border" }, "children": [] }
+  ]
+}

@@ -140,6 +140,13 @@ export function defaultBranchCopy(action: string, branchName: string, includesCo
     : { title: `Push & create ${term.shortLabel} from default ref?`, description: `This action will push local commits and create a ${term.singular}${suffix}`, continueLabel: `Push & create ${term.shortLabel}` };
 }
 
+/**
+ * resolveFeatureBranchUnavailableReason: why the default-ref dialog cannot check out a feature ref, or '' when it
+ * can. The server names that ref from the uncommitted changes, so a clean tree cannot use it.
+ */
+export const featureBranchUnavailableReason = (branchName: string, hasWorkingTreeChanges: boolean): string =>
+  hasWorkingTreeChanges ? '' : `There are no changes to commit, so a feature branch can't be named. Create a branch yourself or continue on ${branchName}.`;
+
 /** formatGitActionElapsed: "12s", "1m 5s". */
 export function formatElapsed(startedAt: number, now: number): string {
   if (startedAt <= 0) return '';

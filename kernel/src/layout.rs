@@ -32,7 +32,7 @@ use crate::id::{IdMap, IdSet};
 use crate::shared_style::Interner;
 use std::rc::Rc;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
-use taffy::tree::{Baselines, LayoutInput};
+use taffy::tree::{Baselines, LayoutInput, RequestedAxis};
 use taffy::util::{MaybeResolve, ResolveOrZero};
 use taffy::TraversePartialTree;
 
@@ -158,7 +158,7 @@ pub struct LayoutTree {
     flowing: IdSet<u32>,
     pub(crate) unsettled: IdSet<u32>,
     // Equal engine styles are one allocation (`shared_style`).
-    shared: Interner<taffy::Style, ()>,
+    shared: Interner<taffy::Style>,
     // @ref LLP 1074 T1 — the absolutely positioned boxes, and whether the
     // engine's record of which containing block holds each one that is not its
     // parent's is stale: a position or a child list changed since it was made.
@@ -285,6 +285,10 @@ impl LayoutMirror for LayoutTree {
 
     fn restyle(&mut self, arena: &NodeArena, slot: u32, node: NodeId) {
         self.set_style(node, taffy_style(arena, slot));
+        // The title's box follows its alert's grouping (layout/alert.rs)
+        if let Some(prefix) = self.alert_prefixes.get(&slot).copied() {
+            self.write_style(prefix, alert::prefix_style(arena.grouped_alert(slot)));
+        }
     }
 
     fn sync_children(&mut self, arena: &NodeArena, parent: u32, node: NodeId) -> usize {
@@ -432,9 +436,9 @@ impl LayoutTree {
     /// One allocation for every engine style equal to `style`.
     fn share(&mut self, style: taffy::Style) -> Rc<taffy::Style> {
         let hash = engine_hash(&style);
-        match self.shared.get(hash, |_, held| *held == style) {
+        match self.shared.get(hash, |held| *held == style) {
             Some(found) => found,
-            None => self.shared.insert(hash, (), style),
+            None => self.shared.insert(hash, style),
         }
     }
 
@@ -929,10 +933,10 @@ impl LayoutTree {
         if let Some(fault) = &self.fault {
             return Err(LayoutError::Engine(fault.clone()));
         }
-        // @ref LLP 1043.000 §3 D3 — invalidate only the text whose height
-        // proof matters to live wrapping contexts. Clean roots retain their
-        // cached proof; hidden, detached and other-root exclusions do no work.
-        if self.is_dirty(root) && !arena.exclusion_slots.is_empty() {
+        // @ref LLP 1043.000 §3 D3 — changed offers can mix cached intrinsic heights
+        // with fresh layout. Invalidate contributing leaves to rebuild their proof.
+        let changed = self.is_dirty(root) || self.last_offer(root) != Some(offer);
+        if changed && !arena.exclusion_slots.is_empty() {
             let mut contexts = crate::sorted::SlotSet::default();
             for slot in arena.exclusion_slots.iter() {
                 let mut at = Some(slot);
@@ -1042,8 +1046,6 @@ impl LayoutTree {
                 record.parent_width = inputs.parent_size.width;
             }
 
-            // Patch 2's separate API is unnecessary: the upstream callback owns
-            // LayoutOutput, including baselines in border-box coordinates.
             let inset = style
                 .padding
                 .resolve_or_zero(inputs.parent_size.width, crate::style::resolve_calc)
@@ -1078,13 +1080,15 @@ impl LayoutTree {
                     let Some(context) = context else {
                         return Size::ZERO;
                     };
-                    // Clear on the first actual measurement of this pass. A cache
-                    // hit retains the proof of the pass that produced that layout.
-                    if context.pass != pass {
-                        context.pass = pass;
-                        context.height_measured = false;
+                    // Width probes leave a cached layout's height proof intact. Reset
+                    // on the first height measurement, keeping dependence through stretching.
+                    if inputs.axis != RequestedAxis::Horizontal {
+                        if context.pass != pass {
+                            context.pass = pass;
+                            context.height_measured = false;
+                        }
+                        context.height_measured |= !height_known;
                     }
-                    context.height_measured |= !height_known;
                     let slot = context.slot;
                     if let Some((size, metrics)) = alert::measure(
                         arena,
@@ -1172,7 +1176,7 @@ impl LayoutTree {
                     };
                     // @ref LLP 1093 D1 — a multi-column `text` breaks its
                     // lines at the column width; its height is the columns'.
-                    let width = match (style.multicol, known.width) {
+                    let width = match (style.rare.multicol, known.width) {
                         (Some(m), Some(u)) => AxisOffer::Definite(m.columns(u).1),
                         _ => width,
                     };
@@ -1232,9 +1236,6 @@ impl LayoutTree {
                             if runs.is_empty() {
                                 return Size::ZERO;
                             }
-                            // Direction and alignment inherit (a paragraph inside a
-                            // centred column centres, as in CSS); the rest are its own.
-                            let paragraph = arena.paragraph(slot);
                             // @ref LLP 1043.000 §8 — an admitted auto-height leaf is
                             // measured around its settled shapes, in content space as
                             // the painters flow it. Intrinsic probes stay unobstructed:
@@ -1247,13 +1248,7 @@ impl LayoutTree {
                                     .collect(),
                                 _ => Vec::new(),
                             };
-                            let request = TextMeasureRequest {
-                                exclusions: &shapes,
-                                runs: &runs,
-                                paragraph,
-                                width,
-                                height,
-                            };
+                            let request = fit::request(arena, slot, &runs, &shapes, width, height);
                             fields::text(arena, slot, measurer, stamp.as_ref(), &request)
                         };
                         if !metrics.is_valid() {
@@ -1273,7 +1268,7 @@ impl LayoutTree {
                         metrics
                     };
                     let mut metrics = metrics;
-                    if let Some(h) = style.multicol.and_then(|m| m.used_height) {
+                    if let Some(h) = style.rare.multicol.and_then(|m| m.used_height) {
                         metrics.height = h;
                     }
                     if arena.node_type(slot) == NodeType::TextInput

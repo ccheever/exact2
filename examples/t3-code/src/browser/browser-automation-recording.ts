@@ -2,14 +2,13 @@
 // previewAutomation host (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/
 // PreviewAutomationHosts.tsx, the `recordingStart` and `recordingStop` cases; previewAutomationErrors.ts
 // `PreviewAutomationRecordingNotActiveError`, `PreviewAutomationOperationError.fromCause`; apps/web/src/browser/
-// browserRecording.ts, browserRecordingScope.ts, browserRecordingUpload.ts).
+// browserRecording.ts, browserRecordingScope.ts, browserRecordingUpload.ts), and the window's queued sends every
+// long-lived piece of browser work runs in.
 //
-// The module's host waits for the tab and hands the request over (T3BrowserAutomationRecording.swift): it lists it in
-// `presentation.browserAutomation.recordings` until an answer comes back. Each listed request runs here once, on the
-// lifecycle (browser-recording.ts, the client's one `BrowserRecordings`: the Capture button's own recordings, so a tab
-// the agent records shows Stop recording and a person's stop ends the agent's recording, as in the reference), and its
-// outcome goes back to the module (`browserAutomation` with `answer`), which answers `previewAutomation.respond`. The
-// work runs in one of the window's queued sends for it (below), not in the shell's answer that saw the request.
+// A recording request runs on the lifecycle (browser-recording.ts, the client's one `BrowserRecordings`: the Capture
+// button's own recordings, so a tab the agent records shows Stop recording and a person's stop ends the agent's
+// recording, as in the reference); the executor (browser-automation-run.ts) runs it in one of the queued sends below and
+// answers `previewAutomation.respond` with its outcome.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
@@ -20,7 +19,7 @@ import {
 } from './browser-recording';
 import { operationError, targetUnavailableError, type ErrorContext, type HostErrorJson } from './browser-automation-plan';
 
-/** One request the module handed over (T3BrowserAutomation `handOver`). */
+/** One recording request, as the executor builds it from the request's plan. */
 export type RecordingRequest = {
   key: string; requestId: string; connectionId: string; operation: 'recordingStart' | 'recordingStop'; environmentId: string; threadId: string;
   /** The request's tab, else the thread's current one (`request.tabId ?? state.snapshot?.tabId`). */
@@ -32,17 +31,6 @@ export type RecordingRequest = {
   /** The request's host deadline (its receipt plus `resolveHostWaitBudgetMs`), in epoch milliseconds. */
   deadlineMs: number;
 };
-export function readRecordingRequests(presentation: unknown): RecordingRequest[] {
-  const list = obj(obj(presentation).browserAutomation).recordings;
-  return (Array.isArray(list) ? list : []).flatMap(raw => {
-    const entry = obj(raw), operation = str(entry.operation);
-    if (!str(entry.key) || !str(entry.requestId) || (operation !== 'recordingStart' && operation !== 'recordingStop')) return [];
-    return [{ key: str(entry.key), requestId: str(entry.requestId), connectionId: str(entry.connectionId), operation, environmentId: str(entry.environmentId),
-      threadId: str(entry.threadId), tabId: str(entry.tabId) || null, tabIdExplicit: entry.tabIdExplicit === true, runtimeId: str(entry.runtimeId) || null,
-      input: obj(entry.input), generation: Number(entry.generation) || 0, fleet: str(entry.fleet), deadlineMs: Number(entry.deadlineMs) || 0 }];
-  });
-}
-
 /** PreviewAutomationRecordingNotActiveError (answered as PreviewAutomationExecutionError). */
 export const recordingNotActiveError = (context: Omit<ErrorContext, 'operation'>): HostErrorJson => ({
   _tag: 'PreviewAutomationExecutionError',
@@ -90,73 +78,93 @@ export async function runRecordingRequest(request: RecordingRequest, deps: Recor
   } catch (error) { return { ok: false, error: recordingHostError(error, context()) }; }
 }
 
-/** The module's upload (`browserRecordingUpload`) on the request's own connection. The connection goes under its own key:
- *  a module request with a top-level `fleet` is the fleet's (T3Module `later`), even an empty one. */
-export function nativeDeps(client: T3Client, request: RecordingRequest): RecordingDeps {
-  const connection = { connection: { generation: request.generation, fleet: request.fleet } };
+/** The request's connection, as the executor has it: an RPC there, the server's origin and the request's budget left. */
+export type RecordingLink = { rpc: (method: string, payload: Obj) => Promise<Obj>; origin: string; remaining: () => number };
+/** runAttachmentUploadCycle on the request's own connection: `attachments.createUploadUrl` and `attachments.delete` go out on
+ *  this module's socket; the bytes go from the module (`browserRecordingUpload`, T3BrowserPage.swift), since the saved
+ *  recording is in the artifact directory, outside the app's files this module can read. The transfer keeps the
+ *  deadline on the module's clock; the mint keeps it on the run's (`expired` is the reference's
+ *  `Date.now() >= deadlineMs - 1_000`). */
+export function nativeDeps(client: T3Client, link: RecordingLink): RecordingDeps {
+  const expired = () => link.remaining() <= 1000;
   return {
     recordings: captureHost(client).recordings,
     upload: async input => {
-      const value = await captureNativeCall(client, { op: 'browserRecordingUpload', action: 'upload', ...connection, ...input });
-      if (str(value.status) === 'uploaded' && str(value.attachmentId)) return { status: 'uploaded', attachmentId: str(value.attachmentId) };
-      return { status: 'failed', attachmentId: str(value.attachmentId) || null, error: new Error(str(value.error, 'Recording upload failed.')), expired: value.expired === true };
+      // Encoding, saving and minting consume the same request budget. Leave time to reply.
+      if (expired()) return { status: 'failed', attachmentId: null, error: new Error('Recording transfer deadline expired.'), expired: true };
+      let minted: Obj;
+      try { minted = await link.rpc('attachments.createUploadUrl', { type: 'file', name: input.name.slice(0, 255), mimeType: input.mimeType, sizeBytes: input.sizeBytes }); }
+      catch (error) { if (letGo(error)) throw error; return { status: 'failed', attachmentId: null, error, expired: expired() }; }
+      const attachmentId = str(minted.attachmentId), relativeUrl = str(minted.relativeUrl);
+      if (!attachmentId || !relativeUrl) return { status: 'failed', attachmentId: attachmentId || null, error: new Error('The upload could not be prepared.'), expired: expired() };
+      let value: Obj;
+      try { value = await captureNativeCall(client, { op: 'browserRecordingUpload', origin: link.origin, relativeUrl, path: input.path, mimeType: input.mimeType, deadlineMs: input.deadlineMs }); }
+      catch (error) {
+        // A let-go call returns to no caller that would remove the minted attachment, so it goes here.
+        if (letGo(error)) { void link.rpc('attachments.delete', { attachmentId }).catch(() => undefined); throw error; }
+        return { status: 'failed', attachmentId, error, expired: expired() };
+      }
+      if (str(value.status) === 'uploaded') return { status: 'uploaded', attachmentId };
+      return { status: 'failed', attachmentId, error: new Error(str(value.error, 'Recording upload failed.')), expired: value.expired === true };
     },
-    remove: attachmentId => { void captureNativeCall(client, { op: 'browserRecordingUpload', action: 'remove', attachmentId, ...connection }).catch(() => undefined); },
+    remove: attachmentId => { void link.rpc('attachments.delete', { attachmentId }).catch(() => undefined); },
   };
 }
 
 // ── The window's queued sends (app.contract `automationRecording`) ──────────────────────────────
 // A native call belongs to the answer whose continuation makes it: one an answer makes after a newer one let it go is
-// refused, and one made after its answer was given waits for the next answer to settle. So the lifecycle cannot run
-// detached from the shell's answers, which come and go with every status. It runs in a send of its own: the panel
-// projects a serial that grows with each request the module hands over and names a send none of them runs on
-// (`automationRecordingView`), the window's task sends `shelllocal:surface-browser-automation-recording` on that queued
-// mutation (no send replaces another), and that send's answer runs every request not yet started to its end
-// (`serveRecordingRequests`), as the Capture button's send runs its own recording. There are four sends: a queued send
-// waits for the reply before it, and with one, a start listed during another thread's stop waited out that stop's
-// upload, where the reference handles each request on its own (`handleRequest`; review of 2026-10-12). Only a fifth
-// request in flight at once waits, behind one of the four (a Contract mutation's sends replace or queue: LLP 1092).
+// refused, and one made after its answer was given waits for the next answer to settle. So work that outlives the
+// shell's answers (an agent's request that waits on its page, a recording, a pick the person finishes) runs in a send of
+// its own: `queueSlotWork` queues a keyed piece of work and bumps a serial the panel projects with a send none of the
+// work runs on (`automationRecordingView`), the window's task sends `shelllocal:surface-browser-automation-recording` on
+// that queued mutation (no send replaces another), and that send's answer runs every piece not yet started to its end
+// with its own native (`serveRecordingRequests`). There are four sends: a queued send waits for the reply before it, and
+// with one, a start listed during another thread's stop waited out that stop's upload, where the reference handles each
+// request on its own (`handleRequest`; review of 2026-10-12). Only a fifth piece in flight at once waits, behind one of
+// the four (a Contract mutation's sends replace or queue: LLP 1092).
 export const RECORDING_SENDS = 4;
-type Served = { announced: Set<string>; serial: number; running: Map<string, Promise<void>>; done: Set<string>; busy: Set<number> };
-const served = new WeakMap<T3Client, Served>();
-function servedOf(client: T3Client): Served {
+type Work = { key: string; run: (native: Native) => Promise<void> };
+type Served = { queued: Work[]; running: Set<string>; serial: number; busy: Set<number> };
+const served = new WeakMap<object, Served>();
+function servedOf(client: object): Served {
   let state = served.get(client);
-  if (!state) { state = { announced: new Set(), serial: 0, running: new Map(), done: new Set(), busy: new Set() }; served.set(client, state); }
+  if (!state) { state = { queued: [], running: new Set(), serial: 0, busy: new Set() }; served.set(client, state); }
   return state;
 }
+/** Queues `work` under `key` for the next queued send (a key already queued or running is left as it is). */
+export function queueSlotWork(client: T3Client, key: string, work: (native: Native) => Promise<void>): void {
+  const state = servedOf(client);
+  if (state.running.has(key) || state.queued.some(entry => entry.key === key)) return;
+  state.queued.push({ key, run: work });
+  state.serial++;
+  client.revision++;
+}
+/** Whether work under `key` is queued or running. */
+export function slotWorkRunning(client: object, key: string): boolean {
+  const state = servedOf(client);
+  return state.running.has(key) || state.queued.some(entry => entry.key === key);
+}
 export type AutomationRecordingView = { serial: number; slot: number };
-/** The panel's projection (`shell.panel.automationRecording`): `serial` bumps once for each request the module newly
- *  lists; `slot` is the send the window's task sends on, one whose answer runs nothing (else one in turn). */
-export function automationRecordingView(client: T3Client): AutomationRecordingView {
-  const state = servedOf(client), listed = new Set(readRecordingRequests(client.presentation).map(request => request.key));
-  for (const key of listed) if (!state.announced.has(key)) { state.announced.add(key); state.serial++; }
-  for (const key of [...state.announced]) if (!listed.has(key)) state.announced.delete(key); // settled: no longer listed
+/** The panel's projection (`shell.panel.automationRecording`): `serial` bumps once for each piece of work queued; `slot`
+ *  is the send the window's task sends on, one whose answer runs nothing (else one in turn). */
+export function automationRecordingView(client: object): AutomationRecordingView {
+  const state = servedOf(client);
   const free = Array.from({ length: RECORDING_SENDS }, (_, slot) => slot).find(slot => !state.busy.has(slot));
   return { serial: state.serial, slot: free ?? state.serial % RECORDING_SENDS };
 }
 
-/** Send `slot`'s answer: every listed request not yet started runs once, to its end, and its outcome goes to the module.
- *  The answer waits for the requests it started, never for another send's. */
+/** Send `slot`'s answer: every queued piece of work runs once, to its end, with this send's native. The answer waits for
+ *  the work it started, never for another send's. */
 export async function serveRecordingRequests(client: T3Client, native: Native, slot: number): Promise<void> {
   adoptCaptureNative(client, native); // this send's answer lives until its work ends: its native carries the calls
-  const state = servedOf(client), requests = readRecordingRequests(client.presentation);
-  const listed = new Set(requests.map(request => request.key));
-  for (const key of [...state.done]) if (!listed.has(key)) state.done.delete(key);
-  const started: Promise<void>[] = [];
-  for (const request of requests) {
-    if (state.running.has(request.key) || state.done.has(request.key)) continue;
-    const run = (async () => {
-      let answer: RecordingAnswer;
-      try { answer = await runRecordingRequest(request, nativeDeps(client, request)); }
-      catch { answer = { ok: false, error: operationError({ requestId: request.requestId, operation: request.operation, environmentId: request.environmentId, threadId: request.threadId, tabId: request.tabId }) }; }
-      try { await captureNativeCall(client, { op: 'browserAutomation', plan: { answer: request.key, ...answer } as Obj }); }
-      catch (error) { if (letGo(error)) throw error; }
-      finally { state.running.delete(request.key); state.done.add(request.key); }
-    })();
-    state.running.set(request.key, run);
-    started.push(run);
-  }
-  if (!started.length) return;
+  const state = servedOf(client), work = state.queued.splice(0);
+  if (!work.length) return;
+  const started = work.map(async entry => {
+    state.running.add(entry.key);
+    try { await entry.run(native); }
+    catch (error) { if (letGo(error)) throw error; }
+    finally { state.running.delete(entry.key); }
+  });
   state.busy.add(slot);
   try { await Promise.all(started); } finally { state.busy.delete(slot); }
 }

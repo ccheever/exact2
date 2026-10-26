@@ -123,6 +123,7 @@ impl Lowerer<'_> {
                 if name == "share" {
                     share_pictures(&self.root.view, args)?;
                 }
+                crate::frames::check_command(&self.root.view, name, args)?;
                 let iframe = name == "postMessage"
                     && !matches!(args.get(1), Some(Expr::Str(target, _)) if self.canvas_targets.contains(target));
                 let args = expr::command_args(name, args);

@@ -12,7 +12,7 @@ const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs r
 
 const IDLE_FALLBACK_MS = 200;
 // A keydown or keyup as kind 6's or 43's payload, as glue.js's `keyChord` writes it (#140).
-const keyChord = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat;
+const keyChord = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat + "\n" + !!e.isComposing;
 
 // Twin of navigation.js's inertAncestor: this boot entry must stay import-free.
 function inertAncestor(el) {
@@ -33,20 +33,20 @@ function preloadRuntime(checkpoint) {
   const logic = /"logic":(null|"(?:[^"\\]|\\.)*")/.exec(checkpoint?.textContent ?? "")?.[1];
   const files = ["./input-glue.js"];
   if (!(AGENT_ADMITTED && new URL(location.href).searchParams.has("agent"))) files.push("./timer-glue.js");
-  if (logic && logic !== "null") files.push("./module-glue.js", "./http-body.js", "./module-prelude.js");
+  if (logic && logic !== "null") files.push("./module-glue.js", "./http-body.js", "./module-binary.js", "./module-prelude.js");
   let glue;
   for (const file of files) {
     const link = document.createElement("link");
     link.href = new URL(file, import.meta.url).href;
-    // module-glue reads the prelude with `fetch`; the rest are imported.
-    if (file !== "./module-prelude.js") {
+    // module-glue reads the prelude and its byte helpers with `fetch`; the rest are imported.
+    if (file !== "./module-prelude.js" && file !== "./module-binary.js") {
       link.rel = "modulepreload";
       if (file === "./module-glue.js") glue = link;
       document.head.append(link);
       continue;
     }
-    // The prelude follows module-glue, its reader: all five beside the wasm
-    // would take the six connections an HTTP/1.1 origin gets, and a link
+    // The prelude and its helpers follow module-glue, their reader: all of
+    // these beside the wasm would take the six connections an HTTP/1.1 origin gets, and a link
     // tapped then would wait for one to close.
     link.rel = "preload"; link.as = "fetch"; link.crossOrigin = "";
     const append = () => document.head.append(link);
@@ -139,6 +139,10 @@ function documentBoot(options) {
   const kinds = ["click", "input", "change", "focusin", "focusout", "keydown", "keyup", "compositionstart", "compositionend"];
   for (const kind of kinds) root.addEventListener(kind, record, true);
   for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
+  // Opening a grouped alert is intent too, even by an invoker with no handler: its message's Tab stop waits for the
+  // runtime (alert-message.js)
+  root.addEventListener("beforetoggle", event => { if (holding && event.newState === "open" && event.target.querySelector?.(':scope > [data-alertpart="message"]')) start(); }, true);
+  if (root.querySelector('dialog[open] > [data-alertpart="message"]')) start(); // one opened before this loaded
   for (const event of options.early?.splice(0) ?? []) record(event);
   if (!interaction) {
     // Beside the wasm: now, when its download began at the first paint;

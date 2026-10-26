@@ -1,13 +1,9 @@
 // The desktop shell's context menu (reference apps/desktop ElectronMenu.ts
 // showContextMenu): a native NSMenu at the pointer. A destructive item gets a
 // separator before it and the 12pt template trash symbol, as Electron draws it
-// on macOS. The reply names the chosen item, or null when the menu closes.
-// What still asks for it: the branch picker's Copy branch name, whose rows sit in
-// the open branch popup, which the reference's native menu leaves open and a
-// Contract context popover would close (the host closes every popover before it
-// shows one, MenusMac `context`); and the chat's file and web link menus, whose
-// rows depend on the link (its thread link, SSH aliases) and are computed when the
-// menu opens. The other row menus are Contract context popovers.
+// on macOS. The media menu (T3MediaActions.swift) pops it up and reads the chosen
+// item. The row menus, the branch picker's Copy branch name and the chat's file and
+// web link menus among them, are Contract context popovers.
 import AppKit
 import UniformTypeIdentifiers
 
@@ -27,20 +23,7 @@ enum T3MenuTurn {
 final class T3ContextMenu: NSObject {
     private var chosen: String?
 
-    /// Items: [{ id, label, destructive?, disabled?, separatorBefore?, children? }]. Main thread only.
-    func show(_ items: [[String: Any]], in window: NSWindow?) -> String? {
-        let menu = self.menu(for: items)
-        chosen = nil
-        let target = window ?? NSApp.keyWindow ?? NSApp.mainWindow
-        if let view = target?.contentView, let window = target {
-            menu.popUp(positioning: nil, at: view.convert(window.mouseLocationOutsideOfEventStream, from: nil), in: view)
-        } else {
-            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-        }
-        return chosen
-    }
-
-    /// The menu `show` pops up: Electron's showContextMenu layout (a separator before the
+    /// Electron's showContextMenu layout (a separator before the
     /// first destructive item unless the items already declared their sections; an item with
     /// children is a submenu whose choice reports the child's id, as buildTemplate does).
     func menu(for items: [[String: Any]]) -> NSMenu {
@@ -82,30 +65,6 @@ final class T3ContextMenu: NSObject {
     var picked: String? { chosen }
 
     @objc private func pick(_ sender: NSMenuItem) { chosen = sender.representedObject as? String }
-
-    /// The module's `contextMenu` request on the main thread. Under the agent no menu pops up:
-    /// its window is never key and has no pointer, so `popUp` would track until a real click
-    /// or Escape, leaving this request (and every main-queue turn and `clock settle` behind it)
-    /// pending. It answers dismissed, as Escape would, as T3Sidebar's menu does; menus the
-    /// agent must choose from are Contract `contextPopover`s.
-    static func perform(_ request: [String: Any], agent: Bool = false, reply: @escaping ([String: Any]) -> Void) {
-        if agent {
-            // The items go to the log (a drive reads which menu answered a right-click).
-            let labels = (request["items"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String }
-            FileHandle.standardError.write(Data("t3.contextmenu: \(labels.joined(separator: " | "))\n".utf8))
-            return reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["clicked": NSNull(), "shown": false] as [String: Any]])
-        }
-        T3MenuTurn.run {
-            let items = request["items"] as? [[String: Any]] ?? []
-            // NSMenuItem.target is weak: keep the owner alive across the modal popUp.
-            let owner = T3ContextMenu()
-            let picked = owner.show(items, in: NSApp.keyWindow)
-            withExtendedLifetime(owner) {}
-            let clicked: Any = picked.map { $0 as Any } ?? NSNull()
-            let value: [String: Any] = ["clicked": clicked]
-            reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": value])
-        }
-    }
 
     /// Export a text file the way the desktop shell's download does: an NSSavePanel
     /// with the suggested name. Under the agent the file goes into the isolated

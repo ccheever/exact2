@@ -26,7 +26,7 @@ import { Session, type SocketEvent, type SocketHandle, type Reply } from './tran
 import { Catalog, type SecretStore } from './transport-catalog';
 import { ActivityReporter } from './transport-activity';
 import { OutdatedHosts, UPDATE_SLOTS } from './transport-outdated';
-import { TransportFailure, letGoAbort, random as platformRandom, refillRandom, uuid as platformUuid } from './transport-wire';
+import { TransportFailure, notConnected, letGoAbort, random as platformRandom, refillRandom, uuid as platformUuid } from './transport-wire';
 import type { Http, HttpReply } from './transport-routes';
 
 type Obj = Record<string, unknown>;
@@ -41,7 +41,7 @@ export const SESSION_SLOTS = FLEET_LIMIT + 1;
 const FOCUSED = 'focused';
 
 /** The ops of the focused connection this transport answers (the rest are the module's). */
-const SESSION_OPS = new Set(['status', 'ids', 'connect', 'retry', 'disconnect', 'http', 'previewStreamAccess', 'uploadAttachment', 'request', 'subscribe', 'unsubscribe', 'events', 'ack',
+const SESSION_OPS = new Set(['status', 'ids', 'connect', 'retry', 'disconnect', 'http', 'previewStreamAccess', 'deviceHubAccess', 'uploadAttachment', 'request', 'subscribe', 'unsubscribe', 'events', 'ack',
   'readChunk', 'releaseChunk', 'environments', 'connectionPreferences', 'setConnectionPreferences', 'setEnvironmentEnabled', 'forgetEnvironment',
   'pairEnvironment', 'setRoutes', 'prDiff']);
 
@@ -89,9 +89,8 @@ export class Transport {
   fleetNews = 0;
   private clock = 0;
   store: SecretStore | null = null;
-  /** The app's module: the embedded server's bearer, the presentation a status adds, and the module's links. */
+  /** The app's module: the embedded server's bearer and the presentation a status adds. */
   private module: Bridge | null = null;
-  private linkSignature = '';
   /** The module topics each client source watched (see `wrap`). */
   private watched = new Map<string, Set<string>>();
 
@@ -251,37 +250,25 @@ export class Transport {
       return { ok: true, generation: 0, value: {} };
     }
     if (op === 'status') return this.status(module, value);
+    // The terminal page's socket goes to its own environment's server, focused or in the background.
+    if (op === 'terminalSocket') {
+      const session = this.sessions.find(entry => entry.state === 'connected' && str(entry.descriptor.environmentId) === str(value.environmentId));
+      if (!session) return { ok: false, generation: 0, error: notConnected().json() };
+      return session.terminalSocketAccess().catch(error => ({ ok: false, generation: 0, error: (error instanceof TransportFailure ? error : new TransportFailure('Network', String(error))).json() }));
+    }
     // The client recorded something the window shows (a draft's launch, draft-launch.ts): the snapshot is read again.
     if (op === 'snapshotNews') { this.news += 1; this.bump(); return { ok: true, generation: 0, value: {} }; }
     if (SESSION_OPS.has(op)) return this.focused.perform(value);
     return module.later(request);
   }
 
-  /** The focused status, with the presentation the module adds; the module's links follow the connected sessions. */
+  /** The focused status, with the presentation the module adds. */
   private async status(module: Bridge, request: Obj): Promise<Reply> {
     const reply = await this.focused.perform(request);
     const presented = obj(await module.later({ op: 'status' }).catch(passLetGo));
     const facts = obj(presented.value);
-    const at = Number(facts.activityLastInteraction);
-    if (Number.isFinite(at) && at > 0) this.activity.interaction(at, this.clock);
     if (reply.ok) reply.value = { ...obj(reply.value), presentation: obj(facts.presentation) };
-    await this.pushLinks(module);
     return reply;
-  }
-
-  /**
-   * The module's own connections (the terminal's attach streams, the Browser's automation replies, the device hub's
-   * tickets) follow the sessions this transport has connected: their origins and bearers, by environment.
-   */
-  async pushLinks(module: Bridge): Promise<void> {
-    const routes = this.sessions.filter(session => session.state === 'connected' && str(session.descriptor.environmentId))
-      .map(session => ({ fleet: session.key === FOCUSED ? '' : session.key, environmentId: str(session.descriptor.environmentId), origin: session.origin,
-        token: session.primary ? '' : session.token, primary: session.primary }));
-    const focused = this.focused.state === 'connected' ? str(this.focused.descriptor.environmentId) : '';
-    const signature = JSON.stringify([focused, routes]);
-    if (signature === this.linkSignature) return;
-    const reply = obj(await module.later({ op: 'links', focused, routes }).catch(passLetGo));
-    if (reply.ok === true) this.linkSignature = signature;
   }
 
   private async fleetOp(key: string, op: string, request: Obj): Promise<unknown> {

@@ -28,6 +28,14 @@ let nextDigest = 1;
 // The runner's target first: two targets asking one source with equal
 // arguments are two calls (LLP 1027 D1a).
 const key = r => JSON.stringify([r.target ?? null, r.source, r.args]);
+// A presence name's occupancy in the call's snapshot (LLP 1133.010 D5), as module-glue.js reads it: the door's
+// op 18 (a value is kept), 19 (locked or pending), 20 (this device keeps locked secrets: a browser never does).
+const presenceRead = (store, op, name) => {
+  const said = store.get(`exact.presence.${name}`);
+  if (op === 20) return '0';
+  if (op === 19) return said === 'locked' || said === 'pending' ? '1' : '0';
+  return (said ? said !== 'absent' : store.has(name)) ? '1' : '0';
+};
 
 self.__exact_host = (op, name, value) => {
   if (!context) throw new Error('host call outside an answer');
@@ -49,6 +57,7 @@ self.__exact_host = (op, name, value) => {
   // `authCallback()` is the page's; `openAuthSession` refuses here: its popup
   // must open in the press's call stack, on the page (LLP 1069.006).
   if (op === 12) { if (name === 'placement') return 'worker'; context.externalRead = true; return `${location.origin}/.exact/auth/callback`; }
+  if (op >= 18 && op <= 20) { context.externalRead = true; return presenceRead(context.store, op, name); }
   if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
   context.writes.push([name, op === 3 ? value : null]);
   if (op === 3) context.store.set(name, value); else context.store.delete(name);
@@ -67,7 +76,10 @@ function init(message) {
   for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
     Object.defineProperty(self, name, { value: function () { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
-  storage = createStorage(self, admitted, () => context.owner, message.storage);
+  // The worker's timers, before the prelude takes them from this global: a storage lock's bound (storage-fs.js),
+  // held in this closure and never the module's.
+  const timers = { set: self.setTimeout.bind(self), clear: self.clearTimeout.bind(self) };
+  storage = createStorage(self, admitted, () => context.owner, message.storage, timers);
   // A cell belongs to the answer that accepted the call, though its operation
   // may be issued in another answer's turn (one queued behind it), as in the
   // page realm.
@@ -85,6 +97,7 @@ function init(message) {
   }
   // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
   self.__exact_keys = keyStore(message.storage, self.indexedDB);
+  evaluate(message.binary);
   evaluate(message.prelude);
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();
@@ -156,6 +169,14 @@ const letGoHooks = {
 let parked = [], deliveries = 0;
 async function proceed(answer, request, done) {
   for (;;) {
+    // A `scheduler.yield()`: its yields resolve in a task of their own.
+    if (answer.tag === 1 && answer.yielded) {
+      await checkpoint();
+      self.__exact_yielded(String(answer.call));
+      await checkpoint();
+      answer = JSON.parse(self.__exact_settle(String(answer.call)));
+      continue;
+    }
     if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
       await storage.deliver(context.owner);
       deliveries++;

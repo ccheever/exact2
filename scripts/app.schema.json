@@ -169,6 +169,21 @@
         "browser"
       ]
     },
+    "display_override": {
+      "description": "The Web App Manifest's display modes in order of preference, each used where the platform takes it, else the next, else `display`. `window-controls-overlay` puts the page under the title bar beside the window's controls: Chrome's in an installed app; on macOS, an app without routes gets the platform's tall unified title row, an empty toolbar over the page, and `env(titlebar-area-*)` its area beside the traffic lights (LLP 1039 D8).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "window-controls-overlay",
+          "tabbed",
+          "fullscreen",
+          "standalone",
+          "minimal-ui",
+          "browser"
+        ]
+      }
+    },
     "orientation": {
       "type": "string",
       "description": "The Web App Manifest's default screen orientation (Screen Orientation API values). The web manifest carries it; the iPhone and Android lock to it; iPad keeps every orientation, as its multitasking requires.",
@@ -282,6 +297,27 @@
         }
       }
     },
+    "watch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "component"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]*\\.contract$",
+          "description": "The Contract file of the watch entry, beside `app.contract`; the phone's plan does not use it."
+        },
+        "component": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "description": "The root of the watch entry (LLP 1126.002 D4): the first component of `source`, compiled to its own live plan, which the watch app boots."
+        }
+      },
+      "description": "The app's watch entry: its own live plan (state, resources, timers, handlers), the app's screen on Apple Watch. Not a widget: no families, preview props or refresh."
+    },
     "widgets": {
       "type": "array",
       "items": {
@@ -359,6 +395,18 @@
           "preview": {
             "type": "object"
           }
+        }
+      }
+    },
+    "open_url": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What `openURL` hands to the system beyond http, https, mailto and tel (LLP 1133.000 §2, open a URL). Each scheme is one another app registers, such as an editor's (`vscode`, `zed`, `jetbrains`): web, macOS and iOS open a URL of a declared scheme with whatever the system has registered for it (a browser asks first); an undeclared one stays refused. Under the agent the open is journaled, not performed. Schemes the hosts handle themselves (`http`, `https`, `mailto`, `tel`, `doc`, `app`, `app-settings`) or that run or read content (`file`, `filesystem`, `javascript`, `vbscript`, `data`, `blob`, `about`, `view-source`, `jar`, `intent`, `content`) are refused here, and refused again by the hosts. `sms` may be declared: it opens the system's message composer.",
+      "properties": {
+        "schemes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^(?!(?:https?|mailto|tel|file|filesystem|javascript|vbscript|data|blob|about|view-source|jar|intent|content|doc|app|app-settings)$)[a-z][a-z0-9+.-]*$" }
         }
       }
     },
@@ -522,8 +570,8 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "pattern": "^(?!remote-notification$).*$",
-                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9)."
+                "pattern": "^(?!(remote-notification|fetch|processing)$).*$",
+                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9). fetch and processing come from the grant lines device.background-sync and device.periodic-background-sync (LLP 1133.017 D14)."
               }
             },
             "associatedDomains": {
@@ -531,6 +579,23 @@
                 { "type": "boolean" },
                 { "type": "array", "items": { "type": "string" } }
               ]
+            },
+            "appClip": {
+              "description": "An App Clip (LLP 1126 D12: an App Clip is an app). `{}` embeds the whole app a second time at `<App>.app/AppClips/<name>.app`, with `NSAppClip` in its Info.plist, the app as its parent application and each `applinks:` domain of `associatedDomains` as an `appclips:` invocation domain (the app's entitlements list those too). A device build needs a profile for the clip's App ID, registered with the App Clip capability, of the app's profile's team and method.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "description": "The clip's bundle identifier. Absent: `<app id>.Clip`.",
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
+                },
+                "name": {
+                  "description": "The clip's display name and bundle name. Absent: the app's.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             },
             "urlSchemes": {
               "type": "array",
@@ -652,12 +717,17 @@
           "additionalProperties": false
         },
         "android": {
-          "description": "Android: `minimumOS` (default 12).",
+          "description": "Android: `minimumOS` (default 12), and `certificates` for the origin's `assetlinks.json`.",
           "type": "object",
           "properties": {
             "minimumOS": {
               "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
               "enum": ["10", "11", "12", "13", "14", "15", "16"]
+            },
+            "certificates": {
+              "description": "The SHA-256 fingerprints of every certificate that signs the app (the debug key, the upload key, Play App Signing's), as `AB:CD:…`: the origin's `/.well-known/assetlinks.json` lets each use the app's passkeys (LLP 1133.011 D6).",
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[0-9A-F]{2}(:[0-9A-F]{2}){31}$" }
             }
           },
           "additionalProperties": false
@@ -668,8 +738,21 @@
           "additionalProperties": false
         },
         "windows": {
-          "description": "The Windows host has no settings yet; an empty object.",
+          "description": "Windows: the `window` it opens in.",
           "type": "object",
+          "properties": {
+            "window": {
+              "description": "In logical pixels (effective pixels, as WinUI's). Absent: 1280 by 720, with no minimum. `EXACT_SIZE` overrides the size.",
+              "type": "object",
+              "properties": {
+                "width": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "height": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "minWidth": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 }
+              },
+              "additionalProperties": false
+            }
+          },
           "additionalProperties": false
         },
         "web": {
@@ -761,6 +844,11 @@
         "check": {
           "type": "object",
           "properties": {
+            "interval": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Seconds between foreground update checks; defaults to 900 under every activation policy."
+            },
             "background": {
               "type": "boolean"
             }
@@ -943,6 +1031,18 @@
         "type": "array",
         "minItems": 1,
         "items": { "type": "string", "minLength": 1 }
+      }
+    },
+    "server": {
+      "type": "object",
+      "description": "The app's own server, started for tests, verification and agent drives.",
+      "additionalProperties": false,
+      "properties": {
+        "database": {
+          "type": "boolean",
+          "default": true,
+          "description": "False declares that the server keeps no database: DB is omitted and no scratch database is created or removed. Otherwise its entry or an imported module must read the database path from DB."
+        }
       }
     },
     "tamber": {

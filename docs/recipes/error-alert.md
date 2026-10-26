@@ -61,6 +61,10 @@ test "a refused save says why, and OK keeps the draft"
 
 - The `aria-label` is the alert's title and the `text` its message. iOS shows
   `UIAlertController`, macOS `NSAlert` (Return presses OK), the web its modal `dialog`.
+- Keep the title short and the message brief, as Apple's
+  [HIG](https://developer.apple.com/design/human-interface-guidelines/alerts) asks: an alert
+  is not for long text, which belongs in a sheet. A long one still scrolls in its own box
+  where the host draws the alert (the web, Linux), its title and OK in view.
 - The button has no `press`: it only closes. Give it one and the dialog is a
   confirmation, which needs its Cancel ([confirm](../contract-for-agents.md#a-confirmation)).
 - `then` does not run for a request that brought no answer: show `failed(saved)` in place

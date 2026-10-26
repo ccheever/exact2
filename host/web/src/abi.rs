@@ -54,6 +54,7 @@ pub struct Bridge<D: DataSource> {
 mod clock;
 mod midi;
 mod mode;
+mod presence;
 
 #[cfg(test)]
 mod refusal_tests;
@@ -505,7 +506,7 @@ impl<D: DataSource> Bridge<D> {
     /// Dispatch an event at `now_ms` (the page's clock); `kind` is 0 = press,
     /// 1 = change, 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key,
     /// 7 = submit, 8 = load, 9 = message (the payload — a change's text, a
-    /// key's chord with its code and repeat (`KeyboardEvent::parse`), or a
+    /// key's chord with its code, repeat and isComposing (`KeyboardEvent::parse`), or a
     /// guest message — is the input buffer's first `len` bytes, UTF-8).
     /// Kind 43 is `keyup`; 44 is `keycapture`, with the keydown payload (#140).
     /// Kind 45 is `intersect`, `0|1,ratio` (LLP 1005).
@@ -544,8 +545,8 @@ impl<D: DataSource> Bridge<D> {
             // select with its selection, replacement input (48), a key's down (6), up (43) and capture (44)
             // with its code and repeat, and focusin (46) and focusout (47) with
             // their targets, toggle (50), scrollend (51), a file drag's enter
-            // and leave (55, 56) and a paste with files (57) (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=57 => {
+            // and leave (55, 56), a paste with files (57), an iframe's record (58), an atom's press (59) (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=59 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.refuse(error),
@@ -773,7 +774,7 @@ impl<D: DataSource> Bridge<D> {
 
     /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
     pub fn set_place(&mut self, len: usize) -> u32 {
-        // `locale NUL timeZone`, then `NUL seed` at launch.
+        // `locale NUL timeZone`, then `NUL seed` and `NUL formatLocale`.
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
         let mut fields = text.split('\0');
         let (Some(locale), Some(zone)) = (fields.next(), fields.next()) else {
@@ -783,7 +784,7 @@ impl<D: DataSource> Bridge<D> {
         let (locale, zone) = (locale.to_owned(), zone.to_owned());
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
-            |h| h.set_place(&locale, &zone, seed),
+            |h| h.set_place(&locale, &zone, seed, fields.next()),
         );
         self.emit(out)
     }
@@ -1127,6 +1128,12 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().build_locations($plan))
         }
 
+        /// The page's report of the colours it draws Exact's colour roles in (colors.rs).
+        #[no_mangle]
+        pub extern "C" fn exact_report_colors(len: u32) {
+            EXACT_BRIDGE.with(|b| $crate::colors::report(&b.borrow().launch_input(0, len as usize)))
+        }
+
         /// Boot; returns the first batch's length.
         #[no_mangle]
         pub extern "C" fn exact_boot(width: f64, height: f64, launch_len: u32, preferences: u32) -> u32 {
@@ -1193,6 +1200,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_fonts() -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fonts())
+        }
+
+        /// Whether the booted plan needs the presence module (`presence::needed`): 1 or 0.
+        #[no_mangle]
+        pub extern "C" fn exact_presence() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().presence())
         }
 
         /// Dispatch an event; returns the batch's length.

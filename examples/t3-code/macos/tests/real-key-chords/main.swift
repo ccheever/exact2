@@ -9,9 +9,9 @@ import XCTest
 // the session's match misses and AppKit's menu matches). An agent's key goes straight to the window, so only this
 // path can lose a chord. Every ⌘ chord of the reference's defaults that holds in an open thread is sent here as the
 // window server sends it (a CGEvent-backed NSEvent through NSApp.sendEvent), from the composer and with nothing
-// focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3ComposerInput, T3LatinChords,
-// T3TextContextMenu, T3ComposerIntent, RightPanelTabsInput, T3ActivityInput) and its menu bar
-// (T3Menus.augment, T3MenuBar.arrange) over the host's, and must reach the host's monitor and the host's item for
+// focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3LatinChords,
+// T3TextContextMenu) and its menu bar
+// (T3Menus.augment) over the host's, and must reach the host's monitor and the host's item for
 // that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in menu-bar: its bar
 // (DevMenuMac.makeMenu's items), a session monitor that only records (the host's presses and consumes), and
 // ShortcutHost's items, filed after the clone's augment as each plan batch files them, with the chords they take from
@@ -30,8 +30,7 @@ let referenceChords = ["mod+b", "mod+[", "mod+]", "mod+j", "mod+alt+b", "mod+shi
                        "mod+shift+a", "mod+shift+x", "mod+shift+g", "mod+shift+l", "mod+shift+k", "mod+o", "mod+shift+[",
                        "mod+shift+]", "mod+shift+c", "mod+shift+s", "mod+shift+p", "mod+z", "mod+1", "mod+2", "mod+3",
                        "mod+4", "mod+5", "mod+6", "mod+7", "mod+8", "mod+9"]
-/// ⌘Z is Edit › Undo's: the focused text's own history, else the window's thread.undo (T3MenuBar.undo), which
-/// menu-bar's testKeystrokesReachTheWindowsCommands and testUndoAndRedoActOnTheFocusedTextsOwnHistory drive.
+/// ⌘Z is Edit › Undo's: the app's thread.undo stands in for the host's item while the undo notice claims it.
 let editMenuChords: Set<String> = ["mod+z"]
 
 /// ANSI key codes, as a US keyboard sends them.
@@ -61,14 +60,14 @@ struct Chord {
 }
 private let chordMask: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
 
-/// Stands in for the host's ShortcutHost (ShortcutsMac.swift; the name T3MenuBar.isCommand reads): one item per
+/// Stands in for the host's ShortcutHost (ShortcutsMac.swift): one item per
 /// declared chord, pressed by the menu.
 final class ShortcutHost: NSObject, NSMenuItemValidation {
     var pressed: [String] = []
     @objc func activate(_ item: NSMenuItem) { pressed.append(item.title) }
     func validateMenuItem(_ item: NSMenuItem) -> Bool { true }
     /// ShortcutHost.sync on a plan batch: an item elsewhere in the bar with a declared chord gives it up (`claim`),
-    /// and each command's item goes into File with its chord, where T3MenuBar keeps it a hidden key equivalent.
+    /// and each command's item goes into File with its chord, hidden (`-exact-menu="none"`) but a key equivalent.
     func file(_ chords: [Chord], in bar: NSMenu) {
         var menus = bar.items.compactMap(\.submenu)
         while let menu = menus.popLast() {
@@ -164,9 +163,8 @@ final class Fixture {
     let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 640, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     let composerText = NSTextView(frame: NSRect(x: 20, y: 300, width: 600, height: 80))
     let composer = T3Composer(), menus = T3Menus()
-    let composerInput = T3ComposerInput(), latinChords = T3LatinChords(agent: false)
-    let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent()
-    let panelTabs = RightPanelTabsInput(), activity = T3ActivityInput(changed: { _ in })
+    let latinChords = T3LatinChords(agent: false)
+    let textMenu = T3TextContextMenu(agent: false)
     var elements: [ExactElement] = []
     /// What the host's session monitor saw: each keydown's key code and modifiers.
     var session: [(UInt16, NSEvent.ModifierFlags)] = []
@@ -183,10 +181,9 @@ final class Fixture {
             return event
         }
         let transcript = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 280)), send = NSButton(frame: NSRect(x: 580, y: 384, width: 40, height: 24))
-        let tab = NSView(frame: NSRect(x: 600, y: 0, width: 20, height: 20))
         composerText.isEditable = true
         composerText.allowsUndo = true
-        for view in [transcript, composerText, send, tab] { content.addSubview(view) }
+        for view in [transcript, composerText, send] { content.addSubview(view) }
         func element(_ hatch: ExactHatchKey, _ id: String, _ node: UInt32, _ view: NSView, _ data: [String: String] = [:]) -> ExactElement {
             let element = ExactElement(hatch: hatch, id: id, node: node, hatches: hooks)
             element.view = view; element.platform = view; element.data = ExactData(data)
@@ -194,15 +191,11 @@ final class Fixture {
             return element
         }
         let composerElement = element(.t3Composer, "composer", 3, composerText, ["snapshot-owner": "t1"])
-        let sendElement = element(.t3Send, "send", 4, send)
-        let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "tab-editor:files"])
         activate()
         menus.updatesDisabledReason = { "no feed" }
         textMenu.install()
         // T3Module.element's order.
-        for element in [composerElement, sendElement, tabElement] {
-            panelTabs.install(element); composer.install(element); menus.install(element); composerInput.install(element)
-        }
+        composer.install(composerElement); menus.install(composerElement)
         tick(0.2)
         // The next plan batch files the window's commands over the clone's bar.
         host.file(referenceChords.filter { !editMenuChords.contains($0) }.map(Chord.init), in: NSApp.mainMenu!)
@@ -233,7 +226,7 @@ final class Fixture {
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        composer.destroy(); latinChords.destroy(); panelTabs.destroy(); textMenu.destroy(); activity.destroy()
+        composer.destroy(); latinChords.destroy(); textMenu.destroy()
         window.orderOut(nil)
         NSApp.mainMenu = nil
     }
@@ -246,7 +239,8 @@ final class RealKeyChordsTests: XCTestCase {
     func checkEveryChord(focus: NSResponder?, label: String, except taken: Set<String> = []) {
         let f = fixture
         XCTAssertTrue(f.activate() || screenLocked, "the app is active and its window key, as under real keys")
-        XCTAssertEqual(NSApp.mainMenu?.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Window", "Help"], "the clone's bar (no Develop, no Go)")
+        // The module leaves the host's menus; the window root's `-exact-menu-remove` takes Develop and Go.
+        XCTAssertEqual(NSApp.mainMenu?.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Go", "Window", "Develop", "Help"], "the host's bar")
         for key in referenceChords where !editMenuChords.contains(key) && !taken.contains(key) {
             let chord = Chord(key: key)
             f.window.makeFirstResponder(focus)

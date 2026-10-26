@@ -210,6 +210,29 @@ fn collection_boot_uses_common_json_after_frames_and_ticks_do_not_emit_it() {
 }
 
 #[test]
+fn a_sequence_only_report_does_not_resend_collections_on_a_scroll_commit() {
+    let source = SOURCE.replace("action toggle", "state scrolled = 0\n  action scroll(left: number, top: number)\n    scrolled = scrolled + 1\n  action toggle")
+        .replace("list virtualized=true", "list scroll=scroll virtualized=true");
+    let (mut bridge, _, _) = fixture(&source);
+    let initial = snapshot(&bridge);
+    send(&mut bridge, &facts(&initial, 0.), 1.);
+    let before = snapshot(&bridge);
+    let report = facts(&before, 0.);
+    send(&mut bridge, &report, 2.);
+    let after = snapshot(&bridge);
+    assert_eq!(before.revision, after.revision);
+    assert!(after.scroll_sequence > before.scroll_sequence);
+    let host = bridge.host.as_mut().unwrap();
+    let batch = host.dispatch_at(
+        after.view,
+        Event::scroll_payload("0,0,240,32000,240,160").unwrap(),
+        3.,
+    );
+    assert!(!batch.contains("\"op\":\"collections\""), "{batch}");
+    assert!(batch.contains("\"error\":null"), "{batch}");
+}
+
+#[test]
 fn collection_scroll_and_measurements_commit_without_requerying_resources() {
     let (mut bridge, _, queries) = fixture(SOURCE);
     let before = snapshot(&bridge);

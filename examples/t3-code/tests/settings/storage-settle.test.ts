@@ -64,7 +64,7 @@ test('webhook age and signature validation preserve write-only existing secrets'
   const existing = { schedule: { type: 'webhook', signature: { header: 'X-Signature', encoding: 'base64', prefix: '' }, maxDeliveryAgeMinutes: 45 }, webhook: { hasSecret: true } };
   const draft = webhookDraft(existing);
   expect(draft).toMatchObject({ signatureEnabled: true, signatureSecret: '', maxDeliveryAgeMinutes: '45', signaturePrefix: '' });
-  expect(webhookSchedule({ ...Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, String(value)])), signatureSecret: '' }, existing)).toEqual({ type: 'webhook', maxDeliveryAgeMinutes: 45, signature: { header: 'X-Signature', encoding: 'base64', prefix: '' } });
+  expect(webhookSchedule({ ...Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, String(value)])), signatureSecret: '' }, existing)).toEqual({ type: 'webhook', maxDeliveryAgeMinutes: 45, signature: { header: 'X-Signature', encoding: 'base64', prefix: '' }, dedupe: {} });
   expect(() => webhookSchedule({ signatureEnabled: 'true', signatureHeader: 'x-signature' })).toThrow('Signing secret is required');
   expect(webhookSchedule({ signatureEnabled: 'true', signatureHeader: ' x-signature ', signatureSecret: ' secret ', signaturePrefix: 'sha256=' })).toMatchObject({ signature: { secret: 'secret', encoding: 'hex', header: 'x-signature' } });
   expect(webhookSchedule({ signatureEnabled: 'false' }, existing).signature).toBeNull();
@@ -94,7 +94,7 @@ test('the webhook editor round-trips its trigger and reports Listening instead o
   const draft = editorDraft(task, 'p', 'codex:m');
   expect(draft.scheduleMode).toBe('webhook');
   const input = Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, String(value)]));
-  expect(taskInput(input, task).schedule).toEqual({ type: 'webhook', signature: null, maxDeliveryAgeMinutes: null });
+  expect(taskInput(input, task).schedule).toEqual({ type: 'webhook', signature: null, maxDeliveryAgeMinutes: null, dedupe: {} });
   expect(scheduleLabel(task.schedule)).toBe('On webhook');
   expect(taskStatus(task, 0)).toBe('On webhook · Listening');
   expect(webhookAddress({ path: '/hooks/token', url: null }, 'http://127.0.0.1:16500')).toMatchObject({ address: 'http://127.0.0.1:16500/hooks/token', copyable: true, note: expect.stringContaining('Only this computer') });
@@ -115,7 +115,7 @@ test('deliveries load through their owner, retain the list, and expose the rende
   expect(detail.blocks).toContainEqual({ title: 'Headers', value: 'authorization: [redacted]' });
   expect(detail.missing).toBe('Empty placeholders: body.title');
   await deliveriesPage(client, environment, task, '', 0, 0);
-  expect(calls).toEqual([['scheduledTasks.listWebhookDeliveries', { id: 'task' }], ['scheduledTasks.getWebhookDelivery', { id: 'task', deliveryId: 'd' }]]);
+  expect(calls).toEqual([['scheduledTasks.listWebhookDeliveries', { id: 'task', acceptAnyOutcome: true }], ['scheduledTasks.getWebhookDelivery', { id: 'task', deliveryId: 'd', acceptAnyOutcome: true }]]);
 });
 
 

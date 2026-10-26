@@ -294,6 +294,22 @@ final class MediaPreviewTests: XCTestCase {
         XCTAssertTrue(gone.subviews.contains { ($0 as? NSTextField)?.stringValue == "Could not load this file." })
     }
 
+    /// A chip's `t3-staged:<name>` names a staged copy in composer-files/ (composer-staged-copies.ts stagedName): `<uuid>`
+    /// or `<uuid>.<ext>` in lowercase letters and digits, while it is there; any other name is refused.
+    func testStagedCopyReadsOnlyAStagedName() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("t3-staged-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = UUID().uuidString.lowercased()
+        for name in [id, "\(id).mp4", "\(id).a.b", "\(id).MP4", "\(id).", "notes.txt"] { try Data("x".utf8).write(to: root.appendingPathComponent(name)) }
+        XCTAssertEqual(T3MediaPreview.stagedCopy(id, in: root)?.lastPathComponent, id)
+        XCTAssertEqual(T3MediaPreview.stagedCopy("\(id).mp4", in: root)?.lastPathComponent, "\(id).mp4")
+        for name in ["../x", "../\(id)", "\(id).a.b", "\(id).MP4", "\(id).", "notes.txt", "", "\(id)/x"] {
+            XCTAssertNil(T3MediaPreview.stagedCopy(name, in: root), name)
+        }
+        XCTAssertNil(T3MediaPreview.stagedCopy("\(UUID().uuidString.lowercased()).mp4", in: root), "a copy that is not there")
+    }
+
     func testShortPdfStartsAtTheTop() throws {
         // One US-letter page in a panel taller than the page at its fitted width: as Chromium's viewer,
         // the page sits at the top and the viewer surface fills the rest below it (PDFView alone centers it).

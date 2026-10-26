@@ -91,20 +91,230 @@ pub(crate) struct Said {
     /// the keyframes, so its value is the plan's structure.
     pub folded: BTreeSet<String>,
     /// Each element's style row whose value is literal (strings or numbers,
-    /// or a `?:` or `match` whose arms all are; never a `let`): what the design server checks
+    /// or a `?:` or `match` whose arms all are; never a `let`), an SVG
+    /// element's as lowering renames and coerces it: what the design server checks
     /// again, the compiler's way, when a write reaches a token it names
-    /// ([`super::rows::check`]).
-    pub rows: Vec<Attr>,
+    /// ([`super::rows::check`]); a font row with its node's fonts; and each
+    /// whose value is computed, with its type where it is known.
+    pub rows: Vec<super::rows::Said>,
+}
+
+/// What a node of the walk sits in: whether an `svg` encloses it, its
+/// parent's tag, the typing of the `for` or `match` arm around it (none
+/// where a subject's type isn't known by its form), whether its rows are
+/// left to the build, and the `font-family`s of it and the
+/// elements around it (`rows::Row::within`).
+#[derive(Clone, Default)]
+struct Around<'a> {
+    svg: bool,
+    parent: Option<&'a str>,
+    typing: Option<super::rows::Typing>,
+    left: bool,
+    within: Option<std::sync::Arc<Vec<super::rows::Fonts>>>,
+    grouped: Grouped,
+    /// The nodes of the section rows around it that lowering styles as the
+    /// grouped row (`grouped::row`, which yields a marked node's look), by
+    /// their place in the expanded tree (an address: each expanded copy of
+    /// a component is its own).
+    yielding: Option<std::sync::Arc<Vec<usize>>>,
+}
+
+/// Where a node sits in a grouped list: among its sections, in a section's
+/// body, or neither.
+#[derive(Clone, Copy, Default, PartialEq)]
+enum Grouped {
+    #[default]
+    No,
+    Sections,
+    Row,
+}
+
+/// Whether `list` with `attrs` (its class's rows with its own) is a
+/// grouped list (`grouped::style`); an unknown class or a refusal is no.
+fn grouped_list(file: &File, tag: &str, attrs: &[Attr]) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    let Ok(class) = crate::class::rows(attrs, &style) else {
+        return false;
+    };
+    let expanded: Vec<Attr> = class
+        .map(|(_, rows)| rows)
+        .unwrap_or_default()
+        .into_iter()
+        .chain(attrs.iter().filter(|a| a.name != "class").cloned())
+        .collect();
+    matches!(crate::grouped::style(tag, &expanded), Ok(Some(_)))
+}
+
+/// Each element of `nodes` by its address, numbered in the order lowering
+/// lowers them (depth first, in order): a style's row is keyed by the element
+/// applying it, and refused once for its first, as the build refuses it.
+fn order(nodes: &[Node], out: &mut std::collections::HashMap<usize, usize>) {
+    for node in nodes {
+        if matches!(node, Node::Element { .. }) {
+            let next = out.len() + 1;
+            out.insert(node as *const Node as usize, next);
+        }
+        match node {
+            Node::Element { children, .. } | Node::Use { children, .. } => order(children, out),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                order(then, out);
+                order(otherwise, out);
+            }
+            Node::Each { body, .. } => order(body, out),
+            Node::Match { some, none, .. } => {
+                order(&some.1, out);
+                order(none, out);
+            }
+            Node::Children { .. } => {}
+        }
+    }
+}
+
+/// The styles an element's `class=` names: one, or a choice's two.
+fn class_names(attrs: &[Attr]) -> Vec<&str> {
+    match attrs.iter().find(|a| a.name == "class").map(|c| &c.value) {
+        Some(Expr::Ident(name, _)) => vec![name.as_str()],
+        Some(Expr::Ternary(_, yes, no, _)) => [&**yes, &**no]
+            .into_iter()
+            .filter_map(|e| match e {
+                Expr::Ident(name, _) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether `grouped::style` refuses `tag`, its class's rows with its own.
+fn grouped_refused(file: &File, tag: &str, attrs: &[Attr]) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    let Ok(class) = crate::class::rows(attrs, &style) else {
+        return false;
+    };
+    let expanded: Vec<Attr> = class
+        .map(|(_, rows)| rows)
+        .unwrap_or_default()
+        .into_iter()
+        .chain(attrs.iter().filter(|a| a.name != "class").cloned())
+        .collect();
+    crate::grouped::style(tag, &expanded).is_err()
+}
+
+/// The address of `node` and of every node inside it, into `out`.
+fn addresses(node: &Node, out: &mut std::collections::HashSet<usize>) {
+    out.insert(node as *const Node as usize);
+    let inner: Vec<&Node> = match node {
+        Node::Element { children, .. } | Node::Use { children, .. } => children.iter().collect(),
+        Node::When {
+            then, otherwise, ..
+        } => then.iter().chain(otherwise).collect(),
+        Node::Each { body, .. } => body.iter().collect(),
+        Node::Match { some, none, .. } => some.1.iter().chain(none).collect(),
+        Node::Children { .. } => Vec::new(),
+    };
+    for n in inner {
+        addresses(n, out);
+    }
+}
+
+/// Whether `attrs`' class gives the element a `font-family`.
+fn has_class_family(file: &File, attrs: &[Attr]) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    matches!(crate::class::rows(attrs, &style), Ok(Some((_, rows))) if rows.iter().any(|a| a.name == "font-family"))
+}
+
+/// Whether lowering's `check_svg` passes the element `tag` with `attrs`
+/// under `parent` (as `nodes.rs` gives it: its class's rows, then its own,
+/// lengths coerced; `coerced`, its own so); an unknown class, or any
+/// animation, is no.
+fn prepared(
+    file: &File,
+    tag: &str,
+    in_svg: bool,
+    parent: Option<&str>,
+    attrs: &[Attr],
+    coerced: &[Attr],
+    span: Span,
+) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    let Ok(class) = crate::class::rows(attrs, &style) else {
+        return false;
+    };
+    let joined: Vec<Attr>;
+    let rejoined: Vec<Attr>;
+    let reboxed: Vec<Attr>;
+    let expanded = match class {
+        Some((_, rows)) => {
+            joined = rows
+                .into_iter()
+                .chain(attrs.iter().filter(|a| a.name != "class").cloned())
+                .collect();
+            rejoined =
+                crate::svg::coerce_lengths(tag, in_svg, &joined).unwrap_or_else(|| joined.clone());
+            match crate::box_transform::lower(tag, in_svg, &rejoined) {
+                Ok(Some(rows)) => {
+                    reboxed = rows;
+                    &reboxed
+                }
+                Ok(None) => &rejoined,
+                Err(_) => return false,
+            }
+        }
+        None => coerced,
+    };
+    // Motion is checked against the keyframes, and composed before this
+    // (`compose_animation`): any is taken as refused.
+    let refused = |a: &Attr| match a.name.contains("animation") || a.name.contains("transition") {
+        true => Err(crate::LowerError {
+            id: "",
+            message: String::new(),
+            span: a.span,
+        }),
+        false => Ok(()),
+    };
+    crate::svg::check_svg_with(tag, in_svg, parent, expanded, span, &refused).is_ok()
 }
 
 impl Said {
     /// What `file`'s styles, `root`'s view and the `fn`s, states, derives and
     /// actions they read say of `design`'s tokens.
-    pub(crate) fn of(file: &File, root: &Component, design: &Design) -> Said {
+    /// `declared`: the app's fonts, which a font row is judged with;
+    /// `typing`: the root's scope and the file's shapes, which type and
+    /// judge a computed row as lowering does; a `for` or `match` arm's
+    /// typing pushes its names on it as lowering does.
+    pub(crate) fn of(
+        file: &File,
+        root: &Component,
+        design: &Design,
+        declared: &std::sync::Arc<super::rows::Declared>,
+        typing: &super::rows::Typing,
+    ) -> Said {
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
         let mut computed = false;
         let mut computed_measure = false;
-        let mut rows: Vec<Attr> = Vec::new();
+        let mut rows: Vec<super::rows::Said> = Vec::new();
         let mut attrs = |attrs: &[Attr]| {
             for a in attrs {
                 let colour = colour_attr(&a.name);
@@ -122,39 +332,369 @@ impl Said {
         for s in &file.styles {
             attrs(&s.attrs);
         }
-        // Each node, with whether it is inside an `svg`, whose rows are left
-        // to the build: lowering renames some attributes into props by
-        // element (`fePointLight x` is `lightX`) and coerces some.
-        let mut stack: Vec<(&Node, bool)> = root.view.iter().map(|n| (n, false)).collect();
-        while let Some((node, svg)) = stack.pop() {
+        // Each node, with whether an `svg` encloses it and its parent's tag,
+        // as lowering's `svg::in_svg` reads them (an SVG element's rows are
+        // renamed and coerced first, `svg::coerce_lengths`: `fePointLight x`
+        // is the prop `lightX`, a unitless `rect x` a number); and whether a
+        // typing of the `for` or `match` arm around it, its names pushed as
+        // lowering pushes them (`Scope::push_each_of`, `push_some_of`,
+        // `push_none`), or none where the subject's type isn't known by its
+        // form (`rows::typed`): there the region's rows are the build's.
+        // A grouped list's label folded from an `if` chain of texts
+        // (`grouped::folds`) holds one text lowering builds anew, at its
+        // first arm's place: the chain's rows are left to the build
+        // (`left`).
+        let mut lowered = std::collections::HashMap::new();
+        order(&root.view, &mut lowered);
+        let mut unjudged: std::collections::HashSet<Span> = Default::default();
+        let mut stack: Vec<(&Node, Around)> = root
+            .view
+            .iter()
+            .map(|n| {
+                let around = Around {
+                    typing: Some(typing.clone()),
+                    ..Around::default()
+                };
+                (n, around)
+            })
+            .collect();
+        while let Some((node, around)) = stack.pop() {
+            let Around {
+                svg,
+                parent,
+                typing: here,
+                left,
+                within,
+                grouped,
+                yielding,
+            } = around.clone();
             match node {
                 Node::Element {
                     tag,
                     attrs: a,
                     children,
+                    span,
                     ..
                 } => {
                     attrs(a);
-                    let svg = svg || tag == "svg";
+                    let in_svg = crate::svg::in_svg(svg, parent);
+                    let coerced = crate::svg::coerce_lengths(tag, in_svg, a);
+                    // A box's `transform` as the rows lowering checks
+                    // instead (`box_transform::lower`); refused, the build's.
+                    let boxed =
+                        crate::box_transform::lower(tag, in_svg, coerced.as_deref().unwrap_or(a));
+                    // An element lowering refuses before its rows (its SVG
+                    // content model and attribute placement, its class's rows
+                    // with its own, `svg::check_svg_with`; an animation's
+                    // names, the keyframes', taken as refused) is the build's,
+                    // with everything inside it.
+                    let own = coerced.as_deref().unwrap_or(a);
+                    let own = match &boxed {
+                        Ok(Some(rows)) => rows.as_slice(),
+                        _ => own,
+                    };
+                    // A look a marked section row yields to a grouped list's
+                    // is dropped there (`row_look::yielded`, from
+                    // `grouped::row`: a grouped list's section's body, not
+                    // its header or footer): never kept. Elsewhere the
+                    // marker goes and the look is judged (`swipe_rows::stray`).
+                    // A section's body row: the nodes lowering styles as the
+                    // grouped row, it or the content a swipe written by hand
+                    // names (`swipe_rows::grouped` asked, recording whom it
+                    // gives `row`).
+                    // (A grouped list in such a row adds its own rows' to
+                    // those around it.)
+                    let yielding = match grouped == Grouped::Row
+                        && !matches!(tag.as_str(), "header" | "footer")
+                    {
+                        true => {
+                            let around = yielding.as_deref().cloned().unwrap_or_default();
+                            let styled = std::cell::RefCell::new(around);
+                            // (A row put in its own swipe, `delete=`, is given
+                            // rebuilt, outside this tree: it is this node.)
+                            let mut tree = std::collections::HashSet::new();
+                            addresses(node, &mut tree);
+                            crate::swipe_rows::grouped(node, &|n, _| {
+                                let at = n as *const Node as usize;
+                                let at = match tree.contains(&at) {
+                                    true => at,
+                                    false => node as *const Node as usize,
+                                };
+                                styled.borrow_mut().push(at);
+                                n.clone()
+                            });
+                            Some(std::sync::Arc::new(styled.into_inner()))
+                        }
+                        false => yielding,
+                    };
+                    let yields = yielding
+                        .as_ref()
+                        .is_some_and(|y| y.contains(&(node as *const Node as usize)))
+                        && a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
+                    // An `audio`'s `display` is lowering's to write
+                    // (`media::audio_rows`, from its class's rows with its
+                    // own): never kept; one it refuses is the build's.
+                    let audio = crate::media::audio_rows(tag, own, *span);
+                    let left = left
+                        || boxed.is_err()
+                        || audio.is_err()
+                        || !prepared(file, tag, in_svg, parent, a, own, *span);
+                    // Its `font-family` and those around it: one lowering
+                    // can't read (`fonts::font_use`) stops the element there,
+                    // under the design a write leaves too (`rows::judge`).
+                    let within = match a.iter().any(|a| a.name == "font-family")
+                        || has_class_family(file, a)
+                    {
+                        false => within,
+                        true => {
+                            match super::rows::Fonts::of(file, a, !children.is_empty(), declared) {
+                                Some(f) => {
+                                    let mut all = within.as_deref().cloned().unwrap_or_default();
+                                    all.push(f);
+                                    Some(std::sync::Arc::new(all))
+                                }
+                                None => within,
+                            }
+                        }
+                    };
                     // An element's own rows, which the build checks where it
                     // lowers the element (a style's are checked where a node
                     // applies it, and may be overridden there).
-                    if !svg {
-                        rows.extend(a.iter().filter(|a| super::rows::literal_row(a)).cloned());
+                    // A font row with its node's fonts, or not at all when
+                    // they aren't known (an unknown class, the build's). A
+                    // computed row with its type and the typing of the arm
+                    // around it (the root's outside any), or not at all when
+                    // that arm isn't typed or the row's form doesn't say its
+                    // type.
+                    let mut fonts = None;
+                    // A module tag's row lowering refuses is never judged
+                    // (`native::refused`, before any check of it).
+                    for (index, r) in own.iter().enumerate().filter(|(_, r)| {
+                        !left
+                            && !(tag == "audio" && r.name == "display")
+                            && !(yields && crate::row_look::look(r))
+                            && crate::native::refused(tag, r).is_none()
+                    }) {
+                        let computed = match super::rows::kept(r) {
+                            Some(false) => None,
+                            Some(true) => match here.as_ref().and_then(|t| {
+                                super::rows::typed(&r.value, t).map(|ty| (ty, t.clone()))
+                            }) {
+                                Some(typed) => Some(typed),
+                                None => continue,
+                            },
+                            _ => continue,
+                        };
+                        let fonts = match super::rows::font_row(&r.name) {
+                            false => None,
+                            true => match fonts.get_or_insert_with(|| {
+                                super::rows::Fonts::of(file, a, !children.is_empty(), declared)
+                            }) {
+                                Some(f) => Some(f.clone()),
+                                None => continue,
+                            },
+                        };
+                        rows.push(super::rows::Said {
+                            attr: r.clone(),
+                            fonts,
+                            computed,
+                            within: within.clone(),
+                            element: 0,
+                            index,
+                            order: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
+                        });
                     }
-                    stack.extend(children.iter().map(|c| (c, svg)));
+                    // A style's rows where an element applies it, as lowering
+                    // applies them (`class::rows`: the element's own rows of
+                    // a name replace the style's), each judged here with the
+                    // element's fonts and typing, keyed by the element too.
+                    // Left to the build: a choice of styles, an element whose
+                    // class rows lowering rewrites or judges otherwise first
+                    // (an SVG element's, coerced; a box's `transform`; a
+                    // grouped list's, or one `grouped::style` refuses, and its
+                    // rows and sheet; a `button`'s, which `button_appearance`
+                    // reads first, a native one refusing rows of its own; an
+                    // `audio`'s `display`; a row a `delete=` swipe expands,
+                    // whose rows go before the class's), and one in a `for`
+                    // or `match` arm that isn't typed. A style row applied at any
+                    // such element is the build's at every element (`unjudged`,
+                    // below): there it may be the build's first refusal of it,
+                    // in its words.
+                    let plain_class = a
+                        .iter()
+                        .find(|r| r.name == "class")
+                        .is_some_and(|c| matches!(c.value, Expr::Ident(..)));
+                    let class_left = left
+                        || here.is_none()
+                        || !plain_class
+                        || in_svg
+                        || tag == "svg"
+                        || grouped != Grouped::No
+                        || yielding.is_some()
+                        || tag == "button"
+                        || tag == "audio"
+                        || a.iter().any(|r| r.name == "delete");
+                    let style = |name: &str| {
+                        file.styles
+                            .iter()
+                            .rfind(|s| s.name == name)
+                            .map(|s| s.attrs.as_slice())
+                    };
+                    let class = match class_left {
+                        true => None,
+                        false => crate::class::rows(a, &style).ok().flatten(),
+                    };
+                    let judged = class.as_ref().is_some_and(|(_, rows)| {
+                        let joined: Vec<Attr> = rows.iter().chain(own).cloned().collect();
+                        let plain: Vec<Attr> = rows
+                            .iter()
+                            .chain(a.iter().filter(|a| a.name != "class"))
+                            .cloned()
+                            .collect();
+                        matches!(crate::box_transform::lower(tag, in_svg, &joined), Ok(None))
+                            && matches!(crate::grouped::style(tag, &plain), Ok(None))
+                    });
+                    if !judged {
+                        for name in class_names(a) {
+                            unjudged.extend(style(name).into_iter().flatten().map(|r| r.span));
+                        }
+                    }
+                    for (index, r) in class
+                        .iter()
+                        .filter(|_| judged)
+                        .flat_map(|(_, rows)| rows)
+                        .enumerate()
+                    {
+                        if crate::native::refused(tag, r).is_some() {
+                            unjudged.insert(r.span);
+                            continue;
+                        }
+                        let computed = match super::rows::kept(r) {
+                            Some(false) => None,
+                            Some(true) => match here.as_ref().and_then(|t| {
+                                super::rows::typed(&r.value, t).map(|ty| (ty, t.clone()))
+                            }) {
+                                Some(typed) => Some(typed),
+                                None => continue,
+                            },
+                            _ => continue,
+                        };
+                        let fonts = match super::rows::font_row(&r.name) {
+                            false => None,
+                            true => match fonts.get_or_insert_with(|| {
+                                super::rows::Fonts::of(file, a, !children.is_empty(), declared)
+                            }) {
+                                Some(f) => Some(f.clone()),
+                                None => continue,
+                            },
+                        };
+                        rows.push(super::rows::Said {
+                            attr: r.clone(),
+                            fonts,
+                            computed,
+                            within: within.clone(),
+                            element: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
+                            index,
+                            order: lowered
+                                .get(&(node as *const Node as usize))
+                                .copied()
+                                .unwrap_or(0),
+                        });
+                    }
+                    let inside = svg || tag == "svg";
+                    let left = left || (parent == Some("section") && crate::grouped::folds(node));
+                    // A grouped list's sections, and a section's body there
+                    // (`grouped::style`, `grouped::sections`).
+                    let grouped = match grouped {
+                        Grouped::Sections if tag == "section" => Grouped::Row,
+                        _ if tag == "list" && grouped_list(file, tag, a) => Grouped::Sections,
+                        _ => Grouped::No,
+                    };
+                    // A list `grouped::style` refuses is lowered no further:
+                    // its children are the build's (`prepare_element`).
+                    let left = left || (tag == "list" && grouped_refused(file, tag, a));
+                    let inner = Around {
+                        svg: inside,
+                        parent: Some(tag.as_str()),
+                        typing: here,
+                        left,
+                        within,
+                        grouped,
+                        yielding,
+                    };
+                    stack.extend(children.iter().map(|c| (c, inner.clone())));
                 }
+                // An `if`'s arms push a frame binding nothing, as lowering's do.
                 Node::When {
                     then, otherwise, ..
-                } => stack.extend(then.iter().chain(otherwise).map(|c| (c, svg))),
-                Node::Each { body, .. } => stack.extend(body.iter().map(|c| (c, svg))),
-                Node::Match { some, none, .. } => {
-                    stack.extend(some.1.iter().chain(none).map(|c| (c, svg)))
+                } => {
+                    let arm = Around {
+                        typing: here.as_ref().map(|t| t.pushed(|s| s.push_none())),
+                        ..around.clone()
+                    };
+                    stack.extend(then.iter().chain(otherwise).map(|c| (c, arm.clone())))
                 }
-                Node::Use { children, .. } => stack.extend(children.iter().map(|c| (c, svg))),
+                // A `for`'s item, and its position when named, typed as
+                // lowering types them from the list's type; a `match`'s
+                // binding in its `some` arm, and the frame its `none` arm
+                // pushes (binding nothing). A subject whose type isn't known
+                // by its form leaves the whole region untyped, the `none`
+                // arm too: the build lowers the `some` arm first, and its
+                // refusal there would be the build's first (Grok's round 1).
+                Node::Each {
+                    var,
+                    index,
+                    list,
+                    body,
+                    ..
+                } => {
+                    let typing = here.as_ref().and_then(|t| {
+                        let list = super::rows::typed(list, t)?;
+                        Some(t.pushed(|s| s.push_each_of(var, index.as_deref(), list)))
+                    });
+                    let bound = Around {
+                        typing,
+                        ..around.clone()
+                    };
+                    stack.extend(body.iter().map(|c| (c, bound.clone())))
+                }
+                Node::Match {
+                    subject,
+                    some,
+                    none,
+                    ..
+                } => {
+                    let subject = here
+                        .as_ref()
+                        .and_then(|t| Some((t, super::rows::typed(subject, t)?)));
+                    let some_arm = Around {
+                        typing: subject
+                            .clone()
+                            .map(|(t, ty)| t.pushed(|s| s.push_some_of(&some.0, ty))),
+                        ..around.clone()
+                    };
+                    let none_arm = Around {
+                        typing: subject.map(|(t, _)| t.pushed(|s| s.push_none())),
+                        ..around.clone()
+                    };
+                    stack.extend(some.1.iter().map(|c| (c, some_arm.clone())));
+                    stack.extend(none.iter().map(|c| (c, none_arm.clone())));
+                }
+                // An uninlined `use` is lowering's refusal, its children
+                // never lowered.
+                Node::Use { .. } => {}
                 Node::Children { .. } => {}
             }
         }
+        // A style row applied where the check leaves class rows to the build
+        // is the build's everywhere.
+        rows.retain(|r| r.element == 0 || !unjudged.contains(&r.attr.span));
         let mut folded = BTreeSet::new();
         // A colour keyframe folds its tokens as a row does (`keyframes::tokens`):
         // its value as the app compiles it, through a palette function's
@@ -434,4 +974,56 @@ fn expressions<'t>(text: &'t str, is_token: &dyn Fn(&str) -> bool) -> Vec<&'t st
         }
     }
     out
+}
+
+/// Whether `word` is a dotted identifier, a name a design's token may have
+/// (`eu.glow`, `_eu.glow`): Tamber's own name grammar (`is_name`), with a
+/// `.`. A number, a dimension (`-1.5px`) or a function (`rgb(0.5 0 0)`) is
+/// none (stage 12 B3, round 1, Astra 4; round 2, Astra 2).
+pub(crate) fn dotted_name(word: &str) -> bool {
+    word.contains('.') && exact_tamber::is_name(word)
+}
+
+/// `tamber-unknown-token` or `tamber-kind` for a word inside a literal the
+/// kernel refused in a row that holds a colour among other words (a shadow,
+/// a border, a gradient; LLP 1121 stage 12 B3, QUEUE's item): a dotted word
+/// naming no token of the design and no role, in a colour row's words; in a
+/// shadow, a length token or a base name, which a literal's px lengths
+/// don't read, pointing to a shadow token. `None` otherwise: the kernel's
+/// refusal stands.
+pub(crate) fn literal_word(
+    attr: &str,
+    text: &str,
+    rows: &[StyleId],
+    span: Span,
+) -> Option<crate::LowerError> {
+    use exact_kernel::style::{scale, theme};
+    if !rows.iter().any(|r| colour_codec(*r)) {
+        return None;
+    }
+    let shadow = rows.iter().find_map(|r| match r.codec() {
+        StyleCodec::BoxShadow => Some("box-shadow"),
+        StyleCodec::TextShadow => Some("text-shadow"),
+        _ => None,
+    });
+    let words = text
+        .split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')' | '/'))
+        .filter(|w| w.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'));
+    for word in words {
+        let length =
+            scale::is_base(word) || super::measure_named(word) == Some(exact_tamber::Kind::Length);
+        let (id, message) = match shadow {
+            Some(kind) if length => (
+                "tamber-kind",
+                format!("`{attr}=\"{text}\"`: a shadow row's lengths are px: name a shadow token (`x: {kind} = 0 {word} 4px black`) to read `{word}`"),
+            ),
+            _ if dotted_name(word) && theme::bound() && !theme::names(word) && !length => (
+                "tamber-unknown-token",
+                format!("`{attr}=\"{text}\"`: `{word}` is no token of this app's design and no role"),
+            ),
+            _ => continue,
+        };
+        return Some(crate::LowerError { id, message, span });
+    }
+    None
 }

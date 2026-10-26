@@ -1,14 +1,16 @@
-// A reply's web link menu (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// A reply's web link menu (MIT reference, see LICENSE-T3, T3 Code 74541bab17:
 // apps/web/src/components/chat/externalLinkContextMenu.ts and ChatMarkdown.tsx's anchor `onContextMenu`). A right-click on
 // an http(s) link in Markdown is the app's own menu, so the desktop shell's never opens there: "Link to thread" or
 // "Unlink from thread" first for a pull request the open thread can link or links, then "Open in integrated browser"
-// where a thread can show the Browser beside it, "Open in system browser" and "Copy Link". The module's `contextMenu` op
-// (T3ContextMenu.swift) shows the items at the pointer and names the pick.
+// where a thread can show the Browser beside it, "Open in system browser" and "Copy Link". Any other link (mailto, irc,
+// xmpp, a fragment) has no menu of its own, and its right-click is the desktop shell's. The rows are the window's
+// `chat-link-menu` context popover (link-menus.contract), computed before the right-click (`chatLinkMenuView`); a row's
+// press is `chatlocal:link-pick` (`chatExternalLinkPick`).
 import type { T3Client } from '../client/client';
 import { bridgeReply, type Files, type Native } from '../client/protocol';
+import { notedPullRequestLinks } from './pull-link-registry';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
-import { showContextMenu } from '../panel/context-menu-actions';
 import { canOpenLinksInApp, openInSystemBrowser, openUrlInPreview } from '../browser/browser-links';
 import { BrowserSettingsReadError } from '../browser/browser-profiles';
 import { activeRef } from '../terminal/terminal-drawer-view';
@@ -80,23 +82,39 @@ export async function showExternalLinkContextMenu(options: ShowExternalLinkConte
   }
 }
 
-/** `chatlocal:link-menu` (value = the link's href; id "page" from a page over the thread): ChatMarkdown's anchor
- *  `onContextMenu` over the open thread, or with no thread on the pull request page (its detail's threadRef is null). */
-export async function chatExternalLinkMenu(client: T3Client, native: Native, storage: Files | undefined, href: string, onPage = false): Promise<string> {
-  // A link with no web host (mailto, irc, xmpp, a fragment): the anchor returns before preventDefault, so the desktop
-  // shell's menu opens for the click (T3TextContextMenu `shellMenu`), or for the ContextMenu key
-  // with no click, at the focused link; the href lets the module refuse a focused
-  // node that names another link.
-  if (!href || !resolveExternalWebLinkHost(href)) { await bridgeReply(native, { op: 'shellMenu', href }).catch(() => undefined); return ''; }
-  // A new thread's draft has its thread ref from the start in the reference (a file preview's links offer the Browser
-  // there); here its id is allocated when the Browser opens, as the Browser surface does (addBrowserSurface).
-  const draft = !onPage && !client.threadId && !activeRef(client) && !!client.environmentId && !!client.projectId;
+type LinkMenuRow = { id: string; label: string };
+const rowsOf = (items: MenuItem[]): LinkMenuRow[] => items.map(item => ({ id: item.id, label: item.label }));
+/** A new thread's draft has its thread ref from the start in the reference (a file preview's links offer the Browser
+ *  there); here its id is allocated when the Browser opens, as the Browser surface does (addBrowserSurface). */
+const draftBrowser = (client: T3Client): boolean => !client.threadId && !activeRef(client) && !!client.environmentId && !!client.projectId;
+
+/**
+ * The `chat-link-menu` popover's rows, before any right-click: over the open thread (or a new thread's draft), on a page
+ * over it (the pull request page's detail, whose ChatMarkdown has no threadRef: no thread action and no integrated
+ * browser), and, for each pull request link on screen (pull-link-registry.ts) the open thread can link or links, its
+ * rows with the thread action first. Without the data module's storage there is no dispatch path, so no thread action.
+ */
+export function chatLinkMenuView(client: T3Client, native: Native | null | undefined, storage: Files | undefined): { thread: LinkMenuRow[]; page: LinkMenuRow[]; pulls: { href: string; rows: LinkMenuRow[] }[] } {
+  const canOpenInPreview = canOpenLinksInApp(!!activeRef(client) || draftBrowser(client), native);
+  const pulls = storage ? notedPullRequestLinks().flatMap(href => {
+    const threadLinkAction = chatLinkThreadAction(client, href);
+    return threadLinkAction ? [{ href, rows: rowsOf(externalLinkContextMenuItems({ canOpenInPreview, threadLinkAction })) }] : [];
+  }) : [];
+  return { thread: rowsOf(externalLinkContextMenuItems({ canOpenInPreview })), page: rowsOf(externalLinkContextMenuItems({ canOpenInPreview: false })), pulls };
+}
+
+/** `chatlocal:link-pick` (value = "<row id>\n<href>"; id "page" from a page over the thread): a row of the link's menu,
+ *  acted on only while the menu, built again now, still offers it. */
+export async function chatExternalLinkPick(client: T3Client, native: Native, storage: Files | undefined, value: string, onPage = false): Promise<string> {
+  const newline = value.indexOf('\n'), picked = value.slice(0, newline), href = value.slice(newline + 1);
+  if (newline < 0 || !href || !resolveExternalWebLinkHost(href)) return '';
+  const draft = !onPage && draftBrowser(client);
   const threadLinkAction = storage && !onPage ? chatLinkThreadAction(client, href) : undefined;
   await showExternalLinkContextMenu({
     href,
     canOpenInPreview: !onPage && canOpenLinksInApp(!!activeRef(client) || draft, native),
     ...(threadLinkAction ? { threadLinkAction } : {}),
-    showContextMenu: async items => (await showContextMenu(client, native, items) || null) as ExternalLinkContextMenuAction | null,
+    showContextMenu: async items => (items.some(item => item.id === picked) ? picked : null) as ExternalLinkContextMenuAction | null,
     openInPreview: async target => {
       if (draft && !activeRef(client)) await ensureDraftThreadId(client, native);
       const ref = onPage ? null : activeRef(client);
@@ -108,7 +126,7 @@ export async function chatExternalLinkMenu(client: T3Client, native: Native, sto
         throw error;
       }
     },
-    openExternal: target => openInSystemBrowser(native, target),
+    openExternal: target => openInSystemBrowser(target),
     copyLink: async target => {
       const reply = await bridgeReply(native, { op: 'copyText', text: target });
       if (!reply.ok) throw new Error(reply.error?.message || 'The clipboard is unavailable.');

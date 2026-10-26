@@ -1,0 +1,27 @@
+// A grouped list's row with a setting that is on or off (the clone's
+// SwitchRow): a symbol and a title beside the platform's switch. The switch
+// is the row's one part (LLP 1139 D6), labelled by the title.
+component SwitchRow
+  params
+    tint: color = "lists.symbol-tint" control = "token" group = "Color" priority = 1 label = "Symbol tint"
+    on: color = "lists.switch-on" control = "token" group = "Color" priority = 2 label = "Switch on"
+  props
+    // Names its testId (the switch), and the row's `<id>-row`.
+    id: string
+    symbol: string
+    title: string
+    checked: bool
+    set: action
+  parts
+    switch: control
+  view
+    row testId=`${id}-row`
+      if symbol != ""
+        image `symbol:${symbol}` color="param.tint"
+      text title
+      input part="switch" type="checkbox" switch
+        accent-color="param.on"
+        testId=id
+        checked=checked
+        change=set
+        aria-label=title

@@ -131,6 +131,25 @@ pub(super) fn inline_use(
     for st in &c.states {
         child_subst.insert(st.name.clone(), Expr::Ident(names[&st.name].clone(), *span));
     }
+    // Its device facts read the root's one resource for them.
+    for r in c.resources.iter().filter(|r| super::reads_device(r)) {
+        child_subst.insert(
+            r.name.clone(),
+            Expr::Ident(super::hoisted(&c.name, &r.name), *span),
+        );
+    }
+    let value_names = c
+        .states
+        .iter()
+        .chain(&c.derives)
+        .map(|b| b.name.clone())
+        .chain(
+            c.resources
+                .iter()
+                .filter(|r| super::reads_device(r))
+                .map(|r| r.name.clone()),
+        )
+        .collect();
     // Closure-convert child props/injects into hidden action
     // parameters. A handler evaluates these curried arguments
     // at its exact node site, so intervening `if`/`match`
@@ -226,12 +245,12 @@ pub(super) fn inline_use(
     // A resolved derive reads no other derive by name, so every
     // one is substituted against the same props, states and actions.
     let records = ctx.records;
-    let derives = resolved_derives(c, records).unwrap_or_else(|e| {
+    let derives = resolved_derives(c).unwrap_or_else(|e| {
         ctx.errors.push(e);
         c.derives.iter().map(|d| (d, absent(d.span))).collect()
     });
     let resolved: Vec<Expr> = {
-        let mut base = Subst::new(&child_subst, records);
+        let mut base = Subst::new(&child_subst, records).with_value_only(&value_names);
         derives
             .iter()
             .map(|(_, expr)| subst_expr(expr, &mut base))
@@ -240,7 +259,7 @@ pub(super) fn inline_use(
     for ((derive, _), expr) in derives.iter().zip(resolved) {
         child_subst.insert(derive.name.clone(), expr);
     }
-    let mut child = Subst::new(&child_subst, records);
+    let mut child = Subst::new(&child_subst, records).with_value_only(&value_names);
     for st in &c.states {
         ctx.extra_states.push((
             Binding {
@@ -266,8 +285,14 @@ pub(super) fn inline_use(
                 Expr::Ident(names[&st.name].clone(), st.span),
             );
         }
+        for r in c.resources.iter().filter(|r| super::reads_device(r)) {
+            action_subst.insert(
+                r.name.clone(),
+                Expr::Ident(super::hoisted(&c.name, &r.name), r.span),
+            );
+        }
         let resolved: Vec<Expr> = {
-            let mut base = Subst::new(&action_subst, records);
+            let mut base = Subst::new(&action_subst, records).with_value_only(&value_names);
             derives
                 .iter()
                 .map(|(_, expr)| subst_expr(expr, &mut base))
@@ -286,7 +311,9 @@ pub(super) fn inline_use(
         }
         let body = subst_stmts(
             &a.body,
-            &mut Subst::new(&action_subst, records).into_calls(&component_names),
+            &mut Subst::new(&action_subst, records)
+                .with_value_only(&value_names)
+                .into_calls(&component_names),
             &names,
         );
         let held: Vec<(String, crate::Span)> = captures
@@ -322,6 +349,7 @@ pub(super) fn inline_use(
         Rc::new(Fill {
             nodes: children.clone(),
             subst: subst.map().clone(),
+            value_only: subst.value_only.clone(),
             provides: ctx.provides.clone(),
             outer: ctx.fill.clone(),
             instance: ctx.instance,

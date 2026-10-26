@@ -5,8 +5,8 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
-**Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11
+**Revised:** 2026-10-21 (on the web, a symbol over or under its button's title overhangs only toward it, the image padding from it, and a written height there keeps no padding, §3); 2026-10-20 (on the web, a symbol for an SF Symbol is SF's size, §3); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11; Claude (Opus 5.5), the web's symbol size 2026-10-20
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
 
@@ -42,7 +42,8 @@ tests are the authority.
   platform image's point size. **Configured symbols** (LLP 1035.004) instead
   report the native symbol's point size at its computed font size and weight;
   they are generated glyphs, not density-unaware bitmap assets. The browser's
-  generic SVG fallback has a square intrinsic size equal to `font-size`.
+  generic SVG fallback is a square: `font-size` on a side, times the neutral
+  look's scale for a symbol drawn for an SF Symbol (§3).
 - **`Kernel::set_intrinsic_size(view, Option<(w, h)>)`** sets it. It
   refuses an unknown view (`LayoutError::UnknownView`), a node that is not
   an `Image` (`NotAnImage`), and a size that is not finite and positive on
@@ -145,11 +146,10 @@ size; that is not a second `load`.
 font-size=17 font-weight=600 tint-color="#007aff"` uses one of the seven
 schema roles: back, close, compose, add, microphone, send and search. Literal
 unknown roles are `lower-attr-value`; a dynamic unknown role paints empty,
-clears intrinsic size and logs a refusal. Symbols are decorative: the surrounding
-control carries its accessible name, the symbol does not carry another one.
-Since 2026-10-04 a symbol its author names (`alt` or `aria-label`) keeps that
-name on the web and macOS (LLP 1035.004 D1, amended); iOS still hides every
-symbol from VoiceOver (`NodeViewIOS.swift`), and Linux exposes no image names.
+clears intrinsic size and logs a refusal. An unnamed symbol is decorative:
+its surrounding control carries the accessible name. A symbol with an
+accessible name is an image element on the web, macOS and iOS (LLP 1035.004
+D1, amended). Linux exposes no image names.
 No network or asset load resolves a symbol. Definite dimensions still size its
 box; inherited font size/weight configure its natural glyph dimensions.
 
@@ -175,6 +175,42 @@ For `symbol:` sources, the host supplies the schema's generic SVG path and
 for the glyph. Computed font size/weight update the SVG; `tint-color` supplies
 the mask's colour. The mask follows the content box and `object-fit`; under `fill`, CSS's initial value, it is sized `contain`, keeping the symbol's aspect as the Apple hosts do (§4; amended 2026-10-16, Grok's review). These
 paths express the roles without copying Apple's artwork.
+
+**Size (2026-10-20).** A symbol drawn for an SF Symbol (a role, or an icon with
+an `sf` source) is SF's size at its font size. A role's path keeps to about the
+20-unit live area of its 24-unit box, as Material's icons do, and an SF Symbol's
+glyph fills its point size: a circle is 1em across, in a 1.18em image (AppKit's
+`NSImage(systemSymbolName:)`, medium scale). So the box is 1.2em, the image's
+size on iOS too: the neutral look's `symbol-scale`, written as
+`--exact-symbol-scale`, which the glue reads for the image's natural size. A
+page built ahead of time gives the symbol's transparent source that size too
+(`document.rs`), so nothing moves when the glue paints. On a button's face a
+`UIButton.Configuration` draws the symbol at the large scale, about 1.27 times
+the medium-scale symbol at its title's point size, at every control size, and
+the button is no taller for it (on an iOS 27 simulator a small button's
+15-point title has a 19-point circle, and a medium button is 34.33 points tall
+with its title alone, a circle or a `lock.fill`). There the box is 1.5em
+(`button-symbol-scale`). Beside a title the button lays it out at that width,
+as UIKit lays out its image's, so the title keeps its distance from the ink,
+and the box overhangs its 1em place above and below by half its growth, so the
+button is no taller. A circle's ink then reaches about .125em past that place
+(a lock's, which is taller, .15em), so a titled button's written height, which
+has no padding, keeps .125em. Over or under a title (a column writes
+`--exact-button-stacked: 1`, `button_css.rs`) the box overhangs only toward the
+title, by .125em, the margin a role's live area leaves, so a role's ink is the
+image padding, 8 px, from the title's line (LLP 1069.011.001 D3), and a
+written height keeps no padding.
+A symbol alone overhangs on every side, so its button keeps its size and does
+not clip it, as UIButton does not clip its image, though the symbol takes no
+hits, which stay in the button's own box, as `UIView.hitTest(_:with:)` keeps to
+its bounds. A native button's symbol takes no `width` or `height`
+(`lower-button-style-attr`). A tab's, a radio's and a menu or chooser row's
+keeps the box the look gives it, as iOS draws those outside a button's face: a
+tab bar's or a segmented control's image (at body size) and a menu item's. An
+icon of the app's own, with no `sf`, draws its viewBox at
+1em, as the Apple hosts draw its path (`FaceSymbol.pathImage`). A symbol alone
+on a bar item's face is at the bar's symbol size, whatever size is written on it
+or its item (LLP 1115.000 D4.15).
 
 **Tinted rasters (2026-09-26).** `host_css` (`host/web/src/element.rs`) gives
 an `<img>` whose source is not `symbol:` and whose `tint_color` is set the
@@ -281,12 +317,23 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   `RasterMetadata.encodedLimit` (64 MiB) from `Content-Length` and again as
   it streams; the request times out at 15 s and the whole load at 30 s. The
   body spools to a temporary file read once for its header (256 KiB) and
-  once to decode. Responses are cached on disk only (`URLCache`, 64 MiB,
+  once to decode. A download runs on URLSession's queue, never on a raster
+  worker (2026-10-21): the process keeps one session for each cache policy,
+  so images share connections (HTTP/2 streams on one) and download at once,
+  up to the 64 sources a session may have waiting for a header; a worker
+  reads the header once the body is spooled, and decodes go on meanwhile.
+  A session per download, waited out on the two workers, fetched two
+  images at a time, each over a new connection: 18 product photos from
+  Brooks' CDN (`AkamaiGHost`, HTTP/2) filled a 3-column grid on an iPhone
+  16 Pro Max in a median 1.53 s (1.30–2.30) after a cold launch with no
+  cached responses; now before the launch animation ends (0.63 s, all five
+  runs), as UIKit with `URLSession.shared` and SwiftUI's `AsyncImage` do;
+  Expo's `expo-image` took 0.85 s (filmed, `~/bench/imagebench`). Responses are cached on disk only (`URLCache`, 64 MiB,
   `Caches/exact-raster-http`, the HTTP cache headers' policy); decoded
-  pixels are the session's raster budget. ImageIO decodes rasters only: an
-  SVG, remote or under `assets/`, does not draw, and is the `error` `not an
-  image format this host decodes`, as is any whole body ImageIO cannot size.
-  Linux loads no remote source.
+  pixels are the session's raster budget. An SVG, remote or under `assets/`,
+  is drawn as a picture at the box's size (LLP 1011.001; the same on Linux);
+  any other whole body ImageIO cannot size is the `error` `not an image
+  format this host decodes`. Linux loads no remote source.
 - **Events:** the loader sends a node that hears it the source's `load`
   when its first decode lands, or its `error` with the reason (the HTTP
   status, `URLError`'s description, the raster refusal), each once per
@@ -413,7 +460,7 @@ symbols (rasters are tinted since 2026-09-27); Linux symbols; a placeholder
 of the host's own while an image loads or after it fails (the kernel measures
 an unknown axis as 0; macOS paints nothing; the browser paints its own
 broken-image icon and the `alt` text — the app draws its own fallback from
-`load` and `error`, §2); SVG sources on Apple (§4); a fetch policy the app
+`load` and `error`, §2); SVG sources on Apple and Linux (§4; built 2026-10-20 as LLP 1011.001: a picture drawn at the box's size, with two declared deviations); a fetch policy the app
 sets — HTML's `referrerpolicy`, a refusal of redirects (`redirect="error"`),
 a byte cap below the host's (`max-bytes`) — each a vocabulary proposal
 (#121), not built; Linux remote sources; a block-flow image at its intrinsic

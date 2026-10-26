@@ -23,10 +23,11 @@ package enum TextStyle {
                    family: Int(style["font_family"]?.number ?? 0), italic: style["font_style"]?.string == "italic",
                    lineHeight: height, letterSpacing: CGFloat(Float(style["letter_spacing"]?.number ?? 0)),
                    numeric: Int(style["font_variant_numeric"]?.number ?? 0),
-                   stretch: CGFloat(Float(style["font_stretch"]?.number ?? 100)))
+                   stretch: CGFloat(Float(style["font_stretch"]?.number ?? 100)),
+                   variations: FontAxis.of(style))
     }
     package static func spec(runs input: [Run], style: NodeStyle, props: [String: String], strut: Run,
-                             color: [Double] = [0, 0, 0, 255], language: String = "") -> Spec {
+                             color: [Double] = [0, 0, 0, 255], language: String = "", flow: Bool = false) -> Spec {
         var runs = input
         let align = alignment(style), rtl = style["direction"]?.string == "rtl"
         func number(_ name: String) -> Double { style[name]?.number ?? 0 }
@@ -54,8 +55,9 @@ package enum TextStyle {
         spec.textBoxUnder = edge.hasSuffix("alphabetic") ? 1 : 0
         spec.balance = style["text_wrap_style"]?.string == "balance"
         // The kernel's measurer hyphenates by the same document language.
-        if spec.hyphens == 2 { spec.language = language }
-        spec.hyphenateAuto()
+        if spec.automaticHyphens { spec.language = language }
+        // The flow walker has no emergency-hyphen priority; keep manual opportunities there.
+        spec.hyphenateAuto(allowEmergency: !flow)
         return spec
     }
 }

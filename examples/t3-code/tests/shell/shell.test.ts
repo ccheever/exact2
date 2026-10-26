@@ -420,6 +420,18 @@ describe('shell commands and routed failures', () => {
     expect(settingsFailure(value, 'rest:storage', 'scope', '', 'denied')).toBe('');
     // The queue keeps the newest five (toast.ts).
     expect(toasts(value).map(toast => toast.title)).toEqual(['Could not update scheduled task', 'Unable to remove keybinding', 'Unable to save keybinding', 'Unable to open keybindings file', 'Text generation model not saved']);
+    // The webhook trigger's checks: one stacked toast per line, each with its own title.
+    const webhook = client().value;
+    expect(settingsFailure(webhook, 'rest:task', 'scope', 'action=save', 'Invalid webhook settings: Replay key must contain a valid request placeholder.\nInvalid webhook settings: Coalesce window must be whole seconds from 10 to 3600.')).toBe('Invalid webhook settings');
+    expect(toasts(webhook).map(toast => [toast.title, toast.description, toast.stacked])).toEqual([
+      ['Invalid webhook settings', 'Replay key must contain a valid request placeholder.', true], ['Invalid webhook settings', 'Coalesce window must be whole seconds from 10 to 3600.', true]]);
+    for (const [message, title, description] of [['Invalid filter: Filter 1 needs a path under body, headers or query.', 'Invalid filter', 'Filter 1 needs a path under body, headers or query.'],
+      ['Invalid age limit: Enter whole minutes from 1 to 1440, or leave it blank.', 'Invalid age limit', 'Enter whole minutes from 1 to 1440, or leave it blank.'],
+      ['Signing secret is required: Enter the signature header and secret.', 'Signing secret is required', 'Enter the signature header and secret.']]) {
+      const one = client().value;
+      expect(settingsFailure(one, 'rest:task', 'scope', 'action=save', message!)).toBe(title!);
+      expect(toasts(one).map(toast => [toast.title, toast.description])).toEqual([[title, description]]);
+    }
     const fresh = client().value;
     settingsFailure(fresh, 'rest:task', 'scope', 'action=save', 'Use an interval of at least one minute.');
     expect(toasts(fresh).map(toast => [toast.title, toast.description])).toEqual([['Invalid interval', 'Enter an interval of at least one minute.']]);

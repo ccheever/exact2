@@ -262,6 +262,8 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                     family: 8,
                     italic: false,
                     stretch: 100.0,
+                    variations: Default::default(),
+                    optical_sizing: true,
                     line_height: None,
                     letter_spacing: 0.0,
                     font_variant_numeric: 0,

@@ -89,6 +89,8 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .zip(&self.timers)
             .any(|(t, s)| t.frame && s.armed)
+            // A font axis moving (LLP 1019 §13 D10).
+            || self.text_axes.running()
     }
 
     /// Soonest timer deadline in this runner's clock domain; no host polling.
@@ -100,12 +102,28 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .zip(&self.plan.timers)
             .filter(|(_, row)| !(row.frame && self.clock.presenting))
+            // No timer fires while a wake runs unseen (LLP 1133.017 D6).
+            .filter(|_| !self.wake_stops_timers())
             .map(|(timer, _)| timer.next_ms)
+            .chain(self.wake_due())
             .chain(self.then_due.iter().copied())
             // A drop's hold waits a second for its move (LLP 1094 D8).
             .chain(self.reorder_deadline())
             .chain(self.live_times.due())
+            .chain(
+                (self.text_axes.running() && !self.clock.presenting)
+                    .then(|| super::virtual_frame(self.now_ms, 1)),
+            )
             .chain(self.queues.next_due.iter().copied())
+            // A polled module source on the live clock (LLP 1133.009 D10
+            // item 7); under the agent a poll never stops a jump.
+            .chain(
+                self.clock
+                    .sample
+                    .is_some()
+                    .then(|| self.poll_due_ms())
+                    .flatten(),
+            )
             // A sequence's fill, count-in's end, end and answer (LLP 1125 D3).
             .chain([
                 self.transport.wake_due(),

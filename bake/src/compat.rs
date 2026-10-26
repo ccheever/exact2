@@ -30,15 +30,20 @@ const ABI_HEADER: &str = include_str!(concat!(
 ));
 /// The GPU module's C ABI (LLP 1009 D2): unnumbered in the module today.
 pub const GPU_MODULE_ABI: u32 = 1;
-/// The separately linked Rust data-source request/outcome wire ABI.
-pub(crate) const RUST_ABI: u32 = 3;
+/// The separately linked Rust data-source request/outcome wire ABI. 4: a
+/// long poll's result tag 10 (LLP 1016.000 D8; theme2's Q-RUSTABI ruling: the
+/// plan can't say which Rust sources poll, so every Rust app's id moves once,
+/// and an older binary is never offered a module that may send one).
+pub(crate) const RUST_ABI: u32 = 4;
 /// The data-module runtime a TypeScript bundle may rely on in the binary's
 /// own prelude (`js/src/prelude.js`, compiled into the host): moved when the
 /// prelude learns something a bundle cannot do without and an older prelude
 /// would silently ignore. 1: `fetch`'s `exactBodyFrom` (LLP 1108 D6 R2),
 /// which an older prelude would send as an empty body. 2: `fetch`'s
-/// `redirect`, which an older prelude would ignore and follow.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 2;
+/// `redirect`, which an older prelude would ignore and follow. 3: `fetch`'s
+/// `exactLongPoll` (LLP 1016.000 D8), which an older prelude would ignore and
+/// open as an event stream.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 3;
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 
@@ -59,7 +64,11 @@ pub struct Compat {
     pub activate: String,
     /// The exact target the binary-producing Cargo bake received.
     pub target: String,
-    /// Embedded bundle provenance and its complete static roster.
+    /// Embedded bundle provenance and its complete static roster, and
+    /// `trust`: the build's resolved trust, which every host's production
+    /// policy reads. Beside the id, not in it: an updater-free (`L = 0`)
+    /// cohort has no trust epoch, so `inputs.trust` is null there and a
+    /// production and a development build share the id (LLP 1030 D4).
     pub embedded: serde_json::Value,
     /// What the app can reach and each host's spelling of it (LLP 1069.008
     /// D7): beside the id, not in it; `null` when the grants are unknown.
@@ -479,7 +488,7 @@ fn compatibility_with_trust(
         origin,
         activate: manifest.activate(),
         target: target.into(),
-        embedded: serde_json::Value::Null,
+        embedded: json!({ "trust": trust }),
         reach: serde_json::Value::Null,
     })
 }
@@ -1443,6 +1452,10 @@ mod tests {
                 .unwrap();
         assert!(zero.inputs["keys"].is_null());
         assert!(zero.inputs["trust"].is_null());
+        assert_eq!(
+            zero.embedded["trust"], "production",
+            "the build's trust, beside the id"
+        );
         assert!(zero.inputs["abi"]["storeCodec"].is_null());
         assert_eq!(zero.inputs["store"]["acceptedKinds"], serde_json::json!([]));
         assert!(zero.origin.is_none());
@@ -1455,6 +1468,7 @@ mod tests {
             zero.id, changed.id,
             "a missing updater has no key or trust epoch"
         );
+        assert_eq!(changed.embedded["trust"], "development");
         manifest.json["deploy"]["store"] = serde_json::json!({"linux":"A"});
         manifest.json["deploy"]["signing"]["keys"] =
             serde_json::json!({"k":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="});

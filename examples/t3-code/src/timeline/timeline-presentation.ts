@@ -33,6 +33,7 @@ import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forg
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
+import { mathFrames, noteMathFrame } from './markdown-math';
 import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
 import { chippedAttachmentIds, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
@@ -50,11 +51,13 @@ import { pullRequestLinkPick } from '../panel/context-menu-actions';
 import { prGuideLocalFor, prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
 import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
 import { openLinkFromUi } from '../browser/browser-links';
-import { chatExternalLinkMenu } from './external-link-menu';
+import { chatExternalLinkPick } from './external-link-menu';
+import { withFileLinkMenus } from './file-link-menu';
 import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows';
 import { completeSave } from '../media/save-file';
 import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
 import { keptThread } from '../client/keep-alive';
+import { userMessagePresentation } from './user-message';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -112,7 +115,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // "Open links in" (browser-links.ts)
   if (op === 'ref-scroll-end') { noteRefScrollEnd(client, id); return ''; } // a ref list scrolled toward its end (ref-paging.contract)
-  if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value, id === 'page'); // a reply's web link menu (external-link-menu.ts)
+  if (op === 'link-pick') return chatExternalLinkPick(client, native, storage, value, id === 'page'); // a row of a reply's web link menu (external-link-menu.ts)
   if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // the detail header's number's menu choice
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // a pull request link's hover card
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // the composer's drafts (pages-pr-detail.ts)
@@ -144,6 +147,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
   if (op === 'diagram-retry') return retryMermaid(value, id); // id: the theme whose page failed
   if (op === 'diagram-frame') return noteMermaidFrame(value); // a Mermaid page's report (assets/mermaid/render.js)
+  if (op === 'math-frame') return noteMathFrame(value); // a math page's report (assets/math/render.js)
   if (op === 'setup-details' || op === 'setup-cancel' || op === 'setup-terminal') return worktreeSetupAction(client, native, op);
   if (op === 'diagram-open' || op === 'diagram-close') return diagramPreviewAction(client, op, value);
   // A table's Copy as Markdown / CSV (the check morph, no toast) and a thread chip's open.
@@ -298,7 +302,7 @@ export function timelineSnapshot(client: T3Client) {
     revertPending: view.revert?.threadId === client.threadId ? view.revert.messageId : '', ...planSaveView(client),
     minimap: minimapItems(rows), citing: view.citing > 0,
     citeJump: view.citeJump.threadId === client.threadId ? { key: view.citeJump.key, nonce: view.citeJump.nonce } : { key: '', nonce: 0 },
-    ...imagePreviewView(client), ...diagramPreviewView(client) };
+    ...imagePreviewView(client), ...diagramPreviewView(client), mathFrames: mathFrames() };
 }
 
 /** The working root that path labels are made relative to (filePathDisplay). */
@@ -458,8 +462,8 @@ function present(row: Row, context: PresentContext): Message {
     case 'plan': {
       const markdown = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(row.entry.item.markdown)), context.threads);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),
-        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id),
-        diagrams: messageDiagrams(markdown, row.entry.item.streaming === true),
+        completed: row.entry.item.streaming !== true, streaming: row.entry.item.streaming === true, sourceThreadId: str(row.entry.row.sourceThreadId), meta: false, collapsible: planCollapsible(markdown), code: messageCodeBlocks(markdown), chips: withFileLinkMenus(context.client, messageChips({ ...row.entry.item, text: markdown }, context.root, context.threads, row.id)),
+        diagrams: messageDiagrams(markdown),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
@@ -481,18 +485,18 @@ function present(row: Row, context: PresentContext): Message {
         copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
       if (row.entry.role === 'assistant') {
         const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads);
-        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client),
+        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)),
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
-          diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
+          diagrams: messageDiagrams(text) };
       }
       if (context.workflow && context.workflow.messageId === str(item.messageId)) {
         const opening = workflowOpeningMessage(context.workflow, { agents: [], providers: context.providers, threads: context.threads }, threadFindView(context.client).highlight);
         return { ...common, ...opening, code: messageCodeBlocks(opening.body) };
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
-      const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
+      const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // A file with a chip in the prose needs no standalone row (images always show).
-      return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text, false),
+      return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text),
         collapsible: shouldCollapseUserMessage(text),
         // A queued message that was sent reads as any other; only a steer keeps its marker.
         intent: intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
@@ -501,22 +505,6 @@ function present(row: Row, context: PresentContext): Message {
         status: ['completed', 'pending', 'waiting'].includes(str(item.status)) ? '' : str(item.status) };
     }
   }
-}
-
-const LEGACY_AUTOMATION_PREFIX = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
-const LEGACY_AUTOMATION_MESSAGE_ID = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
-/**
- * resolveUserMessagePresentation (client-runtime userMessage.ts): who sent a user message the user
- * did not type. Older scheduled messages carry their attribution in the prompt itself; a restart
- * continuation the server sent as the agent is T3 Code's.
- */
-export function userMessagePresentation(item: Obj): { text: string; attribution: '' | 'automation' | 'agent' | 't3code'; scheduledTaskId: string } {
-  const text = str(item.text);
-  if (typeof item.scheduledTaskId === 'string') return { text, attribution: 'automation', scheduledTaskId: item.scheduledTaskId };
-  const legacyPrefix = LEGACY_AUTOMATION_PREFIX.exec(text);
-  const legacyTaskId = legacyPrefix ? LEGACY_AUTOMATION_MESSAGE_ID.exec(str(item.messageId))?.[1] : undefined;
-  if (legacyPrefix && (legacyTaskId !== undefined || item.createdBy === 'agent')) return { text: text.slice(legacyPrefix[0].length), attribution: 'automation', scheduledTaskId: legacyTaskId ?? '' };
-  return { text, attribution: item.createdBy !== 'agent' ? '' : item.creationSource === 'server' ? 't3code' : 'agent', scheduledTaskId: '' };
 }
 
 type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'

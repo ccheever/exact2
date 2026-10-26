@@ -8,6 +8,8 @@ use exact_kernel::{
     Kernel, NodeType, Offer, Op, PropId, PropValue, StyleId, StyleProps, StyleValue,
 };
 
+#[path = "svg_scene/bounds.rs"]
+mod bounds;
 #[path = "svg_scene/lengths.rs"]
 mod lengths;
 

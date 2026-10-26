@@ -1,9 +1,9 @@
 #if os(macOS)
 import AppKit
 
-/// Retains OS focus/paste routing and toolbar geometry around the shared field.
-/// Contract owns Return and formatting; an open command menu's keys press its
-/// hidden key buttons (T3ComposerEditor.menuCommand).
+/// Retains type-to-focus and the anchors' geometry around the shared field.
+/// Contract owns Return, formatting, the send chords and the open menus' keys
+/// (app.contract composerKeyEvent).
 final class T3Composer {
     /// The surface launcher (hatch `t3-launcher`): its letters are its rows' `aria-keyshortcuts`, which Exact's key
     /// route presses (shell-panels.contract SurfaceRow), so type-to-focus leaves them alone (`launcherLetter`).
@@ -16,28 +16,20 @@ final class T3Composer {
         init(_ element: ExactElement) { self.element = element }
     }
     private var anchors: [String: Anchor] = [:]
-    /// Each trigger's [x, width] in its toolbar row, in points (T3's menus
-    /// open above the trigger, start-aligned, so the view needs both edges).
+    /// Each `t3-anchor` hook's [x, width] in its parent view, in points: the label probes'
+    /// natural widths and the rows the layouts fit (the toolbar's controls, the strip, the tab strip).
     private(set) var anchorFrames: [String: [Double]] = [:]
     private var keyMonitor: Any?
-    /// OS paste and drop facts around the shared field.
-    let editor: T3ComposerEditor
 
     init(changed: @escaping (String) -> Void = { _ in }) {
         self.changed = changed
-        editor = T3ComposerEditor(changed: changed)
     }
 
     var status: [String: Any] { ["anchors": anchorFrames] }
-
-    /// The prompt's text view while it has the keyboard (Edit › Paste as Text, T3Menus).
-    var focusedTextView: NSTextView? {
-        guard let view = editor.textView, view.isEditable, view.window?.firstResponder === view else { return nil }
-        return view
-    }
+    /// The mounted composer's text view (the shell's text menu keeps Select All enabled in it when it is empty).
+    var textView: NSTextView? { composer?.isLive == true ? composer?.textView : nil }
 
     func install(_ element: ExactElement) {
-        editor.install(element)
         if element.hatch == .t3Anchor {
             let name = element.data[.anchor] ?? ""
             guard !name.isEmpty else { return }
@@ -66,7 +58,6 @@ final class T3Composer {
     }
 
     func remove(_ element: ExactElement) {
-        editor.remove(element)
         let ended = anchors.filter { $0.value.element == nil || $0.value.element === element }
         for (name, anchor) in ended {
             if let observer = anchor.observer { NotificationCenter.default.removeObserver(observer) }
@@ -81,7 +72,6 @@ final class T3Composer {
     }
 
     func destroy() {
-        editor.destroy()
         stopMonitoring()
         for anchor in anchors.values { if let observer = anchor.observer { NotificationCenter.default.removeObserver(observer) } }
         anchors.removeAll()
@@ -109,7 +99,6 @@ final class T3Composer {
 
     /// Internal so focused tests can exercise the actual window/focus guard.
     func handle(_ event: NSEvent) -> NSEvent? {
-        if queuedEditKey(event) { return nil } // ⌥↑ with the caret at the start (T3ComposerQueueKey.swift)
         if let routed = editorKey(event) { return routed.event }
         return event
     }
@@ -118,24 +107,14 @@ final class T3Composer {
 
     struct Routed { let event: NSEvent? }
 
-    /// ⇧⌘V is Paste as Text (T3ComposerEditor.pasteAsText). ⌘V in the composer with only image data on the
-    /// pasteboard is the text view's paste, which AppKit's Paste (disabled for it) would not send. A printable key or
-    /// ⌘V with nothing editable focused goes to the composer, which takes focus. Nil leaves the event to the others;
-    /// `Routed` holds what goes on (nil: the key is taken).
+    /// A printable key or ⌘V with nothing editable focused goes to the composer, which takes focus. Nil leaves the
+    /// event to the others; `Routed` holds what goes on (nil: the key is taken).
     func editorKey(_ event: NSEvent) -> Routed? {
         guard event.type == .keyDown, let composer, composer.isLive, let view = composer.textView, view.isEditable,
               let window = view.window, event.window === window, window.attachedSheet == nil,
               view.isHiddenOrHasHiddenAncestor == false else { return nil }
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        if flags == [.command, .shift], key == "v", window.firstResponder === view {
-            editor.pasteAsText(view)
-            return Routed(event: nil)
-        }
-        if flags == .command, key == "v", window.firstResponder === view, T3ComposerEditor.pastesOnlyFiles(.general) {
-            view.paste(nil)
-            return Routed(event: nil)
-        }
         // A launcher letter goes on to Exact's key route (never type-to-focus), where its
         // row's shortcut takes it (AppKit runs local monitors in no fixed order).
         if let launcher, let shown = launcher.view, Self.launcherLetter(event, letters: launcher.data[.surfaceLauncherKeys] ?? "",
@@ -171,7 +150,7 @@ final class T3Composer {
     /// the keyboard (a bare window, Exact's root view or an inert surface).
     static func redirectable(_ responder: NSResponder?, in window: NSWindow) -> Bool {
         guard let responder, responder !== window, responder !== window.contentView else { return true }
-        // WKWebView (the terminal's native responder) is an NSTextInputClient even though
+        // WKWebView (an iframe's or the Browser's page) is an NSTextInputClient even though
         // its accessibility container is AXGroup. It already owns printable keys and paste.
         if responder is NSTextInputClient || responder is NSText || responder is NSTextField || responder is NSControl { return false }
         guard let view = responder as? NSView else { return false }
@@ -187,19 +166,16 @@ final class T3Composer {
         return node.hitTest(NSPoint(x: node.frame.midX, y: node.frame.midY)) != nil
     }
 
-    /// TypeScript's requests for the prompt editor (main thread).
+    /// TypeScript's requests for the prompt editor (main thread): `editorPoke` re-asks the editor resource after a delay.
     func perform(_ request: [String: Any]) -> [String: Any] {
         let generation = request["generation"] as? Int ?? 0
-        var value: [String: Any] = [:]
         switch request["op"] as? String {
-        case "editorSync": value = editor.sync(request)
-        case "editorForgetFold": editor.forgetFold(request["id"] as? Int ?? -1)
         case "editorPoke":
             let delay = max(0, min(2000, request["afterMs"] as? Int ?? 0))
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in self?.changed("t3.editor") }
         default: return ["ok": false, "generation": generation, "error": ["kind": "Editor", "message": "Unknown editor request.", "uncertain": false]]
         }
-        return ["ok": true, "generation": generation, "value": value]
+        return ["ok": true, "generation": generation, "value": [String: Any]()]
     }
 
     deinit { destroy() }

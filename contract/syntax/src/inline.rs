@@ -14,7 +14,9 @@
 //! region arms around it, so each place a fill renders is its own instance
 //! with its own state (owned by the arm around that `children`).
 
-use crate::ast::{Action, Attr, Binding, Component, Expr, File, Node, Param, Stmt, TypeExpr};
+use crate::ast::{
+    Action, Attr, Binding, Component, Expr, File, Node, Param, ResourceDecl, Stmt, TypeExpr,
+};
 use crate::notfound::{implicit_notfound, implicit_notfound_view};
 use crate::parser::SyntaxError;
 use std::collections::{BTreeMap, BTreeSet};
@@ -28,7 +30,7 @@ mod tests;
 mod use_node;
 
 use derives::resolved_derives;
-use subst::{renamed_locals, subst_expr, subst_stmts, substituted, Subst};
+use subst::{renamed_locals, subst_expr, subst_stmts, Subst};
 
 fn err<T>(
     id: &'static str,
@@ -46,6 +48,22 @@ fn err<T>(
 /// appear in an authored identifier, so no author's name can collide with it.
 pub fn lifted(name: &str, n: u32) -> String {
     format!("{name}#{n}")
+}
+
+/// The sources a child may read itself: the device's facts, which hold no
+/// app data and open no request, the same for every instance.
+pub const DEVICE_FACTS: &[&str] = &["exactViewport", "exactPage"];
+
+/// Whether `r` reads a device fact, as a child may declare.
+pub fn reads_device(r: &ResourceDecl) -> bool {
+    DEVICE_FACTS.contains(&r.source.as_str()) && r.args.is_empty() && r.placeholder.is_none()
+}
+
+/// The root's name for child `component`'s device-fact resource `name`:
+/// one for every instance, as the answer is. `@` cannot appear in an
+/// authored identifier.
+pub fn hoisted(component: &str, name: &str) -> String {
+    format!("{name}@{component}")
 }
 
 /// The root's view with every component use inlined.
@@ -252,6 +270,15 @@ fn expand_with_sites(
         anatomy: source.anatomy.clone(),
         span: source.span,
     };
+    // A child's device facts are the root's resources, one a component.
+    for c in file.components.iter().skip(1) {
+        for r in c.resources.iter().filter(|r| reads_device(r)) {
+            root.resources.push(ResourceDecl {
+                name: hoisted(&c.name, &r.name),
+                ..r.clone()
+            });
+        }
+    }
     // @ref LLP 1038 D3 — a compiler slot, before authored initializers and
     // before the per-use states are lifted. `none` is only an AST placeholder;
     // types supplies Router and lowering leaves its initialization to launch.
@@ -407,6 +434,7 @@ struct Ctx<'a> {
 struct Fill {
     nodes: Vec<Node>,
     subst: BTreeMap<String, Expr>,
+    value_only: BTreeSet<String>,
     provides: Vec<(String, Expr)>,
     outer: Option<Rc<Fill>>,
     instance: u32,
@@ -468,7 +496,8 @@ fn inline_nodes(
                     let provides = std::mem::replace(&mut ctx.provides, fill.provides.clone());
                     let outer_fill = std::mem::replace(&mut ctx.fill, fill.outer.clone());
                     let outer_instance = std::mem::replace(&mut ctx.instance, fill.instance);
-                    let mut site = Subst::new(&fill.subst, ctx.records);
+                    let mut site =
+                        Subst::new(&fill.subst, ctx.records).with_value_only(&fill.value_only);
                     let nodes = inline_nodes(&fill.nodes, &mut site, ctx);
                     ctx.provides = provides;
                     ctx.fill = outer_fill;

@@ -1,8 +1,8 @@
 // Symbol images on the JS target (`image "symbol:<role>"`, LLP 1011): the
 // web host's rendering (`glue.js` `refreshSymbols`) — the role's path as a
-// mask over the node's tint (when it sets none, its `color` where its author
-// wrote one, `data-symbol-color`, LLP 1121 stage 9 B; else `AccentColor`, LLP 1095 D8),
-// sized by its font — after each commit and navigation projection. A
+// mask in the node's `color` (LLP 1081 stage 2, as the Apple hosts draw a
+// page symbol; a native face or a bar sets its own ink),
+// sized by its font — after each commit and each change of a root's sidebar. A
 // dynamic source names a role from `table`, the plan's own strings that are
 // roles, or, for one its data names (ledger diary F10), from every role,
 // loaded once (`symbol-roles.js`, the build's). Imported by an app's module
@@ -43,13 +43,16 @@ function everyRole() {
     refresh();
   }).finally(() => inflight.n--);
 }
-const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:var(--exact-accent,AccentColor)}:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
+const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:currentcolor}:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
 /** `table`: role → [path, filled], for sources a binding names. */
 export function symbols(table) {
   Table = table;
   if (typeof document === "undefined") return;
   document.head.append(Object.assign(document.createElement("style"), { textContent: STYLE }));
+  // A hook before this one (pictures.js: a package's scheme) takes its sources first.
+  const prior = PropHooks.src;
   PropHooks.src = (e, v) => {
+    if (prior?.(e, v)) return true;
     // A source that is no longer a symbol drops the symbol's rendering first,
     // so neither `refresh` nor the role table's late load paints it back over
     // what the new source shows (an `app:/` file lands asynchronously).
@@ -68,9 +71,12 @@ export function symbols(table) {
   };
   After.push(schedule);
   if (typeof window !== "undefined" && !globalThis.__exactRender) {
-    addEventListener("resize", schedule);
-    // A bare plan need not commit on resize. Projection can follow the resize
+    // A bare plan need not commit on resize, nor when the colour scheme or the
+    // contrast recolours a title, whose colour the symbol on its face takes (as
+    // glue.js `mediaChanged` refreshes too). Projection can follow the resize
     // listener, so observe its published marker rather than repeat its rule.
+    addEventListener("resize", schedule);
+    for (const query of ["(prefers-color-scheme: dark)", "(prefers-contrast: more)"]) matchMedia(query).addEventListener("change", schedule);
     new MutationObserver(schedule).observe(document.getElementById("exact-root"), {
       attributes: true, subtree: true, attributeFilter: ["data-exact-sidebar"],
     });
@@ -134,37 +140,40 @@ const inked = (e, ink) => {
 };
 function refresh() {
   for (const el of document.querySelectorAll("#exact-root img[data-app-src]")) if (el.$app === undefined) appSource(el, el.getAttribute("data-app-src"));
-  for (const el of document.querySelectorAll("#exact-root img[data-symbol-path]")) {
+  const symbols = [...document.querySelectorAll("#exact-root img[data-symbol-path]")];
+  for (const el of symbols) {
     const ink = el.getAttribute("data-symbol-ink");
     if (ink) el.toggleAttribute("data-symbol-color", inked(el, ink));
-    // D4/D14: absent symbol axes follow the title, including its own rows.
-    if (el.parentElement?.matches("button[data-button-style]")) {
-      const title = el.parentElement.querySelector(":scope > [data-exact-text]"), own = getComputedStyle(el);
-      if (title) {
-        const font = getComputedStyle(title); el.style.color = font.color;
-        if (own.getPropertyValue("--exact-symbol-size-authored").trim() !== "1") el.style.fontSize = font.fontSize;
-        if (own.getPropertyValue("--exact-symbol-weight-authored").trim() !== "1") el.style.fontWeight = font.fontWeight;
-      }
-    }
-    const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
-    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
+  }
+  // Batch reads before writes; computed styles are live, so keep only scalar values.
+  const titles = symbols.flatMap(el => {
+    const title = el.parentElement?.matches("button[data-button-style]") && el.parentElement.querySelector(":scope > [data-exact-text]"); if (!title) return [];
+    const own = getComputedStyle(el), font = getComputedStyle(title), style = { color: font.color };
+    for (const [axis, prop] of [["size", "fontSize"], ["weight", "fontWeight"]]) if (own.getPropertyValue(`--exact-symbol-${axis}-authored`).trim() !== "1") style[prop] = font[prop];
+    return [[el, style]]; });
+  for (const [el, style] of titles) Object.assign(el.style, style);
+  const configs = symbols.map(el => { const cs = getComputedStyle(el);
+    return { el, point: parseFloat(cs.fontSize) * (parseFloat(cs.getPropertyValue("--exact-symbol-scale")) || 1), weight: Number(cs.fontWeight), objectFit: cs.objectFit }; });
+  for (const { el, point, weight } of configs) {
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${point}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
     // As the web host says it (glue.js `refreshSymbols`), once every role is here.
     const source = el.getAttribute("data-symbol-source");
     if (!path && All === true && !source?.startsWith("symbol:sf/") && source !== "symbol:" && el.symbolRefusal !== source) {
       journal.push(`t=${clock.now} image ${source} refused: unknown symbol role`); el.symbolRefusal = source;
     }
     if (el.symbolKey !== key) {
-      el.symbolKey = key;
-      const point = size, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
+      el.symbolKey = key; const stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
       const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
       el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
-    if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;
-    el.style.setProperty("--exact-symbol-mask", el.symbolMask);
-    const px = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), py = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-    const fits = size <= el.clientWidth - px && size <= el.clientHeight - py;
-    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
-    el.style.setProperty("--exact-symbol-fit", cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" || cs.objectFit === "fill" ? "contain" : cs.objectFit);
+    if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder; el.style.setProperty("--exact-symbol-mask", el.symbolMask);
   }
+  // Sources can set intrinsic size synchronously; percentage padding must resolve against the resulting layout.
+  const fits = configs.map(({ el, point, objectFit }) => {
+    const cs = getComputedStyle(el), fits = point <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && point <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
+    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
+    return [el, objectFit === "none" || (objectFit === "scale-down" && fits) ? `${point}px ${point}px` : objectFit === "scale-down" || objectFit === "fill" ? "contain" : objectFit];
+  });
+  for (const [el, fit] of fits) el.style.setProperty("--exact-symbol-fit", fit);
 }

@@ -29,6 +29,10 @@ pub struct RunnerLinks {
     /// CSS animations' `@keyframes`, resolved for a node's `animation` list
     /// (LLP 1055 D5): [`crate::bridge::KeyframesTable::resolve`].
     pub keyframes: crate::bridge::KeyframesLink,
+    /// `font-weight`, `font-stretch` and `font-variation-settings`
+    /// transitions and keyframes (LLP 1019 §13 D10), which the runner
+    /// plays: `None` where a browser plays them.
+    pub text_axes: super::text_axes::TextAxesLink,
 }
 
 /// How the VM reaches the `format` capability's entries, when linked: the
@@ -60,6 +64,7 @@ impl RunnerLinks {
         geometry: Some(&crate::geometry::KERNEL),
         grants: Some(crate::grants::validate),
         keyframes: Some(crate::bridge::KeyframesTable::resolve),
+        text_axes: Some(exact_motion::Engine::new),
     };
 
     /// The core alone.
@@ -72,5 +77,6 @@ impl RunnerLinks {
         geometry: None,
         grants: None,
         keyframes: None,
+        text_axes: None,
     };
 }

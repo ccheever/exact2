@@ -5,7 +5,12 @@
 
 use crate::{err, LowerError};
 use contract_syntax::{Expr, Span, TemplatePart};
+
+mod ink;
+mod tint;
 use exact_kernel::generated::{symbol_role, SYMBOL_ROLES};
+pub(crate) use ink::symbol_ink;
+pub(crate) use tint::tints;
 
 /// The role whose Apple name an SF Symbol is, exactly (LLP 1121 D10: `symbol:sf/chevron.backward`
 /// draws `back` where no SF Symbol is).
@@ -87,6 +92,12 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
         }
         Some(out)
     })
+}
+
+/// An image source's warnings: a symbol by another spelling (`aliases`). An SVG file draws
+/// as a picture on every host (LLP 1011.001), so none names one.
+pub(crate) fn image_source(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerError> {
+    aliases(e, platform)
 }
 
 /// `lower-symbol-alias`: a literal source that names a role by another spelling builds as the

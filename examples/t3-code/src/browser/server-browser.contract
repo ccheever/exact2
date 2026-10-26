@@ -54,6 +54,7 @@ component ServerBrowserPage
     streamDialog: action
     streamUpload: action
     streamMeasured: action
+    interacted: action
   derive frame = mini ? serverMiniFrame : serverFrame
   derive imageScale = frame.width > 0 and frame.height > 0 ? min(pageWidth / frame.width, pageHeight / frame.height) : 1
   derive pointerLeft = (pageWidth - frame.width * imageScale) / 2 + frame.pointerX * imageScale
@@ -81,6 +82,7 @@ component ServerBrowserPage
   action control(kind: string)
     streamControl(runtimeId, kind)
   action mouse(phase: string, e: PointerEvent)
+    interacted()
     if frame.controlled and pdfUrl == ""
       if phase == "down"
         focus(`server-browser-keys-${runtimeId}`)
@@ -90,7 +92,7 @@ component ServerBrowserPage
       preventDefault()
       streamWheel(runtimeId, e, "", pageWidth, pageHeight)
   action key(phase: string, k: string, e: KeyboardEvent)
-    if frame.controlled and not composing and k != "Process" and k != "Unidentified"
+    if frame.controlled and not composing and not e.isComposing and k != "Process" and k != "Unidentified"
       if k == "Escape" and e.shiftKey
         preventDefault()
         blur()

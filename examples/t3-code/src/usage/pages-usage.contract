@@ -232,10 +232,10 @@ component UsagePage
       place(id, "seg")
       hoverAt = outside
       hoverDrawn = usageDrawnOf(page.pooled.drawn, id)
-    hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "trigger", inside)
+    hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, wide=0, testId=`usage-seg-pop-${id}`), "trigger", inside)
   action enterPop(id: string, inside: bool)
     hoverAt = inside ? outside : hoverAt
-    hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "card", inside)
+    hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, wide=0, testId=`usage-seg-pop-${id}`), "card", inside)
   action enterMail(id: string, inside: bool)
     enterPop(id, inside)
   // A press on the popover's own trigger (Base UI's useClick): pins it, or closes it when pinned, hover-opened state
@@ -588,10 +588,10 @@ component UsageKeys
           text "Back" font-size=1
       for entry in keys key=entry.id
         if entry.kind == "metric"
-          button press=setMetric(entry.value) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          button -exact-menu="none" press=setMetric(entry.value) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
             text entry.label font-size=1
         if entry.kind == "window" and not limits
-          button press=setWindow(entry.days) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          button -exact-menu="none" press=setWindow(entry.days) aria-keyshortcuts=entry.chord aria-label=entry.label tabindex=-1 testId=`usage-key-${entry.id}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
             text entry.label font-size=1
 
 component UsageSummary

@@ -56,7 +56,7 @@ const CONTEXT_FIELDS = ['failure', 'operation', 'cwd', 'relativePath', 'resolved
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string' ? value : '';
 
-/** The largest frame either side sends (the clone's own bound, as T3Wire had it). */
+/** The largest frame either side sends (the clone's own bound). */
 export const MAXIMUM_BYTES = 16 * 1024 * 1024;
 export const PROTOCOL_VERSION = 2;
 
@@ -200,6 +200,8 @@ function typed(value: unknown): TransportFailure {
     const kind = isObject(value.resource) ? text(value.resource._tag) : '';
     message = kind === 'media-file' ? 'Media file was not found.' : kind === 'tool-output-image' ? 'Tool output image was not found.' : 'Workspace asset was not found.';
   }
+  // DeviceEasAccountError's message is its reason, through a getter (contracts device.ts).
+  if (!message && tag === 'DeviceEasAccountError') message = field('reason');
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;

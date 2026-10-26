@@ -1,5 +1,7 @@
 /target/
 /dist/
+# The build swap's siblings: the kept builds by generation, their leases, the reaped list, lock and stages.
+/dist.*
 /dist.previous/
 /artifacts/
 /.shells/

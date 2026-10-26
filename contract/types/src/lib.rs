@@ -27,6 +27,8 @@ mod component;
 mod decorations;
 mod enums;
 mod failure;
+mod frame_commands;
+mod frames;
 mod geometry;
 mod injects;
 mod lists;
@@ -40,9 +42,10 @@ mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
+mod shadows;
 mod tasks;
 pub use bounds::MAX_TYPE_DEPTH;
-pub use payload::handler_arity_message;
+pub use payload::{handler_arity_message, handler_parameters, handler_signature};
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;
@@ -287,6 +290,9 @@ pub struct Shapes {
     /// Action name → the first component that declares it: a statement
     /// naming one out of its scope is told where it is (LLP 1089 D10).
     pub actions: BTreeMap<String, String>,
+    /// An action or `fn` named like a standard function → what it is and
+    /// where it is declared (`shadows`).
+    pub shadows: BTreeMap<(String, String), (&'static str, Span)>,
     /// Shape name → how deep its values can nest (LLP 1090 D2), once every
     /// shape's fields are known.
     pub depths: BTreeMap<String, u32>,
@@ -296,6 +302,9 @@ pub struct Shapes {
     /// The sounds the app declares, by path (LLP 1096 D1): a literal
     /// `playSound` source names one.
     pub sounds: std::collections::BTreeSet<String>,
+    /// The native modules' sends that answer nothing, by program-unique
+    /// name: a statement naming one sends it (LLP 1133.004 D5).
+    pub effects: std::collections::BTreeSet<String>,
     /// Where `x.length` reads a record's field (`lists::LengthReads`).
     pub(crate) lengths: Arc<std::sync::Mutex<lists::LengthReads>>,
 }
@@ -843,7 +852,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 if args.len() != params.len() {
                     return err(
                         "type-arity",
-                        checks::call_arity(name, args.len(), params),
+                        checks::call_arity(name, args.len(), params)
+                            + &shadows::note(name, None, shapes),
                         *span,
                     );
                 }
@@ -853,8 +863,9 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         return err(
                             "type-argument",
                             format!(
-                                "{} expects `{want}`, given `{t}`",
-                                contract_syntax::idioms::argument(name, i)
+                                "{} expects `{want}`, given `{t}`{}",
+                                contract_syntax::idioms::argument(name, i),
+                                shadows::note(name, None, shapes)
                             ),
                             arg.span(),
                         );
@@ -924,7 +935,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         );
                     }
                 }
-                routes::location(f, args, shapes)?;
+                routes::location(f, args, scope, shapes)?;
                 if f == Stdlib::FormatNumber {
                     literals::currency_code(args, *span)?;
                 }
@@ -1138,7 +1149,12 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .or_insert_with(|| c.name.clone());
         }
     }
+    shadows::declare(file, &mut shapes);
     shapes.sounds = file.sounds.iter().map(|s| s.source.clone()).collect();
+    shapes.effects = (file.modules.iter())
+        .filter(|m| m.kind == contract_syntax::ModuleKind::Send && m.answers.is_none())
+        .map(|m| m.name.clone())
+        .collect();
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);
@@ -1358,12 +1374,18 @@ fn check_with_sites(
 fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c: its
     // instances' own), never a `resource`, `mutation`, or `task` — a row
-    // must not open N requests, and only the root has a clock.
+    // must not open N requests, and only the root has a clock — but it may
+    // read the device's facts, which open none (`DEVICE_FACTS`).
     for c in file.components.iter().skip(1) {
-        if !c.resources.is_empty() || !c.mutations.is_empty() || !c.tasks.is_empty() {
+        let data = c
+            .resources
+            .iter()
+            .any(|r| !contract_syntax::inline::reads_device(r));
+        if data || !c.mutations.is_empty() || !c.tasks.is_empty() {
             let span = c
                 .resources
-                .first()
+                .iter()
+                .find(|r| !contract_syntax::inline::reads_device(r))
                 .map(|r| r.span)
                 .or(c.mutations.first().map(|m| m.span))
                 .or(c.tasks.first().map(|t| t.span))

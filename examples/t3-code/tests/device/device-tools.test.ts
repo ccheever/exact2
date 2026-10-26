@@ -4,6 +4,7 @@ import { foregroundOf, hasKeyboard, locationValid, toolBody, workspaceOf } from 
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
+import { setLayoutFrames } from '../support/layout-frames';
 
 // DeviceStreamView's 3D / Flat, DeviceControlsRail's Android controls and
 // DeviceToolsPanel, over HEAD's DeviceServiceState / DeviceDetail shapes (contracts/device.ts).
@@ -110,7 +111,7 @@ describe('device workspace completeness', () => {
     expect(tools.colorFilters.map(item => item.label)).toEqual(['None', 'Grayscale', 'Red / green (protanopia)', 'Green / red (deuteranopia)', 'Blue / yellow (tritanopia)']);
     expect(tools.presets.map(item => item.label)).toEqual(['San Francisco', 'New York', 'London', 'Stockholm', 'Tokyo']);
     // A 700pt-wide area keeps the drawer beside the screen.
-    (c.presentation as Obj).frames = { 'device-area': [0, 0, 760, 700] };
+    setLayoutFrames(c, { 'device-area': [0, 0, 760, 700] });
     expect((await deviceSessionView(c, native, state, true, 'p')).workspace.controls.tools.overlay).toBe(false);
     // Drafts, submits (a submitted field clears), selects, toggles, permissions, push, location.
     await deviceSessionLocal(c, native, state, 'p', 'tools-draft-url', '  myapp://home ');

@@ -855,6 +855,7 @@ fn a_surface_follows_the_scheme_the_font_scale_and_a_reader_made_again() {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     };

@@ -98,10 +98,32 @@ extension NodeView {
     @objc func copy(_ sender: Any?) { if !clipboard(#selector(copy(_:))) { presenter?.selection.copy() } }
     @objc func cut(_ sender: Any?) { clipboard(#selector(cut(_:))) }
     @objc func paste(_ sender: Any?) { clipboard(#selector(paste(_:))) }
+    /// Paste and Match Style is a `paste`, as Chrome fires it.
+    @objc func pasteAsPlainText(_ sender: Any?) { clipboard(#selector(paste(_:))) }
     /// A cut or paste is this node's only while a node hears it.
     package override func responds(to aSelector: Selector!) -> Bool {
         if [#selector(cut(_:)), #selector(paste(_:))].contains(aSelector) { return clipboardTarget(aSelector) != nil }
+        if aSelector == #selector(pasteAsPlainText(_:)) { return clipboardTarget(#selector(paste(_:))) != nil }
         return super.responds(to: aSelector)
+    }
+    /// Paste and Paste and Match Style in a field's or text area's editor
+    /// (`TextArea`, `FieldEditor`): one `paste`, the same for both, as the
+    /// DOM fires it, then the editor's own (`perform`) unless an action
+    /// prevented it, and only when the editor reads a type the pasteboard
+    /// holds: image data alone, which a plain editor cannot take, inserts
+    /// nothing and does not beep.
+    static func fieldPaste(_ owner: NodeView?, _ editor: NSTextView, _ perform: () -> Void) {
+        fieldEdit(owner, #selector(paste(_:))) {
+            if NSPasteboard.general.availableType(from: editor.readablePasteboardTypes) != nil { perform() }
+        }
+    }
+    /// Whether `item` (Paste, Paste and Match Style) is enabled at this
+    /// field although its editor reads nothing on the pasteboard: a `paste`
+    /// handler at it or above hears the files or image data there, as
+    /// Chrome's Paste is enabled for them (`clipboardData.files`).
+    func pastesFiles(_ item: NSMenuItem) -> Bool {
+        [#selector(NSText.paste(_:)), #selector(NSTextView.pasteAsPlainText(_:))].contains(item.action)
+            && clipboardHearer(#selector(paste(_:))) != nil && Self.holdsFiles(.general)
     }
     #else
     // UIView implements none of the three: forwarding an unheard one to
@@ -120,6 +142,14 @@ extension NodeView {
         return super.canPerformAction(action, withSender: sender)
     }
     #if os(iOS)
+    /// A paste listener can receive images or file URLs that a plain editor cannot insert.
+    func pastesFiles(_ action: Selector) -> Bool {
+        guard [#selector(UIResponderStandardEditActions.paste(_:)), #selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:))].contains(action),
+              clipboardHearer(#selector(paste(_:))) != nil else { return false }
+        let board = UIPasteboard.general
+        // UIKit writes both web and file URLs as public.url.
+        return board.hasImages || (board.hasURLs && board.urls?.contains(where: \.isFileURL) == true)
+    }
     private var hasSelectedText: Bool { presenter?.textSelection.text(for: self)?.selected.length ?? 0 > 0 }
     private func copySelectedText() { presenter?.textSelection.copy(self) }
     #else
@@ -128,6 +158,66 @@ extension NodeView {
     #endif
     #endif
 }
+
+#if os(macOS)
+/// Edit ▸ Cut, Copy, Paste and Paste and Match Style while nothing holds the
+/// focus (the window is its own first responder, or the session's view is):
+/// the DOM sends them to `<body>`, so the first root's `cut`, `copy` or
+/// `paste` handler hears them (`Presenter.keyRoot`), and the menu item is
+/// enabled while one does. `ExactView` puts it after its window in the
+/// responder chain, so it is asked only when no view took the action, and
+/// takes none while a node or another session has the focus.
+final class RootEdits: NSResponder, NSMenuItemValidation {
+    weak var presenter: Presenter?
+    private weak var joinedWindow: NSWindow?
+    private static let events: [Selector: Selector] = [
+        #selector(NodeView.copy(_:)): #selector(NodeView.copy(_:)), #selector(NodeView.cut(_:)): #selector(NodeView.cut(_:)),
+        #selector(NodeView.paste(_:)): #selector(NodeView.paste(_:)), #selector(NSTextView.pasteAsPlainText(_:)): #selector(NodeView.paste(_:)),
+    ]
+    /// The event `action` is and the root that hears it, while nothing is focused.
+    func hearer(_ action: Selector?) -> (event: Selector, root: NodeView)? {
+        guard let action, let event = Self.events[action], let presenter, let root = presenter.keyRoot,
+              let window = joinedWindow ?? root.window, presenter.windowHoldsFocus(window), root.clipboardHearer(event)?.node === root else { return nil }
+        // Of several sessions in one window, the one whose keys these are (`ExactView.ownsShortcutFocus`).
+        if let view = presenter.session?.view, !view.ownsShortcutFocus(in: window) { return nil }
+        return (event, root)
+    }
+    /// Delivers `action` at the root: whether it heard it.
+    @discardableResult
+    func perform(_ action: Selector) -> Bool {
+        guard let (event, root) = hearer(action) else { return false }
+        root.clipboard(event)
+        return true
+    }
+    override func responds(to aSelector: Selector!) -> Bool {
+        if Self.events[aSelector] != nil { return hearer(aSelector) != nil }
+        return super.responds(to: aSelector)
+    }
+    @objc func copy(_ sender: Any?) { perform(#selector(NodeView.copy(_:))) }
+    @objc func cut(_ sender: Any?) { perform(#selector(NodeView.cut(_:))) }
+    @objc func paste(_ sender: Any?) { perform(#selector(NodeView.paste(_:))) }
+    @objc func pasteAsPlainText(_ sender: Any?) { perform(#selector(NSTextView.pasteAsPlainText(_:))) }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool { hearer(item.action) != nil }
+    /// Follows `window` in its responder chain, once.
+    func join(_ window: NSWindow) {
+        joinedWindow = window
+        var at: NSResponder? = window.nextResponder
+        while let r = at { if r === self { return }; at = r.nextResponder }
+        nextResponder = window.nextResponder
+        window.nextResponder = self
+    }
+    /// Leaves `window`'s responder chain.
+    func leave(_ window: NSWindow?) {
+        var at: NSResponder? = window
+        while let r = at {
+            if r.nextResponder === self { r.nextResponder = nextResponder; break }
+            at = r.nextResponder
+        }
+        nextResponder = nil
+        joinedWindow = nil
+    }
+}
+#endif
 
 extension NodeView {
     /// The field's or text area's selection replaced with `text`, as its

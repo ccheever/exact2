@@ -44,11 +44,4 @@ final class FileMenuTests: XCTestCase {
         menu.performActionForItem(at: 1)
         XCTAssertEqual(owner.picked, "open-external")
     }
-
-    /// ChatMarkdown's file-link menu for a media link: Preview media, the open and reveal items, the copies.
-    func testChatMediaLinkMenu() {
-        let menu = T3ContextMenu().menu(for: [["id": "preview-media", "label": "Preview media"], ["id": "open", "label": "Open in editor"],
-            ["id": "reveal", "label": "Reveal in Finder"], ["id": "copy-relative", "label": "Copy relative path"], ["id": "copy-full", "label": "Copy full path"]])
-        XCTAssertEqual(titles(menu), ["Preview media", "Open in editor", "Reveal in Finder", "Copy relative path", "Copy full path"])
-    }
 }

@@ -59,16 +59,18 @@ fn patch(rows: &[Row], plan: &Plan) -> StyleProps {
     patch
 }
 
-/// `view`'s looks, resolved in `tuple`, as `Op::SetLooks` (empty: none).
-pub(crate) fn op(view: ViewId, looks: &Looks, plan: &Plan) -> Op {
+/// `view`'s looks, resolved in `tuple`, as `Op::SetLooks` (empty: none),
+/// and the tokens they read as resolved: a token's new value may read one
+/// its old value didn't (a shadow over a base, LLP 1121 stage 12 B3).
+pub(crate) fn op(view: ViewId, looks: &Looks, plan: &Plan) -> (Op, u64) {
+    exact_kernel::style::theme::take_named();
     let _tuple = bridge::set_tuple(looks.tuple);
     let op = Op::SetLooks {
         id: view,
         looks: looks.resolve(plan),
     };
     bridge::set_tuple(_tuple);
-    exact_kernel::style::theme::take_named();
-    op
+    (op, exact_kernel::style::theme::take_named())
 }
 
 impl NodeInst {

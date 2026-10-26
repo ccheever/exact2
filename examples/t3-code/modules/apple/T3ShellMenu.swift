@@ -27,7 +27,8 @@ struct T3ShellMenuParams: Equatable {
 }
 
 /// An app view that draws an image (an `<img>` in the reference) under a node and lets presses through to it (its
-/// `hitTest` is nil), such as a tool's icon (T3ToolActivityIcon.swift): the shell's Copy Image copies its bitmap.
+/// `hitTest` is nil): the shell's Copy Image copies its bitmap. A Contract `image` (a tool's icon) is ExactKit's image
+/// layer, which `T3TextContextMenu.image` reads instead.
 protocol T3ShellImageView: NSView {
     var shellImage: CGImage? { get }
 }

@@ -68,3 +68,24 @@ export async function takePort(port, { label = 'a test run', waitMs = 20 * 60_00
     process.env.EXACT_PORT_TURNS = (process.env.EXACT_PORT_TURNS ?? '').split(',').filter((p) => p && p !== String(port)).join(',');
   };
 }
+
+/** A port of its own for a whole run, as the design tool's tests take one: the first from `start` on, through the 200
+ * above 17740, whose turn no run holds and on which nothing listens, its turn held until this process ends (or
+ * `give()`). Two runs at once, in one checkout or two whose paths share a port, each get one, where taking turns made
+ * the second wait out the first. Throws when all 200 are taken. */
+export async function claimPort(start, { label = 'a test run', base = 17741, span = 200, except = [] } = {}) {
+  const card = JSON.stringify({ label, pid: process.pid, at: new Date().toISOString() });
+  const answers = (port) => new Promise((done) => { const s = createConnection({ host: '127.0.0.1', port }); s.once('connect', () => { s.destroy(); done(true); }); s.once('error', () => done(false)); });
+  for (let i = 0; i < span; i++) {
+    const port = base + ((start - base + i) % span + span) % span;
+    if (except.includes(port)) continue;
+    if (held(port)) return { port, give: () => {} };
+    const server = await listen(port, card);
+    if (!server) continue;
+    if (await answers(port)) { server.close(); continue; }
+    process.env.EXACT_PORT_TURNS = [process.env.EXACT_PORT_TURNS, port].filter(Boolean).join(',');
+    let given = false;
+    return { port, give: () => { if (given) return; given = true; server.close(); process.env.EXACT_PORT_TURNS = (process.env.EXACT_PORT_TURNS ?? '').split(',').filter((p) => p && p !== String(port)).join(','); } };
+  }
+  throw new Error(`no port free for ${label}: all ${span} above ${base - 1} are taken`);
+}

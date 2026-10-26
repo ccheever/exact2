@@ -1,7 +1,7 @@
 # Recipe: app.json, assets and modules
 
-`app.json` names the app and what it ships; its `$schema` gives an editor every key and its
-description. Files the app carries are folders beside it, not keys.
+`app.json` names the app and what it ships; its `$schema` gives an editor every key. Files
+the app carries are folders beside it.
 
 ```json
 {
@@ -31,25 +31,25 @@ component App
 - **`assets/`** is bundled whole on every host. Contract names a file by its path from the app,
   with no leading slash: `image "assets/logo.png"`, a `sound` and `playSound`, a `font` block's
   `400 = "assets/Inter-Regular.ttf"` (then `font-family="Inter"`).
-- **`modules/apple/*.swift`** (and `*.xcframework`) is the app's native module, built whenever
-  the folder has one; `modules/web/index.js` answers on the web
-  ([native-module](native-module.md)). `modules` lists only the hyphenated tags of native
-  views ([native-views](native-views.md)): a tag the list lacks is `bake-unknown-module`.
+- **`modules/apple/*.swift`** (or `*.xcframework`) is the app's native module;
+  `modules/web/index.js` answers on the web ([native-module](native-module.md)). `modules`
+  lists only the hyphenated tags of native views ([native-views](native-views.md)): a tag the
+  list lacks is `bake-unknown-module`.
 - **`audio_session`**: `"playback"` where sound is the point (the silent switch does not
-  mute it); the default `ambient` mixes with other apps' audio.
+  mute it); the default `ambient` mixes with other audio.
 - **`app.id` and `app.name`** are set before the first build (`exact new --name --bundle-id`
   writes them, [porting-and-release](porting-and-release.md)); `app.ts`'s `appId` matches.
-- **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: a PNG the launch
-  screen centres on `background_color`, `width` points wide.
-- **`host.ios.icon`** `"assets/App.icon"`: an Icon Composer `.icon`, in place of `icons`.
+- **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: the launch
+  screen's PNG, `width` points wide, on `background_color`.
+- **`host.ios.icon`** `"assets/App.icon"`: an Icon Composer `.icon` instead of `icons`.
 - **`protocol_handlers`**: `euxy://p/abc` is `/p/euxy%3A%2F%2Fp%2Fabc` (whole at `%s`).
   A cold launch opens it in its route's tab: declare it (`p "/p/:d"`). Running, `go` can
-  push it on the selected tab; `open` uses its route's (`vocab navigate`). A drive
-  delivers one: `agent ios "type <root> euxy://p/abc"`.
-- **Other keys:** `icons`, `data` (the `data-*`
-  words a hatch reads), `tamber` (the design's file, else `app.tamber`), `strings` (string
-  tables), `typescript.sources` (directories outside the app that `app.ts` imports),
-  `commands` (the app's own `bun exact.mjs <verb>`).
+  push it on the selected tab; `open` uses its route's (`vocab navigate`).
+- **Other keys:** `icons`, `data` (the `data-*` words a hatch reads), `tamber` (the design's
+  file, else `app.tamber`), `strings` (string tables), `typescript.sources` (directories
+  `app.ts` imports from outside the app), `commands` (the app's own `exact.mjs` verbs).
+- **`host.ios.appClip`** `{}`: the whole app as an App Clip too (`id` defaults to
+  `<app id>.Clip`; each `applinks:` domain is its `appclips:` one).
 - **Not here:** grants (`app.ts`'s `export const grants`), fonts and sounds (Contract).
 - **A change to `app.json`, `assets/`, Swift, grants, `appId`, fonts or strings rebuilds** the
   native app (`bun exact.mjs ios`). An edit to `.contract` files, to `app.ts` (short of its

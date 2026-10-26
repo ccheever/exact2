@@ -65,6 +65,14 @@ pub(super) fn label(tag: &str, children: &[Node]) -> String {
     }
 }
 
+/// Whether `c` is a `header` or `footer` lowering folds into one text
+/// ([`fold_label`]) when it labels a grouped list's section: the design
+/// server's write check leaves its rows to the build (`theme::scan`).
+pub(crate) fn folds(c: &Node) -> bool {
+    matches!(c, Node::Element { tag, .. } if tag == "header" || tag == "footer")
+        && fold_label(c).is_some()
+}
+
 /// LLP 1116.017 D3: a `header` or `footer` whose one child is an `if` /
 /// `else if` / `else` chain, every arm one `text` with the same literal
 /// attributes, is that one `text` with its words chosen by the same

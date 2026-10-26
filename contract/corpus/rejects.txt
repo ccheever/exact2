@@ -1857,6 +1857,36 @@ component B
     button "b" press=pick("b")
     text pick(["a"], 0)
 ---
+== type-prop-hides-fn
+# A value prop can redirect the call head to another fn during inlining.
+fn pick(n: number): number = n + 1
+fn other(n: number): number = n + 100
+component App
+  state other = 7
+  view
+    Seg(pick=other)
+component Seg
+  props
+    pick: number
+  view
+    text `${pick(1)}`
+---
+== type-prop-hides-fn
+# Injected values undergo the same call-head substitution as props.
+fn pick(n: number): number = n + 1
+fn other(n: number): number = n + 100
+component App
+  state other = 7
+  provide
+    pick = other
+  view
+    Seg()
+component Seg
+  inject
+    pick: number
+  view
+    text `${pick(1)}`
+---
 == type-handler-action
 # B's handler names A's action: B takes it as an `action` prop.
 component A
@@ -1868,4 +1898,66 @@ component A
 component B
   view
     button "go" press=go("x")
+---
+== lower-iframe-partition-sandbox
+# LLP 1020.002 D1: a partitioned guest is a top-level page, which WebKit
+# cannot sandbox; the host would have to fail open.
+component A
+  view
+    iframe "https://example.com" partition="persist:work" sandbox="allow-scripts"
+---
+== lower-iframe-partition-message
+# LLP 1020.002 D1: a partitioned guest has no message bridge.
+component A
+  action got(data: string)
+    let x = data
+  view
+    iframe "https://example.com" partition="persist:work" message=got
+---
+== lower-iframe-partition-message
+component A
+  action send
+    postMessage("hi", "tab")
+  view
+    iframe "https://example.com" id="tab" partition="work"
+    button "send" press=send
+---
+== lower-iframe-partition-src
+# LLP 1020.002 D1: a bundled or `app:/` page is the app's own; a
+# partitioned frame never reaches the `exact-app` scheme.
+component A
+  view
+    iframe "/deck/index.html" partition="persist:work"
+---
+== lower-frame-command
+# LLP 1020.002 D3: a literal id that names no iframe.
+component A
+  action back
+    traverseHistory("tab", -1)
+  view
+    iframe "https://example.com" id="page" partition="work"
+    button "back" press=back
+---
+== lower-frame-capture-path
+# LLP 1020.002 D7: a capture writes under the app's own roots.
+component A
+  action snap
+    captureScreenshot("tab", "/tmp/shot.png")
+  view
+    column
+      iframe "https://example.com" id="tab"
+      button "snap" press=snap
+---
+== type-frame-command
+component A
+  action back
+    traverseHistory("tab", "back")
+  view
+    iframe "https://example.com" id="tab" partition="work"
+    button "back" press=back
+---
+== lower-attr-value
+component A
+  view
+    iframe "https://example.com" partition="work" apple.inactiveSchedulingPolicy="sometimes"
 ---

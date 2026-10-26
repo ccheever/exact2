@@ -93,7 +93,10 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ),
     ("reachend", "`list virtualized=true` with one direct `each`"),
     ("text-transform", "any tag but `input` and `textarea`"),
-    ("transform", "SVG elements, including `svg` and SVG `text`"),
+    (
+        "transform",
+        "SVG elements, including `svg` and SVG `text`, with the whole property; a box takes a `translate`, `rotate`, `scale` list in that order, which lowers to those rows",
+    ),
     (
         "selectionchange",
         "`text`, plain text `input` or `textarea`",
@@ -117,6 +120,19 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
         "seekforwardOffset",
         "an `audio` or `video` with `metadata=`",
     ),
+    // @ref LLP 1020.002 D1, D2, D5, D6, D7, D9, §9 — a browser shell's (`frames.rs`).
+    ("partition", "`iframe`"),
+    ("zoom", "`iframe`"),
+    ("currententrychange", "`iframe`"),
+    ("navigatesuccess", "`iframe`"),
+    ("navigateerror", "`iframe`"),
+    ("newwindow", "`iframe`"),
+    ("download", "`iframe`"),
+    ("capture", "`iframe`"),
+    ("userpromptopened", "`iframe`"),
+    ("apple.allowsBackForwardNavigationGestures", "`iframe`"),
+    ("apple.allowsMagnification", "`iframe`"),
+    ("apple.inactiveSchedulingPolicy", "`iframe`"),
 ];
 
 /// The compiler and target emitters share the collection-edge refusal.
@@ -124,8 +140,9 @@ pub fn collection_edge_refusal(event: &str) -> String {
     format!("`{event}` belongs to a virtualized list (LLP 1010): write `list virtualized=true` with one direct `each`. Only a non-empty collection has edges in its geometric window; a plain list lays out all its children and has no collection window to report an edge. For a plain feed or masonry, use the web's `intersect=` on a marker at the end of the content, after the columns (docs/reference.md, \"Intersection visibility\"):\nview intersect=loadMore intersect-margin=\"0px 0px 800px 0px\"\n  height=1")
 }
 
-/// LLP 1055.000 D5's box refusal and the alternatives printed by `contract vocab`.
-pub const BOX_TRANSFORM_REFUSAL: &str = "write the individual `translate`, `rotate` and `scale` properties on a box: `transform=\"translate(0px, 25px)\"` becomes `translate=\"0px 25px\"`, and `transform=\"scale(0.8)\"` becomes `scale=0.8`; `transform` on a box is deferred (LLP 1055.000 D5), and is accepted only on SVG elements";
+/// What `transform` is on a box (LLP 1055.000 D5), printed by `contract
+/// vocab` and, with a clause naming the value's own fault, as the refusal.
+pub const BOX_TRANSFORM_REFUSAL: &str = "`transform` on a box is the individual `translate`, `rotate` and `scale` properties: a value made of those functions, each at most once, in that order (CSS applies the rows translate, then rotate, then scale: CSS Transforms 2 §6.1) lowers to the rows it equals, so `transform=\"translate(0px, 25px)\"` is `translate=\"0px 25px\"`, `transform=\"scale(0.8)\"` is `scale=0.8`, and `transform=\"translate(10px) rotate(45deg) scale(1.5)\"` is all three; `none` is no row. The rest of the property is deferred on a box (LLP 1055.000 D5) and accepted only on SVG elements: `matrix`, a skew, a per-axis or 3D scale, a 3D function, a function repeated, functions in another order (`scale(2) translate(10px)` is not `translate(10px) scale(2)`), and a bound string the compiler cannot read";
 
 /// What a button with no `buttonStyle` is on each host (LLP 1115.000 D15,
 /// D14.5), in one sentence for both places that print it. The hosts hold the
@@ -144,12 +161,13 @@ pub const BUTTON_DEFAULT_NOTE: &str = button_default!();
 /// the web: `contract vocab <tag>` prints it under the tag.
 pub const TAG_NOTES: &[(&str, &str)] = &[
     ("time", "HTML time: `datetime` is an instant in epoch milliseconds, as `date(...)` returns. `format` is a literal named presentation: relative, timer, countdown, date-short, date-medium (default), date-long, date-full, time-short or time-medium. The platform formats it in the viewer locale and time zone. Relative time advances on minute boundaries; timer and countdown advance each second on the runner clock, with no app task. Apple timers use SwiftUI’s unpadded first field (`0:05`, `1:00:00`). A timer counts away from either side of its instant; countdown stops at zero. On snapshots, timer uses `Text(date, style: .timer)`, countdown uses `Text(timerInterval: entryDate...instant, countsDown: true)` to stop at zero, and calendar formats draw the kernel’s formatted string without ticking. Children are fallback content when the host cannot format the instant. A standalone live time reserves its box at its font: two localized units for relative time, one extra hour digit for timer, and the first displayed shape for countdown. An inline time among other runs in a text reflows as on the web. Ticking formats use tabular digits by default."),
+    ("section", "In a `list`, a group of rows. In a grouped list (`listStyle=\"inset-grouped\"`) a `header` child holding one `text` is the section's title, drawn in the list's header style, and a `footer` child holding one `text` the note under its rows: `section` / `header` / `text \"Results\"`, then its `row`s, then `footer` / `text \"Tap an option to vote.\"`. A `header` in a section is never the navigation bar. Outside a list it is HTML's section. docs/recipes/grouped-form.md"),
     ("progress", "HTML progress: `value` and optional `max` (1 by default) make a determinate bar; with neither it is the platform activity indicator. `start` and `end` instead name epoch millisecond instants: the runner advances the bar from 0 to 1 over that interval, clamps before and after it, and executes no app task. Write both, with end after start; do not combine them with value or max. It remains a native control with no children; name it with aria-label."),
     (
         "header",
         // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —
         // NavigationBarIOS.swift's `HeaderShape`, `NavigationRules.bar`.
-        "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it (on iOS 26 and later neighbours share one glass capsule; `buttonStyle=\"glass\"` gives an item its own); the first text after the heading is the subtitle; a readout (`role=\"status\"`, which nothing presses: a dot and a monospaced \"Clock\" beside the title) is an item placed as a button is, its custom view drawn as written (its fonts, colours and dot) and read by VoiceOver as static text; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`), and so is one a box down from the route, such as a screen component's root `column` holding it inside the route column that uses it: put `navigationKey` on that root (warning `lower-header-nested`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). On the Mac the same header is the window's title bar and toolbar (LLP 1115.002 D2): the heading is the window's title, with no large title; the buttons are toolbar items, one whose popover is a menu a menu item; a `role=\"tablist\"` of text tabs is the centred segments; the search input is the toolbar's search field. There a header holding anything a toolbar has no place for (a picture, a second text, a readout, a pressable title, a button drawn as a box) is drawn in the page as written, whole. docs/recipes/navigation-stack.md",
+        "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press, open a popover or say `disabled=true` (dimmed, as UIKit's) are the bar's items, leading before the heading and trailing after it (on iOS 26 and later neighbours share one glass capsule; `buttonStyle=\"glass\"` gives an item its own); the first text after the heading is the subtitle; a readout (`role=\"status\"`, which nothing presses: a dot and a monospaced \"Clock\" beside the title) is an item placed as a button is, its custom view drawn as written (its fonts, colours and dot) and read by VoiceOver as static text; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`), and so is one a box down from the route, such as a screen component's root `column` holding it inside the route column that uses it: put `navigationKey` on that root (warning `lower-header-nested`). A heading header at the head of an app with no navigation route (a keyed screen inside a keyed navigation root) stays in the page on iOS: add a navigation root holding a separately keyed screen whose first child is the header, or give the header `appearance=\"none\"` to keep it drawn as written (warning `lower-header-routeless`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back. A route whose scroller starts with a full-bleed picture says `navigationBar=\"transparent\"`: the bar as before, drawn clear at the top of the scroller, whose content starts under it as under a fixed transparent header on the web, with the bar's material coming as the content scrolls; without either, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). On the Mac the same header is the window's title bar and toolbar (LLP 1115.002 D2): the heading is the window's title, with no large title; the buttons are toolbar items, one whose popover is a menu a menu item; a `role=\"tablist\"` of text tabs is the centred segments; the search input is the toolbar's search field. There a header holding anything a toolbar has no place for (a picture, a second text, a readout, a pressable title, a button drawn as a box) is drawn in the page as written, whole. docs/recipes/navigation-stack.md",
     ),
     (
         "button",

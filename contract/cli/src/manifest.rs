@@ -9,6 +9,8 @@ mod widgets;
 pub use widgets::Widget;
 mod activities;
 pub use activities::Activity;
+mod watch;
+pub use watch::{WatchEntry, WATCH_KIND};
 
 /// The app manifest (`app.json`, LLP 1030 D2; 1030.000 D7) as the bake
 /// reads it — the JSON, and the identity every platform derives from it.
@@ -207,6 +209,42 @@ impl Manifest {
             .and_then(|p| p.as_object())
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// `host.windows.window` as the Rust expression of the
+    /// `exact_windows::Window` the app opens in: the fields it names, the
+    /// host's defaults for the rest (no `..` when it names all four, which
+    /// Clippy's `needless_update` would flag in the generated entry).
+    pub fn windows_window(&self) -> Result<String, String> {
+        let window = self.host("windows");
+        let Some(window) = window.get("window") else {
+            return Ok("exact_windows::Window::default()".into());
+        };
+        let mut fields = String::new();
+        let mut named = 0;
+        for (key, field) in [
+            ("width", "width"),
+            ("height", "height"),
+            ("minWidth", "min_width"),
+            ("minHeight", "min_height"),
+        ] {
+            if let Some(value) = window.get(key) {
+                let n = value
+                    .as_f64()
+                    .filter(|n| (1.0..=16384.0).contains(n))
+                    .ok_or_else(|| {
+                        format!("host.windows.window.{key} is a number from 1 to 16384")
+                    })?;
+                fields.push_str(&format!("{field}: {n:?}_f32, "));
+                named += 1;
+            }
+        }
+        let rest = if named < 4 {
+            "..exact_windows::Window::default() "
+        } else {
+            ""
+        };
+        Ok(format!("exact_windows::Window {{ {fields}{rest}}}"))
     }
 
     /// `deploy.signing.keys`: canonical base64 of 32 raw Ed25519 bytes.
@@ -546,5 +584,46 @@ mod appdrop_tests {
             .channel()
             .unwrap_err()
             .contains("deploy.signing.keys"));
+    }
+}
+
+#[cfg(test)]
+mod windows_tests {
+    use super::Manifest;
+
+    fn manifest(json: serde_json::Value) -> Manifest {
+        Manifest {
+            json,
+            id: "test.app".into(),
+            name: "Test".into(),
+            declared: true,
+        }
+    }
+
+    #[test]
+    fn the_window_names_what_app_json_gives_and_defaults_the_rest() {
+        let named = manifest(serde_json::json!({"host": {"windows": {"window": {
+            "width": 1100, "height": 760, "minWidth": 360,
+        }}}}));
+        assert_eq!(
+            named.windows_window().unwrap(),
+            "exact_windows::Window { width: 1100.0_f32, height: 760.0_f32, min_width: 360.0_f32, \
+             ..exact_windows::Window::default() }"
+        );
+        let all = manifest(serde_json::json!({"host": {"windows": {"window": {
+            "width": 1100, "height": 760, "minWidth": 360, "minHeight": 500,
+        }}}}));
+        assert_eq!(
+            all.windows_window().unwrap(),
+            "exact_windows::Window { width: 1100.0_f32, height: 760.0_f32, min_width: 360.0_f32, \
+             min_height: 500.0_f32, }"
+        );
+        let unsaid = manifest(serde_json::json!({"host": {"windows": {}}}));
+        assert_eq!(
+            unsaid.windows_window().unwrap(),
+            "exact_windows::Window::default()"
+        );
+        let wrong = manifest(serde_json::json!({"host": {"windows": {"window": {"width": 0}}}}));
+        assert!(wrong.windows_window().unwrap_err().contains("window.width"));
     }
 }

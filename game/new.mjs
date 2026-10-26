@@ -75,7 +75,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
       .replaceAll('bun /path/to/exact2/game/app/shells.mjs', `bun ${script('app/shells.mjs', destination)}`));
   }
   // assets/ and its manifest are the bake's outputs from art/, written by test-rust and every build.
-  writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/artifacts/\n/.exact/\n/.shells/\n/app.contract.d.ts\n/assets/\n/.baked-assets.json\n');
+  writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/dist.*\n/artifacts/\n/.exact/\n/.shells/\n/app.contract.d.ts\n/assets/\n/.baked-assets.json\n');
   const proofPath = resolve(destination,'proof.mjs');
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
   // Identity derives from the directory and Game::ID; app.json holds authored keys only.
@@ -118,7 +118,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   cd ${quote(destination)}
   bun exact.mjs test-rust     the hostless Rust tests (logic/tests) and determinism lints
   bun exact.mjs web           the web dev loop
-  bun exact.mjs test web      build (wasm), then run app.test.contract
+  bun exact.mjs test web      build (wasm), then run *.test.contract
   bun exact.mjs agent web tree  inspect or drive the game
   bun exact.mjs mac --run     build and launch on this Mac
   bun exact.mjs windows --run build and launch on Windows
@@ -150,13 +150,22 @@ export function createApp(destination, options = {}) {
   if (!destination || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || /-(web|apple|linux|gpu)$/.test(name)) {
     throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
+  const taken = ['apple', 'linux', 'web'].map(host => `${name}-${host}`).filter(crate => SDK_CRATES.has(crate));
+  if (taken.length) throw new Error(`exact new ${destination}: the folder's name ${name} would make the crate ${taken[0]}, which is one of exact2's own; name the folder after the app (my-${name}, ${name}-app)`);
   if (options.update) return updateApp(dir, name, options);
   if (options.id !== undefined && !BUNDLE_ID.test(options.id)) throw new Error(`exact new --bundle-id ${options.id}: not a reverse-DNS id; write two or more dot-separated parts of letters, digits and hyphens, each starting with a letter, as com.yourcompany.${name.replaceAll('-', '')}`);
   if (options.title !== undefined && (!options.title.trim() || /[\x00-\x1f\x7f]/.test(options.title))) throw new Error('exact new --name: give the name people see, on one line, as --name "Field Log"');
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
+  // A failure leaves nothing of ours behind: the directory itself when we made
+  // it, and only what it held before when the author did.
+  const existed = existsSync(dir);
   mkdirSync(dir, { recursive: true });
+  const unwrite = () => {
+    if (existed) for (const entry of readdirSync(dir)) rmSync(resolve(dir, entry), { recursive: true, force: true });
+    else rmSync(dir, { recursive: true, force: true });
+  };
   let created;
   const existingBackend = options.snapback && existsSync(resolve(dir, '..', 'snapback/schema.q'));
   try {
@@ -169,7 +178,7 @@ export function createApp(destination, options = {}) {
       writeFileSync(source, ts.replace("export const grants = '';", `const origin = 'http://127.0.0.1:${port}';\nexport const grants = \`net.fetch \${origin}${options.snapback.online ? '' : '\\nsqlite.open app:/data'}\`;`));
     }
   } catch (error) {
-    rmSync(dir, { recursive: true, force: true });
+    unwrite();
     throw error;
   }
   // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
@@ -178,10 +187,14 @@ export function createApp(destination, options = {}) {
     const roster = seedRoster(dir);
     return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wired}${roster ? '\nseed.json: sample roster rows; review the persona, role and field values before testing. app.test.contract uses fresh "seed.json".' : ''}`;
   } catch (error) {
-    rmSync(dir, { recursive: true, force: true });
+    unwrite();
     throw error;
   }
 }
+
+/** The crates an app's own depend on by path (`writeApp`, `linuxCrate`): a
+ * folder named `exact` would write an `exact-apple` beside the SDK's. */
+const SDK_CRATES = new Set(['exact-logic', 'exact-apple', 'exact-apple-update', 'exact-js', 'exact-js-bake', 'exact-linux', 'exact-web', 'exact-web-capabilities', 'exact-js-web']);
 
 const rosterRule = body => {
   const insert = /^[ \t]+insert[ \t]*<-[ \t]*([^\n]*)/m.exec(body);
@@ -840,7 +853,7 @@ ${patchLines(dir).join('\n')}
     'rust-toolchain.toml': readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'),
     '.cargo/config.toml': readFileSync(resolve(ROOT, '.cargo/config.toml'), 'utf8'),
     'exact.mjs': commandsFor(dir, name),
-    '.gitignore': '/target/\n/dist/\n/node_modules/\n/app.contract.d.ts\n/.exact/\n',
+    '.gitignore': '/target/\n/dist/\n/dist.*\n/node_modules/\n/app.contract.d.ts\n/.exact/\n',
     // Contract libraries come through node_modules (LLP 1091 D9): \`bun add\`
     // one, or \`"name": "file:../path"\` for a local library.
     'package.json': JSON.stringify({ name, private: true, dependencies: {} }, null, 2) + '\n',
@@ -957,7 +970,7 @@ exact_web::host!(
   cd '${dir.replaceAll("'", "'\\''")}'
   ${run} pattern      start from a working app: ${patterns().map(p => p.name).join(', ')}
   ${run} web          the web dev loop
-  ${run} test web     build, then run app.test.contract, or the files named (web, ios or macos)
+  ${run} test web     build, then run the app's *.test.contract, or the files named (web, ios or macos)
   ${run} verify       build, the tests, check where each ends, relaunch: done when clean
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
@@ -1065,7 +1078,7 @@ you name where you are, else here):
 | \`bun exact.mjs test-rust\` | the hostless Rust tests (\`logic/tests\`) and the determinism lints |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (a game builds the wasm target) |
-| \`bun exact.mjs test web\` | build the web game if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
+| \`bun exact.mjs test web\` | build the web game if needed, then run its \`*.test.contract\` (also \`macos\`, \`ios\`) |
 | \`bun exact.mjs agent web "tap play" "type world key ArrowRight for 800" "screenshot out.png"\` | drive the game as a person would |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |

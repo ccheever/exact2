@@ -171,24 +171,30 @@ final class ComposerEditorUIKitTests {
         check(!port.applyVoiceSelection(identity: identity, expectedText: "new owner", start: 2, end: 2, revision: 9), "Old mount voice receipt cannot target replacement owner")
         port.destroy(); port.view.removeFromSuperview()
     }
+    private static func waitForProvider(_ started: DispatchSemaphore) -> Bool {
+        started.wait(timeout: .now() + 3) == .success
+    }
     @MainActor private func pasteCancellation() async throws {
         var (port, control) = try makePort("paste", selection: 5)
         try acknowledge(port, &control)
         let text = editor(port).textView
+        let started = DispatchSemaphore(value: 0), lock = NSLock()
         var supply: ((UIImage?, Error?) -> Void)?
         let provider = NSItemProvider()
         provider.registerObject(ofClass: UIImage.self, visibility: .all) { completion in
-            supply = completion
+            lock.lock(); supply = completion; lock.unlock(); started.signal()
             return Progress(totalUnitCount: 1)
         }
         text.loadImages(from: [provider])
-        for _ in 0..<20 where supply == nil { try await Task.sleep(nanoseconds: 10_000_000) }
-        check(supply != nil, "Real NSItemProvider image load is pending")
+        let entered = await Task.detached { Self.waitForProvider(started) }.value
+        check(entered, "Real NSItemProvider image load is pending")
+        guard entered else { port.destroy(); port.view.removeFromSuperview(); return }
         control["active"] = false; try apply(port, control)
         let prior = events.filter { $0["kind"] as? String == "pasteImages" }.count
         let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 2, height: 2)) }
-        supply?(image, nil)
-        try await Task.sleep(nanoseconds: 50_000_000)
+        let finish = lock.withLock { supply }
+        finish?(image, nil)
+        await withCheckedContinuation { continuation in text.whenImagePastesFinish { continuation.resume() } }
         check(events.filter { $0["kind"] as? String == "pasteImages" }.count == prior, "Inactive admission cancels pending provider paste")
         port.destroy(); port.view.removeFromSuperview()
     }

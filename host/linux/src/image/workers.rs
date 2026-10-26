@@ -1,6 +1,6 @@
 //! The process owns exactly two persistent PNG workers. Waiting work is source
 //! identity/metadata; encoded bytes and raster buffers never enter this queue.
-use super::{assets::ImageInput, png_decode, Assets, Bitmap};
+use super::{assets::ImageInput, png_decode, svg_picture, Assets, Bitmap};
 use crate::wake::Stream as UnixStream;
 use exact_raster::{
     DecodePermit, Gate, RasterSession, Refusal, ResidentBytes, COLD_ENTRIES, PENDING_JOBS,
@@ -55,6 +55,13 @@ pub(super) struct Backend {
     budget_notice: Mutex<Option<(u64, u64, u64)>>,
     wake_read: Mutex<UnixStream>,
     wake_write: Mutex<UnixStream>,
+    /// The device scale each SVG picture was asked at, by source and
+    /// pixels: with the key's pixels it gives the CSS size the scene
+    /// resolves at (LLP 1011.001 D3), which the key does not carry.
+    scales: Mutex<BTreeMap<(u64, exact_raster::PixelSize), f32>>,
+    /// SVG pictures with text, resolved on a worker and waiting for the
+    /// paint thread ([`Backend::finish_pictures`]).
+    pictures: Mutex<Vec<svg_picture::Pending>>,
     #[cfg(test)]
     pub hook: Mutex<Option<Arc<DecodeHook>>>,
 }
@@ -81,6 +88,8 @@ impl Backend {
             budget_notice: Mutex::new(None),
             wake_read: Mutex::new(wake_read),
             wake_write: Mutex::new(wake_write),
+            scales: Mutex::new(BTreeMap::new()),
+            pictures: Mutex::new(Vec::new()),
             #[cfg(test)]
             hook: Mutex::new(None),
         });
@@ -188,6 +197,31 @@ impl Backend {
         self.requests.lock().unwrap().insert(id);
         Ok(id)
     }
+    /// The device scale an SVG picture of `source` at `pixels` is asked at.
+    pub fn note_scale(&self, source: u64, pixels: exact_raster::PixelSize, scale: f32) {
+        let mut scales = self.scales.lock().unwrap();
+        if scales.len() >= 4 * (SUBSCRIPTIONS + COLD_ENTRIES) {
+            scales.clear();
+        }
+        scales.insert((source, pixels), scale);
+    }
+    /// Paint the SVG pictures waiting for the paint thread with `text`,
+    /// completing their permits as a worker completes a raster's.
+    pub fn finish_pictures(&self, text: &crate::text::Shared) {
+        let waiting = std::mem::take(&mut *self.pictures.lock().unwrap());
+        if waiting.is_empty() {
+            return;
+        }
+        for pending in waiting {
+            svg_picture::finish(text, pending);
+        }
+        self.notify();
+    }
+    /// How many pictures wait for the paint thread.
+    #[cfg(test)]
+    pub fn pictures_waiting(&self) -> usize {
+        self.pictures.lock().unwrap().len()
+    }
     pub fn forget(&self, id: exact_raster::RequestId) {
         self.requests.lock().unwrap().remove(&id);
     }
@@ -256,6 +290,7 @@ impl Backend {
             .sources
             .get(&key.source)
             .and_then(Weak::upgrade);
+        let mut later = None;
         let result = source.ok_or(Refusal::Stale).and_then(|source| {
             if source.generation != key.generation || permit.is_cancelled() {
                 return Err(Refusal::Stale);
@@ -267,9 +302,44 @@ impl Backend {
             if plan.cost != permit.cost() || header.metadata != permit.metadata() {
                 return Err(Refusal::ConflictingMetadata);
             }
-            let (input, bytes) = open(&source)?;
+            let (mut input, bytes) = open(&source)?;
             if bytes != header.metadata.encoded_bytes {
                 return Err(Refusal::ConflictingMetadata);
+            }
+            if header.is_svg() {
+                // The parse and the scene precede the charge: the picture is
+                // allocated by the painter, after it (as `charge` precedes
+                // a raster's output).
+                let scale = self
+                    .scales
+                    .lock()
+                    .unwrap()
+                    .get(&(key.source, key.pixels))
+                    .copied()
+                    .unwrap_or(1.0);
+                let mut text = Vec::with_capacity(bytes as usize);
+                input
+                    .read_to_end(&mut text)
+                    .map_err(|_| Refusal::DecodeFailed)?;
+                let decoded = svg_picture::decode(&source.name, &text, &plan, scale, || {
+                    permit.is_cancelled()
+                })?;
+                return match decoded {
+                    svg_picture::Decoded::Pixels(pixels) => {
+                        let charge = permit.allocation_charge();
+                        Ok(Arc::new(Bitmap::from_source(
+                            pixels.into(),
+                            plan.natural(),
+                            plan.crop,
+                            charge,
+                            source.clone(),
+                        )))
+                    }
+                    svg_picture::Decoded::Later(scene) => {
+                        later = Some((scene, scale, plan, source.clone()));
+                        Err(Refusal::Paused)
+                    }
+                };
             }
             // This charge precedes the decoder and output allocations. On an
             // error decode_rows destroys both before the permit can retire.
@@ -301,6 +371,19 @@ impl Backend {
                         copy: 0,
                     },
                 );
+            }
+            Err(Refusal::Paused) if later.is_some() => {
+                // A picture with text waits for the paint thread, its permit
+                // with it (LLP 1011.001 D3).
+                let (scene, scale, plan, source) = later.unwrap();
+                self.pictures.lock().unwrap().push(svg_picture::Pending {
+                    permit,
+                    scene,
+                    css: svg_picture::css_size(plan.pixels, scale),
+                    scale,
+                    natural: plan.natural(),
+                    source,
+                });
             }
             Err(_) => permit.fail(),
         }

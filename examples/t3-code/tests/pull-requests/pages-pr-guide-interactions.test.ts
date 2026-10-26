@@ -9,7 +9,7 @@ test('tour navigation clamps, restores focus and scrolls to the stop heading', (
   const component = contractComponent('src/pull-requests/pages-pr-guide.contract', 'GuideTour');
   const positions: number[] = [], focused: string[] = [], scrolled: unknown[][] = [];
   const state = { railOpen: true };
-  const scope = { guide: { stopCount: 3 }, wide: false, navigate: (p: number) => positions.push(p), focus: (id: string) => focused.push(id), scrollIntoView: (...args: unknown[]) => scrolled.push(args), min: Math.min, max: Math.max };
+  const scope = { guide: { stopCount: 3 }, wide: false, showStop: (p: number) => positions.push(p), focus: (id: string) => focused.push(id), scrollIntoView: (...args: unknown[]) => scrolled.push(args), min: Math.min, max: Math.max };
   component.call('go', state, scope, [99]);
   expect(state.railOpen).toBe(false); expect(positions).toEqual([2]); expect(focused).toEqual(['guide-tour-picker']); expect(scrolled[0]).toEqual(['guide-tour-scroll', 'guide-tour-top', { block: 'start' }]);
   component.call('go', state, { ...scope, wide: true }, [-2]);

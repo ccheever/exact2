@@ -21,6 +21,7 @@ fn proof_endpoint_pin() {
             x: 0.,
             y: 0.,
             at_ms: 0.,
+            player: 0,
         });
     }
     sim.run(1000.);
@@ -83,6 +84,7 @@ fn d6_pull_button_is_an_input_edge() {
         x: 0.,
         y: 0.,
         at_ms: 0.,
+        player: 0,
     });
     sim.run(1000. / 60.);
     assert_eq!(

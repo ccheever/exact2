@@ -1,5 +1,8 @@
 //! Layout receipts survive silent list settling until the presenter sees them.
 use super::*;
+#[cfg(test)]
+#[path = "advance_tests.rs"]
+mod advance_tests;
 #[path = "closed.rs"]
 pub(super) mod closed;
 #[path = "separator.rs"]
@@ -21,6 +24,9 @@ impl<D: DataSource> Host<D> {
         }
         batch.facts = self.facts_moved();
         batch.wakelock = self.wakelock_moved();
+        // A package view's displayed state, by the same rule, now the
+        // presenter's covers are set (LLP 1133.008 D8 item 2).
+        self.runner.report_views();
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),
@@ -86,8 +92,15 @@ impl<D: DataSource> Host<D> {
         }
     }
     /// Lay every root out under the viewport and emit the parent-relative
-    /// frames and scroll content sizes that changed.
+    /// frames and scroll content sizes that changed. One that fails is
+    /// owed (`layout_owed`) until one succeeds.
     pub(super) fn layout(&mut self, batch: &mut Batch) -> Result<(), String> {
+        let laid = self.layout_pass(batch);
+        self.layout_owed = laid.is_err();
+        laid
+    }
+
+    fn layout_pass(&mut self, batch: &mut Batch) -> Result<(), String> {
         if let Some((callback, ctx, installed)) = self.font_hook.as_mut() {
             if self.runner.runtime_font_count() != *installed {
                 let runtime = self.runner.runtime_font_stacks();
@@ -251,9 +264,9 @@ impl<D: DataSource> Host<D> {
             // views drop this state with their mirror, and [] clears old ink.
             // Region-owned views still receive flow invalidation even when
             // their frames come from the selected native artifact below.
-            if self.layout_withheld || m.flow != node.flow_shapes() {
+            if self.layout_withheld || *m.flow != *node.flow_shapes() {
                 batch.flow(id, node.flow_shapes());
-                m.flow = node.flow_shapes().to_vec();
+                m.flow = node.flow_shapes().into();
             }
             if native_protected {
                 continue;
@@ -297,7 +310,7 @@ impl<D: DataSource> Host<D> {
                 if m.props.get("spellcheck") != spelling.as_ref() {
                     if let Some(value) = spelling {
                         batch.props(id, &[("spellcheck", value.clone())], &[]);
-                        m.props.insert("spellcheck".into(), value);
+                        m.props.insert("spellcheck", value);
                     } else {
                         batch.props(id, &[], &["spellcheck"]);
                         m.props.remove("spellcheck");
@@ -310,7 +323,7 @@ impl<D: DataSource> Host<D> {
                 match fit {
                     Some(scale) => {
                         batch.props(id, &[("fitScale", scale.clone())], &[]);
-                        m.props.insert("fitScale".into(), scale);
+                        m.props.insert("fitScale", scale);
                     }
                     None => {
                         batch.props(id, &[], &["fitScale"]);
@@ -346,7 +359,7 @@ impl<D: DataSource> Host<D> {
                 match grows {
                     Some(value) => {
                         batch.props(id, &[("flexGrows", value.clone())], &[]);
-                        m.props.insert("flexGrows".into(), value);
+                        m.props.insert("flexGrows", value);
                     }
                     None => {
                         batch.props(id, &[], &["flexGrows"]);
@@ -362,7 +375,7 @@ impl<D: DataSource> Host<D> {
                 match offset {
                     Some(value) => {
                         batch.props(id, &[("textOffset", value.clone())], &[]);
-                        m.props.insert("textOffset".into(), value);
+                        m.props.insert("textOffset", value);
                     }
                     None => {
                         batch.props(id, &[], &["textOffset"]);
@@ -373,22 +386,27 @@ impl<D: DataSource> Host<D> {
             let field_content = published_content_box(&node, kernel);
             let field_cell = node.is_cell_field();
             if self.layout_withheld
-                || m.field_content != field_content
+                || m.field_content.as_deref() != field_content.as_ref()
                 || m.field_cell != field_cell
             {
-                m.field_content = field_content;
+                m.field_content = field_content.map(Box::new);
                 m.field_cell = field_cell;
                 batch.field_content(id, field_content, field_cell);
             }
-            if m.frame != Some(rel) || m.block.is_some() != block.is_some() {
+            let framed = m.frame != Some(rel);
+            if framed || m.block.is_some() != block.is_some() {
                 moved.insert(id);
                 m.frame = Some(rel);
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
             }
-            if m.block != block {
-                m.block = block;
-                if let Some((w, h)) = block {
-                    batch.block(id, w, h);
+            let implied = kernel.host_block_implied(id);
+            if m.block != block || m.implied != implied || (framed && block.is_some()) {
+                let had = m.block.is_some();
+                (m.block, m.implied) = (block, implied);
+                match block {
+                    Some(size) => batch.block(id, size, (rel.0, rel.1)),
+                    None if had => batch.unblock(id),
+                    None => {}
                 }
             }
             if let Some(c) = content {
@@ -414,11 +432,59 @@ impl<D: DataSource> Host<D> {
         }
         self.layout_withheld = false;
         self.emit_ranks(batch);
-        // Layout/receipt work may change the live window. Motion-only ticks and
-        // stale feedback never traverse the tree to collect this metadata.
+        self.emit_collections(batch)
+    }
+
+    /// An advance whose commits changed no node ([`Host::commit_tree`]): no
+    /// layout unless a held height moved, but what layout keeps besides
+    /// boxes still follows the commits. A commit can change a list's data
+    /// without a node (an item's field no mounted row shows, an item past
+    /// the window): its metadata, which the presenter checks scroll and
+    /// measurement feedback against, is published, and its generation is
+    /// what the next layout judges row moves from (`judge_list_moves`, as
+    /// layout would have; its boxes queue nothing here). A whole layout
+    /// runs instead while one is owed (the last failed or did not run) or
+    /// withheld, while boxes wait in `pending_layout`, for fonts installed
+    /// since the last, and in a native content region, whose lists' next
+    /// snapshot only layout prepares (`native_prepare_candidate`).
+    pub(super) fn inert_layout(
+        &mut self,
+        batch: &mut Batch,
+        committed: bool,
+    ) -> Result<(), String> {
+        let fonts = self
+            .font_hook
+            .as_ref()
+            .is_some_and(|(_, _, installed)| self.runner.runtime_font_count() != *installed);
+        let owed = self.layout_owed || self.layout_withheld || !self.pending_layout.is_empty();
+        if owed || fonts || (committed && self.native_mode()) {
+            return self.layout(batch);
+        }
+        if !self.height_layout_if_needed(batch)? && committed {
+            self.judge_list_moves();
+            self.emit_collections(batch)?;
+        }
+        Ok(())
+    }
+
+    /// The lists' metadata, when it moved. Layout and receipt work may change
+    /// the live window; motion-only ticks and stale feedback never traverse
+    /// the tree to collect it.
+    fn emit_collections(&mut self, batch: &mut Batch) -> Result<(), String> {
         let collections = if self.native_mode() {
+            self.collection_heads = None;
             self.native_collections_json()?
         } else {
+            // Revisions cover rows, extent and corrections. A newer feedback
+            // sequence alone needs no snapshot or serialization.
+            let mut heads = self.runner.collections_shallow();
+            for head in &mut heads {
+                head.scroll_sequence = 0;
+            }
+            if self.collection_heads.as_ref() == Some(&heads) {
+                return Ok(());
+            }
+            self.collection_heads = Some(heads);
             self.runner.collections_json()
         };
         if collections != self.collections_json {
@@ -505,10 +571,9 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let key = node.key;
-            let cover = match kernel.arena().cover(key.index) {
-                Some(exact_kernel::HostCover::Edges([_, _, bottom, _])) => bottom,
-                _ => 0.0,
-            };
+            // The cover's bottom as layout pads it: none where the route's
+            // bottom-edge scroller takes it as UIKit's inset.
+            let cover = kernel.cover_bottom(key);
             let (pl, pt, pr, pb) = kernel.layout_padding(key).unwrap_or_default();
             let (bl, bt, br, bb) = kernel.resolved_border(key).unwrap_or_default();
             let sig = [node.frame.width, pl, pt, pr, pb, bl, bt, br, bb, cover];
@@ -600,7 +665,8 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         if let Some(c) = kernel.node(child).filter(|c| !own(c)) {
             // An absolutely positioned box counts by its border box alone:
             // the end padding follows in-flow content (CSS Overflow 3 §2.2).
-            let (right, bottom) = if c.style.position_type == exact_kernel::PositionType::Absolute {
+            // A popover lays out absolute too (the kernel's top layer), unless sticky.
+            let (right, bottom) = if c.layout_position() == exact_kernel::PositionType::Absolute {
                 (0.0, 0.0)
             } else {
                 (pad_right, pad_bottom)
@@ -967,6 +1033,7 @@ mod tests {
         assert_eq!(
             host.mirror[&(bare as ViewId)]
                 .field_content
+                .as_deref()
                 .map(|c| c.rect.y),
             Some(22.0),
             "min(30, 20) is still 20"

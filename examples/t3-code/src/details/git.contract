@@ -27,6 +27,20 @@ use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use RefPageScroll from "../composer/ref-paging.contract"
 
+// ui/dialog-styles.ts: the backdrop fades and the popup scales from 98 % in 200 ms each way, as
+// connections-network-dialogs.contract's dialogs do; a closing popup keeps its last copy while it leaves.
+keyframes gitDialogFadeIn
+  from opacity=0
+  to opacity=1
+keyframes gitDialogFadeOut
+  from opacity=1
+  to opacity=0
+keyframes gitDialogPopupIn
+  from opacity=0 scale=0.98
+  to opacity=1 scale=1
+keyframes gitDialogPopupOut
+  from opacity=1 scale=1
+  to opacity=0 scale=0.98
 keyframes gitSpin
   from rotate=0
   to rotate=360
@@ -58,6 +72,7 @@ component ExtraGlyph
 // Initialize Git), Changes, and the status error. Replaces the card's static rows.
 component GitRows
   inject
+    frameMoved: action
     rem: number
   props
     details: ShellDetails
@@ -70,8 +85,12 @@ component GitRows
     local: action
   state hovered = ""
   state groupHovered = false
+  // The branch row's half under the pointer ("label" or "icon").
+  state half = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  action hoverHalf(id: string, over: bool)
+    half = over ? id : (half == id ? "" : half)
   action hoverGroup(over: bool)
     groupHovered = over
   derive menuItems = details.git.menu.filter((item) => not item.disabled).map((item) => KmItem(id=`details-git-menu-${item.id}`, label=item.label))
@@ -87,13 +106,15 @@ component GitRows
           focus(target)
   view
     if details.git.branch.show
-      // The whole row is the combobox trigger; its chevron sits behind a hairline.
+      // The whole row is the combobox trigger; its chevron sits behind a hairline. The row keeps its soft fill on hover
+      // while the half under the pointer stacks a second one (THREAD_DETAILS_PANEL_SELECT_LABEL_CLASS, _ICON_CLASS).
       box position="relative" width="100%"
-        button popovertarget="details-branch-menu" popovertargetaction="show" press=local("git-open", "branch", "") hover=hover("branch") disabled=details.git.branch.disabled aria-label=`Branch: ${details.git.branch.label}` testId="details-branch" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" opacity=(details.git.branch.disabled ? 0.64 : 1) background-color=(hovered == "branch" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" id="details-branch"
-          box opacity=0.7 display="flex" flex-shrink=0
-            ShellIcon(name="git-branch", size=16, color="light-dark(#71717b, #818181)")
-          text details.git.branch.label flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-branch-label" text-box-trim="trim-both" text-box-edge="cap alphabetic"
-          box width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+        button popovertarget="details-branch-menu" popovertargetaction="show" press=local("git-open", "branch", "") hover=hover("branch") disabled=details.git.branch.disabled aria-label=`Branch: ${details.git.branch.label}` testId="details-branch" width="100%" height="2rem" padding=0 box-sizing="border-box" border-width=0 border-radius="0.625rem" opacity=(details.git.branch.disabled ? 0.64 : 1) background-color=(hovered == "branch" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" id="details-branch"
+          row hover=hoverHalf("label") flex=1 min-width=0 height="100%" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-top-left-radius="0.625rem" border-bottom-left-radius="0.625rem" background-color=(hovered == "branch" and half == "label" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") testId="details-branch-label-half"
+            box opacity=0.7 display="flex" flex-shrink=0
+              ShellIcon(name="git-branch", size=16, color="light-dark(#71717b, #818181)")
+            text details.git.branch.label flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-branch-label" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+          box hover=hoverHalf("icon") width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center" border-top-right-radius="0.625rem" border-bottom-right-radius="0.625rem" background-color=(hovered == "branch" and half == "icon" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") testId="details-branch-icon-half"
             box position="absolute" left=-1 top="0.5rem" width=1 height="1rem" background-color="light-dark(#e4e4e7a6, #ffffff10)"
             ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
         GitBranchPicker(git=details.git, width=((inline ? 262 : 246) * rem / 16), act=act, local=local)
@@ -112,7 +133,7 @@ component GitRows
         row width="100%" min-height="2rem" align-items="center" border-radius="0.625rem" position="relative" role="group" aria-label="Git actions" hover=hoverGroup background-color=(details.git.progress ? "light-dark(#00000009, #ffffff0e)" : groupHovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") testId="details-git-group"
           // At rest the group is `full` only: its height is what the compact rows leave out (thread-details-card-layout.ts).
           if not details.git.progress and not details.git.success
-            box position="absolute" left=0 top=0 bottom=0 width=0 pointer-events="none" aria-hidden=true hatch="t3-frame" data-frame="details-full-git"
+            box position="absolute" left=0 top=0 bottom=0 width=0 pointer-events="none" aria-hidden=true id="frame-details-full-git" resize=frameMoved
           if not details.git.progress
             button id="details-git-menu" popovertarget="details-git-options" key=gitMenuKey press=local("git-open", "menu", "") hover=hover("git-menu") disabled=details.git.menuDisabled aria-label="Git action options" testId="details-git-menu" position="absolute" right=0 top=0 bottom=0 width="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-end" title="" data-focus-stop=(details.git.menuDisabled ? "" : "enabled")
               box width="2rem" height="2rem" border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 background-color=(hovered == "git-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" align-items="center" justify-content="center"
@@ -198,7 +219,7 @@ component GitBranchPicker
         if git.branch.empty != ""
           text git.branch.empty font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #818181)"
         RefPageScroll(name="details-refs")
-          column width="100%" gap=0 padding-left="0.5rem" padding-right="0.25rem" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box" role="listbox"
+          column width="100%" gap=0 padding-left="0.5rem" padding-right="0.25rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" role="listbox"
             // A local draft's pull request reference leads (pr-checkout.ts).
             for item in git.branch.checkout key=item.reference
               button press=act("chatlocal:git-pr-open", "", item.reference) popovertarget="details-branch-menu" popovertargetaction="hide" hover=hover(0) role="option" aria-selected=false testId="details-branch-checkout-pr" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered <= 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" id="details-branch-checkout-pr"
@@ -308,9 +329,9 @@ component DialogFrame
   slot
   derive dialogTargets = [first, `${testId}-close`]
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId=`${testId}-overlay`
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" animation="gitDialogFadeIn 200ms ease-in-out" -exact-exit-animation="gitDialogFadeOut 200ms ease-in-out" testId=`${testId}-overlay`
       button press=close aria-label="Close" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId=`${testId}-backdrop` title=""
-      column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=dialogSeated.includes(testId) aria-label=label testId=testId id=testId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(testId) key=dialogFallback(testId, dialogTargets)
+      column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" animation="gitDialogPopupIn 200ms ease-in-out" -exact-exit-animation="gitDialogPopupOut 200ms ease-in-out" role="dialog" aria-modal=dialogSeated.includes(testId) aria-label=label testId=testId id=testId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(testId) key=dialogFallback(testId, dialogTargets)
         // The focus trap (dialog-trap.contract): the content, then the X (DialogPopup's last child).
         FocusGuard(guardId="dialog-frame-guard-start", targets=dialogTargets, popup=testId)
         DialogOpenFocus(target=first)
@@ -408,7 +429,7 @@ component GitCommitDialog
                 text "Leave empty to auto-generate" position="absolute" left="0.6875rem" top="0.375rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #818181)" pointer-events="none" aria-hidden=true
       row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"
         DialogButton(label="Cancel", primary=false, disabled=false, press=local("git-dialog-close", "", ""), elementId="", testId="git-commit-cancel")
-        DialogButton(label="Commit on new branch", primary=false, disabled=git.noneSelected, press=act("shell:git-commit-branch", cwd, message), elementId="", testId="git-commit-new-branch")
+        DialogButton(label="Commit on new branch", primary=false, disabled=(git.noneSelected or not git.canChangeBranch), press=act("shell:git-commit-branch", cwd, message), elementId="", testId="git-commit-new-branch")
         DialogButton(label="Commit", primary=true, disabled=git.noneSelected, press=act("shell:git-commit", cwd, message), elementId="", testId="git-commit-submit")
 
 component GitCommitFile
@@ -447,11 +468,13 @@ component GitConfirmDialog
       column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
         text git.confirmTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="git-confirm-title"
         text git.confirmDescription font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        if git.confirmFeatureReason != ""
+          text git.confirmFeatureReason font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="git-confirm-feature-reason"
       row gap="0.5rem" align-items="center" flex-wrap="wrap" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"
         DialogButton(label="Abort", primary=false, disabled=false, press=local("git-dialog-close", "", ""), elementId="git-confirm-abort", testId="git-confirm-abort")
         box flex=1
         DialogButton(label=git.confirmContinue, primary=false, disabled=false, press=act("shell:git-confirm", cwd, "continue"), elementId="", testId="git-confirm-continue")
-        DialogButton(label="Check out feature branch & continue", primary=true, disabled=false, press=act("shell:git-confirm", cwd, "feature"), elementId="", testId="git-confirm-feature")
+        DialogButton(label="Check out feature branch & continue", primary=true, disabled=(git.confirmFeatureReason != "" or not git.canChangeBranch), press=act("shell:git-confirm", cwd, "feature"), elementId="", testId="git-confirm-feature")
 
 // BranchToolbarEnvironmentSelector in the panel: an unstarted draft whose project
 // also lives on another connected environment picks where it runs (a Select at the
@@ -463,15 +486,20 @@ component RunOnRow
     inline: bool
     act: action
   state over = false
+  // The Select's half under the pointer ("label" or "icon"), which stacks a second fill as the branch row's does.
+  state half = ""
   action hover(value: bool)
     over = value
+  action hoverHalf(id: string, value: bool)
+    half = value ? id : (half == id ? "" : half)
   view
     if details.git.envPick
       box position="relative" width="100%"
-        button popovertarget="details-environment-menu" hover=hover aria-label="Run on" testId="details-environment" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(over ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-          CnMachineIcon(kind=details.envKind, size=16, color="light-dark(#71717b, #818181)")
-          text details.envLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-environment-label" text-box-trim="trim-both" text-box-edge="cap alphabetic"
-          box width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+        button popovertarget="details-environment-menu" hover=hover aria-label="Run on" testId="details-environment" width="100%" height="2rem" padding=0 box-sizing="border-box" border-width=0 border-radius="0.625rem" background-color=(over ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+          row hover=hoverHalf("label") flex=1 min-width=0 height="100%" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-top-left-radius="0.625rem" border-bottom-left-radius="0.625rem" background-color=(over and half == "label" ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
+            CnMachineIcon(kind=details.envKind, size=16, color="light-dark(#71717b, #818181)")
+            text details.envLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-environment-label" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+          box hover=hoverHalf("icon") width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center" border-top-right-radius="0.625rem" border-bottom-right-radius="0.625rem" background-color=(over and half == "icon" ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
             box position="absolute" left=-1 top="0.5rem" width=1 height="1rem" background-color="light-dark(#e4e4e7a6, #ffffff10)"
             ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
         // SelectPopup alignItemWithTrigger={false} (BranchToolbarEnvironmentSelector.tsx, align start): flipping near an edge.

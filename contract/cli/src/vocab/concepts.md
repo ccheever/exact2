@@ -138,14 +138,16 @@ component App
 ```
 
 - Each option is one short `text` (or a symbol `image` with an `aria-label`); leave its
-  look unsaid. Six or more options, or long labels: a `select`. On or off: `input
+  look unsaid. A radio that paints itself (its own `background-color`, `border` or
+  `border-radius`, LLP 1104 D2) makes the group your drawn control on every host, keys
+  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select`. On or off: `input
   type="checkbox" switch`.
 - `state tip = 18 persist` keeps the choice across launches.
 
 More: docs/recipes/persisted-setting.md
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
+names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, backButtonDisplayMode, headerBackTitle, backButtonTitle, backBarButtonItem, navigationBackTitle, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -958,20 +960,26 @@ More: docs/recipes/list-rows.md
 ## menubar: adding commands to the Mac menu bar
 names: -exact-menu, -exact-menu-remove
 
-On a button, `-exact-menu` is a literal `app`, `file`, `edit`, `view`, `go`,
-`window` or `help`. It adds an item even without a chord and overrides
+On a button, `-exact-menu` is a literal `about` (directly under About), `app`,
+`file`, `edit`, `view`, `go`, `window`, `help` or `none` (no item; the chord
+stays a shortcut). It adds an item even without a chord and overrides
 `aria-keyshortcuts` chord filing. The item's label is the button's accessible
-label or text; `disabled` disables it. Hidden/removed buttons leave the menu.
-Other hosts keep the ordinary button and ignore the hint. The agent taps the
-button. A root `-exact-menu-remove="show-tab-bar autofill close-all"` removes
-selected standard items and their menu equivalents. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
+label or text; `disabled` disables it. An item in the app menu or Help is the
+app's: enabled with no key window, under a sheet and under a Contract modal dialog.
+Hidden/removed buttons leave the menu. Other hosts keep the ordinary button
+and ignore the hint. The agent taps the button. A root
+`-exact-menu-remove="show-tab-bar autofill close-all"` removes selected
+standard items and their menu equivalents. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
 `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
-`move-tab-to-new-window`, `merge-all-windows`.
+`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `develop` (the
+Develop menu; its chords stay), `paste-and-match-style`, `find`,
+`spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
+*App* Help), `actual-size`, `zoom-in`, `zoom-out`.
 The whitespace-separated list must be literal; unknown ids and nested use fail
 with `lower-menu-remove`, naming the set. Empty removes nothing; duplicates
 are harmless. The view’s root is a node, not a conditional. Root replacement and
-window switching restore the appropriate menu. App buttons, other standard
-items and development Develop remain. Other hosts ignore removal (LLP 1021 §5.3).
+window switching restore the appropriate menu. App buttons and other standard
+items remain. Other hosts ignore removal (LLP 1021 §5.3).
 
 ```contract
 component App
@@ -1147,6 +1155,10 @@ bar the page may draw in, beside the window's controls. On the Mac, under
 window `78 0 822×32`. It is all zero in full screen and while the window has a toolbar (an
 app with routes has one), and undefined elsewhere: in a browser tab, on iOS, Linux and
 Windows, and on a Mac window that does not cover its title bar. Give each a fallback.
+`"display_override": ["window-controls-overlay"]` in `app.json` gives a Mac window the
+platform's tall title row (an empty unified toolbar, about 52 points) while it shows no
+toolbar of its own, whatever `viewport-fit` says, and the area is that row beside the
+traffic lights; `exactViewport().displayMode` is then `window-controls-overlay`.
 
 ```contract
 component App
@@ -1160,3 +1172,118 @@ component App
 
 - Nothing moves the traffic lights or sets the row's height: the title bar is AppKit's.
 - More: docs/contract-grammar.md (lengths).
+
+## share: the share sheet, with a link, words, a file or a picture of an element
+names: share-sheet, sharesheet, UIActivityViewController, NSSharingServicePicker, navigator.share, Share.share, Sharing.shareAsync, shareAsync, share-card, share-image, share-png
+
+`share(title=, text=, url=, files=)` opens the system share sheet with the Web Share API's
+arguments. Each `text`, `url` and file is its own item: the sheet's header counts them ("1
+Link and 1 Image") and every target receives all of them. Pass what the button names: a
+Share Card button the picture alone, a Share Link button the `url`. A `files` entry `"#id"`
+is a PNG of that element as drawn now, named by `title` (else by the id), so `title` names
+the file a person receives; `title` is otherwise the subject Mail takes.
+
+```contract
+shape Page
+  canSharePictures: bool
+
+component App
+  state name = "untitled"
+  resource page = exactPage() as shape Page
+  action shareCard
+    share(title=`euxy-${name}`, files=["#card"])
+  action shareLink
+    share(url=`https://example.com/p/${name}`)
+  view
+    column padding=16 gap=12
+      column id="card" padding=16 border-radius=12 background-color="#111111"
+        text name color="#ffffff"
+      if page.canSharePictures
+        button press=shareCard testId="share-card"
+          text "Share Card"
+      button press=shareLink testId="share-link"
+        text "Share Link"
+```
+
+- The PNG above is `euxy-untitled.png`, the one item in the sheet, as a React Native port's
+  `Sharing.shareAsync(file)` shares it.
+- A picture is iOS's and the Mac's; the web refuses one by name, so offer it where
+  `exactPage().canSharePictures` holds. An `app:/` file needs the `fs.read` grant
+  (`contract vocab files-and-grants`).
+- More: docs/contract-grammar.md (host commands), LLP 1125 D12.
+
+## use: an app in several `.contract` files
+names: import, imports, export, exports, require, include, multiple files, several files, split
+
+A file's names are its own declarations and those its `use` lines list: `use A, B as C from
+"./file.contract"`. Any component, shape, `fn`, style, keyframes or timeline can be named;
+there is no `export`, and nothing comes along unnamed: a name `parts.contract` itself uses is
+this file's only once its own `use` line names it. `app.contract` stays the root, its first
+component the app. A name another file declares is unknown here until a `use` line names it;
+`bun exact.mjs contract fmt --uses app.contract` writes every file's missing `use` lines.
+
+```text
+// parts.contract
+component Tag
+  props
+    label: string
+  view
+    text label padding="2px 8px"
+
+// app.contract
+use Tag from "./parts.contract"
+
+component App
+  view
+    Tag(label="New")
+```
+
+More: docs/contract-grammar.md (`use`, its paths and packages)
+
+## svg: a vector drawing (an icon, a chart, a QR code)
+names: Svg, vector, react-native-svg, expo-svg, SvgXml, Path, Circle, Rect, drawing
+
+An `svg` is SVG's, children and attributes by SVG's names: `viewBox`, `path d=…`, `rect`,
+`circle`, `line`, `polyline`, `polygon`, `g transform=…`, `fill`, `stroke`, `stroke-width`,
+`stroke-linecap`. Any attribute may be computed (a path's `d` from a `fn`, a `fill` from
+state or a theme token), `if` and `for` work among its children, and keyframes animate its
+geometry.
+
+```contract
+component App
+  state on = false
+  action flip
+    on = not on
+  view
+    button press=flip aria-label=(on ? "Pause" : "Play") testId="play"
+      svg width=24 height=24 viewBox="0 0 24 24"
+        if on
+          rect x=6 y=5 width=4 height=14 rx=1 fill="currentColor"
+          rect x=14 y=5 width=4 height=14 rx=1 fill="currentColor"
+        else
+          path d="M8 5v14l11-7z" fill="currentColor"
+```
+
+- An icon the platform has is `image "symbol:<role>"`, drawn from each host's own set; a one-colour
+  SVG file is an `app.tamber` icon (docs/recipes/symbols.md), and an `.svg` asset is an
+  `image` source too.
+- A `foreignObject` draws on the web only; on every host, place a box over the `svg`.
+
+More: apps/svg-gallery/app.contract (each element and attribute, drawn alike on every host but `foreignObject`)
+
+## safe-area: the notch, the status bar and the home indicator
+names: env, env(), safe-area-inset, safe-area-inset-top, safe-area-inset-bottom, safe-area-inset-left, safe-area-inset-right, SafeAreaView, useSafeAreaInsets, react-native-safe-area-context, safeAreaInsets, notch, home indicator, home-indicator
+
+Inside a route, leave it unsaid: the host keeps the route's content clear of the status bar
+and its bars (UIKit's inset on the route's scroller, else the route's padding), and a
+scroller's end clear of the home indicator, as a hand-built screen is. `env()` is CSS's, in
+any length (`padding-bottom="calc(env(safe-area-inset-bottom) + 16px)"`). On a native host
+under the default `viewport-fit="auto"` it is 0, so `env()` padding inside a route adds
+nothing; under the root's `viewport-fit="cover"` it is the device's insets, and a route's
+content goes under the bar unless its column pads `env(safe-area-inset-top)`. On the web it is
+the browser's. `env(-exact-layout-margins-inset-left)` is UIKit's layout margin.
+
+- A scroller's last row sits its `padding-bottom` above UIKit's inset: subtract the inset
+  from the original's gap rather than adding `env(safe-area-inset-bottom)`.
+
+More: docs/agent-pitfalls.md ("Native presentation and navigation (iOS)"), docs/contract-grammar.md (length strings)

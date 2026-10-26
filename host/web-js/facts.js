@@ -30,6 +30,7 @@ export function viewport(readers) {
       devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows, // @ref LLP 1078 D2, D6
       colorGamut: GAMUT[(p >>> 26) & 3], dynamicRange: p & (1 << 28) ? "high" : "standard", // @ref LLP 1100 D9
       pointer: p & 64 ? "none" : p & 32 ? "coarse" : "fine", hover: p & 128 ? "none" : "hover",
+      accessibilityTextSize: false, // a browser has no accessibility text sizes (runner/src/runner/root_font.rs)
       gpuTier: reporter()?.read()["gpu-tier"] ?? "high" }); // @ref LLP 1139.003 D2: the page facts' tier; this target has no GPU module, so the screen's class, or the agent's
   };
   if (typeof addEventListener !== "function") return;
@@ -60,8 +61,8 @@ export function page(readers) {
   const facts = reporter();
   (data.reserved ??= {}).exactPage = (_, a, name) => {
     // A render has no page: the bake's answer (runner/src/page.rs `Page::default`).
-    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-share-files": false, "can-share-pictures": false, "can-open-files": false, "has-focus": true, "navigation-type": "", persisted: false, restores: 0 };
-    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"], persisted: f.persisted, restores: f.restores });
+    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-share-files": false, "can-share-pictures": false, "can-open-files": false, "has-focus": true, "navigation-type": "", persisted: false, restores: 0, "iframe-partition": false };
+    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canShareFiles: f["can-share-files"], canSharePictures: f["can-share-pictures"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"], navigationType: f["navigation-type"], persisted: f.persisted, restores: f.restores, iframePartition: f["iframe-partition"] === true });
   };
   if (!facts) return;
   pageChanged = again("exactPage", "page");

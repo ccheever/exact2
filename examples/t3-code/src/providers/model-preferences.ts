@@ -1,4 +1,4 @@
-// Environment-owned model preferences, T3 Code 9c161462c9 (MIT; LICENSE-T3):
+// Environment-owned model preferences, T3 Code 74541bab17 (MIT; LICENSE-T3):
 // shared/serverSettings.ts resolveModelPreferences/modelPreferencesMigrationPatch and
 // web/hooks/useSettings.ts desired-state favorite mutations. Legacy device values seed only
 // unset server lists; an explicit empty server list always wins.
@@ -36,13 +36,17 @@ export async function saveModelPreferences(host: Host, native: Native, patch: Ob
   const config = await host.rpc(native, 'server.getConfig', {});
   if (environment(host) === id) host.config = config;
 }
-const migrations = new WeakSet<object>();
+// Servers that predate `migrateModelPreferences` drop it and keep reporting null favorites, so each environment
+// gets one attempt per connection generation: a reconnect tries again, a settings push does not.
+const attemptedMigrationGenerations = new Map<string, number>();
 /** The migration is atomic on the server, so two clients cannot overwrite an already claimed list. */
-export async function migrateModelPreferences(host: Host, native: Native): Promise<void> {
+export async function migrateModelPreferences(host: Host & { ready?: boolean; generation?: number }, native: Native): Promise<void> {
+  const id = environment(host), generation = host.ready === true && typeof host.generation === 'number' ? host.generation : null;
+  if (!id || generation === null || attemptedMigrationGenerations.get(id) === generation) return;
   const patch = modelPreferencesMigrationPatch(obj(host.config.settings), host.local);
-  if (!patch || migrations.has(host)) return;
-  migrations.add(host);
-  try { await saveModelPreferences(host, native, patch); } finally { migrations.delete(host); }
+  if (!patch) return;
+  attemptedMigrationGenerations.set(id, generation);
+  await saveModelPreferences(host, native, patch);
 }
 const favoriteChoices = new WeakMap<object, Map<string, { choice: boolean; settings: unknown; pending: boolean }>>();
 export async function toggleModelFavorite(host: Host, native: Native, instanceId: string, model: string): Promise<void> {

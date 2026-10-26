@@ -1,12 +1,10 @@
-// T3Module's timeline ops (T3Module.swift routes them): the data module's sleep and image chip accents.
+// T3Module's timeline op (T3Module.swift routes it): the data module's sleep.
 import Foundation
-import AppKit
 
 extension T3Module {
-    /// The data module's sleep and image chip accents.
+    /// The data module's sleep.
     func timelineOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         if request["op"] as? String == "timelineSleep" { return Self.sleep(request) { reply.send($0) } }
-        if request["op"] as? String == "imageAccent" { return T3ImageAccent.perform(request) { reply.send($0) } } // Image chip accents (T3ImageAccent.swift).
         next()
     }
 

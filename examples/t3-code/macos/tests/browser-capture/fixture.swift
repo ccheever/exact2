@@ -3,10 +3,9 @@ import Network
 import WebKit
 import XCTest
 
-// The shared loopback fixture and helpers of this directory's tests
-// (annotate.swift, recording.swift, capture.swift; main.swift runs them). The fixture is the one
-// macos/tests/browser/main.swift uses. `EXACT_ASSETS` must name the app directory (examples/t3-code) so the
-// page scripts load from its `assets/`; `T3_BROWSER_TEST_DIR` receives images and recordings.
+// The shared loopback fixture and helpers of this directory's tests (recording.swift, capture.swift; main.swift
+// runs them). `EXACT_ASSETS` must name the app directory (examples/t3-code) so the recording overlay loads from its
+// `assets/`; `T3_BROWSER_TEST_DIR` receives images and recordings.
 final class CaptureFixture {
     private let listener: NWListener
     private(set) var paths: [String] = []

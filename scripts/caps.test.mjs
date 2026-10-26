@@ -830,7 +830,7 @@ for (const [name, html, files, expectCode, expect] of [
 // Exercise the driver's actual method with a quantized wall clock (#285).
 test('clock +N real never seeks behind the last reply and ends at from + N', async () => {
   const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
-  const start = source.indexOf("    async clock(spec = 'settle') {");
+  const start = source.indexOf("    async clock(spec = 'settle'"); // (its parameters after the spec are its own)
   const end = source.indexOf('\n    /** The window', start);
   for (const host of ['macos', 'ios', 'host', 'host-ios', 'web', 'linux']) {
     for (const ahead of [0, 0.75]) {

@@ -4,16 +4,24 @@
     "1080": "0x1e5dd38f9b0ce70a"
   },
   "saves": {
-    "continuation": "a0a9b0f83be762c666c1149598c96e6046820d082c7245690a52f88e81d4d7e7"
+    "continuation": "8333dedf37746f16fb0ad821b17cbfcd1f92d945679262377eeeadcebf004681"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "ebf79d548288ae06b6c61ee1fd1d1aa28d5e567c677f817b4cff1614cc0bd553",
-  "sourceInputs": "ff6ffe494e63b6710d112586346b9d8a2a320b7b00909fbfef25b3d780eb9129",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "944806a82be68999e6f2c26507c9fed4eae458b68075d56ff89468b9c8c2443b",
+  "sourceInputs": "a3c73d562c8ebd5f367bd088e0ffcfdbd1409b5c1661dc508cf1404ab8c79469",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "758c80beef1381af5517fc4e89cf2317a8b8d674",
-  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
+  "at": "3cdbce64d6bf01f788c8e350bd0a07255e0872f8",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

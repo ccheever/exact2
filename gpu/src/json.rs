@@ -262,7 +262,7 @@ pub fn text(v: &Value, what: &str) -> Result<String, crate::SurfaceError> {
 
 /// Parse a single device event; every refusal names the event or its field.
 pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
-    use crate::{InputEvent, PointerKind, PointerPhase};
+    use crate::{InputEvent, PointerKind, PointerPhase, SensorKind};
     let parse = || -> Result<_, String> {
         let mut p = Parser {
             s: text.as_bytes(),
@@ -288,7 +288,11 @@ pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
                 }
                 p.i += 1;
                 p.ws();
-                if matches!(p.s.get(p.i), Some(b'[' | b'{')) {
+                // A pad's buttons and axes and a sensor's values are the only lists.
+                if matches!(p.s.get(p.i), Some(b'{'))
+                    || (p.s.get(p.i) == Some(&b'[')
+                        && !matches!(name.as_str(), "buttons" | "axes" | "values"))
+                {
                     return Err(format!("{name}: expected a scalar"));
                 }
                 let value = p.value().map_err(|e| format!("{name}: {e}"))?;
@@ -338,6 +342,22 @@ pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
             } else {
                 Err(format!("{name}: expected a u32"))
             }
+        };
+        let values = |name: &str, low: f64, out: &mut [f32]| match fields.get(name) {
+            Some(Value::List(items)) if items.len() == out.len() => {
+                for (slot, item) in out.iter_mut().zip(items.iter()) {
+                    match item {
+                        Value::Number(n) if (low..=1.0).contains(n) => *slot = *n as f32,
+                        _ => return Err(format!("{name}: expected numbers in [{low}, 1]")),
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(format!("{name}: expected {} numbers", out.len())),
+        };
+        let sensor = || {
+            let name = string("sensor")?;
+            SensorKind::from_name(&name).ok_or_else(|| format!("sensor: unknown `{name}`"))
         };
         let at_ms = number("at")?;
         Ok(match string("t")?.as_str() {
@@ -391,9 +411,49 @@ pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
                 y: point("y")?,
                 at_ms,
             },
+            "pad" => {
+                let (mut buttons, mut axes) = ([0f32; 17], [0f32; 4]);
+                values("buttons", 0., &mut buttons)?;
+                values("axes", -1., &mut axes)?;
+                InputEvent::Pad {
+                    index: unsigned("index")?,
+                    connected: boolean("connected")?,
+                    standard: boolean("standard")?,
+                    buttons,
+                    axes,
+                    at_ms,
+                }
+            }
             "blur" => InputEvent::Blur { at_ms },
             "message" => InputEvent::Message {
                 text: string("text")?,
+                at_ms,
+            },
+            "sensor" => {
+                let mut values = [0f32; 4];
+                match fields.get("values") {
+                    Some(Value::List(items)) if items.len() == 4 => {
+                        for (slot, item) in values.iter_mut().zip(items.iter()) {
+                            match item {
+                                Value::Number(n) if (*n as f32).is_finite() => *slot = *n as f32,
+                                _ => return Err("values: expected 4 finite numbers".into()),
+                            }
+                        }
+                    }
+                    _ => return Err("values: expected 4 finite numbers".into()),
+                }
+                InputEvent::Sensor {
+                    sensor: sensor()?,
+                    values,
+                    dropped: match fields.contains_key("dropped") {
+                        true => unsigned("dropped")?,
+                        false => 0,
+                    },
+                    at_ms,
+                }
+            }
+            "sensorEnded" => InputEvent::SensorEnded {
+                sensor: sensor()?,
                 at_ms,
             },
             other => return Err(format!("t: unknown `{other}`")),

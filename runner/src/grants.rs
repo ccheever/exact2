@@ -23,6 +23,14 @@ impl<'a> Grants<'a> {
                 .flatten()
         })
     }
+
+    /// The `secret.keep` names that carry a presence policy (LLP 1133.010
+    /// D4), in declaration order.
+    pub fn presence(&self) -> impl Iterator<Item = (&'a str, exact_grants::Presence)> + '_ {
+        self.lines
+            .iter()
+            .filter_map(|line| exact_grants::line_presence(line))
+    }
 }
 
 /// How the runner reads an I/O grant line (`net.fetch …`, `secret.keep …`),
@@ -109,11 +117,13 @@ pub fn refusal(errors: &[String]) -> String {
 /// Whether a trimmed line is one of exact2's own grants: enforced by the
 /// presenter (`surface.*`), by the OS and the capability that asks
 /// (`device.*`, LLP 1069.008 D3), by the OS's hardened runtime (`runtime.*`,
-/// D9), by the host's auth arm (`auth.*`, LLP 1069.006) and by the host's
-/// kept documents (`doc.keep`, LLP 1069.010.000 D7), never by the I/O
-/// executor.
+/// D9), by the host's auth arm (`auth.*`, LLP 1069.006), by the host's
+/// kept documents (`doc.keep`, LLP 1069.010.000 D7) and by the module
+/// admission of `@exact/browser-automation`'s names (`browser.automation`,
+/// LLP 1020.002 D9), never by the I/O executor.
 pub(crate) fn own(line: &str) -> bool {
     line == "doc.keep"
+        || line == "browser.automation"
         || line.starts_with("surface.read ")
         || line.starts_with("surface.write ")
         || crate::device::is_device_line(line)
@@ -200,10 +210,14 @@ fn quote(text: &str, out: &mut String) {
 fn grant_json(grant: &exact_grants::Grant, out: &mut String) {
     use exact_grants::Grant;
     match grant {
-        Grant::Fetch(origin) | Grant::FetchSubdomains(origin) | Grant::WebSocket(origin) => {
+        Grant::Fetch(origin)
+        | Grant::FetchSubdomains(origin)
+        | Grant::WebSocket(origin)
+        | Grant::WebSocketSubdomains(origin) => {
             let kind = match grant {
                 Grant::Fetch(_) => "fetch",
                 Grant::FetchSubdomains(_) => "fetch-subdomains",
+                Grant::WebSocketSubdomains(_) => "websocket-subdomains",
                 _ => "websocket",
             };
             out.push('[');
@@ -347,6 +361,18 @@ mod tests {
         assert!(json.contains("\"seal\":\""), "{json}");
     }
 
+    /// `browser.automation` is the runner's own line and names no target
+    /// (LLP 1020.002 D9): with a word after it, it is no such line, and the
+    /// I/O grammar refuses it.
+    #[test]
+    fn browser_automation_is_an_own_line_with_no_target() {
+        let spec = "browser.automation\nnet.fetch https://a.test";
+        assert!(super::parse(spec).is_ok());
+        assert_eq!(crate::io_grants(spec), "net.fetch https://a.test");
+        assert!(super::parse("browser.automation tab-1").is_err());
+        assert!(super::parse("browser.automations").is_err());
+    }
+
     #[test]
     fn a_scheme_line_normalizes_to_its_family_and_scheme_and_names_what_it_admits() {
         let spec = "net.fetch HTTPS:\nnet.websocket wss://feed.example\nnet.websocket ws:";
@@ -381,6 +407,30 @@ mod tests {
             super::admitting(spec, Some("net.websocket ws://a"), "ws://a/"),
             None
         );
+    }
+
+    #[test]
+    fn websocket_subdomains_normalize_and_name_the_admitting_line() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../../host/web/tests/fixtures/grants.json"))
+                .unwrap();
+        for case in cases.as_array().unwrap() {
+            let spec = case["spec"].as_str().unwrap();
+            if !spec.starts_with("net.websocket ") || !spec.contains("://*.") {
+                continue;
+            }
+            let json: serde_json::Value = serde_json::from_str(&normalized_json(spec)).unwrap();
+            let valid = case["ok"].as_bool().unwrap();
+            assert_eq!(json["error"].is_null(), valid, "{spec}");
+            if valid {
+                assert_eq!(json["entries"][0][2][0], "websocket-subdomains", "{spec}");
+            }
+            for probe in case["websocket"].as_array().into_iter().flatten() {
+                let url = probe[0].as_str().unwrap();
+                let expected = probe[1].as_bool().unwrap().then_some(spec);
+                assert_eq!(super::admitting(spec, None, url), expected, "{spec}: {url}");
+            }
+        }
     }
 
     #[test]

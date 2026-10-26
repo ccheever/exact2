@@ -16,6 +16,9 @@
 //   "Ask before editing the notes"  asks first (`session/request_permission`, an `edit` tool call), so a
 //                                   thread in the runtime mode "approval-required" waits on an approval;
 //                                   allowed, it writes notes/approved.md
+//   "Ask a question"                asks one free-text question (`elicitation/create`, a form with one string
+//                                   field), which the server shows as a pending question; the reply repeats the
+//                                   answer and names each attachment the server appended to it, without its path
 //   "Read the thread <id> [for <n>s]"
 //                                   thinks ("**Checking the other thread**"), then holds a running
 //                                   `t3_thread_read` tool call on that thread id for n seconds (0 by
@@ -25,6 +28,10 @@
 //                                   so the server reports the turn blocked on another thread (Waiting)
 //   "Link the thread <id>"          replies with a `t3-thread://v1/<id>` link to it (a thread chip)
 //   "Fail the turn"                 fails the turn with a provider's JSON error, whose message is a sentence
+//   "Show the Markdown sample [pausing <n>s]"
+//                                   replies with Markdown (MARKDOWN_SAMPLE): a Mermaid flowchart in one chunk, then,
+//                                   n seconds later (0 by default), a sequence diagram, a table and two display
+//                                   formulas, so a drive sees a closed fence drawn while the reply streams
 // After `session/new` and `session/load` it advertises one skill, `$frontend-design`
 // (`available_commands_update`; T3 lists a `$` command as a skill), so the composer's `$` menu can
 // insert a skill chip.
@@ -47,6 +54,16 @@ const statePath = join(here, "state.json");
 const mode = { methods: "agent", authDelayMs: 0, logout: true, ...(existsSync(join(here, "mode.json")) ? JSON.parse(readFileSync(join(here, "mode.json"), "utf8")) : {}) };
 const signedIn = () => existsSync(statePath) && JSON.parse(readFileSync(statePath, "utf8")).signedIn === true;
 const setSignedIn = (value) => writeFileSync(statePath, `${JSON.stringify({ signedIn: value })}\n`);
+/** "Show the Markdown sample": its two chunks. */
+export const MARKDOWN_SAMPLE = [
+  "Here is the sample.\n\n```mermaid\nflowchart LR\n  Draft[Draft reply] --> Review{Review}\n  Review -->|approve| Ship[Ship it]\n  Review -->|revise| Draft\n```\n\n",
+  "```mermaid\nsequenceDiagram\n  participant App\n  participant Server\n  App->>Server: Subscribe to the thread\n  Server-->>App: Snapshot, then each event as it happens\n```\n\n"
+    + "| Part | Role | Notes long enough to wrap when the table cells are expanded |\n| --- | --- | --- |\n"
+    + "| `pele` | Mermaid renderer | Lays each diagram out for the lane's width and again when the window narrows |\n"
+    + "| KaTeX | Math typesetter | Typesets display formulas while Settings › Appearance › Render math is on |\n"
+    + "| Tables | Markdown | Expanded cells wrap, and a wide lane fits the whole table without scrolling |\n\n"
+    + "The energy of a body at rest:\n\n$$\nE = mc^2\n$$\n\nThe sum of the first n integers:\n\n\\[\n\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}\n\\]\n",
+];
 
 if (process.argv.includes("--fixture-login")) {
   process.stdout.write("Fixture sign-in for the ACP stand-in (no account, nothing is sent anywhere).\nPress Return to finish: ");
@@ -121,6 +138,16 @@ if (process.argv.includes("--fixture-login")) {
         if (allowed) { mkdirSync(join(cwd, "notes"), { recursive: true }); writeFileSync(path, "# Approved\n\nWritten after the approval.\n"); }
         update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: allowed ? "completed" : "failed" });
         text = allowed ? "Stand-in reply: wrote notes/approved.md" : "Stand-in reply: left the notes as they were";
+      } else if (/^ask a question/i.test(first)) {
+        const reply = await request("elicitation/create", { sessionId, mode: "form", message: "Which window shows the problem?",
+          requestedSchema: { type: "object", properties: { answer: { type: "string", title: "Window" } }, required: ["answer"] } });
+        const accepted = reply?.result?.action === "accept", answer = accepted ? String(reply.result.content?.answer ?? "") : "";
+        // The server appends one `Attached <type> "<name>": "<path>"` line per attachment (userInputAttachments.ts).
+        const line = /^Attached (image|file) ("(?:[^"\\]|\\.)*"): ("(?:[^"\\]|\\.)*")$/gm;
+        const attached = [...answer.matchAll(line)].map(([, type, name, path]) => `${type} ${JSON.parse(name)}${existsSync(JSON.parse(path)) ? "" : " (missing)"}`);
+        const typed = answer.replace(line, "").trim();
+        text = !accepted ? "Stand-in reply: the question was cancelled"
+          : `Stand-in reply: answer "${typed}"${attached.length ? ` with ${attached.length} attachment${attached.length === 1 ? "" : "s"}: ${attached.join(", ")}` : ""}`;
       } else if (/^read the thread\s+\S+/i.test(first)) {
         const [, threadId, seconds] = /^read the thread\s+(\S+)(?:\s+for\s+(\d+)s)?/i.exec(first) ?? [];
         update(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "**Checking the other thread**\n\nIt holds the plan this turn follows." } });
@@ -139,6 +166,11 @@ if (process.argv.includes("--fixture-login")) {
       } else if (/^link the thread\s+\S+/i.test(first)) {
         const [, threadId] = /^link the thread\s+(\S+)/i.exec(first) ?? [];
         text = `Stand-in reply: the plan continues in [the other thread](t3-thread://v1/${threadId}).`;
+      } else if (/^show the markdown sample/i.test(first)) {
+        const [, seconds] = /pausing\s+(\d+)s/i.exec(first) ?? [];
+        update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: MARKDOWN_SAMPLE[0] } });
+        await Bun.sleep(Number(seconds ?? 0) * 1000);
+        text = MARKDOWN_SAMPLE[1];
       } else if (/^fail the turn/i.test(first)) {
         throw { code: -32603, message: JSON.stringify({ error: { message: "The stand-in could not finish this turn.", code: "fixture_failure", status: 500 } }) };
       } else if (cwd && /^write \d+ notes?\b/i.test(first)) {

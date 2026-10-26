@@ -33,7 +33,7 @@ describe('right-panel terminals', () => {
 });
 
 import { T3Client } from '../../src/client/client';
-import { addTerminalSurface, terminalPanelLocal, terminalPanelOps, terminalPanelIds, terminalPanelRetained, terminalPanelView, terminalSurfaceCloseCopy } from '../../src/terminal/terminal-panel';
+import { addTerminalSurface, terminalPanelLocal, terminalPanelOps, terminalPanelIds, terminalPanelView, terminalSurfaceCloseCopy } from '../../src/terminal/terminal-panel';
 import { emptyTerminalDrawerView } from '../../src/terminal/terminal-drawer-view';
 import { focusedTerminal } from '../../src/terminal/terminal-focus';
 import { panelState, surfaceLocal, surfaceStore } from '../../src/panel/panel-surfaces';
@@ -59,7 +59,6 @@ test('panel splits stop at four; new surfaces and drawer IDs never collide', asy
   expect(calls).toHaveLength(4);
   await addTerminalSurface(client, native);
   expect(terminalPanelIds(client, ref)).toEqual(['term-2', 'term-3', 'term-4', 'term-5', 'term-6']);
-  expect(terminalPanelRetained(client)).toHaveLength(5);
   expect(calls[0]).toMatchObject({ method: 'terminal.open', payload: { cwd: '/repo/tree', worktreePath: '/repo/tree', env: { T3CODE_PROJECT_ROOT: '/repo', T3CODE_WORKTREE_PATH: '/repo/tree' } } });
 });
 test('single surface close queues all names once; confirmed and bulk closes delete every history', async () => {
@@ -114,14 +113,16 @@ test('native pane commands use emitting surface while another surface is active'
 });
 
 
-test('panel dedicated focus operations preserve surface identity', async () => {
+test('the panel page\'s focus reports preserve surface identity', async () => {
   const { client, native } = clientFixture();
   await addTerminalSurface(client, native);
-  await terminalPanelLocal(client, native, 'focus-in', 'env:thread|term-1', 'terminal:term-1');
+  const focus = (surface: string, focused: boolean) => terminalPanelLocal(client, native, 'message', 'frame',
+    JSON.stringify({ type: 'focus', focused, environmentId: 'env', threadId: 'thread', terminalId: 'term-1', surface }));
+  await focus('terminal:term-1', true);
   expect(focusedTerminal(client)).toEqual({ environmentId: 'env', threadId: 'thread', terminalId: 'term-1', surface: 'terminal:term-1' });
-  await terminalPanelLocal(client, native, 'focus-out', 'env:thread|term-1', 'drawer');
+  await focus('drawer', false);
   expect(focusedTerminal(client)?.surface).toBe('terminal:term-1');
-  await terminalPanelLocal(client, native, 'focus-out', 'env:thread|term-1', 'terminal:term-1');
+  await focus('terminal:term-1', false);
   expect(focusedTerminal(client)).toBeNull();
 });
 

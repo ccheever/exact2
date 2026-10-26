@@ -35,9 +35,10 @@ component TraitsMenu
             else
               button id=`${testId}-${option.id}` press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id, `${testId}-${option.id}`) focus=focused(option.id, true) blur=focused(option.id, false) role="menuitemradio" aria-checked=option.selected class=SettingsGhost justify-content="flex-start" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" background-color=(option.selected or lit == option.id ? pal.highlight : "#00000000") testId=`${testId}-${option.id}` data-paint=`${(option.selected or lit == option.id ? "text" : "")}` data-pick=((option.selected or lit == option.id ? "text" : "") != "" ? (option.selected or lit == option.id ? "text" : "") : "")
                 column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
-                  row gap="0.375rem" align-items="center"
-                    text option.label font-size="0.875rem" line-height="1.25rem" color=pal.text white-space="nowrap" id=`paint-TraitsMenu-5-${menuId}-${option.id}` data-paint="text" data-pick="text"
+                  // The label truncates and the Default badge sits centred beside it (flex items-center gap-1).
+                  row min-width=0 max-width="100%" gap="0.25rem" align-items="center"
+                    text option.label font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 min-width=0 id=`paint-TraitsMenu-5-${menuId}-${option.id}` data-paint="text" data-pick="text"
                     if option.icon == "default"
-                      text "Default" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color=pal.input font-size="0.625rem" font-weight=500 line-height="0.875rem" color=pal.text id=`paint-TraitsMenu-6-${menuId}-${option.id}` data-paint="input text" data-pick="input"
+                      text "Default" flex-shrink=0 padding-left="0.1875rem" padding-right="0.1875rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color=pal.input font-size="0.625rem" font-weight=500 line-height="0.875rem" color=pal.text id=`paint-TraitsMenu-6-${menuId}-${option.id}` data-paint="input text" data-pick="input"
                   if option.detail != ""
                     text option.detail font-size="0.75rem" line-height="1rem" white-space="nowrap" color=pal.muted id=`paint-TraitsMenu-7-${menuId}-${option.id}` data-paint="mutedForeground" data-pick="mutedForeground"

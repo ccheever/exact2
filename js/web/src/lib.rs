@@ -378,6 +378,8 @@ impl Module {
                         .map_err(|_| unavailable("a request timeout must be 1 to 3600000 ms"))?,
                 );
             }
+            // `exactHeld` (LLP 1016.000 D9): no clock waits on it.
+            request.held = r["held"] == true;
             // `exactBodyFrom`: the page reads the file into the body.
             match &r["body_from"] {
                 Json::Null => {}
@@ -669,11 +671,7 @@ impl DataSource for Module {
             };
         }
         let granted = Store::new(&self.grants, []).granted().to_vec();
-        let snapshot: Vec<_> = store
-            .snapshot()
-            .into_iter()
-            .filter(|(name, _)| !name.starts_with(Store::KEPT) && granted.iter().any(|g| g == name))
-            .collect();
+        let snapshot = store.call_snapshot(&granted);
         let grants = Json::Array(granted.iter().map(|g| g.as_str().into()).collect());
         match call(object([
             ("op", "dispatch".into()),

@@ -47,6 +47,14 @@ describe('shared pull request observations', () => {
     }
   });
 
+  test('a linked row keeps its saved snapshot\'s line counts under a newer summary that leaves them out', () => {
+    const client = new T3Client(); client.environmentId = 'env'; client.threadId = 't';
+    client.config = { environment: { capabilities: { threadPullRequests: true } } };
+    client.shell.threads = [{ id: 't', projectId: 'p', pullRequests: [{ ...ref, source: 'manual', linkedAt: '2026-10-18T10:00:00Z', snapshot: summary({ additions: 203, deletions: 1 }) }] }];
+    observePullRequestSummary(client, 'env', ref, summary({ title: 'Fresh title', updatedAt: '2026-10-18T11:30:00Z' }));
+    expect(prsView(client, Date.parse('2026-10-18T12:00:00Z')).rows[0]).toMatchObject({ title: 'Fresh title', additions: '+203', deletions: '-1' });
+  });
+
   test('the same project, repository and number stay separate on different hosts', () => {
     const client = new T3Client(); client.environmentId = 'env';
     const enterprise = { ...ref, host: 'github.enterprise.test' };
@@ -112,7 +120,7 @@ const list = contractComponent('src/pull-requests/pages-prs.contract', 'PrList')
 test('a close sweep includes eligible rows in its group, stops at another group, and Escape cancels it', () => {
   const calls: unknown[][] = [];
   const row = (key: string, disabled = false) => ({ key, ref: key, speed: [{ action: 'close', disabled }] });
-  const scope = { page: { groups: [{ key: 'authored', rows: [row('a'), row('b'), row('c', true)] }, { key: 'others', rows: [row('d')] }] }, frame: (id: string) => ({ y: { a: 100, b: 156, c: 212, d: 268 }[id.slice('pr-row-wrap-'.length)] ?? 0, height: 56 }), min: Math.min, max: Math.max, abs: Math.abs, act: (...args: unknown[]) => calls.push(args) };
+  const scope = { page: { groups: [{ key: 'authored', rows: [row('a'), row('b'), row('c', true)] }, { key: 'others', rows: [row('d')] }] }, frame: (id: string) => ({ y: { a: 100, b: 156, c: 212, d: 268 }[id.slice('pr-row-wrap-'.length)] ?? 0, height: 56 }), min: Math.min, max: Math.max, abs: Math.abs, act: (...args: unknown[]) => calls.push(args), interacted: () => {} };
   const state = list.state(scope);
   list.call('sweepDown', state, scope, ['a', 'authored', 'close', { buttons: 1, clientY: 120 }]);
   list.call('sweepMove', state, scope, [{ buttons: 1, clientY: 280 }]);

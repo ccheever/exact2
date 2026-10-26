@@ -1,8 +1,8 @@
 # Recipe: native views
 
-A view needing a platform API (video, a map, the camera) is a Swift view: a hyphenated tag in
-`app.json` `modules`, made by `modules/apple/*.swift`. Drawing is not: a Skia or Reanimated
-screen ports to boxes, SVG, keyframes and transitions, on every platform. Contract places it:
+A view needing a platform API (a map, the camera) is a Swift view: a hyphenated tag in
+`app.json` `modules`, made by `modules/apple/*.swift`. A video is the `video` element, with a
+`poster`; a Skia or Reanimated screen is boxes, SVG and keyframes. Contract places it:
 
 ```text
 component Clip
@@ -11,7 +11,7 @@ component Clip
     last = at
   view
     column
-      video-view src="intro.mp4" message=seeked aria-label="Intro" height=180
+      video-view source="intro.mp4" message=seeked aria-label="Intro" height=180
       text last testId="last"
 ```
 
@@ -45,13 +45,13 @@ final class Video: ExactNativeInstance {
         }
     }
     override var view: ExactNativeView { strip }
-    override func setProps(_ props: [String: String]) throws { strip.src = props["src"] ?? "" }
+    override func setProps(_ props: [String: String]) throws { strip.src = props["source"] ?? "" }
     override func destroy() { ticket?.stop() }
 }
 ```
 
 - **Props are strings**, all of them on each change. A name Contract knows (`value`,
-  `title`) is the box's: `contract vocab <name>`.
+  `src`) or an event's is the box's, refused on the tag.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
 - **Time is the session's:** `context.frames`, `context.after(ms)`, never a
   `CADisplayLink` or timer, so `clock +N` moves it; timed audio is a `sequence`.

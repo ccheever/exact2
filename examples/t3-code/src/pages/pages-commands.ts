@@ -9,11 +9,13 @@ import { usagePricesLocal, usagePricesSave } from '../usage/pages-usage-prices';
 import { setOpenModel } from '../usage/pages-usage-detail';
 import { prLocal } from '../pull-requests/pages-prs';
 import { prQuickLocal } from '../pull-requests/pages-pr-quick';
+import { requestChangeBreakdown } from '../pull-requests/pr-change-breakdown';
 import { prCommand, noteCopy } from '../pull-requests/pages-pr-detail';
 import { pushToast } from '../shell/toast';
 import { welcomeLocal } from './pages-welcome';
 import { CHATGPT_USAGE_URL } from '../providers/chatgpt-plan';
 import { pullRequestLinkPick } from '../panel/context-menu-actions';
+import { openExternal } from '../client/external-open';
 
 export async function pagesLocal(client: T3Client, native: Native | null | undefined, _storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op === 'usage-prices-save') {
@@ -25,7 +27,7 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
   if (op.startsWith('usage-prices-')) return usagePricesLocal(client, op.slice(13), id, value);
   // ChatGptUsageButton on the Usage page and in the model picker opens ChatGPT's usage settings.
   if (op === 'usage-chatgpt' || op === 'chatgpt-usage') {
-    if (native?.available) await bridgeReply(native, { op: 'remoteEditorsOpen', url: CHATGPT_USAGE_URL });
+    openExternal(CHATGPT_USAGE_URL);
     return '';
   }
   if (op.startsWith('usage-pool-')) return usagePoolLocal(client, native, op.slice(11), id); // environments, redeem, Cursor
@@ -44,6 +46,7 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
     return prCommand(client, native, op.slice(7), id, value, _storage);
   }
   if (op.startsWith('pr-quick-')) return prQuickLocal(client, op.slice(9), value); // a row's popovers
+  if (op === 'pr-breakdown') return requestChangeBreakdown(client, value, 'list'); // a row's +/- hovered
   if (op.startsWith('pr-')) return prLocal(client, op.slice(3), value);
   if (op === 'copy') {
     if (!native?.available) throw new ClientError('Open on macOS to copy.');

@@ -1,5 +1,6 @@
 import { requestComposerField, type ComposerFieldCompletion } from './composer-field-request';
-import { removeStaged } from './composer-staged-copies';
+import { removeStaged, stagedName } from './composer-staged-copies';
+import { stagedInUse } from './composer-copied-chips';
 import { composerFieldCurrent } from './composer-field-bridge';
 import { composerFieldOwner } from './auto-balance-owner';
 // The composer shelf's references and video tiles, adapted from T3 Code (MIT;
@@ -7,7 +8,7 @@ import { composerFieldOwner } from './auto-balance-owner';
 // removeImage/removeFile (lib/composerContextReferences removeInlineContextReference),
 // composerAttachmentFiles isPreviewableComposerVideo and packages/shared video.ts.
 import type { T3Client } from '../client/client';
-import { ClientError, nativeFiles, type Native } from '../client/protocol';
+import { ClientError, preferenceFiles, type Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { draftFiles, setDraftFiles } from './composer-editor-files';
 import { contextId, contextReferences } from './composer-editor-menu';
@@ -65,15 +66,15 @@ export async function removeAttachmentReferences(client: T3Client, native: Nativ
 
 // ── Video tiles (composerVideos) ────────────────────────────────────────────
 
-export type VideoTile = { id: string; name: string; poster: string; contextId: string };
-/** isPreviewableComposerVideo for the draft's attached files: a staged local copy (and its poster frame) to show. */
+export type VideoTile = { id: string; name: string; src: string; contextId: string };
+/** isPreviewableComposerVideo for the draft's attached files: a staged local copy, whose first frame the tile shows. */
 export function videoTiles(files: ReadonlyArray<{ id: string; name: string; mimeType: string; contextId: string; source: string; status: string; draftKey: string }>, key: string): VideoTile[] {
   return files.filter(file => file.draftKey === key && file.source === 'attached' && videoMimeType(file) !== null && /^[a-f0-9-]{36}$/i.test(file.id))
-    .map(file => ({ id: file.id, name: str(file.name, 'video'), poster: file.id, contextId: file.contextId }));
+    .map(file => ({ id: file.id, name: str(file.name, 'video'), src: stagedMediaSrc(file), contextId: file.contextId }));
 }
 
-// The first frame's natural size from the pick (T3ComposerAttach.swift). It is saved on the
-// draft's file entry too (adoptComposerFiles keeps it), so a relaunched draft opens at the same aspect.
+// The video's oriented display size, read from its header at staging (composer-video.ts videoFrameSize). It is saved on
+// the draft's file entry too (adoptComposerFiles keeps it), so a relaunched draft opens at the same aspect.
 const frames = new WeakMap<object, Map<string, { width: number; height: number }>>();
 export function rememberVideoFrame(client: object, file: Obj): void {
   const width = Number(file.videoWidth), height = Number(file.videoHeight), id = str(file.id);
@@ -91,21 +92,15 @@ function frameOf(client: T3Client, id: string): { width: number; height: number 
 const previews = new WeakMap<object, string>();
 
 export type ComposerVideoPreview = { open: boolean; id: string; name: string; width: number; height: number; src: string };
-/**
- * A staged video or audio file as an app file: Attach files stages it at `composer-files/<id>` under the app's data
- * directory with a typed link `<id>.<ext>` beside it (T3ComposerAttach.swift), which AVFoundation needs to know the type.
- */
-export function stagedMediaSrc(id: string, name: string): string {
-  const ext = /\.([^./]+)$/.exec(name)?.[1]?.toLowerCase();
-  return `app:/data/composer-files/${id.toLowerCase()}${ext ? `.${ext}` : ''}`;
-}
+/** A staged video or audio file as an app file, which a Contract `video` or `audio` plays (composer-staged-copies.ts stagedName). */
+export function stagedMediaSrc(file: { id: string; name: string; mimeType: string }): string { return `app:/data/composer-files/${stagedName(file)}`; }
 /** The snapshot's shelf videos and the open preview (presentation.ts). */
-export function composerVideoSnapshot(client: T3Client): { composerVideos: Array<{ id: string; name: string }>; composerVideoPreview: ComposerVideoPreview[] } {
+export function composerVideoSnapshot(client: T3Client): { composerVideos: Array<{ id: string; name: string; src: string }>; composerVideoPreview: ComposerVideoPreview[] } {
   const tiles = videoTiles(draftFiles(client.local), client.draftKey);
   const open = previews.get(client) ?? '', tile = tiles.find(candidate => candidate.id === open);
   const size = frameOf(client, open);
-  return { composerVideos: tiles.map(video => ({ id: video.id, name: video.name })),
-    composerVideoPreview: tile ? [{ open: true, id: tile.id, name: tile.name, width: size?.width ?? 0, height: size?.height ?? 0, src: stagedMediaSrc(tile.id, tile.name) }] : [] };
+  return { composerVideos: tiles.map(video => ({ id: video.id, name: video.name, src: video.src })),
+    composerVideoPreview: tile ? [{ open: true, id: tile.id, name: tile.name, width: size?.width ?? 0, height: size?.height ?? 0, src: tile.src }] : [] };
 }
 
 /** `editorlocal:shelf-video-*`: Play opens the expanded preview, Remove is removeComposerFileFromDraft. */
@@ -117,11 +112,11 @@ export async function videoOp(client: T3Client, native: Native, op: string, id: 
   if (op !== 'shelf-video-remove') throw new ClientError(`Unknown editor action: ${op}`);
   if (previews.get(client) === id) previews.delete(client);
   const key = client.draftKey;
-  await removeAttachmentReferences(client, native, key, 'file', file.contextId, { applied: async current => {
+  await removeAttachmentReferences(client, native, key, 'file', file.contextId, { applied: async () => {
     const previous = draftFiles(client.local);
     setDraftFiles(client.local, previous.filter(candidate => candidate !== file));
-    try { await client.persist(nativeFiles(current)); } catch (error) { setDraftFiles(client.local, previous); throw error; }
-    if (file.status === 'staged') await removeStaged(file.id);
+    try { await client.persist(preferenceFiles()); } catch (error) { setDraftFiles(client.local, previous); throw error; }
+    if (file.status === 'staged' && !stagedInUse(client.local, file.id)) await removeStaged(file.id);
   } });
   return '';
 }

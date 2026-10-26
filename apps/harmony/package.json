@@ -1,0 +1,8 @@
+{
+  "name": "harmony",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "snapback4": "0.4.33"
+  }
+}

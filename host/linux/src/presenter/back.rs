@@ -1,6 +1,6 @@
 //! System Back, in order (LLP 1115.001 D6; LLP 1115 D5, "Back is always
 //! there"): the route's part of it, which is the rule the iOS host follows
-//! (`NavigationRules.back`), over the same runner.
+//! (`NavigationBack.way`), over the same runner.
 //!
 //! From the navigation root's selected route, Back goes to the first of:
 //!
@@ -150,7 +150,8 @@ impl<D: DataSource> Presenter<D> {
     /// happens: a desktop app is not left by its Back key.
     pub(crate) fn back_key_down(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
         let kernel = self.host.kernel();
-        let hears = self.focus.is_some_and(|id| {
+        // With nothing focused the root's handlers hear it (`key_event`).
+        let hears = self.focus.is_none_or(|id| {
             self.display.allows(kernel, id)
                 && kernel
                     .node(id)
@@ -173,8 +174,8 @@ impl<D: DataSource> Presenter<D> {
     /// Whether system Back would be taken now: what a shell's back callback
     /// is enabled by, so that Back with nowhere to go leaves the app with
     /// the system's own animation (D6).
-    pub fn back_goes(&self) -> bool {
-        self.top_open() || self.back().is_some()
+    pub fn back_goes(&mut self) -> bool {
+        self.top_open() || self.back().is_some() || self.remote_back_target().is_some()
     }
 
     /// The agent's `back` (LLP 1116.006 D4): system Back, as a desktop's
@@ -200,7 +201,8 @@ impl<D: DataSource> Presenter<D> {
             return true;
         }
         let Some(back) = self.back() else {
-            return false;
+            // A TV's remote has no Escape key: its Back is one (LLP 1115.001.003 D3).
+            return self.remote_back(now_ms);
         };
         let error = match back {
             Back::Press(control) => {

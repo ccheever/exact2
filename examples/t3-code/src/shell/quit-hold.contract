@@ -1,0 +1,74 @@
+// The quit shortcut's hold, ported from T3 Code 74541bab17 (MIT, see LICENSE-T3):
+// apps/desktop/src/window/QuitHold.ts and apps/web/src/components/QuitHoldOverlay.tsx.
+// The reference intercepts ⌘Q in the window's before-input-event, ahead of the menu's Quit. Here the
+// window root's capture `key` handler hears the press, each auto-repeat and the keyups first, and a
+// `preventDefault()` keeps the menu's Quit from running (docs/contract-grammar.md, "A held ⌘Q"). The
+// handler's closure is a record, each key event and each watchdog tick one step of it (app.contract
+// `quitHoldKey`, `quitWatchTick`), since only the root has tasks and an action reads its starting state.
+// The mode is read at the press from the device settings (`settingsCore.quitMode`), so the reference's
+// asynchronous getMode answers at once and its pending-read cases do not arise. Quit from the menu, and
+// ⌘Q while the window is hidden (no page hears it), stay immediate.
+
+// makeQuitShortcutHandler's state. `watchUntil` is its one timer (0 for none), which quits when `watchQuits`
+// (the quiet period after a completed hold) and releases otherwise. A step's outputs: `consumed` (the
+// handler's event.preventDefault()), `signal` (notify's "down" or "up", or "conceal" for
+// concealPendingQuitWindow) and `quit`.
+shape QuitHoldState
+  holding: bool
+  mode: string
+  notified: bool
+  armed: bool
+  onRelease: bool
+  heldSince: number
+  lastPressAt: number
+  lastRepeatAt: number
+  cadence: number
+  watchUntil: number
+  watchQuits: bool
+  consumed: bool
+  signal: string
+  quit: bool
+
+// QUIT_HOLD_DURATION_MS, QUIT_DOUBLE_PRESS_MS, QUIT_HOLD_RELEASE_GRACE_MS and the repeat cadence multiplier.
+fn quitHoldDuration(): number = 1200
+fn quitDoublePress(): number = 500
+fn quitReleaseGrace(): number = 600
+fn quitHoldIdle(): QuitHoldState = QuitHoldState(holding=false, mode="", notified=false, armed=false, onRelease=false, heldSince=0, lastPressAt=0, lastRepeatAt=0, cadence=0, watchUntil=0, watchQuits=false, consumed=false, signal="", quit=false)
+// Whether a key's character is printable ASCII, so a layout's own letter or mark (AZERTY's A, Dvorak's ' on Q's key):
+// only a source that types none there (Korean 2-Set's ㅂ) falls back to the physical key.
+fn quitTypesLatin(key: string): bool = key.length == 1 and ` !"#$%&'()*+,-./0123456789:;<=>?@[]^_abcdefghijklmnopqrstuvwxyz{|}~`.includes(key.toLowerCase())
+// The reference's `input.key.toLowerCase()`, ⌘ as "meta"; Q's physical key stands in where the source types no Latin
+// character there, as the module's T3QuitHold did.
+fn quitKeyName(e: KeyboardEvent): string = (e.key.toLowerCase() == "q" or (e.code == "KeyQ" and e.key.length == 1 and not quitTypesLatin(e.key))) ? "q" : ((e.key == "Meta" or e.key == "OS") ? "meta" : e.key.toLowerCase())
+fn quitStepStart(s: QuitHoldState): QuitHoldState = QuitHoldState(s, consumed=false, signal="", quit=false)
+// release(): a double press's hint may outlive the key's release (keepDoublePressHint).
+fn quitRelease(s: QuitHoldState, keepDoublePressHint: bool): QuitHoldState = (not s.holding and not s.notified) ? s : ((keepDoublePressHint and s.mode == "double-click" and s.notified) ? QuitHoldState(s, holding=false, armed=false, onRelease=false, lastRepeatAt=0, cadence=0) : QuitHoldState(s, holding=false, armed=false, onRelease=false, lastRepeatAt=0, cadence=0, mode="", notified=false, watchUntil=0, watchQuits=false, signal=(s.notified ? "up" : s.signal)))
+// quitNow dismisses any hint first so a cancelled quit cannot leave a stale one.
+fn quitNow(s: QuitHoldState): QuitHoldState = QuitHoldState(quitRelease(s, false), lastPressAt=0, quit=true)
+// A slow repeat rate can exceed the fixed grace: the quiet period waits two observed cadences.
+fn quitAfterQuietPeriod(s: QuitHoldState, now: number): QuitHoldState = QuitHoldState(s, watchUntil=now + max(quitReleaseGrace(), s.cadence * 2), watchQuits=true)
+// A fresh press supersedes the current hold or a hint kept after a release; every mode accepts two presses.
+fn quitPressed(s: QuitHoldState, previous: number, now: number, setting: string): QuitHoldState = (previous != 0 and now - previous <= quitDoublePress()) ? quitNow(s) : (setting == "direct" ? quitNow(s) : (setting == "double-click" ? QuitHoldState(s, holding=true, heldSince=now, mode="double-click", notified=true, signal="down", watchUntil=now + quitDoublePress(), watchQuits=false) : QuitHoldState(s, holding=true, heldSince=now, mode="hold", notified=true, signal="down", armed=true, watchUntil=now + quitHoldDuration() + quitReleaseGrace(), watchQuits=false)))
+fn quitPress(s: QuitHoldState, now: number, setting: string): QuitHoldState = quitPressed(QuitHoldState((s.holding or s.notified) ? quitRelease(s, false) : s, lastPressAt=now, consumed=true), s.lastPressAt, now, setting)
+// An auto-repeat completes an armed hold: the window is concealed and the quit waits for the keys to go quiet.
+fn quitRepeated(s: QuitHoldState, now: number): QuitHoldState = (s.mode == "hold" and s.armed and now - s.heldSince >= quitHoldDuration()) ? quitAfterQuietPeriod(QuitHoldState(s, armed=false, onRelease=true, signal="conceal", consumed=true), now) : QuitHoldState(s, consumed=true)
+// Pressing ⌘ again begins a second quit shortcut; any other key's press cancels the hold and the first press.
+fn quitOtherKey(s: QuitHoldState, key: string, e: KeyboardEvent): QuitHoldState = ((key == "meta" and not e.altKey and not e.shiftKey) or e.repeat) ? s : quitRelease(QuitHoldState(s, lastPressAt=0), false)
+// After a completed hold any key is taken, and Q's keydown (held, with or without ⌘) pushes the quiet period back.
+fn quitKeyDownFrom(s: QuitHoldState, key: string, e: KeyboardEvent, now: number, setting: string): QuitHoldState = s.onRelease ? (key == "q" ? quitAfterQuietPeriod(QuitHoldState(s, consumed=true), now) : QuitHoldState(s, consumed=true)) : ((not e.metaKey or e.altKey or e.shiftKey or key != "q") ? quitOtherKey(s, key, e) : (e.repeat ? quitRepeated(s, now) : quitPress(s, now, setting)))
+fn quitKeyDown(s: QuitHoldState, e: KeyboardEvent, now: number, setting: string): QuitHoldState = quitKeyDownFrom((e.repeat and e.metaKey and quitKeyName(e) == "q") ? QuitHoldState(quitStepStart(s), cadence=now - (s.lastRepeatAt == 0 ? s.heldSince : s.lastRepeatAt), lastRepeatAt=now) : quitStepStart(s), quitKeyName(e), e, now, setting)
+// macOS can swallow Q's keyup while ⌘ is down, so a release only ends what a held key proved.
+fn quitKeyUp(s: QuitHoldState, e: KeyboardEvent, now: number): QuitHoldState = quitKeyName(e) == "q" ? QuitHoldState(quitRelease(quitStepStart(s), true), quit=s.onRelease) : (quitKeyName(e) == "meta" ? (s.onRelease ? quitAfterQuietPeriod(quitStepStart(s), now) : quitRelease(quitStepStart(s), true)) : quitStepStart(s))
+// The watchdog: no auto-repeat by then means the key was let go (or repeat is off), so the hold ends without
+// quitting; after a completed hold, the quiet period ends in the quit.
+fn quitWatchFired(s: QuitHoldState): QuitHoldState = QuitHoldState(s.watchQuits ? quitNow(quitStepStart(s)) : quitRelease(quitStepStart(s), false), watchUntil=0, watchQuits=false)
+fn quitHint(mode: string): string = mode == "hold" ? "Hold ⌘Q or press twice to quit" : "Press ⌘Q again to quit"
+
+// QuitHoldOverlay: a centred pill 22% from the top of the window, foreground/95 with the background colour's
+// bold text-2xl, px-8 py-4, shadow-xl; it takes no pointer. Drawn in the reference's colours whatever the theme.
+component QuitHoldOverlay
+  props
+    mode: string
+  view
+    row role="status" testId="quit-hold-overlay" pointer-events="none" position="absolute" left=0 right=0 top="22%" display="flex" justify-content="center"
+      text quitHint(mode) padding-left="2rem" padding-right="2rem" padding-top="1rem" padding-bottom="1rem" border-radius="9999px" background-color="light-dark(#27272af2, #f5f5f5f2)" color="light-dark(#fcfcfc, #0a0a0a)" font-size="1.5rem" line-height="2rem" font-weight=700 box-shadow="0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a"

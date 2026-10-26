@@ -69,7 +69,7 @@ component GuideTour
     width: number
     scheme: string
     still: bool
-    navigate: action
+    showStop: action
     write: action
     ask: action
     finish: action
@@ -85,7 +85,7 @@ component GuideTour
   action go(target: number)
     let position = max(0, min(target, guide.stopCount - 1))
     railOpen = false
-    navigate(position)
+    showStop(position)
     focus(wide ? `guide-stop-${position}` : "guide-tour-picker")
     scrollIntoView("guide-tour-scroll", "guide-tour-top", block="start")
   view
@@ -103,7 +103,7 @@ component GuideTour
         row id="guide-tour-top" width="100%" max-width="100rem" margin-left="auto" margin-right="auto" padding=(sideNotes ? "1.5rem" : "1rem") box-sizing="border-box" align-items="flex-start" gap=(sideNotes ? "2rem" : "1.5rem")
           if wide
             column width="16rem" flex-shrink=0 position="sticky" top="1rem" align-self="flex-start"
-              GuideTourRail(guide=guide, compact=false, navigate=go)
+              GuideTourRail(guide=guide, compact=false, showStop=go)
           column flex=1 min-width=0 gap="1rem"
             if guide.running or guide.stale or guide.failure != ""
               row width="100%" align-items="center" gap="0.75rem" padding="0.75rem" box-sizing="border-box" border-width=1 border-style="solid" border-color=(guide.running ? "light-dark(#155dfc40, #51a2ff40)" : "light-dark(#d0870040, #ffb90040)") border-radius="0.5rem" background-color=(guide.running ? "light-dark(#155dfc08, #51a2ff0c)" : "light-dark(#d0870008, #ffb9000c)") role="status" testId="pull-request-guide-banner"
@@ -139,7 +139,7 @@ component GuideTour
                             GuideTourKey(label="K")
                     if not wide and railOpen
                       column id="guide-tour-stop-list" width="100%" testId="pull-request-guide-stop-list"
-                        GuideTourRail(guide=guide, compact=true, navigate=go)
+                        GuideTourRail(guide=guide, compact=true, showStop=go)
                   column max-width="60rem" width="100%" min-width=0 gap="0.5rem"
                     text guide.title font-size="1.125rem" line-height="1.75rem" font-weight=600 color=pgtInk() role="heading" aria-level=2 testId="pull-request-guide-title"
                     for document in documents.filter((doc) => doc.id == guide.summaryId) key=document.id
@@ -183,7 +183,7 @@ component GuideTourRail
   props
     guide: GuideView
     compact: bool
-    navigate: action
+    showStop: action
   view
     column width="100%" min-width=0 gap="1rem" role="navigation" aria-label="Review tour" testId="pull-request-guide-rail"
       if not compact
@@ -191,7 +191,7 @@ component GuideTourRail
       column width="100%" min-width=0 gap="0.125rem" role="list"
         for stop in guide.stops key=stop.key
           row width="100%" role="listitem"
-            GuideTourRailRow(stop=stop, press=navigate(stop.index))
+            GuideTourRailRow(stop=stop, press=showStop(stop.index))
 
 component GuideTourRailRow
   props

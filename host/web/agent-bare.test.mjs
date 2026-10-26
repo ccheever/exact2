@@ -88,7 +88,8 @@ test("a listing does not attach the next settlement's reason to old geometry", (
 });
 
 test('driver deadlines release their timer on success, rejection and timeout', async () => {
-  const driver = readFileSync(new URL('../../scripts/agent.mjs', import.meta.url), 'utf8');
+  // (The driver's carrier, scripts/agent-wire.mjs since 416f51f1f4.)
+  const driver = readFileSync(new URL('../../scripts/agent-wire.mjs', import.meta.url), 'utf8');
   const implementation = driver.match(/async function waitAtMost\([^]*?\n\}/)[0];
   const timers = new Set();
   const wait = vm.runInNewContext(`(${implementation})`, {
@@ -126,7 +127,7 @@ test('the wasm agent loads its input helpers once and keeps settled reads synchr
       return new Promise(resolve => { finish = resolve; });
     },
   });
-  vm.runInContext(`let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, agentInputLoading;
+  vm.runInContext(`let guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, agentInputLoading;
 ${declaration('agentInputReady')}
 ${declaration('agent')}
 this.agent = agent; this.ready = agentInputReady;`, context);

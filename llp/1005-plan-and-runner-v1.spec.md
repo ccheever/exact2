@@ -720,6 +720,57 @@ and record; Linux's `capture_precedes_target_and_bubble_and_controls_the_default
 `KeyUpMacTests` and `PressFocusIOSTests` hold the native order and stop; the
 `capture-keys` web conformance plan drives both browser runtimes in Chrome.
 
+**Keys with nothing focused** (2026-10-21; implementer Claude Opus 5.5).
+With no focused node, at launch or after the focused node unmounts, a key's
+path is the session's first root: after the `aria-keyshortcuts` shortcuts,
+its `keycapture`, `key` and `keyup` handlers hear it, in that order, and a
+`preventDefault()` cancels the key's default (Tab's move to the first stop).
+This is the DOM's: with nothing focused Chrome targets `<body>` and the key
+reaches `window` listeners, and HTML's focus fixup moves the focus to
+`<body>` when the focused element is removed. The root takes no focus: no
+`focus` event, no ring, no Tab stop. No name, fact or Tab stop is added, so
+held modifiers stay `keyup` plus `exactPage().hasFocus` (2026-10-11, above).
+A cut, copy or paste with nothing focused goes to the root's handler too, as
+the DOM's goes to `<body>`.
+
+- **Web** (`rt.js` `atBody`, `glue.js` `attach`): a listener on `<html>`
+  takes each keydown, keyup and clipboard event whose target is `<body>` or
+  `<html>` (nothing focused; never a copy a text flow forwards to a detached
+  node) to the first root's handlers as it bubbles, its capture
+  before its `key`: after the shortcuts' capture listener at the document,
+  and before the document's defaults, so the root's `preventDefault()` keeps
+  a sheet's Escape (`navigation.js`) and a list's ⌘A (`list-selection.js`),
+  as on macOS and Linux.
+- **macOS** (`KeyEvents.swift` `keyPath`): a key at a window that is its own
+  first responder, or whose first responder is the session's view or
+  viewport, starts at the root; Edit's Cut, Copy, Paste and Paste and Match
+  Style reach `RootEdits`, which follows the window in its responder chain
+  and enables the item while the root hears it, for the session that owns
+  the window's keys (`ExactView.ownsShortcutFocus`). Two limits: a window
+  controller an embedder attaches after the session's view joined the
+  window takes the controller's place after the window and drops
+  `RootEdits` (keys are unaffected), and a sheet's own window (a dialog)
+  with nothing focused hears no cut, copy or paste.
+- **iOS** (`ExactView`, the first responder while nothing else is, again
+  once the focused node unmounts): a hardware key's presses, and the edit
+  actions, at the root; the agent's key with nothing focused likewise. A
+  key already down when the focused node unmounts brings its keyup to the
+  responder UIKit pressed it at, not to the root. No test drives
+  `pressesBegan` (UIKit makes no `UIPress` with a key for one);
+  `FieldClipboardIOSTests` holds the root's edit actions and its key path.
+- **Linux and Windows** (`key_event`, `hardware_key`): the root is the key's
+  target with no focus; Tab then moves to the first stop unless prevented.
+- **Terminal** (`keys.rs`): the root's `key` handler hears the key before its
+  default, the scroll.
+- **Android:** unchanged; keys reach only a focused field.
+
+Tests: `KeyUpMacTests` (at launch and after the focused field unmounts),
+`FieldClipboardMacTests` (the root's paste), `FieldClipboardIOSTests` (the
+root's edit actions and key path), Linux's
+`with_nothing_focused_the_root_hears_keys`, the terminal's
+`with_nothing_focused_the_root_hears_keys`, and the `body-keys` conformance
+plan (Chrome, JS against wasm, and the Linux host).
+
 **A chord during an input method's composition, and held modifiers**
 (2026-10-07, #140). Chrome hands the page a ⌘ chord's keydown while the text
 is still composed (`isComposing`; CDP's `Input.imeSetComposition` then the
@@ -746,6 +797,38 @@ page's `window` `blur`). Tests: `KeyUpMacTests` (the chord, ⌘Enter and the
 Send button, Shift's release), `FieldCompositionIOSTests`, and
 `contract/cli/tests/it/keyup.rs`'s held-modifier reset.
 
+**`KeyboardEvent.isComposing`** (2026-10-24). The record gains the DOM's
+`isComposing` last: the key came between an input method's
+`compositionstart` and `compositionend` (UI Events), so a handler can skip
+the Enter that picks a candidate, as web code does (`not e.isComposing`).
+Chrome 156 reports it on every key during a composition: the Enter, a
+modifier's own press and release, and a ⌘ chord (CDP's
+`Input.imeSetComposition`, then the keys).
+
+- **ABI:** kinds 6, 43 and 44 take an optional fourth line, `true` or
+  `false` (`KeyboardEvent::parse`); a missing one is false, so a chord alone
+  and the three-line wire keep their meaning.
+- **Web** (`glue.js` and `document-glue.js` `keyChord`; the JS target's
+  `onKey`): `event.isComposing` as Chrome reports it.
+- **macOS and iOS** (`Presenter.composes`, `NodeView.composes`): true on a
+  modifier's own press or release while the field has marked text, the only
+  composing keys that reach handlers there (`passesComposition`). A ⌘ chord
+  is false, and so are the keys after it, ⌘'s own release included: its
+  keydown commits the composition before its handlers run (above), where
+  Chrome's chord and the keys after it arrive still composing.
+  On macOS 27.2, Korean 2-Set inserts each syllable into an AppKit text
+  field without marked text, a stock `NSTextField` included, so no key there
+  is composing and the Enter after a syllable reaches handlers, where
+  Chrome's is composing
+  (`issues/closed/20261025-macos-korean-composes-without-marked-text.md`).
+- **Linux, Windows, the terminal and Android:** false. No input method's
+  composition reaches their key handlers.
+
+Tests: `runner/src/runner/event/keyboard.rs`, `contract/cli/tests/it/keyup.rs`
+(a composer skipping the candidate's Enter), `KeyUpMacTests` (Shift released
+and ⌘ pressed during a composition), `FieldCompositionIOSTests`, and the web's
+`focus.test.mjs` (the wire) and `js-runtime.test.mjs` (the JS target's record).
+
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a
 completed swipe. Move/cancel samples do not enter the runner.
@@ -767,6 +850,9 @@ It does not bubble. The root is the nearest ancestor CSS scroll container
 and requires CSS number syntax (digits after a decimal point or exponent).
 Percentages follow Chrome: root height for top/bottom, root width for left/right. The margin expands only the root;
 intervening clips still apply. This is geometric intersection, not occlusion or painted visibility.
+A placed native scrollport is also an observer root, including at offset zero.
+Fixed pane allocations keep their clips. Ancestors above an explicit observer
+root only map coordinates, as [Intersection Observer §3.2.7](https://w3c.github.io/IntersectionObserver/#compute-the-intersection) requires.
 
 The browser's IntersectionObserver with threshold 0 supplies initial delivery
 (including an offscreen node), then enter/leave. Edge contact may report true
@@ -775,7 +861,8 @@ change alone does not deliver. Removed nodes stop observing without a synthetic
 leave; a new mount gets a fresh initial delivery. Callback entries retain browser
 order within a root/margin observer; different observers have no ordering
 guarantee. Static rendering dispatches nothing.
-A changed nearest root restarts observation with a fresh initial delivery.
+A changed nearest authored root restarts observation with a fresh initial delivery.
+Native viewport geometry updates preserve the implicit-root observation.
 
 Host coverage: both web targets use the same browser adapter. AppKit, UIKit
 (including tvOS) and Linux use one runner sampler over laid-out frames and

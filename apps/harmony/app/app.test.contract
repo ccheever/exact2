@@ -1,0 +1,124 @@
+// Run them against a server of their own: `bun scripts/memory-backend-test.mjs
+// apps/harmony/app` from exact2's root starts `snapback4 dev --memory` on a free
+// port and points the build there. Each test empties that server and loads the
+// demo data, dated as the server dates it, so never point them at a server
+// whose data matters.
+fresh "../seed.json"
+epoch now
+
+test "the channels are listed with unread counts, and a message is sent and read by another account"
+  clock data
+  expect tree has "room-general"
+  expect tree has "room-engineering"
+  tap "room-general"
+  clock settle
+  clock data
+  expect text "room-title" == "#general"
+  type "composer" "Hello from the test"
+  tap "send"
+  clock data
+  expect text "composer" == ""
+  expect state draft == ""
+  tap "tab-you"
+  tap "switch-grace"
+  clock data
+  expect text "me-name" == "Grace Marlowe"
+  tap "tab-channels"
+  clock data
+  expect state latest.body == "Hello from the test"
+  expect state latest.author == "Ada Quill"
+
+test "a reaction is added from the long-press menu and removed by tapping its chip"
+  clock data
+  tap "room-random"
+  clock settle
+  clock data
+  expect state latest.reactions == []
+  tap "message-01HARMNY00000000000000003W" contextmenu
+  clock settle
+  tap "menu-heart"
+  clock data
+  expect state latest.reactions.0 .emoji == "❤️"
+  expect state latest.reactions.0 .count == 1
+  expect state latest.reactions.0 .mine == true
+  tap "reaction-01HARMNY00000000000000003W-0"
+  clock data
+  expect state latest.reactions == []
+
+test "a reply quotes the message it answers; Enter sends"
+  clock data
+  tap "room-design"
+  clock settle
+  clock data
+  tap "message-01HARMNY00000000000000004A" contextmenu
+  clock settle
+  tap "menu-reply"
+  expect text "replying-to" == "Replying to Grace Marlowe"
+  type "composer" "Agreed, they read well at that size"
+  type "composer" key "Enter"
+  clock data
+  expect state latest.replyAuthor == "Grace Marlowe"
+  expect state latest.body == "Agreed, they read well at that size"
+  expect state replyTo == ""
+
+test "a direct message is opened from the picker and the conversation appears in Messages"
+  clock data
+  tap "tab-you"
+  tap "switch-maggie"
+  clock data
+  tap "tab-dms"
+  clock data
+  expect tree has "dm-grace"
+  expect tree missing "dm-alan"
+  tap "new-dm"
+  clock settle
+  tap "to-alan"
+  clock data
+  clock settle
+  type "composer" "Walk later?"
+  tap "send"
+  clock data
+  expect state latest.body == "Walk later?"
+  expect state shown.kind == "dm"
+  expect state shown.title == "Alan Reyes"
+  tap "tab-dms"
+  tap "tab-dms"
+  clock data
+  expect tree has "dm-alan"
+
+test "a new channel appears for everyone, and a custom emoji can be made and used"
+  clock data
+  tap "new-channel"
+  clock settle
+  type "new-channel-name" "Demo Day"
+  expect text "new-channel-hint" == "#demo-day"
+  tap "new-channel-save"
+  clock data
+  clock settle
+  expect text "room-title" == "#demo-day"
+  tap "tab-you"
+  tap "new-emoji"
+  clock settle
+  type "new-emoji-name" "party"
+  tap "shape-star"
+  tap "fill-3"
+  tap "new-emoji-save"
+  clock data
+  clock settle
+  expect tree has "emoji-party"
+  tap "switch-ken"
+  clock data
+  tap "tab-channels"
+  clock data
+  expect tree has "room-demo-day"
+  expect tree has "emoji-party"
+
+test "search finds a word across rooms and opens the room"
+  clock data
+  type "search" "ramen"
+  clock data
+  expect text "hit-count" == "2 messages"
+  tap "hit-01HARMNY00000000000000002Z"
+  clock settle
+  clock data
+  expect text "room-title" == "#general"

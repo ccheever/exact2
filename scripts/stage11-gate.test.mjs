@@ -26,6 +26,16 @@ test('a bare number, an unknown metric, an inexact binding or a terminal cell of
   expect(citations(row('radius.sm', { px: 5, measured: 'ios-cornerstyle-small-44' }, ...refs, 0), measured)[0]).toContain('binds no `radius.sm = 5`');
   expect(citations(row('space.xs', ...refs, '=grouped-row-gap', { cells: 'one' }), measured)[0]).toContain('no number of cells');
   expect(citations(row('space.xs', 'full', ...refs, { cells: 0 }), measured)[0]).toContain('full outside radius.full');
+  // A stretch (stage 13 D5): a metric with its why and its entry, or refused.
+  expect(citations(row('space.xs', { stretch: '=grouped-label-inset', why: 'a test' }, ...refs, { cells: 0 }), measured)).toEqual([]);
+  expect(citations(row('space.xs', { stretch: '=grouped-label-inset' }, ...refs, { cells: 0 }), measured)[0]).toContain('no stretch');
+  expect(citations(row('space.xs', { stretch: '=grouped-row-gap', why: 'a test' }, ...refs, { cells: 0 }), measured)[0]).toContain('no entry under Role stretches');
+  expect(citations(row('space.xs', { stretch: '=grouped-label-inset', why: 'two\nlines' }, ...refs, { cells: 0 }), measured)[0]).toContain('no stretch');
+  // The page's line ends are its own (Astra's round 2): CRLF reads alike.
+  expect(citations(row('space.xs', { stretch: '=grouped-label-inset', why: 'a test' }, ...refs, { cells: 0 }), measured.replaceAll('\n', '\r\n'))).toEqual([]);
+  // An entry outside Role stretches is none.
+  const elsewhere = measured.replace('## Role stretches\n', '## Moved\n');
+  expect(citations(row('space.xs', { stretch: '=grouped-label-inset', why: 'a test' }, ...refs, { cells: 0 }), elsewhere)[0]).toContain('no entry under Role stretches');
 });
 
 test('a cargo run passes only when it ran a test and none failed', () => {

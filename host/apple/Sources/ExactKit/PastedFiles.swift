@@ -70,6 +70,14 @@ extension NodeView {
         #endif
     }
 
+    #if os(macOS)
+    /// Whether `board` holds what a paste carries as files (`pasteClaim`),
+    /// asked without reading it, as a menu validates.
+    static func holdsFiles(_ board: NSPasteboard) -> Bool {
+        board.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) || board.availableType(from: [.png, .tiff]) != nil
+    }
+    #endif
+
     /// The pasted image's bytes in a folder of its own under the temporary
     /// directory, as `image.png`.
     static func writePastedImage(_ png: Data) -> URL? {

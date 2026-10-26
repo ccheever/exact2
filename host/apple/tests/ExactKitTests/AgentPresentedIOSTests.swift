@@ -51,6 +51,14 @@ final class AgentPresentedIOSTests: XCTestCase {
         return agent.screenshot(request)
     }
 
+    func testANativeTreeCarriesTheRunnersPendingSnapshot() throws {
+        let agent = mounted()
+        let tree = agent.decorateTree(["nodes": []])
+        let pending = try XCTUnwrap(tree["pending"] as? [[String: Any]], "the native tree must carry the snapshot used by missing-target diagnostics")
+        XCTAssertEqual(pending.compactMap { $0["name"] as? String }, agent.pendingRequests().compactMap { $0["name"] as? String })
+        XCTAssertTrue(pending.isEmpty, "this session starts with no source requests")
+    }
+
     func testAScreenshotIsTheViewportsWithNothingPresentedAndTheWindowsWithAnAlertOrSheetUp() throws {
         let agent = mounted()
         XCTAssertNil(agent.presentedOverApp())
@@ -183,7 +191,7 @@ final class AgentPresentedIOSTests: XCTestCase {
         XCTAssertEqual(alert.actions.last?.title, "Cancel")
         XCTAssertEqual((try aim(agent, 9)["aim"] as? [String: Any]).flatMap { $0["native"] as? [String: Any] }?["label"] as? String, "Cancel")
         titles[9] = "Close"
-        p.menus.sync()
+        p.apply(facesBatch())
         XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[2])), "the alert's Cancel no longer says what the page does")
         let end = Date().addingTimeInterval(3)
         while root?.presentedViewController != nil, Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }

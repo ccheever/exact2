@@ -8,7 +8,7 @@ import { test, expect, beforeAll, afterAll } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
@@ -43,10 +43,12 @@ const page = sheet + `
 // LLP 1115.000 D6, nodes as both web targets write them: pressables that
 // declare no feedback (a box, one that hears `hover`, a custom button, a
 // link, a card holding a button and a field), those whose press is the
-// author's (a scale, `pointerdown`, an `opacity` of its own), a native
-// button, a game's action, a disabled custom button, rows of a list (plain,
-// virtualized, grouped, and a button inside a grouped row), an item of a
-// sideways virtualized list, and a scrim over the window, shown on demand.
+// author's (a scale, `pointerdown`, an `opacity` of its own), native
+// buttons (filled, on a translucent accent too, plain, glass, tinted, and one
+// with a pressed paint), a game's action, a disabled custom button, rows of a
+// list (plain, virtualized, grouped, and a button inside a grouped row), an
+// item of a sideways virtualized list, and a scrim over the window, shown on
+// demand. `?agent` is the agent's clock.
 const unsaid = sheet + `
 <style>#exact-root > *, #exact-root [role] * { min-height: 24px; } #away { height: 60px; }</style>
 <div id="exact-root" style="padding:20px;width:300px">
@@ -59,6 +61,12 @@ const unsaid = sheet + `
   <div id="drawn" data-exact-on="press pointerdown pointerup">draws its own</div>
   <div id="faded" data-exact-on="press" style="opacity:0.4">faded</div>
   <button id="native" type="button" data-button-style="filled" data-native="" data-exact-on="press"><span>native</span></button>
+  <button id="text" type="button" data-button-style="plain" data-native="" data-exact-on="press"><span id="text-face">text</span></button>
+  <button id="translucent" type="button" data-button-style="filled" data-native="" style="--exact-accent:var(--exact-quaternary-fill)"><span id="translucent-face">translucent</span></button>
+  <button id="glass" type="button" data-button-style="glass" data-native="" data-exact-on="press"><span id="glass-face">glass</span></button>
+  <button id="tinted" type="button" data-button-style="tinted" data-native=""><span id="tinted-face">tinted</span></button>
+  <button id="bordered" type="button" data-button-style="bordered" data-native=""><span id="bordered-face">bordered</span></button>
+  <button id="painting" type="button" data-button-style="filled" data-native="" style="--exact-press-opacity:0.5"><span id="painting-face">paints its own</span></button>
   <button id="action" type="button" data-action="jump">action</button>
   <button id="off" type="button" disabled data-exact-on="press">off</button>
   <button id="ownoff" type="button" disabled data-exact-on="press" data-disabledstyled="true">its own disabled look</button>
@@ -90,7 +98,7 @@ const unsaid = sheet + `
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root');
   window.clicks = []; root.addEventListener('click', e => clicks.push(e.target.id));
-  createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
+  createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {}, agentMode: location.search === '?agent' });
   window.ready = true;
 </script>`;
 
@@ -116,16 +124,16 @@ const paint = sheet + `
   window.ready = true;
 </script>`;
 
-// One server and one browser for the file; each test opens a page of its own.
+// One server for the file, and one Chrome over CDP for its Chrome-only tests; each test opens a page of its own.
 let server, suite, cdp;
 beforeAll(async () => {
-  if (unavailable) return;
   server = createServer((req, res) => {
-    const html = { '/': page, '/unsaid': unsaid, '/paint': paint, '/paint?agent': paint }[req.url];
+    const html = { '/': page, '/unsaid': unsaid, '/unsaid?agent': unsaid, '/paint': paint, '/paint?agent': paint }[req.url];
     if (html) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'input-glue.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  if (unavailable) return;
   suite = await cdpBrowser({ args: ['--window-size=600,900'] });
   ({ cdp } = suite);
 });
@@ -198,38 +206,42 @@ check('only the innermost pressable shows the press, and only while inside', asy
     expect([await opacity('card'), await scale('card')]).toEqual(['1', 1]);
     expect(await vibrations()).toBe('12');
     await mouse('mouseReleased', await centre('plain'));
+    // Released, the dim holds a moment and fades back, as on iOS.
+    expect(await opacity('plain')).toBe('0.65');
+    await evaluate('document.getAnimations().forEach((a) => a.finish())');
     expect(await opacity('plain')).toBe('1');
     // A disabled button gives nothing either; its card is not pressed through it, and its haptic is silent.
     await mouse('mousePressed', await centre('off'));
     expect(await pressed()).toBe('');
     await mouse('mouseReleased', await centre('off'));
     expect(await vibrations()).toBe('12');
-    // A native button highlights with no row or handler of its own: the
-    // look's wash of its ink over its face (LLP 1116 D1's dimmed the title
-    // instead, as a UIButton does), nothing scales, its card is not pressed.
-    // The unsaid dim is not laid over it.
+    // A native button highlights with no row or handler of its own, as a
+    // UIButton does: its face fades over a lighter fill (neutral.css), nothing
+    // scales, its card is not pressed. The unsaid dim is not laid over it.
     const face = () => evaluate(`getComputedStyle(document.getElementById('title')).opacity`);
-    const wash = () => evaluate(`getComputedStyle(document.getElementById('native')).backgroundImage !== 'none'`);
-    expect(await wash()).toBe(false);
+    const fill = () => evaluate(`getComputedStyle(document.getElementById('native')).backgroundColor`);
+    const rest = await fill();
     await mouse('mousePressed', await centre('native'));
     expect(await pressed()).toBe('native');
-    expect([await wash(), await face()]).toEqual([true, '1']);
+    expect([await fill() !== rest, await face()]).toEqual([true, '0.75']);
     expect(await opacity('native')).toBe('1');
     expect(await scale('native')).toBe(1);
     expect(await scale('card')).toBe(1);
     await mouse('mouseReleased', await centre('native'));
     expect(await pressed()).toBe('');
-    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); // off it: a pointer left over it is its hover, a wash too
-    expect([await wash(), await face()]).toEqual([false, '1']);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); // off it: a pointer left over it is its hover
+    await settle(); // it eases out of the highlight (the test below)
+    expect([await fill(), await face()]).toEqual([rest, '1']);
     // The keyboard shows the same state (LLP 1115.000 D4.14): Space holds a
     // native button's highlight, and a button's `-exact-press-scale`, until
     // its keyup.
     const space = (type) => call('Input.dispatchKeyEvent', { type, key: ' ', code: 'Space', windowsVirtualKeyCode: 32, ...(type === 'keyDown' ? { text: ' ' } : {}) });
     await evaluate(`document.getElementById('native').focus()`);
     await space('keyDown');
-    expect([await pressed(), await wash(), await opacity('native')]).toEqual(['native', true, '1']);
+    expect([await pressed(), await face(), await opacity('native')]).toEqual(['native', '0.75', '1']);
     await space('keyUp');
-    expect([await pressed(), await wash()]).toEqual(['', false]);
+    await settle();
+    expect([await pressed(), await face()]).toEqual(['', '1']);
     await evaluate(`document.getElementById('button').focus()`);
     await space('keyDown');
     expect([await pressed(), await scale('button'), await scale('card')]).toEqual(['button', 0.5, 1]);
@@ -343,6 +355,30 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await held('faded', 'faded')).toBe('0.4');
     // A native control keeps its own feedback, a game's action is held, and a disabled custom button takes no press.
     expect(await held('native', 'native')).toBe('1');
+    // A plain button, a filled one on a translucent accent and a glass one show UIKit's highlight (neutral.css): the
+    // button, and so its focus ring, keeps its opacity, and its face fades. A pressed paint the author wrote adds to
+    // it, as on iOS, where UIKit highlights a native button whatever press is written (NativeButtonsIOS.swift).
+    // Released, it eases out of the highlight (the test below).
+    const eased = () => evaluate(`document.getAnimations().forEach(a => a instanceof CSSTransition && a.finish())`);
+    for (const id of ['text', 'translucent', 'glass']) {
+      const down = await held(id, id, `${id}-face`);
+      await eased();
+      expect([id, down, await shown(`${id}-face`)]).toEqual([id, '1,0.75', '1']);
+    }
+    await mouse('mousePressed', await centre('painting'));
+    await evaluate(`document.getAnimations().forEach(a => a.finish())`);
+    expect(await shown('painting', 'painting-face')).toBe('0.5,0.75');
+    await mouse('mouseMoved', await centre('away'));
+    await mouse('mouseReleased', await centre('away'));
+    // A tinted button held under the pointer shows its pressed wash, not its hover's, as it does under a finger (below).
+    const tinted = await centre('tinted'), wash = () => evaluate(`getComputedStyle(document.getElementById('tinted')).backgroundImage`);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: tinted[0], y: tinted[1], button: 'none', buttons: 0 });
+    const hovered = await wash();
+    await mouse('mousePressed', tinted);
+    const pressedWash = await wash();
+    await mouse('mouseMoved', await centre('away'));
+    await mouse('mouseReleased', await centre('away'));
+    expect(pressedWash).not.toBe(hovered);
     expect(await held('action', 'action')).toBe('1');
     expect(await held('off', 'off')).toBe('0.5');
 
@@ -399,16 +435,20 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await keyed('custom', 'Space', 'custom')).toBe('0.65');
     expect(await shown('custom')).toBe('1');
     expect(await keyed('box', 'Space', 'box')).toBe('0.65');
+    // Released, the dim holds a moment and fades back (the engine test times it).
+    await evaluate('document.getAnimations().forEach((a) => a.finish())');
     expect([await shown('box'), await marked('box', 'data-pressed')]).toEqual(['1', false]);
     expect(await keyed('box', 'Enter', 'box')).toBe('1');
     expect(await keyed('row', 'Space', 'row')).toBe('1'); // a row from the keyboard is still its cell
-    expect(await evaluate('clicks.join()')).toBe('custom,box,box,row');
+    expect(await keyed('text', 'Space', 'text', 'text-face')).toBe('1,0.75');
+    expect(await evaluate('clicks.join()')).toBe('custom,box,box,row,text');
     // Another key's release leaves the mark; it goes when the focus leaves with Space still down.
     await evaluate(`document.getElementById('box').focus()`);
     await key('keyDown', 'Space');
     await key('keyUp', 'Enter');
     expect(await marked('box', 'data-pressed')).toBe(true);
     await evaluate(`document.getElementById('custom').focus()`);
+    await evaluate('document.getAnimations().forEach((a) => a.finish())');
     expect([await marked('box', 'data-pressed'), await shown('box')]).toEqual([false, '1']);
     await key('keyUp', 'Space');
 
@@ -421,6 +461,16 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect([await shown('inner', 'outer'), await marked('inner', 'data-pressed')]).toEqual(['0.65,1', true]);
     await finger('touchEnd');
     expect(await marked('inner', 'data-pressed')).toBe(false);
+    for (const id of ['text', 'translucent', 'glass']) {
+      await finger('touchStart', await centre(id));
+      const down = await shown(id, `${id}-face`);
+      await finger('touchEnd');
+      await eased();
+      expect([id, down, await shown(id, `${id}-face`)]).toEqual([id, '1,0.75', '1,1']);
+    }
+    await finger('touchStart', await centre('tinted'));
+    expect(await wash()).toBe(pressedWash);
+    await finger('touchEnd');
     // The window losing focus lets it go, and so does a gesture claiming the contact (motion-glue's swipe): a later
     // move inside the box does not press it again.
     await finger('touchStart', await centre('inner'));
@@ -439,6 +489,94 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
   } finally {
     await close();
   }
+}, 60000);
+
+// A native button eases out of its press as the press ends (neutral.css; UIKit's highlight on iOS 27, a quarter second,
+// ease-in-out), so even a quick tap shows, under a finger or the mouse, in each engine: a plain, a filled and a glass
+// button's face, the filled one's fill, and a glass, tinted or bordered button's wash. The press itself comes at once,
+// and nothing else about the button eases: a filled button enabled again takes its fill at once, and an authored
+// transition running in it is its own. A release on the agent's clock lands at once, and a pressable that is no native
+// button is never marked.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a native button eases out of its press as the press ends`, async () => {
+  const browser = await suiteBrowser(engine);
+  const load = async (path, hasTouch = false) => {
+    const page = await browser.newPage({ viewport: { width: 600, height: 900 }, hasTouch });
+    await page.goto(`http://127.0.0.1:${server.address().port}${path}`);
+    await page.waitForFunction(() => window.ready);
+    return page;
+  };
+  // What each button's release eases: its face's opacity, its fill, its wash.
+  const EASES = { text: ['opacity'], translucent: ['background-color', 'opacity'], glass: ['--exact-wash', 'opacity'], tinted: ['--exact-wash'], bordered: ['--exact-wash'] };
+  try {
+    for (const finger of [true, false]) {
+      const page = await load('/unsaid', finger);
+      for (const [id, eased] of Object.entries(EASES)) {
+        const at = [engine, finger ? 'finger' : 'mouse', id];
+        // The button's transitions (WebKit runs one on an `::after` that draws nothing too), and its face's opacity, its
+        // fill and its wash's alpha where they start and half way.
+        const seen = () => page.evaluate((id) => {
+          const b = document.getElementById(id), face = document.getElementById(`${id}-face`), ink = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+          const alpha = (c) => { ink.clearRect(0, 0, 1, 1); ink.fillStyle = c; ink.fillRect(0, 0, 1, 1); return ink.getImageData(0, 0, 1, 1).data[3]; };
+          const eases = b.getAnimations({ subtree: true }).filter((a) => !a.effect.pseudoElement || getComputedStyle(b, a.effect.pseudoElement).content !== 'none');
+          const when = (t) => { for (const a of eases) { a.pause(); a.currentTime = t; } return [getComputedStyle(face).opacity, getComputedStyle(b).backgroundColor, alpha(getComputedStyle(b).getPropertyValue('--exact-wash'))]; };
+          return [eases.map((a) => [a.transitionProperty, a.effect.getTiming().duration, a.effect.getTiming().easing]).sort(), when(0), when(125), b.hasAttribute('data-exact-released')];
+        }, id);
+        const rest = await page.evaluate((id) => getComputedStyle(document.getElementById(id)).backgroundColor, id);
+        if (finger) await page.tap(`#${id}`);
+        else {
+          await page.hover(`#${id}`);
+          await page.mouse.down();
+          expect([at, (await seen())[0]]).toEqual([at, []]);
+          await page.mouse.up();
+        }
+        const [eases, start, half, marked] = await seen();
+        expect([at, eases, start[0], half[0], marked]).toEqual([at, eased.map((property) => [property, 250, 'ease-in-out']), ...(eased.includes('opacity') ? ['0.75', '0.875'] : ['1', '1']), true]);
+        if (eased.includes('background-color')) expect([at, start[1] !== rest, half[1] !== rest && half[1] !== start[1]]).toEqual([at, true, true]);
+        if (eased.includes('--exact-wash')) expect([at, start[2] > 0, half[2] > 0 && half[2] < start[2]]).toEqual([at, true, true]);
+        // Once it ends the mark goes, and a change of state is the button's own again.
+        await page.evaluate(() => document.getAnimations().forEach((a) => a.finish()));
+        await page.waitForFunction((id) => !document.getElementById(id).hasAttribute('data-exact-released'), id);
+        expect([at, await page.evaluate((id) => { const b = document.getElementById(id); b.disabled = true; getComputedStyle(b).backgroundColor; b.disabled = false; return [getComputedStyle(b).backgroundColor, b.getAnimations({ subtree: true }).length]; }, id)]).toEqual([at, [rest, 0]]);
+      }
+      // A pressable that declares no feedback keeps its dim at least 0.1 s from the press and fades it back over
+      // 0.2 s, ease-out, as the iOS host does (PressFeedback.swift `dimHold`, `dimFade`).
+      if (finger) await page.tap('#box'); else await page.click('#box');
+      const dim = await page.evaluate(() => {
+        const box = document.getElementById('box'), fade = box.getAnimations().find((a) => !a.transitionProperty);
+        if (!fade) return null;
+        const { duration } = fade.effect.getTiming(), at = (t) => { fade.pause(); fade.currentTime = t; return Number(getComputedStyle(box).opacity); };
+        return [at(0), duration > 200 && duration <= 300, at(duration - 1) > 0.95];
+      });
+      expect([engine, finger, dim]).toEqual([engine, finger, [0.65, true, true]]);
+      await page.evaluate(() => document.getAnimations().forEach((a) => a.finish()));
+      if (finger) {
+        // A pressable that is no native button is pressed under a finger but never marked released.
+        await page.evaluate(() => { window.marks = []; new MutationObserver((records) => marks.push(...records.map((r) => r.attributeName))).observe(document.getElementById('box'), { attributeFilter: ['data-pressed', 'data-exact-released'] }); });
+        await page.tap('#box');
+        expect([engine, 'box', await page.evaluate(() => marks)]).toEqual([engine, 'box', ['data-pressed', 'data-pressed']]);
+      } else {
+        // Existing author transitions stay independent, including properties the platform also animates
+        for (const [id, property, value] of [['translucent-face', 'color', 'rgb(255, 0, 0)'], ['translucent', 'opacity', '0.5'], ['translucent-face', 'background-color', 'rgb(255, 0, 0)']]) {
+          await page.evaluate(([id, property, value]) => {
+            const node = document.getElementById(id);
+            node.style.transition = `${property} 3s linear`;
+            getComputedStyle(node).getPropertyValue(property);
+            node.style.setProperty(property, value);
+          }, [id, property, value]);
+          await page.click('#translucent');
+          await page.evaluate(() => document.getAnimations().forEach((a) => a.effect.getTiming().duration < 3000 && a.finish()));
+          await page.waitForFunction(() => !document.getElementById('translucent').hasAttribute('data-exact-released'), undefined, { timeout: 1000 });
+          expect([engine, id, property, await page.evaluate((id) => document.getElementById(id).getAnimations().map((a) => a.transitionProperty), id)]).toEqual([engine, id, property, [property]]);
+          await page.evaluate((id) => { document.getAnimations().forEach((a) => a.finish()); document.getElementById(id).removeAttribute('style'); }, id);
+        }
+      }
+      await page.close();
+    }
+    // On the agent's clock the release lands at once.
+    const page = await load('/unsaid?agent');
+    await page.click('#text');
+    expect([engine, 'agent', await page.evaluate(() => [getComputedStyle(document.getElementById('text-face')).opacity, document.getElementById('text').getAnimations({ subtree: true }).length, document.getElementById('text').hasAttribute('data-exact-released')])]).toEqual([engine, 'agent', ['1', 0, false]]);
+  } finally { await browser.close(); }
 }, 60000);
 
 check('the pressed paint shows by the press rule, eased, and replaces the platform default', async () => {
@@ -476,8 +614,9 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await mouse('mouseReleased', painted);
     await settle();
     expect(await look('painted')).toBe(rest);
-    await evaluate('new Promise(ok => setTimeout(ok, 0))');
-    expect(await evaluate(`document.getElementById('painted').hasAttribute('data-exact-painting')`)).toBe(false);
+    // The paint ends on its ease's finish event, which the browser sends with an animation frame, not a task: wait
+    // frames for it (2 s at most), where one timer turn can come first on a loaded machine.
+    expect(await evaluate(`new Promise(ok => { const end = performance.now() + 2000, look = () => { const on = document.getElementById('painted').hasAttribute('data-exact-painting'); if (!on || performance.now() > end) ok(on); else requestAnimationFrame(look); }; look(); })`)).toBe(false);
     // An authored transition of the same properties running at the press is
     // left to run, above the paint (a transition is above every declaration
     // in the cascade); the paint shows as it ends, and released, the node

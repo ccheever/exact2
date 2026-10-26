@@ -1,4 +1,5 @@
-// Provider update logic, T3 Code 1e2ecbd975 (getProviderUpdateRunOutcome 9c161462c9; MIT, see LICENSE-T3):
+// Provider update logic, T3 Code 1e2ecbd975 (getProviderUpdateRunOutcome 9c161462c9, getProviderUpdateInitialToastView
+// 74541bab17; MIT, see LICENSE-T3):
 // apps/web/src/components/ProviderUpdateLaunchNotification.logic.ts — isProviderUpdateCandidate,
 // isProviderUpdateActive, collectProviderUpdateCandidates, isProviderSettingsUpdateCandidate,
 // hasOneClickUpdateProviderCandidate, canOneClickUpdateProviderCandidate,
@@ -122,9 +123,22 @@ function getFailedProviderUpdateDescription(providers: readonly Obj[]): string {
   }
   return `${formatProviderList(providers)} failed to update. Check provider settings for details.`;
 }
+/**
+ * Install and provider settings reach only installs the server can update.
+ * The rest are updated by the app or tool that installed them, so they get
+ * their own sentence whatever else the notice offers.
+ */
+function describeInitialUpdates(input: { updateProviders: readonly Obj[]; oneClickProviders: readonly Obj[] }): string {
+  const fromSettings = input.updateProviders.filter(provider => advisoryOf(provider).canUpdate === true);
+  const manual = input.updateProviders.filter(provider => advisoryOf(provider).canUpdate !== true);
+  return [
+    input.oneClickProviders.length > 0 ? 'Install the update now or review provider settings.'
+      : fromSettings.length > 0 ? `${formatProviderList(fromSettings)} can be updated from provider settings.` : null,
+    manual.length > 0 ? `Update ${formatProviderList(manual)} with the app or tool that installed ${manual.length === 1 ? 'it' : 'them'}.` : null,
+  ].filter(sentence => sentence !== null).join(' ');
+}
 export function getProviderUpdateInitialToastView(input: { updateProviders: readonly Obj[]; oneClickProviders: readonly Obj[] }): ProviderUpdateToastView {
-  return { phase: 'initial', type: 'warning', title: getProviderUpdateInitialToastTitle(input.updateProviders),
-    description: input.oneClickProviders.length > 0 ? 'Install the update now or review provider settings.' : `${formatProviderList(input.updateProviders)} can be updated from provider settings.` };
+  return { phase: 'initial', type: 'warning', title: getProviderUpdateInitialToastTitle(input.updateProviders), description: describeInitialUpdates(input) };
 }
 export function shouldShowPrimaryProviderUpdateToast(view: ProviderUpdateToastView): boolean { return view.phase !== 'running'; }
 function getProviderUpdateRunningToastView(providerCount: number): ProviderUpdateToastView {

@@ -573,7 +573,10 @@ impl Plan {
         let mut depth = vec![0u32; first_region + self.regions.len()];
         let up = |site: usize| -> Option<usize> {
             let (parent, arm) = match site.checked_sub(first_region) {
-                None => (self.nodes[site].parent, self.nodes[site].arm),
+                None => {
+                    let node = self.node(NodesId(site as u32));
+                    (node.parent, node.arm)
+                }
                 Some(r) => (self.regions[r].parent, self.regions[r].arm),
             };
             match (parent, arm) {
@@ -871,19 +874,37 @@ impl Plan {
     /// Declare a hatch word and the platforms that handle it, after
     /// lowering: the row comes from `app.json`, not from Contract.
     pub fn add_hatch(&mut self, word: &str, platforms: u16) {
-        let found = self.strings.iter().position(|s| s == word);
-        let id = match found {
+        let word = self.intern(word);
+        self.hatches.push(HatchesRow { word, platforms });
+    }
+
+    /// Declare a package's view, after lowering: the row comes from the
+    /// package's `exact.json`, not from Contract (LLP 1133.001 D1).
+    pub fn add_view(&mut self, tag: &str, extension: &str, displayed: bool, binds: &[&str]) {
+        let row = ViewsRow {
+            tag: self.intern(tag),
+            extension: self.intern(extension),
+            displayed,
+            binds: self.intern(&binds.join(" ")),
+        };
+        self.views.push(row);
+    }
+
+    /// The package view row of `tag`, if a package serves it.
+    pub fn view_named(&self, tag: &str) -> Option<&ViewsRow> {
+        self.views.iter().find(|v| self.str(v.tag) == tag)
+    }
+
+    fn intern(&mut self, text: &str) -> StrId {
+        let found = self.strings.iter().position(|s| s == text);
+        match found {
             Some(i) => StrId(i as u32),
             None => {
                 let id = StrId(self.strings.len() as u32);
-                self.strings.push(word);
+                self.strings.push(text);
                 id
             }
-        };
-        self.hatches.push(HatchesRow {
-            word: id,
-            platforms,
-        });
+        }
     }
 
     /// The native module row of source `name`, when a module answers it

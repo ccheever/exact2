@@ -26,6 +26,7 @@ export function useXcode() {
     console.error(`host/apple: xcode-select names the Command Line Tools (${selected}); using ${xcode}`);
   }
 }
+const shellQuote = value => `'${value.replaceAll("'", "'\\''")}'`;
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
 /** A window capture the app drew (`path`, in `r`'s scale), its pixels then the simulator's own screenshot's, as a
@@ -38,7 +39,8 @@ const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args,
  *  Nothing of the display is read unless the app said it was in front (`r.front`: active, its scene in front, its
  *  window key), and nothing is taken unless `probe`, the app asked again after the reads, answers that it still is, at
  *  the same epoch, incarnation and clock. The display is read three times, the last `gap` ms after the second, so a
- *  caret's blink cannot fall in all three. The whole display is taken when the three agree below the status bar,
+ *  caret's blink cannot fall in all three (`displayReads`). The whole display is taken when the three agree between
+ *  the status bar and the home indicator (SpringBoard's, in the bottom safe area, which changes its shade on its own),
  *  UIKit's motion had settled (no `r.moving`), and at the points the app named (`r.opaque`: drawn by the app itself,
  *  no glass, keyboard or status bar there) the display shows what the app drew, so no notification banner or other
  *  overlay lies over it. Otherwise, as for a capture the agent marked (`r.unshown`, struck-through header nodes) or
@@ -68,24 +70,24 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
   let why = own ? 'asked for the app\'s own drawing' : r.unshown?.length > 0 ? 'header nodes are struck through in it'
     : r.moving ? 'UIKit\'s motion had not settled' : null;
   if (why && !(bar > 0) && !keyboard) return keep(why);
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
+  const reads = displayReads(udid, gap);
   try {
-    const capture = (name) => {
-      const shot = resolve(dir, name);
-      const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { timeout: 20000 });
-      if (taken.status !== 0 || !existsSync(shot)) throw new Error(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
-      return decodePng(readFileSync(shot));
-    };
-    const display = capture('display.png'), app = decodePng(readFileSync(path));
+    const [display, again, last] = await Promise.all(reads.reads), app = decodePng(readFileSync(path));
     if (app.width !== display.width || app.height !== display.height) return keep(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
-    const again = capture('again.png');
-    await new Promise((done) => setTimeout(done, gap));
-    const last = capture('last.png');
     const after = probe ? await probe() : { front: 'the app was not asked again' };
     const gone = front(after.front) ?? (['epoch', 'incarnation', 'clock'].some((k) => after[k] !== r[k]) ? 'the app changed while the display was read' : null);
     if (gone) return keep(gone);
     const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
-    const agree = (from, to) => [again, last].every((d) => Buffer.compare(display.data.subarray(from, to), d.data.subarray(from, to)) === 0);
+    // In the bottom safe area, the home indicator's columns (`INDICATOR` points either side of the middle) are left out,
+    // unless the keyboard is up there: then they are the keyboard's band, all of which has to agree.
+    const stride = app.width * 4, safe = keyboard || r.keyboard?.visible ? display.data.length : row(app.height / scale - (r.safeArea?.bottom ?? 0));
+    const [left, right] = [-1, 1].map((side) => Math.max(0, Math.min(app.width, Math.round((app.width / scale / 2 + side * INDICATOR) * scale))) * 4);
+    const same = (d, from, to) => from >= to || Buffer.compare(display.data.subarray(from, to), d.data.subarray(from, to)) === 0;
+    const agree = (from, to = display.data.length) => [again, last].every((d) => {
+      if (!same(d, from, Math.min(to, safe))) return false;
+      for (let at = Math.max(from, safe); at < to; at += stride) if (!same(d, at, at + left) || !same(d, at + right, at + stride)) return false;
+      return true;
+    });
     const from = row(bar > 0 ? 0 : appTop);
     if (!why && !agree(row(bar > 0 ? bar : appTop))) why = 'the display changed while it was read';
     if (!why) why = covered(opaque, app, display, scale);
@@ -105,7 +107,52 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
     if (why && !own) say(approximate(why));
     return r;
   } catch (e) { return keep(String(e.message ?? e).split('\n')[0]); }
-  finally { rmSync(dir, { recursive: true, force: true }); }
+  finally { reads.cancel(); }
+}
+
+/** Half the width, in points, of the bottom safe area's middle that the home indicator (134 points wide on an iPhone)
+ *  is drawn in, with room for its edge. */
+const INDICATOR = 80;
+
+/** The simulator's display read three times for `withDisplay`, started now: the second 150 ms after the first, not
+ *  after it ends (each `simctl io` read is ~0.4 s, most of it the tool's own start), and the third `gap` ms after both
+ *  have ended, so it is that far from either whenever their pictures were taken. `reads` are their pictures, decoded;
+ *  `cancel()` stops what is still reading and removes the files. */
+function displayReads(udid, gap = 400) {
+  useXcode();
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-display-')), children = new Set(), timers = new Set();
+  let cancelled = false;
+  const later = (ms, fn) => { const timer = setTimeout(() => { timers.delete(timer); fn(); }, ms); timers.add(timer); };
+  const read = (name) => new Promise((done, fail) => {
+    if (cancelled) return fail(new Error('the display reads were cancelled'));
+    const shot = resolve(dir, name);
+    let said = '';
+    const child = spawn('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { stdio: ['ignore', 'ignore', 'pipe'] });
+    children.add(child);
+    const bound = setTimeout(() => child.kill('SIGKILL'), 20000);
+    child.stderr.on('data', (d) => { said += d; });
+    child.on('error', (e) => { clearTimeout(bound); children.delete(child); fail(e); });
+    child.on('close', (status) => {
+      clearTimeout(bound); children.delete(child);
+      try {
+        if (status !== 0 || !existsSync(shot)) throw new Error(`simctl io screenshot: ${said.trim().split('\n').pop() || 'failed'}`);
+        done(decodePng(readFileSync(shot)));
+      } catch (e) { fail(e); }
+    });
+  });
+  const first = read('display.png'), second = new Promise((done) => later(150, done)).then(() => read('again.png'));
+  const third = Promise.allSettled([first, second]).then(() => new Promise((done) => later(gap, done))).then(() => read('last.png'));
+  const reads = [first, second, third];
+  for (const r of reads) r.catch(() => {}); // what a cancelled or failed drive leaves unread fails quietly
+  return {
+    reads,
+    cancel() {
+      cancelled = true;
+      for (const t of timers) clearTimeout(t);
+      for (const child of children) child.kill('SIGKILL');
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }
 
 /** What a drive passes from its own environment to an app that `simctl launch` (which forwards only `SIMCTL_CHILD_`
@@ -146,6 +193,16 @@ export async function withMaterials(r, path, window) {
     return r;
   } catch (e) { return keep(String(e.message ?? e).split('\n')[0]); }
   finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** The simulator's display as it is, into `path` over the app's own picture: whatever is over the app (a system
+ *  permission alert, a sheet of the system's) is in it, and nothing checks it against the app's drawing. */
+export function displayAsIs(r, path, udid) {
+  const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', path], { timeout: 20000 });
+  if (taken.status !== 0) throw new Error(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
+  r.pixels = 'display'; r.pixelsWhy = 'the display as it is, asked for'; r.statusBar = true;
+  if (r.front !== true) r.note = `the app is not in front (${r.front}): the display shows what is over it`;
+  return r;
 }
 
 /** Why the display is not the app's at the points the app drew itself (`points`, window points), or null: around a
@@ -190,9 +247,14 @@ export function simulators() {
 /** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, and of several so, the one the app in `dir` last used (its `.exact/simulator`, written when a simulator is named or chosen so), said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
 const saidSimulator = new Set(); // a verify opens a dozen sessions: the choice is said once
 export function simulator(pick = process.env.EXACT_SIM, options = {}) { return bootSimulator(chooseSimulator(pick, options)); }
+/** `simulators()` as it was a moment ago in this process: a drive chooses its simulator before it takes the store's
+ *  lock and again when it launches, a fraction of a second apart. A boot here forgets it; a shutdown by another process
+ *  in between fails the launch, where a fresh list would have booted it. */
+let chosenFrom = null;
+const recentSimulators = () => (chosenFrom && Date.now() - chosenFrom.at < 5000 ? chosenFrom : chosenFrom = { at: Date.now(), all: simulators() }).all;
 /** `simulator`'s choice, booting nothing: what a drive locks before it launches (agent.mjs `resolveDevice`). */
 export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app, dir } = {}) {
-  const all = simulators();
+  const all = recentSimulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const kind = (d) => d.type || d.name.replaceAll(' ', '-');
   const iphones = all.filter((d) => (tv ? /SimRuntime\.tvOS/.test(d.runtime) && /^Apple-TV/.test(kind(d)) : /SimRuntime\.iOS/.test(d.runtime) && /^iPhone/.test(kind(d)))).sort((a, b) => version(b) - version(a) || a.name.localeCompare(b.name));
@@ -228,6 +290,7 @@ export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint
 function bootSimulator(dev) {
   // Booted is a boot finished (Booting is its own state): only another waits, which costs a booted one 0.2–0.5 s.
   if (dev.state === 'Booted') return dev;
+  chosenFrom = null;
   const b = read('xcrun', ['simctl', 'boot', dev.udid]);
   if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
@@ -251,17 +314,25 @@ export function showSimulator(dev, background = false) {
 }
 
 /** Whether the simulator's installed `id` is the bundle at `bundle` as built: its executable, receipt and signature
- *  the same size and time (simctl install keeps both). A drive then skips the install, 0.3–0.5 s of each launch. */
-export function installedAlready(udid, id, bundle, executable) {
+ *  the same size and time (simctl install keeps both). A drive then skips the install, 0.3–0.5 s of each launch. The
+ *  bundle's container is looked in first where `simctl get_app_container` last said it was (~0.1 s, each drive): a
+ *  reinstall or a removal takes that directory away, and any other answer asks simctl again. */
+export function installedAlready(udid, id, bundle, executable, { records = resolve(homedir(), '.cache/exact/simulator-installs') } = {}) {
+  const same = (installed) => {
+    try {
+      return [executable, 'receipt.json', '_CodeSignature/CodeResources'].every((file) => {
+        const a = statSync(resolve(installed, file)), b = statSync(resolve(bundle, file));
+        return a.size === b.size && a.mtimeMs === b.mtimeMs;
+      });
+    } catch { return false; }
+  };
+  const record = resolve(records, `${udid}-${id}`);
+  try { if (same(readFileSync(record, 'utf8'))) return true; } catch { /* none remembered */ }
   const r = read('xcrun', ['simctl', 'get_app_container', udid, id, 'app']);
   if (r.status !== 0) return false;
   const installed = r.stdout.trim();
-  try {
-    return [executable, 'receipt.json', '_CodeSignature/CodeResources'].every((file) => {
-      const a = statSync(resolve(installed, file)), b = statSync(resolve(bundle, file));
-      return a.size === b.size && a.mtimeMs === b.mtimeMs;
-    });
-  } catch { return false; }
+  try { mkdirSync(records, { recursive: true }); writeFileSync(record, installed); } catch { /* asked again next time */ }
+  return same(installed);
 }
 
 /** The build of `id` installed on a simulator: its bundle's path, its receipt's `build.trust` (`unreceipted` with
@@ -279,7 +350,7 @@ export function installedBuild(udid, id) {
  *  one bundle id, so a benchmark or a person then finds the development build (euxy port); how to put it back, from
  *  the Release bundle at `release` when it was built here. */
 export function replacedNote(udid, app, replaced, release) {
-  const back = existsSync(release) ? `xcrun simctl install ${udid} '${release}'` : `bun host/apple/build.mjs --ios ${app.crate('apple')} --release --sim ${udid}`;
+  const back = existsSync(release) ? `xcrun simctl install ${udid} ${shellQuote(release)}` : `bun host/apple/build.mjs --ios ${app.crate('apple')} --release --sim ${udid}`;
   return `host/apple: this development build replaced the simulator's ${replaced.what} of ${app.id} (one bundle id); put it back with ${back}`;
 }
 
@@ -304,7 +375,7 @@ export function keepInstalledRelease(udid, id, bundle, executable, { records = r
   }
   rmSync(dir, { recursive: true, force: true });
   renameSync(next, dir);
-  return { install: true, note: `the simulator had ${id}'s ${what} installed; this drive installed its development build over it (one bundle id). Put it back with: xcrun simctl install ${udid} '${copy}'` };
+  return { install: true, note: `the simulator had ${id}'s ${what} installed; this drive installed its development build over it (one bundle id). Put it back with: xcrun simctl install ${udid} ${shellQuote(copy)}` };
 }
 
 /** A simulator's software keyboard for a drive: shown for a focused field, as a person's iPhone shows it. Once a Device
@@ -315,16 +386,24 @@ export function keepInstalledRelease(udid, id, bundle, executable, { records = r
  *  left as it is and `note` says the keyboard may be hidden. Before clearing it the drive writes a record under
  *  `records`, removed only once the key is back: a drive that was killed, or whose write failed, leaves it, and the
  *  next drive on that simulator puts the key back first, unless the drive that wrote it is still running. */
-export function softwareKeyboard(udid, { owned = false, records = resolve(homedir(), '.cache/exact/simulator-keyboard') } = {}) {
-  const defaults = (...args) => read('xcrun', ['simctl', 'spawn', udid, 'defaults', ...args, 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled', ...(args[0] === 'write' ? ['-bool', 'true'] : [])], { timeout: 20000 });
-  const record = resolve(records, `${udid}.json`);
+const keyboardArgs = (udid, verb) => ['simctl', 'spawn', udid, 'defaults', verb, 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled', ...(verb === 'write' ? ['-bool', 'true'] : [])];
+const minimized = (r) => r.status === 0 && /^\s*1\s*$/.test(r.stdout ?? '');
+const minimizedNote = (udid) => `this simulator minimizes its software keyboard (AutomaticMinimizationEnabled = 1, kept since the Mac's keyboard was attached), so a focused field shows none in a screenshot, unlike an iPhone; a simulator the drive boots has it cleared for the drive, or clear it here: xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled`;
+/** The setting a killed drive left cleared, put back (`softwareKeyboard`): unless the drive that cleared it still runs. */
+function keyboardLeft(udid, record, defaults) {
   const putBack = () => { if (defaults('write').status !== 0) return false; rmSync(record, { force: true }); return true; };
   let left = null;
   try { left = JSON.parse(readFileSync(record, 'utf8')); } catch {}
   if (left && !(Number.isInteger(left.pid) && left.pid !== process.pid && pidAlive(left.pid))) putBack();
+  return putBack;
+}
+export function softwareKeyboard(udid, { owned = false, records = resolve(homedir(), '.cache/exact/simulator-keyboard') } = {}) {
+  const defaults = (verb) => read('xcrun', keyboardArgs(udid, verb), { timeout: 20000 });
+  const record = resolve(records, `${udid}.json`);
+  const putBack = keyboardLeft(udid, record, defaults);
   const r = defaults('read');
-  if (r.status !== 0 || !/^\s*1\s*$/.test(r.stdout ?? '')) return { cleared: false, note: null, restore() {} };
-  if (!owned) return { cleared: false, restore() {}, note: `this simulator minimizes its software keyboard (AutomaticMinimizationEnabled = 1, kept since the Mac's keyboard was attached), so a focused field shows none in a screenshot, unlike an iPhone; a simulator the drive boots has it cleared for the drive, or clear it here: xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled` };
+  if (!minimized(r)) return { cleared: false, note: null, restore() {} };
+  if (!owned) return { cleared: false, restore() {}, note: minimizedNote(udid) };
   mkdirSync(records, { recursive: true });
   writeFileSync(record, JSON.stringify({ pid: process.pid, value: 1 }));
   if (defaults('delete').status !== 0) { rmSync(record, { force: true }); return { cleared: false, note: 'the simulator\'s software keyboard is minimized and could not be shown (simctl spawn defaults delete failed)', restore() {} }; }
@@ -335,8 +414,30 @@ const saidKeyboard = new Set(); // the hidden keyboard's note, once a process: a
 /** `open()`'s carrier with the software keyboard shown for a focused field on a simulator this drive booted
  *  (`softwareKeyboard`), its setting put back when the drive closes, fails to open, or the driver exits (a killed
  *  drive's, by the next drive on that simulator); on any other simulator, the note that the keyboard may be hidden. */
-export async function withSoftwareKeyboard(dev, open) {
-  const keyboard = softwareKeyboard(dev.udid, { owned: !!dev.bootedHere });
+export async function withSoftwareKeyboard(dev, open, { records = resolve(homedir(), '.cache/exact/simulator-keyboard') } = {}) {
+  // On a simulator another booted the setting is only read, for the note: beside the launch, not before it (~0.2 s).
+  if (!dev.bootedHere) {
+    keyboardLeft(dev.udid, resolve(records, `${dev.udid}.json`), (verb) => read('xcrun', keyboardArgs(dev.udid, verb), { timeout: 20000 }));
+    const said = saidKeyboard.has(dev.udid) ? null : new Promise((done) => {
+      useXcode();
+      let out = '';
+      const child = spawn('xcrun', keyboardArgs(dev.udid, 'read'), { stdio: ['ignore', 'pipe', 'ignore'] });
+      const bound = setTimeout(() => child.kill('SIGKILL'), 20000);
+      child.stdout.on('data', (d) => { out += d; });
+      child.on('error', () => { clearTimeout(bound); done(); });
+      child.on('close', (status) => {
+        clearTimeout(bound);
+        if (minimized({ status, stdout: out }) && !saidKeyboard.has(dev.udid)) { saidKeyboard.add(dev.udid); console.error(`note: ${minimizedNote(dev.udid)}`); }
+        done();
+      });
+    });
+    let carrier;
+    try { carrier = await open(); } finally { if (!carrier) await said; }
+    const close = carrier.close.bind(carrier);
+    carrier.close = async (...args) => { try { return await close(...args); } finally { await said; } };
+    return carrier;
+  }
+  const keyboard = softwareKeyboard(dev.udid, { owned: true, records });
   if (keyboard.note && !saidKeyboard.has(dev.udid)) { saidKeyboard.add(dev.udid); console.error(`note: ${keyboard.note}`); }
   const restore = () => keyboard.restore();
   process.once('exit', restore);
@@ -571,6 +672,18 @@ export function profile(udid, bundle, required = [], { installed = installedProf
  * the id itself), the longest-lived first. */
 export function coveringProfiles(udid, bundle, installed = installedProfiles()) {
   return profilesFor(bundle, installed).filter((p) => iosProfile(p) && p.dev && !profileMisfit(p, udid)).sort(byExpiry);
+}
+/** The profile for a bundle the app embeds under an App ID of its own (its App Clip), chosen as `entryProfiles`
+ * chooses the widget extension's: for `bundle` itself or the team's wildcard, of the app's profile's (`like`) team,
+ * App ID prefix and method, naming the phone or, for an archive, every device the app's names, allowing `required`
+ * (the clip's parent-application-identifiers, which only an App ID registered with the App Clip capability grants);
+ * the longest-lived. Or a refusal naming what each profile for the id lacked. */
+export function embeddedProfile(udid, bundle, like, required = [], installed = installedProfiles()) {
+  const candidates = profilesFor(bundle, installed).filter(iosProfile).sort(byExpiry);
+  const why = candidates.map((p) => [p, profileMisfit(p, udid, like) ?? (allows(p, required) ? null : `does not allow ${required.filter((name) => !p.entitlements.includes(name)).join(', ')}`)]);
+  const found = why.find(([, reason]) => !reason)?.[0];
+  if (found) return found;
+  throw new Error(`host/apple: no ${METHODS[like.method]} profile on this Mac covers ${bundle} as the app's (${like.name}) does: ${why.length ? why.map(([p, reason]) => `"${p.name}" ${reason}`).join('; ') : 'none is for it'}. In the Apple Developer portal, register the App ID ${bundle}${required.length ? ` with ${required.join(', ')}` : ''}, make a ${METHODS[like.method]} profile for it of team ${like.team}${udid ? ' that includes this phone' : ''}, and install it.`);
 }
 export const byExpiry = (a, b) => b.expires - a.expires;
 export const iosProfile = p => !p.platforms?.length || p.platforms.includes('iOS');

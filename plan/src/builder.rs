@@ -653,6 +653,28 @@ impl PlanBuilder {
         self.plan.modules.push(row);
     }
 
+    /// A native module's event the root hears (LLP 1133.004 D6): `action`
+    /// runs with its arguments.
+    pub fn module_event(
+        &mut self,
+        extension: &str,
+        declared: &str,
+        action: ActionsId,
+        raised: &str,
+        hold: u32,
+        budget: u32,
+    ) {
+        let row = ModuleEventsRow {
+            extension: self.str(extension),
+            declared: self.str(declared),
+            action,
+            raised: self.str(raised),
+            hold,
+            budget,
+        };
+        self.plan.module_events.push(row);
+    }
+
     /// A run of argument expressions.
     pub fn args(&mut self, exprs: &[Code]) -> ArgsRange {
         let start = self.plan.args.len() as u32;
@@ -836,7 +858,7 @@ impl PlanBuilder {
         surface: Option<SurfacesId>,
     ) -> NodesId {
         let bstart = self.plan.bindings.len() as u32;
-        self.plan.bindings.extend_from_slice(bindings);
+        self.plan.bindings.to_mut().extend_from_slice(bindings);
         let hstart = self.plan.handlers.len() as u32;
         for (event, action, args) in handlers {
             let args = self.args(args);
@@ -846,7 +868,7 @@ impl PlanBuilder {
                 args,
             });
         }
-        self.plan.nodes.push(NodesRow {
+        self.plan.nodes.to_mut().push(NodesRow {
             node_type,
             parent,
             arm,
@@ -872,7 +894,7 @@ impl PlanBuilder {
         looks.sort_by_key(|(state, _)| *state);
         for (state, bindings) in looks {
             let bstart = self.plan.bindings.len() as u32;
-            self.plan.bindings.extend_from_slice(bindings);
+            self.plan.bindings.to_mut().extend_from_slice(bindings);
             self.plan.looks.push(LooksRow {
                 node: id,
                 state: *state,

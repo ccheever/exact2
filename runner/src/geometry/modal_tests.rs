@@ -327,3 +327,108 @@ fn a_lifted_popover_above_a_sheet_escapes_its_clip() {
     read(&mut r, 20.0, 20.0, "pop", &["pop"], &["upper", "pop"]);
     read(&mut r, 120.0, 120.0, "none", &[], &["upper", "pop"]);
 }
+
+#[test]
+fn a_native_content_viewport_scrolls_the_root_without_moving_its_clip() {
+    let source = r#"component App
+  view
+    column id="page" width=400 height=800
+      column id="route" position="absolute" left=10 top=15 width=200 height=400
+        column id="sticky" position="sticky" top=0 width=50 height=40
+        column id="field" position="absolute" left=0 top=180 width=50 height=50
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let page = view_of(r.kernel(), "page").unwrap();
+    let route = view_of(r.kernel(), "route").unwrap();
+    let field = view_of(r.kernel(), "field").unwrap();
+    let sticky = view_of(r.kernel(), "sticky").unwrap();
+    r.kernel_mut()
+        .set_host_block(
+            route,
+            Some(exact_kernel::HostBlock {
+                width: exact_kernel::BlockAxis::Is(200.0),
+                height: exact_kernel::BlockAxis::Is(200.0),
+            }),
+        )
+        .unwrap();
+    let root = r.kernel().roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, Offer::definite(400.0, 800.0))
+        .unwrap();
+    for (offset, ratio) in [(-20.0, 0.0), (0.0, 0.1), (100.0, 1.0), (250.0, 0.0)] {
+        let mut scrolled = Scrolled::default();
+        scrolled.place(
+            r.kernel(),
+            route,
+            Some(([20.0, 30.0, 200.0, 200.0], page, Some([0.0, offset]))),
+        );
+        assert_eq!(kernel_frame(r.kernel(), &scrolled, route).y, 45.0 - offset);
+        assert_eq!(kernel_frame(r.kernel(), &scrolled, field).y, 225.0 - offset);
+        assert_eq!(intersection(r.kernel(), &scrolled, field).3, ratio);
+        assert_eq!(
+            intersection(r.kernel(), &scrolled, sticky).3,
+            1.0,
+            "sticky at offset {offset}"
+        );
+        assert_eq!(kernel_point(r.kernel(), &scrolled, 35.0, 29.0), Some(page));
+        assert_eq!(kernel_point(r.kernel(), &scrolled, 35.0, 230.0), Some(page));
+        if offset == 100.0 {
+            assert_eq!(
+                kernel_point(r.kernel(), &scrolled, 35.0, 135.0),
+                Some(field)
+            );
+        }
+    }
+    for (scale, offset, y, ratio) in [
+        (0.5, 0.0, 127.5, 0.1),
+        (0.5, 100.0, 77.5, 1.0),
+        (2.0, 100.0, 220.0, 1.0),
+    ] {
+        let mut scrolled = Scrolled::default();
+        scrolled.place(
+            r.kernel(),
+            route,
+            Some((
+                [20.0, 30.0, 200.0 * scale, 200.0 * scale],
+                page,
+                Some([0.0, offset]),
+            )),
+        );
+        assert_eq!(kernel_frame(r.kernel(), &scrolled, field).y, y);
+        assert_eq!(intersection(r.kernel(), &scrolled, field).3, ratio);
+        assert_eq!(
+            kernel_point(r.kernel(), &scrolled, 45.0, 30.0 + 200.0 * scale),
+            Some(page)
+        );
+    }
+    for offset in [100.0, 250.0] {
+        let mut scrolled = Scrolled::default();
+        scrolled.place(
+            r.kernel(),
+            route,
+            Some(([20.0, 30.0, 200.0, 200.0], page, Some([0.0, offset]))),
+        );
+        scrolled.top_layer_frames(
+            r.kernel(),
+            &[(route, [20.0, 30.0, 200.0, 200.0], None)],
+            None,
+        );
+        assert_eq!(kernel_frame(r.kernel(), &scrolled, field).y, 225.0);
+        assert_eq!(
+            (
+                intersection(r.kernel(), &scrolled, field).3,
+                kernel_point(r.kernel(), &scrolled, 35.0, 240.0),
+            ),
+            (0.1, Some(page)),
+            "top-layer geometry replaces the ordinary placement and its scroll offset"
+        );
+        assert_eq!(intersection(r.kernel(), &scrolled, sticky).3, 1.0);
+    }
+}

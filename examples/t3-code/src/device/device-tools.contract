@@ -118,7 +118,7 @@ component ToolsSwitchControl
     testId: string
   view
     button press=press role="switch" aria-checked=on aria-label=label disabled=disabled testId=testId width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content=(on ? "flex-end" : "flex-start") background-color=(on ? "light-dark(#1b4ed8, #346bf1)" : toolsInputBorder()) title=""
-      box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 2px #0000000d"
+      box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color=(on ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)") box-shadow="0 1px 2px #0000000d"
 
 // ToggleGroup (segmented): two toggles in a tinted track.
 component ToolsSegment

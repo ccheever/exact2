@@ -56,6 +56,9 @@ final class Adapter: ExactSessionDelegate {
             session.log("openURL app-settings: opens the app's page in Settings\(agentMode ? " (not under the agent)" : "")")
             if !agentMode, let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
         case "openURL":
+            // A scheme the app declares (OpenURL.swift), else the web's, mail's and the phone's.
+            if let value = args.first as? String, let url = URL(string: value),
+               session.openDeclaredScheme(url, open: { url, done in UIApplication.shared.open(url, options: [:], completionHandler: done) }) { return }
             guard args.count == 1, let value = args.first as? String,
                   let url = URL(string: value),
                   ["http", "https", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") else {
@@ -132,9 +135,12 @@ func agentReady() {
 /// The build's launch colour (the manifest's `launch`); unset, the
 /// platform's background, as the system's own launch screen then is and
 /// the view under it (`ExactView`): never a fixed white (LLP 1115 D2).
-let launchColor = UIColor(named: "ExactLaunch") ?? .platformBackground(in: nil)
+let launchColor = launchScreenColor ?? .platformBackground(in: nil)
 
 final class Controller: UIViewController {
+    // Native children own their scroll edges. UIKit's root heuristic can
+    // bind the page viewport and place Duo's Back under the status capsule.
+    override func contentScrollView(for edge: NSDirectionalRectEdge) -> UIScrollView? { nil }
     #if os(tvOS)
     // The session's view decides where focus returns (`ExactView`).
     override var preferredFocusEnvironments: [any UIFocusEnvironment] { [exactView] }
@@ -180,6 +186,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         session = exact.makeSession(delegate: adapter, label: "main")
         #if !os(tvOS)
         exact.installNotificationClicks()
+        // A wake that launched the app with no scene boots it with none (LLP 1133.017 D7).
+        exact.installWakes { session.bootForWake() }
         #endif
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
@@ -187,6 +195,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         if ExactEnv.agentFreezes { session.clock = 0 }
         return true
     }
+    #if !os(tvOS)
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        exact.handleTransferEvents(identifier, completion: completionHandler)
+    }
+    #endif
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         let c = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         c.delegateClass = SceneDelegate.self
@@ -258,7 +271,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // The view boots the session at its first layout; a file plan is
         // booted here first, at the screen's size the view will take (one
         // with its module was installed as the launch generation instead).
-        if let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
+        if !ExactIOS.session.booted, let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
             planRefusal = ExactIOS.session.boot(plan: bytes, size: ws.coordinateSpace.bounds.inset(by: w.safeAreaInsets).size).error
         }
         let c = Controller()

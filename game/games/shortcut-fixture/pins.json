@@ -3,15 +3,24 @@
     "30": "0x312dd9bcd1ee4514"
   },
   "saves": {
-    "after-shortcuts": "d0380426b75b6f2405918ee9b14343678fd3625a56810fa48680e8a28b69746e"
+    "after-shortcuts": "dde3bda65bfea576174f22eed395435bc16ab9f88d53c6b03b1f7373fdcc0164"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "7ccc0c39933683a5400d64b336fb88fcb13b3517c79c8e34428c511c35017601",
-  "sourceInputs": "2eff80a8575cd53af674a7fc8a0742a4b8bd9da8e28293acc9b5037a29d00417",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "37d94eb00a58d7bac18975671dcd13ef62b49c0ecaa9bfaa831fb3612bc72848",
+  "sourceInputs": "4d5b4d35355a50259ba04c3b44d9f9e31ac9cd3f01166526cfa47e6fdb535837",
   "game": "shortcut-fixture",
   "generated": "bun game/prove.mjs shortcut-fixture --repin --hosts 'linux,web'",
-  "at": "de460e319e77fbc7fa767a6a9da95c35609eeeb9"
+  "at": "d2ee519e82c8122675c5379bd6fd0be346c29dc1",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

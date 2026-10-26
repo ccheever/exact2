@@ -8,9 +8,12 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 /// `{target: source}`: which of an icon's sources each target the app at
-/// `dir` ships draws (`sf`, `svg`, or null for none), by D10's rule.
-pub(crate) fn draws(dir: &Path, icon: &exact_tamber::Icon) -> Value {
-    let by: serde_json::Map<String, Value> = contract_lower::icons::draws(icon, dir)
+/// `dir` ships draws (`sf`, `svg`, or null for none), by D10's rule; its
+/// SVG read under the assets of the root whose file writes it (`app`'s
+/// package's, stage 13), as the build reads it.
+pub(crate) fn draws(dir: &Path, app: &AppParams, icon: &exact_tamber::Icon) -> Value {
+    let home = contract_lower::icons::Home::of(icon, Some(dir), &app.packages, &app.tokens);
+    let by: serde_json::Map<String, Value> = contract_lower::icons::draws(icon, dir, home)
         .into_iter()
         .map(|(target, source)| (target, json!(source)))
         .collect();
@@ -32,17 +35,21 @@ pub(crate) fn icon(
     let param = app.tokens.iter().find(|p| p.token == name);
     let declared = param.map(|p| self::param(dir, design, p, app, snap));
     // An icon's value as its design writes it (the folded design has an
-    // icon naming another replaced by that one's `icon(…)`).
-    let written = snap
-        .iter()
-        .find(|(f, ..)| f == design)
-        .and_then(|(_, text, _)| exact_tamber::parse(text).ok())
-        .and_then(|d| {
+    // icon naming another replaced by that one's `icon(…)`); a package's
+    // icon the app doesn't set, as its package's design does (stage 13).
+    let line = |text: &str| {
+        exact_tamber::parse(text).ok().and_then(|d| {
             d.icons
                 .iter()
                 .find(|t| t.name.value == name)
                 .map(|t| t.value.value.clone())
-        });
+        })
+    };
+    let written = snap
+        .iter()
+        .find(|(f, ..)| f == design)
+        .and_then(|(_, text, _)| line(text))
+        .or_else(|| app.packages.iter().find_map(|p| line(&p.text)));
     let value = match &declared {
         Some(d) => d["default"].as_str().map(str::to_string),
         None => written.clone().or_else(|| {
@@ -83,7 +90,7 @@ pub(crate) fn icon(
             .into_iter()
             .collect(),
     };
-    let entry = json!({"name": param.map_or(icon.name.as_str(), |p| p.full.as_str()), "sf": icon.sf, "material": icon.material, "svg": icon.svg, "draws": draws(dir, icon)});
+    let entry = json!({"name": param.map_or(icon.name.as_str(), |p| p.full.as_str()), "sf": icon.sf, "material": icon.material, "svg": icon.svg, "draws": draws(dir, app, icon)});
     let mut out = json!({"token": param.map_or(name, |p| p.full.as_str()), "kind": "icon", "value": value, "whens": [], "dials": [], "names": names, "icon": entry, "files": files_json(snap)});
     if let Some(d) = declared {
         out["param"] = d;
