@@ -695,6 +695,27 @@ layers compile in the same `actool` pass as the app's catalogs; changing them
 requires a new native build. `icons` still supplies the web and the native
 raster fallback when the platform has no `icon` selection.
 
+Set `host.ios.privacyManifest` to an app-relative `.xcprivacy` property list
+to declare the app's data collection, tracking and required-reason API use.
+The build checks Apple's API categories, category-specific reasons, collected-data
+types and purposes, records the file's bytes in the native binary identity,
+and writes `PrivacyInfo.xcprivacy` before signing. Invalid entries fail with the
+field and value to correct. The app combines its reasons
+with Exact's; `ExactCore.framework` has Exact's declarations and an archived
+`ExactModules.framework` has the app's. The widget extension also has Exact's
+declarations. These cover Exact's elapsed-event timing, own preferences, emoji
+keyboard selection and file metadata in the app container or user-opened files.
+`ExactMIDI.framework` declares MIDI event timing, and `ExactWeb.framework`
+declares web automation's click intervals. Each manifest is included before
+signing. Exact's SQLite provider requests system SQLite on Apple and bundled
+SQLite elsewhere. Cargo features combine: a dependency requesting bundled
+SQLite, including the pinned Snapback4
+native client used by Harmony, also enables it for the provider. These runtime
+declarations do not cover bundled SQLite's disk-space API use. Audit your app
+and every linked library separately before distribution. Schema validation does
+not establish that declarations are truthful or complete. See Apple's
+[required-reason API guidance](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api).
+
 Apple products live under the resolved app's target directory, scoped by
 canonical source directory, manifest id, destination, composition and trust
 policy. The Swift host is compiled once per destination for every app, in
