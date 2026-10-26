@@ -433,6 +433,7 @@ pub fn uses(plan: &Plan) -> Uses {
             "showOpenFilePicker",
             "showDirectoryPicker",
             "showSaveFilePicker",
+            "requestPermission",
         ],
     ) {
         uses = uses.with(Capability::Documents);

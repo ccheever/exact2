@@ -1223,8 +1223,8 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.picker.save(args) }
                     continue
                 }
-                if ["showOpenFilePicker", "showDirectoryPicker", "showSaveFilePicker"].contains(name) {
-                    app.deliver { [weak self] in self?.picker.document(name, args) }
+                if ["showOpenFilePicker", "showDirectoryPicker", "showSaveFilePicker", "requestPermission"].contains(name) {
+                    app.deliver { [weak self] in if name == "requestPermission" { self?.picker.permission(args) } else { self?.picker.document(name, args) } }
                     continue
                 }
                 if name == "format" {

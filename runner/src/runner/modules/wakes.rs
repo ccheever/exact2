@@ -54,6 +54,7 @@ const REFUSED: &[&str] = &[
     "playSounds",
     "requestFullscreen",
     "requestMIDIAccess",
+    "requestPermission",
     "saveFile",
     "share",
     "showDirectoryPicker",

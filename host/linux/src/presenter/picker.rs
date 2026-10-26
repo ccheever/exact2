@@ -216,6 +216,33 @@ impl<D: DataSource> Presenter<D> {
         self.deliver_picker(view, Event::Change(value));
     }
 
+    /// `requestPermission(id, path, mode)` (LLP 1069.010.000 D7): the
+    /// runner's rule, then `granted` at `id` for a document that resolves
+    /// (the host owns no permission a person could withhold), else `denied`.
+    pub(crate) fn request_permission(&mut self, args: &[exact_plan::Value]) {
+        let arg = |i: usize| {
+            args.get(i)
+                .and_then(exact_plan::Value::as_str)
+                .unwrap_or("")
+        };
+        let request = serde_json::json!({
+            "command": "requestPermission", "id": arg(0), "path": arg(1), "mode": arg(2),
+        });
+        let ruling =
+            exact_runner::file_pickers::request(self.host.runner_mut(), &request.to_string());
+        let ruling: serde_json::Value = serde_json::from_str(&ruling).unwrap_or_default();
+        self.dirty = true;
+        let Some(view) = ruling["view"].as_u64() else {
+            return;
+        };
+        let granted = exact_data::documents::resolve(arg(1), 0).is_ok();
+        let answer = if granted { "granted" } else { "denied" };
+        self.deliver_picker(
+            view as ViewId,
+            Event::Change(ControlValue::Text(answer.into())),
+        );
+    }
+
     fn deliver_picker(&mut self, view: ViewId, event: Event) {
         let now = self.host.now();
         if let Some(e) = self.host.dispatch_at(view, event, now) {
