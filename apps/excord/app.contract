@@ -17,7 +17,7 @@ use AgeGate from "./agegate.contract"
 use MessageRow from "./transcript.contract"
 use DirectoryList from "./directory.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
-use MemberList from "./members.contract"
+use MemberList, ProfileCard from "./members.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
@@ -1460,19 +1460,7 @@ component Excord
           MemberList(rows=members, open=memberCard)
       dialog id="profile" aria-label=(profile.name != "" ? profile.name : "Profile") close=profileClosed testId="profile"
         column gap=10 padding=20 width="20rem" max-width="100%" align-items="flex-start"
-          image profile.avatar width=80 height=80 border-radius=40 object-fit="cover" background-color="-exact-tertiary-fill" aria-hidden=true
-          row gap=8 align-items="center" flex-wrap="wrap"
-            text profile.name font="-exact-title2" font-weight=700 color=(profile.color != "" ? profile.color : "-exact-label") testId="profile-name"
-            if profile.bot
-              Badge(label="APP", tint=some("AccentColor"))
-          text `@${profile.handle}` color="-exact-secondary-label" testId="profile-handle"
-          if profile.roles.length > 0
-            text "Roles" font="-exact-footnote" font-weight=600 color="-exact-secondary-label" padding-top=6
-            row gap=6 flex-wrap="wrap"
-              for r in profile.roles key=r.id
-                row gap=6 align-items="center" padding="3px 8px" border-radius=6 background-color="-exact-quaternary-fill"
-                  view width=10 height=10 border-radius=5 background-color=(r.swatch != "" ? r.swatch : "-exact-tertiary-label") aria-hidden=true
-                  text r.name font="-exact-footnote"
+          ProfileCard(profile=profile)
           button commandfor="profile" command="close" align-self="stretch" testId="profile-close"
             text "Done"
       // The quick switcher is the window's, so ⌘K shows it over whichever screen is on top.
