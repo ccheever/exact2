@@ -19,6 +19,8 @@ mod edit_menu;
 mod ime;
 #[cfg(windows)]
 mod keyboard;
+#[cfg(windows)]
+mod orientation;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod pad_poll;
 #[cfg(windows)]
