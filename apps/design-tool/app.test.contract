@@ -698,14 +698,37 @@ test "builds: a preview replaces a build's pin; an unsupported pin is named unti
   clock +1
   clock data
   expect text "build-pin-web-1" == "pinning: light, 20px"
-  // A build gone from the server's list: a pin on it is refused.
+  // A build gone from the server's list: a pin on it is refused. It was connected, so for 10 s it is one reloading
+  // (stage 15 D1.2), not "no build", and back under its id it is listed again. (The window ios-1 and mac-1 opened,
+  // going above, closed first.)
+  clock +10000
+  expect tree missing "build-reloading-ios-1"
   request POST "/__stub/event" {"event": "builds", "builds": []} as ada
   clock +1
   clock data
-  expect tree has "no-builds"
+  expect text "build-reloading-web-1" == "web · web-1 · reloading"
+  expect tree missing "no-builds"
   tap "pin-apply"
   clock data
   expect text "pin-result" == "no registered build `web-1`"
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect tree has "build-web-1"
+  expect tree missing "build-reloading-web-1"
+  expect tree missing "no-builds"
+  clock +10000
+  // Gone again and not back: past the window (10 s from its going) it is no build, as one never connected is.
+  request POST "/__stub/event" {"event": "builds", "builds": []} as ada
+  clock +1
+  clock data
+  expect tree has "build-reloading-web-1"
+  clock +9000
+  expect tree has "build-reloading-web-1"
+  expect tree missing "no-builds"
+  clock +1000
+  expect tree missing "build-reloading-web-1"
+  expect tree has "no-builds"
   // A new run of the server: its builds, from its hello, at once.
   request POST "/__stub/restart" {} as ada
   request POST "/__stub/event" {"event": "builds", "builds": [{"id": "linux-1", "host": "linux", "status": null, "pin": null, "pinRevision": 0}]} as ada
