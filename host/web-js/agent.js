@@ -292,7 +292,7 @@ export function install(exact) {
       return n;
     },
     settle() {
-      let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
+      let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0, exact.extensions?.spanDue?.() ?? 0);
       for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? exact.clock.now) + timing.endTime);
@@ -316,6 +316,9 @@ export function install(exact) {
   { const i = exact.After.indexOf(exact.holdEarly); if (i >= 0) { exact.After.splice(i, 1); seek(false); } }
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? [], ...exact.extensions?.holds?.() ?? []];
+  // What in flight no settle waits on: a held request, which the agent answers, and a send answered after a span,
+  // which the clock ends (spans.js).
+  const unwaited = () => holds().length + (exact.extensions?.spans?.() ?? 0);
   // Asks the server holds (`exactHeld`, LLP 1016.000 D9): no clock waited on them; the reply says which.
   const heldNamed = r => { const h = exact.heldAsks?.() ?? []; return h.length && r && !r.error ? { ...r, held: h.length, heldTargets: h.map(x => x.name) } : r; };
   const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
@@ -424,7 +427,7 @@ export function install(exact) {
         // request in flight, each answer's `then` landed — at the clock as it stands, no timer fired. A test's
         // first step waits for it (habits, pomodoro, kanban: storage opened after the first step).
         if (req.data) {
-          const end = performance.now() + 20000, busy = () => exact.inflight.n > holds().length, activating = () => exact.resources.some(r => r.waiting);
+          const end = performance.now() + 20000, busy = () => exact.inflight.n > unwaited(), activating = () => exact.resources.some(r => r.waiting);
           for (let round = 0; round < 16; round++) {
             while ((busy() || activating()) && performance.now() < end) await new Promise(r => setTimeout(r, 5));
             if (activating() || busy()) return { clock: exact.clock.now, settled: false, reason: activating() ? 'data' : 'requests' };
@@ -450,7 +453,7 @@ export function install(exact) {
           for (let round = 0; round < 16; round++) {
             lastRound = exact.lists?.scrollsFired?.() ?? 0;
             // A held request is in flight until the agent answers it: never waited on.
-            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end && !looping());
+            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > unwaited() && performance.now() < end && !looping());
             if (looping()) return { clock: exact.clock.now, settled: false, reason: 'hatches' };
             // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
             await document.fonts?.ready;
@@ -462,7 +465,7 @@ export function install(exact) {
             // `owedScrolls`): wait those frames, then go round again for what it did.
             const scrolls = await exact.lists?.fireOwedScrolls();
             if (scrolls?.fired || scrolls?.owed) continue;
-            if (exact.inflight.n > holds().length) continue;
+            if (exact.inflight.n > unwaited()) continue;
             // Animations (and springs, `settleAt`) that end later move the clock there; an
             // armed `then` runs now, and what it starts is settled in the next round.
             // What is in flight lands before the next timer or `then` fires, as in a
@@ -476,7 +479,7 @@ export function install(exact) {
               const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
               if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
               if (!stopped) break;
-              while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
+              while (exact.inflight.n > unwaited() && performance.now() < end) await new Promise(r => setTimeout(r, 1));
             }
             if (!(to > at) && exact.clock.epoch === epoch) { quiet = true; break; }
             seek();
@@ -506,7 +509,7 @@ export function install(exact) {
         // start at this clock, not the one the jump reaches (LLP 1013.000 D9).
         await exact.viewTransition?.();
         for (const end = performance.now() + 20000; ;) {
-          while (due() && exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
+          while (due() && exact.inflight.n > unwaited() && performance.now() < end) await new Promise(r => setTimeout(r, 1));
           const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
           // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
           if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
@@ -514,7 +517,7 @@ export function install(exact) {
           // A reply is usually a task or two away: poll at the browser's
           // shortest timer, not a frame's worth (a 300 ms timer's minute
           // is 200 of these).
-          while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
+          while (exact.inflight.n > unwaited() && performance.now() < end) await new Promise(r => setTimeout(r, 1));
         }
         // A polled module source's ask the jump made lands first (LLP 1133.009 D10 item 7).
         for (const end = performance.now() + 20000; exact.extensions?.polling?.() && performance.now() < end;) await new Promise(r => setTimeout(r, 1));
@@ -523,7 +526,7 @@ export function install(exact) {
         const gpuPending = await settleGpu();
         if (gpuPending.length) return gpuPendingReply(req, gpuPending);
         // Requests still in flight on real time, which a jump does not wait for (`clock settle` does): the driver says so.
-        const inflight = exact.inflight.n - holds().length, b = exact.data?.background?.(), background = b ? b.queued + b.inFlight : 0;
+        const inflight = exact.inflight.n - unwaited(), b = exact.data?.background?.(), background = b ? b.queued + b.inFlight : 0;
         // The module's storage still to land beside it (LLP 1097 D9).
         return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}), ...(background > 0 ? { background } : {}) };
       })());
