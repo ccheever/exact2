@@ -33,14 +33,16 @@ test('a newer record kept while the page\'s own choose is on its way: its echo m
   heldChoice.saw([{ proposal: 'q', choice: [3], choiceAt: 2 }], 'e2');
   expect(heldChoice.base('q')).toBe(null);
   one.done({ choiceAt: 1 });
-  expect(await sent).toBe(true);
+  // (false: the server's newest is Bo's, not this page's, which it doesn't overwrite)
+  expect(await sent).toBe(false);
   await Promise.resolve();
   expect(heldChoice.base('q')).toEqual([3]);
-  expect(heldChoice.pendingDrop()).toBe(true);
-  heldChoice.drop([]);
+  expect(heldChoice.shownStale()).toBe(true);
+  heldChoice.drop([]); heldChoice.takeShown();
   // The page's own echo (the record of its own choose) moves no base.
   const two = later();
   const again = heldChoice.send('q', [1], () => two.p);
+  await Promise.resolve(); await Promise.resolve(); // (its ask on its way, as any record of it comes after)
   heldChoice.saw([{ proposal: 'q', choice: [1], choiceAt: 3 }], 'e2');
   two.done({ choiceAt: 3 });
   await again; await Promise.resolve();
@@ -64,4 +66,41 @@ test('a tick undone before its answer still sends the card\'s choice; a failed c
   expect(await late).toBe(false);
   expect(heldChoice.base('u')).toEqual([5]);
   expect(heldChoice.at('u')).toBe(9);
+});
+
+test('round 2: obsolete flips said until dropped; a lost answer sends again; a proposal briefly missing keeps its base; a send never overwrites a newer foreign choice; gen counts rebases; the cards are rebuilt', async () => {
+  heldChoice.saw([{ proposal: 'r', choice: [0], choiceAt: 1 }], 'e5');
+  heldChoice.takeShown();
+  heldChoice.saw([{ proposal: 'r', choice: [1], choiceAt: 2 }], 'e5');
+  expect(heldChoice.gen('r')).toBe(1);
+  expect(heldChoice.shownStale()).toBe(true);
+  heldChoice.takeShown();
+  // (said again while picked still has them, a superseded answer losing nothing)
+  expect(heldChoice.drop(['r:0'])).toEqual(['r:0']);
+  expect(heldChoice.drop(['r:0'])).toEqual(['r:0']);
+  expect(heldChoice.drop([])).toEqual([]);
+  expect(heldChoice.stale('r:0')).toBe(false);
+  // A choose whose answer is lost: the next one with the earlier items sends again.
+  const asked = [];
+  await heldChoice.send('r', [0], items => { asked.push(items); return Promise.resolve({ choiceAt: 3 }); });
+  await heldChoice.send('r', [1], items => { asked.push(items); return Promise.resolve(null); });
+  await heldChoice.send('r', [0], items => { asked.push(items); return Promise.resolve({ choiceAt: 5 }); });
+  expect(asked).toEqual([[0], [1], [0]]);
+  // Missing from one list (out being accepted), back in the next: the same base.
+  heldChoice.saw([], 'e5');
+  heldChoice.saw([{ proposal: 'r', choice: [0], choiceAt: 5 }], 'e5');
+  expect(heldChoice.base('r')).toEqual([1]);
+  expect(heldChoice.gen('r')).toBe(1);
+  // Another client's choice lands while one of the page's is queued: the queued one doesn't overwrite it.
+  const slow = later(), queuedAsk = [];
+  const first = heldChoice.send('r', [2], () => slow.p);
+  const second = heldChoice.send('r', [3], items => { queuedAsk.push(items); return Promise.resolve({ choiceAt: 9 }); });
+  heldChoice.saw([{ proposal: 'r', choice: [4], choiceAt: 7 }], 'e5');
+  slow.done({ choiceAt: 6 });
+  expect(await first).toBe(false);
+  expect(await second).toBe(false);
+  expect(queuedAsk).toEqual([]);
+  await Promise.resolve();
+  expect(heldChoice.base('r')).toEqual([4]);
+  expect(heldChoice.gen('r')).toBe(2);
 });

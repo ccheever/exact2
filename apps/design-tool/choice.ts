@@ -42,71 +42,75 @@ export function carriedChoice(fresh: string, tokens: number, offers: { items?: n
 type Base = { at: number; choice: number[] | null };
 type Record = { proposal: unknown; choice?: number[]; choiceAt?: number };
 const bases = new Map<string, Base>(), latest = new Map<string, Base>(), mine = new Map<string, number>(), sent = new Map<string, string>();
-const pending = new Map<string, Promise<boolean>>(), touched = new Set<string>(), rebased = new Set<string>(), obsolete = new Set<string>();
-let answers = 0, epoch = '', run = 0;
+const pending = new Map<string, Promise<boolean>>(), touched = new Set<string>(), rebased = new Set<string>(), gens = new Map<string, number>();
+let answers = 0, epoch = '', run = 0, dirty = false;
 
-/** `id`'s base replaced by `b`, another client's: the page's flips on it obsolete from now. */
-function rebase(id: string, b: Base) { bases.set(id, b); sent.delete(id); touched.delete(id); rebased.add(id); }
+/** `id`'s base replaced by `b`, another client's: the page's flips on it obsolete from now, its cards to be shown again. */
+function rebase(id: string, b: Base) { bases.set(id, b); sent.delete(id); touched.delete(id); rebased.add(id); gens.set(id, (gens.get(id) ?? 0) + 1); dirty = true; }
+/** Whether a record newer than `id`'s base and than the page's own choose of it, so another client's, is kept. */
+const foreign = (id: string) => { const b = bases.get(id), l = latest.get(id); return !!b && !!l && l.at > b.at && l.at > (mine.get(id) ?? 0); };
 /** After the page's own `choose` of `id` landed (or failed): a newer record kept meanwhile, not its echo, rebases. */
-function settle(id: string) {
-  const b = bases.get(id), l = latest.get(id);
-  if (b && l && l.at > b.at && l.at > (mine.get(id) ?? 0)) rebase(id, l);
-}
+function settle(id: string) { if (foreign(id)) rebase(id, latest.get(id)!); }
 
 export const heldChoice = {
   /** The held list as read on server run `on`: each proposal's base taken at first sight, or again when another client
-   * chose since (kept, while the page's own `choose` of it is on its way, until that lands). A new run knows nothing. */
+   * chose since (kept, while the page's own `choose` of it is on its way, until that lands). A proposal missing from a
+   * list (out being accepted, and back if that fails) keeps its base. A new run knows nothing. */
   saw(records: Record[], on: string) {
     if (on !== epoch) { this.forget(); epoch = on; }
-    const now = new Set<string>();
     for (const p of records) {
-      const id = String(p.proposal), seen = { at: p.choiceAt ?? 0, choice: p.choice ?? null }, b = bases.get(id);
-      now.add(id); latest.set(id, seen);
-      if (!b) bases.set(id, seen);
+      const id = String(p.proposal), seen = { at: p.choiceAt ?? 0, choice: p.choice ?? null };
+      latest.set(id, seen);
+      if (!bases.has(id)) bases.set(id, seen);
       else if (!pending.has(id)) settle(id);
     }
-    for (const id of [...bases.keys()]) if (!now.has(id)) { bases.delete(id); latest.delete(id); mine.delete(id); sent.delete(id); touched.delete(id); rebased.delete(id); }
   },
   /** The card's base for `id`: the server's choice, or null for the card's default. */
   base: (id: string): number[] | null => bases.get(id)?.choice ?? null,
+  /** How many times another client's choice has replaced `id`'s base on this page: an accept or an edit that saw one
+   * number and finds another acts on nothing it was shown. */
+  gen: (id: string): number => gens.get(id) ?? 0,
   /** The `choiceAt` an accept of `id` names: the newest this page knows, its own `choose`s' included. */
   at: (id: string): number => Math.max(mine.get(id) ?? 0, bases.get(id)?.at ?? 0),
   /** Whether the page's flip `f` (`<proposal>:<i[,j]>`) no longer counts: made over a base since replaced. */
-  stale: (f: string): boolean => obsolete.has(f) || rebased.has(f.slice(0, f.indexOf(':'))),
-  /** Whether a card was rebased since `drop` last ran (its flips still in `picked`). */
-  pendingDrop: (): boolean => rebased.size > 0,
-  /** `picked` as it is now: the flips on cards rebased since made obsolete (they count no more, from now) and returned
-   * to drop from `picked`; obsolete ones `picked` no longer has forgotten. */
+  stale: (f: string): boolean => rebased.has(f.slice(0, f.indexOf(':'))),
+  /** Whether a base moved since the cards were last built from the list: they are built again (`takeShown`). */
+  shownStale: (): boolean => dirty,
+  takeShown() { dirty = false; },
+  /** The flips in `picked` that no longer count, to drop from it; said again each time until `picked` has none of a
+   * rebased card's, so a dropped answer loses nothing. */
   drop(picked: string[]): string[] {
-    for (const f of [...obsolete]) if (!picked.includes(f)) obsolete.delete(f);
     const out = picked.filter(f => rebased.has(f.slice(0, f.indexOf(':'))));
-    for (const f of out) obsolete.add(f);
-    rebased.clear();
+    for (const id of [...rebased]) if (!picked.some(f => f.startsWith(`${id}:`))) rebased.delete(id);
     return out;
   },
   /** Whether `id`'s card has been ticked on this page since its base (its choice is the page's to send, flips or none). */
   touchedFor: (id: string): boolean => touched.has(id),
   /** `items` sent as `id`'s choice (`ask`, the request), after any sent before it and only when it differs from the
-   * last sent; latest wins, one at a time a proposal. True once the server has it (or already had it). */
+   * last sent; latest wins, one at a time a proposal. True once the server has it as its newest; false when it
+   * didn't (no answer, a new run) or when another client's choice came since (left to replace the base, not overwritten). */
   send(id: string, items: number[], ask: (items: number[]) => Promise<{ choiceAt?: number } | null>): Promise<boolean> {
     const key = JSON.stringify(items), at = run;
     touched.add(id);
     const go = (pending.get(id) ?? Promise.resolve(true)).then(async () => {
+      if (foreign(id)) return false;
       if (sent.get(id) === key) return true;
+      sent.delete(id); // (an answer that never comes leaves the server's choice unknown: the next ask sends again)
       const ok = await ask(items);
-      if (at !== run) return false; // (a new server run meanwhile)
-      if (ok?.choiceAt === undefined) return false;
-      mine.set(id, Math.max(mine.get(id) ?? 0, ok.choiceAt)); sent.set(id, key);
+      if (at !== run || ok?.choiceAt === undefined) return false;
+      mine.set(id, Math.max(mine.get(id) ?? 0, ok.choiceAt));
+      if (foreign(id)) return false;
+      sent.set(id, key);
       return true;
     });
     const tail = go.finally(() => { if (pending.get(id) === tail) { pending.delete(id); settle(id); } });
     pending.set(id, tail);
     return tail;
   },
-  /** Every `choose` of `id` on its way, landed: true when the last of them reached the server. */
+  /** Every `choose` of `id` on its way, landed: true when the last of them reached the server as its newest. */
   flush: (id: string): Promise<boolean> => pending.get(id) ?? Promise.resolve(true),
   /** A number for each answer of the tool's `sendChoices`. */
   answer: (): number => ++answers,
   /** Nothing known (a new server run); answers still on their way are ignored. */
-  forget() { bases.clear(); latest.clear(); mine.clear(); sent.clear(); pending.clear(); touched.clear(); rebased.clear(); obsolete.clear(); run += 1; },
+  forget() { bases.clear(); latest.clear(); mine.clear(); sent.clear(); pending.clear(); touched.clear(); rebased.clear(); gens.clear(); dirty = false; run += 1; },
 };

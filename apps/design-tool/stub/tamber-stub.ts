@@ -428,6 +428,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (!p) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
         if (request.choiceAt !== undefined && request.choiceAt !== (p.choiceAt ?? 0)) return send({ error: { message: `held proposal \`${p.proposal}\`'s choice was changed by ${p.choiceBy} since: review it, then accept`, stale: true, choice: p.choice, choiceBy: p.choiceBy, choiceAt: p.choiceAt } }, 409);
         // No items: its choice, as the server takes it (all of it chosen, or none recorded, the whole).
+        if (request.items === undefined && p.choice && !p.choice.length) return send({ error: { message: `nothing is chosen in held proposal \`${p.proposal}\`: choose some of it, or drop it` } }, 400);
         if (request.items === undefined && p.choice && p.choice.length < p.ops.length) request.items = p.choice;
         held = held.filter(h => h !== p);
         // Some of it: held again as a new proposal of those items (all of them named is the whole, as on the server).

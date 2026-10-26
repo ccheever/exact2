@@ -412,7 +412,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // sent: the list is the one this tool has (its revision named), shown
   // again only when a newer read of the design moves its swatches.
   const design = Math.max(0, ...snapshots.keys());
-  if (r.proposals || design !== heldDesign) {
+  if (r.proposals || design !== heldDesign || heldChoice.shownStale()) {
     if (r.proposals) {
       heldAt = { epoch: String(r.epoch ?? ''), revision: typeof r.held === 'number' ? r.held : -1 };
       heldRaw = r.proposals;
@@ -420,7 +420,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     }
     heldDesign = design;
     heldOps = new Map(heldRaw.map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
-    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review])); heldChoice.saw(heldRaw, heldAt.epoch); // (each card's base, the server's choice: choice.ts)
+    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review])); heldChoice.saw(heldRaw, heldAt.epoch); heldChoice.takeShown(); // (each card's base, the server's choice, built again when one moves: choice.ts)
     held = heldRaw.map(p => ({
       proposal: String(p.proposal), client: String(p.client ?? ''), editedBy: String(p.editedBy ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
       tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], title: heldTitle((p.ops ?? []).map((o: { op: unknown }) => o.op), (p.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file ?? ''), token: String(c.token) })), designFile), replaces: String(p.replaces ?? ''),
@@ -1292,7 +1292,7 @@ const sources: Sources = {
     // files and holds that instead, to be reviewed and accepted afresh.
     // Its operations, kept now: the poll that answers as it is accepted no
     // longer lists it.
-    const at = session, some = items ? items.split(',').map(Number) : undefined, ops = (heldOps.get(proposal) ?? []) as Record<string, unknown>[];
+    const at = session, ops = (heldOps.get(proposal) ?? []) as Record<string, unknown>[], some = items ? items.split(',').map(Number) : byChoice ? ops.map((_, i) => i) : undefined; // (1.18: all named, never a recorded choice by default)
     const proposer = held.find(h => h.proposal === proposal)?.client;
     // To the server run that listed it.
     const { error, reply, used } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}), ...(byChoice ? { choiceAt: heldChoice.at(proposal) } : {}) }, WRITE_WAIT, heldToken || undefined); // (the choice it saw: another client's since is 409, choice.ts)
@@ -1335,8 +1335,10 @@ const sources: Sources = {
   acceptImport: async ([client, proposal, picked]) => {
     const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
     if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
-    await heldChoice.flush(proposal); // (its own choose landed first, so its choiceAt is current)
-    const items = chosen(proposal, picked);
+    // What the card shows now is what is accepted: its own choose landed first (its choiceAt current), and another
+    // client's choice meanwhile asks for another look rather than being accepted unseen.
+    const seen = heldChoice.gen(proposal), items = chosen(proposal, picked);
+    if (!(await heldChoice.flush(proposal)) || heldChoice.gen(proposal) !== seen) return { ...stacks(false, 'Another client changed what this import has chosen while yours was being saved: review it, then accept.', ''), note: '' };
     if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
     // (on 1.18 its items always named, all of them included: never the server's choice by default, which may be older)
     return sources.acceptHeld([client, proposal, items.length === ops.length && !byChoice ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
@@ -1371,10 +1373,10 @@ const sources: Sources = {
   },
   sendChoices: async ([client, picked]) => {
     // Each import card's choice, sent as it is ticked (1.18, choice.ts): a card the page has flipped, or sent before.
-    const flips = picked.split(';').filter(Boolean), drop = heldChoice.drop(flips); // (flips on a rebased card: obsolete first, never sent)
-    const live = flips.filter(f => !heldChoice.stale(f)), sends = byChoice ? held.filter(h => heldReview.get(h.proposal)?.importer && (live.some(f => f.startsWith(`${h.proposal}:`)) || heldChoice.touchedFor(h.proposal))) : [];
+    const flips = picked.split(';').filter(Boolean), live = flips.filter(f => !heldChoice.stale(f)), sends = byChoice ? held.filter(h => heldReview.get(h.proposal)?.importer && (live.some(f => f.startsWith(`${h.proposal}:`)) || heldChoice.touchedFor(h.proposal))) : [];
     await Promise.all(sends.map(h => heldChoice.send(h.proposal, chosen(h.proposal, picked), askChoose(client, h.proposal))));
-    return { ok: true, answer: heldChoice.answer(), drop, again: heldChoice.pendingDrop() }; // (`again`: a newer choice kept while its own landed: read the list again)
+    // (`drop`: flips on a card another client chose on, said until dropped; `again`: a base moved, the cards built again)
+    return { ok: true, answer: heldChoice.answer(), drop: heldChoice.drop(flips), again: heldChoice.shownStale() };
   },
   loadAppAxes: async ([file]) => {
     // The running app's axes while another file is open: its own design's,
