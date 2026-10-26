@@ -17,6 +17,22 @@ import ExactPackage
 import Foundation
 import ImageIO
 import Vision
+#if targetEnvironment(simulator)
+import CoreML
+#endif
+
+/// Vision's models find no Neural Engine or Metal device in the iOS and tvOS
+/// simulators, where a request fails "Could not create inference context";
+/// there each stage runs on the CPU.
+fileprivate func simulatorCPU(_ request: VNRequest) {
+    #if targetEnvironment(simulator)
+    if #available(iOS 17.0, tvOS 17.0, *), let stages = try? request.supportedComputeStageDevices {
+        for (stage, devices) in stages {
+            if let cpu = devices.first(where: { if case .cpu = $0 { return true } else { return false } }) { request.setComputeDevice(cpu, for: stage) }
+        }
+    }
+    #endif
+}
 
 public final class BarcodeDetectionModule: ExactPackage {
     /// Each request, on the module's work queue, after its symbologies: the
@@ -28,7 +44,9 @@ public final class BarcodeDetectionModule: ExactPackage {
 
     let context: ExactPackageContext
     let work = DispatchQueue(label: "exact.barcode-detection", qos: .userInitiated)
+    #if !os(tvOS)
     private var scans: [String: Scan] = [:]
+    #endif
 
     public init(context: ExactPackageContext) { self.context = context }
 
@@ -113,6 +131,7 @@ public final class BarcodeDetectionModule: ExactPackage {
         let request = VNDetectBarcodesRequest()
         request.symbologies = Self.symbologies(for: all ? nil : keep)
         if !context.agent { Self.requestHatch?(request) }
+        simulatorCPU(request)
         try handler.perform([request])
         return Self.normalised((request.results ?? []).map { Self.shape($0, width: width, height: height) }, keep: all ? nil : keep)
     }
@@ -201,6 +220,7 @@ public final class BarcodeDetectionModule: ExactPackage {
         #endif
     }
 
+    #if !os(tvOS)
     public func release(_ name: String, args: [String: Any]) {
         guard name == "detectedBarcodes", let track = args["track"] as? String else { return }
         let (keep, _) = Self.asked(args["formats"])
@@ -221,6 +241,7 @@ public final class BarcodeDetectionModule: ExactPackage {
         for key in Array(scans.keys) { end(key, "the session ended") }
         done()
     }
+    #endif
 }
 
 /// A still decoded for Vision: its pixels as stored and the orientation that makes them upright.
