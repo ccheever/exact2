@@ -55,10 +55,10 @@ test('T1a: an import reviewed through the file picker, overrides off until ticke
     ], { keepStorage: true });
     const later = more.filter(r => r.resources);
     const after = later[0].resources.changes.held.find(h => h.proposal === edited);
-    // (it begins from the choice the edit carried, recorded on the server, tamber/1.17: `kept`, the card's heading)
+    // (it begins from the choice the edit carried, recorded on the server, tamber/1.18: `kept`, the card's heading)
     expect(after).toMatchObject({ from: id, kept: true });
     expect(after.mapped[0].modes[0].value).toBe('light-dark(oklch(0.99 0 0), oklch(0.145 0 0))');
-    // Whole, the choice carried by the server (tamber/1.17): shadcn.foreground still held but left out, every override
+    // Whole, the choice carried by the server (tamber/1.18): shadcn.foreground still held but left out, every override
     // offered, AccentColor alone ticked, with no flips of the page's on the new one.
     const flips = later[0].slots.picked;
     expect(after.mapped.map(m => m.name)).toContain('shadcn.foreground');
@@ -161,7 +161,7 @@ test('third pass #6, end to end: ticking a role override then editing a value, a
     expect(written).toContain(`shadcn.background = ${value}`);
     expect(written).not.toContain('shadcn.foreground =');
     expect(written).not.toContain('-exact-background = shadcn.background');
-    // A page loaded again starts from the choice the server keeps (tamber/1.17 choose): order one's, still held, as
+    // A page loaded again starts from the choice the server keeps (tamber/1.18 choose): order one's, still held, as
     // ticked, its flips gone with the page.
     st = await step([]);
     const again = heldOf(st, a2);
@@ -173,7 +173,7 @@ test('third pass #6, end to end: ticking a role override then editing a value, a
   }
 }, 900_000);
 
-test('a held import\'s choice is the proposal\'s (tamber/1.17 choose): ticked, then a reload, then accepted; ticked on one page, accepted on another; kept through an edit and a reload', async () => {
+test('a held import\'s choice is the proposal\'s (tamber/1.18 choose): ticked, then a reload, then accepted; ticked on one page, accepted on another; kept through an edit and a reload', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-choice-'));
   for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
   const original = readFileSync(join(app, 'app.tamber'), 'utf8');

@@ -1,4 +1,4 @@
-// A held proposal's choice (tamber/1.17; scripts/tamber-held-choice.mjs), on the real server (`contract tamber
+// A held proposal's choice (tamber/1.18; scripts/tamber-held-choice.mjs), on the real server (`contract tamber
 // serve`): `choose` recorded on the proposal and announced, every refusal, `accept` taking the choice when it names no
 // `items` (a recompute when part, the whole when all), an explicit `items` winning, an accept that saw an older choice
 // refused naming who chose since while one's own choice never stales one's own accept, `edit-held` carrying the

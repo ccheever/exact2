@@ -148,11 +148,13 @@ shape Mapped
   // In to begin with (the server's choice can leave it out); a picked id flips it.
   on: bool
 
-// What the card's choices sent answered (tamber/1.17 `choose`): the flips to drop, on cards another client chose on.
+// What the card's choices sent answered (tamber/1.18 `choose`): the flips to drop, on cards another client chose on.
 shape Choices
   ok: bool
   answer: number
   drop: string[]
+  // A newer choice came while the card's own was on its way: the list read again, so the card shows it.
+  again: bool
 
 shape Offer
   role: string

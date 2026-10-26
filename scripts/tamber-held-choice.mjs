@@ -1,4 +1,4 @@
-// A held proposal's choice (tamber/1.17, theme2's 23:24 ruling on #6's follow-up): which of its operations the
+// A held proposal's choice (tamber/1.18, theme2's 23:24 ruling on #6's follow-up): which of its operations the
 // reviewer has chosen, kept on the proposal itself so a reload, a second client or another device sees the same ticks.
 // One choice a proposal, the last to choose setting it: `choice` (the sorted indices), `choiceBy` (the client that
 // chose) and `choiceAt` (how many times it has been chosen), on its record and every `proposal` event. `choose` sets

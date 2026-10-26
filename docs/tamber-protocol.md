@@ -207,10 +207,11 @@ on macOS and Linux.
   slot's host one of its entries with `slot: true`, named by its own call, and a component with no element of its
   own none. The field is optional: an older server never sends it, and an older client shows the entry as a plain
   call site whose press lands there all the same.
-  And a held proposal's **choice** (#6's follow-up): **`choose`** `{client, proposal, items}` records which of its
-  operations are chosen, on the proposal (`choice`, `choiceBy`, `choiceAt`), so a reload or another client sees it;
-  an `accept` with no `items` takes it, one naming an older `choiceAt` answers 409 `{stale: true, choice, choiceBy,
-  choiceAt}`, and `edit-held` carries it (see Held proposals).
+  And a held proposal's **choice** (the design tool's third hands-on pass #6's follow-up): **`choose`** `{client,
+  proposal, items}` records which of its operations are chosen, on the proposal (`choice`, `choiceBy`, `choiceAt`),
+  so a reload or another client sees it; an `accept` with no `items` takes it, one naming an older `choiceAt` answers
+  409 `{stale: true, choice, choiceBy, choiceAt}` (the check is optional), and `edit-held` carries it (see Held
+  proposals).
 
 ## Where it runs
 
@@ -466,8 +467,8 @@ client's scope is 403 with `{message, scope, needs}` in `error`, the change stre
 | Scope | Requests |
 |---|---|
 | `read` | `hello`, `describe`, `resolve`, `explain`, `uses`, `history`, `export`, `inspect` (read-only below `write`: `refresh` only), and the change stream (`/__tamber/subscribe`, `/__tamber/events`) |
-| `propose` | `propose` (held or not), `import`, `revert`, and `drop`, `edit-held` and `choose` of the client's own held proposal |
-| `write` | `transaction`, `undo`, `commit`, `accept`, `drop`, `edit-held` and `choose` of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
+| `propose` | `propose` (held or not), `import`, `revert`, and `drop`, `edit-held` and `choose` (*1.18*) of the client's own held proposal |
+| `write` | `transaction`, `undo`, `commit`, `accept`, `drop`, `edit-held` and `choose` (*1.18*) of another client's proposal, `pin`, `preview`, `outline`, `hold`, `navigate`, `scrub`, `scrub-release`, `scrub-cancel` |
 | the local token only | `pair-code`, `clients`, `revoke` (a paired `write` client may not) |
 
 The scopes are ordered: `write` may do what `propose` may, and `propose` what `read` may. `pin`,
@@ -1098,7 +1099,7 @@ and `by` the client that made that latest: one client's name, unlike a transacti
 who changed it. The server remembers 256 replaced ids per run, oldest first; an id past that, like one never held or
 held and since dropped, accepted or expired, answers 404.
 
-**A proposal's choice** (*1.17*): **`choose`** `{proposal, client, items}` records which of a held proposal's
+**A proposal's choice** (*1.18*): **`choose`** `{proposal, client, items}` records which of a held proposal's
 operations are chosen, and answers `{proposal, choice, choiceBy, choiceAt}`. It writes and plans nothing.
 - One choice a proposal, the last to choose setting it: `choice` (its indices, sorted, no duplicates), `choiceBy`
   (that client) and `choiceAt` (how many times it has been chosen) are on the proposal wherever it is shown, the list,
@@ -1110,7 +1111,7 @@ operations are chosen, and answers `{proposal, choice, choiceBy, choiceAt}`. It 
   `accept` of those `items` does; nothing chosen is 400, and the proposal stays held. An explicit `items` always wins.
   An `accept` may name the `choiceAt` it saw: another choice since answers 409 `{stale: true, choice, choiceBy,
   choiceAt}` and takes nothing out, so a client never accepts a choice it hasn't seen; a client's own `choose` answers
-  the `choiceAt` to send. The check is optional: an `accept` naming no `choiceAt` is not checked, as before 1.17.
+  the `choiceAt` to send. The check is optional: an `accept` naming no `choiceAt` is not checked, as before 1.18.
 - `edit-held` carries the choice to the proposal it holds (the chosen operations it keeps, renumbered; `choiceAt` 1);
   a recompute at `accept` holds only chosen operations, so its proposal has no choice.
 

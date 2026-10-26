@@ -317,7 +317,7 @@ test('edit-held through the TLS door: a paired propose client edits its own held
   } finally { await doors.close(); await wire.close(); }
 }, 30_000);
 
-test('choose through the TLS door (tamber/1.17): a paired propose client chooses on its own held proposal, not another\'s, a forged name pinned; a write client chooses on another\'s, named as the chooser', async () => {
+test('choose through the TLS door (tamber/1.18): a paired propose client chooses on its own held proposal, not another\'s, a forged name pinned; a write client chooses on another\'s, named as the chooser', async () => {
   const wire = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {} });
   const doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 } }, { say: () => {} });
   try {

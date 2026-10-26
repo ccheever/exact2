@@ -583,7 +583,7 @@ test "a value edited with a role override left unticked (third pass #6): it stay
   clock data
   expect text "write-note" == "edited-1 was recomputed on the files as they are now, as edited-1-r: review its diff and accept it again."
 
-test "a tick sent as the proposal's choice (tamber/1.17 choose): accepting right after takes the choice the page itself sent, never stale"
+test "a tick sent as the proposal's choice (tamber/1.18 choose): accepting right after takes the choice the page itself sent, never stale"
   request POST "/__stub/restart" {} as ada
   request POST "/__stub/long-poll" {} as ada
   type "name" "Ada"
@@ -603,7 +603,7 @@ test "a tick sent as the proposal's choice (tamber/1.17 choose): accepting right
   clock data
   expect text "write-note" == "Accepted imp."
 
-test "another client's choice since the page saw one (tamber/1.17): the accept is refused naming who, and the card takes their choice, its own flips dropped"
+test "another client's choice since the page saw one (tamber/1.18): the accept is refused naming who, and the card takes their choice, its own flips dropped"
   request POST "/__stub/restart" {} as ada
   request POST "/__stub/long-poll" {} as ada
   type "name" "Ada"
