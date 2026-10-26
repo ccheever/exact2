@@ -836,29 +836,34 @@ test "the server rail switches the list to the direct messages, which open like 
   expect state server == "@me"
 
 test "image spoilers with and without dimensions wait for disclosure"
+  // #random's single spoiler pictures: one with no dimensions, then one with them (main's fixture tiles some photos,
+  // which moved the spoilers onto these messages).
   clock +500 real
   tap "channel-random"
   clock settle
   tap "transcript" into "1556955556722245885"
   clock settle
-  tap "transcript" into "1555571352889458936"
+  tap "transcript" into "1553618685438984394"
   clock settle
-  expect tree has "media-1555571352889458936-1555571352889561158"
-  expect tree has "reveal-media-1555571352889458936-1555571352889561158"
-  expect tree missing "media-image-1555571352889458936-1555571352889561158"
-  tap "reveal-media-1555571352889458936-1555571352889561158"
+  // It is a page further back than the window holds: the first tap brings the window there, this one lands.
+  tap "transcript" into "1553618685438984394"
+  clock settle
+  expect tree has "media-1553618685438984394-1553618685439086202"
+  expect tree has "reveal-media-1553618685438984394-1553618685439086202"
+  expect tree missing "media-image-1553618685438984394-1553618685439086202"
+  tap "reveal-media-1553618685438984394-1553618685439086202"
   clock settle
   expect state revealed.length == 1
-  expect tree has "media-image-1555571352889458936-1555571352889561158"
-  expect tree missing "reveal-media-1555571352889458936-1555571352889561158"
-  tap "transcript" into "1557156753160798473"
+  expect tree has "media-image-1553618685438984394-1553618685439086202"
+  expect tree missing "reveal-media-1553618685438984394-1553618685439086202"
+  tap "transcript" into "1557059859277414659"
   clock settle
-  expect tree has "reveal-media-1557156753160798473-1557156753160900848"
-  expect tree missing "media-image-1557156753160798473-1557156753160900848"
-  type "reveal-media-1557156753160798473-1557156753160900848" key "Enter"
+  expect tree has "reveal-media-1557059859277414659-1557059859277516980"
+  expect tree missing "media-image-1557059859277414659-1557059859277516980"
+  type "reveal-media-1557059859277414659-1557059859277516980" key "Enter"
   clock settle
   expect state revealed.length == 2
-  expect tree has "media-image-1557156753160798473-1557156753160900848"
+  expect tree has "media-image-1557059859277414659-1557059859277516980"
 
 test "failed history can be retried without reopening the channel"
   fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
