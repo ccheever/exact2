@@ -17,6 +17,22 @@ import ExactPackage
 import Foundation
 import ImageIO
 import Vision
+#if targetEnvironment(simulator)
+import CoreML
+#endif
+
+/// Vision's models find no Neural Engine or Metal device in the iOS and tvOS
+/// simulators, where a request fails "Could not create inference context";
+/// there each stage runs on the CPU.
+fileprivate func simulatorCPU(_ request: VNRequest) {
+    #if targetEnvironment(simulator)
+    if #available(iOS 17.0, tvOS 17.0, *), let stages = try? request.supportedComputeStageDevices {
+        for (stage, devices) in stages {
+            if let cpu = devices.first(where: { if case .cpu = $0 { return true } else { return false } }) { request.setComputeDevice(cpu, for: stage) }
+        }
+    }
+    #endif
+}
 
 public final class TextDetectionModule: ExactPackage {
     /// Each request, on the module's work queue, after the module's options:
@@ -130,6 +146,7 @@ public final class TextDetectionModule: ExactPackage {
         if let words = apple["customWords"] as? [String] { request.customWords = words }
         if let height = (apple["minimumTextHeight"] as? NSNumber)?.floatValue { request.minimumTextHeight = height }
         if hatch { requestHatch?(request) }
+        simulatorCPU(request)
         do {
             try VNImageRequestHandler(cgImage: image, orientation: orientation).perform([request])
         } catch {
