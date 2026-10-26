@@ -1,7 +1,7 @@
 # LLP 1142: What a development build tells an agent — late frames, portable traces, failed resources
 
 **Type:** RFC
-**Status:** Draft r3, 2026-10-25, as built (§12). r1 was reviewed blind by GPT-6 Astra (xhigh, NOT READY) and Grok 4.7 (xhigh, READY WITH CHANGES) (`llp/reviews/rfc-2026-10-25-1142-r1.{astra,grok}.md`). Muse was not run: its quota had run out until 2026-10-26. r2 folded both (§R), and the same two families reviewed r2 (`…-r2.{astra,grok}.md`): Astra NOT READY (D3 still blocking; D2, D4, D5, D6 details), Grok READY WITH CHANGES ("build §11 items 1 through 5", D3's probes after an amendment). The build took their r2 points where §12 says. The families answered r1's six questions the same way, and the build follows those answers; §10 lists what still needs Charlie.
+**Status:** Draft r4, 2026-10-25. §12 records what r3 built; §13 proposes the remaining Excord development-loop work and is unreviewed and unimplemented. The r1 and r2 blind reviews by GPT-6 Astra and Grok are in `llp/reviews/rfc-2026-10-25-1142-r{1,2}.{astra,grok}.md`; §R and §12 record their disposition. §13.8 lists the new decisions requested.
 **Systems:**
 - Apple host:
   - the frame sampler and its trace (`host/apple/Sources/ExactKit/FrameSampler.swift`);
@@ -19,9 +19,11 @@
   - `scripts/agent.mjs` and `scripts/agent-inspect.mjs` (`trace --pid`, `trace --plan`, `trace --out`, the late-frame text);
   - `scripts/async.mjs` (macOS XCTests);
   - `scripts/agent-launch.mjs` (a fixture port per checkout).
+- Proposed in §13: resource freshness inspection; stream mapper execution in `js/` and `host/web-js/`; collection edge events and scroll reports; Excord's existing fixture and chat recipe.
 **Author:** Claude (Opus 5.5) for Charlie Cheever
+**Revision author:** Codex for Charlie Cheever (§13 and r4 metadata), 2026-10-25, at his request to write an RFC from the Excord development findings.
 **Date:** 2026-10-25
-**Implementer:** Claude (Opus 5.5), from 2026-10-25, in the order of §11. Charlie asked for the review and then the build ("have the panel review this then go ahead and implement when you're happy with it").
+**Implementer:** Claude (Opus 5.5), from 2026-10-25, for §11's work, as recorded in §12. Charlie asked for that review and build ("have the panel review this then go ahead and implement when you're happy with it"). §13 is a requested proposal; implementation is not yet assigned or scheduled, and the earlier authorization does not cover its additions.
 **Related:**
 - LLP 1079 (`perf`, the frame sampler, the trace, "juxtaposition, never a cause"). This RFC extends it most.
 - LLP 1075.003.000.001 §3.1 (hatch calls charged by overlap with a late frame's window, the model D1 follows).
@@ -29,11 +31,17 @@
 - LLP 1070 G1–G2 (wheel latching and routing); LLP 1115.000 D8.2 (AppKit scrolls a `scroll` node for a person).
 - LLP 1050.000 (fill policy; responsive scrolling checked only by XCTest).
 - LLP 1141 (porting real apps). Excord is the app whose session this comes from.
+- [LLP 1016.000](1016.000-answers-that-keep-coming.rfc.md) D7 (stream ordering, sends and request lifetime); [LLP 1027.005](1027.005-resource-identity-and-request-context.rfc.md) (persisted answer identity, not a live freshness predicate); [LLP 1113](1113-settled-and-the-two-clocks.rfc.md) D1 (capture and clock semantics).
 - `rules/DEFERRED.md` §Agent API (ten operations; "a new measurement is a form of `perf`"; "a wheel is a `tap`"; never a causal trace, a flame chart, a devtools UI or production telemetry; the source map is "read by the driver and never by a host, never in a bake") and §Tooling (no devtools UI).
 - `rules/RULES.md` §Agents.
 - W3C [Long Animation Frames](https://w3c.github.io/long-animation-frames/). Apple: [`OSSignposter`](https://developer.apple.com/documentation/os/ossignposter), [`Logger`](https://developer.apple.com/documentation/os/logger), [`CGEventField.scrollWheelEventMomentumPhase`](https://developer.apple.com/documentation/coregraphics/cgeventfield/scrollwheeleventmomentumphase).
 
 ## Summary
+
+Revision 4 extends this RFC with [§13](#13-the-remaining-excord-development-loop-work).
+The proposal closes the native-input and inspection gaps left by §12, then removes stream
+scheduling and list-prefetch workarounds from Excord. It changes no implementation or admission
+rule by being written. §12 remains the account of what shipped.
 
 An agent working on Excord on macOS (2026-10-24 and 25) lost most of its time to things a
 development build knew but did not say. Its report listed seven gaps. This RFC checks each against
@@ -402,3 +410,234 @@ The reader prints the record's hatches too. Linux phases are not built.
 - A 123-event fling with momentum moved nothing.
 
 This matches what `ChainingScrollView`'s comment and the fill-policy entry in `QUEUE.md` record: AppKit's tracking of a trackpad gesture reads the window server's events, not the application's. An agent cannot hold a rubber band or fling this way. What would is an event the window server delivers: `CGEvent.post` to the app's process, which needs the session's Accessibility permission (see the `session-tcc-limits` memory). `QUEUE.md` has the entry. `perf frames live` on Apple was not built, since it would measure a fling the driver cannot make.
+
+## 13. The remaining Excord development-loop work
+
+### 13.1 Problem and evidence
+
+Exact should let an author answer three questions without reading host internals: is the screen
+showing the answer I asked for, what work made this interaction slow, and did my test exercise
+the behavior a person uses? Excord exposed gaps in all three. It also carried scheduling and
+paging machinery that belongs below the app's protocol logic.
+
+The evidence is Excord's October 22–25 development sessions on `100.107.191.6`, the fixes they
+produced, and the reproductions linked below. The session records are in
+`~/.claude/projects/-Users-ccheever-projects-exact2/`, sessions
+`042c91d9-2368-4510-82e6-369d192e97be` and `571cc685-f344-4cbd-99f1-ae47a2aae8b6`.
+They are historical observations, not fresh measurements of this revision. No account data or
+raw service payload is copied here.
+
+| Observed cost | Framework lesson | Durable evidence |
+|---|---|---|
+| A malformed read position failed the DM resource 67 times while old rows stayed visible | Failure and retained-answer identity must be visible together | §1; fix `c7405ae111` |
+| The agent repeatedly waited for Charlie to scroll while a CPU sampler was armed | The driver must exercise native scrolling and measure it on real time | §12 D3 |
+| Each symbol size caused another Mac layout; hover work followed rows under a still pointer | Report repeated work within a frame, not only a late-frame total | Fixes `a6ec5a0f7e`, `4d404187a7` |
+| Opening about 3,000 DMs built every row; member keys included their positions | Show construction counts and identity churn before choosing an app limit or framework fix | Fixes `268396d49f`, `f3af880a77`; §12 D6 |
+| A 3 MB READY took 129 ms against a 100 ms turn budget | A supported stream needs bounded work across turns | [Stream mapper issue](../issues/20261023-a-stream-mapper-cannot-yield.md) |
+| A fling outran the fixed one-screen page lead | An author needs to choose how early to fetch | [Collection edge issue](../issues/20261022-reach-lead-is-fixed-at-one-screen.md) |
+
+The profile reports compare samples of busy time, not elapsed-time benchmarks. They establish
+where to investigate; they do not establish a frame-rate improvement. A frame with no transaction
+range likewise does not prove that app work was absent (§3).
+
+### 13.2 D8: exercise native input and observe its presentation
+
+Continue D3 from its failed probe. First try window-server delivery on a development Mac with
+the required Accessibility permission already granted. Prove that a held pull crosses the
+scroll limit and that momentum continues after release. A driver that only changes an offset
+does not pass. If the environment lacks permission or AppKit does not accept the events, report
+the exact unsupported condition; never silently substitute the synthetic path.
+
+Extend existing `tap`, `layout`, `screenshot` and `perf` forms:
+
+- Input receipts identify the path actually used: platform delivery or synthetic delivery.
+  A platform event posted without observable delivery is not reported as a successful gesture.
+- `perf frames live` on Apple can observe a bounded interval of human input independently of
+  whether the driver can synthesize it. That removes §12's dependency between recording and
+  automatic flinging. The interval records actual frame timestamps, display cadence, input path
+  when known, and whether the session is on real or virtual time.
+- A live capture does not seek or settle. Frames carry timestamps and dropped-capture counts;
+  screenshots alone are not a display-cadence measurement. Keep LLP 1113's existing final-capture
+  behavior separate and unchanged. Restore the prior clock mode on success, failure or timeout,
+  without replaying elapsed timers or moving the session clock backward.
+- `layout` labels target and presented geometry separately. Where the host cannot read the
+  presented value, it says unavailable rather than returning the target under that name.
+- On iOS, a platform touch can cross from the transcript over the software keyboard while
+  preserving its contact identity. Verify interactive dismissal, cancellation and return to
+  typing with the platform's input path.
+
+**Acceptance:** exercise the Mac bottom-bounce gesture with native input; capture its settling and
+read its presented offset; film an iOS keyboard dismissal while observing real frame timing.
+The same gesture on a small hand-built native scroller is the reference. Keep deterministic
+virtual-clock tests for state and exact motion samples. Neither substitutes for this drive.
+
+### 13.3 D9: show why a resource's displayed answer is retained
+
+D4's failure counts and logs are built. Extend `state` to join them with a resource's source
+site, current request generation, last successful generation, pending status, and whether the
+displayed value is a fallback, a current answer, or an answer retained from an earlier request.
+For a retained answer, distinguish equal arguments from changed arguments using the runner's
+existing equality rules. Publish opaque generation identifiers and equality results, not raw
+arguments, tokens, answer bodies, or hashes of secrets. The driver joins source locations.
+
+Give the web JS target the same diagnostic meaning; §12 currently gives it console errors but
+no failure counts. Bring the web wasm target into the same failure reporting. Keep collection
+bounded and development-only under §2's predicate.
+
+This does not change retention semantics. LLP 1027.005's `with` governs admission of a persisted
+answer at boot; it does not establish that a live value belongs to the latest request. Update
+the existing fetch/loading/error recipe with the server-switch case: an answer names its owner,
+the view checks it before showing rows, and failure shows an actionable state. Account generation
+checks remain app authorization logic, including the A → B → A case.
+
+**Acceptance:** load A, switch to B, then make B return a shape error. One inspection identifies
+the failed field, the resource's declaration, its repeat count, and the retained answer's older
+request. The recipe never labels A's rows as B's. Repeat with a failed refresh of A: A's own rows
+may remain visible with its failure. Test overlapping completions and recovery on both runtimes.
+
+**Deferred decision:** a new author-visible freshness predicate or a change to default retention
+needs a separate semantic decision. Start with accurate inspection and the existing owner-gating
+pattern; do not introduce a second resource identity system here.
+
+### 13.4 D10: count the work inside a slow interaction
+
+Extend the existing measured `perf` data with a fixed set of counts: kernel layout invocations,
+intrinsic-size reports and their resulting layout requests, native control measurements, row
+construction/reuse/destruction, and synchronous owner calls. Record counts at the operation
+itself. Attribute them to a collection or plan site where the caller has one; otherwise name
+the host phase and mark the site unknown. Do not infer attribution from the nearest event.
+
+Use `perf … during` to report differences for one drive. Phase timing keeps D1's exclusive
+accounting; counts are not added to milliseconds, and parent and child timings are not summed.
+Keep bounded aggregates, not a history of every node or a new causal trace. The report states
+when measurement began and what coverage the host provides.
+
+**Acceptance:** the 150-channel fixture exposes per-icon layout multiplication, a 3,000-DM
+fixture exposes eager construction, and a member insertion exposes unnecessary row replacement.
+After the corresponding fixes, the same drives show the reduced counts. Measure instrumentation
+overhead with it enabled and disabled on the same build and device. Ordinary production builds
+collect none of these additions. The existing key warning remains; no new warning threshold or
+performance check is added by this proposal.
+
+### 13.5 D11: let a stream mapper finish across bounded turns
+
+Amend LLP 1016.000 D7 to permit a mapper to return a promise, with the same per-turn budget and
+yield mechanism as an asynchronous answer. The executor owns delivery, queue bounds and lifetime:
+
+1. At most one mapper invocation is active for a stream generation. Later frames remain ordered
+   behind it, including while it yields. An empty waiting queue does not mean the active mapper
+   has finished. Normal close delivery follows preceding admitted frames.
+2. Pending frame bytes stay charged against a finite receive budget while a mapper is suspended.
+   Reuse the transport's documented limits and overflow policy. Overflow fails visibly and retires
+   the generation; it never silently drops a protocol frame or grows an unbounded queue.
+3. Refresh, forget and transport failure retire the generation. Its continuations cannot publish
+   another snapshot or issue another socket send. Already accepted sends retain D7's existing
+   semantics; cancellation cannot undo them.
+4. Socket sends after a yield are authorized against the active mapper's captured request and
+   generation on both native and web JS executors. An unrelated source turn cannot lend it
+   authority. Completion uses the existing stream settlement and snapshot coalescing rules.
+5. Framework cancellation does not roll back arbitrary mutations already made to module state.
+   Excord must still guard shared cache writes with its account and connection generations. The
+   framework removes delivery machinery, not the app's ownership of its protocol state.
+
+Native `DecompressionStream("deflate")` is a second, separable improvement, loaded through an
+optional artifact rather than a core Cargo feature. Require bounded output and retained decoder
+state across packets. Its API and capability placement need an amendment to the data API's
+governing LLP before implementation. It does not make a large synchronous `JSON.parse` preemptible;
+Excord's bounded parsing stays until a measured replacement exists.
+
+**Acceptance:** run the existing 3, 8 and 32 MB READY fixtures on Hermes and the web, including
+highly compressible and fragmented input. Exercise a heartbeat behind READY, disconnect during
+yield, a replaced connection, sign-out, overflow and a stale continuation. Assert frame order,
+bounded queued bytes, no sends or publication after retirement, and no reconnect caused by
+starving the fixture's heartbeat deadline. Measure turn duration and peak memory on an iPhone,
+not only Bun. Remove Excord's digest mutation and its competing snapshot path only when the same
+drives pass; retain the protocol parser and any necessary bounded scan.
+
+### 13.6 D12: make paging and row-position reports sufficient for a transcript
+
+Add `reach-margin` to virtualized lists: one nonnegative CSS length or percentage, default `100%`.
+A percentage is relative to the scrollport's extent along the list's scrolling axis. It says how
+far before either content edge to fire `reachstart` or `reachend`; zero fires at the edge. This
+keeps today's one-screen default and permits an author to choose a longer lead, as the existing
+issue requests. Rearm after leaving the region, or after that edge's content range grows, with
+at most one delivery per edge per committed geometry change. An unchanged range does not rearm
+merely because a frame passes. The app still guards a pending page request; the list does not
+know its network state. Pin these rules in the collection tests before updating the recipe.
+
+After a jump and row measurements settle, the scroll report's first-visible key and offset must
+describe the measured viewport even if the physical offset did not change. Deliver a correction
+only when those facts change. A completed jump belongs to the collection identity that accepted
+it. Switching to another channel's collection cancels that jump; replacing the keyed window
+inside the same collection may fulfill it, including in the commit that brings its target in.
+
+Extend the existing chat recipe or its linked example with channel identity, early paging,
+restoration and jump completion. Preserve the recipe byte budget. Delete Excord's row-distance
+prefetch workaround when the edge event covers it. Keep Discord's history gaps, unread rules,
+optimistic message IDs and permission logic in Excord.
+
+**Acceptance:** fling while history replies are delayed; jump to an unmeasured key while replacing
+the window; prepend and resize rows above the viewport; switch channels during a pending jump;
+restore after a measurement correction. Assert the visible key and offset as well as the screen.
+A deliberately inadequate margin may reach the edge; a sufficient margin must avoid it without
+fetching the entire history. Run on web and native hosts and report any unsupported cell.
+
+### 13.7 D13: verify the app's scale and the host actually being shipped
+
+Use Excord's existing fixture for the large READY, 3,000 DMs, 150-channel server, numeric-zero read
+position, delayed history and concurrent incoming messages. Include representative PNG, JPEG,
+WebP and GIF responses and a failed decode. Fixture data remains synthetic; automated drives
+never use the real account. Shared rendering code alone does not qualify Windows or Android.
+
+Complete D7's fixture isolation: one port per checkout, explicit overrides winning, and an
+ownership check that refuses another checkout's server. Development loopback-grant relocation
+must cover the selected port without broadening production grants. Report the app, host build,
+plan digest, fixture origin and delivery path in the drive's existing output. Select a compatible
+test archive, and mark an incompatible fixture as not run rather than misdiagnosing a product
+failure or silently counting a skip as a pass.
+
+Run macOS XCTests in the existing async lane with retained failure attribution, after resolving
+or explicitly classifying the baseline failures in §12. Exercise the supported Android emulator
+ABI through the existing build and driver rather than relying on an unlanded patch. A compiled
+APK, an installed APK and a driven app are separate results. Keep the six blocking checks and
+their budgets unchanged.
+
+**Acceptance:** two checkouts drive isolated fixture worlds concurrently; a wrong archive is
+identified before its unrelated tests run; a native failure names the tested build; the same
+chat scenario is driven on each claimed host. Tests wait on observable completion, following
+[docs/testing.md](../docs/testing.md), rather than adding fixed startup sleeps.
+
+### 13.8 Sequence and decisions requested
+
+| Order | Deliverable | Completion evidence |
+|---|---|---|
+| 1 | D8 real input probe and independent live observation; D9 resource inspection | A captured native bounce and one inspection of the stale-list failure |
+| 2 | D10 work counts; D13 fixture isolation and correct host verification | A measured server switch and two independent fixture drives |
+| 3 | D11 ordered asynchronous mappers, then the separable inflater if warranted | Large READY and retirement cases pass; app scheduling code is deleted |
+| 4 | D12 edge lead and measured row reports | Paging/jump drives pass; app prefetch workaround is deleted |
+
+Each implementation change updates the governing subsystem LLP and author guide in the same
+change. A regression belongs at the lowest level that exhibits it, with an app drive where
+native behavior is the subject. Apply the three-round fix limit; report an unsupported probe
+instead of changing what the test claims to prove. These are proposed stages, not scheduled work.
+
+Requested decisions:
+
+1. **Accept D8–D10 and D13 as the next development-tooling scope?** Recommendation: yes, within
+   the existing operations and scripts. Explicitly include independent live observation even if
+   automatic native input remains blocked by the environment.
+2. **Admit promise-returning stream mappers and optional native decompression?** Recommendation:
+   accept ordered mappers first, with Excord's scheduling workaround as the deletion target;
+   qualify the inflater separately. This requires amending D7, not treating an RFC draft as
+   runtime authority.
+3. **Admit `reach-margin` and the corrected list reports?** Recommendation: yes, with the existing
+   collection as owner and Excord's scroll-handler prefetch as the deletion target.
+4. **Change live resource retention semantics now?** Recommendation: no. First ship D9 and the
+   owner-gated example, then decide from a concrete failure whether a new predicate earns its
+   place. No implicit reuse of `with` as a live freshness guarantee.
+
+No causal trace, general provenance explorer, session replay, production inspector, new blocking
+check or general job scheduler is proposed. Where an accepted change crosses `rules/DEFERRED.md`,
+record its admission and take there in the implementation change. Deleting app workaround code
+is a measurable benefit, but does not itself replace the doing-list trade that file requires;
+the acceptance must name a take or waive it explicitly.
