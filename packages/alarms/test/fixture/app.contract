@@ -1,0 +1,51 @@
+// The fixture (LLP 1133.030 §14 stage 2, §15 question 6): @exact/alarms's
+// names read and sent as an app would, each answer shown by testId. It is
+// Android's acceptance app, since Metronome has no Android build.
+use scheduleAlarm, cancelAlarm, pauseAlarm, resumeAlarm, requestAlarmPermission, alarms, alarmStatus, AlarmStatus, Alarm from "@exact/alarms"
+
+shape Time
+  epochAtZero: number
+
+component Fixture
+  resource status = alarmStatus() as shape AlarmStatus
+  resource list = alarms() as shape Alarm[]
+  resource time = exactTime() as shape Time
+  mutation requested as shape AlarmStatus
+  action request
+    send requested = requestAlarmPermission()
+  action countdown
+    scheduleAlarm(tag="timer", title="Fixture timer", duration=60000, snooze=60000)
+  // An alarm at the instant a minute from now, on the session's epoch clock.
+  action atTime
+    scheduleAlarm(tag="at", title="Fixture alarm", at=time.epochAtZero + performanceNow() + 60000, snooze=60000)
+  action pause
+    pauseAlarm(tag="timer")
+  action resume
+    resumeAlarm(tag="timer")
+  action cancelTimer
+    cancelAlarm(tag="timer")
+  action cancelAt
+    cancelAlarm(tag="at")
+  view
+    column gap=8 padding=16
+      text `${status.available} ${status.state} ${status.countdown}` testId="status"
+      match status.android
+        case some(a)
+          text `${a.canScheduleExactAlarms} ${a.notifications}` testId="android"
+        case none
+          text "none" testId="android"
+      text list.map(a => `${a.tag} ${a.state}`).join(", ") testId="alarms"
+      button press=request testId="request"
+        text "Request"
+      button press=countdown testId="countdown"
+        text "One-minute timer"
+      button press=atTime testId="at"
+        text "Alarm in a minute"
+      button press=pause testId="pause"
+        text "Pause"
+      button press=resume testId="resume"
+        text "Resume"
+      button press=cancelTimer testId="cancel-timer"
+        text "Cancel the timer"
+      button press=cancelAt testId="cancel-at"
+        text "Cancel the alarm"
