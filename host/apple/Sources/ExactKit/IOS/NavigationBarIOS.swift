@@ -172,7 +172,12 @@ struct HeaderShape: Equatable {
         /// view follows it in place (`showReadouts`).
         var source: String {
             if readout != nil { return "readout:\(toolbarGroup.map(String.init) ?? ""):\(id):\(testId ?? "")" }
-            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(font.map { "\($0.fontName) \($0.pointSize) \(TextEngine.controlWeight($0))" } ?? ""):\(testId ?? "")"
+            return "\(face):\(disabled):\(accessibilityDisabled)"
+        }
+        /// `source` but for whether the item is enabled.
+        var face: String {
+            if readout != nil { return source }
+            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(font.map { "\($0.fontName) \($0.pointSize) \(TextEngine.controlWeight($0))" } ?? ""):\(testId ?? "")"
         }
     }
     let header: NodeView
@@ -725,7 +730,7 @@ extension NavigationHost {
         stack.hatched = true
         guard barShows(nav) != before else { return }
         showBar(nav, animated: false)
-        for case let c as RouteController in nav.viewControllers { c.projectedSource = nil }
+        for case let c as RouteController in nav.viewControllers { c.projectedSource = nil; c.projectedFaces = nil }
         presenter.session?.log("hatch navigation \(stack.label): showsBar changed after the first frame; the content moves once")
     }
 
@@ -760,8 +765,11 @@ extension NavigationHost {
             let canGoBack = index > 0 && canInvokeBack && shape?.authoredBack != true
             let scroller = contentScroller(of: c), scroll = scroller?.scrollView
             let dataset = c.node.props["dataset"]
-            let source = BarSource(bar: bar, authored: shape?.authored.map(\.id) ?? [], placed: shape?.placed.map(\.id) ?? [], header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
-                                   trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
+            func barSource(_ key: (HeaderShape.Item) -> String) -> BarSource {
+                BarSource(bar: bar, authored: shape?.authored.map(\.id) ?? [], placed: shape?.placed.map(\.id) ?? [], header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(key) ?? [],
+                          trailing: shape?.trailing.map(key) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
+            }
+            let source = barSource(\.source)
             // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
@@ -769,7 +777,13 @@ extension NavigationHost {
                                        scroll: scroll.map(ObjectIdentifier.init))
             if c.projectedSource != source {
                 c.projectedSource = source
-                project(shape, into: c, canGoBack: canGoBack, shows: shows)
+                // A button that only turned enabled or disabled (Refresh while it refreshes) is its item, changed
+                // as UIKit's own would be: new items lay the whole navigation controller out again.
+                let faces = barSource(\.face)
+                if !(shows && c.projectedFaces == faces && shape.map { enable($0, in: c) } == true) {
+                    c.projectedFaces = faces
+                    project(shape, into: c, canGoBack: canGoBack, shows: shows)
+                }
             }
             #if os(iOS)
             scope(c, shape: shows ? shape : nil)
@@ -838,7 +852,7 @@ extension NavigationHost {
         }
         guard shows else {
             // No stale items: the agent aims at a bar item by its press.
-            c.barPresses = []
+            c.barPresses = []; c.barItemOf = [:]
             item.leftBarButtonItems = nil
             item.rightBarButtonItems = nil
             return
@@ -859,6 +873,7 @@ extension NavigationHost {
         item.leftItemsSupplementBackButton = true
         #endif
         c.barPresses = []
+        c.barItemOf = [:]
         item.leftBarButtonItems = shape.map { barItems($0.leading, c) }
         item.rightBarButtonItems = shape.map { barItems(Array($0.trailing.reversed()), c) }
         if let shape {
@@ -1252,8 +1267,22 @@ extension NavigationHost {
         return controllers.values.contains { $0.lifted === node || $0.scoped === node || $0.barNodes.contains { $0 === node } }
     }
 
+    /// Each of `shape`'s items enabled as it says, on the item made for it; false when one has none.
+    private func enable(_ shape: HeaderShape, in c: RouteController) -> Bool {
+        let items = shape.leading + shape.trailing
+        guard items.allSatisfy({ $0.readout != nil || c.barItemOf[$0.id] != nil }) else { return false }
+        for i in items where i.readout == nil {
+            guard let item = c.barItemOf[i.id] else { continue }
+            item.isEnabled = !i.disabled
+            if i.disabled || i.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
+            else { item.accessibilityTraits.remove(.notEnabled) }
+        }
+        return true
+    }
+
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
         let item = barItemMade(i, c)
+        if i.readout == nil { c.barItemOf[i.id] = item }
         #if EXACT_INSPECT
         c.itemNodes[ObjectIdentifier(item)] = i.id // (inspect mode's bar walk, InspectIOS.swift)
         #endif

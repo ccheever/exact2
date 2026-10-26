@@ -38,8 +38,32 @@ package final class SwipeActionsHost {
     deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
     var assistive: Bool { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
 
-    // Ordinary batches always see the original hierarchy and local frames.
-    func prepare() { for row in rows.values where row.projected || row.grouped { row.restore() } }
+    /// Grouped rows that `prepare` left in their cells' state, for `sync` to keep.
+    private var kept = Set<UInt32>()
+    /// Before a batch, rows go back to the authored hierarchy (`batch` nil: every one). A grouped row stays as its cell
+    /// has it when the batch changes nothing in it but boxes and sets no `inert` (which its actions read from above
+    /// it): a row inserted at the top of a long list moves every row below, and each row's restore and mount set
+    /// `isHidden` on its actions twice.
+    func prepare(_ batch: Batch? = nil) {
+        kept = []
+        var touched: Set<UInt32>?
+        if let batch, !batch.ops.contains(where: { [.roots, .flight, .land, .exit].contains($0.op) || ($0.op == .props && ($0.props["inert"] != nil || $0.clear.contains("inert"))) }) {
+            var owners = Set<UInt32>()
+            // A node created inside a row is under a `children` op on its parent there.
+            for op in batch.ops where ![.frame, .content, .fieldContent].contains(op.op) {
+                var at: UIView? = presenter.views[op.id]
+                while let view = at {
+                    if let node = view as? NodeView, rows[node.id]?.owner === node { owners.insert(node.id); break }
+                    at = view.superview
+                }
+            }
+            touched = owners
+        }
+        for row in rows.values where row.projected || row.grouped {
+            if row.grouped, row.mounted, let touched, !touched.contains(row.owner.id) { kept.insert(row.owner.id); continue }
+            row.restore()
+        }
+    }
     /// A touch is landing on `owner`: project its row now, and release it
     /// again if the touch never reaches the table.
     func touch(_ owner: NodeView) {
@@ -110,6 +134,14 @@ package final class SwipeActionsHost {
             // controls read from their subtrees can arrive a batch later.
             // An owner outside `changed` has the props its row was built
             // from, so the row's names are still the owner's.
+            // A kept row's subtree is as it was, so its names resolve to the same nodes whatever was renamed
+            // elsewhere (a new row's `id`s are every row's); only an action labelled by an id can read another name.
+            if let row = rows[owner.id], row.owner === owner, kept.contains(owner.id),
+               !(row.leading + row.trailing).contains(where: { $0.props["accessibilityLabelledBy"]?.split(separator: " ").contains { renamed.contains(String($0)) } == true }) {
+                claimed.insert(row.body.id)
+                wanted.insert(owner.id)
+                continue
+            }
             if let changed, !changed.contains(owner.id), !renamed.contains(content),
                let row = rows[owner.id], row.owner === owner, !row.names.contains(where: renamed.contains) {
                 claimed.insert(row.body.id)
@@ -194,6 +226,7 @@ package final class SwipeActionsHost {
         painted.retain(paintedOwners)
         #endif
         refusals = refusals.filter { presenter.views[$0.key] != nil }
+        kept = []
     }
 
     /// An action's name; a native button's is its label, else its title
@@ -357,6 +390,8 @@ package final class SwipeActionsHost {
         /// hierarchy, and whether its scroll was stilled for the cell's swipe.
         private var ownerInert = false
         private var stilled = false
+        /// A grouped row's actions are hidden and its scroll stilled for its cell (`mountGrouped`), until `restore`.
+        private(set) var mounted = false
         private var logicalFrame = CGRect.zero
         private var priorSize = CGSize.zero
         /// The projection, only while a swipe can start or is shown.
@@ -427,6 +462,7 @@ package final class SwipeActionsHost {
             hiddenControls.removeAll()
             if stilled { owner.scroll?.isScrollEnabled = true; stilled = false }
             owner.scroll?.isHidden = scrollWasHidden
+            mounted = false
         }
         /// The row is gone: its claim with it.
         func discard() {
@@ -478,6 +514,7 @@ package final class SwipeActionsHost {
                 if scroll.contentOffset.x != start { scroll.contentOffset = PixelGrid.offset(CGPoint(x: start, y: scroll.contentOffset.y), in: scroll, clamped: false) }
                 if scroll.isScrollEnabled { scroll.isScrollEnabled = false; stilled = true }
             }
+            mounted = true
         }
         func mount() {
             if grouped { mountGrouped(); return }

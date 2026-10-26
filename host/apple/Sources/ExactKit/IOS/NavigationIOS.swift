@@ -18,6 +18,9 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// what the route hatch last saw; whether the hatch has run; the header
     /// lifted into the bar; the content scroll view a hatch was handed.
     var projectedSource: BarSource?, projected: HatchSource?, backSource: String?
+    /// `projectedSource` with every item's enabling left out, and the items made from it by node: an item that is
+    /// only enabled or disabled changes in place (`NavigationHost.enable`).
+    var projectedFaces: BarSource?, barItemOf: [UInt32: UIBarButtonItem] = [:]
     var hatched = false
     /// Whether a route of its stack is beneath it, to go back to: written
     /// as the stack's routes are prepared, before UIKit shows any of them

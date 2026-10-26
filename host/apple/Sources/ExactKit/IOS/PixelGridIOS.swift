@@ -166,7 +166,17 @@ extension Presenter {
     func regridChildren(of parent: NodeView) {
         let origin = parent.grid?.origin ?? .zero
         for case let child as NodeView in parent.container.subviews {
-            guard let old = child.grid, PixelGrid.place(old.layout, in: origin, scale: gridScale(under: origin)) != old else { continue }
+            guard let old = child.grid else { continue }
+            let place = PixelGrid.place(old.layout, in: origin, scale: gridScale(under: origin))
+            guard place != old else { continue }
+            // Drawn where it was in its parent, which moved by whole pixels (a row below one inserted above it):
+            // only the absolute origin its own children are placed from changes, and its box keeps its frame.
+            if place.drawn == old.drawn {
+                child.grid = place
+                menus.framed(child); stickies.regridded(child.id)
+                regridChildren(of: child)
+                continue
+            }
             applyFrame(child, old.layout)
         }
         flats.regrid(parent: parent)

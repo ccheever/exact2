@@ -749,7 +749,7 @@ package final class Presenter {
         collections.beginBatch(batch)
         if !applying { flats.begin(batch) }
         pool.begin(batch)
-        swipeActions.prepare()
+        swipeActions.prepare(batch)
         if let ids = touching(batch) { groupedLists?.prepare(touching: ids) } else { groupedLists?.prepare() }
         prepareContexts(batch)
         modals.prepare(batch)
