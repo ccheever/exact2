@@ -450,6 +450,26 @@ test('watch archives from nightly require matching bytes and the exact compiler 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('rustc unit dep-info written under another spelling of the same directory still matches', async () => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-spelled-dep-')), alias = root + '-alias';
+  try {
+    // Cargo wrote the unit through one spelling (macOS's /private/tmp); the build asks through another (/tmp).
+    symlinkSync(root, alias);
+    const out = resolve(root, 'out/release'), deps = resolve(out, 'deps');
+    mkdirSync(deps, { recursive: true });
+    const src = resolve(root, 'src/lib.rs'), artifact = resolve(out, 'libleaf.rlib');
+    writeFileSync(artifact, 'unit'); writeFileSync(resolve(deps, 'libleaf-a11ce.rlib'), 'unit');
+    const dep = resolve(deps, 'leaf-a11ce.d');
+    writeFileSync(dep, `${dep}: ${src}\n`);
+    const metadata = { target_directory: resolve(alias, 'out'), build_directory: resolve(alias, 'out') };
+    const message = { filenames: [resolve(alias, 'out/release/libleaf.rlib')], executable: null, target: { name: 'leaf', src_path: resolve(alias, 'src/lib.rs') } };
+    assert.equal(realpathSync(unitDepInfo(message, alias, metadata)), realpathSync(dep));
+    writeFileSync(dep, `${dep}: ${resolve(root, 'src/other.rs')}\n`);
+    assert.throws(() => unitDepInfo(message, alias, metadata), /no matching rustc unit dep-info for leaf; searched target directory /);
+  } finally { rmSync(alias, { force: true }); rmSync(root, { recursive: true, force: true }); }
+});
+
 test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info accepts spaces and build directory %s', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const { spawnSync } = await import('node:child_process');

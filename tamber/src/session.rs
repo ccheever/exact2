@@ -216,20 +216,20 @@ pub fn plan(
         let tokens = changed_tokens(before.as_ref(), after.as_ref());
         // A motion token is written into its rows at build (D3, D13): a
         // change to one, or to what it folds from, rebuilds.
-        let motion = |f: &Option<Folding>, name: &str| {
-            f.as_ref().is_some_and(|f| {
-                f.tokens.iter().any(|c| {
-                    c.name == name && matches!(c.kind, crate::Kind::Duration | crate::Kind::Easing)
-                })
-            })
+        let motions = |f: &Option<Folding>| -> std::collections::HashSet<String> {
+            f.iter()
+                .flat_map(|f| &f.tokens)
+                .filter(|c| matches!(c.kind, crate::Kind::Duration | crate::Kind::Easing))
+                .map(|c| c.name.clone())
+                .collect()
         };
-        structure |= tokens
-            .iter()
-            .any(|t| motion(&before, t) || motion(&after, t));
+        let (was, is) = (motions(&before), motions(&after));
+        structure |= tokens.iter().any(|t| was.contains(t) || is.contains(t));
+        let changed_set: std::collections::HashSet<&String> = tokens.iter().collect();
         if *path == synthetic.file {
             if let Some(f) = &after {
                 for (c, declared) in f.tokens.iter().zip(&f.design.tokens) {
-                    if !tokens.contains(&c.name) {
+                    if !changed_set.contains(&c.name) {
                         continue;
                     }
                     let name = match c
@@ -244,12 +244,15 @@ pub fn plan(
                 }
             }
         }
+        let mut folded = std::collections::HashMap::new();
+        for c in after.iter().flat_map(|f| f.tokens.iter().rev()) {
+            folded.insert(c.name.as_str(), c);
+        }
         for t in tokens {
             match t.strip_prefix('~').and_then(|i| i.parse::<usize>().ok()) {
                 Some(i) => {
-                    let values = after
-                        .as_ref()
-                        .and_then(|f| f.tokens.iter().find(|c| c.name == t))
+                    let values = folded
+                        .get(t.as_str())
                         .map(|c| c.values.iter().filter_map(|v| v.color().cloned()).collect())
                         .unwrap_or_default();
                     moved.push((exprs[i].0.clone(), values));
@@ -371,6 +374,7 @@ const SYNTHETIC: u32 = 1 << 30;
 /// The tokens whose values differ between two folds, or that one has and
 /// the other lacks.
 fn changed_tokens(before: Option<&Folding>, after: Option<&Folding>) -> Vec<String> {
+    use std::collections::HashMap;
     let values = |f: Option<&Folding>| -> Vec<(String, Vec<crate::Value>)> {
         f.map(|f| {
             f.tokens
@@ -381,17 +385,19 @@ fn changed_tokens(before: Option<&Folding>, after: Option<&Folding>) -> Vec<Stri
         .unwrap_or_default()
     };
     let (a, b) = (values(before), values(after));
+    // By name, the first of each (linear: the checker bound's sweep).
+    fn by_name(l: &[(String, Vec<crate::Value>)]) -> HashMap<&str, &Vec<crate::Value>> {
+        l.iter().rev().map(|(n, v)| (n.as_str(), v)).collect()
+    }
+    let (in_a, in_b) = (by_name(&a), by_name(&b));
     let mut out = Vec::new();
     for (name, v) in &a {
-        if b.iter()
-            .find(|(n, _)| n == name)
-            .is_none_or(|(_, w)| w != v)
-        {
+        if in_b.get(name.as_str()).is_none_or(|w| *w != v) {
             out.push(name.clone());
         }
     }
     for (name, _) in &b {
-        if !a.iter().any(|(n, _)| n == name) {
+        if !in_a.contains_key(name.as_str()) {
             out.push(name.clone());
         }
     }

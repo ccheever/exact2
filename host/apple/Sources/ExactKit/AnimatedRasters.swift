@@ -86,6 +86,8 @@ final class AnimatedRasters {
 
     /// Every player to the frame its clock says, if its view is on screen.
     func evaluate() {
+        let began = HostPhases.shared.begin(.image)
+        defer { HostPhases.shared.end(began) }
         var earliest: Double?
         for (key, p) in players {
             guard let view = p.view, view.raster?.image === p.image else { players.removeValue(forKey: key); continue }
@@ -149,7 +151,7 @@ final class AnimatedRasters {
                 p.inflight.remove(index)
                 guard let frame else { return }
                 if p.keepsAll || p.wanted == index || (p.shown + 1) % p.animation.count == index { p.cache[index] = frame }
-                if p.wanted == index { self.put(p, index, frame) }
+                if p.wanted == index { HostPhases.shared.measure(.image) { self.put(p, index, frame) } }
             }
         }
     }

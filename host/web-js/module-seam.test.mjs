@@ -33,8 +33,9 @@ const INTERFACE = {
   ],
 };
 
-// Each call is recorded on the page (`__sensor`); `open(slow=true)` answers after 300 ms of wall time, so a second
-// open overtakes it. A level reads the session's clock.
+// Each call is recorded on the page (`__sensor`); `open(slow=true)` answers after 5 s of wall time, so a second
+// open overtakes it (300 ms was sometimes over before a loaded machine's next tap, and nothing was overtaken; a
+// settle waits for the answer either way). A level reads the session's clock.
 const IMPLEMENTATION = `export function implementation({ agent, now }) {
   const seen = globalThis.__sensor = { agent, opened: [], levels: [], releases: [], disposed: [], preferred: [] };
   let n = 0;
@@ -43,7 +44,7 @@ const IMPLEMENTATION = `export function implementation({ agent, now }) {
       const id = 't' + ++n;
       seen.opened.push(id);
       const reading = { id, level: 0, muted: false };
-      return args.slow ? new Promise(done => setTimeout(() => done(reading), 300)) : reading;
+      return args.slow ? new Promise(done => setTimeout(() => done(reading), 5000)) : reading;
     },
     level(args, extra) { seen.levels.push([args, now(), extra?.preferred ?? null]); return { id: args.track, level: now(), muted: false }; },
     releaseArgs(name, args) { seen.releases.push([name, args]); },

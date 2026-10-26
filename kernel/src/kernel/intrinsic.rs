@@ -67,7 +67,25 @@ impl Kernel {
             layout.restyle(&self.arena, slot, node);
             layout.mark_dirty(node);
         }
+        self.inline_image_resized(slot);
         Ok(())
+    }
+
+    /// An image in a paragraph's text took a new natural size, or a size
+    /// the environment resolves: its box is the paragraph's measurement
+    /// (LLP 1011.002).
+    pub(super) fn inline_image_resized(&mut self, slot: u32) {
+        if !self.arena.is_inline_image(slot) {
+            return;
+        }
+        let owner = self.arena.measure_owner(slot);
+        self.arena.revise_text(owner, true);
+        self.arena
+            .flags_mut(owner)
+            .insert(crate::NodeFlags::TEXT_DIRTY);
+        if let (Some(node), Some(layout)) = (self.arena.taffy(owner), self.layout.as_deref_mut()) {
+            layout.mark_dirty(node);
+        }
     }
 
     /// Whether a symbol's natural size is the one the kernel measured: for
@@ -76,6 +94,14 @@ impl Kernel {
     fn measures_symbol(&self, slot: u32) -> bool {
         self.arena.measured_symbols.contains(slot)
             && self.symbol_revision == Some(self.measurer.measure_revision())
+    }
+
+    /// Whether the next layout would size a symbol first (`measure_symbols`
+    /// with `laid_out_only`): a new measurer or traits, or one owed outside
+    /// a box covered whole.
+    pub(crate) fn symbols_pending(&self) -> bool {
+        Some(self.measurer.measure_revision()) != self.symbol_revision
+            || (self.arena.symbols_owed.iter()).any(|slot| !covered_whole(&self.arena, slot))
     }
 
     /// Measure the symbols owed a measurement. A system symbol's natural size
@@ -139,6 +165,7 @@ impl Kernel {
                 layout.restyle(&self.arena, slot, node);
                 layout.mark_dirty(node);
             }
+            self.inline_image_resized(slot);
         }
     }
 }

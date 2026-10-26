@@ -131,7 +131,21 @@ impl<D: DataSource> Presenter<D> {
             return false;
         }
         self.dirty = true;
-        if let Some(e) = self.move_focus_filtered(false, now, |p, id| !p.alert_message(id)) {
+        // An attached display still has the page's previous boxes. Initial
+        // dialog focus follows its new layout before that picture is acknowledged.
+        let boxed = self
+            .host
+            .preorder()
+            .into_iter()
+            .filter(|id| self.alert_allows(*id) && !self.alert_message(*id))
+            .filter(|id| {
+                self.host
+                    .kernel()
+                    .node(*id)
+                    .is_some_and(|n| n.frame.width > 0. && n.frame.height > 0.)
+            })
+            .collect();
+        if let Some(e) = self.move_focus_in(false, now, &boxed) {
             self.host.log(e);
         }
         self.back_changed();

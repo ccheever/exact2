@@ -926,6 +926,7 @@ export function distinctFindings(runs) {
 }
 
 const PLACES = 4; // where a rule's findings are, named after its first in full
+const KINDS_FROM = 10; // findings from which the closing line says their kinds
 
 /** A finding line's rule: a compiler warning's id, else its first word after any `(… only)` tag (`contrast`). */
 export function ruleOf(line) {
@@ -959,6 +960,9 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   const out = [], full = [];
   const all = listed ? `${listed} lists them all` : 'verify --json lists them all';
   let failedTests = 0, findings = 0, broken = 0;
+  // Each counted finding's kind, for the closing line (LLP 1143 D5).
+  const kinds = new Map(), counted = (kind, n = 1) => { if (n > 0) kinds.set(kind, (kinds.get(kind) ?? 0) + n); };
+  const acceptable = new Set(); // the kinds `verify.accept` can take: check's, and fixed type
   // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
   if (refused.length) {
     const shownAt = (where) => where.length > 2 ? `${where.slice(0, 2).join(', ')} and ${where.length - 2} more` : where.join(', ');
@@ -966,7 +970,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(head, ...refused.slice(0, SHOWN).map((r) => `  ${r.line.length > 260 ? `${r.line.slice(0, 259)}…` : r.line} (${shownAt(r.where)})`));
     if (refused.length > SHOWN) out.push(`  … and ${refused.length - SHOWN} more (${all})`);
     full.push(head, ...refused.map((r) => `  ${r.line} (${r.where.join(', ')})`));
-    findings += refused.length;
+    findings += refused.length; counted('refused at run time', refused.length);
   }
   // The app's own server (LLP 1116.006 D3): run on an empty database, or why not; one that died mid-run is a failure.
   if (server?.died) { broken++; out.push(`server: ${server.died}`); }
@@ -976,14 +980,14 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(`${said} (${secs(built.ms)}${built.warnings.length ? `, ${plural(built.warnings.length, 'warning')}` : ''})`);
     for (const w of built.warnings.slice(0, WARNINGS)) out.push(`  ${w}`);
     if (built.warnings.length > WARNINGS) out.push(`  … and ${built.warnings.length - WARNINGS} more (bun exact.mjs web-build prints them all)`);
-    findings += built.warnings.length;
+    findings += built.warnings.length; counted('build warning', built.warnings.length);
   }
   // The compiler's warnings, each as `contract build` says it (LLP 1116.004 D7): findings, never a failure.
   if (compiler.length) {
     const lines = compiler.map((w) => `  ${w}`);
     out.push(`compiler: ${plural(compiler.length, 'warning')}`, ...byRule(lines));
     full.push(`compiler: ${plural(compiler.length, 'warning')} (bun exact.mjs contract build app.contract quotes each line)`, ...lines);
-    findings += compiler.length;
+    findings += compiler.length; for (const w of compiler) counted(ruleOf(w));
   }
   if (tested?.none) out.push('tests: none (no *.test.contract)');
   if (tested?.error) {
@@ -1008,7 +1012,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     if (count > shown.length) out.push(`  … and ${count - shown.length} more (verify --json lists them all)`);
     if (shown.length) full.push(head, ...shown);
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
-    findings += count;
+    findings += count; for (const l of shown) { counted(ruleOf(l)); acceptable.add(ruleOf(l)); } counted('check (not listed)', count - shown.length);
   }
   // Font and symbol sizes the app's Contract fixes and words it breaks (LLP 1116.020 D4, LLP 1116.021 D6): findings, as
   // check's are.
@@ -1017,7 +1021,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
       : `${plural(fixed.lines.length, 'finding')}: a size the reader's text size does not move, or a word broken inside`;
     out.push(`fixed type: ${said}`, ...byRule(fixed.lines));
     full.push(`fixed type: ${said}`, ...fixed.lines);
-    findings += fixed.lines.length;
+    findings += fixed.lines.length; for (const l of fixed.lines) { counted(ruleOf(l)); acceptable.add(ruleOf(l)); }
   }
   // What app.json's `verify.accept` names as the app's design: said once each, not counted; an entry that took nothing is named.
   const accepted = [...distinctFindings(runs.map((r) => ({ ...r, lines: (r.accepted ?? []).map((f) => f.line) }))), ...fixed.accepted.map((f) => f.line)];
@@ -1044,7 +1048,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     out.push(`reload ${plural(ran.length, 'test end')}: ${lines.length ? plural(lines.length, 'finding') : notes.length ? 'no findings' : 'the same screen after each'}`, ...lines.slice(0, SHOWN));
     if (lines.length > SHOWN) out.push(`  … and ${lines.length - SHOWN} more (${all})`);
     if (lines.length) full.push(`reload ${plural(ran.length, 'test end')}: ${plural(lines.length, 'finding')}`, ...lines);
-    findings += lines.length;
+    findings += lines.length; counted('reload', lines.length);
     if (notes.length) {
       out.push(`reload note: ${plural(notes.length, 'screen')} ${notes.length === 1 ? 'reloads' : 'reload'} into another state (not counted)`, ...notes.slice(0, SHOWN));
       if (notes.length > SHOWN) out.push(`  … and ${notes.length - SHOWN} more (${all})`);
@@ -1060,7 +1064,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const root = [...new Set(read.map((l) => l.rootFontSize).filter(Boolean))].join(', ');
     const size = host === 'ios' ? `${LARGEST}${root ? `, body ${root} pt` : ''}` : `root font size ${root || LARGEST_PX} px at ${WEB_SIZES[0].join('x')}, iOS's body at its largest`;
     out.push(`largest text size (${size}), ${plural(read.length, 'screen')}: ${shown.length ? `${plural(shown.length, 'finding')} (the app's own layout: give the text room; a smaller or fixed font is the tell)` : 'nothing spills'}`, ...byRule(shown));
-    largeCount = shown.length;
+    largeCount = shown.length; for (const l of shown) counted(`${ruleOf(l)} at the largest text size`);
     if (shown.length) full.push(`largest text size (${size}): ${plural(shown.length, 'finding')}`, ...shown);
     for (const l of large.filter((l) => l.error)) out.push(`  could not read ${screenName(l.screen)}: ${firstLine(l.error)}`);
   }
@@ -1068,7 +1072,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   if (relaunched?.error) { broken++; out.push(`relaunch: could not drive: ${firstLine(relaunched.error)}`); }
   else if (relaunched) {
     out.push(`relaunch on ${quoted(relaunched.test)}'s store (${secs(relaunched.ms)} of real time): ${relaunched.problems.length ? plural(relaunched.problems.length, 'problem') : relaunched.said}`, ...relaunched.problems, ...(relaunched.notes ?? []));
-    findings += relaunched.problems.length;
+    findings += relaunched.problems.length; counted('relaunch', relaunched.problems.length);
   }
   if (shots.length) {
     const place = (p) => { const r = relative(cwd, p); return r.startsWith('..') ? p : r || '.'; }, name = (p) => relative(resolve(p, '..'), p);
@@ -1083,7 +1087,15 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   const grouped = full.length && out.some((l) => /^ {4}also |^ {2}… and \d+ more/.test(l));
   if (grouped && listed) out.push(`every finding, one a line: ${listed}`);
   const problems = failedTests + findings + largeCount + broken;
-  const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding'), largeCount && `${largeCount} at the largest text size`].filter(Boolean);
+  // Many findings are said by kind, the commonest first, so the line an agent copies says what they are; a kind that is
+  // most of them is named with the way to accept those the app's design means (LLP 1143 D5).
+  const byKind = [...kinds].sort((a, b) => b[1] - a[1]), many = findings + largeCount >= KINDS_FROM;
+  const shownKinds = byKind.slice(0, 3), others = byKind.slice(3).reduce((n, [, c]) => n + c, 0);
+  const kindsSaid = [...shownKinds.map(([k, c]) => `${c} ${k}`), others && `${others} other`].filter(Boolean).join(', ');
+  const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive',
+    ...(many ? [`${plural(findings + largeCount, 'finding')}: ${kindsSaid}`] : [findings && plural(findings, 'finding'), largeCount && `${largeCount} at the largest text size`])].filter(Boolean);
+  const [top, topCount] = byKind[0] ?? [];
+  if (many && acceptable.has(top) && topCount * 2 > findings + largeCount) out.push(`most findings are ${top} (${topCount}): fix them, or, where the design means them, app.json's verify.accept takes each by its kind and testId (docs/recipes/tests.md)`);
   out.push(problems ? `verify: ${plural(problems, 'problem')} (${why.join(', ')}${failedTests || broken ? '' : '; the tests passed'}) in ${secs(ms)}` : `verify: clean in ${secs(ms)}`);
   return { lines: out, problems, exit: failedTests || broken ? 1 : 0, full: grouped ? full : [] };
 }

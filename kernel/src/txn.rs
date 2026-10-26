@@ -424,7 +424,7 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         });
                     }
                     let child_type = staged.require(op_index, *child)?;
-                    if node_type == NodeType::Text && child_type != NodeType::Text {
+                    if node_type == NodeType::Text && !child_type.in_text() {
                         return Err(ApplyError::InlineRunNotText {
                             op_index,
                             parent: *id,
@@ -939,15 +939,16 @@ pub(crate) fn continue_document(
                     receipt.layout_invalidated = true;
                     defaults::changed(arena, layout, slot, context, touched, receipt);
                     for (orphan, before, context) in detached {
-                        if arena.node_type(orphan) == NodeType::Text {
+                        if matches!(arena.node_type(orphan), NodeType::Text | NodeType::Image) {
                             text_nodes.push(arena.key(orphan));
                         }
                         defaults::changed(arena, layout, orphan, context, touched, receipt);
                         inherited_after_move(arena, layout, orphan, before, touched, receipt);
                     }
                     for (m, before, context) in moved {
-                        if arena.node_type(m) == NodeType::Text
-                            && (earlier_creations || !created.contains(&m))
+                        if arena.node_type(m) == NodeType::Image
+                            || arena.node_type(m) == NodeType::Text
+                                && (earlier_creations || !created.contains(&m))
                         {
                             text_nodes.push(arena.key(m));
                         }
@@ -1062,9 +1063,9 @@ pub(crate) fn finish_document(arena: &NodeArena, commit: DocumentCommit) -> Comm
     receipt
 }
 
-/// Inline runs are part of their paragraph's measurement, never independent
-/// layout boxes. A run promoted to a paragraph gets its current computed style;
-/// a paragraph moved into another paragraph releases its derived engine node.
+/// Inline runs and images are their paragraph's measurement, never layout
+/// boxes (an image created with one sheds it there). A promoted run gets its
+/// computed style; a paragraph moved into another releases its engine node.
 /// Keys discard destroyed generations, including slots reused in this batch.
 fn sync_text_nodes(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, nodes: Vec<NodeKey>) {
     let mut parents = IdSet::default();
@@ -1072,7 +1073,7 @@ fn sync_text_nodes(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, nodes: 
         let Some(slot) = arena.resolve(key) else {
             continue;
         };
-        if arena.is_inline_run(slot) {
+        if arena.in_paragraph(slot) {
             if let Some(node) = arena.taffy(slot) {
                 layout.remove(node);
                 arena.set_taffy(slot, None);
@@ -1394,7 +1395,7 @@ fn style_changed(
         crate::kernel::cover_style_changed(arena, layout, slot, &mask);
         receipt.layout_invalidated = true;
     }
-    if mask.intersects(StyleMask::TEXT) {
+    if arena.remeasures(slot, mask) {
         invalidate_text(arena, layout, slot);
         receipt.layout_invalidated = true;
     }

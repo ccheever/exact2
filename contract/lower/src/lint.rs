@@ -434,6 +434,28 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
+                            // A state part's row (`:hover opacity`, LLP 1121 D8): one
+                            // its state takes, checked as the row the fold lowers it to.
+                            let row;
+                            let a = match contract_syntax::state::state_of(&a.name) {
+                                Some((state, name)) => {
+                                    let written = contract_syntax::Attr {
+                                        name: name.to_string(),
+                                        ..a.clone()
+                                    };
+                                    if let Some(e) = crate::states::refusal(state, &written, false)
+                                    {
+                                        errors.push(e);
+                                        continue;
+                                    }
+                                    row = contract_syntax::Attr {
+                                        name: crate::states::checked_as(state, name).to_string(),
+                                        ..written
+                                    };
+                                    &row
+                                }
+                                None => a,
+                            };
                             let check = |a: &contract_syntax::Attr| match tags::attr_valued(
                                 &a.name, &a.value,
                             ) {

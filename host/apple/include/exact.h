@@ -114,6 +114,12 @@ typedef struct ExactTextRun {
     uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
     float variation_values[8];    /* in the axis's own units */
     uint8_t optical_sizing_none;  /* 1 for CSS font-optical-sizing: none */
+    /* LLP 1011.002: 1 when the run is an image in the paragraph's text, its text U+FFFC
+     * and its box these points wide and tall, raised box_shift from where box_align
+     * (0 baseline, 1 middle, 2 text-top, 3 text-bottom, CSS vertical-align) puts it. */
+    uint8_t inline_box;
+    uint8_t box_align;
+    float box_width, box_height, box_shift;
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
@@ -363,6 +369,11 @@ void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
  * NULL (the default) keeps every paragraph whole in a multi-column flow. */
 typedef size_t (*ExactLinesFn)(void *ctx, const ExactMeasureRequest *request, float *out, size_t cap);
 void exact_set_lines(ExactRuntime rt, ExactLinesFn lines);
+/* LLP 1011.002 D2: where the paragraph a request answers put each inline box (a run with
+ * inline_box set), its top left in content coordinates: x then y, one pair per box in run
+ * order. Writes min(2 * count, cap) floats and returns 2 * count, with exact_set_measure's
+ * context. NULL (the default) leaves each image at the paragraph's content origin. */
+void exact_set_inline_boxes(ExactRuntime rt, ExactLinesFn boxes);
 /* A system symbol's natural size, measured before layout: an Apple symbol name (UTF-8, not
  * NUL-terminated), its point size and CSS weight. Writes width and height to out and returns 1,
  * or 0 when it cannot say; called with exact_set_measure's context, and only beside a text
@@ -833,8 +844,21 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
  * the same record for a scrollport, including at offset zero; kind 6 ignores
  * the offset. Kind 7 forgets either placement. Kind 10 is a cells
  * list's rows' cell margin (LLP 1138: float left, right, then two unused),
- * 11 clears it. */
+ * 11 clears it. Kind 14 shows a split's `navigationSplit="placeholder"` box
+ * and kind 15 hides it again (LLP 1116.006 D2; the floats unused). */
 uint32_t exact_host_covers(ExactRuntime rt, size_t len);
+/* What a block's root would measure in another block (a popover's
+ * position-area option, LLP 1021 D2): each axis a length and a policy as
+ * exact_host_covers' kind 4 takes them (0 size, 1 maximum, 2 fit, 3 a
+ * position-area's region). The border box's width and height, then the
+ * margins (top, right, bottom, left) as the layout resolved them, six LE
+ * floats in the output buffer, and 24; 0 when refused. Not a batch:
+ * nothing is laid out, published or sent. */
+uint32_t exact_measure_block(ExactRuntime rt, uint32_t view, float width, float height, uint32_t width_policy, uint32_t height_policy);
+/* A number that moves whenever exact_measure_block could answer otherwise
+ * (a commit that changed something, a layout, a reset): a host keeps a
+ * measure while it stands. Not a batch. */
+uint64_t exact_layout_stamp(ExactRuntime rt);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
@@ -851,12 +875,15 @@ uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
 uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
 /* Whether the stack whose root route is `view` shows that route as a list beside
  * its detail, by the runner's rule (LLP 1115.002 D4), JSON in the output buffer,
- * not a batch: {"list":view|null,"width":number|null,"rows":[[route,row]...]}, the
- * list whose row pushes, the list column's width where `navigationSplit` names one,
- * and each route above the root that is a row's detail with that row; null for a
- * stack that pushes. */
-/* `retained` is a previous list to keep while empty and still eligible, or 0. */
-uint32_t exact_stack_split(ExactRuntime rt, uint32_t view, uint32_t retained);
+ * not a batch: {"list":view|null,"width":number|null,"rows":[[route,row]...],
+ * "locations":[[route,url]...],"pressWrites":bool|null}, the list whose row pushes,
+ * the list column's width where `navigationSplit` names one, each route above the
+ * root that is a row's detail with that row, each route above the root with its
+ * location, and whether the press of `pressed` writes the router; null for a stack
+ * that pushes. */
+/* `retained` is a previous list to keep while empty and still eligible, or 0;
+ * `pressed` is a view being pressed, or 0. */
+uint32_t exact_stack_split(ExactRuntime rt, uint32_t view, uint32_t retained, uint32_t pressed);
 /* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
  * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
  * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */

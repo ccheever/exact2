@@ -19,6 +19,14 @@ impl<D: DataSource> Presenter<D> {
         self.module = module;
     }
 
+    /// A dev loop's status the boot already said: the poll says it again
+    /// only once it changes.
+    pub fn said_at_boot(&mut self, said: Option<String>) {
+        if let (Some(dev), Some(said)) = (self.dev.as_mut(), said) {
+            dev.says(&said);
+        }
+    }
+
     /// Connect the existing development URL loop; polling starts after first pixel.
     pub fn set_development(&mut self, url: Option<String>, identity: Option<String>) {
         self.dev = url.map(|url| crate::fetch::Poller::new(url, self.compat.clone(), identity));
@@ -83,7 +91,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 self.pending_dev = Some(generation);
             }
-            Some(Err(error)) => eprintln!("exact url: {error}; keeping the running app"),
+            // A dev loop's status (its producers starting) once, not each tick.
+            Some(Err(error)) => self.dev.as_mut().unwrap().say(&error),
             _ => {}
         }
     }

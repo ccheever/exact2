@@ -94,7 +94,7 @@ word.
 ```ebnf
 file          = { declaration } ;
 declaration   = use | shape | function | style | decoration | atom | keyframes | font
-              | sound | theme | routes | component | test ;
+              | sound | theme | routes | component | members-block | test ;
 use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
 shape         = "shape" IDENT block(field) ;
@@ -275,7 +275,12 @@ section       = "props" block(field)
               | "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
               | "derive" IDENT "=" expr NL
               | resource | mutation | action | task | sequence
+              | "members" STRING NL
               | "view" block(node) ;
+members-block = "members" IDENT block(member) ;
+member        = "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
+              | "derive" IDENT "=" expr NL
+              | resource | mutation | action | task | sequence ;
 provider      = FIELD [ "=" expr ] NL ;
 resource      = "resource" IDENT "=" source-call
                 [ "with" expr { "," expr } ] "as" "shape" type
@@ -305,6 +310,23 @@ statement-case  = "case" "some" "(" IDENT ")" block(statement)
                 | "case" "none" block(statement) ;
 source-call   = IDENT "(" [ arguments ] ")" ;
 ```
+
+A component may write some of its members in other files (LLP 1091.002), so a
+large root can be split by feature under the line cap. `members
+"./composer.contract"` in its body stands for the members that file declares
+under `members Name`, as if they were written at that line: the program, and
+the plan, are the one-file program's. The path is a relative `use` path
+(`contract-use-path`). A members file holds one `members` block, named for the
+component that lists it (`contract-members-owner`), listed by one line
+(`contract-members-twice`, `contract-members-unlisted`); the block holds
+`state`, `derive`, `resource`, `mutation`, `action`, `task` and `sequence`,
+and the once-only sections and `members` lines stay in the component's own
+body (`syntax-members-section`). Every file of a component sees all its
+members, props and injects; a name declared in two of its files is refused
+naming both (`contract-members-duplicate`). Any other name a members file
+calls (a shape, a `fn`, a component) comes from its own `use` lines. The
+component's rules hold for its members wherever they are written: a child's
+members file declares no resource.
 
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks, except that
@@ -1338,6 +1360,24 @@ two); a computed one is journaled and holds nothing. `keepScreenOn`,
 reads `state.wakelock` (`{held, by}`); [the reference](reference.md#keep-the-screen-awake)
 has each host's lock.
 
+### Orientation lock: `orientationlock`
+
+`orientationlock` on any element takes a Screen Orientation API lock type
+(`"portrait"`, `"landscape"`, `"portrait-primary"`, `"portrait-secondary"`,
+`"landscape-primary"`, `"landscape-secondary"`, `"natural"`, `"any"`),
+`"current"` or `"none"` (the default), literal or bound
+([LLP 1133.029](../llp/1133.029-screen.rfc.md)). It holds while the element
+is displayed, by `wakelock`'s rule, and outside every `dialog` and popover.
+Any other literal is refused (`lower-attr-value`, naming the words); a
+computed one is journaled and holds nothing. The bake refuses a lock inside
+a `dialog` or popover (`orientationlock-in-top-layer`) and a literal type
+that shares no orientation with the manifest's `orientation`
+(`orientationlock-outside-manifest`). `screenOrientation`, `lockOrientation`,
+`orientation`, `requestedOrientation` and `supportedInterfaceOrientations` are
+refused with this name. The agent reads `state.orientationlock`;
+[the reference](reference.md#lock-the-screen-orientation) has the rules
+and each host's lock.
+
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
@@ -2019,7 +2059,10 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   text, between its `compositionstart` and `compositionend` (UI Events). On
   the web that is every such key, the Enter that picks a candidate
   included, so an Enter or Escape handler skips it with `not e.isComposing`,
-  as web code does. On macOS and iOS the only composing keys a handler hears
+  as web code does. A keydown an input method processed, `keyCode` 229 in
+  the DOM, is composing there too, as web code's `e.keyCode === 229` test
+  takes it: Safari sends the Enter that commits a composition after
+  `compositionend`. On macOS and iOS the only composing keys a handler hears
   are a modifier's own press and release, which are `isComposing` as
   Chrome's are; a ⌘ chord is not, and neither are the keys after it, ⌘'s
   release included, since its keydown has committed the text (Chrome's

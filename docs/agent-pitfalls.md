@@ -13,6 +13,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **An unknown-size image stays blank after disclosure.** On Windows, an auto-height
+  wrapper around a percentage-width image can leave the image at zero height before
+  decoding. The lazy loader then sees no visible area to load. Give the image a fallback
+  ratio, such as `aspect-ratio="auto 16 / 9"`: it reserves space until the image's
+  natural ratio arrives. (Excord image spoilers, 2026-10-24.)
+
 - **`link "Title" href="/item"` is refused as zero-sized.** Only a `button`'s
   positional title becomes a text child; a `link` needs explicit children. Write:
 
@@ -1078,6 +1084,21 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
+
+- **A build's refusals do not say "error".** A compile refusal prints as
+  `app.contract:5:13 [lower-attr-value] symbol \`warning\` is not a role; …` and the
+  build exits 1, so a check that greps the output for `error` passes a build that
+  failed. Judge a build by its exit status (`bun host/web/build.mjs`, `bun
+  host/apple/build.mjs`). (Excord port, `symbol:warning`, LLP 1142 D7, 2026-10-25.)
+
+- **A host timing bug on iOS is chased with `NSLog` and rebuilds of exact2.** A
+  development build already journals what the host did: `logs` has `host:` lines for
+  navigation (`willShow`, `didShow`, and whether the app, UIKit's Back or the edge swipe
+  started it), sheets presented and dismissed, autofocus applied or skipped with what holds
+  the focus, the keyboard, and the status bar's style. A run driven by hand prints them to
+  `xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "dev.exact"
+  AND category == "host"'`, and the rest of the journal under `subsystem == "com.exact.app"
+  AND category == "journal"` (`--level info`). Read them before patching the host (LLP 1143).
 
 - **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
   string form sets the whole textarea: AppKit selects all, then inserts the supplied

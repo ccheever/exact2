@@ -11,6 +11,7 @@
 //! values are the device's, computed there. A host whose shell tells no
 //! palette (desktop Linux, a headless run) reports nothing and keeps each
 //! role's fallback pair.
+pub use super::contrast::ContrastPalette;
 use super::*;
 use exact_kernel::style::{roles, Color};
 use exact_kernel::ColorValue;
@@ -252,6 +253,7 @@ pub(crate) fn reported_accent(dark: bool) -> Option<([u8; 4], [u8; 4])> {
 /// What a presenter keeps of the reported colours.
 #[derive(Default)]
 pub(super) struct State {
+    pub contrast: super::contrast::State,
     /// The reported table's generation this presenter last painted from,
     /// and the palette, whose roles past the table's (read by [`material`])
     /// can change while the table does not.

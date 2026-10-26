@@ -26,6 +26,7 @@ pub mod fmt;
 pub mod idioms;
 pub mod inline;
 pub mod lexer;
+pub mod members;
 mod midi;
 pub mod migrate;
 mod module_decl;
@@ -39,6 +40,7 @@ mod share;
 mod spans;
 pub mod state;
 mod tap;
+pub mod tool;
 
 pub use ast::*;
 pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};

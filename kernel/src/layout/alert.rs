@@ -2,7 +2,7 @@
 
 use super::*;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(super) enum Kind {
     #[default]
     Node,
@@ -42,6 +42,7 @@ pub(super) fn measure(
         let run = TextRun {
             text: shown,
             style: crate::TextStyle::from_style(&title),
+            inline: None,
         };
         let request = TextMeasureRequest {
             atoms: Default::default(),

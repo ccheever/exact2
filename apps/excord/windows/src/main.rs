@@ -1,9 +1,6 @@
 //! Excord on Windows: the host's window over the app's TypeScript data module
 //! (`app.ts` as Hermes bytecode) and its baked plan.
-#![cfg_attr(
-    all(target_os = "windows", not(debug_assertions)),
-    windows_subsystem = "windows"
-)]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));

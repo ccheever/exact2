@@ -80,6 +80,11 @@ pub struct File {
     pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
+    /// A members file's `members Name` block (LLP 1091.002 D2): members of
+    /// the component `Name`, which lists this file.
+    pub members: Option<Component>,
+    /// Refusals left to the loader (LLP 1091.002).
+    pub deferred: Vec<crate::members::Deferred>,
 }
 impl File {
     /// Describe an unknown component and the merged declarations in source order.
@@ -697,12 +702,16 @@ pub struct Component {
     pub tasks: Vec<Task>,
     /// `sequence` declarations (LLP 1125 D2), the root's only.
     pub sequences: Vec<crate::sequence::Sequence>,
+    /// `tool` lines (LLP 1111 D2), the root's only.
+    pub tools: Vec<crate::tool::Tool>,
     /// The view's top-level nodes.
     pub view: Vec<Node>,
     /// The `params` section and the component's identity (LLP 1121 D15).
     pub params: crate::params::Params,
     /// Its parts and the nodes named as them (LLP 1139 D2).
     pub anatomy: crate::anatomy::Anatomy,
+    /// Its `members` lines (LLP 1091.002).
+    pub members: crate::members::Members,
     /// Where.
     pub span: Span,
 }

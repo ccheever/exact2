@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+mod activity;
 mod dates;
 mod device;
 mod drag;
@@ -25,9 +26,12 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 /// Identity shared by the Contract bake, browser store and Apple app.
 pub const APP: &str = "com.exact.calendar";
 /// The app's own SQLite file, and the person's calendars, read only while
-/// "Show my calendars" is on (LLP 1133.018 §11). Contacts need no line: the
-/// guests are picked, and a pick is the app's copy (D4).
-pub const GRANTS: &str = "sqlite.open app:/data/calendar.db\ndevice.calendar calendarPurpose";
+/// "Show my calendars" is on (LLP 1133.018 §11), and the person's steps and
+/// workouts, read only while "Show my activity" is on (LLP 1133.026 §12).
+/// Contacts need no line: the guests are picked, and a pick is the app's
+/// copy (D4).
+pub const GRANTS: &str =
+    "sqlite.open app:/data/calendar.db\ndevice.calendar calendarPurpose\ndevice.health-read healthPurpose";
 
 /// A local calendar. Wrap this in `exact_data_host::Storage` in native hosts.
 /// Loading summaries is asynchronous; settled month and agenda queries do no I/O.
@@ -44,6 +48,7 @@ pub struct Calendar {
     load: Option<storage::Load>,
     mutation: Option<storage::PendingMutation>,
     walks: device::Walks,
+    activity: activity::Walks,
 }
 
 impl Calendar {
@@ -355,6 +360,7 @@ impl Calendar {
                 Value::str("unread"),
                 Value::list(Vec::new()),
             ])),
+            "calendarActivityDays" | "calendarActivityAgenda" => Ok(activity::unread(source)),
             "calendarGuests" => Ok(Value::record(vec![Value::list(Vec::new())])),
             "addGuests" => Ok(Value::record(vec![Value::Number(0.0), Value::str("")])),
             "loadCalendar" => Ok(self.library("")),
@@ -416,6 +422,9 @@ impl DataSource for Calendar {
             "calendarDeviceDays" | "calendarDeviceAgenda" => {
                 Ok(device::answer(&mut self.walks, source, args))
             }
+            "calendarActivityDays" | "calendarActivityAgenda" => {
+                Ok(activity::answer(&mut self.activity, source, args))
+            }
             "calendarGuests" => {
                 store.observe_external_read();
                 Ok(guests::read(text(args, 0).map_err(DataError::Unavailable)?))
@@ -455,6 +464,9 @@ impl DataSource for Calendar {
         match source {
             "calendarDeviceDays" | "calendarDeviceAgenda" => {
                 Ok(device::parse(&mut self.walks, source, args, outcome))
+            }
+            "calendarActivityDays" | "calendarActivityAgenda" => {
+                Ok(activity::parse(&mut self.activity, source, args, outcome))
             }
             "calendarGuests" => Ok(guests::parse_read(outcome)),
             "addGuests" => Ok(guests::parse_add(outcome)),

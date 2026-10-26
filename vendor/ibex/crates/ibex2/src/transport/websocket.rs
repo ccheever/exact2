@@ -76,6 +76,7 @@ enum TestProxy {
 #[derive(Default)]
 struct PumpObserver {
     parked: std::sync::atomic::AtomicBool,
+    receiving: std::sync::atomic::AtomicBool,
     exited: std::sync::atomic::AtomicBool,
     close_received: std::sync::atomic::AtomicBool,
     terminal_draining: std::sync::atomic::AtomicBool,
@@ -485,11 +486,7 @@ impl TcpSocketTransport {
             )
             .map_err(failed)?;
         poll.registry()
-            .register(
-                wire.tcp_mut(),
-                SOCKET_TOKEN,
-                Interest::READABLE.add(Interest::WRITABLE),
-            )
+            .register(wire.tcp_mut(), SOCKET_TOKEN, Interest::READABLE)
             .map_err(failed)?;
         let buffered_amount = Arc::new(AtomicUsize::new(0));
         let command_count = Arc::new(AtomicUsize::new(0));
@@ -1868,18 +1865,19 @@ fn stop_polling_tcp(poll: &Poll, wire: &mut Wire, registered: &mut bool) -> Resu
     Ok(())
 }
 
-fn poll_writes_only(
+fn poll_interests(
     poll: &Poll,
     wire: &mut Wire,
-    write_only: &mut bool,
+    current: &mut Interest,
+    wanted: Interest,
 ) -> Result<bool, HostError> {
-    if !*write_only {
+    if *current != wanted {
         poll.registry()
-            .reregister(wire.tcp_mut(), SOCKET_TOKEN, Interest::WRITABLE)
+            .reregister(wire.tcp_mut(), SOCKET_TOKEN, wanted)
             .map_err(|error| {
                 HostError::Failed(format!("the socket readiness registration failed: {error}"))
             })?;
-        *write_only = true;
+        *current = wanted;
         return Ok(true);
     }
     Ok(false)
@@ -2069,7 +2067,7 @@ fn pump_loop(
     let mut read_ready = !input.available().is_empty();
     let mut write_ready = true;
     let mut tcp_registered = true;
-    let mut write_only = false;
+    let mut interests = Interest::READABLE;
     let mut stall_deadline: Option<Instant> = None;
 
     loop {
@@ -2646,25 +2644,35 @@ fn pump_loop(
         if command_count.load(Ordering::Acquire) != 0 && !pending_write {
             continue;
         }
-        if close.read == ReadSide::Done {
-            match poll_writes_only(&poll, &mut wire, &mut write_only) {
-                Ok(true) => {
-                    // mio readiness is edge-triggered on epoll. The socket may
-                    // already be writable when EPOLL_CTL_MOD changes the
-                    // interest set, so probe it before waiting for an edge
-                    // which need not recur.
-                    write_ready = true;
-                    continue;
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    fail_pump(&mut request, &requests, error, &state, &shutdown);
-                    return;
-                }
+        // Windows rearms readiness after a read returns WouldBlock. Watching
+        // an always-writable socket with no output makes an idle receive spin.
+        let wanted = if close.read == ReadSide::Done {
+            Interest::WRITABLE
+        } else if pending_write {
+            Interest::READABLE.add(Interest::WRITABLE)
+        } else {
+            Interest::READABLE
+        };
+        match poll_interests(&poll, &mut wire, &mut interests, wanted) {
+            Ok(true) if pending_write => {
+                // mio readiness is edge-triggered on epoll. The socket may
+                // already be writable when EPOLL_CTL_MOD changes the
+                // interest set, so probe it before waiting for an edge
+                // which need not recur.
+                write_ready = true;
+                continue;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                fail_pump(&mut request, &requests, error, &state, &shutdown);
+                return;
             }
         }
         #[cfg(test)]
         if let Some(observer) = &pump_observer {
+            observer
+                .receiving
+                .store(request.is_some(), Ordering::Release);
             observer.parked.store(true, Ordering::Release);
         }
         let timeout =

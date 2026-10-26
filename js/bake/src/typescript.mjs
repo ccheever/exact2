@@ -9,7 +9,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { builtinModules, createRequire } from 'node:module';
-import { resolve, relative, dirname, join, sep, isAbsolute } from 'node:path';
+import { resolve, relative, dirname, basename, join, sep, isAbsolute } from 'node:path';
 
 function httpOrigin(value, label) {
   let url; try { url=new URL(value); } catch { throw new Error(`${label}: expected an http(s) origin`); }
@@ -210,6 +210,7 @@ function capturedOrigins(stage) {
   return [...roots.mounts.map(([name,path])=>[resolve(stage,name),path]),[stage,roots.app]];
 }
 const within=(path,root)=>path===root || path.startsWith(root+sep);
+const physicalId=id=>isAbsolute(id) ? realpathSync.native(id) : id;
 /** Capture into the stage the declarations of every package the captured
  * TypeScript names, and of the packages those declarations name: each found
  * from where its file was captured, as Node and TypeScript find it (the
@@ -449,13 +450,15 @@ export function capturedSources(stage, refusals=null) {
     name:'captured-sources',
     async resolveId(source, importer, options) {
       if (!importer || importer.startsWith('\0')) return null;
+      importer=physicalId(importer);
       const from=files.get(importer), name=packageName(source), kind=kindOf(options);
       const record=(id)=>edges.set([slash(relative(stage,importer)),source,kind].join('\0'),[slash(relative(stage,importer)),source,kind,id ? slash(relative(stage,id)) : '']);
       // The app's own imports (a relative or absolute path) resolve as they
       // would, and are recorded, so a later bundle replays every one.
       if (!from && !name && !builtin(source)) {
         if (!within(importer,stage)) return null;
-        const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
+        const result=await this.resolve(source, importer, { ...options, skipSelf: true });
+        const resolved=result && !result.external ? {...result,id:physicalId(result.id)} : result;
         if (resolved && !resolved.external && !resolved.id.startsWith('\0')) record(resolved.id);
         return resolved;
       }
@@ -464,7 +467,8 @@ export function capturedSources(stage, refusals=null) {
         // place that differs between the stage and the app's own directory.
         if (source.split(/[\\/]/).some(part => part === '.' || part === '..')) throw new Error('module outside captured app: '+source);
         // A path mapping into the capture.
-        const resolved=await this.resolve(source, importer, { ...options, skipSelf: true });
+        const result=await this.resolve(source, importer, { ...options, skipSelf: true });
+        const resolved=result && !result.external ? {...result,id:physicalId(result.id)} : result;
         if (resolved && !resolved.external && within(resolved.id,stage) && !staged(resolved.id)) { record(resolved.id); return resolved; }
       }
       // Where the import leads from the importer's own place.
@@ -478,15 +482,17 @@ export function capturedSources(stage, refusals=null) {
       }
       // A `browser` field's `false`: Rolldown's empty module.
       if (real.id.startsWith('\0')) { record(null); return real; }
-      const id=capture(real.id, who, name && installedAt(name, dirname(place)));
+      const id=capture(physicalId(real.id), who, name && installedAt(name, dirname(place)));
       record(id);
       return { ...real, id };
     },
     load(id) {
+      id=physicalId(id);
       if (!files.has(id) && !id.startsWith('\0rolldown/empty.js')) assertCapturedModule(stage, id);
       return null;
     },
     transform(code, id) {
+      id=physicalId(id);
       const parse=(c,o)=>this.parse(c,o), js=/\.[cm]?js$/.test(id) && within(id,stage);
       // The app's own JavaScript is checked as package code is, and for the clock as the app's TypeScript is.
       report([...(files.has(id) ? [] : ambientRefusals(stage,id,code,parse)), ...(js ? packageRefusals(code,(at)=>label(id,at),parse) : [])]);
@@ -525,6 +531,7 @@ export function replayCaptured(stage, allowed=[]) {
   const edges=new Map(record.edges.map(([importer,source,kind,target])=>[[resolve(stage,importer),source,kind].join('\0'),target && resolve(stage,target)]));
   const host=new Set(allowed);
   const lookup=(source,importer,kind)=>{
+    if (importer) importer=physicalId(importer);
     if (!importer || !within(importer,stage)) return undefined;
     const key=[importer,source,kind].join('\0');
     if (edges.has(key)) return edges.get(key);
@@ -1318,7 +1325,11 @@ const checkEnv={GOGC:'300',GOMEMLIMIT:'128MiB',GOMAXPROCS:'4',...process.env};
  * configured libraries. An external declaration must not influence an
  * accepted app artifact. */
 export function check(stage, tsc, libraries) {
-  const allowed = path => { path=resolve(path);return path === stage || path.startsWith(stage+sep) || (within(path,libraries) && configuredLibrary(relative(libraries,path))); };
+  // TypeScript expands Windows short paths; compare the same physical names
+  // for the capture, libraries and files, including directory junctions.
+  stage=realpathSync.native(stage);
+  libraries=realpathSync.native(libraries);
+  const allowed = path => within(path,stage) || (within(path,libraries) && configuredLibrary(relative(libraries,path)));
   // A package's JavaScript entry (`typescript/bin/tsc`, an `EXACT_TSC`
   // override) keeps its Node shebang: run it through Bun, as the one-shot
   // producer runs its tools (js/bake/src/lib.rs `run`).
@@ -1336,7 +1347,7 @@ export function check(stage, tsc, libraries) {
         return fail(new Error(diagnostics+sourceNames(stage,diagnostics)+refusal+String(stderr??'') || String(error.message)));
       }
       for(const path of stdout.trim().split(/\r?\n/)) {
-        if(path && !allowed(realpathSync(path)))return fail(new Error('module outside captured app: '+path));
+        if(path && !allowed(realpathSync.native(path)))return fail(new Error('module outside captured app: '+path));
       }
       done();
     }));
@@ -1360,7 +1371,7 @@ export async function ambientDiagnostics(app) {
     return {file:resolve(app,file),line:Number(row),col:Number(col),message};
   });
 }
-if (process.argv[2]==='--ambient' && process.argv[1]?.endsWith('/typescript.mjs')) {
+if (process.argv[2]==='--ambient' && basename(process.argv[1] ?? '')==='typescript.mjs') {
   try { console.log(JSON.stringify(await ambientDiagnostics(resolve(process.argv[3])))); }
   catch(error) { console.error(error.message); process.exitCode=1; }
 }

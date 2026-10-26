@@ -357,11 +357,13 @@ with a `press` handler; an input's `controlTextDidChange` is a `change`. The
 events beyond those (LLP 1005 §3; 2026-08-30): a `hover` handler is an
 `NSTrackingArea` — `mouseEntered`/`Exited`, the previously hovered node's
 leave sent before the new one's enter. A tracking area hears only a pointer
-that moves, so after a batch that makes, moves, removes or transforms boxes,
-or a scroll, the next display frame hit-tests the resting pointer (once a
-frame; none while a button is down or the pointer is off the window or over
-another one) and sends the leave/enter a browser's hover update would (#139,
-2026-10-06); `focus`/`blur` are first-responder
+that moves, so after a batch that makes, moves, removes or transforms boxes
+the next display frame hit-tests the resting pointer (once a frame; none
+while a button is down or the pointer is off the window or over another one)
+and sends the leave/enter a browser's hover update would (#139, 2026-10-06);
+after a scroll the hit-test waits until the scroll has rested 100 ms, once a
+scroll, as WebKit's fake mouse move does (https://trac.webkit.org/r134150;
+macOS, 2026-10-25; a drive's frozen clock keeps the next frame); `focus`/`blur` are first-responder
 changes (a field's begin/end editing; a node with such a handler
 `acceptsFirstResponder` and takes it on mouse-down); a `key` handler gets
 `keyDown`'s name in the web's vocabulary (`Enter`, `Escape`, `Tab`,

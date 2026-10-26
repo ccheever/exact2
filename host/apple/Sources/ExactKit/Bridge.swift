@@ -16,6 +16,7 @@ extension Runtime {
     }
 
     func holdBegin(_ view: UInt32, property: UInt32, now: Double) -> (NativeHold?, Batch) {
+        if holds() { return (nil, Runtime.heldBatch) } // (`on(busy:)` doesn't hold: ResetGate)
         return on(busy: (nil, Runtime.busy)) {
             let batch = read(exact_hold_begin(rt, view, property, now))
             let start = batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }
@@ -23,6 +24,7 @@ extension Runtime {
         }
     }
     package func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
+        if holds() { return (nil, Runtime.heldBatch) }
         return on(busy: (nil, Runtime.busy)) {
             let batch = read(exact_height_drag_begin(rt, handleKey, targetKey, now))
             return (batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }, batch)

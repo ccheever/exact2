@@ -97,3 +97,49 @@ export const upstream = (url, init = {}) => {
   headers.delete('connection'); headers.delete('keep-alive');
   return fetch(url, { ...init, headers, keepalive: false });
 };
+
+/** A design server's `{app, epoch}` at `origin`, as `tamber tool` probes it: `{answer}` (`{app: null}` from a server
+ * with no design server), `{wait}` while there is no answer yet (`'listening'`: refused, a dev loop still on its first
+ * build, or reset, one restarting under the request; `'starting'`: it listens, but its token or hello timed out, its design server starting), or `{failed}`. A
+ * token probe that times out is tried again, `tries` in all (a loaded dev loop answers late). */
+export async function probeTool(origin, tries = 1) {
+  const why = e => (e?.name === 'TimeoutError' ? { wait: 'starting' } : ['ConnectionRefused', 'ECONNREFUSED', 'ECONNRESET'].includes(e?.code ?? e?.cause?.code) ? { wait: 'listening' } : { failed: true });
+  let got;
+  try { for (let i = 1; !got; i++) try { got = await upstream(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) }); } catch (e) { if (e?.name !== 'TimeoutError' || i >= tries) throw e; } } catch (e) { return why(e); }
+  if (!got.ok) return { answer: { app: null } };
+  try {
+    const { token } = await got.json();
+    // (Held while its design server starts: a dev loop's first compiler build.)
+    const said = await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) });
+    // (An HTTP error status is an answer, whatever its body does after: no design server here, as for the token.)
+    if (!said.ok) return { answer: { app: null } };
+    const hello = await said.json();
+    return { answer: { app: hello.ok?.app ?? null, epoch: hello.ok?.epoch ?? null } };
+  } catch (e) { return why(e); } // (refused or reset now: it stopped between the two, a loop restarting)
+}
+
+/** `probe()` again every `everyMs` while it says `{wait}` (`tamber tool --via` while the dev loop starts, the design
+ * tool's third pass's #9), each new reason said once (`say`), for at most `capMs`: its first other answer, or
+ * `{waited: ms}` past the cap. Ctrl-c meanwhile exits 130 (SIGTERM 143), before anything is listening. */
+export async function waitForAnswer(probe, { say, capMs, everyMs = 2000, now = Date.now, exit = code => process.exit(code) }) {
+  const start = now(), codes = { SIGINT: 130, SIGTERM: 143 }, handlers = Object.entries(codes).map(([signal, code]) => [signal, () => exit(code)]);
+  let said = null;
+  try {
+    for (const [signal, handler] of handlers) process.once(signal, handler);
+    // (The cap bounds a probe in flight too: a hello held 120 s ends the wait at the cap, not after it.)
+    let timer;
+    const capped = new Promise(done => { timer = setTimeout(() => done({ waited: now() - start }), Math.max(0, capMs)); });
+    try {
+      for (;;) {
+        const got = await Promise.race([probe(), capped]);
+        if (!got.wait) return got;
+        if (got.wait !== said) say((said = got.wait));
+        if (now() - start >= capMs) return { waited: now() - start };
+        const next = await Promise.race([new Promise(done => setTimeout(() => done(null), everyMs)), capped]);
+        if (next) return next;
+      }
+    } finally { clearTimeout(timer); }
+  } finally {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+  }
+}

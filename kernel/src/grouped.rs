@@ -266,8 +266,8 @@ pub(crate) fn text_of(node: &NodeRef<'_>) -> Option<String> {
     if node.node_type != NodeType::Text {
         return None;
     }
-    let text_runs = node.text_runs();
-    let runs: Vec<&str> = text_runs.iter().map(|r| &*r.text).collect();
+    let text_runs = node.read_runs();
+    let runs: Vec<&str> = text_runs.iter().map(|r| &**r).collect();
     let mut rows = StyleMask::EMPTY;
     rows.set(StyleId::WhiteSpace);
     let white_space = node.computed_style(rows).white_space.model();

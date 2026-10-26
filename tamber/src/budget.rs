@@ -26,6 +26,8 @@ thread_local! {
     static LEFT: Cell<u64> = const { Cell::new(0) };
     static LIMIT: Cell<u64> = const { Cell::new(0) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
+    /// Whether a spend found the budget too short (not merely spent to 0).
+    static OVER: Cell<bool> = const { Cell::new(false) };
 }
 
 /// An import's work, from its entry point to its return: the budget full
@@ -40,6 +42,7 @@ impl Work {
             if d.get() == 0 {
                 LEFT.with(|l| l.set(limit));
                 LIMIT.with(|l| l.set(limit));
+                OVER.with(|o| o.set(false));
             }
             d.set(d.get() + 1);
         });
@@ -66,12 +69,22 @@ pub fn spend(n: u64) -> Result<(), String> {
         }
         None => {
             l.set(0);
+            OVER.with(|o| o.set(true));
             Err(format!(
                 "the source expands past what one import may do ({} steps): its references, groups or aliases multiply, or the design is larger than one import may take",
                 LIMIT.with(Cell::get)
             ))
         }
     })
+}
+
+/// The refusal's words when this import's budget is spent (a step that
+/// stopped at it rather than refusing at once), else `None`.
+pub(crate) fn spent() -> Option<String> {
+    // (one that spent the budget to the last step exactly is within it:
+    // Grok's round 1 on the counts)
+    let spent = DEPTH.with(Cell::get) > 0 && OVER.with(Cell::get);
+    spent.then(|| spend(1).unwrap_err())
 }
 
 /// What copying `v` costs: its bytes, roughly.
@@ -102,4 +115,18 @@ pub(crate) fn tree(tree: serde_json::Map<String, Value>) -> Result<Value, Vec<cr
     let tree = Value::Object(tree);
     copy(&tree).map_err(|m| vec![crate::Diagnostic::new("tamber-export", m, 1, 1)])?;
     Ok(tree)
+}
+
+#[cfg(test)]
+mod spent_tests {
+    /// Spending the budget to its last step is within it; a step past it is
+    /// what `spent` reports (Grok's round 1 on the counts).
+    #[test]
+    fn the_last_step_is_within_the_budget_and_one_past_it_is_spent() {
+        let _work = super::Work::begin(10);
+        assert!(super::spend(10).is_ok());
+        assert!(super::spent().is_none());
+        assert!(super::spend(1).is_err());
+        assert!(super::spent().is_some());
+    }
 }

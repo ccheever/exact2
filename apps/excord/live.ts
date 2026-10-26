@@ -76,8 +76,13 @@ export interface Live {
   ackToken: string | null;
   // Channels with a history page in flight: one at a time each (§2).
   paging: Set<string>;
+  // `channel:anchor` for an anchor whose page did not hold it (a deleted message, a link past the
+  // channel's end, an empty channel): the window shows the channel's end rather than ask again.
+  missed: Set<string>;
   // Sends that failed, by nonce, so a retry knows what to post.
-  sends: Map<string, { channel: string; content: string; replyTo: string }>;
+  // A send's files are its picked copies (`app:/tmp/picked/…`), uploaded when it posts; `uploaded` keeps
+  // each file's upload as it lands, so a retry uploads only what did not.
+  sends: Map<string, { channel: string; content: string; replyTo: string; mention: boolean; files: Upload[]; uploaded?: (rest.Uploaded | undefined)[] }>;
   attempt: number;
   // The kept credentials have been read: a missing token is then signed out, not loading.
   ready: boolean;
@@ -109,7 +114,7 @@ export function createLive(origins: Origins): Live {
   return { origins, store: S.createStore(), gw: null, socket: null, identity: null, token: '',
     limiter: rest.limiterInit(), nonces: { lastMs: null, sequence: 0 }, applied: new Set(), arrived: new Map(),
     history: new Map(), sidebar: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
-    ackToken: null, paging: new Set(), sends: new Map(), attempt: 0, ready: false,
+    ackToken: null, paging: new Set(), missed: new Set(), sends: new Map(), attempt: 0, ready: false,
     queue: [], drainer: 0, outbox: [], closing: null, account: 0, snapshots: 0, signedOut: false };
 }
 
@@ -147,7 +152,7 @@ export function dispatch(live: Live, t: string, s: number, d: any): S.Changed {
   return applyEvent(live, t, d);
 }
 
-const HISTORY = /^MESSAGE_(CREATE|UPDATE|DELETE|DELETE_BULK|REACTION_)/;
+const HISTORY = /^MESSAGE_(CREATE|UPDATE|DELETE|DELETE_BULK|REACTION_|POLL_VOTE_)/;
 
 /** Apply an event the app learned of (a dispatch, or a REST reply standing for one). */
 export function applyEvent(live: Live, t: string, d: any): S.Changed {
@@ -159,6 +164,7 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
     const known = !!h?.messages.has(d.id) || (nonce !== '' && !!h?.pending.has(nonce));
     if (!known) live.arrived.set(d.channel_id, (live.arrived.get(d.channel_id) ?? 0) + 1);
   }
+  const person = d?.user?.id ? S.user(store, String(d.user.id)) : null;
   const changed = S.applyDispatch(store, t, d, clock.now);
   const channels = new Set(changed.channels);
   // A deleted message the store never held changes nothing it keeps, but a held reply to it now
@@ -166,6 +172,13 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
   if ((t === 'MESSAGE_DELETE' || t === 'MESSAGE_DELETE_BULK') && d?.channel_id && !channels.has(d.channel_id)
     && S.repliesTo(store, d.channel_id, t === 'MESSAGE_DELETE' ? [d.id] : d.ids ?? [])) channels.add(d.channel_id);
   if (t === 'READY' || HISTORY.test(t)) for (const id of channels) touched(live, id);
+  // A role's colour is drawn in the names of the open channel's rows, and a server's name in a boost's line
+  // (`render.ts`).
+  if (/^GUILD_(ROLE_|UPDATE)/.test(t) && live.viewing.channel && S.channel(store, live.viewing.channel)?.guild_id === (d?.guild_id ?? d?.id)) {
+    touched(live, live.viewing.channel);
+  }
+  // A person's new name or picture redraws the open channel, where a row may name them.
+  if (t === 'GUILD_MEMBER_UPDATE' && person && live.viewing.channel && S.user(store, person.id) !== person) touched(live, live.viewing.channel);
   if (changed.sidebar || [...channels].some(id => id !== live.viewing.channel)) live.sidebar++;
   return { channels: [...channels], sidebar: changed.sidebar };
 }
@@ -175,9 +188,11 @@ export function touched(live: Live, channel: string): void {
   live.history.set(channel, (live.history.get(channel) ?? 0) + 1);
 }
 
+export interface Upload { path: string; name: string; type: string; size: number; width: number; height: number }
+
 export interface Snapshot {
   state: string; detail: string; me: string; meName: string; fixture: boolean; queued: number; seq: number; sidebar: number;
-  channel: string; version: number; history: number; retryIn: number; attempt: number;
+  channel: string; version: number; history: number; members: number; retryIn: number; attempt: number;
 }
 
 /** The gateway resource's answer, the same size whatever the account: the connection, the lists'
@@ -190,6 +205,7 @@ export function snapshot(live: Live, state?: string, detail = ''): Snapshot {
     meName: store.meId ? S.user(store, store.meId)?.global_name || S.user(store, store.meId)?.username || '' : '',
     fixture: live.origins.fixture, queued: live.queue.length, seq: ++live.snapshots, sidebar: live.sidebar, channel,
     version: channel ? S.channelVersion(store, channel) : 0, history: channel ? live.history.get(channel) ?? 0 : 0,
+    members: live.viewing.guild ? store.memberLists.get(live.viewing.guild)?.revision ?? 0 : 0,
     retryIn: retry === null ? 0 : Math.max(1, Math.ceil(retry - clock.now)), attempt: live.attempt };
 }
 
@@ -326,6 +342,7 @@ function forget(live: Live, secrets: Secrets | null): void {
   live.held = null;
   live.ackToken = null;
   live.sends.clear();
+  live.missed.clear();
   live.viewing = { channel: '', guild: '' };
   live.subscribed = '';
   S.forgetAccount(live.store);

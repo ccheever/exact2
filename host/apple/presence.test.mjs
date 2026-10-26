@@ -60,3 +60,14 @@ test('a development build asks for a passkey domain in developer mode, a release
   expect(associatedDomains(auth, false)).toEqual(auth.associatedDomains);
   expect(associatedDomains(undefined, true)).toEqual([]);
 });
+
+test('App Attest and the age range: a Mac build signs neither, a release is refused; the environment is by build (LLP 1133.028)', async () => {
+  const { macProfileRows, entitlementValue } = await import('./presence.mjs');
+  const said = [];
+  macProfileRows(app, 'device.attestation\ndevice.age-range\ndevice.tracking purpose.ads', { log: (l) => said.push(l) });
+  expect(said.join('\n')).toMatch(/^device\.attestation, device\.age-range: this build signs neither entitlement/);
+  expect(() => macProfileRows(app, 'device.age-range', { release: true })).toThrow(/^grant-needs-profile: device.age-range: /);
+  expect(() => macProfileRows(app, 'device.tracking purpose.ads', { release: true })).not.toThrow();
+  const env = 'com.apple.developer.devicecheck.appattest-environment';
+  expect([entitlementValue(env, true), entitlementValue(env, false), entitlementValue('com.apple.developer.declared-age-range', true)]).toEqual(['development', 'production', true]);
+});

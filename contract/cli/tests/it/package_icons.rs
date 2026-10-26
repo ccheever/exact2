@@ -387,7 +387,7 @@ fn a_package_contracts_icon_param_reads_its_packages_assets() {
             .iter()
             .find(|i| plan.str(i.name).ends_with(".Card.glyph"))
             .unwrap_or_else(|| panic!("{:?}", plan.icons));
-        plan.str(glyph.path).to_string()
+        icon_path(&plan, glyph).to_string()
     };
     for design in [true, false] {
         if !design {
@@ -459,7 +459,7 @@ fn a_package_param_may_name_its_own_packages_icon() {
         .iter()
         .find(|i| plan.str(i.name).ends_with(".Map.glyph"))
         .unwrap_or_else(|| panic!("{:?}", plan.icons));
-    assert_eq!(plan.str(glyph.path), PACKAGE_STAR);
+    assert_eq!(icon_path(&plan, glyph), PACKAGE_STAR);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -630,7 +630,7 @@ fn a_vendored_packages_icon_default_reads_its_own_assets() {
             .iter()
             .find(|i| plan.str(i.name).ends_with(".Card.glyph"))
             .unwrap_or_else(|| panic!("{:?}", plan.icons));
-        plan.str(g.path).to_string()
+        icon_path(&plan, g).to_string()
     };
     for inside_package in [true, false] {
         let dir = app(&format!("pkgicon-vendored-{inside_package}"), APP);
@@ -845,4 +845,10 @@ fn an_app_vendored_packages_missing_svg_is_still_watched() {
     );
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A kept icon's path, read through `exact_runner::icon_of` (stage 14 C2:
+/// the one reader of an `icons` row, which strips an even-odd icon's marker).
+fn icon_path<'a>(plan: &'a exact_plan::Plan, row: &exact_plan::IconsRow) -> &'a str {
+    exact_runner::icon_of(plan, row).map_or("", |icon| icon.path)
 }

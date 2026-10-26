@@ -666,8 +666,11 @@ fn embedded_data() -> ExactEmbeddedData {
         .placed(TYPESCRIPT_PLACEMENT)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+// The packages' Linux implementations the build composes (exact_packages()).
+include!(concat!(env!("OUT_DIR"), "/packages.rs"));
 fn main() {
-    std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT));
+    let composed = exact_linux::Composed { packages: exact_packages(), ..Default::default() };
+    std::process::exit(exact_linux::run_composed::<AppData>(PLAN, COMPAT, composed));
 }
 `,
   };

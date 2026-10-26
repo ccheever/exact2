@@ -36,6 +36,9 @@ export const NEEDS: Record<string, string> = {
 const SCOPES = ['read', 'propose', 'write'];
 // The long poll's reply ceiling: 16 MiB, room for a held import's diffs (a native host counts twice that running).
 const LONG_POLL_MAX = 16 * 1024 * 1024;
+// A batched resolve's reply (`tokens`, tamber/1.17): the server's bound on its answers (16 MiB) and its `files`, said
+// rather than left to a host's default (a fetch's is 64 MiB, a stream's 1 MiB).
+const BATCH_MAX = 17 * 1024 * 1024;
 /** What a request needs, as the server reads it: inspect other than a
  * refresh is `write` (it moves the builds), and so is a drop or an edit of another
  * client's held proposal (`ownerOf` its proposer, null when not known); a
@@ -123,7 +126,8 @@ export function wire(api: string, ownerOf: (id: string) => string | null = () =>
       const over = paired ? above(scope, needOf(path, body, ownerOf), String((body as { method?: unknown })?.method ?? path)) : '';
       if (over) return { error: over, reply: {}, used: '' };
       try {
-        const res = await fetch(`${base}${path}`, { method: 'POST', exactTimeout: timeout, exactHeld: held, redirect: 'error', body: JSON.stringify(body),
+        const batch = Array.isArray((body as { tokens?: unknown })?.tokens) ? { exactIndependentHttp: { maxResponseBytes: BATCH_MAX } } : {};
+        const res = await fetch(`${base}${path}`, { method: 'POST', exactTimeout: timeout, exactHeld: held, redirect: 'error', body: JSON.stringify(body), ...batch,
           headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
         const reply = (await res.json().catch(() => ({}))) as Reply;
         // (A 401 to an older pairing's token ends that one, not the session since.)

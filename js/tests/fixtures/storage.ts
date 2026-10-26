@@ -182,6 +182,22 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
+  // LLP 1069.010 D1 (2026-10-26): a chosen file copied by the host into an
+  // app file, its size read back, and the copies still refused.
+  if (op === "doc-copy") {
+    const out: string[] = [], folder = value.slice(0, value.lastIndexOf("/"));
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.copyFile(value, "app:/data/copied").then(() => storage.fs.stat("app:/data/copied")).then((s) => "copied " + s.size),
+      () => storage.fs.copyFile(value, "app:/cache/ungranted"),
+      () => storage.fs.copyFile(value, folder + "/copy"),
+      () => storage.fs.copyFile("app:/data/copied", folder + "/copy"),
+      () => storage.fs.rename(value, "app:/data/moved"),
+    ];
+    for (const step of steps) {
+      try { const r = await step(); out.push(typeof r === "string" ? r : "ok"); } catch (e: any) { out.push(e.kind + " " + e.code); }
+    }
+    return {text: out.join(" ")};
+  }
   // Ledger's shape (ledger F12): every answer queued on one chain, a listing
   // that reads, and a save that refuses bad input before touching storage.
   if (op === "count" || op === "invalid") {

@@ -57,7 +57,7 @@ impl<D: DataSource> Runner<D> {
         let kernel = &self.kernel;
         (self.extensions.fed.canvases.iter())
             .filter(|(_, n)| *n == name)
-            .any(|(v, _)| crate::wakelock::displayed(kernel, *v))
+            .any(|(v, _)| crate::wakelock::displayed(kernel, &self.scrolled, *v))
     }
 
     /// A send that `feeds` a canvas, admitted: its input starts or stops on

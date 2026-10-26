@@ -124,6 +124,10 @@ impl Executor {
         }
         self.core.begin_pump();
     }
+    #[cfg(test)]
+    pub(crate) fn take_wake(&self) -> bool {
+        (&self.wake).read(&mut [0; 1]).is_ok_and(|n| n > 0)
+    }
     /// One completion per turn, rearming the FD if more remain.
     pub fn drain(&self) -> Vec<(u64, Outcome, Option<u64>)> {
         self.core.drain()

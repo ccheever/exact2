@@ -1,14 +1,4 @@
 use PostButton from "./post-button.contract"
-use iconGallery, iconCamera, iconGif from "./common.contract"
-
-// A toolbar button's icon: Bluesky's (lg, 24), one even-odd path.
-component ToolGlyph
-  props
-    d: string
-    color: string
-  view
-    svg viewBox="0 0 24 24" width="actions.compose-icon" height="actions.compose-icon" aria-hidden=true
-      path fill=color fill-rule="evenodd" d=d
 
 // The composer's frame (the clone's ComposeScreen, theme2's 02:41 ruling):
 // its bar (Cancel, Drafts unless a reply, the Post button with its own
@@ -118,7 +108,12 @@ component ComposeFrame
             opacity=(gallery ? 1 : "actions.compose-dim")
             padding="actions.compose-tool-pad"
             border-radius="actions.compose-tool-corner"
-            ToolGlyph(d=iconGallery(), color="param.tint")
+            // Bluesky's icon (lg, 24): an icon token.
+            image "symbol:actions.gallery"
+              width="actions.compose-icon"
+              height="actions.compose-icon"
+              aria-hidden=true
+              color="param.tint"
           button testId="openCameraButton"
             aria-label="Camera"
             press=openCamera
@@ -126,7 +121,11 @@ component ComposeFrame
             opacity=(camera ? 1 : "actions.compose-dim")
             padding="actions.compose-tool-pad"
             border-radius="actions.compose-tool-corner"
-            ToolGlyph(d=iconCamera(), color="param.tint")
+            image "symbol:actions.camera"
+              width="actions.compose-icon"
+              height="actions.compose-icon"
+              aria-hidden=true
+              color="param.tint"
           button testId="compose-gif-button"
             aria-label="Select GIF"
             press=gifs
@@ -134,7 +133,11 @@ component ComposeFrame
             opacity=(gif ? 1 : "actions.compose-dim")
             padding="actions.compose-tool-pad"
             border-radius="actions.compose-tool-corner"
-            ToolGlyph(d=iconGif(), color="param.tint")
+            image "symbol:actions.gif"
+              width="actions.compose-icon"
+              height="actions.compose-icon"
+              aria-hidden=true
+              color="param.tint"
         row gap="actions.compose-trail-gap" align-items="center"
           // Add another post to the thread, once this post has something in it.
           if canAdd

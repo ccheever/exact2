@@ -756,7 +756,8 @@ package final class TextSelection {
         }
         let parts = paragraphs.compactMap { node -> String? in
             guard let range = range(node), range.length > 0 else { return nil }
-            return (node.paragraphSpec().runs.map(\.text).joined() as NSString).substring(with: range)
+            let source = node.paragraphSpec().runs.map(\.text).joined() as NSString
+            return node.copiedText(source.substring(with: range), from: range.location)
         }
         return parts.joined(separator: "\n\n")
     }

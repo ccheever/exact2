@@ -77,6 +77,7 @@ mod symbols;
 pub mod tags;
 mod theme;
 mod timers;
+mod tools;
 mod type_tokens;
 mod values;
 pub mod warning_rank;
@@ -781,6 +782,7 @@ fn lower_body(
             m.budget,
         );
     }
+    l.tools(file)?;
     l.timers(&root.tasks, &scope)?;
     l.sequences(&root.sequences, &scope)?;
     // The view, inlined (by `expand`, above).

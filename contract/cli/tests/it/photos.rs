@@ -7,6 +7,10 @@
 
 use exact_runner::{CallOrigin, Dispatch, Outcome, Reply, Response, Runner, Work};
 use serde_json::{json, Value as Json};
+#[cfg(unix)]
+use std::os::unix::fs::symlink as symlink_dir;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_dir;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -39,7 +43,7 @@ impl App {
         let packages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages");
         std::fs::create_dir_all(path.join("node_modules/@exact")).unwrap();
         let to = packages.join("photos").canonicalize().unwrap();
-        std::os::unix::fs::symlink(to, path.join("node_modules/@exact/photos")).unwrap();
+        symlink_dir(to, path.join("node_modules/@exact/photos")).unwrap();
         let mut source = APP.to_owned();
         // The recents strip's read, which asks while the state is `prompt`.
         if recents {

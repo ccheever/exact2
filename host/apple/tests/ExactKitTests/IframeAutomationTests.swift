@@ -183,7 +183,8 @@ final class IframeAutomationTests: XCTestCase {
     }
 
     /// A preload script runs at document start in each new document until
-    /// it is removed; the arm's own scripts stay.
+    /// it is removed; the arm's own scripts stay. Adding or removing one is a
+    /// read: the frame stays the person's.
     func testPreloadScriptsRunAtDocumentStart() throws {
         let arm = try arm(), seen = Seen()
         let (handle, web) = mount(arm, seen)
@@ -201,6 +202,7 @@ final class IframeAutomationTests: XCTestCase {
         XCTAssertEqual(value(arm, "typeof window.early") as? String, "undefined")
         XCTAssertEqual(value(arm, "window.isolated", sandbox: "t3") as? Int, 1)
         XCTAssertEqual(web.configuration.userContentController.userScripts.count, own + 1)
+        XCTAssertEqual(controller(seen), "person", "a preload script took the frame")
     }
 
     /// Input reaches the page: a click, typed text, a key with a modifier
@@ -252,7 +254,8 @@ final class IframeAutomationTests: XCTestCase {
         #if os(macOS)
         XCTAssert(window.firstResponder === focus, "the focus went back to what had it: \(String(describing: window.firstResponder))")
         #else
-        XCTAssertFalse(trusted.contains(":true"), "iOS input is script-dispatched: \(trusted)")
+        // The events the arm dispatches are untrusted; the `input` that its `execCommand('insertText')` makes is the editor's own.
+        XCTAssertFalse(trusted.split(separator: " ").contains { $0.hasSuffix(":true") && !$0.hasPrefix("input:") }, "iOS input is script-dispatched: \(trusted)")
         #endif
         XCTAssertNil(run(arm, "releaseActions")["error"])
     }

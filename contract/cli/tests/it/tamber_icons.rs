@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 /// The SVG every host but the web draws (`contract_lower`'s `icons::TEMPLATE`).
-const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, with no stroke, transform, opacity or other element";
+const TEMPLATE: &str = "filled `<path>`s in one opaque colour under the `<svg>`'s viewBox, all by one `fill-rule` (nonzero or evenodd), with no stroke, transform, opacity or other element";
 
 const REPLY: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M760-200v-160H200Z"/></svg>"#;
 const TWO: &str =
@@ -675,4 +675,114 @@ fn the_tamber_verbs_read_icon_svgs_under_the_apps_assets() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("tamber-icon-svg"));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Stage 14 C2: an SVG whose paths fill even-odd is a template; its plan row
+/// and its literal source form carry `evenodd:` before the path (the kernel
+/// reads it back as the icon's rule); a nonzero icon's row and form are as
+/// before; an SVG that mixes rules on Linux's and the web's targets is
+/// refused naming its paths.
+#[test]
+fn an_even_odd_icon_carries_its_rule_in_the_row_and_the_form() {
+    let path = app(
+        "evenodd",
+        "\"ios\": {}, \"web\": {}, \"linux\": {}",
+        "  icon.ring = icon(svg \"icons/ring.svg\")\n  icon.reply = icon(svg \"icons/reply.svg\")\n",
+        "component App\n  view\n    column\n      image \"symbol:icon.ring\"\n      image \"symbol:icon.reply\"\n",
+    );
+    let dir = path.parent().unwrap();
+    std::fs::write(
+        dir.join("assets/icons/ring.svg"),
+        r#"<svg viewBox="0 0 24 24"><g fill-rule="evenodd"><path d="M2 2H22V22H2Z M8 8H16V16H8Z"/><path d="M0 0h1v1H0Z"/></g></svg>"#,
+    )
+    .unwrap();
+    let plan = contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let form =
+        "symbol:icon||0 0 24 24|evenodd:M2 2H22V22H2Z M8 8H16V16H8Z;M0 0h1v1H0Z|icons/ring.svg";
+    assert!(plan.strings.iter().any(|s| s == form), "{:?}", plan.strings);
+    let row = |name: &str| {
+        plan.icons
+            .iter()
+            .find(|i| plan.str(i.name) == name)
+            .unwrap()
+    };
+    let ring = row("icon.ring");
+    let icon = exact_runner::icon_of(&plan, ring).unwrap();
+    assert_eq!(
+        (icon.path, icon.even_odd),
+        ("M2 2H22V22H2Z M8 8H16V16H8Z;M0 0h1v1H0Z", true)
+    );
+    assert!(
+        exact_kernel::symbol_path(&form["symbol:".len()..])
+            .unwrap()
+            .even_odd
+    );
+    let reply = "symbol:icon||0 -960 960 960|M760-200v-160H200Z|icons/reply.svg";
+    assert!(
+        plan.strings.iter().any(|s| s == reply),
+        "a nonzero icon's form is as before: {:?}",
+        plan.strings
+    );
+    let nonzero = row("icon.reply");
+    let icon = exact_runner::icon_of(&plan, nonzero).unwrap();
+    assert_eq!((icon.path, icon.even_odd), ("M760-200v-160H200Z", false));
+    // Rules mixed across the paths: no template, so Linux has no source.
+    std::fs::write(
+        dir.join("assets/icons/ring.svg"),
+        r#"<svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M2 2H22V22H2Z M8 8H16V16H8Z"/><path d="M0 0h1v1H0Z"/></svg>"#,
+    )
+    .unwrap();
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
+    assert!(
+        e.message
+            .contains("its paths mix fill rules (evenodd: drawn path 1; nonzero: drawn path 2)"),
+        "{}",
+        e.message
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Stage 14 C2 round 2 (theme2): an Illustrator-style export (a `<style>`
+/// block of class rules) is no template, refused where a template is
+/// needed with the fix named; an app that ships only the web draws it as
+/// the file, unaffected.
+#[test]
+fn a_style_block_is_no_template_but_the_web_draws_the_file() {
+    const AI: &str = r#"<svg viewBox="0 0 24 24"><defs><style>.cls-1{fill:#000}</style></defs><path class="cls-1" d="M2 2H22V22H2Z"/></svg>"#;
+    let web = app(
+        "style-web",
+        "\"web\": {}",
+        "  icon.ai = icon(svg \"icons/ai.svg\")\n",
+        &view("symbol:icon.ai"),
+    );
+    std::fs::write(web.parent().unwrap().join("assets/icons/ai.svg"), AI).unwrap();
+    let plan = contract::compile_path(&web).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        plan.strings
+            .iter()
+            .any(|s| s == "symbol:icon||0 0 24 24||icons/ai.svg"),
+        "the web draws the file: {:?}",
+        plan.strings
+    );
+    let linux = app(
+        "style-linux",
+        "\"web\": {}, \"linux\": {}",
+        "  icon.ai = icon(svg \"icons/ai.svg\")\n",
+        &view("symbol:icon.ai"),
+    );
+    std::fs::write(linux.parent().unwrap().join("assets/icons/ai.svg"), AI).unwrap();
+    let e = contract::compile_path(&linux).unwrap_err();
+    assert_eq!(e.id, "tamber-icon-svg", "{e:?}");
+    assert!(
+        e.message.contains("it has a `<style>` block")
+            && e.message.contains("`fill=\"currentColor\"`")
+            && e.message
+                .contains("drop the `style` attribute or the `<style>` block"),
+        "{}",
+        e.message
+    );
+    for p in [web, linux] {
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
 }

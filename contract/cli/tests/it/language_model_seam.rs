@@ -21,6 +21,7 @@ shape NoteQuery
 
 component App
   state response = ""
+  state noted = 0
   mutation made as shape LanguageModelInfo
   mutation said as shape LanguageModelResult
   derive session = match made { case some(m) => m.id, case none => "" }
@@ -31,6 +32,9 @@ component App
     send said = prompt(session=session, input="hi")
   action read(id: string)
     response = id
+  tool note writes closed "Count a note." = note
+  action note
+    noted = noted + 1
   view
     column
       text session
@@ -81,6 +85,13 @@ impl exact_runner::DataSource for Tools {
     fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
         let args: Json = serde_json::from_str(args[0].as_str().unwrap()).unwrap();
         match (source, args["query"].as_str()) {
+            // A prompt of its own, which the host holds.
+            ("tool:findNotes", Some("hold")) => {
+                let body = json!({ "extension": "language-model", "send": "prompt", "args": {} });
+                Ok(Answer::Later(Request::native(
+                    body.to_string().into_bytes(),
+                )))
+            }
             ("tool:findNotes", Some("create")) => {
                 let body = json!({ "extension": "language-model", "send": "createLanguageModel", "args": {} });
                 Ok(Answer::Later(Request::native(
@@ -334,6 +345,43 @@ fn a_send_let_go_is_cancelled_at_its_implementation() {
     pump(&mut r, &mut waiting);
     let after = calls_with_cancel(&r);
     assert_eq!(after, 1, "{}", logs(&r));
+}
+
+/// LLP 1133.023 D7: a model's handler runs as `tool` but under no
+/// invocation, so a system's call of a tool while it is in flight neither
+/// waits for its request nor ends it.
+#[test]
+fn a_handler_in_flight_is_not_a_tool_calls_work() {
+    let (_app, mut r, _calls, held) = boot("handler-call");
+    let mut waiting = Vec::new();
+    r.act("create", Vec::new()).unwrap();
+    pump(&mut r, &mut waiting);
+    let (tx, rx) = channel();
+    let body = json!({ "extension": "language-model", "handle": "s1", "handler": "findNotes", "args": { "query": "hold" } });
+    r.invoke_module(
+        &body.to_string(),
+        Box::new(move |answer| tx.send(answer).unwrap()),
+    );
+    pump(&mut r, &mut waiting);
+    assert_eq!(
+        held.lock().unwrap().len(),
+        1,
+        "the handler's prompt is held: {}",
+        logs(&r)
+    );
+    let how = exact_runner::CallHow {
+        door: "agent".into(),
+        ..Default::default()
+    };
+    r.call_tool("note", "{}", how).unwrap();
+    r.advance(r.now_ms()).unwrap();
+    pump(&mut r, &mut waiting);
+    assert!(logs(&r).contains("tool note ok applied"), "{}", logs(&r));
+    assert!(rx.try_recv().is_err(), "the handler is still in flight");
+    let reply = held.lock().unwrap().pop().unwrap();
+    reply.send(response(&json!({ "text": "Hi.", "overflowed": false })));
+    pump(&mut r, &mut waiting);
+    assert!(rx.try_recv().is_ok(), "the handler answers: {}", logs(&r));
 }
 
 fn calls_with_cancel(r: &Runner<Tools>) -> usize {

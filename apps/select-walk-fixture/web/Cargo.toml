@@ -1,0 +1,25 @@
+[package]
+name = "select-walk-fixture-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The select-walk fixture on the web: inspect select by the page's own tree (tamber/1.17)"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "select_walk_fixture_web"
+crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+select-walk-fixture-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+select-walk-fixture-data = { path = "../data" }

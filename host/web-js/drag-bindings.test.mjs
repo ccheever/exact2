@@ -131,6 +131,8 @@ ${handle('reorderFor', '', 16)}
 }, 60_000);
 afterAll(() => { server?.stop(true); if (dir) rmSync(dir, { recursive: true, force: true }); });
 
+// About twenty drags and their settles: 40-66 s on a loaded machine (ambient load 20-110), at the file's last change
+// (e43c4268ec) as now, so a minute was its cap and not its bound.
 test.each(['transform', 'height', 'reorder'])('%s resolves computed bindings and changing ancestor IDs', async mode => {
   const browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });
   try {
@@ -181,7 +183,7 @@ test.each(['transform', 'height', 'reorder'])('%s resolves computed bindings and
     await browser.tap('rename');
     await drag(true);
   } finally { await browser.close(); }
-}, 60_000);
+}, 180_000);
 
 test('height target can share the mounting container ID', async () => {
   const browser = await open({ host: 'web', url: server.url.href, size: [800, 800] });

@@ -17,6 +17,13 @@ pub(super) fn boot_at(source: &str, scale: f32) -> Presenter<()> {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
+    fixture_fonts(&mut p);
+    p
+}
+
+/// The fixture fonts (DejaVu Sans) measured and painted from here on, the presenter laid out and painted again: a
+/// boot's, and a reload's after it, since a reload takes the new plan's own text engine (the host's fonts).
+pub(super) fn fixture_fonts(p: &mut Presenter<()>) {
     *p.text.borrow_mut() = TextEngine::from_font_files(
         &[std::path::Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -32,7 +39,6 @@ pub(super) fn boot_at(source: &str, scale: f32) -> Presenter<()> {
     p.resize(400., 600.);
     p.replaced();
     p.frame();
-    p
 }
 
 pub(super) fn view(p: &Presenter<()>, test_id: &str) -> ViewId {
@@ -318,6 +324,7 @@ fn a_field_not_painted_is_unavailable_and_a_reload_reads_only_its_own() {
         p.ranges.range_frame(id, 0, 1).unavailable,
         "the old paint is not read"
     );
+    fixture_fonts(&mut p);
     p.frame();
     let after = measure(&mut p, 1)[0].unwrap();
     assert_eq!(after[1], first[1] + 50., "the new paint is");

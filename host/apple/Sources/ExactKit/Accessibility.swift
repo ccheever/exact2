@@ -266,9 +266,20 @@ extension NodeView {
         let target: NSView = field ?? presenter?.controls.controls[id] ?? textArea as NSView? ?? self
         let required = props["accessibilityRequired"] == "true"
         let enabled = !disabled && !ariaUnavailable
-        if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
-        if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
-        if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
+        if target === self {
+            // The host owns these values on the node; native controls still
+            // read their cell's values below.
+            var last = lastAccessibilityWrite
+            if !last.formInitialized || last.enabled != enabled { setAccessibilityEnabled(enabled); last.enabled = enabled }
+            if !last.formInitialized || last.help != description { setAccessibilityHelp(description); last.help = description }
+            if !last.formInitialized || last.required != required { setAccessibilityRequired(required); last.required = required }
+            last.formInitialized = true
+            lastAccessibilityWrite = last
+        } else {
+            if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
+            if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
+            if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
+        }
         // An `input`'s `aria-label` names its field, as a text area's names it.
         if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
         #else
@@ -683,15 +694,21 @@ extension Presenter {
             let projected = node.headerField != nil
             guard shown || projected, let window = node.window ?? root.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
-            guard !hasFocus(window) else { continue }
+            guard !hasFocus(window) else {
+                HostLog.note(session, "focus: autofocus #\(node.id) not applied: \(Self.focusHolder(in: window)) holds the focus")
+                continue
+            }
             if projected {
+                HostLog.note(session, "focus: autofocus #\(node.id)")
                 autofocused(node)
                 focusNode(node)
                 continue
             }
             let target: UIResponder = node.textArea ?? node.field ?? node, caret = pressCaret(in: node)
             autofocused(node) // the app's focus now, as Tab's and focus(id)'s
-            if target.becomeFirstResponder() {
+            let took = target.becomeFirstResponder()
+            HostLog.note(session, took ? "focus: autofocus #\(node.id)" : "focus: autofocus #\(node.id) not applied: its view declined the focus")
+            if took {
                 if let (input, at) = caret { input.selectedTextRange = input.textRange(from: at, to: at) }
                 autofocusedThisTurn = node
                 DispatchQueue.main.async { [weak self] in self?.autofocusedThisTurn = nil }

@@ -21,6 +21,9 @@ package struct InlineText {
     /// CSS `user-select: all` on the run: a selection that takes part of its
     /// text takes all of it (`TextSelection.atom`).
     package let selectsAll: Bool
+    /// An image's box (LLP 1011.002) not `visibility: hidden`: its label is
+    /// read. The box itself draws no ink either way.
+    package let boxShown: Bool
     /// Its computed `visibility: hidden`: its text is no target
     /// (`inlineTarget`), though it hears a visible run's click inside it.
     package var hidden: Bool { lightRun.hidden }
@@ -33,6 +36,13 @@ package struct InlineText {
         value.text = props["text"] ?? ""
         if value.background != nil || style.backgroundRef != nil { value.backgroundBox = id } else { value.backgroundRadii = [] }
         value.href = props["href"] ?? ""
+        // An image in the text is its box, with no ink or paint of its own (LLP 1011.002).
+        boxShown = props["inlineBoxHidden"] != "true"
+        if let box = InlineBox(prop: props["inlineBox"]) {
+            value.box = box; value.hidden = true
+            value.background = nil; value.backgroundBox = 0; value.backgroundRadii = []
+            value.decoration = ""; value.shadow = nil; value.stroke = nil
+        }
         lightRun = value
         darkColor = style.darkColor
         darkBackground = style.darkBackground

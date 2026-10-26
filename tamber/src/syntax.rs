@@ -245,6 +245,28 @@ pub fn parse(src: &str) -> Result<Design, Vec<Diagnostic>> {
 /// A param's name as the `params` block writes it: `Component.param`, or
 /// its full name, a file (`screens/post.contract`, `@scope/pkg/x.contract`)
 /// before a `#`.
+/// The same `when` conditions, in any order: a short list compared as it
+/// is, a long one sorted (no square in a `when`'s length: the checker
+/// bound's sweep).
+pub(crate) fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    if a.len() <= 8 {
+        return a.iter().all(|c| b.contains(c)) && b.iter().all(|c| a.contains(c));
+    }
+    use std::collections::HashSet;
+    a.iter().collect::<HashSet<_>>() == b.iter().collect::<HashSet<_>>()
+}
+
+/// `when` conditions in one order, for a set of them: a `when` naming each
+/// axis once (the checker's rule, and history's before it keys one).
+pub(crate) fn conds_key(c: &[(String, String)]) -> Vec<&(String, String)> {
+    let mut k: Vec<_> = c.iter().collect();
+    k.sort();
+    k
+}
+
 pub(crate) fn param_name(name: &str) -> bool {
     let (file, rest) = match name.rsplit_once('#') {
         Some((f, r)) => (Some(f), r),

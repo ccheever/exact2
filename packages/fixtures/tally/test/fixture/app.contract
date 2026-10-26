@@ -1,0 +1,27 @@
+// The fixture of @fixture/tally: its status read, its send, and its event
+// heard on the root, each shown by testId for the suite.
+use tallyStatus, tally, tallied, TallyStatus, Tallied from "@fixture/tally"
+
+component Fixture
+  state heard = 0
+  resource status = tallyStatus() as shape TallyStatus else empty()
+  mutation added as shape Tallied
+  action add
+    send added = tally(by=2)
+  action counted(count: number)
+    heard = count
+  view
+    column tallied=counted gap=8 padding=16
+      text `${status.available} ${status.platform} ${status.count} ${status.foreground}` testId="status"
+      match added
+        case some(a)
+          text `${a.count} ${a.origin}` testId="added"
+        case none
+          match failure(added)
+            case some(f)
+              text f.code testId="added"
+            case none
+              text "none" testId="added"
+      text `${heard}` testId="heard"
+      button press=add testId="add"
+        text "Add two"

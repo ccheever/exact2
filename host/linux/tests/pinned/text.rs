@@ -272,6 +272,7 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                     mark: 0,
                     href: String::new(),
                     bold_text: false,
+                    inline: None,
                 }],
                 align: TextAlign::Left,
                 line_clamp: 0,

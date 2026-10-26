@@ -67,6 +67,8 @@ final class BlockHost {
         var placement: BlockPlacement?
         /// What its container does with its used size (a sheet sizes its window).
         var used: ((CGSize) -> Void)?
+        /// It is a split's own placeholder, shown while its container has it.
+        var placeholder = false
     }
     private struct Sibling { weak var node: NodeView? }
     private var entries: [UInt32: Entry] = [:]
@@ -114,7 +116,9 @@ final class BlockHost {
 
     /// Put `node`'s subtree in `container` and lay it out in `block`; `used`
     /// hears its used size, now and whenever layout gives it another.
-    func show(_ node: NodeView, in container: NSView, block: HostBlock, placement: BlockPlacement? = nil, used: ((CGSize) -> Void)? = nil) {
+    /// `placeholder`: `node` is a split's own placeholder, `display: none`
+    /// but where its container shows it (LLP 1116.006 D2).
+    func show(_ node: NodeView, in container: NSView, block: HostBlock, placement: BlockPlacement? = nil, used: ((CGSize) -> Void)? = nil, placeholder: Bool = false) {
         guard let presenter, presenter.views[node.id] === node else { return }
         // Outside the root (a sheet, a popover, a split's pane), still this
         // presenter's theme (LLP 1121 stage 5).
@@ -127,13 +131,21 @@ final class BlockHost {
             let nodes = home.map { authored($0.subviews.compactMap { $0 as? NodeView }, in: $0) } ?? []
             let before = nodes.prefix { $0 !== node }.map { Sibling(node: $0) }
             turns += 1
-            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, placement: placement, used: used)
-        } else { entries[node.id]?.block = block; entries[node.id]?.placement = placement; entries[node.id]?.used = used }
+            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, placement: placement, used: used, placeholder: placeholder)
+        } else { entries[node.id]?.block = block; entries[node.id]?.placement = placement; entries[node.id]?.used = used; entries[node.id]?.placeholder = placeholder }
         if node.superview !== container {
             container.addSubview(node)
             presenter.topLayerChanged()
         }
-        tell([(node.id, block)], placements: [(node.id, placement)])
+        tell([(node.id, block)], placements: [(node.id, placement)], shows: placeholder ? [(node.id, true)] : [])
+    }
+
+    /// A split's placeholder this shows was restyled by a commit: its shown
+    /// style is asked for again, which the runner answers with nothing
+    /// where it stands.
+    func showAgain(_ node: NodeView) {
+        guard entries[node.id]?.node === node, entries[node.id]?.placeholder == true else { return }
+        tell([], shows: [(node.id, true)])
     }
 
     /// The container gave the subtree another box: a divider moved, a
@@ -159,7 +171,7 @@ final class BlockHost {
             else { home.addSubview(node) }
             presenter?.topLayerChanged()
         } else { node.removeFromSuperview() }
-        tell([(node.id, nil)])
+        tell([(node.id, nil)], shows: entry.placeholder ? [(node.id, false)] : [])
     }
 
     /// The batch's `block` op: a block's used size.
@@ -192,11 +204,11 @@ final class BlockHost {
         entries[id] = nil; used[id] = nil; rects[id] = nil; margined[id] = nil
     }
 
-    private func tell(_ blocks: [(UInt32, HostBlock?)], placements: [(UInt32, BlockPlacement?)] = []) {
+    private func tell(_ blocks: [(UInt32, HostBlock?)], placements: [(UInt32, BlockPlacement?)] = [], shows: [(UInt32, Bool)] = []) {
         guard let session = presenter?.session else { return }
         session.whenIdle(bound: true) { [weak session] in
             guard let session else { return }
-            session.apply(session.runtime.blocks(blocks, placements: placements))
+            session.apply(session.runtime.blocks(blocks, placements: placements, shows: shows))
         }
     }
 }

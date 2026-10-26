@@ -21,6 +21,63 @@ import {gameShells} from '../game/app/shells.mjs';
 import {formatProofError, proofFailureRow} from '../game/proof.mjs';
 import {readManifest} from './app.mjs';
 
+test('TypeScript captures accept physical path aliases and reject declarations outside them', async () => {
+  const {check, configure} = await import('../js/bake/src/typescript.mjs');
+  const {parseSync} = await import('rolldown/utils');
+  const {dirname} = await import('node:path');
+  const {fileURLToPath} = await import('node:url');
+  const root=mkdtempSync(resolve(tmpdir(),'exact captured paths café '));
+  const stage=resolve(root,'capture'), alias=resolve(root,'alias'), sibling=resolve(root,'capture-other');
+  const libraries=resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))),'lib');
+  const libraryAlias=resolve(root,'libraries'), linkType=process.platform==='win32'?'junction':'dir';
+  try {
+    mkdirSync(stage); mkdirSync(sibling);
+    symlinkSync(stage,alias,linkType);
+    symlinkSync(libraries,libraryAlias,linkType);
+    writeFileSync(resolve(stage,'__exact_entry.ts'),"export const word: string = 'inside';\n");
+    configure(stage,false,parseSync);
+    await check(alias,resolve(libraries,'tsc'),libraryAlias);
+    await check(stage,resolve(libraries,'tsc'),libraries);
+    writeFileSync(resolve(sibling,'outside.d.ts'),'export type Outside = string;\n');
+    writeFileSync(resolve(stage,'__exact_entry.ts'),"import type { Outside } from '../capture-other/outside';\nexport const word: Outside = 'outside';\n");
+    await expect(check(alias,resolve(libraries,'tsc'),libraryAlias)).rejects.toThrow('module outside captured app');
+    symlinkSync(sibling,resolve(stage,'escape'),linkType);
+    writeFileSync(resolve(stage,'__exact_entry.ts'),"import type { Outside } from './escape/outside';\nexport const word: Outside = 'outside';\n");
+    await expect(check(alias,resolve(libraries,'tsc'),libraryAlias)).rejects.toThrow('module outside captured app');
+  } finally {
+    rmSync(root,{recursive:true,force:true});
+  }
+});
+
+test('captured package imports and replay use the same physical stage paths', async () => {
+  const {dataBundle, replayCaptured} = await import('../js/bake/src/typescript.mjs');
+  const {rolldown} = await import('rolldown');
+  const root=mkdtempSync(resolve(tmpdir(),'exact package paths café '));
+  const stage=resolve(root,'stage'), app=resolve(root,'app'), alias=resolve(root,'alias');
+  const packageDir=resolve(app,'node_modules/fixture-word');
+  const bundle=async options=>{
+    const build=await rolldown({cwd:alias,input:'__exact_entry.ts',...options});
+    try { return (await build.generate({format:'esm'})).output[0].code; }
+    finally { await build.close(); }
+  };
+  try {
+    mkdirSync(stage); mkdirSync(packageDir,{recursive:true});
+    symlinkSync(stage,alias,process.platform==='win32'?'junction':'dir');
+    writeFileSync(resolve(stage,'__exact_paths.json'),JSON.stringify({app,mounts:[]}));
+    writeFileSync(resolve(stage,'__exact_entry.ts'),"export { word } from './nested';\n");
+    writeFileSync(resolve(stage,'nested.ts'),"export { word } from 'fixture-word';\n");
+    writeFileSync(resolve(packageDir,'package.json'),JSON.stringify({name:'fixture-word',version:'1.0.0',main:'index.js'}));
+    writeFileSync(resolve(packageDir,'index.js'),"export const word = 'captured word';\n");
+    expect(await bundle(dataBundle(alias))).toContain('captured word');
+    writeFileSync(resolve(packageDir,'index.js'),"export const word = 'changed after capture';\n");
+    const replay=await bundle({plugins:[replayCaptured(alias).rolldown]});
+    expect(replay).toContain('captured word');
+    expect(replay).not.toContain('changed after capture');
+  } finally {
+    rmSync(root,{recursive:true,force:true});
+  }
+});
+
 test('JS build trees serve native paths without admitting private or escaping files', async () => {
   const owned=realpathSync(mkdtempSync(resolve(tmpdir(),'exact JS tree café ')));
   const root=resolve(owned,'dist'), outside=resolve(owned,'outside');

@@ -1077,3 +1077,34 @@ test('an unnamed package linked from far outside the app is refused, and no remo
     rmSync(outside, { recursive: true, force: true });
   }
 }, 600_000);
+
+// tamber/1.17's batched resolve (the third pass's #5 B) through the TLS door, against the real design server: a paired
+// read client's batch whose answers pass 1 MiB (a stream's reply cap, not a fetch's) is read whole (theme2's condition).
+test('a batched resolve past 1 MiB through the TLS door: a paired read client reads it whole', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-remote-batch-'));
+  // 180 families near the value bound (about 3.9 KB each, twice that in an answer): about 1.6 MB of answers.
+  const stack = n => Array.from({ length: 550 }, (_, i) => `f${n}x${i}`).join(', ').slice(0, 3900).replace(/, [^,]*$/, '');
+  const faces = Array.from({ length: 180 }, (_, n) => `face${n}`);
+  writeFileSync(join(app, 'app.json'), '{"app": {"id": "dev.test.batch", "name": "Batch"}, "host": {"web": {}}}');
+  writeFileSync(join(app, 'app.tamber'), `tamber t\n\ntheme\n  ink = #111111\n${faces.map((f, n) => `  ${f}: family = ${stack(n)}\n`).join('')}`);
+  writeFileSync(join(app, 'app.contract'), `component App\n  view\n    column background-color="ink"\n${faces.map(f => `      text "x" font-family="${f}"\n`).join('')}`);
+  const wire = tamberServer({ appDir: app, log: () => {} });
+  const doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 } }, { say: () => {} });
+  try {
+    const port = Number(new URL(doors.info().origin).port);
+    let token = null, text = '';
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'read', name: 'laptop' })));
+    await wire.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+    const paired = JSON.parse((await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: JSON.parse(text).ok.code, name: 'laptop' }) })).text).ok.token;
+    const tokens = ['ink', ...faces];
+    const r = await send(true, port, { method: 'POST', path: '/__tamber', headers: { 'x-exact-tamber-token': paired, 'content-type': 'application/json' }, body: JSON.stringify({ method: 'resolve', tokens }) });
+    expect(r.status, r.text?.slice(0, 300)).toBe(200);
+    expect(r.text.length).toBeGreaterThan(1 << 20);
+    const answers = JSON.parse(r.text).ok.answers;
+    expect(answers.length).toBe(tokens.length);
+    expect(answers.every(a => !a.error)).toBe(true);
+    expect(answers.at(-1).tuples[0].family).toContain('f179x0');
+  } finally { await doors.close(); await wire.close(); rmSync(app, { recursive: true, force: true }); }
+}, 600_000);

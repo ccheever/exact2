@@ -40,6 +40,7 @@ use exact_kernel::invocation::Action;
 use exact_kernel::NodeKey;
 
 pub(super) mod look;
+mod overlay;
 pub(crate) mod shape;
 pub use look::Target;
 use look::{Inputs, Layout};
@@ -157,6 +158,7 @@ struct Open {
     /// The row under the finger, and the row a keyboard focused.
     pressed: Option<usize>,
     focused: Option<usize>,
+    hovered: Option<usize>,
     /// The kernel epoch its plan was read at.
     epoch: u64,
 }
@@ -175,6 +177,7 @@ impl Open {
 /// What the presenter keeps of the top layer.
 #[derive(Default)]
 pub(super) struct State {
+    overlay: overlay::State,
     /// The shell's painter: `Some` on a host whose shell makes windows.
     painter: Option<Box<dyn SurfacePainter>>,
     open: Option<Open>,
@@ -192,6 +195,8 @@ pub(super) struct State {
 pub struct Shown<'a> {
     /// Its serial.
     pub serial: u32,
+    /// Changes when the surface's presentation or item geometry changes.
+    pub revision: u32,
     /// What it is.
     pub kind: SurfaceKind,
     /// The authored `dialog` or popover.
@@ -200,6 +205,10 @@ pub struct Shown<'a> {
     pub plan: &'a Plan,
     /// Its size, points.
     pub size: (f32, f32),
+    /// The visible content of an overflowing desktop menu.
+    pub clip: Option<Rect4>,
+    /// The menu's current and maximum vertical scroll offsets.
+    pub scroll: Option<(f32, f32)>,
     /// Its rows' boxes in the window, in the plan's order: how a node
     /// inside a window is addressed.
     pub targets: &'a [Target],
@@ -226,17 +235,20 @@ impl<D: DataSource> Presenter<D> {
 
     /// Whether a shell makes windows.
     pub(crate) fn has_windows(&self) -> bool {
-        self.top.painter.is_some()
+        self.top.painter.is_some() || self.top.overlay.enabled
     }
 
     /// The surface that is open, if one is.
     pub fn surface(&self) -> Option<Shown<'_>> {
         self.top.open.as_ref().map(|open| Shown {
             serial: open.serial,
+            revision: open.revision,
             kind: open.kind,
             node: open.node,
             plan: &open.plan,
             size: open.layout.size,
+            clip: open.layout.menu_clip(),
+            scroll: open.layout.menu_scroll(),
             targets: &open.layout.targets,
             pressed: open.pressed,
             texts: open.layout.texts(),
@@ -253,7 +265,7 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn top_replaced(&mut self) {
         self.alert = None;
         self.brush.alert = None;
-        self.host.top_layer(self.top.painter.is_some());
+        self.host.top_layer(self.has_windows());
         if self.top.open.take().is_some() {
             self.surface_changed();
         }
@@ -265,8 +277,10 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn surface_changed(&mut self) {
+        self.dirty |= self.top.overlay.enabled;
         self.report_top_layer();
         self.back_changed();
+        self.holds_changed();
         // The shell comes for the statement whether or not a frame follows.
         self.executor.notify();
     }
@@ -283,6 +297,9 @@ impl<D: DataSource> Presenter<D> {
     /// The window the shell told, and how far a menu keeps from its top and
     /// bottom: Material's 48, or the system's bars where they are taller.
     fn surface_window(&self) -> ((f32, f32), (f32, f32)) {
+        if self.top.overlay.enabled {
+            return (self.viewport, (4.0, 4.0));
+        }
         match self.window() {
             Some(w) => {
                 let inset = |i: usize| w.bars[i].max(w.cutout[i]).max(48.0);
@@ -293,9 +310,10 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn surface_inputs(&self) -> Inputs {
-        let scale = self.device().map_or(1.0, |d| d.font_scale);
+        let scale = self.text_scale;
         Inputs {
             dark: self.dark(),
+            contrast: self.colors.contrast.palette,
             font_scale: if scale.is_finite() && scale > 0.0 {
                 scale
             } else {
@@ -337,13 +355,13 @@ impl<D: DataSource> Presenter<D> {
 
     /// The element an action's command names by `id`, by a button's rule
     /// (`exact_kernel::invocation::element`).
-    fn element(&self, name: &str) -> Option<NodeKey> {
+    pub(super) fn element(&self, name: &str) -> Option<NodeKey> {
         exact_kernel::invocation::element(self.host.kernel(), name)
     }
 
     /// Present `target`, the dialog or popover `name` names, modally or as a
     /// popover: whether it was. A menu is never presented modally.
-    fn present(
+    pub(super) fn present(
         &mut self,
         target: Option<NodeKey>,
         name: &str,
@@ -399,7 +417,12 @@ impl<D: DataSource> Presenter<D> {
         }
         let serial = self.next_surface_serial();
         let inputs = self.surface_inputs();
-        let layout = Layout::of(&mut self.text.borrow_mut(), &plan, id, &inputs);
+        let measure = if self.top.overlay.enabled {
+            Layout::desktop
+        } else {
+            Layout::of
+        };
+        let layout = measure(&mut self.text.borrow_mut(), &plan, id, &inputs);
         self.top.open = Some(Open {
             serial,
             revision: 0,
@@ -422,6 +445,7 @@ impl<D: DataSource> Presenter<D> {
             origin: 0,
             pressed: None,
             focused: None,
+            hovered: None,
             epoch: self.host.kernel().epoch(),
         });
         let anchor = self.surface_anchor();
@@ -429,9 +453,15 @@ impl<D: DataSource> Presenter<D> {
             open.anchor = anchor;
         }
         self.place_surface();
-        // A TV's remote moves the focus to the first row, as Android's
-        // dialogs take it there: Select chooses it (LLP 1115.001.003 D3).
-        if self.remote() {
+        // Alerts need an initial action even when a pointer or a response
+        // opens them. TV surfaces also start at their first row (LLP 1115.001.003 D3).
+        let desktop_alert = self.top.overlay.enabled
+            && self
+                .top
+                .open
+                .as_ref()
+                .is_some_and(|open| open.kind == SurfaceKind::Alert);
+        if self.remote() || desktop_alert {
             self.surface_step(false);
         }
         self.queue_toggle(key, true);
@@ -582,16 +612,48 @@ impl<D: DataSource> Presenter<D> {
     /// Escape dismisses it, Tab and the arrows move its own focus, Enter
     /// and Space choose the focused row. Whether a surface took the key.
     /// Whether a surface is open to take the keys ([`Self::surface_key`]).
-    pub(super) fn surface_takes_keys(&self) -> bool {
+    pub(crate) fn surface_takes_keys(&self) -> bool {
         self.alert.is_some() || self.top.open.is_some()
     }
 
+    #[cfg(windows)]
+    pub(super) fn desktop_surface_access(&self) -> Option<(Option<ViewId>, (f32, f32))> {
+        let open = self.top.open.as_ref()?;
+        let focused = open
+            .focused
+            .and_then(|i| open.layout.targets.get(i))
+            .map(|t| t.node);
+        Some((
+            focused,
+            (
+                open.frame[0] as f32 / open.scale,
+                open.frame[1] as f32 / open.scale,
+            ),
+        ))
+    }
+
     pub(super) fn surface_key(&mut self, name: &str, now_ms: f64) -> bool {
+        if !matches!(
+            name,
+            "" | "Unidentified"
+                | "Shift"
+                | "Control"
+                | "Alt"
+                | "Meta"
+                | "CapsLock"
+                | "NumLock"
+                | "ScrollLock"
+        ) {
+            self.overlay_input(true);
+        }
         if self.alert.is_some() {
             return self.alert_key(name, now_ms);
         }
         if self.top.open.is_none() {
             return false;
+        }
+        if self.overlay_scroll_key(name) {
+            return true;
         }
         match name {
             "Escape" => {
@@ -600,6 +662,7 @@ impl<D: DataSource> Presenter<D> {
             "Tab" => self.surface_step(self.modifiers().shift),
             "ArrowDown" | "ArrowRight" => self.surface_step(false),
             "ArrowUp" | "ArrowLeft" => self.surface_step(true),
+            "Home" | "End" if self.top.overlay.enabled => self.surface_edge(name == "End"),
             "Enter" | " " => {
                 if let Some(index) = self.top.open.as_ref().and_then(|open| open.focused) {
                     self.choose(index, now_ms);
@@ -624,7 +687,8 @@ impl<D: DataSource> Presenter<D> {
         else {
             return false;
         };
-        if open.focused != Some(index) {
+        let revealed = open.layout.reveal_menu_target(index);
+        if open.focused != Some(index) || revealed {
             open.focused = Some(index);
             open.revision += 1;
             self.executor.notify();
@@ -641,6 +705,12 @@ impl<D: DataSource> Presenter<D> {
         let targets = &open.layout.targets;
         let n = targets.len();
         let from = open.focused;
+        let order = if from.is_some() {
+            open.layout.focus_order()
+        } else {
+            (0..n).collect()
+        };
+        let from = from.and_then(|i| order.iter().position(|v| *v == i));
         let next = (1..=n)
             .map(|step| match (from, backward) {
                 (Some(at), false) => (at + step) % n,
@@ -648,8 +718,31 @@ impl<D: DataSource> Presenter<D> {
                 (None, false) => step - 1,
                 (None, true) => n - step,
             })
+            .map(|i| order[i])
             .find(|i| targets[*i].enabled);
-        if next.is_some() && next != from {
+        let revealed = next.is_some_and(|i| open.layout.reveal_menu_target(i));
+        if next.is_some() && (next != open.focused || revealed) {
+            open.focused = next;
+            open.revision += 1;
+            self.executor.notify();
+        }
+    }
+
+    fn surface_edge(&mut self, last: bool) {
+        let Some(open) = self.top.open.as_mut() else {
+            return;
+        };
+        if open.kind != SurfaceKind::Menu {
+            return;
+        }
+        let targets = &open.layout.targets;
+        let next = if last {
+            targets.iter().rposition(|row| row.enabled)
+        } else {
+            targets.iter().position(|row| row.enabled)
+        };
+        let revealed = next.is_some_and(|i| open.layout.reveal_menu_target(i));
+        if next != open.focused || revealed {
             open.focused = next;
             open.revision += 1;
             self.executor.notify();
@@ -736,6 +829,7 @@ impl<D: DataSource> Presenter<D> {
     /// The node pressed, or `None` on a host with no top layer, which
     /// refuses it.
     pub(crate) fn invoke(&mut self, invoker: ViewId, now_ms: f64, pointer: bool) -> Option<ViewId> {
+        self.overlay_input(!pointer);
         if !self.has_windows() && !self.neutral_alerts() {
             self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
             return None;
@@ -801,10 +895,22 @@ impl<D: DataSource> Presenter<D> {
     /// `id` activated by a pointer or by a key (Enter, Space, a shortcut):
     /// an invoker's `press` and then what it invokes, else its `press`.
     pub(super) fn activate_with(&mut self, id: ViewId, now_ms: f64, pointer: bool) {
+        self.overlay_input(!pointer);
+        let serial = self.top.last;
         if (self.has_windows() || self.neutral_alerts()) && self.top_invoker(id) == Some(id) {
             self.invoke(id, now_ms, pointer);
         } else {
             self.press_then_follow(id, now_ms, pointer);
+        }
+        if !pointer
+            && self.top.overlay.enabled
+            && self
+                .top
+                .open
+                .as_ref()
+                .is_some_and(|open| open.serial != serial && open.focused.is_none())
+        {
+            self.surface_edge(false);
         }
     }
 
@@ -1017,10 +1123,19 @@ impl<D: DataSource> Presenter<D> {
         };
         open.epoch = epoch;
         if plan != open.plan || inputs != open.inputs {
-            open.layout = Layout::of(&mut self.text.borrow_mut(), &plan, pop, &inputs);
+            let measure = if self.top.overlay.enabled {
+                Layout::desktop
+            } else {
+                Layout::of
+            };
+            open.layout = measure(&mut self.text.borrow_mut(), &plan, pop, &inputs);
             (open.plan, open.inputs) = (plan, inputs);
             open.pressed = None;
+            open.hovered = None;
             open.focused = open.focused.filter(|i| *i < open.layout.targets.len());
+            if let Some(index) = open.focused {
+                open.layout.reveal_menu_target(index);
+            }
             open.revision += 1;
         }
         if anchor != open.anchor {
@@ -1038,6 +1153,13 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         let (at, origin) = match open.kind {
+            SurfaceKind::Alert if self.top.overlay.enabled => (
+                (
+                    (window.0 - open.layout.size.0).max(0.) / 2.,
+                    (window.1 - open.layout.size.1).max(0.) / 2.,
+                ),
+                0,
+            ),
             SurfaceKind::Alert => ((0.0, 0.0), 0),
             SurfaceKind::Menu => {
                 let at = look::place(open.anchor, open.layout.size, window, margins);
@@ -1085,10 +1207,14 @@ impl<D: DataSource> Presenter<D> {
         let open = self.top.open.as_ref()?;
         let scale = open.scale;
         let layout = &open.layout;
-        let lit: Vec<usize> = open.pressed.into_iter().chain(open.focused).collect();
+        let feedback = look::Feedback {
+            pressed: open.pressed,
+            focused: open.focused,
+            hovered: open.hovered,
+        };
         let painter = self.top.painter.as_mut()?;
         let stream = painter.record(layout.size, scale, &mut |backend| {
-            layout.paint(backend, &mut text.borrow_mut(), &lit)
+            layout.paint(backend, &mut text.borrow_mut(), feedback)
         });
         let cancellable = match &open.plan {
             Plan::Alert { cancellable, .. } => *cancellable,

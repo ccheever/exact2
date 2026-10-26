@@ -38,8 +38,22 @@ impl<D: DataSource> Runner<D> {
                 .chain(by.map(|(_, p)| p))
                 .chain(list)
             {
-                if let Some(name) = p["name"].as_str() {
-                    entry["permissions"][name] = json!(self.permission_state(name));
+                // A `<prefix>.*` permission is shown as each one set under it.
+                match p["name"].as_str().map(|n| (n, n.strip_suffix('*'))) {
+                    Some((_, Some(pre))) => {
+                        for name in self
+                            .extensions
+                            .permission
+                            .keys()
+                            .filter(|k| k.starts_with(pre))
+                        {
+                            entry["permissions"][name] = json!(self.permission_state(name));
+                        }
+                    }
+                    Some((name, None)) => {
+                        entry["permissions"][name] = json!(self.permission_state(name));
+                    }
+                    None => {}
                 }
             }
             if let Some(v) = self.extensions.preferred.get(&key) {
@@ -55,6 +69,9 @@ impl<D: DataSource> Runner<D> {
                     .map(|i| self.plan.str(self.plan.resources[i].name))
                     .collect();
                 entry["readers"][&declared] = json!(readers);
+            }
+            if let Some(facts) = self.facts_of(&extension) {
+                entry["facts"] = facts;
             }
             let ceremonies = self.ceremonies_of(&extension);
             if !ceremonies.is_empty() {
@@ -83,6 +100,7 @@ impl<D: DataSource> Runner<D> {
             if let Some(surfaces) = self.fed_json(extension) {
                 entry["surfaces"] = surfaces;
             }
+            self.reach_json(extension, entry);
             let one = (entry["permissions"].as_object())
                 .filter(|p| p.len() == 1)
                 .and_then(|p| p.values().next().cloned());
@@ -133,23 +151,16 @@ impl<D: DataSource> Runner<D> {
                     "prefer permission: an object of `<name>`: granted|denied|prompt".into(),
                 );
             };
-            for (name, state) in group {
-                let known = (self.plan.modules.iter()).any(|m| self.asks_permission(m, name));
-                let state = state
-                    .as_str()
-                    .filter(|s| matches!(*s, "granted" | "denied" | "prompt"));
-                match (known, state) {
-                    (false, _) => {
-                        return refuse(format!(
-                            "prefer permission: no module here asks for `{name}`"
-                        ))
-                    }
-                    (_, None) => {
-                        return refuse(format!(
-                            "prefer permission.{name}: granted, denied or prompt"
-                        ))
-                    }
-                    (true, Some(state)) => self.set_permission(name, state),
+            for (name, value) in group {
+                // A state, or a fact of one the platform hides (`keyed.rs`);
+                // a name may stand for each permission under it (`health`).
+                let Some(value) = value.as_str() else {
+                    return refuse(format!(
+                        "prefer permission.{name}: granted, denied or prompt"
+                    ));
+                };
+                if let Err(e) = self.prefer_permission(name, value) {
+                    return refuse(e);
                 }
             }
             if v.get("extension").is_none() {
