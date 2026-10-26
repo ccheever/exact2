@@ -83,15 +83,46 @@ impl<D: DataSource> Runner<D> {
     /// A permission that another's grant includes (`grantedBy`: Apple's
     /// read-write access includes adding, LLP 1133.019 D5) reads `granted`
     /// while that one does.
+    ///
+    /// A permission that requires others on this target (`requires`, LLP
+    /// 1133.030 D12 item 1) reads the least of its own state and theirs:
+    /// `denied`, then `prompt`, then `unknown`, then `granted`.
     pub(super) fn permission_state(&self, name: &str) -> String {
-        let declared = (self.plan.modules.iter())
-            .flat_map(|m| {
-                self.statuses_of(m)
-                    .into_iter()
-                    .chain([self.permission_named(m, name)])
-            })
+        let declared = self.permission_or_status(name);
+        let own = self.own_permission_state(name, &declared);
+        (self.required(&declared).iter())
+            .filter(|r| *r != name)
+            .fold(own, |state, r| least(state, self.permission_state(r)))
+    }
+
+    /// Permission `name` as declared, or as a status source names it: a
+    /// permission another one requires may be declared only there (LLP
+    /// 1133.030 D12 item 1).
+    fn permission_or_status(&self, name: &str) -> Json {
+        let declared = self.declared_permission(name);
+        if !declared.is_null() {
+            return declared;
+        }
+        (self.plan.modules.iter())
+            .flat_map(|m| self.statuses_of(m))
             .find(|p| p["name"] == name)
-            .unwrap_or_default();
+            .unwrap_or_default()
+    }
+
+    /// The permissions `permission` requires on this target, in the order
+    /// they are asked.
+    pub(in crate::runner) fn required(&self, permission: &Json) -> Vec<String> {
+        (permission["requires"][self.host_target()]
+            .as_array()
+            .into_iter())
+        .flatten()
+        .filter_map(Json::as_str)
+        .map(str::to_owned)
+        .collect()
+    }
+
+    /// Permission `name`'s own state, before what it requires.
+    pub(super) fn own_permission_state(&self, name: &str, declared: &Json) -> String {
         if let Some(by) = declared["grantedBy"].as_str().filter(|by| *by != name) {
             if self.permission_state(by) == "granted" {
                 return "granted".into();
@@ -190,7 +221,9 @@ impl<D: DataSource> Runner<D> {
             if !rows.iter().any(|r| r.source == row.source) {
                 continue;
             }
-            let fails = self.denial_fails(&self.substitute_for(&row, &args), &args);
+            let sub = self.substitute_for(&row, &args);
+            // A request that answers the status answers a denial with it.
+            let fails = self.denial_fails(&sub, &args) && !(send && sub["deniedAnswers"] == true);
             // `unknown` (an answer the platform hides, `keyed.rs`) admits as
             // `granted` does.
             let admits = state == "granted" || state == "unknown";
@@ -290,7 +323,8 @@ impl<D: DataSource> Runner<D> {
     /// by `prefer permission`, is the most the app could have asked); else
     /// the longest (the approximate one where both are). A target's own
     /// `allowOn` replaces `allow` (Android grants a calendar ask of either
-    /// level in full, LLP 1133.018 D11). `None` where it sets none.
+    /// level in full, LLP 1133.018 D11), and `denyOn` `deny` (the platform's
+    /// own word for a denial, LLP 1133.030 D5). `None` where it sets none.
     pub(super) fn answer_fields(
         &self,
         permission: &Json,
@@ -302,7 +336,10 @@ impl<D: DataSource> Runner<D> {
                 Json::Null => &permission["allow"],
                 on => on,
             },
-            "deny" => &permission["deny"],
+            "deny" => match &permission["denyOn"][self.host_target()] {
+                Json::Null => &permission["deny"],
+                on => on,
+            },
             choice => &permission["choices"][choice],
         };
         let fields = fields.as_object()?;
@@ -436,6 +473,22 @@ impl<D: DataSource> Runner<D> {
             .into_iter()
             .flatten())
         .any(|t| t == target)
+    }
+}
+
+/// The lesser of two permission states: `denied`, then `prompt`, then
+/// `unknown`, then `granted` (and any other word).
+fn least(a: String, b: String) -> String {
+    let rank = |s: &str| match s {
+        "denied" => 0,
+        "prompt" => 1,
+        "unknown" => 2,
+        _ => 3,
+    };
+    if rank(&b) < rank(&a) {
+        b
+    } else {
+        a
     }
 }
 

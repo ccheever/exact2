@@ -24,6 +24,7 @@
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
     "@exact/geolocation": "workspace:*",
+    "@exact/alarms": "workspace:*",
     "@exact/language-model": "workspace:*",
     "@exact/local-auth": "workspace:*",
     "@exact/camera": "workspace:*",

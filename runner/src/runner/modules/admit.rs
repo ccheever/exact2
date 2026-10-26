@@ -500,7 +500,7 @@ impl<D: DataSource> Runner<D> {
                 .unwrap_or_default();
         }
         let Some(by) = sub["permissionBy"].as_object() else {
-            return sub["permission"].clone();
+            return self.unsettled(row, &sub);
         };
         let given: Vec<&Json> = (by.iter())
             .filter(|(a, _)| given(args, a))
@@ -513,12 +513,38 @@ impl<D: DataSource> Runner<D> {
             .map_or_else(|| sub["permission"].clone(), |p| (*p).clone())
     }
 
+    /// The permission a call of `row` asks of its own and those it requires
+    /// on this target (LLP 1133.030 D12 item 1): a denied one, its own
+    /// first; else the first required one still `prompt`; else its own. A
+    /// status source answers its own.
+    fn unsettled(&self, row: &ModulesRow, sub: &Json) -> Json {
+        let own = &sub["permission"];
+        let required = self.required(own);
+        if required.is_empty() || own["status"] == self.plan.str(row.declared) {
+            return own.clone();
+        }
+        let name = own["name"].as_str().unwrap_or_default();
+        if self.own_permission_state(name, own) == "denied" {
+            return own.clone();
+        }
+        let states: Vec<(String, String)> = (required.into_iter())
+            .map(|r| {
+                let state = self.permission_state(&r);
+                (r, state)
+            })
+            .collect();
+        (states.iter().find(|(_, s)| s == "denied"))
+            .or_else(|| states.iter().find(|(_, s)| s == "prompt"))
+            .map_or_else(|| own.clone(), |(r, _)| self.permission_named(row, r))
+    }
+
     /// `row`'s substitute with the permission a call with `args` asks.
     pub(in crate::runner) fn substitute_for(&self, row: &ModulesRow, args: &Json) -> Json {
         let mut sub = self.substitute(row);
         if sub["permissionBy"].is_object()
             || sub["permissionAny"].is_array()
             || sub["permissionValue"].is_array()
+            || sub["permission"]["requires"].is_object()
         {
             sub["permission"] = self.permission_of(row, args);
         }
@@ -536,7 +562,8 @@ impl<D: DataSource> Runner<D> {
             .to_owned()
     }
 
-    /// The permission `name` as `row` declares it.
+    /// The permission `name` as `row` declares it: its own, one chosen by
+    /// argument, or one its own requires on this target.
     pub(in crate::runner) fn permission_named(&self, row: &ModulesRow, name: &str) -> Json {
         let sub = self.substitute(row);
         // A name that asks by its arguments' values asks any of its own.
@@ -549,8 +576,12 @@ impl<D: DataSource> Runner<D> {
         }
         let by = sub["permissionBy"].as_object().into_iter().flatten();
         let any = sub["permissionAny"].as_array().into_iter().flatten();
+        let required = self.required(&sub["permission"]);
+        let requires = (sub["permissionList"].as_array().into_iter().flatten())
+            .filter(|p| required.iter().any(|r| p["name"] == r.as_str()));
         (std::iter::once(&sub["permission"]).chain(by.map(|(_, p)| p)))
             .chain(any)
+            .chain(requires)
             .find(|p| p["name"] == name)
             .cloned()
             .unwrap_or_default()

@@ -286,12 +286,13 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A source declared `"listed"`: the entries of its kind, its fields each.
-    pub(in crate::runner) fn listed_value(&self, sub: &Json) -> Option<Json> {
+    pub(in crate::runner) fn listed_value(&self, row: &ModulesRow, sub: &Json) -> Option<Json> {
         if let Some(entries) = self.reach_value(sub) {
             return Some(entries);
         }
         let listed = sub["listed"].as_object()?;
         let state = listed.get("state")?.as_str()?;
+        let extension = self.plan.str(row.extension);
         let kind = listed.get("kind");
         let fields: Vec<&str> = (listed
             .get("fields")
@@ -300,23 +301,17 @@ impl<D: DataSource> Runner<D> {
             .flatten())
         .filter_map(Json::as_str)
         .collect();
-        let entries = (self
-            .extensions
-            .declared
-            .lists
-            .get(state)
-            .into_iter()
-            .flatten())
-        .filter(|e| kind.is_none() || e.fields.get("kind") == kind)
-        .map(|e| {
-            let mut all = e.fields.clone();
-            self.wake_fields(e, &mut all);
-            let picked: Map<String, Json> = (fields.iter())
-                .map(|f| (f.to_string(), all.get(*f).cloned().unwrap_or(Json::Null)))
-                .collect();
-            Json::Object(picked)
-        })
-        .collect();
+        let entries = (self.entries(extension, state).iter())
+            .filter(|e| kind.is_none() || e.fields.get("kind") == kind)
+            .map(|e| {
+                let mut all = e.fields.clone();
+                self.wake_fields(e, &mut all);
+                let picked: Map<String, Json> = (fields.iter())
+                    .map(|f| (f.to_string(), all.get(*f).cloned().unwrap_or(Json::Null)))
+                    .collect();
+                Json::Object(picked)
+            })
+            .collect();
         Some(Json::Array(entries))
     }
 

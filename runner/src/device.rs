@@ -367,6 +367,25 @@ pub const DEVICES: &[Device] = &[
         ios: &["NSUserTrackingUsageDescription"],
         ..ROW
     },
+    // Alarms, `@exact/alarms`'s (LLP 1133.030 D7), a declared deviation: no
+    // web name. AlarmKit schedules nothing without its key. On Android the
+    // package owns the app's one exact-alarm permission, needs notifications
+    // for the ring's Stop, and runs receivers and a ringing service at a
+    // boot and at the alarm's time; macOS, tvOS and the web have no alarm.
+    Device {
+        name: "alarms",
+        ios: &["NSAlarmKitUsageDescription"],
+        android: &[
+            "android.permission.SCHEDULE_EXACT_ALARM",
+            "android.permission.POST_NOTIFICATIONS",
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+            "android.permission.WAKE_LOCK",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED",
+        ],
+        tvos: false,
+        ..ROW
+    },
 ];
 
 /// One `device.<name> <key>` line.
