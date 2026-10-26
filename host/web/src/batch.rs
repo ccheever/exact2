@@ -29,11 +29,12 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
         if request.storage.is_some() || request.continuation.is_some() {
             return Some("only HTTP may opt into independent transport");
         }
-        if max_response_bytes == 0 || max_response_bytes > 64 * 1024 * 1024 {
-            return Some("independent HTTP response limit must be 1..=64 MiB");
-        }
     }
-    (request.timeout_refusal().or(request.body_from_refusal())).or(request.long_poll_refusal())
+    (request.ceiling_refusal())
+        .or(request.timeout_refusal())
+        .or(request.body_from_refusal())
+        .or(request.body_to_refusal())
+        .or(request.long_poll_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -652,6 +653,11 @@ impl Batch {
         // into the body (http-body.js), under the request's grants.
         if let Some(path) = &r.request.body_from {
             s.push_str(",\"bodyFrom\":");
+            quote(path, &mut s);
+        }
+        // `exactBodyTo`: the page writes a 2xx body to the app file.
+        if let Some(path) = &r.request.body_to {
+            s.push_str(",\"bodyTo\":");
             quote(path, &mut s);
         }
         // Absent is `follow` (http-body.js)

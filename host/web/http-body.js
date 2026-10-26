@@ -354,7 +354,7 @@ import { faultMessage, takeFault } from './faults.js';
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
-export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {}, bodyFile, protocol }) {
+export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {}, bodyFile, bodyTarget, protocol }) {
   const encoder = new TextEncoder();
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
   const { method, url, headers, body, cache } = op;
@@ -372,7 +372,8 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   if (!native && !asset && !grant) return failed(2, `outside the app's grants (${capability})`);
   // The line that admitted a stream, for `state.streams`.
   if (op.stream && grant) controller.grant = grant;
-  if (op.nativeHttp === 'independent' && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) return failed(2, 'invalid independent HTTP response limit');
+  // A body written to a file (`exactBodyTo`) may name up to 1 GiB: it is not held in memory.
+  if (op.nativeHttp === 'independent' && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > (op.bodyTo == null ? 64 : 1024) * 1024 * 1024)) return failed(2, 'invalid independent HTTP response limit');
   if (native) {
     let response;
     try {
@@ -436,6 +437,25 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     if (signal.aborted) return failed(4, 'request aborted');
     if (!active()) return failed(4, 'request source unloaded');
   }
+  // `exactBodyTo` (LLP 1108 D6 R2, 2026-10-26): a 2xx body goes to the app
+  // file (storage-fs.js `bodyTarget`), admitted under `fs.write` with its
+  // parent checked now, or refused before anything is sent.
+  let target;
+  if (op.bodyTo != null) {
+    if (!bodyTarget) return failed(3, `exactBodyTo ${op.bodyTo}: this host has no app files (no storage here)`);
+    if (typeof op.bodyTo !== 'string' || !op.bodyTo.startsWith('app:/') || new TextEncoder().encode(op.bodyTo).length > 4096 || /(^|\/)\.\.?(\/|$)|\0/.test(op.bodyTo.slice(5)))
+      return failed(2, `exactBodyTo ${String(op.bodyTo).slice(0, 256)}: an app:/ path has no . or .. segment, and is at most 4096 bytes`);
+    if (!coversPath(effective, 'fs.write', op.bodyTo))
+      return failed(2, `exactBodyTo ${op.bodyTo}: denied: fs.write ${op.bodyTo}: no grant covers it; grant \`fs.write ${op.bodyTo}\``);
+    const stopped = new Promise(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+    const opening = bodyTarget(op.bodyTo, effective);
+    opening.catch(() => {}); // an opening that loses the race is nobody's
+    try { target = await Promise.race([opening, stopped]); }
+    catch (error) { return failed(error?.code === 'agent' ? 3 : 2, error); }
+    if (!target) opening.then(t => t.close(), () => {});
+    const ended = expired() ? failed(10, `the request timed out after ${op.timeoutMs} ms`) : signal.aborted ? failed(4, 'request aborted') : !active() ? failed(4, 'request source unloaded') : null;
+    if (ended) { target?.close(); return ended; }
+  }
   // A browser answers a `manual` redirect with an opaque-redirect response
   // (Fetch §2.2.6: status 0, no Location)
   const init = { method, headers, redirect: op.redirect ?? 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
@@ -460,13 +480,17 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
       return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);
     if (op.stream && protocol?.bytes && response.ok && response.body)
       return await readBytes(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);
-    return { kind: 0, status: response.status, headers: [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n'), body: await boundedHttpBody(response, op.maxResponseBytes) };
+    const headerText = [...response.headers].map(([k, v]) => `${k}: ${v}`).join('\n');
+    // Written: its size first, as a pseudo-header (host.rs `outcome_from`); any other reply is read as usual, at most 1 MiB.
+    if (target && response.ok) return { kind: 0, status: response.status, headers: `:exact-body-to: ${await target.put(response, op.maxResponseBytes ?? 1024 * 1024 * 1024)}\n${headerText}`, body: new Uint8Array() };
+    return { kind: 0, status: response.status, headers: headerText, body: await boundedHttpBody(response, target ? Math.min(op.maxResponseBytes ?? 1024 * 1024, 1024 * 1024) : op.maxResponseBytes) };
   } catch (error) {
     // Whichever ended it first: the combined signal keeps the first reason.
     if (deadline && signal.aborted && signal.reason === deadline.reason) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
-    return failed(controller.signal.aborted ? 4 : error?.kind === 'Refused' ? 2 : 1, error);
+    // A store that would not take a written body (`Unavailable`) refuses it, as natively.
+    return failed(controller.signal.aborted ? 4 : error?.kind === 'Refused' || error?.kind === 'Unavailable' ? 2 : 1, error);
   }
-  finally { controllers.delete(controller); }
+  finally { controllers.delete(controller); target?.close(); }
 }
 
 // A stream on the JS target (host/web-js: rust-data.js, ts-data.js): `request`

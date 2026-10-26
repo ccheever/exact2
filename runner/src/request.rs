@@ -629,18 +629,23 @@ impl Request {
         }
     }
 
-    /// Why this request's response ceiling is refused, if it is: zero, or
-    /// over 64 MiB, or over [`MAX_BODY_TO_BYTES`] for a body written to a file.
+    /// Why this request's independent response ceiling is refused, if it
+    /// is: zero, or over 64 MiB, or over [`MAX_BODY_TO_BYTES`] for a body
+    /// written to a file.
     pub fn ceiling_refusal(&self) -> Option<&'static str> {
         let HttpScheduling::Independent { max_response_bytes } = self.http else {
             return None;
         };
-        if max_response_bytes == 0 {
-            Some("independent HTTP response limit must be at least 1 byte")
-        } else if self.body_to.is_some() && max_response_bytes > MAX_BODY_TO_BYTES {
-            Some("exactBodyTo: the response limit is at most 1 GiB")
-        } else if self.body_to.is_none() && max_response_bytes > 64 << 20 {
-            Some("independent HTTP response limit must be 1..=64 MiB")
+        let most = if self.body_to.is_some() {
+            MAX_BODY_TO_BYTES
+        } else {
+            64 << 20
+        };
+        if max_response_bytes == 0 || max_response_bytes > most {
+            Some(match self.body_to {
+                Some(_) => "exactBodyTo: the response limit must be 1 byte to 1 GiB",
+                None => "independent HTTP response limit must be 1..=64 MiB",
+            })
         } else {
             None
         }
