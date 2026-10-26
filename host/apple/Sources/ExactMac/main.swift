@@ -595,6 +595,7 @@ Agent.hostState = {
 final class Delegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         exact.installNotificationClicks { session in windows.first { $0.session === session }?.front() }
+        exact.installWakes()
     }
     /// A one-window app quits with its window; one whose documents each
     /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac
@@ -750,6 +751,8 @@ func finishLaunching() {
         }
     }
     DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment["EXACT_PLAN"])
+    // `SIGUSR1` saves the front window's trace (LLP 1142 D5).
+    TraceSignal.install { DevMenu.session ?? session }
 
     // EXACT_PLAN=<file> boots that plan instead of the one baked into the
     // library — any compiled contract, no rebuild (smokes, fixtures).

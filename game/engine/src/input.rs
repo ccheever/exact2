@@ -3,11 +3,13 @@ use std::sync::Arc;
 
 mod contexts;
 mod pad;
+mod sensor;
 mod triggers;
 pub(crate) use contexts::seed;
 pub use contexts::{Binding, Bindings, InputContexts};
 pub(crate) use pad::pad_index;
 pub use pad::{Curve, Pad, PadState, MAX_PADS, PAD_BUTTONS};
+pub use sensor::{tilt_stick, SensorKind, SensorSample, SensorState, Tilt};
 pub use triggers::InputState;
 /// Register the input resources a world restores in any process: contexts,
 /// bindings and the state input last applied.
@@ -15,7 +17,8 @@ pub(crate) fn register_resources(world: &mut crate::World) {
     world
         .register_resource::<InputContexts>()
         .register_resource::<Bindings>()
-        .register_resource::<InputState>();
+        .register_resource::<InputState>()
+        .register_resource::<SensorState>();
 }
 use triggers::{Trigger, TriggerState};
 
@@ -57,6 +60,7 @@ pub struct Stick {
     pads: Vec<Pad>,
     dead_zone: Option<f32>,
     curve: Curve,
+    tilt: Option<Tilt>,
 }
 impl Stick {
     /// W/S/A/D directional controls.
@@ -100,6 +104,21 @@ impl Stick {
     /// touch is unit-clamped like the rest.
     pub fn or_pad(mut self, pad: Pad) -> Self {
         self.pads.push(pad);
+        self
+    }
+    /// Add the device's tilt, read from the gravity sensor a canvas input
+    /// delivers (`startSensorInput(sensor="gravity")`): full deflection at
+    /// `max_degrees` from the neutral (`World::set_tilt_neutral`, else the
+    /// first sample), nothing within `dead_zone` degrees of it, nothing before
+    /// the first sample or after the input ends ([`tilt_stick`]).
+    pub fn or_tilt(mut self, tilt: Tilt) -> Self {
+        assert!(
+            tilt.max_degrees.is_finite()
+                && tilt.max_degrees > 0.
+                && (0.0..tilt.max_degrees).contains(&tilt.dead_zone),
+            "tilt needs max_degrees > 0 and a dead zone in [0, max_degrees), got {tilt:?}"
+        );
+        self.tilt = Some(tilt);
         self
     }
     /// The radial dead zone for this stick's pad readings, as a fraction of
@@ -395,6 +414,30 @@ pub enum InputEvent {
         /// Local player.
         player: u8,
     },
+    /// One sample of a sensor the app asked for on this canvas
+    /// (`startSensorInput`), in the W3C's units and the frame it asked for.
+    /// Every sample reaches its tick, never coalesced.
+    Sensor {
+        /// The sensor sampled.
+        sensor: SensorKind,
+        /// x, y, z, and w for an orientation's quaternion; finite.
+        values: [f32; 4],
+        /// Samples of this sensor the host lost before this one.
+        dropped: u32,
+        /// Host clock milliseconds, when the sample was taken.
+        at_ms: f64,
+        /// Local player.
+        player: u8,
+    },
+    /// The app's input of this sensor ended: its last sample no longer stands.
+    SensorEnded {
+        /// The sensor whose input ended.
+        sensor: SensorKind,
+        /// Host clock milliseconds.
+        at_ms: f64,
+        /// Local player.
+        player: u8,
+    },
 }
 impl Default for InputEvent {
     fn default() -> Self {
@@ -485,6 +528,8 @@ impl InputEvent {
             | Self::Wheel { at_ms, .. }
             | Self::Pad { at_ms, .. }
             | Self::Message { at_ms, .. }
+            | Self::Sensor { at_ms, .. }
+            | Self::SensorEnded { at_ms, .. }
             | Self::Blur { at_ms, .. } => *at_ms = value,
         }
     }
@@ -496,6 +541,8 @@ impl InputEvent {
             | Self::Wheel { at_ms, .. }
             | Self::Pad { at_ms, .. }
             | Self::Message { at_ms, .. }
+            | Self::Sensor { at_ms, .. }
+            | Self::SensorEnded { at_ms, .. }
             | Self::Blur { at_ms, .. } => *at_ms,
         }
     }
@@ -566,6 +613,11 @@ pub struct Input {
     // Actions that read up until their binding lifts: rebound or newly in context while held.
     #[data(skip)]
     latched: Vec<String>,
+    // The world's SensorState as last applied, and this tick's samples.
+    #[data(skip)]
+    sensors: SensorState,
+    #[data(skip)]
+    tick_samples: Vec<sensor::TickSample>,
 }
 impl Input {
     /// Events produced by the preceding tick, in emission order for this type.
@@ -626,6 +678,9 @@ impl Input {
             }
             InputEvent::Wheel { dx, dy, .. } if !dx.is_finite() || !dy.is_finite() => {
                 return Err("wheel needs finite deltas".into())
+            }
+            InputEvent::Sensor { values, .. } if values.iter().any(|v| !v.is_finite()) => {
+                return Err("a sensor sample needs finite values".into())
             }
             _ => {}
         }
@@ -760,6 +815,9 @@ impl Input {
                 }
             });
         }
+        if let Some(tilt) = s.tilt {
+            v += self.tilt(name, tilt);
+        }
         v.clamp_length_max(1.0)
     }
     /// Whether the action's devices are down, before contexts and latches.
@@ -873,6 +931,7 @@ impl Input {
     }
     pub(crate) fn clear_edges(&mut self) {
         self.messages.clear();
+        self.tick_samples.clear();
         self.pressed.clear();
         self.released.clear();
         self.wheel = Vec2::ZERO;
@@ -917,7 +976,7 @@ impl Input {
             || self.actions.is_none()
             || matches!(&event, InputEvent::Key { code, down, .. } if self.keys.contains(code) == *down)
         {
-            return self.apply_state(event);
+            return self.apply_state(event, at_us);
         }
         let actions = self.actions.clone().unwrap_or_default();
         let before: Vec<_> = actions
@@ -925,7 +984,7 @@ impl Input {
             .iter()
             .map(|a| (self.bound(a), self.active(a), self.last_key_down(a)))
             .collect();
-        self.apply_state(event);
+        self.apply_state(event, at_us);
         // A latch lifts with its binding: the next press is a press.
         let latched = std::mem::take(&mut self.latched);
         self.latched = latched
@@ -957,7 +1016,7 @@ impl Input {
             self.released.push(name.into());
         }
     }
-    fn apply_state(&mut self, event: InputEvent) {
+    fn apply_state(&mut self, event: InputEvent, at_us: i64) {
         if self.validate(&event).is_err() {
             return;
         }
@@ -971,6 +1030,13 @@ impl Input {
             },
             InputEvent::Wheel { dx, dy, .. } => self.wheel += Vec2::new(dx, dy),
             InputEvent::Message { text, .. } => self.messages.push(text),
+            InputEvent::Sensor {
+                sensor,
+                values,
+                dropped,
+                ..
+            } => self.apply_sample(sensor, values, dropped, at_us),
+            InputEvent::SensorEnded { sensor, .. } => self.end_sensor(sensor),
             InputEvent::Control {
                 name,
                 id,

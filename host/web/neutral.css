@@ -61,12 +61,15 @@
   #exact-root button[data-button-style]:is([data-exact-said~="height"], [data-exact-height]) { min-height: auto; padding-block: 0; }
   #exact-root button[data-button-style]:is([data-exact-said~="width"], [data-exact-width]):not([navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source], [data-exact-text]:empty)))) { min-width: auto; padding-inline: 0; }
   /* Written padding is UIKit's contentInsets (LLP 1069.011.001 D15): content plus insets, with no minimum; an
-     unsaid side keeps its default inset. Bound sides carry per-side marks from the JS writer. The 1 px edge also
+     unsaid side keeps its default inset. Inline, that minimum is 0, not `auto`, which in a flex row is the
+     content's own width and would keep a button from its share of the row (an alert's buttons keep the
+     minimum they had). Bound sides carry per-side marks from the JS writer. The 1 px edge also
      yields, except the bordered style's outline (transparent in a bar) and every edge under forced colours.
      Tabs, segments, menu and chooser rows keep their own boxes, as their native counterparts are not UIButtons. */
   #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) {
     &:is([data-exact-said~="padding-block"], [data-exact-padding-top], [data-exact-padding-bottom]) { min-height: auto; }
     &:is([data-exact-said~="padding-inline"], [data-exact-padding-left], [data-exact-padding-right]) { min-width: auto; }
+    &:is([data-exact-said~="padding-inline"], [data-exact-padding-left], [data-exact-padding-right]):not(dialog[role="alertdialog"] > *, [data-alertpart="actions"] > *) { min-width: 0; }
     @media (forced-colors: none) {
       &:not([data-button-style="bordered"]):is([data-exact-said~="padding-block"], [data-exact-padding-top], [data-exact-padding-bottom]) { border-block-width: 0; }
       &:not([data-button-style="bordered"]):is([data-exact-said~="padding-inline"], [data-exact-padding-left], [data-exact-padding-right]) { border-inline-width: 0; }

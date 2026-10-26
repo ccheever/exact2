@@ -1,0 +1,806 @@
+// The design tool's edits against its stand-in Tamber server, as in
+// app.test.contract: the dials and component panels, typed fields, the token
+// grid and contrast, proposals before a write, undo, and scrubs.
+
+// stub/dials.tamber: dials of each kind a colour follows, with and without
+// metadata, two groups, the three priorities (declared out of order), a
+// select with an option that is no literal, a range in scientific
+// notation, two axes and a residual.
+test "the dials panel is drawn from each dial's declared metadata"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "group-Colour"
+  expect tree has "dial-accent-color"
+  expect tree has "dial-lift-slider"
+  expect text "dial-lift-value" == "0.1"
+  expect tree has "dial-hue-stepper"
+  expect tree has "dial-chroma-slider"
+  expect tree missing "dial-shade"
+  expect tree missing "dial-warmth"
+  tap "more-Tone"
+  expect tree has "dial-warmth-slider"
+  expect tree has "dial-fine-slider"
+  tap "more-Colour"
+  expect tree has "dial-paint-select"
+  expect text "dial-paint-value" == "#f00"
+  expect text "dial-paint-help" == "brand.red is not a value a dial can take (a dial is a literal), so it is not offered."
+
+test "the component panel: each component's params from describe, grouped and ordered as declared, a native one named so"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "component-Card"
+  expect text "component-Card-identity" == "app.contract#Card"
+  expect text "component-MapCard-identity" == "app.tamber#MapCard · a native view's"
+  expect tree has "dial-app.contract#Card.fill-color"
+  expect text "dial-app.contract#Card.fill-value" == "accent.fill"
+  expect tree has "dial-app.contract#Card.pad-slider"
+  expect text "dial-app.contract#Card.pad-value" == "12px"
+  expect text "dial-app.contract#Card.pad-bounds" == "0px – 24px · step 1px"
+  expect text "param-Card.pad-source" == "set here · default 8px"
+  // `control=token`, the default: a field for a token or a literal.
+  expect tree has "dial-app.contract#Card.fade-field"
+  expect text "param-Card.fade-source" == "the default"
+  expect tree missing "param-Card.tone"
+  tap "more-Card-Colour"
+  expect tree has "dial-app.contract#Card.tone-select"
+  expect text "param-Card.tone-pinned" == "pinned: no longer follows surface.card"
+  expect tree has "dial-app.tamber#MapCard.zoom-stepper"
+  expect text "param-MapCard.zoom-source" == "the default"
+
+test "the component panel's other kinds: a duration's slider writes ms, an icon param shows its sources, a panel edit beside an open param's branch is no stale draft"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "dial-app.tamber#MapCard.pan-bounds" == "0ms – 1000ms · step 50ms"
+  type "dial-app.tamber#MapCard.pan-slider" "400"
+  expect state editKind == "set-param"
+  expect state editValue == "400ms"
+  expect text "dial-app.tamber#MapCard.glyph-value" == "sf star · material star"
+  expect tree missing "dial-app.tamber#MapCard.glyph-field"
+  // (That edit's proposal is docked over the window's bottom, the grid's cell under it: cancelled first.)
+  tap "cancel-edit"
+  clock data
+  // A param's branch open in the editor, then another param edited in the
+  // panel: that draft is the panel's, not a stale branch draft.
+  tap "cell-surface.card-0-light"
+  clock data
+  type "dial-app.contract#Card.pad-slider" "18"
+  expect state editTarget == "app.contract#Card.pad"
+  expect tree missing "draft-stale"
+
+test "a param edit is set-param with its chip, scrubbed when live; Reset is unset-param, applied and undone in one step"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  clock +1
+  clock data
+  type "dial-app.contract#Card.pad-slider" "16"
+  expect state editKind == "set-param"
+  expect state editTarget == "app.contract#Card.pad"
+  expect state editValue == "16px"
+  clock data
+  expect text "chip" == "Live"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  tap "scrub-cancel"
+  clock data
+  // A duration param is substituted at build: it rebuilds, with no scrub.
+  type "dial-app.contract#Card.fade-field" "200ms"
+  type "dial-app.contract#Card.fade-field" key "Enter"
+  expect state editTarget == "app.contract#Card.fade"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect tree has "scrub-unavailable"
+  tap "param-Card.pad-reset"
+  expect state editKind == "unset-param"
+  expect state editTarget == "app.contract#Card.pad"
+  clock data
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  tap "undo"
+  clock data
+  expect text "undo" == "Undo (0)"
+  request POST "/__stub/restart" {} as ada
+
+test "a length dial's slider and stepper write a px length, as a length dial takes"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "group-Space"
+  expect text "dial-gap-value" == "8px"
+  type "dial-gap-slider" "10"
+  expect state editTarget == "gap"
+  expect state editValue == "10px"
+  type "dial-inset-stepper" "6"
+  expect state editTarget == "inset"
+  expect state editValue == "6px"
+
+test "typed fields by kind: each edits its part of the value and leaves the rest as written"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // A length: its amount and unit.
+  tap "cell-space.edge-0-light"
+  clock data
+  expect tree has "typed"
+  type "part-amount-field" "16"
+  expect state editTarget == "space.edge"
+  expect state editValue == "16px"
+  type "part-unit-field" "rem"
+  expect state editValue == "16rem"
+  // Another edit replaces the draft: the fields are the value's again.
+  type "dial-gap-slider" "10"
+  expect state editTarget == "gap"
+  type "part-unit-field" "em"
+  expect state editTarget == "space.edge"
+  expect state editValue == "12em"
+  // So does Only this mode starting a fresh draft after another edit, and
+  // after a whole-value edit.
+  type "part-amount-field" "20"
+  type "branch-value" "24px"
+  type "branch-value" key "Enter"
+  type "dial-gap-slider" "12"
+  tap "only-this-mode"
+  expect state editValue == "12px"
+  type "part-unit-field" "rem"
+  expect state editValue == "12rem"
+  tap "cancel-edit"
+  // A shadow list: per shadow, inset, its lengths and its colour (a token's
+  // name, which it keeps: no pin), every other shadow as written.
+  tap "cell-shadow.ring-0-light"
+  clock data
+  expect tree has "branch-names"
+  expect tree has "input-surface.inset"
+  expect tree missing "pinned"
+  expect tree has "part-1.color-field"
+  // Typed a character at a time, with no answer between: the fields stay.
+  type "part-0.spread-field" "1"
+  expect state editValue == "0px 1px 2px 1 #00000033, inset 0px 0px 0px 1px surface.inset"
+  type "part-0.spread-field" "1px"
+  expect tree has "part-0.spread-field"
+  expect state editValue == "0px 1px 2px 1px #00000033, inset 0px 0px 0px 1px surface.inset"
+  // The blur holds its place while a spread is written after it.
+  type "part-0.blur-field" ""
+  expect text "typed-missing" == "Give shadow 1 blur a value: emptied, the part after it would be read in its place."
+  expect state editValue == ""
+  type "part-0.blur-field" "2px"
+  type "part-1.inset-field" ""
+  expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 0px 1px surface.inset"
+  clock data
+  expect text "proposal-tokens" == "shadow.ring"
+  // A required part emptied drafts nothing, and says so.
+  type "part-1.blur-field" ""
+  expect text "typed-missing" == "Give shadow 2 blur a value: emptied, the part after it would be read in its place."
+  expect state editValue == ""
+  type "part-1.blur-field" "2px"
+  expect tree missing "typed-missing"
+  expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 2px 1px surface.inset"
+  // A type: each longhand, one it leaves out offered empty.
+  tap "cell-type.title-0-light"
+  clock data
+  type "part-style-field" "italic"
+  expect state editValue == "italic 600 1.25rem/1.25"
+  type "part-family-field" "system-ui"
+  expect state editValue == "italic 600 1.25rem/1.25 system-ui"
+  // Only this mode: a field's edit is for its own branch.
+  tap "cell-opacity.muted-0-light"
+  clock data
+  tap "only-this-mode"
+  type "part-amount-field" "0.25"
+  expect state editValue == "0.25"
+  expect state editWhen == "density=regular"
+  // An expression has no typed fields.
+  tap "cell-space.gap-0-light"
+  clock data
+  expect tree missing "typed"
+
+test "a typed field's edit scrubs live, each value previewed, and Keep writes the last"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  tap "cell-shadow.ring-0-light"
+  clock data
+  type "part-0.blur-field" "3px"
+  clock data
+  expect text "chip" == "Live"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  type "part-0.blur-field" "4px"
+  clock data
+  expect state editValue == "0px 1px 4px #00000033, inset 0px 0px 0px 1px surface.inset"
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  tap "scrub-keep"
+  clock data
+  expect tree missing "scrub"
+  expect text "undo" == "Undo (1)"
+  // A scrub cancelled keeps the draft and its fields: the next field edit
+  // composes from both.
+  type "part-0.blur-field" "5px"
+  clock data
+  tap "scrub-start"
+  clock data
+  tap "scrub-cancel"
+  clock data
+  type "part-0.x-field" "1px"
+  expect state editValue == "1px 1px 5px #00000033, inset 0px 0px 0px 1px surface.inset"
+  // The stub's live table off again, as the tests after this one expect.
+  request POST "/__stub/live" {"live": false} as ada
+
+test "a motion token says it rebuilds before the gesture, with no scrub; icons are listed read only"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-duration.fast-0-light"
+  clock data
+  expect text "branch-rebuilds" == "Rebuilds: an edit to a motion token rebuilds the app, so Apply writes it, with no scrub."
+  expect tree missing "typed"
+  type "branch-value" "200ms"
+  type "branch-value" key "Enter"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect disabled "scrub-start"
+  expect text "icon-icon.star-sources" == "sf star · material star"
+  tap "cell-space.edge-0-light"
+  clock data
+  expect tree missing "branch-rebuilds"
+
+test "the token grid: every mode tuple light and dark, swatches, residuals, what each follows"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "column-0-light" == "Light"
+  expect text "column-1-light" == "Light · density=compact"
+  expect tree missing "column-2-light"
+  expect text "column-3-dark" == "Dark · dark-style=dim · density=compact"
+  expect text "cell-text-surface.page-2-dark" == "#15202bff"
+  expect text "cell-text-surface.page-0-dark" == "#000000ff"
+  expect text "cell-text-surface.inset-1-light" == "#eef0f2ff"
+  expect text "cell-text-text.system-0-light" == "-exact-secondary-label"
+  // A length token (LLP 1121 stage 6): its value, no swatch, no sides.
+  expect text "cell-text-space.gap-0-light" == "8px"
+  expect text "cell-text-space.gap-0-dark" == "8px"
+  // A shadow, previewed in each column's scheme.
+  expect tree has "cell-shadow-shadow.card-0-light"
+  expect tree has "cell-shadow-shadow.card-0-dark"
+  expect text "cell-text-shadow.card-0-light" == "0px 1px 3px light-dark(#000000ff, #ffffffff)"
+  expect tree has "cell-fallback-text.system-0-light"
+  expect tree missing "cell-fallback-surface.page-0-light"
+  expect text "follows-accent.soft" == "follows accent, lift"
+  // A declared pair's contrast in each cell, a low one marked.
+  expect text "pair-text.primary-0-light-surface.page" == "18.51:1 on surface.page"
+  expect text "pair-tone.warm-0-light-surface.page" == "2.78:1 on surface.page"
+  // And said with the cell, a low one so named.
+  tap "tone.warm, Light, oklch(0.7 0.1 20), 2.78:1 on surface.page, low contrast"
+  clock data
+  expect text "branch-label" == "tone.warm · default (Light)"
+  expect tree missing "follows-surface.page"
+  expect tree has "token-group-roles"
+
+test "contrast between two tokens, per column, on the stored values"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "pick-a" "text.primary"
+  type "pick-b" "surface.page"
+  clock data
+  expect text "ratio-0-light" == "18.51:1"
+  expect text "ratio-0-dark" == "17.24:1"
+  expect text "ratio-2-dark" == "13.54:1"
+  type "pick-a" "text.system"
+  clock data
+  expect text "ratio-0-light" == "3.44:1 (fallback)"
+  type "pick-a" "surface.page"
+  type "pick-b" "text.system"
+  clock data
+  expect text "ratio-0-light" == "translucent background"
+
+test "an edit is proposed with its chip and diff before it is written, then undone and redone"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree missing "proposal"
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect text "proposal-tokens" == "hue"
+  expect disabled "undo"
+  tap "apply"
+  clock data
+  expect tree missing "proposal"
+  expect text "undo" == "Undo (1)"
+  tap "undo"
+  clock data
+  expect text "undo" == "Undo (0)"
+  expect text "redo" == "Redo (1)"
+  tap "redo"
+  clock data
+  expect text "undo" == "Undo (1)"
+  // Another run of the server has none of these inverses: undo and redo
+  // start again.
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  expect text "undo" == "Undo (0)"
+  expect disabled "undo"
+
+test "another client's write after an edit was reviewed: Apply is refused naming them, and a second Apply writes over it knowingly"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "proposal-tokens" == "hue"
+  // Bea writes app.tamber while Ada's proposal is open: it is asked again on the files as they are now.
+  request POST "/__stub/event" {"event": "changed", "client": "design-tool:bea", "files": {"app.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock data
+  tap "apply"
+  clock data
+  expect text "write-error" == "Not written: app.tamber was changed by design-tool:bea since you reviewed it. Apply again to write over it, on the file as it is now."
+  expect text "undo" == "Undo (0)"
+  tap "apply"
+  clock data
+  expect tree missing "proposal"
+  expect text "undo" == "Undo (1)"
+  // The same edit drafted again, after: a new review, written at once (the last one's pin went with it).
+  type "dial-hue-stepper" "211"
+  clock data
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (2)"
+  // (app.tamber's digest back, as the later tests read it.)
+  request POST "/__stub/event" {"event": "changed", "files": {"app.tamber": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}} as ada
+
+test "a cell shows the branch that won for its mode; an expression offers its inputs until pinned"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-surface.page-2-dark"
+  clock data
+  expect text "branch-label" == "surface.page · dark-style=dim (Dark · dark-style=dim)"
+  tap "cell-accent.soft-0-light"
+  clock data
+  expect text "branch-inputs" == "Follows accent, lift: edit those, or pin a value here."
+  expect tree missing "branch-value"
+  tap "pin"
+  expect text "pinned" == "Pinned here: no longer follows accent, lift."
+  expect tree has "branch-value"
+  // A cell is named by its column's label and its colour, a fallback said.
+  tap "text.system, Light, -exact-secondary-label, fallback #3c3c4399"
+  clock data
+  expect text "branch-label" == "text.system · default (Light)"
+  // A platform role is an input too: overwriting it is a pin.
+  expect text "branch-inputs" == "Follows -exact-secondary-label: edit those, or pin a value here."
+  expect text "input--exact-secondary-label" == "-exact-secondary-label: a platform colour, set by the system"
+  expect tree missing "branch-value"
+  // A dial with no control is said, not offered.
+  tap "cell-tone.deep-0-light"
+  clock data
+  expect text "input-shade" == "shade: a dial with no control (control=none)"
+
+test "cancel forgets only this mode, and another file forgets the draft"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-surface.card-1-dark"
+  clock data
+  tap "only-this-mode"
+  expect state editWhen == "dark-style=black density=compact"
+  expect text "branch-label" == "surface.card · dark-style=black density=compact (only this mode)"
+  tap "cancel-edit"
+  type "branch-value" "light-dark(#f1f3f5, #101010)"
+  type "branch-value" key "Enter"
+  clock settle
+  expect state editKind == "set-token"
+  expect state editWhen == ""
+  type "file" "brand.tamber"
+  clock settle
+  expect state editKind == ""
+  expect state selToken == ""
+
+test "a dial an expression follows opens its control, not a token"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-paint.pick-0-light"
+  clock data
+  expect tree missing "dial-paint-select"
+  tap "input-paint"
+  expect tree has "dial-paint-select"
+  expect tree missing "branch-error"
+  expect text "branch-label" == "paint.pick · default (Light)"
+
+test "a build's status and a scrub's event read no design again"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect tree has "dial-accent-color"
+  // Describe refused from here: a read of the design again would show its error.
+  request POST "/__stub/event" {"refuseDescribe": "describe refused: read again", "events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 1}, "pin": null, "pinRevision": 0}}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-9", "reason": "opened"}]} as ada
+  clock +1
+  clock data
+  clock +3000
+  clock data
+  expect text "build-status-web-1" == "dark · dark-style=black · 16px"
+  expect tree missing "design-error"
+  expect tree has "dial-accent-color"
+  // The stub as the next test expects it: describe answered, no events.
+  request POST "/__stub/restart" {} as ada
+
+test "a proposal is asked again on the poll, not only when files move: a token the JS loop writes inline turns Rebuilds when a web-js build arrives"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  clock +1
+  clock data
+  tap "cell-opacity.muted-0-light"
+  clock data
+  type "part-amount-field" "0.25"
+  clock data
+  expect text "chip" == "Live"
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-js-1", "host": "web-js", "planDigest": "p1", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "chip" == "Rebuilds"
+  request POST "/__stub/restart" {} as ada
+
+test "a scrub, chosen explicitly: each value previews, the files unchanged, and Keep writes the value previewed once, undone in one step"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "chip" == "Live"
+  expect tree missing "scrub"
+  tap "scrub-start"
+  clock data
+  expect text "scrub-previewing" == "Previewing: the running copies show this value, and the files are unchanged until Keep."
+  expect tree missing "apply"
+  type "dial-hue-stepper" "215"
+  clock data
+  type "dial-hue-stepper" "220"
+  clock data
+  expect text "undo" == "Undo (0)"
+  tap "scrub-keep"
+  clock data
+  expect tree missing "scrub"
+  expect tree missing "proposal"
+  expect text "undo" == "Undo (1)"
+  clock +1
+  clock data
+  expect text "change-2" == "app.tamber · design-tool:Ada"
+  clock +1
+  clock data
+  // What was written is the last value previewed (the stub's digest names it).
+  tap "toggle-files"
+  expect text "digest-app.tamber" == "220000000000"
+  tap "undo"
+  clock data
+  expect text "undo" == "Undo (0)"
+  request POST "/__stub/restart" {} as ada
+
+test "a scrub cancelled writes nothing; one the server ends says why, and the next starts afresh; a refused Keep names who moved the file"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  tap "scrub-start"
+  clock data
+  type "dial-hue-stepper" "215"
+  clock data
+  tap "scrub-cancel"
+  clock data
+  expect text "write-note" == "Cancelled: nothing was written, and the running copies have the committed value back."
+  expect text "undo" == "Undo (0)"
+  expect tree has "apply"
+  // Another write came first: the server ended it.
+  tap "scrub-start"
+  clock data
+  expect tree has "scrub-previewing"
+  request POST "/__stub/end-scrub" {"reason": "competing write"} as ada
+  clock +1
+  clock data
+  expect text "scrub-note" == "The scrub ended: another write came first. Nothing was written, and the running copies have the committed value back."
+  expect tree missing "scrub"
+  // The next one is not ended by the last one's end.
+  tap "scrub-start"
+  clock data
+  clock +1
+  clock data
+  expect tree has "scrub-previewing"
+  expect tree missing "scrub-note"
+  // A value refused, then back to the one previewed: Keep is fine again.
+  type "dial-hue-stepper" ""
+  clock data
+  expect text "scrub-error" == "Give it a value: an empty one is not previewed."
+  expect disabled "scrub-keep"
+  type "dial-hue-stepper" "210"
+  clock data
+  expect tree missing "scrub-error"
+  // A file moved since it opened: Keep writes nothing, and says who.
+  request POST "/__stub/refuse-release" {"by": "agent:codex"} as ada
+  tap "scrub-keep"
+  clock data
+  expect text "write-error" == "Not written: app.tamber was changed by agent:codex since the scrub opened; the running copies have the committed value back."
+  expect text "undo" == "Undo (0)"
+  request POST "/__stub/restart" {} as ada
+
+test "a scrub ends with its edit: another cell chosen cancels it, Cancel while it opens leaves none open, and a new server run ends it"
+  request POST "/__stub/live" {"live": true} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  tap "scrub-start"
+  clock data
+  expect tree has "scrub-previewing"
+  tap "cell-surface.page-0-light"
+  clock data
+  expect text "write-note" == "Cancelled: nothing was written, and the running copies have the committed value back."
+  expect tree missing "scrub"
+  // Another control moved while one is open: that scrub ends first, and
+  // nothing is written for it.
+  type "dial-hue-stepper" "212"
+  clock data
+  tap "scrub-start"
+  clock data
+  tap "more-Tone"
+  type "dial-fine-slider" "0.004"
+  clock data
+  expect text "write-note" == "Cancelled: nothing was written, and the running copies have the committed value back."
+  expect text "undo" == "Undo (0)"
+  // Cancelled before the server answered its opening: Scrub live waits
+  // until the server has let that one go, so the next opens as its own and
+  // the old one's cancel never ends it.
+  request POST "/__stub/slow-preview" {"ms": 1500} as ada
+  type "dial-hue-stepper" "215"
+  clock data
+  tap "scrub-start"
+  tap "scrub-cancel"
+  clock data
+  expect tree missing "scrub"
+  request POST "/__stub/slow-preview" {"ms": 0} as ada
+  tap "scrub-start"
+  clock data
+  clock +1
+  clock data
+  expect tree has "scrub-previewing"
+  expect tree missing "scrub-note"
+  // Events missed: an end among them could be lost, so it ends here.
+  request POST "/__stub/miss" {} as ada
+  clock +1
+  clock data
+  expect text "scrub-note" == "The scrub was ended: some changes were missed, so its state was not known. Nothing was written."
+  expect tree missing "scrub"
+  tap "scrub-start"
+  clock data
+  expect tree has "scrub-previewing"
+  // A new run of the server: the scrub ended there.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/live" {"live": true} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "scrub-note" == "The scrub ended: the design server stopped. Nothing was written, and the running copies have the committed value back."
+  expect tree missing "scrub"
+  // The new run's first scrub (its ids start again) opens and stays.
+  reload
+  clock data
+  type "dial-hue-stepper" "214"
+  clock data
+  tap "scrub-start"
+  clock data
+  clock +1
+  clock data
+  expect tree has "scrub-previewing"
+  request POST "/__stub/restart" {} as ada
+
+test "no scrub for an edit that rebuilds, nor without a dev loop: said before the gesture"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  expect disabled "scrub-start"
+  expect text "scrub-unavailable" == "Scrubbing previews on the running copies: open the tool through a dev loop (tamber tool --via)."
+  request POST "/__stub/live" {"live": true} as ada
+  reload
+  clock data
+  tap "more-Tone"
+  type "dial-warmth-slider" "0.5"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect disabled "scrub-start"
+  expect text "scrub-unavailable" == "This edit rebuilds the app, so it can't be scrubbed: Apply writes it."
+  request POST "/__stub/restart" {} as ada
+
+test "Enter in Rename or in a new token's fields proposes it, as its button does, and only when the button would"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-space.edge-0-light"
+  clock data
+  type "rename-to" key "Enter"
+  expect state editKind == ""
+  type "rename-to" "space.gutter"
+  type "rename-to" key "Enter"
+  expect state editKind == "rename-token"
+  expect state editValue == "space.gutter"
+  type "new-name" "surface.raised"
+  type "new-name" key "Enter"
+  expect state editKind == "rename-token"
+  type "new-value" "#ffffff"
+  type "new-value" key "Enter"
+  expect state editKind == "add-token"
+  expect state editTarget == "surface.raised"
+  expect state editValue == "#ffffff"
+
+test "a package component's param: set for this app by default, the package's default said, Back to the default, and its package token offered instead (stage 12 D, LLP 1139 D5)"
+  // A package's Badge with a fill param whose default names the token accent.fill; the app's own Contract sources listed.
+  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "components": [{"identity": "@acme/cards/badge.contract#Badge", "name": "Badge", "params": [{"name": "@acme/cards/badge.contract#Badge.fill", "short": "Badge.fill", "param": "fill", "token": "param.f00000001.Badge.fill", "kind": "color", "default": "accent.fill", "values": ["#0a7affff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.edge", "short": "Badge.edge", "param": "edge", "token": "param.f00000001.Badge.edge", "kind": "color", "default": "#111111", "values": ["#111111ff"], "set": {"value": "#222222", "line": 30, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Edge", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.soft", "short": "Badge.soft", "param": "soft", "token": "param.f00000001.Badge.soft", "kind": "color", "default": "accent.soft", "values": ["#cce0ffff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Soft", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.ink", "short": "Badge.ink", "param": "ink", "token": "param.f00000001.Badge.ink", "kind": "color", "default": "-Exact-Label", "values": ["#000000ff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Ink", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.well", "short": "Badge.well", "param": "well", "token": "param.f00000001.Badge.well", "kind": "color", "default": "surface.inset", "values": ["light-dark(#f8f9faff, #101214ff)"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Well", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.hint", "short": "Badge.hint", "param": "hint", "token": "param.f00000001.Badge.hint", "kind": "color", "default": "-exact-secondary-label", "values": ["-exact-secondary-label"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Hint", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.radius", "short": "Badge.radius", "param": "radius", "token": "param.f00000001.Badge.radius", "kind": "length", "default": "radius.md", "values": ["8px"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Radius", "help": null, "group": "Shape", "priority": 1}]}], "tokens": {"accent.soft": "@acme/cards"}, "base": [{"name": "radius.md", "kind": "radius", "columns": {"ios": {"value": "8px", "source": {"kind": "metric", "ref": "control-radius"}}}, "override": null}]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // (The design read again, as a change on disk makes it.)
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  // Unset: the package's default, and a change here is set for this app; its token offered instead.
+  expect text "param-Badge.fill-source" == "the package's default accent.fill: a change here is set for this app"
+  expect tree missing "param-Badge.fill-reset"
+  // A colour param: its colour in each of the grid's columns, labelled as they are, and the chain to it in words;
+  // a role said as the platform's, the app's own line as its value; a length has none.
+  expect tree has "param-Badge.fill-swatch-Light"
+  expect tree has "param-Badge.fill-swatch-Dark · dark-style=dim · density=compact"
+  expect text "param-Badge.fill-words" == "accent.fill → accent"
+  // (The app's own line for the role token -exact-label: its value, not the platform's.)
+  expect text "param-Badge.ink-words" == "-exact-label → light-dark(#0f1419ff, #e7e9eaff)"
+  // A role the app leaves to the platform: said so, with no swatch (the page alone paints it).
+  expect text "param-Badge.hint-words" == "-exact-secondary-label → the platform's role"
+  expect tree missing "param-Badge.hint-swatches"
+  // A token whose value differs by mode (surface.inset, by density): no one tuple's value cited.
+  expect text "param-Badge.well-words" == "surface.inset → its value by mode, in its row"
+  expect text "param-Badge.edge-words" == "set for this app: #222222"
+  expect tree missing "param-Badge.radius-swatches"
+  // Its default names the app's token accent.fill: the token, not the package's.
+  expect text "param-Badge.fill-token" == "Edit the token accent.fill instead"
+  // A package token: said so. A role's spelling (-Exact-Label): its token, by the role.
+  expect text "param-Badge.soft-token" == "Edit the package token accent.soft instead"
+  expect text "param-Badge.ink-token" == "Edit the token -exact-label instead"
+  // A base name the app leaves unset: Exact's.
+  expect text "param-Badge.radius-token" == "Edit Exact's base radius.md instead"
+  // Set for this app: Back to the default (the app's line goes); a literal default offers no token.
+  expect text "param-Badge.edge-source" == "set for this app · the package's default #111111"
+  expect text "param-Badge.edge-reset" == "Back to the default"
+  expect tree missing "param-Badge.edge-token"
+  // The app's own component keeps its words.
+  expect text "param-Card.fade-source" == "the default"
+  // A change here is set for this app (`set-param`, the app design's params line); Back to the default is `unset-param`.
+  type "dial-@acme/cards/badge.contract#Badge.fill-field" "#ff0000"
+  type "dial-@acme/cards/badge.contract#Badge.fill-field" key "Enter"
+  clock settle
+  expect state editKind == "set-param"
+  expect state editTarget == "@acme/cards/badge.contract#Badge.fill"
+  // Its proposal is the param's own line (the op names Badge.fill), docked (a panel's edit); cancelled, no longer.
+  expect text "proposal-tokens" == "Badge.fill"
+  expect state dockedFor == "set-param|@acme/cards/badge.contract#Badge.fill"
+  tap "cancel-edit"
+  clock settle
+  expect state dockedFor == ""
+  tap "param-Badge.edge-reset"
+  clock settle
+  expect state editKind == "unset-param"
+  expect state editTarget == "@acme/cards/badge.contract#Badge.edge"
+  expect text "proposal-tokens" == "Badge.edge"
+  tap "cancel-edit"
+  clock settle
+  // The token instead: its branch opens.
+  tap "param-Badge.fill-token"
+  clock data
+  expect tree has "branch"
+  expect text "branch-label" == "accent.fill · default (Light)"
+  request POST "/__stub/restart" {} as ada
+
+test "a package component's param's winning level in words, Back to the package with what it removes and whether the app's value still wins said first, and each reset's when branches said (stage 12 D, LLP 1139 D5)"
+  // Two package tokens: accent.soft the app has its own line for, accent.fill it has none for.
+  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "tokens": {"accent.soft": "@acme/cards", "accent.fill": "@acme/cards"}, "components": [{"identity": "@acme/cards/pill.contract#Pill", "name": "Pill", "library": true, "parts": [], "variants": [], "params": [{"name": "@acme/cards/pill.contract#Pill.fill", "short": "Pill.fill", "param": "fill", "token": "param.f00000002.Pill.fill", "kind": "color", "default": "accent.soft", "values": ["#ff0000ff"], "set": {"value": "#ff0000", "line": 31, "whens": 2}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.mark", "short": "Pill.mark", "param": "mark", "token": "param.f00000002.Pill.mark", "kind": "color", "default": "accent.soft", "values": ["#00ff00ff"], "set": {"value": "#00ff00", "line": 34, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Mark", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.glow", "short": "Pill.glow", "param": "glow", "token": "param.f00000002.Pill.glow", "kind": "color", "default": "accent.soft", "values": ["#000000ff"], "set": {"value": "accent.soft", "line": 35, "whens": 2}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Glow", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.edge", "short": "Pill.edge", "param": "edge", "token": "param.f00000002.Pill.edge", "kind": "color", "default": "accent.soft", "values": ["#cce0ffff"], "set": {"value": "accent.soft", "line": 32, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Edge", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.tone", "short": "Pill.tone", "param": "tone", "token": "param.f00000002.Pill.tone", "kind": "color", "default": "accent.fill", "values": ["#0a7affff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Tone", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.fill", "base": null, "app_set": false}}, {"name": "@acme/cards/pill.contract#Pill.gap", "short": "Pill.gap", "param": "gap", "token": "param.f00000002.Pill.gap", "kind": "length", "default": "12px", "values": ["16px"], "set": {"value": "16px", "line": 33, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Gap", "help": null, "group": "Shape", "priority": 1, "reaches": null}, {"name": "@acme/cards/pill.contract#Pill.inset", "short": "Pill.inset", "param": "inset", "token": "param.f00000002.Pill.inset", "kind": "length", "default": "@acme/cards/pill.contract#Pill.gap", "values": ["16px"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Inset", "help": null, "group": "Shape", "priority": 1, "reaches": null}, {"name": "@acme/cards/pill.contract#Pill.ring", "short": "Pill.ring", "param": "ring", "token": "param.f00000002.Pill.ring", "kind": "length", "default": "2px", "values": ["2px"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Ring", "help": null, "group": "Shape", "priority": 1, "reaches": null}]}], "resolve": {"@acme/cards/pill.contract#Pill.fill": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.fill"}, {"level": "app-token", "name": "accent.soft"}], "@acme/cards/pill.contract#Pill.mark": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.mark"}], "@acme/cards/pill.contract#Pill.glow": [{"level": {"light": "app-token", "dark": "app-param"}, "name": {"light": "accent.soft", "dark": "@acme/cards/pill.contract#Pill.glow"}}], "@acme/cards/pill.contract#Pill.edge": [{"level": "app-token", "name": "accent.soft"}], "@acme/cards/pill.contract#Pill.tone": [{"level": "package", "name": "accent.fill"}], "@acme/cards/pill.contract#Pill.gap": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.gap"}], "@acme/cards/pill.contract#Pill.inset": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.gap"}], "@acme/cards/pill.contract#Pill.ring": [{"name": "@acme/cards/pill.contract#Pill.ring"}]}} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  // The level that wins in the first tuple, read after the design, in words (the raw level its tooltip): one where both
+  // sides agree, each side's where not (glow's when lines are on dark-style, dark's only); other modes differing (fill's
+  // compact branch names the token), said.
+  expect text "param-Pill.fill-level" == "wins: set for this app (other modes differ)"
+  expect text "param-Pill.mark-level" == "wins: set for this app"
+  expect text "param-Pill.edge-level" == "wins: the app's token accent.soft"
+  expect text "param-Pill.tone-level" == "wins: the package's token accent.fill"
+  expect text "param-Pill.glow-level" == "wins in Light: the app's token accent.soft; in Dark: set for this app"
+  // Won through another param's app line: that param named. A reply that says no level: said so.
+  expect text "param-Pill.inset-level" == "wins: set for this app, on Pill.gap"
+  expect text "param-Pill.ring-level" == "wins: not known (this server says no level)"
+  // Each reset says what it removes before it writes: the app's line, and its when branches where it has them.
+  expect text "param-Pill.fill-whens" == "Back to the default removes the app's line and its 2 when branches with it."
+  expect text "param-Pill.edge-whens" == "Back to the default removes the app's line."
+  expect tree missing "param-Pill.tone-whens"
+  // Back to the package where the app has the token's own line: what it removes, and whether the app's own value
+  // still wins: only for a literal line with no when branch (mark), on both scheme sides; fill's branches may be one
+  // side's, and edge's line names the token, so their own lines only stay.
+  expect text "param-Pill.fill-package" == "Back to the package"
+  expect text "param-Pill.mark-package-note" == "removes the app's line for accent.soft, with any when branches it has: the token follows the package's line; the app's own value of this param still wins over it."
+  expect text "param-Pill.fill-package-note" == "removes the app's line for accent.soft, with any when branches it has: the token follows the package's line; the app's own line for this param stays."
+  expect text "param-Pill.edge-package-note" == "removes the app's line for accent.soft, with any when branches it has: the token follows the package's line; the app's own line for this param stays."
+  expect tree missing "param-Pill.tone-package"
+  // Its write: the app's line for the token, removed (`remove-token`), nothing of the package's.
+  tap "param-Pill.fill-package"
+  clock settle
+  expect state editKind == "remove-token"
+  expect state editTarget == "accent.soft"
+  expect text "proposal-tokens" == "accent.soft"
+  tap "cancel-edit"
+  request POST "/__stub/restart" {} as ada
+
+test "a package param the server can't resolve has no level words; the design still shows, unlike a token's (stage 12 D, LLP 1139 D5; review2 17:16)"
+  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "components": [{"identity": "@acme/cards/pill.contract#Pill", "name": "Pill", "params": [{"name": "@acme/cards/pill.contract#Pill.fill", "short": "Pill.fill", "param": "fill", "token": "param.f00000002.Pill.fill", "kind": "color", "default": "#0a7aff", "values": ["#0a7affff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1, "reaches": null}]}], "refuse": ["@acme/cards/pill.contract#Pill.fill"]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "9999999999999999999999999999999999999999999999999999999999999999", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  expect tree missing "design-error"
+  expect text "param-Pill.fill-source" == "the package's default #0a7aff: a change here is set for this app"
+  expect tree missing "param-Pill.fill-level"
+  request POST "/__stub/restart" {} as ada
+
+test "a library component's variant props listed in its panel entry, each with its options, nothing shown as chosen; one with variants and no params listed too (stage 12 D, LLP 1139 D5)"
+  // The server's describe of two library components (stage 12 D3): Chip with an enum and a bool variant, Badge with a variant and no params.
+  request POST "/__stub/library" {"@acme/cards/chip.contract#Chip": {"name": "Chip", "parts": [{"name": "root", "groups": ["paint"], "slot": false}], "variants": [{"prop": "tone", "options": ["plain", "accent"]}, {"prop": "compact", "options": ["false", "true"]}]}, "@acme/cards/badge.contract#Badge": {"name": "Badge", "parts": [{"name": "root", "groups": ["paint"], "slot": false}], "variants": [{"prop": "size", "options": ["small", "medium", "large"]}]}} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // The design read again (an edit's event), so describe gives the library components.
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  expect text "component-Chip-identity" == "@acme/cards/chip.contract#Chip"
+  expect text "variant-Chip-tone" == "tone: plain · accent"
+  expect text "variant-Chip-compact" == "compact: false · true"
+  expect text "component-Badge-identity" == "@acme/cards/badge.contract#Badge"
+  expect text "variant-Badge-size" == "size: small · medium · large"
+  // Badge has no params, so no param group (its variants are text lines above).
+  expect tree missing "param-group-Badge-"
+  // A component with neither (the app's own Card has params, no variants): no variants block.
+  expect tree missing "variants-Card"
+  request POST "/__stub/restart" {} as ada

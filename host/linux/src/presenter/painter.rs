@@ -148,6 +148,24 @@ pub(super) fn open_backend(
     }
 }
 
+impl<D: DataSource> Presenter<D> {
+    /// The pixels, as a PNG at `path`.
+    pub fn screenshot(&mut self, path: &str) -> Result<String, String> {
+        let frame = self.frame();
+        let png = frame.encode_png().map_err(|e| format!("png: {e}"))?;
+        std::fs::write(path, png).map_err(|e| format!("write {path}: {e}"))?;
+        let mut s = String::from("{\"screenshot\":");
+        quote(path, &mut s);
+        let _ = write!(
+            s,
+            ",\"w\":{},\"h\":{}}}",
+            num(r2(self.viewport.0)),
+            num(r2(self.viewport.1))
+        );
+        Ok(s)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,6 +326,7 @@ mod tests {
                 shot: None,
                 dev_plan: None,
                 dev_url: development.then(|| "http://127.0.0.1:1/".into()),
+                dev_said: None,
                 dev_identity: development.then(|| "A".into()),
                 card: String::new(),
                 vnc: None,

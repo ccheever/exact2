@@ -1,0 +1,48 @@
+// @exact/photos's fixture on Android (LLP 1133.019 stage 3): the photo
+// editor has no Android port, so this is the library's consumer there. The
+// status and the newest photos are read at launch (`photoAssets` asks
+// permission while `prompt`, so the dialog is the launch's), each photo drawn
+// by its picture and copied when pressed; the last copy can be added back to
+// the library. Show more reads again with a larger limit.
+use photoLibraryStatus, photoAssets, copyPhotoAsset, addToPhotoLibrary, managePhotoSelection, PhotoLibraryStatus, PhotoAssetList, PhotoCopy, PhotoAdded from "@exact/photos"
+
+component Fixture
+  resource status = photoLibraryStatus() as shape PhotoLibraryStatus else empty()
+  state limit = 12
+  resource recent = photoAssets(limit=limit) as shape PhotoAssetList else empty()
+  mutation copied as shape PhotoCopy
+  mutation added as shape PhotoAdded
+  mutation managed as shape PhotoLibraryStatus
+  action more
+    limit = limit + 12
+  action copy(id: string)
+    send copied = copyPhotoAsset(asset=id)
+  action addBack(path: string)
+    send added = addToPhotoLibrary(path=path)
+  action manage
+    send managed = managePhotoSelection()
+  view
+    column gap=8 padding=16
+      text `${status.state} ${status.access} ${status.addState}` testId="status"
+      row gap=4 flex-wrap="wrap" testId="grid"
+        for a, i in recent.assets key=a.id
+          button press=copy(a.id) testId=`photo-${i + 1}` aria-label=`Photo ${i + 1}` padding=0
+            image a.picture width=96 height=96 object-fit="cover" alt=`Photo ${i + 1}`
+      button press=more testId="more"
+        text "Show more"
+      match copied
+        case some(c)
+          text `${c.path} ${c.type} ${c.width}x${c.height}` testId="copied"
+          button press=addBack(c.path) testId="add"
+            text "Add the copy"
+        case none
+          text "No copy" testId="copied"
+      match added
+        case some(a)
+          text (match a.asset { case some(id) => id, case none => "Added, not readable" }) testId="added"
+        case none
+          text "" testId="added"
+      if status.access == "limited"
+        button press=manage testId="manage"
+          text "Manage"
+

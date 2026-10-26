@@ -1204,6 +1204,94 @@ fn compress_image_answers_a_rust_source_as_typescripts() {
     assert!(!paths.0.join("data/x.jpg").exists());
 }
 
+/// A Rust source's `fs.transformImage` (LLP 1133.019 D17): the record is
+/// D14's options beside the two paths, and the answer is D14's record; and
+/// `fs.compressImage` takes the edit as TypeScript's call does (D15).
+#[test]
+fn transform_image_answers_a_rust_source_as_typescripts() {
+    let paths = Paths::new();
+    let mut host = Storage::new(Fixture::new());
+    paths.configure(&mut host);
+    host.activate().unwrap();
+    run(
+        &mut host,
+        storage::request("fs.mkdir", json!({"path":"app:/data/in"})),
+    )
+    .unwrap();
+    std::fs::write(
+        paths.0.join("data/in/photo.jpg"),
+        include_bytes!("../../../scripts/fixtures/picker/oriented-gps.jpg"),
+    )
+    .unwrap();
+    let transform = |to: &str, options: Json| {
+        let mut args = json!({"path":"app:/data/in/photo.jpg","destination":to});
+        args.as_object_mut()
+            .unwrap()
+            .extend(options.as_object().unwrap().clone());
+        storage::request("fs.transformImage", args)
+    };
+    let result = run(
+        &mut host,
+        transform("app:/data/turned", json!({"rotate":90,"metadata":"none"})),
+    );
+    let cropped = run(
+        &mut host,
+        storage::request(
+            "fs.compressImage",
+            json!({"path":"app:/data/in/photo.jpg","destination":"app:/data/crop.jpg","maxDimension":100,"maxBytes":2_000_000,
+                "crop":{"x":0,"y":0,"width":24,"height":64}}),
+        ),
+    );
+    if cfg!(target_vendor = "apple") {
+        let size = std::fs::metadata(paths.0.join("data/turned.jpg"))
+            .unwrap()
+            .len();
+        assert_eq!(
+            result.unwrap(),
+            json!({"path":"app:/data/turned.jpg","type":"image/jpeg","size":size,"width":64,"height":48,
+                "colorSpace":"srgb","hdr":false,"metadata":"none"})
+        );
+        assert_eq!(cropped.unwrap()["width"], 24);
+        let err = run(
+            &mut host,
+            transform(
+                "app:/data/x.jpg",
+                json!({"crop":{"x":0,"y":100,"width":1,"height":1}}),
+            ),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("transformImage: outside: "), "{err}");
+    } else {
+        assert_eq!(
+            result.unwrap_err(),
+            "transformImage: unsupported: no image codec"
+        );
+        assert!(cropped.is_err());
+    }
+    for (request, expected) in [
+        (
+            transform("app:/cache/out.jpg", json!({})),
+            "denied: fs.write",
+        ),
+        (
+            transform("doc:/1/out.jpg", json!({})),
+            "transformImage: needs app:/ paths",
+        ),
+    ] {
+        let err = run(&mut host, request).unwrap_err();
+        assert!(err.starts_with(expected), "{err}");
+    }
+    if cfg!(target_vendor = "apple") {
+        let err = run(
+            &mut host,
+            transform("app:/data/x.jpg", json!({"flip":"both"})),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("transformImage: invalid: flip"), "{err}");
+    }
+    assert!(!paths.0.join("data/x.jpg").exists());
+}
+
 /// A Rust source's upload from a file (LLP 1108 D6 R2): the storage composer
 /// passes `Request::body_from` through untouched, the path alone, for the
 /// host's executor to read when it sends the request.
@@ -1259,6 +1347,7 @@ fn image_cancellation_orders_publication_and_the_consumer_reads_only_success() {
                 bytes: b"published".to_vec(),
                 width: 1,
                 height: 1,
+                ..Default::default()
             })
         }
     }
@@ -1276,7 +1365,7 @@ fn image_cancellation_orders_publication_and_the_consumer_reads_only_success() {
             ImageRequest {
                 max_dimension: 1,
                 max_bytes: 100,
-                format: Default::default(),
+                ..Default::default()
             },
         )
         .unwrap()

@@ -5,7 +5,8 @@
 //! builds (LLP 1069.001 D5), a radio's group (x2apps survey #2), a
 //! grouped list's sections (LLP 1084), and
 //! whether a followed link names one of the app's routes (LLP 1038 §7),
-//! and where the host's own Back goes (LLP 1115 D5).
+//! where the host's own Back goes (LLP 1115 D5), and a package's call of
+//! the app's handler (LLP 1133.016 D15 item 1).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
@@ -80,6 +81,31 @@ impl<D: DataSource> Bridge<D> {
         )
     }
 
+    /// `exact_module_invoke`: a package's call of the app's handler,
+    /// `{"extension", "handle", "handler", "args"}` in the input buffer.
+    /// `reply(ctx, answer, len)` is called once with the runner's JSON, now
+    /// or when the handler's own work lands. Not a batch.
+    pub fn module_invoke(&mut self, len: usize, reply: InvokeReply, ctx: *mut std::ffi::c_void) {
+        let body = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        // The context crosses threads as an address: the host's, which `reply` frees.
+        let ctx = ctx as usize;
+        let answer: Box<dyn FnOnce(String) + Send> = Box::new(move |text: String| {
+            reply(
+                ctx as *mut std::ffi::c_void,
+                text.as_ptr(),
+                text.len() as u32,
+            )
+        });
+        match self.host.as_mut() {
+            Some(h) => h.runner_mut().invoke_module(&body, answer),
+            None => answer(r#"{"error":"InvalidStateError","message":"no session runs"}"#.into()),
+        }
+        // The handler's requests, for the host to run.
+        if let Some(executor) = self.executor.as_deref() {
+            executor.notify();
+        }
+    }
+
     /// `exact_location_beneath`: the location of the visit beneath visit
     /// `id` on its stack, UTF-8 in the output buffer, empty when there is
     /// none — where the host's own Back goes for a route with no authored
@@ -91,6 +117,17 @@ impl<D: DataSource> Bridge<D> {
             .and_then(|h| h.runner().location_beneath(id))
             .unwrap_or_default();
         self.output = location.into_bytes();
+        self.output.len() as u32
+    }
+
+    /// A retained visit's canonical location, UTF-8; empty when absent.
+    pub fn visit_location(&mut self, id: u64) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().visit_location(id))
+            .unwrap_or_default()
+            .into_bytes();
         self.output.len() as u32
     }
 
@@ -384,29 +421,46 @@ impl<D: DataSource> Bridge<D> {
 
     /// Whether the stack whose root route is `view` splits (`exact_stack_split`;
     /// `Runner::stack_split`, LLP 1115.002 D4), as JSON in the output buffer:
-    /// `{"list":view|null,"width":number|null,"rows":[[route,row]...]}`, the
-    /// list whose row pushes, the list column's width where `navigationSplit`
-    /// names one, and each route above the root that is a row's detail with
-    /// that row; `null` for a stack that pushes. Not a batch: nothing changes.
-    pub fn stack_split(&mut self, view: u32, retained: u32) -> u32 {
+    /// `{"list":view|null,"width":number|null,"rows":[[route,row]...],
+    /// "locations":[[route,url]...],"pressWrites":bool|null}`, the list whose
+    /// row pushes, the list column's width where `navigationSplit` names one,
+    /// each route above the root that is a row's detail with that row, each
+    /// route above the root with its location, and whether the press of
+    /// `pressed` (a view being pressed, or 0) writes the router; `null` for a
+    /// stack that pushes. Not a batch: nothing changes.
+    pub fn stack_split(&mut self, view: u32, retained: u32, pressed: u32) -> u32 {
         let json = self
             .host
             .as_ref()
             .and_then(|h| {
-                h.runner()
+                let runner = h.runner();
+                let writes = (pressed != 0)
+                    .then(|| runner.press_writes_router(pressed))
+                    .flatten();
+                runner
                     .stack_split(view, (retained != 0).then_some(retained))
+                    .map(|split| (split, writes))
             })
-            .map(|split| {
+            .map(|(split, writes)| {
                 let rows: Vec<String> = split
                     .rows
                     .iter()
                     .map(|(route, row)| format!("[{route},{row}]"))
                     .collect();
+                let locations: Vec<String> = split
+                    .locations
+                    .iter()
+                    .map(|(route, url)| {
+                        format!("[{route},{}]", serde_json::Value::from(url.as_str()))
+                    })
+                    .collect();
                 format!(
-                    "{{\"list\":{},\"width\":{},\"rows\":[{}]}}",
+                    "{{\"list\":{},\"width\":{},\"rows\":[{}],\"locations\":[{}],\"pressWrites\":{}}}",
                     split.list.map_or("null".into(), |v| v.to_string()),
                     split.width.map_or("null".into(), |w| w.to_string()),
-                    rows.join(",")
+                    rows.join(","),
+                    locations.join(","),
+                    writes.map_or("null".into(), |w| w.to_string())
                 )
             });
         self.output = json.unwrap_or_else(|| "null".into()).into_bytes();
@@ -550,3 +604,6 @@ impl<D: DataSource> Bridge<D> {
         0
     }
 }
+
+/// The host's answer to a package's call back: `reply(ctx, answer, len)`.
+pub type InvokeReply = extern "C" fn(*mut std::ffi::c_void, *const u8, u32);

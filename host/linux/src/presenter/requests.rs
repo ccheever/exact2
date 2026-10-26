@@ -176,6 +176,9 @@ enum Waiting {
     Share,
     /// A date or time control's picker: its answer is the control's value.
     Pick(ViewId),
+    /// A package's picture (`pictures.rs`): answered with its pixels, by
+    /// the image sync's ticket.
+    Picture(u64),
 }
 
 /// Module calls' bodies and replies, handed over from the native slot's
@@ -501,6 +504,7 @@ impl<D: DataSource> Presenter<D> {
                 }
                 None => self.host.log(format!("picker: dismissed for {node}")),
             },
+            Waiting::Picture(ticket) => self.picture_cancelled(ticket, answer),
         }
         true
     }
@@ -779,6 +783,8 @@ impl<D: DataSource> Presenter<D> {
     }
 }
 
+#[path = "pictures.rs"]
+mod pictures;
 #[cfg(test)]
 #[path = "requests_tests.rs"]
 mod tests;

@@ -13,8 +13,8 @@
 use crate::{batch::Batch, style};
 use exact_kernel::motion::{motion_node, node_key, targets, MotionSync};
 use exact_kernel::{
-    Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
-    ViewId,
+    CommitReceipt, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
+    TextMeasurer, ViewId,
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
@@ -467,6 +467,7 @@ impl<D: DataSource> Host<D> {
         // Its own roles from here, not those of the session it replaces (a
         // caller's scope is that one's; LLP 1121 stage 5).
         let _roles = runner.bind_roles();
+        runner.share_app_state(activation::app_state());
         runner.set_device_links(links.device);
         if links.activities {
             runner.link_activities().map_err(HostError::Runner)?;
@@ -682,6 +683,9 @@ impl<D: DataSource> Host<D> {
         }
         if op.as_deref() == Some("appRoots") {
             return Some(crate::picker::roots_reply());
+        }
+        if op.as_deref() == Some("sensorEvents") {
+            return Some(self.sensor_events(request));
         }
         // The documents a person chose, and those the app keeps (LLP 1069.010 D1, 1069.010.000).
         if let Some(reply) = crate::documents::answer(op.as_deref(), request, &self.runner) {
@@ -935,26 +939,28 @@ impl<D: DataSource> Host<D> {
 
     /// The platform's own Back from visit `id` (LLP 1115 D5), at `now_ms`.
     pub fn host_back(&mut self, id: u64, now_ms: f64) -> String {
-        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
-        self.now_ms = a.now_ms.max(self.now_ms);
-        if a.error.is_none() {
-            match self.runner.host_back(id) {
-                Ok(receipt) => a.receipts.extend(receipt.map(|receipt| Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                })),
-                Err(e) => a.error = Some(e),
-            }
-        }
-        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
+        self.own_navigation(now_ms, |runner| runner.host_back(id))
+    }
+
+    /// Return to the visit selected in the platform's Back-history menu.
+    pub fn host_back_to(&mut self, source: u64, destination: u64, now_ms: f64) -> String {
+        self.own_navigation(now_ms, |runner| runner.host_back_to(source, destination))
     }
 
     /// Follow a declared route without an authored navigate handler.
     pub fn host_go(&mut self, location: &str, now_ms: f64) -> String {
+        self.own_navigation(now_ms, |runner| runner.host_go(location))
+    }
+
+    fn own_navigation(
+        &mut self,
+        now_ms: f64,
+        navigate: impl FnOnce(&mut Runner<D>) -> Result<Option<CommitReceipt>, RunnerError>,
+    ) -> String {
         let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
         self.now_ms = a.now_ms.max(self.now_ms);
         if a.error.is_none() {
-            match self.runner.host_go(location) {
+            match navigate(&mut self.runner) {
                 Ok(receipt) => a.receipts.extend(receipt.map(|receipt| Timed {
                     at_ms: self.now_ms,
                     receipt,
@@ -1033,7 +1039,7 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         batch.controls = self.option_part(view);
         let error = match self.runner.kernel_mut().set_intrinsic_size(view, size) {
-            Ok(()) => self.layout(&mut batch).err(),
+            Ok(()) => self.layout_resized(view, &mut batch).err(),
             Err(e) => Some(format!("intrinsic: {e:?}")),
         };
         self.finish(batch, error)
@@ -1051,6 +1057,7 @@ impl<D: DataSource> Host<D> {
             if let Err(e) = self.runner.kernel_mut().set_intrinsic_size(view, size) {
                 error.get_or_insert(format!("intrinsic: {e:?}"));
             }
+            self.inline_image_resized(view, &mut batch);
         }
         if let Err(e) = self.layout(&mut batch) {
             error.get_or_insert(e);
@@ -1147,11 +1154,7 @@ impl<D: DataSource> Host<D> {
 
     /// A told fact's answer: its commit, an empty batch when the fact is
     /// unchanged, or the refusal named by `what`.
-    fn told(
-        &mut self,
-        answer: Result<Option<exact_kernel::CommitReceipt>, RunnerError>,
-        what: &str,
-    ) -> String {
+    fn told(&mut self, answer: Result<Option<CommitReceipt>, RunnerError>, what: &str) -> String {
         match answer {
             Ok(Some(receipt)) => self.commit(
                 &[Timed {
@@ -1407,7 +1410,7 @@ impl<D: DataSource> Host<D> {
 }
 
 /// Whether a commit left every node as it was.
-fn unchanged(r: &exact_kernel::CommitReceipt) -> bool {
+fn unchanged(r: &CommitReceipt) -> bool {
     !r.layout_invalidated
         && r.created.is_empty()
         && r.destroyed.is_empty()

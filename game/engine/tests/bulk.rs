@@ -67,7 +67,7 @@ fn bulk_kinds_refuse_every_other_kind_by_name_including_empty() {
 #[test]
 fn json_bulk_summary_refusal_consumes_the_value_before_the_next_one() {
     for value in [
-        json::to_string(&vec![1u8, 2]).unwrap(),
+        json::to_string(&vec![1u8; json::INLINE_BULK + 1]).unwrap(),
         r#"{"bytes":2,"hash":"0x0","values":[1,2]}"#.into(),
     ] {
         let text = format!("[{value},42]");
@@ -92,9 +92,12 @@ fn numeric_json_arrays_use_the_same_values_and_binary_framing() {
         assert_eq!(bin::to_vec(&decoded), bin::to_vec(&values));
         assert_eq!(hash::of(&decoded), hash::of(&values));
         assert!(json::from_str::<Vec<T>>("[]").unwrap().is_empty());
-        let summary = json::to_string(&decoded).unwrap();
-        assert!(summary.starts_with("{\"bytes\":"));
-        assert!(json::from_str::<Vec<T>>(&summary).is_err());
+        // A short bulk is written as its numbers and reads back.
+        let inline = json::to_string(&decoded).unwrap();
+        assert_eq!(
+            bin::to_vec(&json::from_str::<Vec<T>>(&inline).unwrap()),
+            bin::to_vec(&values)
+        );
     }
     check("[0,255]", vec![0u8, 255]);
     check("[0,65535]", vec![0u16, 65535]);

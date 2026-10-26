@@ -766,19 +766,26 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn collection_scrolled(&mut self, view: ViewId) {
-        self.collection_scroll_turn(view, false);
+        self.collection_scroll_turn(view, false, true);
+    }
+
+    pub(super) fn collection_scroll_input(&mut self, view: ViewId, before: (f32, f32)) {
+        self.collection_scroll_turn(view, false, self.scroll_of(view) != before);
     }
 
     /// A wheel moved `view`: its collection turn now, or after the frame
     /// when turns are deferred.
-    pub(super) fn collection_scrolled_or_deferred(&mut self, view: ViewId) {
+    pub(super) fn collection_scrolled_or_deferred(&mut self, view: ViewId, before: (f32, f32)) {
+        let moved = self.scroll_of(view) != before;
         match &mut self.deferred_collections {
             Some(views) => {
-                if !views.contains(&view) {
-                    views.push(view);
+                if let Some((_, changed)) = views.iter_mut().find(|(id, _)| *id == view) {
+                    *changed |= moved;
+                } else {
+                    views.push((view, moved));
                 }
             }
-            None => self.collection_scrolled(view),
+            None => self.collection_scroll_turn(view, false, moved),
         }
     }
 
@@ -802,8 +809,8 @@ impl<D: DataSource> Presenter<D> {
             Some(views) if !views.is_empty() => std::mem::take(views),
             _ => return false,
         };
-        for id in views {
-            self.collection_scrolled(id);
+        for (id, moved) in views {
+            self.collection_scroll_turn(id, false, moved);
         }
         true
     }
@@ -811,11 +818,13 @@ impl<D: DataSource> Presenter<D> {
     // Only Arrange's prevalidated, adapter-owned edge step uses this order.
     // External scroll still retires stale contact before accepting new facts.
     pub(super) fn collection_scrolled_by_arrange(&mut self, view: ViewId) {
-        self.collection_scroll_turn(view, true);
+        self.collection_scroll_turn(view, true, true);
     }
 
-    fn collection_scroll_turn(&mut self, view: ViewId, owned_edge: bool) {
-        self.collection.scroll_events.retain(|(id, _)| *id != view);
+    fn collection_scroll_turn(&mut self, view: ViewId, owned_edge: bool, moved: bool) {
+        if moved {
+            self.collection.scroll_events.retain(|(id, _)| *id != view);
+        }
         if let Some(cursor) = self
             .collection
             .cursors
@@ -831,7 +840,9 @@ impl<D: DataSource> Presenter<D> {
             .runner()
             .handlers_of(view)
             .contains(&EventKind::Scroll);
-        let mut error = if authored {
+        // Input that only moves the model gets its event when the picture is
+        // acknowledged. Collection work still runs for that input below.
+        let mut error = if authored && moved {
             let event = self.scroll_event(view);
             self.host.dispatch_at(view, event, self.host.now())
         } else {

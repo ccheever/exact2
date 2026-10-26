@@ -742,6 +742,11 @@ fn the_location_beneath_a_visit_is_its_stacks_previous_entry() {
     assert_eq!(r.location_beneath(stack[1].id).as_deref(), Some("/"));
     assert_eq!(r.location_beneath(stack[0].id), None);
     assert_eq!(r.location_beneath(u64::MAX), None);
+    assert_eq!(
+        r.visit_location(stack[2].id).as_deref(),
+        Some("/t/1/details")
+    );
+    assert_eq!(r.visit_location(u64::MAX), None);
     // A retained tab's visit answers too; going there pops as `back` would.
     act(&mut r, "select", "search");
     assert_eq!(r.location_beneath(stack[2].id).as_deref(), Some("/t/1"));
@@ -778,6 +783,62 @@ fn a_host_back_pops_the_selected_top_as_its_own_commit() {
         "a stack's root has nowhere to go"
     );
     assert_eq!(nav(&r).tabs[0].stack.len(), 1);
+}
+
+#[test]
+fn a_host_history_jump_selects_the_exact_visit_in_one_commit() {
+    let mut r = boot(fixture::plan(&table()), "/t/1/details");
+    act(&mut r, "push", "/t/1");
+    act(&mut r, "push", "/t/1/details");
+    let stack = nav(&r).tabs[0].stack.clone();
+    assert_eq!(stack.len(), 5);
+    assert_eq!(stack[1].url, stack[3].url);
+    let source = stack[4].id;
+    let target = stack[1].id;
+    let other = nav(&r).tabs[1].stack[0].id;
+    r.take_router_change();
+    for (from, to) in [
+        (source, source),
+        (stack[3].id, target),
+        (source, other),
+        (u64::MAX, target),
+        (source, u64::MAX),
+    ] {
+        assert!(r.host_back_to(from, to).unwrap().is_none());
+        assert!(r.take_router_change().is_none());
+        assert_eq!(nav(&r).tabs[0].stack, stack);
+    }
+    act(&mut r, "select", "search");
+    assert!(
+        r.host_back_to(source, target).unwrap().is_none(),
+        "the source must be selected"
+    );
+    act(&mut r, "select", "home");
+    assert!(r.host_back_to(source, target).unwrap().is_some());
+    let change = r.take_router_change().unwrap();
+    assert_eq!(change.top, target);
+    assert_eq!(change.url, "/t/1");
+    assert_eq!(
+        change.removed,
+        stack[2..].iter().map(|entry| entry.id).collect::<Vec<_>>()
+    );
+    assert_eq!(nav(&r).tabs[0].stack, stack[..2]);
+    assert_eq!(
+        r.journal()
+            .filter(|line| line.contains("host back to"))
+            .count(),
+        1
+    );
+    assert!(
+        r.host_back_to(source, target).unwrap().is_none(),
+        "replaying a completed jump does nothing"
+    );
+    assert_eq!(r.visit_location(source), None);
+    assert!(
+        r.host_back_to(target, source).unwrap().is_none(),
+        "a removed destination cannot be revisited"
+    );
+    assert!(r.take_router_change().is_none());
 }
 
 /// LLP 1115.000 D4.3 with no `navigate` handler: the host's own navigation

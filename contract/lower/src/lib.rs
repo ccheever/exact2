@@ -21,6 +21,7 @@
 
 mod alert_parts;
 pub mod anatomy;
+mod atoms;
 mod box_transform;
 mod buttons;
 mod cells;
@@ -39,6 +40,7 @@ pub mod expr;
 mod fields;
 mod font_axes;
 mod fonts;
+mod frames;
 mod grouped;
 mod handlers;
 mod headings;
@@ -212,6 +214,10 @@ pub(crate) struct Lowerer<'a> {
     /// Literal decoration rows and the aliases visible to each source file.
     pub decorations: BTreeMap<String, serde_json::Value>,
     pub decoration_scopes: BTreeMap<u32, Vec<(String, String)>>,
+    /// The `atom` declarations by name, and the aliases each source file sees
+    /// (LLP 1045.000 D3).
+    pub(crate) atoms: BTreeMap<String, atoms::Declared>,
+    pub atom_scopes: BTreeMap<u32, Vec<(String, String)>>,
     /// The `keyframes` declarations, by name, with what each animates (LLP 1055 D5).
     pub keyframes: BTreeMap<String, Vec<exact_motion::Property>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
@@ -393,6 +399,8 @@ fn lower_with_sites(
         styles: BTreeMap::new(),
         decorations: BTreeMap::new(),
         decoration_scopes: file.decoration_scopes.clone(),
+        atoms: BTreeMap::new(),
+        atom_scopes: file.atom_scopes.clone(),
         keyframes: BTreeMap::new(),
         fns: file
             .fns
@@ -484,6 +492,7 @@ fn lower_body(
         return Err(Vec::new());
     }
     l.declare_decorations(file)?;
+    l.declare_atoms(file)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -564,21 +573,46 @@ fn lower_body(
     // A used module's other names are there too, unread: its substitute reads
     // them (its status, the source a send answers from).
     let mut sources = root_types.sources.clone();
+    // An event the root hears uses its module too (LLP 1133.004 D6).
     let used: Vec<&str> = (file.modules.iter())
-        .filter(|m| sources.contains_key(&m.name))
+        .filter(|m| sources.contains_key(&m.name) || m.handler.is_some())
         .map(|m| m.extension.as_str())
         .collect();
-    for m in file
-        .modules
-        .iter()
-        .filter(|m| used.contains(&m.extension.as_str()))
-    {
+    // An `img` scheme is one package's (LLP 1133.019 D11 item 1).
+    let mut schemes: std::collections::BTreeMap<String, &str> = Default::default();
+    for m in (file.modules.iter()).filter(|m| used.contains(&m.extension.as_str())) {
+        let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+        let Some(scheme) = sub["images"]["scheme"].as_str() else {
+            continue;
+        };
+        match schemes.insert(scheme.to_owned(), &m.package) {
+            Some(other) if other != m.package => {
+                return Err(vec![LowerError {
+                    id: "bake-scheme-twice",
+                    message: format!(
+                        "the image scheme `{scheme}:` is declared by {other} and by {}: a scheme is one package's, so the app uses one of them",
+                        m.package
+                    ),
+                    span: m.span,
+                }])
+            }
+            _ => {}
+        }
+    }
+    for m in file.modules.iter().filter(|m| {
+        used.contains(&m.extension.as_str()) && m.kind != contract_syntax::ModuleKind::Event
+    }) {
         let options = format!("{}__options", m.name);
         let params = match l.types.shapes.map.contains_key(&options) {
             true => vec![Ty::Record(options)],
             false => Vec::new(),
         };
-        if let Ok(ty) = l.types.shapes.resolve(&m.answers) {
+        // A send that answers nothing answers `unit` (LLP 1133.004 D5).
+        let answers = match &m.answers {
+            Some(a) => l.types.shapes.resolve(a),
+            None => Ok(Ty::Unit),
+        };
+        if let Ok(ty) = answers {
             sources.entry(m.name.clone()).or_insert((params, ty));
         }
     }
@@ -731,6 +765,21 @@ fn lower_body(
             let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
             l.b.set_mutation_then(l.mutations[i], action);
         }
+    }
+    // Each module event the root hears, and the action it runs (LLP 1133.004 D6).
+    for m in &file.modules {
+        let Some(name) = &m.handler else { continue };
+        let Some(i) = root.actions.iter().position(|a| &a.name == name) else {
+            continue;
+        };
+        l.b.module_event(
+            &m.extension,
+            &m.declared,
+            l.actions[i],
+            &m.raised,
+            m.hold,
+            m.budget,
+        );
     }
     l.timers(&root.tasks, &scope)?;
     l.sequences(&root.sequences, &scope)?;
@@ -1068,6 +1117,12 @@ impl<'a> Lowerer<'a> {
     ) -> Result<(), LowerError> {
         if a.name == "decorations" {
             return self.bind_decorations(tag, a, scope, locals, bindings);
+        }
+        if a.name == "atoms" {
+            return self.bind_atoms(a, scope, locals, bindings);
+        }
+        if a.name == "atomFaces" {
+            return self.bind_atom_faces(a, scope, locals, bindings);
         }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));

@@ -376,7 +376,9 @@ has today. The rules:
 7. **Events are not values.** A live value coalesces changes, so it cannot
    promise every motion sample or Bluetooth notification. A module that
    needs ordered events declares a bounded event or batch protocol in its
-   RFC, which amends LLP 1069.007.
+   RFC, which amends LLP 1069.007. *Built (LLP 1133.004 D6, 2026-10-23):* a
+   module declares an `event` heard on the app's root, held up to its bound
+   and delivered once, in order, after first pixel.
 
 **Which to use.** Read a module in Contract when the UI shows the value.
 Call it from data code when the value is an input to a request or a

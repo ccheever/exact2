@@ -3,6 +3,9 @@
 
 mod home;
 mod library;
+mod load;
+mod members;
+pub(crate) use members::standalone_members;
 pub(crate) mod packages;
 mod refused;
 mod uses;
@@ -677,6 +680,8 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
 struct Unit {
     file: File,
     targets: Vec<usize>,
+    /// What its components' `members` lines loaded (LLP 1091.002).
+    parts: Vec<members::Part>,
 }
 
 struct Loader<'a> {
@@ -774,6 +779,7 @@ impl Loader<'_> {
         self.units.push(Unit {
             file,
             targets: Vec::new(),
+            parts: Vec::new(),
         });
         self.link(path, source_id as usize)
     }
@@ -817,65 +823,17 @@ impl Loader<'_> {
                     self.sources.packages.push(package);
                 }
             }
-            let key = resolved.key;
-            if self.active.contains(&key) {
-                return Err(vec![use_error(
-                    "contract-use-cycle",
-                    format!("{} returns to a file already being loaded", described(u)),
-                    u,
-                )]);
-            }
-            let used = match self.cache.get(&key) {
-                Some(&used) => used,
-                None => {
-                    let used_src = match resolved.builtin {
-                        Some(text) => text.to_owned(),
-                        None => contract_text(&key)
-                            .map_or_else(|| std::fs::read_to_string(&key), Ok)
-                            .map_err(|e| {
-                                vec![use_error(
-                                    "contract-use-unreadable",
-                                    format!("{}: {}: {e}", described(u), key.display()),
-                                    u,
-                                )]
-                            })?,
-                    };
-                    let used = self.sources.paths.len();
-                    self.sources.paths.push(key.clone());
-                    self.sources.origins.push(resolved.origin);
-                    self.sources.digests.push(digest(&used_src));
-                    self.sources.texts.push(used_src.as_str().into());
-                    self.active.push(key.clone());
-                    if key.file_name().is_some_and(|f| f == "exact.json") {
-                        // A package's module declaration (LLP 1133.001), whose
-                        // `use`s name its implementations' files.
-                        let file = crate::declaration::read(&key, &used_src, used as u32).map_err(
-                            |(id, message)| {
-                                vec![use_error(id, format!("{}: {message}", described(u)), u)]
-                            },
-                        )?;
-                        self.units.push(Unit {
-                            file,
-                            targets: Vec::new(),
-                        });
-                        self.link(&key, used)?;
-                    } else {
-                        self.load_source(&key, &used_src, used as u32)?;
-                    }
-                    self.active.pop();
-                    self.cache.insert(key, used);
-                    used
-                }
-            };
+            let used = self.load_resolved(resolved, &described(u), u.span)?;
             self.units[index].targets.push(used);
         }
-        Ok(())
+        self.link_members(path, index)
     }
 
     /// Give every declaration its program-unique name (D4), rewrite each
     /// file through its own scope (D1, D5), and merge the files into the one
     /// `File` every later pass reads.
     fn scope(&mut self) -> Result<File, Vec<CompileError>> {
+        self.prepare_members()?;
         if self.units.len() == 1 {
             let mut file = self.units.pop().unwrap().file;
             self.sources.motion = contract_lower::motion::substitute(&mut file, &self.motion);
@@ -959,6 +917,14 @@ impl Loader<'_> {
                 .collect();
             aliases.sort();
             unit.file.decoration_scopes.insert(index as u32, aliases);
+            let mut atoms: Vec<_> = scope
+                .names
+                .iter()
+                .filter(|((kind, _), _)| *kind == Kind::Atom)
+                .map(|((_, alias), target)| (alias.clone(), target.clone()))
+                .collect();
+            atoms.sort();
+            unit.file.atom_scopes.insert(index as u32, atoms);
             rescope(&mut unit.file, &scope).map_err(|e| vec![e.into()])?;
             // Refusals that are no `use` line's to fix, reported with the rest.
             refused.extend(scope.refused.take().into_iter().map(CompileError::from));
@@ -1011,6 +977,7 @@ impl Loader<'_> {
                 .chain(refused)
                 .collect());
         }
+        self.splice_members();
         Ok(self.merge())
     }
 
@@ -1022,12 +989,10 @@ impl Loader<'_> {
     fn unique_names(&self) -> Vec<HashMap<(Kind, String), String>> {
         let mut taken: HashSet<(Kind, String)> = HashSet::new();
         // Each file's local bindings: another file's `fn` or shape of one of
-        // these names is renamed, or the binding's calls would reach it.
-        let bound: Vec<HashSet<String>> = self
-            .units
-            .iter()
-            .map(|unit| contract_syntax::scope::bindings(&mut unit.file.clone()))
-            .collect();
+        // these names is renamed, or the binding's calls would reach it. A
+        // members block's are its listing file's (LLP 1091.002 D4).
+        let listed = self.listed_by();
+        let (bound, in_blocks) = self.bindings_by_file();
         let called: Vec<HashSet<String>> = self
             .units
             .iter()
@@ -1092,15 +1057,18 @@ impl Loader<'_> {
                                     && unit.file.shapes.iter().any(|s| s.name == name))
                                 || (index > 0 && exact_plan::Stdlib::from_name(name).is_some())
                                 || captures(name)
-                                || bound
-                                    .iter()
-                                    .enumerate()
-                                    .any(|(other, names)| other != index && names.contains(name)))
+                                || bound.iter().enumerate().any(|(other, names)| {
+                                    other != index && names.contains(name)
+                                })
+                                || in_blocks.iter().enumerate().any(|(other, names)| {
+                                    listed[other] != Some(index) && names.contains(name)
+                                }))
                     };
                     // A generated name is no binding's in any file either, or
                     // the binding's calls (in its own file too) would reach it.
                     let bound_anywhere = |unique: &str| {
-                        unique != name && bound.iter().any(|names| names.contains(unique))
+                        let mut all = bound.iter().chain(&in_blocks);
+                        unique != name && all.any(|names| names.contains(unique))
                     };
                     while taken.contains(&(kind, unique.clone()))
                         || roster(&unique)
@@ -1152,6 +1120,16 @@ impl Loader<'_> {
                     .collect();
                 if found.is_empty() {
                     return Err(unknown(u, n, from));
+                }
+                if let Some(m) = self.data_only(unique, &found) {
+                    return Err(name_error(
+                        "module-name-data-only",
+                        format!(
+                            "`{}` of `{}` is called from data code alone (LLP 1133.011 D12): its answer would become a mutation's value in `state`; call it in `app.ts`, and send what the server answers",
+                            m.declared, m.package
+                        ),
+                        n.span,
+                    ));
                 }
                 for (kind, to) in found {
                     let key = (kind, n.local().to_owned());
@@ -1344,6 +1322,11 @@ impl Loader<'_> {
                 .iter_mut()
                 .flat_map(|file| std::mem::take(&mut file.decoration_scopes))
                 .collect(),
+            atoms: all!(atoms),
+            atom_scopes: files
+                .iter_mut()
+                .flat_map(|file| std::mem::take(&mut file.atom_scopes))
+                .collect(),
             keyframes: all!(keyframes),
             timelines: all!(timelines),
             // CSS `@color-profile`s are global by name too (LLP 1100 D3).
@@ -1358,6 +1341,9 @@ impl Loader<'_> {
             fns: all!(fns),
             modules: all!(modules),
             components: all!(components),
+            // Each block is spliced into its component (LLP 1091.002 D4).
+            members: None,
+            deferred: Vec::new(),
         }
     }
 }
@@ -1389,6 +1375,7 @@ fn declarations(file: &File) -> impl Iterator<Item = (Kind, &str)> {
                 .iter()
                 .map(|s| (Kind::Decoration, &*s.name)),
         )
+        .chain(file.atoms.iter().map(|s| (Kind::Atom, &*s.name)))
         .chain(file.keyframes.iter().map(|k| (Kind::Keyframes, &*k.name)))
         .chain(file.timelines.iter().map(|t| (Kind::Timeline, &*t.name)))
 }
@@ -1411,6 +1398,7 @@ fn unknown(u: &UseDecl, n: &UseName, from: &Scope) -> CompileError {
         (Kind::Call, "shapes and functions"),
         (Kind::Style, "styles"),
         (Kind::Decoration, "decorations"),
+        (Kind::Atom, "atoms"),
         (Kind::Keyframes, "keyframes"),
         (Kind::Timeline, "timelines"),
     ] {

@@ -64,7 +64,11 @@ pub struct Compat {
     pub activate: String,
     /// The exact target the binary-producing Cargo bake received.
     pub target: String,
-    /// Embedded bundle provenance and its complete static roster.
+    /// Embedded bundle provenance and its complete static roster, and
+    /// `trust`: the build's resolved trust, which every host's production
+    /// policy reads. Beside the id, not in it: an updater-free (`L = 0`)
+    /// cohort has no trust epoch, so `inputs.trust` is null there and a
+    /// production and a development build share the id (LLP 1030 D4).
     pub embedded: serde_json::Value,
     /// What the app can reach and each host's spelling of it (LLP 1069.008
     /// D7): beside the id, not in it; `null` when the grants are unknown.
@@ -166,7 +170,12 @@ pub fn compatibility_id_sources_with_entries(
     };
     crate::reach::parsed(app_dir, grants, rust_grants)?;
     // @ref LLP 1100 D1 — a colour this platform can't show is refused here.
-    crate::colors::check(app_dir, platform)?;
+    // The app's plan, compiled once here: its colours checked, and (stage
+    // 14 C2) its icons' fill rules read below.
+    let plan = crate::colors::compiled(app_dir)?;
+    if let Some(plan) = &plan {
+        crate::colors::check_plan(app_dir, plan, platform)?;
+    }
     let ceiling = rust_grants.map(|rust| grant_union(grants.unwrap_or(""), rust));
     let mut compat = compatibility_with_trust(
         app_dir,
@@ -180,20 +189,17 @@ pub fn compatibility_id_sources_with_entries(
         source_scopes(&mut compat, grants.unwrap_or(""), rust);
     }
     crate::reach::derive(app_dir, platform, &mut compat)?;
+    // The entry plans, resolved once (the receipt writes them); an even-odd
+    // icon in any plan that ships moves the id (stage 14 C2, icon_rules.rs).
+    let mut owned = None;
+    let entries = crate::icon_rules::entries(app_dir, entries, &mut owned)?;
+    crate::icon_rules::apply(&mut compat, app_dir, plan.as_ref(), entries)?;
     if let Some(out) = std::env::var_os("OUT_DIR") {
         // What an Apple archive links is part of its cohort (LLP 1047.001
         // D2), named before anything binds the id.
         if matches!(platform, "ios" | "macos") {
             crate::link::name_into(&mut compat, manifest, Path::new(&out))?;
         }
-        let compiled;
-        let entries = match entries {
-            Some(entries) => entries,
-            None => {
-                compiled = contract::snapshot::entries(app_dir)?;
-                &compiled
-            }
-        };
         crate::receipt::emit(
             &mut compat,
             &trust,
@@ -484,7 +490,7 @@ fn compatibility_with_trust(
         origin,
         activate: manifest.activate(),
         target: target.into(),
-        embedded: serde_json::Value::Null,
+        embedded: json!({ "trust": trust }),
         reach: serde_json::Value::Null,
     })
 }
@@ -1448,6 +1454,10 @@ mod tests {
                 .unwrap();
         assert!(zero.inputs["keys"].is_null());
         assert!(zero.inputs["trust"].is_null());
+        assert_eq!(
+            zero.embedded["trust"], "production",
+            "the build's trust, beside the id"
+        );
         assert!(zero.inputs["abi"]["storeCodec"].is_null());
         assert_eq!(zero.inputs["store"]["acceptedKinds"], serde_json::json!([]));
         assert!(zero.origin.is_none());
@@ -1460,6 +1470,7 @@ mod tests {
             zero.id, changed.id,
             "a missing updater has no key or trust epoch"
         );
+        assert_eq!(changed.embedded["trust"], "development");
         manifest.json["deploy"]["store"] = serde_json::json!({"linux":"A"});
         manifest.json["deploy"]["signing"]["keys"] =
             serde_json::json!({"k":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="});

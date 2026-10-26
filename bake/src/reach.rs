@@ -41,7 +41,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
                 .join("\n"));
         }
     };
-    let strings = if devices.is_empty() {
+    let strings = if devices.iter().all(|g| !g.device.purpose) {
         None
     } else {
         contract::strings_tables(app_dir)?
@@ -50,7 +50,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     // Key → locale → text, a translation lacking a key falling back to the
     // base as `t` does.
     let mut purposes: BTreeMap<&str, BTreeMap<String, String>> = BTreeMap::new();
-    for grant in &devices {
+    for grant in devices.iter().filter(|g| g.device.purpose) {
         let base = strings
             .as_ref()
             .and_then(|s| s.base_table().get(grant.purpose));
@@ -145,6 +145,8 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
     let mut flags: Vec<&str> = Vec::new();
+    // iOS's background modes and task identifiers (LLP 1133.017 D14).
+    let (mut modes, mut tasks): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     // Android's permissions: the Canvas host on Android bakes as Linux.
     let mut android: Vec<&str> = Vec::new();
     let keys_of = |device: &Device| match platform {
@@ -152,8 +154,23 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "macos" => device.macos,
         _ => &[],
     };
+    // A key two granted rows write takes the text of the row whose own
+    // prompt it is, the one listing it first (LLP 1133.019 D4: on macOS both
+    // photo lines write `NSPhotoLibraryUsageDescription`, which takes
+    // `device.photos`'s purpose), never whichever line came last; `shared`
+    // names the line each such key took its text from.
+    let mut writers: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
+    let mut shared = Map::new();
     for grant in &devices {
-        for key in keys_of(grant.device) {
+        for (at, key) in keys_of(grant.device).iter().enumerate() {
+            if let Some(&(first, by)) = writers.get(key) {
+                let line = if first <= at { by } else { grant.device.name };
+                shared.insert((*key).into(), json!(format!("device.{line}")));
+                if first <= at {
+                    continue;
+                }
+            }
+            writers.insert(key, (at, grant.device.name));
             usage.insert((*key).into(), json!(purposes[grant.purpose]));
         }
         // The platform's signing entitlements: macOS's hardened-runtime ones,
@@ -165,6 +182,8 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
             "ios" => {
                 entitlements.extend(grant.device.ios_entitlements);
                 flags.extend(grant.device.ios_flags);
+                modes.extend(grant.device.ios_modes);
+                tasks.extend(grant.device.ios_tasks);
             }
             "linux" => android.extend(grant.device.android),
             _ => {}
@@ -198,6 +217,10 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     }
     entitlements.sort_unstable();
     entitlements.dedup();
+    for list in [&mut modes, &mut tasks] {
+        list.sort_unstable();
+        list.dedup();
+    }
     // tvOS bakes the iOS plan; what a row not on TV derives there, the tvOS
     // build drops (D5): every key and entitlement no TV row also needs.
     let tv_omits = if platform == "ios" {
@@ -241,6 +264,13 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         "tvOmits": tv_omits,
         "auth": auth,
     });
+    if !modes.is_empty() {
+        compat.reach["backgroundModes"] = json!(modes);
+        compat.reach["tasks"] = json!(tasks);
+    }
+    if !shared.is_empty() {
+        compat.reach["sharedKeys"] = Value::Object(shared);
+    }
     Ok(())
 }
 
@@ -362,11 +392,57 @@ fn auth(ceiling: &str, platform: &str, compat: &Compat) -> Result<Value, String>
         })
         .map(|host| format!("webcredentials:{host}"))
         .collect();
+    let passkeys = passkey_rp_ids(ceiling)?;
+    let mut webcredentials = webcredentials;
+    for rp in passkeys.iter().filter(|rp| *rp != "localhost") {
+        let domain = format!("webcredentials:{rp}");
+        if !webcredentials.contains(&domain) {
+            webcredentials.push(domain);
+        }
+    }
     Ok(json!({
         "sessions": sessions,
         "callbacks": callbacks,
+        "passkeys": passkeys,
         "associatedDomains": if matches!(platform, "ios" | "macos") { webcredentials } else { Vec::new() },
     }))
+}
+
+/// The RP IDs `auth.passkey <rp id>` grants (LLP 1133.011 D6): each a
+/// domain (`example.com`, `login.example.com`) or `localhost`, which only the
+/// web admits. A scheme, port, path, IP address or uppercase letter refuses,
+/// since WebAuthn compares the RP ID with the origin's effective domain as
+/// written (§5.1.3 step 7).
+fn passkey_rp_ids(ceiling: &str) -> Result<Vec<String>, String> {
+    let mut ids = Vec::new();
+    for line in ceiling.lines().map(str::trim) {
+        let mut words = line.split_whitespace();
+        if words.next() != Some("auth.passkey") {
+            continue;
+        }
+        let (Some(rp), None) = (words.next(), words.next()) else {
+            return Err(format!("grant-auth: `{line}`: `auth.passkey` takes one RP ID, a domain such as `example.com`, or `localhost` (LLP 1133.011 D6)"));
+        };
+        let label = |l: &str| {
+            !l.is_empty()
+                && l.len() <= 63
+                && !l.starts_with('-')
+                && !l.ends_with('-')
+                && l.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        };
+        let labels: Vec<&str> = rp.split('.').collect();
+        let numeric = labels
+            .last()
+            .is_some_and(|l| l.bytes().all(|b| b.is_ascii_digit()));
+        if rp != "localhost" && (labels.len() < 2 || numeric || !labels.iter().all(|l| label(l))) {
+            return Err(format!("grant-auth: `{line}`: an RP ID is a domain in lowercase with no scheme, port or path (`example.com`, `login.example.com`), or `localhost`; an IP address is not one (LLP 1133.011 D6)"));
+        }
+        if !ids.iter().any(|i| i == rp) {
+            ids.push(rp.to_owned());
+        }
+    }
+    Ok(ids)
 }
 
 /// Who enforces a device line: the OS's prompt (from the key the build
@@ -391,6 +467,9 @@ fn family_enforcement(line: &str) -> &'static str {
         "surface.read" | "surface.write" => "presenter",
         "auth.session" | "auth.callback" => {
             "the host's exact-auth: arm (Apple, web; Linux answers 501)"
+        }
+        "auth.passkey" => {
+            "the runner's admission (the RP ID); the platform's association check (Apple, Android)"
         }
         "doc.keep" => "the host's kept documents (macOS; Linux and the web keep nothing yet)",
         _ => "runtime",
@@ -530,6 +609,30 @@ mod tests {
     }
 
     #[test]
+    fn background_lines_derive_ios_modes_and_the_task_identifiers() {
+        // LLP 1133.017 D14: `fetch` and the refresh identifier for a periodic
+        // line, `processing` and two processing identifiers too for a sync
+        // one, each once; the Mac needs none.
+        let dir = app(&[("en", "{}")]);
+        let mut periodic = compat("device.periodic-background-sync");
+        derive(&dir.0, "ios", &mut periodic).unwrap();
+        assert_eq!(periodic.reach["backgroundModes"], json!(["fetch"]));
+        assert_eq!(periodic.reach["tasks"], json!(["refresh"]));
+        let grants = "device.background-sync\ndevice.periodic-background-sync";
+        let mut ios = compat(grants);
+        derive(&dir.0, "ios", &mut ios).unwrap();
+        assert_eq!(ios.reach["backgroundModes"], json!(["fetch", "processing"]));
+        assert_eq!(
+            ios.reach["tasks"],
+            json!(["processing.network", "processing.network-power", "refresh"])
+        );
+        assert_eq!(ios.reach["usage"], json!({}));
+        let mut mac = compat(grants);
+        derive(&dir.0, "macos", &mut mac).unwrap();
+        assert!(mac.reach.get("backgroundModes").is_none());
+    }
+
+    #[test]
     fn health_writes_both_keys_signs_on_ios_only_and_leaves_tvos_out() {
         // LLP 1069.008.000 D1, D2, D5.
         let dir = app(&[
@@ -592,6 +695,62 @@ mod tests {
         assert_eq!(
             derive_for("device.speech-recognition write", "ios")["tvOmits"],
             json!([])
+        );
+    }
+
+    #[test]
+    fn both_photo_lines_write_the_read_key_once_with_the_read_purpose() {
+        // LLP 1133.019 D4.
+        let dir = app(&[(
+            "en",
+            r#"{"recents": "Shows recent photos.", "save": "Saves edits."}"#,
+        )]);
+        let derive_for = |grants: &str, platform: &str| {
+            let mut c = compat(grants);
+            derive(&dir.0, platform, &mut c).unwrap();
+            c.reach
+        };
+        let (read, add) = (
+            "NSPhotoLibraryUsageDescription",
+            "NSPhotoLibraryAddUsageDescription",
+        );
+        let recents = json!({"en": "Shows recent photos."});
+        let save = json!({"en": "Saves edits."});
+        for grants in [
+            "device.photos-add save\ndevice.photos recents",
+            "device.photos recents\ndevice.photos-add save",
+        ] {
+            let mac = derive_for(grants, "macos");
+            assert_eq!(mac["usage"], json!({read: recents, add: save}));
+            assert_eq!(mac["sharedKeys"], json!({read: "device.photos"}));
+            let ios = derive_for(grants, "ios");
+            assert_eq!(ios["usage"], json!({read: recents, add: save}));
+            assert_eq!(
+                ios["flags"],
+                json!(["PHPhotoLibraryPreventAutomaticLimitedAccessAlert"])
+            );
+        }
+        // The add line alone on macOS: the read key with the add's text.
+        let mac = derive_for("device.photos-add save", "macos");
+        assert_eq!(mac["usage"], json!({add: save, read: save}));
+        assert_eq!(
+            mac["entitlements"],
+            json!(["com.apple.security.personal-information.photos-library"])
+        );
+        // Android: adding asks nothing; reading is a permission per API range,
+        // the one that ends at 32 with its end.
+        assert_eq!(
+            derive_for("device.photos-add save", "linux")["android"],
+            json!([])
+        );
+        assert_eq!(
+            derive_for("device.photos-add save\ndevice.photos recents", "linux")["android"],
+            json!([
+                "android.permission.ACCESS_MEDIA_LOCATION",
+                "android.permission.READ_EXTERNAL_STORAGE maxSdkVersion=32",
+                "android.permission.READ_MEDIA_IMAGES",
+                "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+            ])
         );
     }
 
@@ -724,6 +883,31 @@ mod tests {
         let mut web = compat(grants);
         derive(&dir.0, "web", &mut web).unwrap();
         assert_eq!(web.reach["auth"]["associatedDomains"], json!([]));
+        let passkeys = format!(
+            "{grants}\nauth.passkey app.example\nauth.passkey login.test\nauth.passkey localhost"
+        );
+        let mut ios = compat(&passkeys);
+        derive(&dir.0, "ios", &mut ios).unwrap();
+        assert_eq!(
+            ios.reach["auth"]["associatedDomains"],
+            json!(["webcredentials:app.example", "webcredentials:login.test"])
+        );
+        assert_eq!(
+            ios.reach["auth"]["passkeys"],
+            json!(["app.example", "login.test", "localhost"])
+        );
+        for bad in [
+            "https://a.test",
+            "a.test:443",
+            "127.0.0.1",
+            "A.test",
+            "test",
+            "a.test b",
+        ] {
+            let error =
+                derive(&dir.0, "ios", &mut compat(&format!("auth.passkey {bad}"))).unwrap_err();
+            assert!(error.starts_with("grant-auth: "), "{bad}: {error}");
+        }
         web.inputs["typescriptPlacement"] = json!("worker");
         assert!(derive(&dir.0, "web", &mut web)
             .unwrap_err()

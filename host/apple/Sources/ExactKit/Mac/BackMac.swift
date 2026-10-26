@@ -2,7 +2,7 @@
 // "Back is always there"): Go ▸ Back ⌘[ in the menu bar (DevMenuMac.swift),
 // a navigational toolbar item, disabled at a stack's root (ToolbarMac.swift),
 // and the trackpad's swipe (`BackSwipe`, below). Each goes the way iOS's
-// Back button and edge swipe go (`NavigationRules.back`): an authored Back
+// Back button and edge swipe go (`NavigationBack.way`): an authored Back
 // control is what they press, and a route that declares none goes back by
 // the root's `navigate` with the location beneath, or with no `navigate`
 // handler by the runner's own `back`. A sheet or modal route is not pushed:
@@ -67,15 +67,15 @@ extension NavigationHost {
     }
 
     /// How Back goes from the selected route, resolved at use as iOS's is
-    /// (`NavigationRules.back`); nil when it does not.
-    var back: NavigationRules.Back? { pushedRoute.flatMap { way(from: $0.root, $0.route) } }
+    /// (`NavigationBack.way`); nil when it does not.
+    var back: NavigationBack.Way? { pushedRoute.flatMap { way(from: $0.root, $0.route) } }
 
     /// How Back goes from `route`, under `root`.
-    private func way(from root: NodeView, _ route: NodeView) -> NavigationRules.Back? {
+    private func way(from root: NodeView, _ route: NodeView) -> NavigationBack.Way? {
         let named = backControls(in: route, of: root)
-        let control = NavigationRules.backControl(named: root.props["navigationBack"], among: named, id: \.id, htmlID: { $0.props["id"] },
+        let control = NavigationBack.control(named: root.props["navigationBack"], among: named, id: \.id, htmlID: { $0.props["id"] },
                                                   pressable: { $0.handlers.contains("press") }, disabled: \.disabled, inActiveRoute: { _ in true })
-        return NavigationRules.back(control: control?.id, declared: !named.isEmpty, hearsNavigate: root.handlers.contains("navigate"),
+        return NavigationBack.way(control: control?.id, declared: !named.isEmpty, hearsNavigate: root.handlers.contains("navigate"),
                                     beneath: { [presenter] in route.props["navigationKey"].flatMap { presenter.session?.runtime.locationBeneath($0) } })
     }
 
@@ -97,7 +97,7 @@ extension NavigationHost {
         return true
     }
 
-    private func take(_ how: NavigationRules.Back, from root: NodeView, _ route: NodeView) {
+    private func take(_ how: NavigationBack.Way, from root: NodeView, _ route: NodeView) {
         switch how {
         // A Back control its sheet's row stands for is pressed as that row presses it (RouteSheetMac.swift).
         case .press(let id): presenter.press(id, fromNativeMenu: presenter.views[id].flatMap(presenter.dialogs.rowShows) != nil)

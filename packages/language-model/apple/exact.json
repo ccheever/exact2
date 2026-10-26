@@ -1,0 +1,64 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/language-model@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "frameworks": {
+    "FoundationModels": {
+      "ios": "26.0",
+      "macos": "26.0"
+    }
+  },
+  "shapes": {
+    "AppleLanguageModelStatus": {
+      "unavailableReason": "option<enum<deviceNotEligible|appleIntelligenceNotEnabled|modelNotReady>>",
+      "contextSize": "option<number>",
+      "supportedLanguages": "string[]",
+      "modelVersion": "option<string>"
+    },
+    "AppleLanguageModelResponse": {
+      "refusalExplanation": "option<string>"
+    }
+  },
+  "options": {
+    "createLanguageModel": {
+      "useCase": "enum<general|contentTagging>",
+      "guardrails": "enum<default|permissiveContentTransformations>"
+    },
+    "prompt": {
+      "sampling": "enum<greedy|random>",
+      "top": "number",
+      "probabilityThreshold": "number",
+      "temperature": "number",
+      "maximumResponseTokens": "number",
+      "toolCallingMode": "enum<allowed|disallowed>",
+      "includeSchemaInPrompt": "bool"
+    },
+    "promptStreaming": {
+      "sampling": "enum<greedy|random>",
+      "top": "number",
+      "probabilityThreshold": "number",
+      "temperature": "number",
+      "maximumResponseTokens": "number",
+      "toolCallingMode": "enum<allowed|disallowed>",
+      "includeSchemaInPrompt": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "systemLanguageModel"
+  ],
+  "sources": {
+    "swift": [
+      "LanguageModel.swift",
+      "LanguageModelSchema.swift",
+      "LanguageModelApple.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "LanguageModelModule"
+}

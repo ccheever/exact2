@@ -13,6 +13,9 @@
 
 use super::*;
 
+/// The keys a platform's own words sit under (LLP 1133 D2).
+const PLATFORM_KEYS: [&str; 5] = ["apple", "android", "windows", "linux", "web"];
+
 /// The words no binder may be.
 pub(super) const RESERVED: [&str; 16] = [
     "when", "if", "else", "for", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
@@ -254,6 +257,27 @@ impl Parser {
         let value = self.expr()?;
         self.last += 1;
         Ok(Expr::NamedArg(name, Box::new(value), span))
+    }
+
+    /// Whether a platform's word on an element is ahead, `apple.<word>=`
+    /// (LLP 1133 D2; LLP 1020.002 §9): a platform key and one word.
+    pub(super) fn platform_attr_ahead(&self) -> bool {
+        self.dotted_name_ahead() == Some(2)
+            && matches!(&self.peek_kind(), TokenKind::Ident(k) if PLATFORM_KEYS.contains(&k.as_str()))
+    }
+
+    /// The platform word [`Self::platform_attr_ahead`] saw, through its `=`.
+    pub(super) fn platform_attr_name(&mut self) -> (String, Span) {
+        let span = self.peek().span;
+        let mut name = String::new();
+        for _ in 0..3 {
+            match self.next().kind {
+                TokenKind::Ident(w) => name.push_str(&w),
+                _ => name.push('.'),
+            }
+        }
+        self.next();
+        (name, span)
     }
 
     pub(super) fn field_name(&mut self) -> R<(String, Span)> {

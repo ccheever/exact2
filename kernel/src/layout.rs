@@ -18,9 +18,12 @@ mod buttons;
 mod containment_tests;
 #[cfg(test)]
 mod differential_tests;
+#[cfg(test)]
+mod digest;
 mod fields;
 mod fit;
 mod hoist;
+mod inline_images;
 #[cfg(test)]
 mod memo_tests;
 mod order;
@@ -95,7 +98,7 @@ fn from_available(space: AvailableSpace) -> AxisOffer {
 const LEAF_OFFERS: usize = 16;
 
 // @ref LLP 1043.000 §3 D3 — keep the proof with Taffy's measured leaf.
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 struct MeasureContext {
     slot: u32,
     kind: alert::Kind,
@@ -112,7 +115,7 @@ struct MeasureContext {
     fit_natural: Option<f32>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Measurement {
     width: AxisOffer,
     height: AxisOffer,
@@ -122,6 +125,8 @@ struct Measurement {
 }
 
 /// The engine tree. Measured leaves retain their height proof and bounded offers.
+/// A copy is a trial's (`Kernel::measure_block`): laid out and dropped.
+#[derive(Clone)]
 pub struct LayoutTree {
     taffy: TaffyTree<MeasureContext>,
     pass: u64,
@@ -1236,9 +1241,6 @@ impl LayoutTree {
                             if runs.is_empty() {
                                 return Size::ZERO;
                             }
-                            // Direction and alignment inherit (a paragraph inside a
-                            // centred column centres, as in CSS); the rest are its own.
-                            let paragraph = arena.paragraph(slot);
                             // @ref LLP 1043.000 §8 — an admitted auto-height leaf is
                             // measured around its settled shapes, in content space as
                             // the painters flow it. Intrinsic probes stay unobstructed:
@@ -1251,13 +1253,7 @@ impl LayoutTree {
                                     .collect(),
                                 _ => Vec::new(),
                             };
-                            let request = TextMeasureRequest {
-                                exclusions: &shapes,
-                                runs: &runs,
-                                paragraph,
-                                width,
-                                height,
-                            };
+                            let request = fit::request(arena, slot, &runs, &shapes, width, height);
                             fields::text(arena, slot, measurer, stamp.as_ref(), &request)
                         };
                         if !metrics.is_valid() {

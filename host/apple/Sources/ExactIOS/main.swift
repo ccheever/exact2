@@ -65,6 +65,8 @@ final class Adapter: ExactSessionDelegate {
                 fputs("exact: openURL requires an external web, email or telephone URL\n", stderr)
                 return
             }
+            // Under the agent the drive keeps its app: opening another would suspend this one (LLP 1143 D1).
+            if agentMode { session.log("openURL \(value): opens outside the app (not under the agent)"); return }
             UIApplication.shared.open(url)
         // A scene is the system's to close; an app cannot (studio diary R17).
         case "close": session.log("close: unsupported: iOS closes a scene, an app does not")
@@ -186,13 +188,22 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         session = exact.makeSession(delegate: adapter, label: "main")
         #if !os(tvOS)
         exact.installNotificationClicks()
+        // A wake that launched the app with no scene boots it with none (LLP 1133.017 D7).
+        exact.installWakes { session.bootForWake() }
         #endif
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
         session.hatchesOwnProcess = true
+        // `SIGUSR1` saves its trace (LLP 1142 D5): a simulator app is a Mac process.
+        TraceSignal.install { session }
         if ExactEnv.agentFreezes { session.clock = 0 }
         return true
     }
+    #if !os(tvOS)
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        exact.handleTransferEvents(identifier, completion: completionHandler)
+    }
+    #endif
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         let c = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         c.delegateClass = SceneDelegate.self
@@ -264,7 +275,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // The view boots the session at its first layout; a file plan is
         // booted here first, at the screen's size the view will take (one
         // with its module was installed as the launch generation instead).
-        if let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
+        if !ExactIOS.session.booted, let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
             planRefusal = ExactIOS.session.boot(plan: bytes, size: ws.coordinateSpace.bounds.inset(by: w.safeAreaInsets).size).error
         }
         let c = Controller()

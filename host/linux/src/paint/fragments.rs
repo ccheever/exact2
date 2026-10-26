@@ -38,11 +38,7 @@ impl Painter {
             // A fitted paragraph's line box is at its runs' scale (LLP 1116.001 D1.4).
             let strut = exact_kernel::TextStyle::from_style(&computed).scaled(node.fit_scale());
             spec.strut = Run::from_style("", strut);
-            spec.runs = node
-                .text_runs()
-                .iter()
-                .map(|run| Run::from_style(&run.text, run.style))
-                .collect();
+            spec.runs = node.text_runs().iter().map(Run::from_kernel).collect();
             spec.shown(node.props.str(PropId::Markup) == Some("markdown"))
         };
         let paragraph = if let Some(stamp) = node.paragraph_stamp() {
@@ -78,6 +74,20 @@ impl Painter {
             self.row_refuse();
         }
         walk.text.insert(node.key, paragraph.clone());
+        if let Some(inline) = inline_frame::Captured::new(kernel, node, &paragraph, &palette) {
+            let origin = (
+                content.0,
+                content.1
+                    + if frags.is_empty() {
+                        kernel.text_line_offset(node)
+                    } else {
+                        0.
+                    },
+            );
+            let inline = inline.place(origin, frags, ts);
+            self.row_inline(node.id, &inline);
+            walk.inline.insert(node.id, inline);
+        }
         // The canvas recorder leases the same paragraph the paint drew.
         self.row_text(node.key, &paragraph);
         // CSS `text-overflow: ellipsis` in a clipping box: an over-wide line

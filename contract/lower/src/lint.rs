@@ -1,10 +1,11 @@
 //! Refusals that need no types: an element's tag, its attributes' names,
 //! and its literal style values against their rows.
 
-use crate::{dataset, native, svg, tags, values, LowerError, MAX_REFUSALS};
+use crate::{dataset, native, shorthands, svg, tags, values, LowerError, MAX_REFUSALS};
 use contract_syntax::{Attr, File, Node, Span};
 use contract_types::Ty;
 use exact_kernel::StyleId;
+use exact_motion::animation::LONGHANDS;
 
 pub(crate) fn unknown_tag(tag: &str, span: Span) -> LowerError {
     let hint = tags::html_tag(tag)
@@ -136,9 +137,9 @@ pub(crate) fn react_native(name: &str) -> Option<&'static str> {
 /// look nodes share is a `style` block named by `class=`. CSS declarations
 /// (`"padding: 8px; color: red"`) are written back as the attributes, each
 /// one the hint can say in Contract: a name that is an attribute identifier
-/// (a custom property is not), a plain number unquoted as the lexer wants
-/// it, `!important` dropped. A bare word is `class=` unless it is reserved
-/// (`none`, `if`).
+/// (a custom property is not), a plain number unquoted unless the attribute
+/// takes a shorthand string, `!important` dropped. A bare word is `class=`
+/// unless it is reserved (`none`, `if`).
 ///
 /// The rewrite is written only for distinct properties that cannot overlap:
 /// CSS resolves a property written twice, or a shorthand beside its longhand,
@@ -167,8 +168,13 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
                 Some(v) if v.ends_with('!') => v[..v.len() - 1].trim_end(),
                 _ => value.as_str(),
             };
+            let string_shorthand = matches!(tags::attr(name), Some(tags::AttrTarget::Shorthand))
+                && !matches!(name, "column-count" | "column-rule-width")
+                // Quoting an invalid count can let `columns` parse it as a width.
+                && (name != "columns" || value.parse::<u16>().is_ok_and(|n| n > 0));
             // A number token begins with a digit (`.5` is not one).
-            if value.starts_with(|c: char| c.is_ascii_digit())
+            if !string_shorthand
+                && value.starts_with(|c: char| c.is_ascii_digit())
                 && value.bytes().all(|b| b.is_ascii_digit() || b == b'.')
                 && value.parse::<f64>().is_ok()
             {
@@ -206,8 +212,9 @@ fn style_hint(value: &contract_syntax::Expr) -> String {
 /// Whether two CSS properties may set the same thing: one name, one a prefix
 /// of the other at a hyphen (`flex` and `flex-grow`, `border` and
 /// `border-top-left-radius`), or a shorthand whose longhands are named
-/// otherwise. CSS shorthands are not modelled further: a doubtful pair is an
-/// overlap.
+/// otherwise. Shared rows overlap unless the properties compose independent
+/// parts. Name checks retain CSS relationships the rows do not represent,
+/// such as `font`/`line-height`.
 fn overlap(a: &str, b: &str) -> bool {
     let prefix = |short: &str, long: &str| {
         long.len() > short.len() && long.starts_with(short) && long.as_bytes()[short.len()] == b'-'
@@ -225,7 +232,26 @@ fn overlap(a: &str, b: &str) -> bool {
         "border-radius" => long.starts_with("border-") && long.ends_with("-radius"),
         _ => false,
     };
-    a == b || prefix(a, b) || prefix(b, a) || family(a, b) || family(b, a)
+    let rows = |name: &str| -> &[StyleId] {
+        match tags::attr(name) {
+            Some(tags::AttrTarget::Styles(rows)) => rows,
+            Some(tags::AttrTarget::Shorthand) => shorthands::rows(name),
+            Some(tags::AttrTarget::Flex) => {
+                &[StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis]
+            }
+            _ => &[],
+        }
+    };
+    // Animation longhands set independent components of their shared row.
+    let animation_parts = LONGHANDS.contains(&a) && LONGHANDS.contains(&b);
+    a == b
+        || prefix(a, b)
+        || prefix(b, a)
+        || family(a, b)
+        || family(b, a)
+        || rows(a)
+            .iter()
+            .any(|row| rows(b).contains(row) && (*row != StyleId::Animation || !animation_parts))
 }
 
 /// CSS declarations split at `;` outside quotes and parentheses
@@ -408,6 +434,28 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 errors.extend(dataset::refused(a));
                                 continue;
                             }
+                            // A state part's row (`:hover opacity`, LLP 1121 D8): one
+                            // its state takes, checked as the row the fold lowers it to.
+                            let row;
+                            let a = match contract_syntax::state::state_of(&a.name) {
+                                Some((state, name)) => {
+                                    let written = contract_syntax::Attr {
+                                        name: name.to_string(),
+                                        ..a.clone()
+                                    };
+                                    if let Some(e) = crate::states::refusal(state, &written, false)
+                                    {
+                                        errors.push(e);
+                                        continue;
+                                    }
+                                    row = contract_syntax::Attr {
+                                        name: crate::states::checked_as(state, name).to_string(),
+                                        ..written
+                                    };
+                                    &row
+                                }
+                                None => a,
+                            };
                             let check = |a: &contract_syntax::Attr| match tags::attr_valued(
                                 &a.name, &a.value,
                             ) {

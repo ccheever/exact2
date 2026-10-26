@@ -40,6 +40,10 @@ final class IconShapeMacTests: XCTestCase {
     /// path is filled on its own and the flag says which way up it is.
     private static let ring: Icon = [circle(12, 12, 9) + circle(12, 12, 5.5, reversed: true),
                                      rect(10.3, 1.2, 3.4, 21.6) + [.m(16, 2), .l(22, 2), .l(22, 8), .z]]
+    /// Stage 14 C2's glyph, even-odd: the ring's hole wound the same way, so
+    /// only the even-odd rule leaves it clear, beside the same bar and flag.
+    private static let evenRing: Icon = [circle(12, 12, 9) + circle(12, 12, 5.5),
+                                         rect(10.3, 1.2, 3.4, 21.6) + [.m(16, 2), .l(22, 2), .l(22, 8), .z]]
     /// Another icon's d (the wrong-d mutation): a plus and a dot.
     private static let plus: Icon = [rect(3, 10, 18, 4) + rect(10, 3, 4, 18), circle(19, 19, 2.5)]
 
@@ -61,7 +65,7 @@ final class IconShapeMacTests: XCTestCase {
     /// viewBox scaled into `frame` (a square), filled nonzero on its own into
     /// a bitmap `scale` pixels a point, its first row at the top. No ExactKit
     /// or IconPath code draws it.
-    private static func reference(_ icon: Icon, frame: CGRect, canvas: CGSize, scale: CGFloat) -> [UInt8] {
+    private static func reference(_ icon: Icon, frame: CGRect, canvas: CGSize, scale: CGFloat, rule: CGPathFillRule = .winding) -> [UInt8] {
         let w = Int(canvas.width * scale), h = Int(canvas.height * scale)
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -78,7 +82,7 @@ final class IconShapeMacTests: XCTestCase {
                 case .z: p.closeSubpath()
                 }
             }
-            ctx.addPath(p); ctx.fillPath(using: .winding)
+            ctx.addPath(p); ctx.fillPath(using: rule)
         }
         let data = ctx.data!.assumingMemoryBound(to: UInt8.self)
         return (0..<(w * h)).map { data[$0 * 4 + 3] }
@@ -244,6 +248,37 @@ final class IconShapeMacTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// Stage 14 C2: an even-odd icon (`symbolFillRule`) fills each path
+    /// even-odd at its frame, at the six origins at 1x and 2x, against the
+    /// independent reference filled even-odd: identical at a whole-pixel
+    /// origin, the checks at a fractional one. Filled nonzero, its hole is
+    /// ink the checks catch.
+    @MainActor func testAnEvenOddPathIconIsItsPathFilledEvenOddAtItsFrame() throws {
+        let p = presenter(Self.evenRing, frame: Self.frame(.zero), extra: ["symbolFillRule": "evenodd"])
+        let node = try XCTUnwrap(p.views[2]), page = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(node.symbolShape?.shapes.map(\.fillRule), [.evenOdd, .evenOdd], "each `;` path even-odd")
+        for scale in [CGFloat(1), 2] {
+            let width = Int(canvas.width * scale)
+            for o in Self.origins {
+                let frame = Self.frame(o)
+                move(p, to: frame)
+                let ref = Self.reference(Self.evenRing, frame: frame, canvas: canvas, scale: scale, rule: .evenOdd)
+                let m = Self.measure(render(page, scale: scale), ref, width: width)
+                let whole = (o.x * scale).rounded() == o.x * scale && (o.y * scale).rounded() == o.y * scale
+                print(String(format: "C2 even-odd %.0fx origin (%.2f, %.2f)%@: host %@", scale, o.x, o.y, whole ? " whole" : "", m.description))
+                if whole { XCTAssertTrue(m.equal, "\(scale)x \(o): every pixel equal at a whole-pixel origin, \(m)") }
+                else { XCTAssertTrue(m.passes, "\(scale)x \(o): \(m.failures) \(m)") }
+            }
+        }
+        // The rule unsaid (nonzero): the hole fills, outside the reference's fringe.
+        let o = CGPoint(x: 0.67, y: 0.69), frame = Self.frame(o)
+        let nonzero = presenter(Self.evenRing, frame: frame)
+        let ref = Self.reference(Self.evenRing, frame: frame, canvas: canvas, scale: 2, rule: .evenOdd)
+        let m = Self.measure(render(try XCTUnwrap(nonzero.views[1]), scale: 2), ref, width: Int(canvas.width * 2))
+        print("C2 mutation nonzero: \(m) -> fails \(m.failures)")
+        XCTAssertTrue(m.failures.contains("outside"), "filled nonzero, the hole is caught: \(m)")
     }
 
     /// (1) The checks catch what they are for: a 1 px shift (centroid), the

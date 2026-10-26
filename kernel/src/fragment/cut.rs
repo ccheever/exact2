@@ -363,6 +363,7 @@ pub(super) fn lines(
         return (0.0, bottoms);
     }
     let request = TextMeasureRequest {
+        atoms: arena.markup_atoms(slot),
         runs: &runs,
         paragraph: arena.paragraph(slot),
         width: AxisOffer::Definite(width.max(0.0)),

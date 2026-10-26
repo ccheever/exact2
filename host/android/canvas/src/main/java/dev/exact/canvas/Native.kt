@@ -187,6 +187,12 @@ object Native {
     @JvmStatic external fun bindExtensions(names: String)
     /** How a presence check ended ([Presence]), on the store's completion path: never journaled. On the host's thread. */
     @JvmStatic external fun presence(answer: String)
+    /** A package's picture for request [id] (LLP 1133.019 D11 item 1): [bitmap], software `ARGB_8888`, or why there is
+     * none ([error]) when it is null. On the host's thread. */
+    @JvmStatic external fun picture(id: Int, bitmap: android.graphics.Bitmap?, error: String?)
+    /** Picture [source] changed, so it is asked for again, or was [revoked]: every box showing it is emptied. On the
+     * host's thread. */
+    @JvmStatic external fun pictureChanged(source: String, revoked: Boolean)
     /** The activity stopped (true) or started (false): the page's `visibilityState`. On the host's thread. */
     @JvmStatic external fun hidden(hidden: Boolean)
     /** The session's clock, ms, as of the host's last turn and moved on by the wall's outside the agent
@@ -197,6 +203,13 @@ object Native {
     @JvmStatic external fun appFile(path: String): String?
     /** Whether extension [name] is told it runs under the agent ([ExtensionContext.agent]). Any thread. */
     @JvmStatic external fun underAgent(name: String): Boolean
+    /** Whether the page places a canvas of surface [name], as of the host's last turn ([ExtensionSurfaces]). Any
+     * thread. */
+    @JvmStatic external fun surfaceHas(name: String): Boolean
+    /** A package's sample for surface [surface]'s canvas input (LLP 1133.013 D6), or with [ended] its end: kept until
+     * the host's next display frame delivers it to the canvas. [values] x, y, z and w; [at] the session clock's ms.
+     * Any thread; it waits for nothing. Whether none waited before it: the host is then woken for a frame. */
+    @JvmStatic external fun sensorInput(surface: String, sensor: String, values: DoubleArray, dropped: Int, at: Double, ended: Boolean): Boolean
     /** What the app's Kotlin hatches ask, for node [node] or 0 for their module (LLP 1115.001.000 D4; the kinds are
      * `hatches::reader::act`'s): its answer, a ticket for a registration, -1 when refused. */
     @JvmStatic external fun hatchAct(node: Int, kind: Int, text: String?): Long

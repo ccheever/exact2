@@ -10,15 +10,18 @@
 // POST /control/hold-sends {on} holds the app's sends until released, in order.
 // POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
 // {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
+// POST /control/vote {channel_id, message_id, user_id, answer_id, add} adds or takes back one vote on a poll.
 // POST /control/rotate-token {token} makes the account's token `token` (a reset keeps it) and sends
 // each session a READY carrying it as `auth_token`, as Discord rotates a client's token; /control/state's
 // `identify_token` is the token the last IDENTIFY carried.
+import { avatarPng, imageSize } from './avatar.ts';
 import { constants, createDeflate } from 'node:zlib';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ServerWebSocket } from 'bun';
 import { emojiNames, WORLD_NOW } from './transcript-content.ts';
 import { createTranscriptWorld } from './transcript-world.ts';
 import { inject, type InjectedDispatch } from './inject.ts';
+import { settingsProto } from './settings.ts';
 import {
   createMessageGenerator, createWorld, emptyMessage, fileAssets, imageArtwork, pageMessages,
   NONCE_WINDOW_MS, recentNonceMessage, replySnapshot, seededRandom, snowflakeFromMs,
@@ -146,12 +149,16 @@ function rateRoute(method: string, path: string): string {
 }
 
 function readyGuild(guild: Guild) {
-  const { id, channels, roles, members, ...properties } = guild;
-  return { id, properties, channels, roles, members, joined_at: '2024-01-01T00:00:00.000Z',
+  const { id, channels, roles, members, emojis, ...properties } = guild;
+  return { id, properties, channels, roles, members, emojis, joined_at: '2024-01-01T00:00:00.000Z',
     large: false, member_count: members.length, version: 1 };
 }
 
-export function syntheticGuild(world: World, index: number, randomBytes = 0): Guild {
+// A large public server's permissions: many roles, channels whose overwrites name them, and the
+// account a member holding some of the roles rather than the owner.
+export interface GuildShape { roles?: number; channels?: number; overwrites?: number; dms?: number }
+
+export function syntheticGuild(world: World, index: number, randomBytes = 0, shape: GuildShape = {}): Guild {
   const random = seededRandom(world.seed + index * 65537);
   const source = world.guilds[0];
   const id = snowflakeFromMs(Date.UTC(2024, 0, 1), index);
@@ -162,18 +169,25 @@ export function syntheticGuild(world: World, index: number, randomBytes = 0): Gu
     return chars.toString('ascii');
   };
   const count = Math.max(32, Math.ceil(randomBytes / 320));
-  return { ...source, id, name: `Workshop ${index}`, owner_id: world.me.id,
+  const roleCount = Math.max(1, shape.roles ?? 1), overwrites = shape.overwrites ?? 0;
+  const roles = [{ ...source.roles[0], id }, ...Array.from({ length: roleCount - 1 }, (_, r) => ({ ...source.roles[0],
+    id: snowflakeFromMs(Date.UTC(2024, 0, 4) + index, r), name: `role-${r}`, position: r + 1, permissions: '0' }))];
+  const mine = roles.slice(1).filter((_, r) => r % 10 === 0).map(role => role.id);
+  return { ...source, id, name: `Workshop ${index}`, owner_id: shape.roles ? world.users[1].id : world.me.id,
     description: 'A community for making, learning, and sharing projects.', member_count: count,
-    roles: [{ ...source.roles[0], id }],
-    channels: Array.from({ length: 8 }, (_, c) => ({ ...source.channels[1],
+    roles,
+    channels: Array.from({ length: shape.channels ?? 8 }, (_, c) => ({ ...source.channels[1],
       id: snowflakeFromMs(Date.UTC(2024, 0, 2) + index, c), guild_id: id,
-      name: `project-${c}`, position: c, parent_id: null, last_message_id: null })),
-    members: Array.from({ length: count }, (_, m) => ({
+      name: `project-${c}`, position: c, parent_id: null, last_message_id: null,
+      permission_overwrites: Array.from({ length: Math.min(overwrites, roleCount) }, (_, o) => ({
+        id: roles[(c * 7 + o * 13) % roleCount].id, type: 0, allow: o % 2 ? '1024' : '0', deny: o % 2 ? '0' : '2048' })) })),
+    members: [...(shape.roles ? [{ user: world.me, roles: mine, joined_at: '2024-01-01T00:00:00.000Z', deaf: false, mute: false, flags: 0 }] : []),
+      ...Array.from({ length: count }, (_, m) => ({
       user: { ...world.users[m % world.users.length],
         id: snowflakeFromMs(Date.UTC(2024, 0, 3) + index, m), username: word(24), global_name: word(24),
         avatar: word(32), bio: randomBytes ? word(320) : 'Making a little progress every day.' },
       roles: [], nick: word(24), joined_at: '2024-01-01T00:00:00.000Z', deaf: false, mute: false, flags: 0,
-    })),
+    }))],
   };
 }
 
@@ -194,19 +208,40 @@ export function readyPayload(world: World, sessionId: string, gatewayUrl: string
     analytics_token: 'fixture-analytics', relationships: [], presences: [],
     connected_accounts: [], experiments: [], guild_experiments: [], friend_suggestion_count: 0,
     required_action: null, tutorial: null, user_settings: { locale: 'en-US', theme: 'dark', status: 'online' },
+    user_settings_proto: settingsProto(world.guilds.map(guild => ({ ids: [guild.id] }))),
   };
 }
 
-export function sizedReady(world: World, sessionId: string, gatewayUrl: string, seq: number, bytes: number): Dispatch {
+export function sizedReady(world: World, sessionId: string, gatewayUrl: string, seq: number, bytes: number, shape: GuildShape = {}): Dispatch {
   const frame: Dispatch = { op: 0, t: 'READY', s: seq, d: readyPayload(world, sessionId, gatewayUrl) };
+  // A long-lived account's direct messages: one per old conversation, a few unread. READY shares the
+  // world's lists, so they are copied first.
+  frame.d.private_channels = [...frame.d.private_channels];
+  frame.d.read_state = { ...frame.d.read_state, entries: [...frame.d.read_state.entries] };
+  for (let i = 0; i < (shape.dms ?? 0); i++) {
+    const id = snowflakeFromMs(Date.UTC(2023, 0, 1) + i, 0), last = snowflakeFromMs(Date.UTC(2023, 6, 1) + i * 1000, 0);
+    frame.d.private_channels.push({ id, type: 1, recipient_ids: [world.users[1 + i % (world.users.length - 1)].id],
+      last_message_id: last, flags: 0 });
+    frame.d.read_state.entries.push(i % 25 === 0 ? { id, last_message_id: id, mention_count: 1 } : { id, last_message_id: last, mention_count: 0 });
+  }
   let size = Buffer.byteLength(JSON.stringify(frame));
   let index = 1;
   while (size < bytes) {
-    const guild = readyGuild(syntheticGuild(world, index++));
+    const guild = readyGuild(syntheticGuild(world, index++, 0, shape));
     const added = Buffer.byteLength(JSON.stringify(guild)) + 1;
     if (size + added > bytes) break;
     frame.d.guilds.push(guild);
     size += added;
+  }
+  // The synthetic guilds sit in a folder after the world's, newest at its top; the settings grow
+  // with them, so a guild that no longer fits comes off.
+  for (;;) {
+    const synthetic = frame.d.guilds.slice(world.guilds.length).map((guild: Guild) => guild.id).reverse();
+    if (!synthetic.length) break;
+    frame.d.user_settings_proto = settingsProto([...world.guilds.map(guild => ({ ids: [guild.id] })), { ids: synthetic, id: 4242, name: 'Workshops', color: 0x5865f2 }]);
+    size = Buffer.byteLength(JSON.stringify(frame));
+    if (size <= bytes) break;
+    frame.d.guilds.pop();
   }
   if (size < bytes) {
     const description = frame.d.guilds[0].properties;
@@ -226,9 +261,13 @@ export function startFixture(options: FixtureOptions = {}) {
   const reactionDebounceMs = integer(options.reactionDebounceMs, 500, 2147483647);
   let world: World;
   let origin = '', gatewayUrl = '';
+  // Files a send uploads, as Discord's upload bucket holds them: by the name its slot gave, bytes once PUT.
+  const uploads = new Map<string, { filename: string; bytes: Uint8Array | null }>();
+  let uploadCount = 0;
   let connectionCounter = 0, sessionCounter = 0, identifyCount = 0, resumeCount = 0, loginsDone = 0;
   let rotatedToken: string | null = null, identifyToken: string | null = null;
   let stopAcks = false, readyBytes = 0, loginBytes = 0, frameParts = 1, syntheticCounter = 10000;
+  let readyShape: GuildShape = {};
   let closed = false;
   let resetVersion = 0;
   let clockOffsetMs = 0, messageTimestamp = 0, messageSequence = 0, passiveUpdateCount = 0;
@@ -421,8 +460,10 @@ export function startFixture(options: FixtureOptions = {}) {
     socket.data.session = session;
     const size = readyBytes, burst = loginBytes;
     readyBytes = 0;
+    const shape = readyShape;
+    readyShape = {};
     loginBytes = 0;
-    const ready = sizedReady(world, session.id, gatewayUrl, session.seq + 1, size);
+    const ready = sizedReady(world, session.id, gatewayUrl, session.seq + 1, size, shape);
     let sent = await send(socket, dispatch(session, 'READY', ready.d));
     if (version !== resetVersion || socket.data.closed) return;
     sent += await send(socket, dispatch(session, 'READY_SUPPLEMENTAL', {
@@ -438,6 +479,29 @@ export function startFixture(options: FixtureOptions = {}) {
       sent += await send(socket, dispatch(session, 'GUILD_CREATE', guild));
     }
     if (version === resetVersion && !socket.data.closed) loginsDone++;
+  }
+
+  // The first 100 rows of a guild's member list: each hoisted role's members, then the rest online, then
+  // those offline (every third member), as GUILD_MEMBER_LIST_UPDATE's SYNC carries them.
+  function memberList(guildId: string) {
+    const guild = world.guilds.find(g => g.id === guildId);
+    const members = guild?.members ?? [];
+    const hoisted = (guild?.roles ?? []).filter(r => r.hoist).sort((a, b) => b.position - a.position);
+    const status = (i: number) => i % 3 === 2 ? 'offline' : i % 4 === 1 ? 'idle' : 'online';
+    const groups: { id: string; members: typeof members }[] = [];
+    const placed = new Set<string>();
+    for (const role of hoisted) {
+      const holders = members.filter((m, i) => status(i) !== 'offline' && !placed.has(m.user.id) && m.roles.includes(role.id));
+      holders.forEach(m => placed.add(m.user.id));
+      if (holders.length) groups.push({ id: role.id, members: holders });
+    }
+    groups.push({ id: 'online', members: members.filter((m, i) => status(i) !== 'offline' && !placed.has(m.user.id)) });
+    groups.push({ id: 'offline', members: members.filter((_, i) => status(i) === 'offline') });
+    const items = groups.filter(g => g.members.length).flatMap(g => [{ group: { id: g.id, count: g.members.length } },
+      ...g.members.map(m => ({ member: { ...m, presence: { user: { id: m.user.id }, status: status(members.indexOf(m)), activities: [] } } }))]).slice(0, 100);
+    return { guild_id: guildId, id: 'everyone', member_count: members.length,
+      online_count: members.filter((_, i) => status(i) !== 'offline').length,
+      groups: groups.map(g => ({ id: g.id, count: g.members.length })), ops: [{ op: 'SYNC', range: [0, 99], items }] };
   }
 
   async function receive(socket: Socket, raw: string | Buffer) {
@@ -456,6 +520,10 @@ export function startFixture(options: FixtureOptions = {}) {
           ? Object.keys(frame.d.subscriptions) : [];
       for (const id of guildIds) session.subscribedGuilds.add(id);
       session.subscriptions.push({ op: frame.op, guild_ids: guildIds });
+      // A channel's member list, as Discord answers a subscription that names a range of it.
+      for (const id of guildIds) {
+        if (frame.op === 37 && frame.d.subscriptions[id]?.channels) await Promise.all(deliver(session, 'GUILD_MEMBER_LIST_UPDATE', memberList(id)));
+      }
       return;
     }
     if (frame?.op !== 2 && frame?.op !== 6) return;
@@ -512,6 +580,16 @@ export function startFixture(options: FixtureOptions = {}) {
         ...(destination.guild_id ? { guild_id: destination.guild_id } : {}) };
       created.referenced_message = replySnapshot(earlier);
     }
+    if (Array.isArray(body.attachments)) created.attachments = body.attachments.map((a: any, i: number) => {
+      const held = uploads.get(textField(a, 'uploaded_filename'));
+      if (!held?.bytes) throw new HttpError(400, 'Attachment was not uploaded', 50035);
+      const url = `${origin}/uploads/${encodeURIComponent(textField(a, 'uploaded_filename'))}`;
+      const kind = held.filename.split('.').pop()?.toLowerCase() ?? '';
+      const content_type = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[kind]
+        ?? 'application/octet-stream';
+      return { id: snowflakeFromMs(ms, 200000 + i), filename: held.filename, size: held.bytes.length, url, proxy_url: url,
+        content_type, ...imageSize(held.bytes) };
+    });
     created.mentions = world.users.filter(user => content.includes(`<@${user.id}>`) || content.includes(`<@!${user.id}>`));
     created.mention_roles = world.guilds.flatMap(guild => guild.roles)
       .filter(role => content.includes(`<@&${role.id}>`)).map(role => role.id);
@@ -594,6 +672,20 @@ export function startFixture(options: FixtureOptions = {}) {
     if (changed) await broadcast(add ? 'MESSAGE_REACTION_ADD' : 'MESSAGE_REACTION_REMOVE', changed);
   }
 
+  // One voter's vote on one answer, which Discord sends as its own event. Only the reader's choice is kept.
+  async function pollVote(channelId: string, messageId: string, userId: string, answerId: number, add: boolean) {
+    const poll = (message(channelId, messageId) as { poll?: any }).poll;
+    if (!poll?.answers.some((a: { answer_id: number }) => a.answer_id === answerId)) throw new HttpError(400, 'Not an answer');
+    poll.results ??= { is_finalized: false, answer_counts: [] };
+    let count = poll.results.answer_counts.find((a: { id: number }) => a.id === answerId);
+    if (!count) poll.results.answer_counts.push(count = { id: answerId, count: 0, me_voted: false });
+    count.count = Math.max(0, count.count + (add ? 1 : -1));
+    if (userId === world.me.id) count.me_voted = add;
+    const guildId = channel(channelId).guild_id;
+    await broadcast(add ? 'MESSAGE_POLL_VOTE_ADD' : 'MESSAGE_POLL_VOTE_REMOVE', { user_id: userId, channel_id: channelId,
+      message_id: messageId, answer_id: answerId, ...(guildId ? { guild_id: guildId } : {}) });
+  }
+
   async function typing(channelId: string, userId: string) {
     const destination = channel(channelId);
     const user = world.users.find(value => value.id === userId);
@@ -668,7 +760,7 @@ export function startFixture(options: FixtureOptions = {}) {
     clockOffsetMs = messageTimestamp = messageSequence = passiveUpdateCount = 0;
     forced.length = requests.length = frames.length = 0;
     connectionCounter = sessionCounter = identifyCount = resumeCount = loginsDone = 0;
-    readyBytes = loginBytes = 0; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
+    readyBytes = loginBytes = 0; readyShape = {}; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
     world = buildWorld();
     if (rotatedToken) world.token = rotatedToken;
     if (keep) {
@@ -759,6 +851,9 @@ export function startFixture(options: FixtureOptions = {}) {
         if (typeof body.add !== 'boolean') throw new HttpError(400, 'add must be a boolean');
         await react(textField(body, 'channel_id'), textField(body, 'message_id'), parseEmoji(body.emoji),
           textField(body, 'user_id'), body.add); break;
+      case 'vote':
+        if (typeof body.add !== 'boolean' || !Number.isInteger(body.answer_id)) throw new HttpError(400, 'add must be a boolean, answer_id an integer');
+        await pollVote(textField(body, 'channel_id'), textField(body, 'message_id'), textField(body, 'user_id'), body.answer_id, body.add); break;
       case 'react-many': {
         const channelId = textField(body, 'channel_id'), id = textField(body, 'message_id');
         const emoji = parseEmoji(body.emoji);
@@ -802,7 +897,11 @@ export function startFixture(options: FixtureOptions = {}) {
           deliver(session, 'READY', { ...readyPayload(world, session.id, gatewayUrl), auth_token: token })));
         break;
       }
-      case 'ready-size': readyBytes = integer(body.bytes, 3 * 1024 * 1024, 64 * 1024 * 1024); break;
+      case 'ready-size':
+        readyBytes = integer(body.bytes, 3 * 1024 * 1024, 64 * 1024 * 1024);
+        readyShape = { roles: integer(body.roles ?? 1, 1, 1000), channels: integer(body.channels ?? 8, 1, 500),
+          overwrites: integer(body.overwrites ?? 0, 0, 100), dms: integer(body.dms ?? 0, 0, 10000) };
+        break;
       case 'login-burst': loginBytes = integer(body.bytes, 1024 * 1024 + 4096, 64 * 1024 * 1024); break;
       case 'oversize-frame': {
         const bytes = integer(body.bytes, 1024 * 1024 + 4096, 64 * 1024 * 1024);
@@ -830,6 +929,35 @@ export function startFixture(options: FixtureOptions = {}) {
     const path = url.pathname.slice('/api/v9'.length), method = request.method;
     if (method === 'GET' && path === '/gateway') return { status: 200, body: { url: gatewayUrl } };
     if (method === 'GET' && path === '/users/@me') return { status: 200, body: world.me };
+    const slots = /^\/channels\/([^/]+)\/attachments$/.exec(path);
+    if (slots && method === 'POST') {
+      channel(slots[1]);
+      const files = (await readBody(request)).files;
+      if (!Array.isArray(files) || !files.length || files.length > 10) throw new HttpError(400, 'files must list 1 to 10 files');
+      return { status: 200, body: { attachments: files.map((f: any) => {
+        const filename = textField(f, 'filename');
+        if (!/^[^/\\]{1,200}$/.test(filename)) throw new HttpError(400, 'Invalid filename');
+        const name = `${String(++uploadCount).padStart(8, '0')}/${filename}`;
+        uploads.set(name, { filename, bytes: null });
+        return { id: f.id, upload_url: `${origin}/upload/${encodeURIComponent(name)}`, upload_filename: name };
+      }) } };
+    }
+    // A vote replaces the reader's earlier one; no answers takes it back. Discord sends an event an answer.
+    const vote = /^\/channels\/([^/]+)\/polls\/([^/]+)\/answers\/@me$/.exec(path);
+    if (vote && method === 'PUT') {
+      const [, channelId, messageId] = vote;
+      const poll = (message(channelId, messageId) as { poll?: any }).poll;
+      if (!poll) throw new HttpError(400, 'Not a poll');
+      const chosen = (await readBody(request)).answer_ids;
+      const answers = poll.answers.map((a: { answer_id: number }) => String(a.answer_id));
+      if (!Array.isArray(chosen) || chosen.some(id => typeof id !== 'string' || !answers.includes(id))
+        || (!poll.allow_multiselect && chosen.length > 1)) throw new HttpError(400, 'Invalid answers');
+      for (const id of answers) {
+        const mine = !!poll.results?.answer_counts.find((a: { id: number }) => String(a.id) === id)?.me_voted;
+        if (mine !== chosen.includes(id)) await pollVote(channelId, messageId, world.me.id, Number(id), !mine);
+      }
+      return { status: 204 };
+    }
     const match = /^\/channels\/([^/]+)\/(messages|typing)(?:\/([^/]+)(?:\/(ack|reactions)(?:\/([^/]+)\/@me)?)?)?$/.exec(path);
     if (!match) throw new HttpError(404, 'Unknown endpoint');
     const [, channelId, kind, messageId, action, encodedEmoji] = match;
@@ -859,6 +987,7 @@ export function startFixture(options: FixtureOptions = {}) {
       if (holdSends) await new Promise<void>(resume => heldSends.push(resume));
       if (failNext.delete(channelId)) throw new HttpError(500, 'Fixture failure');
       const body = await readBody(request), content = textField(body, 'content');
+      if (!content.trim() && !(Array.isArray(body.attachments) && body.attachments.length)) throw new HttpError(400, 'Cannot send an empty message', 50006);
       if (body.nonce !== undefined && !['string', 'number'].includes(typeof body.nonce)) throw new HttpError(400, 'Invalid nonce');
       if (body.enforce_nonce && body.nonce !== undefined) {
         const now = nowMs();
@@ -927,15 +1056,37 @@ export function startFixture(options: FixtureOptions = {}) {
       const failingSend = request.method === 'POST' && /^\/api\/v9\/channels\/([^/]+)\/messages$/.exec(url.pathname);
       const retry = isRest && !(failingSend && failNext.has(failingSend[1]))
         ? limitRequest(request.method, url.pathname, headers) : undefined;
-      if (request.method === 'GET' && (url.pathname.startsWith('/media/') || url.pathname.startsWith('/emojis/'))) {
+      if (request.method === 'GET' && (url.pathname.startsWith('/media/') || url.pathname.startsWith('/emojis/') || url.pathname.startsWith('/stickers/'))) {
         const media = /^\/media\/([a-z]+)\.png$/.exec(url.pathname);
         const emoji = /^\/emojis\/(50[0-8])\.png$/.exec(url.pathname);
-        const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : undefined);
+        // The world's one sticker (601) is drawn with an emoji's picture.
+        const sticker = /^\/stickers\/601\.png$/.test(url.pathname);
+        const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : sticker ? emojiNames[1] : undefined);
         if (!name || !/^[a-z]+$/.test(name)) return json({ message: 'Unknown asset', code: 0 }, 404);
         const file = Bun.file(`${import.meta.dir}/../assets/${media ? 'media' : 'emoji'}/${name}.png`);
         if (!await file.exists()) return json({ message: 'Unknown asset', code: 0 }, 404);
         headers.set('Content-Type', 'image/png');
         return new Response(file, { headers });
+      }
+      const upload = /^\/(upload|uploads)\/([^/]+)$/.exec(url.pathname);
+      if (upload) {
+        let name: string;
+        try { name = decodeURIComponent(upload[2]); } catch { return json({ message: 'Unknown upload', code: 0 }, 404); }
+        const held = uploads.get(name);
+        if (!held) return json({ message: 'Unknown upload', code: 0 }, 404);
+        if (upload[1] === 'upload' && request.method === 'PUT') {
+          // The bucket takes the bytes alone: a Discord credential sent here would be a leak.
+          if (request.headers.has('Authorization')) return json({ message: 'Credentials sent to the upload bucket', code: 0 }, 400);
+          held.bytes = new Uint8Array(await request.arrayBuffer());
+          return new Response(null, { status: 200, headers });
+        }
+        if (upload[1] === 'uploads' && request.method === 'GET' && held.bytes) return new Response(held.bytes, { headers });
+        return json({ message: 'Unknown upload', code: 0 }, 404);
+      }
+      const avatar = request.method === 'GET' ? avatarPng(url.pathname) : null;
+      if (avatar) {
+        headers.set('Content-Type', 'image/png');
+        return new Response(avatar, { headers });
       }
       const dimensions = /^\/assets\/([1-9]\d{0,4})x([1-9]\d{0,4})\.svg$/.exec(url.pathname);
       if (dimensions) {
@@ -1015,8 +1166,10 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--reset-on-identify') { options.resetOnIdentify = true; continue; }
-    if (!['--port', '--seed', '--world', '--clock'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
+    if (!['--port', '--seed', '--world', '--clock', '--host'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
     if (args[i + 1] === undefined) throw new Error(`Missing value for ${flag}`);
+    // The address it listens on and names itself by (READY's gateway, asset URLs): a phone's, this Mac's LAN address.
+    if (flag === '--host') { options.hostname = args[++i]; continue; }
     if (flag === '--world') {
       const world = args[++i];
       if (world !== 'default' && world !== 'transcript') throw new Error('world must be default or transcript');

@@ -22,6 +22,8 @@ pub enum Kind {
     Style,
     /// `decoration`.
     Decoration,
+    /// `atom` (LLP 1045.000).
+    Atom,
     /// `keyframes`.
     Keyframes,
     /// `timeline`.
@@ -36,6 +38,7 @@ impl Kind {
             Kind::Call => "shape or function",
             Kind::Style => "style",
             Kind::Decoration => "decoration",
+            Kind::Atom => "atom",
             Kind::Keyframes => "keyframes",
             Kind::Timeline => "timeline",
         }
@@ -209,6 +212,8 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         styles,
         decorations,
         decoration_scopes: _,
+        atoms,
+        atom_scopes: _,
         keyframes,
         timelines,
         // A `@color-profile`'s dashed name is global, as in CSS.
@@ -224,6 +229,9 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         tests,
         launch: _,
         components,
+        members,
+        // Decided by the loader once the component is whole.
+        deferred: _,
     } = file;
     for m in modules {
         r.scope.rename(Kind::Call, &mut m.name, m.span)?;
@@ -231,7 +239,9 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         for field in m.options.iter_mut().chain(words) {
             r.ty(&mut field.ty)?;
         }
-        r.ty(&mut m.answers)?;
+        for ty in m.answers.iter_mut().chain(&mut m.args) {
+            r.ty(ty)?;
+        }
     }
     for shape in shapes {
         r.scope.rename(Kind::Call, &mut shape.name, shape.span)?;
@@ -247,6 +257,10 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         r.scope
             .rename(Kind::Decoration, &mut decoration.name, decoration.span)?;
         r.attrs(&mut decoration.attrs)?;
+    }
+    for atom in atoms {
+        r.scope.rename(Kind::Atom, &mut atom.name, atom.span)?;
+        r.attrs(&mut atom.attrs)?;
     }
     for k in keyframes {
         r.scope.rename(Kind::Keyframes, &mut k.name, k.span)?;
@@ -285,7 +299,12 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         }
     }
     for c in components {
-        r.component(c)?;
+        r.component(c, true)?;
+    }
+    // A members block's name is the component's that lists it, not a
+    // declaration of this file's.
+    if let Some(block) = members {
+        r.component(block, false)?;
     }
     Ok(())
 }
@@ -310,7 +329,7 @@ const PRIMITIVES: [&str; 4] = ["number", "string", "bool", "unit"];
 type R = Result<(), SyntaxError>;
 
 impl Rewriter<'_> {
-    fn component(&mut self, c: &mut Component) -> R {
+    fn component(&mut self, c: &mut Component, declared: bool) -> R {
         let Component {
             name,
             props,
@@ -328,17 +347,27 @@ impl Rewriter<'_> {
             view,
             params: _,
             anatomy: _,
+            members,
             span,
         } = c;
-        self.scope.rename(Kind::Component, name, *span)?;
+        if declared {
+            self.scope.rename(Kind::Component, name, *span)?;
+        }
         // In the order the type checker brings them into scope: props and
-        // injects; each state, seen by those after it; then the rest.
-        let mark = self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
+        // injects (a members block's are its component's); each state, seen
+        // by those after it; the members the component's other files
+        // declare (LLP 1091.002 D5); then the rest.
+        let mark = self.locals.len();
+        self.bind_callable(members.props.iter().cloned());
+        self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
         self.params(props)?;
         self.params(injects)?;
         for b in states.iter_mut() {
             self.expr(&mut b.expr)?;
             self.bind([b.name.clone()]);
+        }
+        for (name, callable) in &members.outer {
+            self.bind_as([name.clone()], *callable);
         }
         self.bind(
             derives
@@ -485,7 +514,11 @@ impl Rewriter<'_> {
                     self.bind([name.clone()]);
                 }
                 Stmt::Assign { expr, .. } => self.expr(expr)?,
-                Stmt::Command { args, .. } => self.exprs(args)?,
+                // A send that answers nothing is a statement (LLP 1133.004 D5).
+                Stmt::Command { name, args, .. } => {
+                    self.scope.rename_source(name);
+                    self.exprs(args)?
+                }
                 Stmt::Send { source, args, .. } => {
                     self.scope.rename_source(source);
                     self.exprs(args)?

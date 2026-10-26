@@ -562,7 +562,9 @@ pub fn rewrite(file: &mut File) -> Vec<LowerError> {
             }
         }
     }
-    for c in &mut file.components {
+    // A members block's states and derives too, before it joins its
+    // component (LLP 1091.002).
+    for c in file.components.iter_mut().chain(file.members.as_mut()) {
         rewrite_component(c, &mut errors);
     }
     errors

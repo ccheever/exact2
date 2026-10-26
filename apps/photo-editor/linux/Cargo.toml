@@ -1,12 +1,10 @@
-# The photo editor on Linux: one executable with the runner, the kernel, the
-# data crate, the baked plan (written by build.rs, never committed), and the
-# host's painter.
+# The photo editor on the Linux host: one executable with the runner, the
+# kernel, the baked plan and its TypeScript data module.
 [package]
 name = "photo-editor-linux"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The photo editor on the Linux host: the app's executable"
 publish = false
 build = "build.rs"
 
@@ -18,12 +16,8 @@ bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }
-photo-editor-data = { path = "../data" }
 exact-linux = { path = "../../../host/linux" }
-
+exact-js = { path = "../../../js" }
 
 [build-dependencies]
-photo-editor-data = { path = "../data" }
-contract = { path = "../../../contract/cli" }
-exact-bake = { path = "../../../bake" }
-
+exact-js-bake = { path = "../../../js/bake" }

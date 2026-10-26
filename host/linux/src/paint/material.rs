@@ -453,9 +453,9 @@ impl super::Painter {
             false => look::role("-exact-secondary-label", dark),
         };
         match icon {
-            Icon::Calendar => self.symbol_face("calendar", node.style, at, tint, ts),
-            Icon::Clock => self.glyph_face(role_path(CLOCK, false), node.style, at, tint, ts),
-            Icon::Menu => self.glyph_face(role_path(MENU, true), node.style, at, tint, ts),
+            Icon::Calendar => self.symbol_face("calendar", &style, at, tint, ts),
+            Icon::Clock => self.glyph_face(role_path(CLOCK, false), &style, at, tint, ts),
+            Icon::Menu => self.glyph_face(role_path(MENU, true), &style, at, tint, ts),
         }
     }
 }

@@ -123,20 +123,22 @@ let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tambe
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
 const save = () => writeFileSync(DB, JSON.stringify(log));
+let lastBy = 'changed on disk';
 
 /** One event as a test adds it: logged, and the state it moves. */
 function take(e: Record<string, any>) {
   // (`pad`: an event this many bytes larger, up to 4 MiB, as a test makes one larger than a stream's default ceiling.)
   if (typeof e.pad === 'number') { const { pad, ...rest } = e; e = { ...rest, note: 'x'.repeat(Math.min(pad, 4 << 20)) }; }
-  // An event's `files` are the digests from then on.
-  if (e.files) FILES = { ...FILES, ...e.files };
+  // An event's `files` are the digests from then on, and its client (else a hand edit) who last changed them.
+  if (e.files) { FILES = { ...FILES, ...e.files }; lastBy = e.client ?? 'changed on disk'; }
   // A `builds` event is the list hello gives from then on, and a
   // `build-status` one that build's entry.
   // (A record is the server's: its last refusal kept on it.)
   if (e.event === 'builds') BUILDS = (e.builds ?? []).map((b: Record<string, unknown>) => ({ ...b }));
   if (e.event === 'build-status') BUILDS = BUILDS.map(b => b.id === e.build?.id ? { ...b, ...e.build } : b);
   if (e.event === 'unsupported') BUILDS = BUILDS.map(b => b.id === e.build ? { ...b, unsupported: { what: e.what, detail: e.detail ?? null } } : b);
-  log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
+  // (A hand edit names no tokens, `changed: null`, as a server's does; a write names its, none by default.)
+  log.push({ event: 'changed', epoch: EPOCH, client: null, changed: e.client ? [] : null, edited: [], ...e, files: FILES, seq: seq() + 1 });
 }
 
 // The tool's page is another origin under the test driver.
@@ -154,7 +156,7 @@ const seq = () => log.at(-1)?.seq ?? 0;
 // the next of a fixed series, so a test can type it. The remote doors a test opens
 // (`/__stub/remote`) come with each code, as `{origin, fingerprint}`.
 type Paired = { client: string; name: string; scope: string; peer: string; created: string; expires: string; lastSeen: string; token: string };
-let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, refuseSelect = false, pageRefusesSelect = false, pageSelectGone = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
+let paired: Paired[] = [], gone = new Set<string>(), refusePairing = new Set<string>(), canvasAt = '', forgeLocal = false, canvasCheck: unknown = null, shallowSelect = false, stayingSelect = false, refuseSelect = false, pageRefusesSelect = false, pageSelectGone = false, codes = new Map<string, { scope: string; name: string; expires: number }>(), remote: unknown[] = [], minted = 0;
 const GONE = 'this paired client was revoked or its token expired';
 const tokenIn = (req: Request) => req.headers.get('x-exact-tamber-token') ?? '';
 // A code as the server reads it: case, spaces, hyphens, I, L and O forgiven.
@@ -282,11 +284,17 @@ Bun.serve({ hostname, port: Number(port), routes: {
           if (pageSelectGone) { pageSelectGone = false; log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'the selected node is gone in this generation: select it again', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           if (pageRefusesSelect) { log.push({ event: 'unsupported', epoch: EPOCH, build: request.build, what: 'inspect', detail: 'this build cannot move its selection up (select): click the node instead', seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           const last = log.findLast(e => e.event === 'selection' && e.build === request.build) as { node?: number; source?: { chain?: unknown[] } } | undefined;
-          // (`/__stub/shallow-select`: a page whose tree changed has fewer above, and lands at the root.)
+          // (`/__stub/shallow-select`: a page with no other copy above it, which lands at the root having stepped none.)
           const chain = last?.source?.chain ?? [], up = shallowSelect ? chain.length : Math.min(Number(request.select.up), chain.length);
-          if (!last || !up) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          if (!last) return send({ error: { message: `\`${request.build}\` has no selection with a source map to move up from: select a node first` } }, 409);
+          // (No call site above it: a slot fill the app wrote, whose page steps to the slot's host, Card, one copy up.)
+          if (!chain.length && !stayingSelect) { log.push({ ...last, node: Number(last.node ?? 0) + 100, source: { file: '/stub/card.contract', line: 2, col: 3, end_col: 7, component: 'Card', chain: [] }, moved: { up: Number(request.select.up), stepped: 1 }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
+          // (`/__stub/staying-select`: the selection is the root already (App only renders its component), so the page
+          // reports the same node again, having stepped none.)
+          if (stayingSelect) { log.push({ ...last, moved: { up: Number(request.select.up), stepped: 0 }, seq: seq() + 1 }); save(); return send({ ok: { builds: [request.build] } }); }
           // (Another node, as the page's ancestor is: its own view id.)
-          log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, seq: seq() + 1 }); save();
+          // (With the page's `moved` (1.17): the up asked and the steps it took.)
+          log.push({ ...last, node: Number(last.node ?? 0) + 100 * up, source: { ...(chain[up - 1] as object), chain: chain.slice(up) }, moved: { up: Number(request.select.up), stepped: shallowSelect ? 0 : up }, seq: seq() + 1 }); save();
           return send({ ok: { builds: [request.build] } });
         }
         // A refresh asks a build's page to report again, inspect mode as it is:
@@ -334,6 +342,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
       if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) };
         if (PACKAGED) ir.components = [...ir.components, ...PACKAGED.components];
+        // (surface.card's dark side, which moves with app.tamber below, is in its entry too, as a server's describe folds it.)
+        if (FILES['app.tamber'] !== 'a'.repeat(64)) ir.tokens = ir.tokens.map((t: { name: string; values: string[] }) => (t.name === 'surface.card' ? { ...t, values: t.values.map(() => `light-dark(#f1f3f5ff, #${FILES['app.tamber'].slice(0, 6)}ff)`) } : t));
         // (A token a package's design defines: its describe row says the package.)
         if (PACKAGED?.tokens) ir.tokens = ir.tokens.map((t: { name: string }) => (PACKAGED!.tokens![t.name] ? { ...t, package: PACKAGED!.tokens![t.name] } : t));
         if (Object.keys(LIBRARY).length) { const known = ir.components.map((c: { identity: string }) => c.identity); ir.components = [...ir.components.map((c: { identity: string }) => (LIBRARY[c.identity] ? { ...c, ...LIBRARY[c.identity] } : c)), ...Object.entries(LIBRARY).filter(([id]) => !known.includes(id)).map(([identity, l]) => ({ identity, params: [], ...l }))]; } return send({ ok: { ...DIALS.describe, ir, files: FILES, ...(PACKAGED?.base ? { base: PACKAGED.base } : {}) } }); }
@@ -345,13 +355,15 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // as a string is both sides', as `{light, dark}` each side's.)
       const sides = (g: Record<string, unknown>) => Object.fromEntries(Object.entries(g).map(([k, v]) => [k, (k === 'level' || k === 'name') && typeof v === 'string' ? { light: v, dark: v } : v]));
       const packagedParam = PACKAGED?.components.some(c => ((c.params ?? []) as { name: string }[]).some(p => p.name === request.token));
+      // (A server before tamber/1.17's batch, as a real one refuses it: the tool asks again by name.)
+      if (request.method === 'resolve' && request.tokens) return send({ error: { message: '`token` is a string, and needed' } }, 400);
       if (request.method === 'resolve' && packagedParam && PACKAGED!.refuse?.includes(request.token)) return send({ error: { message: `the server could not resolve ${request.token}` } }, 400);
       if (request.method === 'resolve' && packagedParam) { const given = (PACKAGED!.resolve?.[request.token] ?? [{ level: 'default', name: request.token }]) as Record<string, unknown>[]; return send({ ok: { token: request.token, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>, i: number) => ({ modes: u.modes, ...sides(given[i % given.length]) }))) } }); }
       // surface.card's dark side moves once app.tamber does (an event's
       // `files`), so a change to it has cells that moved.
       if (request.method === 'resolve' && request.token === 'surface.card' && FILES['app.tamber'] !== 'a'.repeat(64)) {
         const card = DIALS.resolve['surface.card'];
-        return send({ ok: { ...card, files: FILES, tuples: order(card.tuples).map((t: Record<string, unknown>) => ({ ...t, dark: `#${FILES['app.tamber'].slice(0, 6)}ff` })) } });
+        return send({ ok: { ...card, files: FILES, tuples: order(card.tuples).map((t: Record<string, any>) => { const dark = `#${FILES['app.tamber'].slice(0, 6)}ff`; return { ...t, dark, srgb: { ...t.srgb, dark }, value: `light-dark(${t.light}, ${dark})` }; }) } });
       }
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], tuples: order(DIALS.resolve[request.token].tuples), files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: { ...DIALS.explain[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
@@ -368,6 +380,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       const refusedRow = ['propose', 'transaction'].includes(request.method) && ((request.ops ?? []).map(rowRefusal).find(Boolean) || moveRefusal(request.ops ?? []));
       if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
       if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      // A write on digests the files have left is the server's conflict, naming who moved them (the third pass's #2).
+      if (request.method === 'transaction' && request.files?.['app.tamber'] && request.files['app.tamber'] !== FILES['app.tamber']) return send({ error: { message: 'stale digests: app.tamber', conflict: true, files: FILES, stale: ['app.tamber'], by: { 'app.tamber': lastBy } } }, 409);
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit' && nothingToCommit) return send({ error: { message: 'nothing to commit: the session has written nothing' } }, 409);
       if (request.method === 'commit') return refuseCommit
@@ -399,6 +413,21 @@ Bun.serve({ hostname, port: Number(port), routes: {
           return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });
         }
         return send({ ok: { files: FILES, written: ['app.tamber'], client: p.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
+      }
+      // `edit-held` (1.17): one value of a held proposal, held again in its place as `edited-N` (the server's
+      // `tamber-edit-held.mjs`, by shape: its op's value or `when`th branch's set, `items` kept, the client kept).
+      if (request.method === 'edit-held' && longPolls) {
+        const old = held.find(h => h.proposal === request.proposal);
+        if (!old) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        const ops = old.ops.map((o: any) => ({ ...o, op: { ...o.op, whens: o.op.whens?.map((w: any) => ({ ...w })) } }));
+        const at = ops[request.index]?.op;
+        if (request.when) at.whens[request.when - 1].value = request.value; else at.value = request.value;
+        const keep: number[] = request.items ?? ops.map((_: unknown, i: number) => i);
+        const id = `edited-${++holds}`;
+        // (its review renumbered to the items kept, as the server's: an offer whose items all go is offered no more)
+        const review = old.review && { ...old.review, kept: true, from: request.proposal, offers: (old.review.offers ?? []).map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) })) };
+        held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), ...(review ? { review } : {}), replaces: request.proposal, editedBy: request.client }]);
+        return send({ ok: { recomputed: true, replaces: request.proposal, proposal: id, client: old.client, editedBy: request.client } });
       }
       if (request.method === 'drop') { held = held.filter(h => h.proposal !== request.proposal); return send({ ok: { dropped: request.proposal } }); }
       if (request.method === 'undo') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: null, changed: [], class: 'live', diff: '' } });
@@ -486,12 +515,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/page-select-gone': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageSelectGone = true; return send({ ok: true }); } },
   '/__stub/page-refuses-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); pageRefusesSelect = true; refuseSelect = false; return send({ ok: true }); } },
   '/__stub/refuse-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); refuseSelect = true; return send({ ok: true }); } },
+  '/__stub/staying-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); stayingSelect = true; return send({ ok: true }); } },
   '/__stub/shallow-select': { POST: (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); shallowSelect = true; return send({ ok: true }); } },
   '/__stub/canvas-check': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); canvasCheck = await req.json().catch(() => null); return send({ ok: true }); } },
   '/__stub/restart': {
     POST: (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
-      EPOCH = `stub-epoch-${++restarts}`;
+      EPOCH = `stub-epoch-${++restarts}`; lastBy = 'changed on disk';
       TOKEN = `stub-token-${restarts}`;
       log.length = 0;
       held = [];
@@ -504,7 +534,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       pins = 0;
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
-      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; refuseSelect = false; pageRefusesSelect = false; pageSelectGone = false;
+      paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false; canvasCheck = null; shallowSelect = false; stayingSelect = false; refuseSelect = false; pageRefusesSelect = false; pageSelectGone = false;
       copyDelays = {}; noNavigate = []; galleryCopies = []; refuseLater = []; navs.length = 0; LIBRARY = {};
       // (The files as they were before the first package post: what any number of posts merged in, gone.)
       if (filesBefore) FILES = filesBefore;

@@ -372,7 +372,19 @@ fn main() -> ExitCode {
         match exact_plan::Plan::decode(&bytes) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("{input}: {e}");
+                // Another format's plan: most often one a stale `target/debug/contract` wrote (the
+                // host tests compile with it), which says nothing on its own.
+                let stale = matches!(
+                    e,
+                    exact_plan::PlanError::FormatDigestMismatch { .. }
+                        | exact_plan::PlanError::UnsupportedVersion(_)
+                );
+                let hint = if stale {
+                    " (the plan was written by a compiler built from another plan format, often a stale target/debug/contract: `cargo build -p contract`, then write the plan again)"
+                } else {
+                    ""
+                };
+                eprintln!("{input}: {e}{hint}");
                 return ExitCode::from(1);
             }
         }
@@ -585,10 +597,35 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("{input}: {e}");
+            // A refusal at a plan node is said at its source, as `contract build`
+            // says an error (LLP 1143 D3). A production build compiled no map,
+            // so it compiles one now, on this failing path only.
+            if map.is_none() && !input.ends_with(".plan") {
+                map = contract::compile_path_all_with_warnings(path, true)
+                    .0
+                    .ok()
+                    .and_then(|(_, m)| m);
+            }
+            match map.as_ref().and_then(|m| at_source(&e, m)) {
+                Some(located) => eprintln!("{located}{}", contract::excerpt(&located)),
+                None => eprintln!("{input}: {e}"),
+            }
             ExitCode::from(1)
         }
     }
+}
+
+/// An emit refusal that names its plan node (`node 12: …`), resolved through
+/// the development source map to the declaration and its call sites.
+fn at_source(refusal: &str, map: &contract::SourceMap) -> Option<contract::CompileError> {
+    let (node, message) = refusal.strip_prefix("node ")?.split_once(": ")?;
+    let site = exact_plan::NodesId(node.parse().ok()?);
+    let located = map.bake_error(&contract::BakeError::Lint {
+        id: "web-target",
+        message: message.to_string(),
+        site: Some(site),
+    });
+    located.file.is_some().then_some(located)
 }
 
 fn dump_plan(plan: &exact_plan::Plan) {

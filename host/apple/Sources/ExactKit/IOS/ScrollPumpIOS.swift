@@ -241,14 +241,14 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         let deadline = now + sliceBudget
         if !p.collections.fillPending.isEmpty {
             let post = Presenter.signposts.beginInterval("pump-collection")
-            let rows = fillCollections(deadline: deadline)
+            let rows = HostPhases.shared.measure(.rows) { fillCollections(deadline: deadline) }
             Presenter.signposts.endInterval("pump-collection", post, "rows=\(rows)")
         }
         if textPending {
             let post = Presenter.signposts.beginInterval("pump-text")
             // Lead the fastest list's travel.
             let fastest = p.listViews.keys.map { velocity($0) }.max { abs($0) < abs($1) } ?? 0
-            textPending = p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval)
+            textPending = HostPhases.shared.measure(.text) { p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval) }
             Presenter.signposts.endInterval("pump-text", post)
         }
         // One image decode at a time while a list travels fast.

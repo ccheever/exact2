@@ -176,6 +176,9 @@ const WAITING: u64 = u64::MAX - 1;
 /// resolve in that new turn, which has a budget of its own.
 const YIELDED: u64 = u64::MAX - 2;
 
+/// The prefix of a handler's name as the runner asks for it (LLP 1133.016 D9).
+const TOOL: &str = "tool:";
+
 /// A turn of an answer over its budget: the message names the repair.
 fn over_budget(source: &str, took_ms: f64, budget_ms: f64) -> DataError {
     DataError::Unavailable(format!(
@@ -906,6 +909,7 @@ impl Module {
         let mutation = match target {
             Some(Target::Mutation(_)) if session => "mutation",
             Some(Target::Resource(_)) if session => "answer",
+            None if session && source.starts_with(TOOL) => "tool",
             _ => "",
         };
         let started = Instant::now();

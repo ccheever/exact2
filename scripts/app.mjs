@@ -327,8 +327,8 @@ if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
 // Groups preserve capability-based shipping; none of these imports enters boot.
 const WEB_HOST_GROUPS = {
-  base: ['glue.js', 'navigation.js', 'frame-messages.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
-    'http-body.js', 'grant-admission.js', 'faults.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
+  base: ['glue.js', 'navigation.js', 'frame-messages.js', 'frame-navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
+    'http-body.js', 'grant-admission.js', 'faults.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
     'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
     'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'menu-rows.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-binary.js', 'module-prelude.js'],
@@ -599,6 +599,13 @@ export function resolveApp(nameOrCrate) {
     /** Whether the app declares its own manifest (false: the defaults above stand in). */
     declared: existsSync(resolve(dir, 'app.json')),
   };
+}
+
+/** An app's authored tests (LLP 1017 P7), the files that exist: `app.test.contract`, then every other `*.test.contract`
+ * beside it in name order (an app's tests split by area under the line cap). `test`, `verify` and the smoke run these. */
+export function authoredTests(dir) {
+  const others = readdirSync(dir).filter((n) => n.endsWith('.test.contract') && n !== 'app.test.contract').sort();
+  return [...(existsSync(resolve(dir, 'app.test.contract')) ? ['app.test.contract'] : []), ...others].map((n) => resolve(dir, n));
 }
 
 /** `app.json` from `dir`, validated — or the defaults an app had before the manifest: `com.exact.<name>`, the name capitalized. */
@@ -1126,7 +1133,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
       for(const resource of unit.resources??[])add(resolve(packageRoot,resource.path));
       if(unit.type==='system-target')add(resolve(packageRoot,unit.path));pending.push(...(unit.target_dependencies??[]));
     }
-    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));add(resolve(packageRoot,'bundle.mjs'));add(resolve(packageRoot,'widgets.mjs'));
+    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'webarm/FrameBrowser.swift'));add(resolve(packageRoot,'webarm/FrameWindows.swift'));add(resolve(packageRoot,'webarm/FrameCapture.swift'));add(resolve(packageRoot,'webarm/FramePDF.swift'));add(resolve(packageRoot,'webarm/FrameAutomation.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));add(resolve(packageRoot,'assets.mjs'));add(resolve(packageRoot,'bundle.mjs'));add(resolve(packageRoot,'widgets.mjs'));
     const entries=platform==='ios'&&(app.manifest.widgets?.length||app.manifest.live_activities?.length); if(entries)add(resolve(packageRoot,'widget'),true); if(entries||env.EXACT_WIDGET_GALLERY==='1')add(resolve(packageRoot,'Sources/ExactSnapshot'),true);
   }
   if(platform==='web') {

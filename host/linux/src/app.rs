@@ -109,6 +109,8 @@ pub struct Config {
     pub dev_url: Option<String>,
     /// The last accepted URL generation, avoiding redundant payload transfers.
     pub dev_identity: Option<String>,
+    /// A dev loop's status the boot's fetch said, so the poll does not say it again.
+    pub dev_said: Option<String>,
     /// The KMS device.
     pub card: String,
     /// Serve the screen over VNC at this address (`1` is `0.0.0.0:5900`).
@@ -162,6 +164,7 @@ impl Config {
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let exact_plan = env("EXACT_PLAN");
         let exact_dev_plan = env("EXACT_DEV_PLAN");
+        let mut dev_said = None;
         let from_url = [exact_plan.as_deref(), exact_dev_plan.as_deref()]
             .into_iter()
             .flatten()
@@ -174,6 +177,8 @@ impl Config {
                 Ok(None) => None,
                 Err(e) => {
                     eprintln!("exact url: {e}; booting the baked plan");
+                    // A dev loop still starting: said here, and not again by the poll.
+                    dev_said = crate::fetch::is_loop_status(&e).then_some(e);
                     None
                 }
             });
@@ -247,6 +252,7 @@ impl Config {
                 .filter(|url| crate::fetch::is_url(url))
                 .cloned(),
             dev_identity,
+            dev_said,
             card: env("EXACT_DRM").unwrap_or_else(|| "/dev/dri/card0".to_string()),
             vnc: env("EXACT_VNC"),
             compat: compat.to_string(),
@@ -344,7 +350,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         place: Some(place.clone()),
         clock: None,
     };
-    let dev_url = config.dev_url.clone();
+    let (dev_url, dev_said) = (config.dev_url.clone(), config.dev_said.clone());
     let hatches = config.hatches;
     let delivered = |mut booted: (Presenter<D>, Option<String>),
                      updates: Option<Box<dyn Store>>,
@@ -381,6 +387,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             }
         }
         booted.0.set_development(dev_url.clone(), dev_identity);
+        booted.0.said_at_boot(dev_said.clone());
         booted
     };
     // The selected bytes passed verification. Record the attempt before

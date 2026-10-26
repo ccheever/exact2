@@ -98,7 +98,11 @@ enum Command {
 enum Payload {
     Empty,
     Image(Arc<Bitmap>, ObjectFit, Option<[u8; 4]>),
-    Text(Rc<Paragraph>, Vec<RunPaint>),
+    Text(
+        Rc<Paragraph>,
+        Vec<RunPaint>,
+        Option<Rc<inline_frame::Captured>>,
+    ),
     /// An `svg`'s scene as resolved at capture (LLP 1055.000 §4: SVG in a
     /// retained region; the instant is the capture's), its wide colours
     /// settled for the capture's appearance (LLP 1121 stage 4).
@@ -273,7 +277,11 @@ impl Picture {
                         let (p, palette) = owners
                             .get(&node.key)
                             .ok_or("content paragraph owner absent")?;
-                        Payload::Text(p.clone(), palette.clone())
+                        Payload::Text(
+                            p.clone(),
+                            palette.clone(),
+                            inline_frame::Captured::new(scene.kernel, &node, p, palette),
+                        )
                     }
                     NodeType::Image => scene.images.get(&id).map_or(Payload::Empty, |image| {
                         Payload::Image(
@@ -671,7 +679,7 @@ impl<'a> Replay<'a> {
                     if !finite {
                         return Err("nonfinite content paint geometry".into());
                     }
-                    if let Payload::Text(p, _) = &n.payload {
+                    if let Payload::Text(p, _, _) = &n.payload {
                         let query_transform = Transform::from_scale(scale, scale)
                             .pre_concat(transform)
                             .pre_scale(1. / scale, 1. / scale);
@@ -785,7 +793,13 @@ impl<'a> Replay<'a> {
                         Payload::Svg(s) => {
                             painter.paint_svg(s, n.clips, g.outer.rect, g.content, parent);
                         }
-                        Payload::Text(p, palette) => {
+                        Payload::Text(p, palette, inline) => {
+                            if let Some(inline) = inline {
+                                walk.inline.insert(
+                                    n.id,
+                                    inline.place((g.content.0, g.content.1), &[], parent),
+                                );
+                            }
                             walk.text.insert(n.key, p.clone());
                             painter.backend.text(
                                 &mut painter.text.borrow_mut(),

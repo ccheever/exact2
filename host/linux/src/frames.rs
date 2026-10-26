@@ -241,7 +241,8 @@ pub fn save_trace<D: DataSource>(
     let trace = json!({
         "traceEvents": events,
         "identity": { "host": "linux", "app": app, "trust": "development",
-            "os": std::env::consts::OS, "arch": std::env::consts::ARCH },
+            "os": std::env::consts::OS, "arch": std::env::consts::ARCH,
+            "pid": std::process::id(), "savedAt": wall as u64 },
         "proxies": { "period": "refresh: the display mode's refresh rate",
             "interval": "the gap between page-flip completions", "missed": "the vblank-sequence gap − 1",
             "covers": ["page-flips"], "loaf": "none on this host" },

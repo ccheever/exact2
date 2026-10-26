@@ -103,7 +103,16 @@ fn http_images_share_a_download_without_blocking_local_images() {
     let path = images.views[&1].source_id.as_ref().unwrap().file().unwrap();
     assert!(path.is_file());
     drop(images);
-    until(|| !path.exists());
+    // The shared download cache survives a view's lifetime. A later view
+    // must reuse it even after the fixture server has closed.
+    let mut again = Images::with_assets(assets());
+    again.sync(&k, &k.roots());
+    again.wait(SETTLED);
+    assert!(again.bitmaps.contains_key(&1));
+    assert_eq!(
+        again.views[&1].source_id.as_ref().unwrap().file(),
+        Some(path)
+    );
 }
 fn kernel(count: u32) -> Kernel {
     let mut k = Kernel::with_monospace();
@@ -281,7 +290,7 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
 
 #[test]
 fn full_undrained_session_does_not_block_another_sessions_native_workers() {
-    let _workers = BOTH_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
+    let _both = BOTH_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
     let k = kernel(2);
     let mut a = Images::with_assets(assets());
     // Prepare metadata without occupying a decode worker. Holding one worker
@@ -424,7 +433,7 @@ fn source_identity_survives_displayed_replacement_and_cold_unmount() {
 
 #[test]
 fn metadata_progresses_under_known_decode_pressure_in_shared_pool() {
-    let _workers = BOTH_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
+    let _both = BOTH_WORKERS.lock().unwrap_or_else(|e| e.into_inner());
     use std::sync::atomic::AtomicUsize;
     let decoded = Arc::new(AtomicUsize::new(0));
     let release = Arc::new(AtomicBool::new(false));

@@ -1,0 +1,84 @@
+// The server rail, as Discord draws it beside the channel list: each server's
+// picture (its acronym when it has none) in a circle that rounds into a square
+// when open, a pill at the edge (tall beside the open server, a dot beside one
+// with unread messages) and the count of mentions in a red badge.
+
+use Badge from "exact:content"
+use Guild from "./shapes.contract"
+
+component ServerButton
+  props
+    id: string
+    name: string
+    icon: string
+    acronym: string
+    symbol: string
+    selected: bool
+    unread: bool
+    mentions: number
+    pick: action
+  view
+    row align-items="center" width="4.5rem" padding="4px 0px"
+      view width=4 height=(selected ? 40 : unread ? 8 : 0) border-radius="0px 4px 4px 0px" background-color="-exact-label" transition="height 200ms ease" aria-hidden=true
+      button appearance="none" press=pick(id) testId=`server-${id}` margin-left=8 aria-selected=selected
+        aria-label=`${name}${mentions > 0 ? `, ${mentions} ${mentions == 1 ? "mention" : "mentions"}` : unread ? ", unread" : ""}`
+        view position="relative" width="3rem" height="3rem"
+          row width="3rem" height="3rem" border-radius=(selected ? "1rem" : "1.5rem") overflow="hidden" align-items="center" justify-content="center"
+            background-color=(icon != "" ? "-exact-tertiary-fill" : selected ? "AccentColor" : "-exact-tertiary-fill") transition="background-color 200ms ease"
+            if icon != ""
+              image icon width="3rem" height="3rem" object-fit="cover"
+            else
+              if symbol != ""
+                image symbol width=24 height=24 color=(selected ? "AccentColorText" : "-exact-label")
+              else
+                text acronym font="-exact-subheadline" font-weight=600 color=(selected ? "AccentColorText" : "-exact-label") line-clamp=1
+          if mentions > 0
+            view position="absolute" right=-6 bottom=-6
+              Badge(label=(mentions > 99 ? "99+" : `${mentions}`), tint=some("-exact-system-red"))
+
+// A folder of servers on the rail: closed, its first four servers in small
+// in a tile of the folder's colour; open, a folder mark above its servers
+// (drawn by the rail). Its pill and badge speak for every server in it.
+component FolderButton
+  props
+    id: string
+    name: string
+    color: string
+    icons: Guild[]
+    open: bool
+    selected: bool
+    unread: bool
+    mentions: number
+    toggle: action
+  view
+    row align-items="center" width="4.5rem" padding="4px 0px"
+      view width=4 height=(selected and not open ? 40 : unread and not open ? 8 : 0) border-radius="0px 4px 4px 0px" background-color="-exact-label" transition="height 200ms ease" aria-hidden=true
+      button appearance="none" press=toggle(id) testId=`server-${id}` margin-left=8 aria-expanded=open
+        aria-label=`${name != "" ? name : "Folder"}, ${open ? "open" : "closed"}${mentions > 0 ? `, ${mentions} ${mentions == 1 ? "mention" : "mentions"}` : unread ? ", unread" : ""}`
+        view position="relative" width="3rem" height="3rem"
+          view position="absolute" inset=0 border-radius="1rem" background-color=(color != "" ? color : "AccentColor") opacity=0.3 aria-hidden=true
+          if open
+            row position="absolute" inset=0 align-items="center" justify-content="center"
+              image "symbol:layers" width=22 height=22 color=(color != "" ? color : "AccentColor")
+          else
+            view position="absolute" inset=6 display="grid" grid-template-columns="1fr 1fr" gap=3
+              for g in icons.slice(0, 4) key=g.id
+                if g.icon != ""
+                  image g.icon width="100%" aspect-ratio="1 / 1" border-radius=6 object-fit="cover"
+                else
+                  row aspect-ratio="1 / 1" border-radius=6 align-items="center" justify-content="center" background-color="-exact-secondary-background"
+                    text g.acronym.slice(0, 1) font="-exact-caption2" font-weight=700
+          if mentions > 0 and not open
+            view position="absolute" right=-6 bottom=-6
+              Badge(label=(mentions > 99 ? "99+" : `${mentions}`), tint=some("-exact-system-red"))
+
+// A server channel's mark in the list: Discord's `#`, with a lock at its corner when the channel is
+// private (@everyone may not see it).
+component ChannelMark
+  props
+    locked: bool
+  view
+    row position="relative" flex-shrink=0 aria-hidden=true
+      text "#" color="-exact-secondary-label"
+      if locked
+        image "symbol:lock" width=9 height=9 position="absolute" top=0 right=-5 color="-exact-secondary-label"

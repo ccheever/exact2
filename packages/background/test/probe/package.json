@@ -1,0 +1,10 @@
+{
+  "name": "@fixture/transfer-probe",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A module outside exact2's tree that drives the Apple host's transfer carrier (LLP 1133.017 D8, D10): an upload started through context.transfers, and its ending raised as a wake event of the module's own.",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json"
+  }
+}

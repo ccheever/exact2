@@ -20,6 +20,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync,
 import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync, parseSync } from 'rolldown/utils';
+import { copyGpuCache } from './gpu-cache.mjs';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
@@ -173,7 +174,7 @@ const compiler = webCompiler();
 const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, '--app', appDir, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: checkOnly ? ['ignore', 'ignore', 'pipe'] : 'inherit', encoding: 'utf8', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) { if (checkOnly) process.stderr.write(cargo.stderr ?? ''); process.exit(cargo.status ?? 1); }
 compiler.done();
-for (const f of ['rt.js', 'elements.js', 'editor.js', 'live-time.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js', 'said.js', 'held.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'rt-link.js', 'generation-reload.js', 'elements.js', 'editor.js', 'live-time.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js', 'modes.js', 'beat.js', 'regions.js', 'said.js', 'held.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The live table's runtime is the dev loop's build's alone.
 if (!devReload) writeFileSync(resolve(gen, 'modes.js'), withoutDev(readFileSync(resolve(here, 'modes.js'), 'utf8')));
 // Inspect mode's hooks in the runtime are the dev loop's build's alone (module.mjs `withInspectHooks`).
@@ -457,7 +458,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   // After the first render, which a font wait may defer (`containers()` reads the runtime's `globalThis.exact`).
   ...(containerHatches ? ["go(() => requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers()))));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'views.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'samples.js', 'wakes.js', 'views.js', 'pictures.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
 // navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own
@@ -584,7 +585,7 @@ const replay = ts ? (await import(resolve(root, 'js/bake/src/typescript.mjs'))).
 // These hooks are optional. Keep their static accesses for tree-shaking,
 // but suppress missing-export warnings only at the generated glue's path.
 const optionalHookWarning = (id, message) => generatedRoots.some(root => id === resolve(root, 'ts-data.js'))
-  && /Import ["`](?:kept|overlay)["`] will always be undefined because there is no matching export/.test(message);
+  && /Import ["`](?:kept|overlay|tools)["`] will always be undefined because there is no matching export/.test(message);
 const bundle = async (options) => {
   const r = await Bun.build({ ...options, plugins: [...(replay ? [{ name: 'captured-replay', setup: replay.bun }] : []), { name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
@@ -736,13 +737,17 @@ if (existsSync(gpuLib)) {
   const target = resolveApp(app), cache = resolve(target.target, 'web-js-gpu', target.name);
   const crates = [['gpu', target.crate('gpu')], ...gpuModules(target.manifest).map(({ name }) => [`gpu/${name}`, target.crate(`gpu-${name}`)])];
   const shaders = shaderWatchRoots(target).filter(existsSync);
-  if (!crates.every(([stem, crate]) => fresh(resolve(cache, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders))) {
-    rmSync(cache, { recursive: true, force: true });
-    const gpu = webGpuArtifacts(target, cache, { cargo: true });
-    if (!gpu.built) { rmSync(cache, { recursive: true, force: true }); console.error(`${app}: ${gpu.note}`); process.exit(1); }
-    copyShaders(target, resolve(cache, 'shaders'));
-  }
-  cpSync(cache, out, { recursive: true });
+  // Shared by every loop of the app on this target: built in a stage and renamed over the cache (gpu-cache.mjs).
+  try {
+    copyGpuCache(cache, out, {
+      fresh: dir => crates.every(([stem, crate]) => fresh(resolve(dir, `${stem}_bg.wasm`), resolve(target.target, 'wasm32-unknown-unknown/web', `${crate.replace(/-/g, '_')}.d`), shaders)),
+      build: stage => {
+        const gpu = webGpuArtifacts(target, stage, { cargo: true });
+        if (!gpu.built) throw new Error(gpu.note);
+        copyShaders(target, resolve(stage, 'shaders'));
+      },
+    });
+  } catch (error) { console.error(`${app}: ${error.message}`); process.exit(1); }
   await copyLazyModules(['gpu-glue.js']);
 }
 if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });

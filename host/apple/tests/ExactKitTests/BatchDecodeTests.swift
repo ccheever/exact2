@@ -238,7 +238,7 @@ extension BatchDecodeTests {
         XCTAssertNil(session.boot(size: CGSize(width: 900, height: 700)).error)
         func drain() { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.002)) }
         func node(_ id: String) -> NodeView? { session.presenter.views.values.first { $0.props["testId"] == id } }
-        if node("open-file") != nil {
+        if node("markdown-main") != nil { // the Markdown viewer's root (the LLP reader also has an `open-file`)
             // The command running this test can name the actual probe corpus
             // and dense document; normal host tests use repository documents.
             let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -273,7 +273,7 @@ extension BatchDecodeTests {
                 print("BATCH EQUIVALENCE \(name): batches=\(compared - before) ops=\(operations - beforeOps) paragraphs=\(paragraphs - beforeParagraphs)")
             }
         } else {
-            // Caltrain is the other real archive used by this same test target.
+            try caltrainArchive()
             let change = try XCTUnwrap(node("change-station"))
             session.apply(session.runtime.press(change.id, now: 0))
             // The search hears each keystroke (`input`); it has no `change`.

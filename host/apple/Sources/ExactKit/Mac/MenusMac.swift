@@ -36,6 +36,8 @@ final class MenuHost: NSObject {
         let value: String?
         var frame: NSRect
         var placement = PositionArea.History()
+        /// The region its option sized it in, as the kernel was told it (`PositionArea.place`).
+        var block: HostBlock?
         let layer = PopoverLayer(frame: .zero)
         var menu: NSMenu?
         /// AppKit's popover, while one shows it (PopoversMac.swift).
@@ -467,6 +469,7 @@ final class MenuHost: NSObject {
             presenter.scheduleLanding()
         }
         entries.remove(at: index)
+        presenter?.tellRegion(pop.id, nil, told: &entry.block)
         presenter?.popoverEvents.changed(pop, open: false)
         // Reset, unmount, a changed row: the menu ends and nothing it showed dispatches.
         if cancelling { entry.confirmation?.cancel() }
@@ -569,17 +572,22 @@ final class MenuHost: NSObject {
             // The page scrolls under a layer in its own window; a sheet's layer is its own extent.
             let document = presenter.viewport.documentView.flatMap { $0.window != nil && $0.window === entry.layer.window ? $0 : nil }
             let page = document.map { $0.convert($0.bounds, to: entry.layer) } ?? entry.layer.bounds
-            let placed = PositionArea.painted(entry.popover, rtl: presenter.documentDirection == "rtl")
-            box.origin = PositionArea.origin(placed.area, anchor: anchor, size: box.size,
-                                             margins: PositionArea.margins(of: entry.popover),
-                                             fallbacks: placed.fallbacks,
-                                             overflow: PositionArea.overflow(of: entry.popover, page: page),
-                                             rtl: presenter.documentDirection == "rtl",
-                                             history: &entry.placement, in: entry.layer.bounds)
-            if !entry.sourced { box.origin = NSPoint(x: (entry.layer.bounds.width - box.width) / 2, y: (entry.layer.bounds.height - box.height) / 2) }
+            if entry.sourced {
+                // Sized in its option's region, as the web's (PopoverRegion.swift).
+                // A button in the window's bar scrolls with nothing.
+                let scroll = entry.source.flatMap { presenter.toolbar.anchor(of: $0, in: entry.layer) == nil ? presenter.anchorScroll($0, outside: entry.layer) : nil } ?? .zero
+                let at = presenter.placePainted(entry.popover, laid: box.size, anchor: anchor, scroll: scroll,
+                                                pageScroll: document == nil ? .zero : presenter.viewport.contentView.bounds.origin, overflow: PositionArea.overflow(of: entry.popover, page: page),
+                                                history: &entry.placement, told: &entry.block, in: entry.layer.bounds)
+                box = NSRect(origin: at.origin, size: at.size)
+            } else {
+                // One opened with no invoker sits in the middle, sized in the viewport its top layer implies.
+                box.origin = NSPoint(x: (entry.layer.bounds.width - box.width) / 2, y: (entry.layer.bounds.height - box.height) / 2)
+            }
             if entry.popover.frame != box { entry.popover.frame = box }
         }
     }
+
     /// Shared by the local event monitor and direct agent event delivery.
     func key(_ event: NSEvent) -> Bool {
         guard event.keyCode == 53, let window = event.window, window !== presenter?.alerts.sheet,

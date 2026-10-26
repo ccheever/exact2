@@ -403,6 +403,9 @@ fn run_plan<D: DataSource>(
     while let Some(op) = ops.next() {
         let mut arg = || ops.next().unwrap_or_default();
         host.read_at = host.frames;
+        if matches!(op.as_str(), "tap" | "type" | "wheel") {
+            host.advance_for_input();
+        }
         match op.as_str() {
             "tap" => {
                 let id = arg();
@@ -425,14 +428,18 @@ fn run_plan<D: DataSource>(
             "type" => {
                 let (id, text) = (arg(), arg());
                 match host.by_test_id(&id) {
-                    Some(v) if host.on_screen(v) => {
+                    Some(v) if !host.on_screen(v) => {
+                        eprintln!("type: #{id} is not on the screen");
+                        return ExitCode::FAILURE;
+                    }
+                    Some(v) if host.input_eligible(v) => {
                         host.press(v);
                         for c in text.chars() {
                             host.key(Key::Char(c));
                         }
                     }
                     Some(_) => {
-                        eprintln!("type: #{id} is not on the screen");
+                        eprintln!("type: #{id} is not available for input");
                         return ExitCode::FAILURE;
                     }
                     None => {

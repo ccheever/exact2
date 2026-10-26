@@ -275,7 +275,7 @@ extension ControlHost {
     /// Its look, face, accent, enabled state and accessibility, written only
     /// when one of them changes.
     func configureNative(_ button: NativeButtonMac, _ owner: NodeView, accent: NSColor?) {
-        let face = presenter.buttonFace?(owner.id) ?? ButtonFace()
+        let face = self.face(owner.id)
         // A destructive button is the destructive role AppKit draws (`hasDestructiveAction`), in the platform's red as
         // a hand-built pane's is: the accent it only inherits leaves it red, as on iOS, and an accent written on the
         // button itself wins over the red (LLP 1116.008; LLP 1115: what the author writes wins).

@@ -18,6 +18,8 @@ use std::fmt::Write as _;
 
 #[path = "motion.rs"]
 mod motion;
+#[path = "named_records.rs"]
+mod named_records;
 #[path = "regions.rs"]
 mod regions;
 #[path = "rows.rs"]
@@ -1173,14 +1175,7 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
-            if b.kind == BindingKind::Prop && b.id == PropId::Decorations as u16 {
-                let value = self.f(b.expr, scope)?;
-                let p = self.uses.rt("P");
-                let record = self.uses.rt("decorationRecord");
-                let _ = write!(
-                    self.out,
-                    "{p}({e},\"data-decorations\",()=>{record}(({value})()));"
-                );
+            if self.named_record(&b, &e, scope)? {
                 continue;
             }
             // tvOS's focus guide has no DOM property, whether literal or bound.
@@ -1298,6 +1293,7 @@ impl Em<'_> {
                 | EventKind::Drop
                 | EventKind::Dragenter
                 | EventKind::Dragleave
+                | EventKind::Atompress // LLP 1045.000 D7: the Markdown editor's and reader's.
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause
@@ -1330,6 +1326,13 @@ impl Em<'_> {
                 | EventKind::Scrollend
                 | EventKind::Resize
                 | EventKind::Intersect
+                | EventKind::Currententrychange
+                | EventKind::Navigatesuccess
+                | EventKind::Navigateerror
+                | EventKind::Newwindow // @ref LLP 1020.002 D5, D7: nothing fires them,
+                | EventKind::Download // the browser opening its own and downloading,
+                | EventKind::Capture // and the runtime refusing a capture (`onFrameCapture`)
+                | EventKind::Userpromptopened // @ref LLP 1020.002 D9: the browser's own dialogs
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
@@ -1368,7 +1371,7 @@ impl Em<'_> {
                 let _ = write!(self.out, "{f}({e},{handler});");
                 continue;
             }
-            if h.event == EventKind::Navigate {
+            if h.event == EventKind::Navigate && node_type != NodeType::WebView {
                 let nav = self.uses.rt("navigateTo");
                 let _ = write!(self.out, "{nav}({handler});");
                 continue;

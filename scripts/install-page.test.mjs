@@ -254,6 +254,54 @@ test('resident reads see root replacement, refuse links, and do not hold Bun ope
   } finally {rmSync(dir,{recursive:true,force:true});}
 }, 200_000);
 
+test('a resident reader that exits with reads pending asks each once more of a fresh helper, and only once', () => {
+  const dir=mkdtempSync(join(tmpdir(),'exact-reader-exit-'));
+  try {
+    mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    // A helper that answers its first request and exits (what a pre-resident helper did with --serve-reads), with
+    // the second read already sent to it; and, by the file 'die', one that exits before answering anything.
+    writeFileSync(join(dir,'helper-source'),`#!/bin/sh
+printf x >> spawns
+test -e die && exit 42
+read line
+test -e mute && exit 0
+printf '%s\\n' '{"value":"aGk="}'
+`);
+    const program=`
+      import assert from 'node:assert/strict';
+      import {readFileSync,writeFileSync,rmSync} from 'node:fs';
+      import {ChildProcess} from 'node:child_process';
+      import {filesystemRead,closeFilesystemReader} from './scripts/filesystem.mjs';
+      const get=()=>filesystemRead({op:'get',root:'/',path:'value'});
+      assert.deepEqual(await Promise.all([get(),get()]),['aGk=','aGk='],'the read the exited helper left unanswered is answered by the next');
+      assert.equal(readFileSync('spawns','utf8'),'xx');
+      closeFilesystemReader(); // the second helper has exited too, unseen yet: the next read starts with a fresh one
+      rmSync('spawns');writeFileSync('die','');
+      await assert.rejects(get(),{code:'EXACT_FS_READER_EXITED'}); // by its exit or its broken input pipe
+      assert.equal(readFileSync('spawns','utf8'),'xx','asked once more, not again');
+      rmSync('die');rmSync('spawns');writeFileSync('mute','');
+      // A close that comes after the exit was seen but before the read is asked again (the reply to one read and the
+      // exit under another seen in one turn, the first's caller closing): nothing starts after the close. Here the
+      // close runs in the exit's own turn, after the reader's handler.
+      const on=ChildProcess.prototype.on;
+      ChildProcess.prototype.on=function(event,listener){return on.call(this,event,event==='close' ? (...a)=>{listener(...a);closeFilesystemReader();} : listener);};
+      await assert.rejects(get(),{code:'EXACT_FS_READER_EXITED'});
+      ChildProcess.prototype.on=on;
+      await new Promise(resolve=>setTimeout(resolve,300));
+      assert.equal(readFileSync('spawns','utf8'),'x','a closed reader is not asked again');
+    `;
+    const child=spawnSync(process.execPath,['--input-type=module','-e',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH}});
+    assert.equal(child.status,0,child.stderr);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
 test('filesystem callers retain their helper across rebuilds and report failed operations without retrying', () => {
   const dir=mkdtempSync(join(tmpdir(),'exact-helper-capture-'));
   try {

@@ -107,6 +107,9 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("font-stretch", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontStretch])),
     // @ref LLP 1019 D9
     ("font-variation-settings", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontVariationSettings])),
+    // @ref LLP 1019 §13
+    ("font-optical-sizing", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontOpticalSizing])),
+    ("zoom", "css CSS Viewport 1", AttrTarget::Styles(&[StyleId::Zoom])),
     ("font-family", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontFamily])),
     ("color", "css CSS Color 4", AttrTarget::Styles(&[StyleId::TextColor])),
     ("background-color", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BackgroundColor])),
@@ -318,6 +321,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // projected through `shorthands`.
     ("text-box-trim", "css CSS Inline Layout 3", AttrTarget::Styles(&[StyleId::TextBoxTrim])),
     ("text-box-edge", "css CSS Inline Layout 3", AttrTarget::Shorthand),
+    // @ref LLP 1011.002 D3 — a keyword, or a length (`baseline-shift`).
+    ("vertical-align", "css CSS Inline Layout 3", AttrTarget::Shorthand),
     ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
 ];
 

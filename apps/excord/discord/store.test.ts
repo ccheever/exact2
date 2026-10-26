@@ -38,9 +38,10 @@ function readyAgain(s: Store, lastId: string | null) {
 }
 
 describe('last own message for editing', () => {
-  test('skips pending sends, other authors, system messages and webhooks; accepts replies', () => {
-    const s = seeded('6');
-    applyHistoryPage(s, cid, { limit: 50 }, [msg(6), msg(5, { author: me, webhook_id: 'hook' }),
+  test('skips pending sends, other authors, forwards, system messages and webhooks; accepts replies', () => {
+    const s = seeded('7');
+    applyHistoryPage(s, cid, { limit: 50 }, [msg(7, { author: me, message_snapshots: [{ message: { content: 'forwarded' } }] }),
+      msg(6), msg(5, { author: me, webhook_id: 'hook' }),
       msg(4, { author: me, type: 6 }), msg(3, { author: me, type: 19, content: '**reply**' }),
       msg(2, { author: me }), msg(1)]);
     addPending(s, cid, { nonce: 'pending', content: 'not sent', nowMs: Date.now() });
@@ -83,6 +84,12 @@ describe('last own message for editing', () => {
 });
 
 describe('READY and sidebar', () => {
+  test('a read state of the number 0 is read as the id "0": nothing read', () => {
+    const s = createStore();
+    applyDispatch(s, 'READY', { user: me, guilds: [{ id: '10', name: 'server', channels: [{ id: cid, type: 0, last_message_id: '100' }] }],
+      read_state: [{ id: cid, last_message_id: 0, mention_count: 0 }] }, 0);
+    expect(unread(s, cid)).toEqual({ unread: true, mentionCount: 0, lastReadId: '0' });
+  });
   for (const wrapped of [false, true]) test(`READY accepts ${wrapped ? 'properties, recipient_ids and read-state entries' : 'flat guilds, recipients and read-state arrays'}`, () => {
     const s = createStore();
     const properties = { name: 'guild', icon: 'icon' };
@@ -501,6 +508,52 @@ describe('message mutations', () => {
     event(s, 'MESSAGE_UPDATE', { id: '101', embeds: [{ title: 'late' }], edited_timestamp: '2026-10-22T12:01:00.000Z' });
     expect(latestWindow(s, cid).rows[0]).toMatchObject({ content: 'message 101', author: other,
       embeds: [{ title: 'late' }], edited_timestamp: '2026-10-22T12:01:00.000Z', key: '101' });
+  });
+  test('poll votes keep each answer\'s count and the reader\'s choice, and a page does not undo them', () => {
+    const s = seeded();
+    const poll = { question: { text: 'Lunch?' }, answers: [{ answer_id: 1 }, { answer_id: 2 }] };
+    const vote = (type: string, userId: string, answer: number) => event(s, type, { message_id: '20', user_id: userId, answer_id: answer });
+    const counts = () => windowAround(s, cid, '20').rows.find(r => r.id === '20')!.poll.results.answer_counts;
+    // Counts Discord left out stay unknown: a vote does not start them from zero.
+    applyHistoryPage(s, cid, { around: '20', limit: 3 }, page(19, 21).map(m => m.id === '20' ? { ...m, poll } : m));
+    expect(event(s, 'MESSAGE_POLL_VOTE_ADD', { message_id: '20', user_id: '2', answer_id: 1 })).toMatchObject({ channels: [] });
+    // The reader's own vote is kept meanwhile, so it can be taken back, and a page with the counts replaces it.
+    const before = storeSeq(s);
+    vote('MESSAGE_POLL_VOTE_ADD', '1', 2);
+    expect(windowAround(s, cid, '20').rows.find(r => r.id === '20')!.poll.results).toEqual({ is_finalized: false, partial: true,
+      answer_counts: [{ id: 2, count: 1, me_voted: true }] });
+    const known = { is_finalized: false, answer_counts: [{ id: 2, count: 4, me_voted: true }] };
+    applyHistoryPage(s, cid, { around: '20', limit: 3 }, page(19, 21).map(m => m.id === '20' ? { ...m, poll: { ...poll, results: known } } : m), { since: before });
+    expect(counts()).toEqual(known.answer_counts);
+    const empty = { ...poll, results: { is_finalized: false, answer_counts: [] } };
+    applyHistoryPage(s, cid, { around: '20', limit: 3 }, page(19, 21).map(m => m.id === '20' ? { ...m, poll: empty } : m));
+    const since = storeSeq(s);
+    vote('MESSAGE_POLL_VOTE_ADD', '2', 1);
+    vote('MESSAGE_POLL_VOTE_ADD', '1', 1);
+    vote('MESSAGE_POLL_VOTE_ADD', '1', 1);
+    expect(counts()).toEqual([{ id: 1, count: 2, me_voted: true }]);
+    vote('MESSAGE_POLL_VOTE_REMOVE', '1', 1);
+    vote('MESSAGE_POLL_VOTE_REMOVE', '1', 1);
+    vote('MESSAGE_POLL_VOTE_ADD', '3', 2);
+    expect(counts()).toEqual([{ id: 1, count: 1, me_voted: false }, { id: 2, count: 1, me_voted: false }]);
+    applyHistoryPage(s, cid, { around: '20', limit: 3 }, page(19, 21).map(m => m.id === '20' ? { ...m, poll } : m), { since });
+    expect(counts()).toEqual([{ id: 1, count: 1, me_voted: false }, { id: 2, count: 1, me_voted: false }]);
+    expect(vote('MESSAGE_POLL_VOTE_ADD', '2', 1)).toMatchObject({ channels: [cid] });
+    // A poll Discord sends without its results keeps the counts already known.
+    applyHistoryPage(s, cid, { around: '20', limit: 3 }, page(19, 21).map(m => m.id === '20' ? { ...m, poll } : m));
+    expect(counts()).toEqual([{ id: 1, count: 2, me_voted: false }, { id: 2, count: 1, me_voted: false }]);
+    // A reaction after a page was asked for does not keep that page's newer poll out, nor a vote its reactions.
+    const later = storeSeq(s);
+    event(s, 'MESSAGE_REACTION_ADD', { message_id: '20', user_id: '2', emoji: { id: null, name: '👍' } });
+    const tally = { is_finalized: true, answer_counts: [{ id: 1, count: 7, me_voted: false }] };
+    applyHistoryPage(s, cid, { around: '20', limit: 3 }, page(19, 21).map(m => m.id === '20' ? { ...m, poll: { ...poll, results: tally } } : m), { since: later });
+    expect(counts()).toEqual(tally.answer_counts);
+    // An update that leaves the counts out is not news about them: a page asked before it still lands.
+    const asked = storeSeq(s);
+    event(s, 'MESSAGE_UPDATE', { id: '20', poll });
+    const final = { is_finalized: true, answer_counts: [{ id: 1, count: 8, me_voted: false }] };
+    applyHistoryPage(s, cid, { around: '20', limit: 3 }, page(19, 21).map(m => m.id === '20' ? { ...m, poll: { ...poll, results: final } } : m), { since: asked });
+    expect(counts()).toEqual(final.answer_counts);
   });
   test('reaction add/remove, remove-emoji and remove-all maintain count and me', () => {
     const s = seeded();

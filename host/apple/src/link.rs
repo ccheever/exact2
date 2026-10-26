@@ -214,7 +214,8 @@ impl<D: DataSource> Links<D> {
                 } else {
                     None
                 },
-                text_axes: if uses.has(Capability::Transitions) {
+                text_axes: if uses.has(Capability::Transitions) || uses.has(Capability::Animations)
+                {
                     all.text_axes
                 } else {
                     None

@@ -105,6 +105,63 @@ fn admitted(name: &str, state: &str) -> bool {
     }
 }
 
+/// Why `state` refuses `row` (its row as written, its span the part's): a
+/// row it takes none of, or, with `values`, a host-known state's computed
+/// value; what the fold refuses and the element lint says alike (the lint,
+/// before a component's params are put in, without `values`).
+pub(crate) fn refusal(state: &str, row: &Attr, values: bool) -> Option<LowerError> {
+    let host = !matches!(state, "disabled" | "checked");
+    if !admitted(&row.name, state) {
+        let rows: Vec<&str> = match state {
+            "disabled" | "checked" => RUNNER_ROWS.to_vec(),
+            "active" => ACTIVE_ROWS.iter().map(|(r, _)| *r).collect(),
+            _ => HOST_ROWS.to_vec(),
+        };
+        let why = match (state, row.name.as_str()) {
+            ("active", "border-color" | "box-shadow") => {
+                " and is the host's press, whose paint draws no border or shadow yet (LLP 1061 D7)"
+                    .to_string()
+            }
+            (_, "-exact-press-scale") => " and a press scale is `:active`'s".to_string(),
+            ("active", _) => " and is the host's press (LLP 1061 D7)".to_string(),
+            _ if host => " and never changes what a child inherits".to_string(),
+            _ => String::new(),
+        };
+        return Some(LowerError {
+            id: "lower-state-row",
+            message: format!(
+                "`{}` in `:{state}`: a state part takes paint rows only, so a state never lays out{why}; `:{state}` takes {}",
+                row.name,
+                rows.iter().map(|r| format!("`{r}`")).collect::<Vec<_>>().join(", ")
+            ),
+            span: row.span,
+        });
+    }
+    if values && host && !matches!(row.value, Expr::Str(..) | Expr::Number(..) | Expr::Bool(..)) {
+        return Some(LowerError {
+            id: "lower-state-literal",
+            message: format!("`{}` in `:{state}` is computed: the host applies its state on its own, with no round trip to the runner, so its rows are literals (a token's name is one)", row.name),
+            span: row.value.span(),
+        });
+    }
+    None
+}
+
+/// The row a state part's `row` is checked as: `:active`'s press paint row
+/// for its colours and scale (not inherited, as the fold lowers them), its
+/// `opacity` as `opacity` (the press's absolute target, checked alike), any
+/// other state's row itself.
+pub(crate) fn checked_as<'a>(state: &str, row: &'a str) -> &'a str {
+    match (state, row) {
+        ("active", "opacity") => row,
+        ("active", _) => ACTIVE_ROWS
+            .iter()
+            .find(|(r, _)| *r == row)
+            .map_or(row, |(_, p)| p),
+        _ => row,
+    }
+}
+
 /// `row`'s value split into its longhands: a `border-color` its four
 /// sides' (a computed list refused, as on the node), anything else itself.
 fn longhands(row: &Attr) -> Result<Vec<(String, Expr)>, LowerError> {
@@ -358,40 +415,12 @@ impl Lowerer<'_> {
             .cloned()
             .collect();
         for (state, row, _) in &parts {
-            let host = !matches!(*state, "disabled" | "checked");
             if row.name == "border-color" {
                 let fns = &self.fns;
                 shorthands::computed_list(&row.name, &row.value, &|f| fns.get(f).map(|(_, b)| *b))?;
             }
-            if !admitted(&row.name, state) {
-                let rows: Vec<&str> = match *state {
-                    "disabled" | "checked" => RUNNER_ROWS.to_vec(),
-                    "active" => ACTIVE_ROWS.iter().map(|(r, _)| *r).collect(),
-                    _ => HOST_ROWS.to_vec(),
-                };
-                let why = match (*state, row.name.as_str()) {
-                    ("active", "border-color" | "box-shadow") => " and is the host's press, whose paint draws no border or shadow yet (LLP 1061 D7)".to_string(),
-                    (_, "-exact-press-scale") => " and a press scale is `:active`'s".to_string(),
-                    ("active", _) => " and is the host's press (LLP 1061 D7)".to_string(),
-                    _ if host => " and never changes what a child inherits".to_string(),
-                    _ => String::new(),
-                };
-                return err(
-                    "lower-state-row",
-                    format!(
-                        "`{}` in `:{state}`: a state part takes paint rows only, so a state never lays out{why}; `:{state}` takes {}",
-                        row.name,
-                        rows.iter().map(|r| format!("`{r}`")).collect::<Vec<_>>().join(", ")
-                    ),
-                    row.span,
-                );
-            }
-            if host && !matches!(row.value, Expr::Str(..) | Expr::Number(..) | Expr::Bool(..)) {
-                return err(
-                    "lower-state-literal",
-                    format!("`{}` in `:{state}` is computed: the host applies its state on its own, with no round trip to the runner, so its rows are literals (a token's name is one)", row.name),
-                    row.value.span(),
-                );
+            if let Some(e) = refusal(state, row, true) {
+                return Err(e);
             }
         }
         // `:active` is the press D7's pressed paint shows on (theme2's 05:28

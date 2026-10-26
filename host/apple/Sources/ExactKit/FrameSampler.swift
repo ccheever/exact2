@@ -1,5 +1,6 @@
 import CExact
 import Foundation
+import OSLog
 import QuartzCore
 #if canImport(UIKit)
 import UIKit
@@ -49,10 +50,17 @@ final class FrameSampler: NSObject {
         /// A late frame's hatch calls (LLP 1075.003.000.001 §3.1): those that
         /// overlapped its interval, each charged its overlap, with `coverage`.
         var hatches: [String: Any]?
+        /// A late frame's main-thread host phases inside its interval, and
+        /// what none of them took (LLP 1142 D1, `HostPhases.window`).
+        var phases: [String: Any]?
         var json: [String: Any] {
             var o: [String: Any] = ["t": t, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
             o["seq"] = seq.map { [$0.0, $0.1] } ?? NSNull()
             if let hatches { o.merge(hatches) { a, _ in a } }
+            if let phases {
+                o["phases"] = phases["phases"]; o["unattributed"] = phases["unattributed"]
+                if let partial = phases["coverage"] { o["phasesCoverage"] = partial }
+            }
             return o
         }
     }
@@ -88,6 +96,7 @@ final class FrameSampler: NSObject {
     init(session: ExactSession) {
         self.session = session
         super.init()
+        HostPhases.shared.on = true
         let center = NotificationCenter.default
         #if canImport(UIKit)
         observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.stop() })
@@ -222,7 +231,8 @@ final class FrameSampler: NSObject {
         missed += missedHere
         // The hatches that ran in it: the sample's own interval, `(now − interval, now]`.
         record.hatches = session?.hatchDiagnostics.window(from: now - interval / 1000, to: now)
-        if record.hatches != nil { records[records.count - 1] = record }
+        record.phases = HostPhases.shared.window(from: now - interval / 1000, to: now)
+        if record.hatches != nil || record.phases != nil { records[records.count - 1] = record }
         late.append(record)
         if late.count > Self.lateKept { late.removeFirst() }
         let range = seq.map { " seq \($0.0)..\($0.1)" } ?? ""
@@ -256,7 +266,9 @@ extension ExactSession {
     /// `perf` over every root and its hatches, with who made them and each timing's
     /// proxy, as `trace-<wallclock>.json` in the app's temporary directory;
     /// `agent.mjs trace <file>` reads it back. The path, or why not.
-    public func saveTrace() -> Result<URL, Error> {
+    /// `signalled`, it is also `trace-pid-<pid>.json`, the name `trace --pid`
+    /// waits for (LLP 1142 D5).
+    public func saveTrace(signalled: Bool = false) -> Result<URL, Error> {
         guard FrameSampler.measured else { return .failure(TraceError.production) }
         // A release build's first trace starts its measuring: it has the
         // journal and the sites' work, and frames and hatch timings empty.
@@ -281,11 +293,22 @@ extension ExactSession {
                 var row = row; row["pid"] = canvas * 2 + (row["pid"] as? Int ?? 0); return row
             }
         }
+        // The host binary's build, as `build.mjs` stamped it (LLP 1142 D2). It
+        // is not the running plan's: a development host may run another plan.
+        let info = ExactEnv.appMetadata
+        var hostBuild: [String: Any] = ["bundlePath": Bundle.main.bundlePath]
+        for (key, name) in [("ExactCommit", "commit"), ("ExactCommitDirty", "dirty"), ("ExactBuildHost", "machine"), ("ExactBuildTime", "at"),
+                            ("ExactAppCommit", "appCommit"), ("ExactAppCommitDirty", "appDirty")] {
+            if let value = info[key] { hostBuild[name] = value }
+        }
+        let identity: [String: Any] = ["host": host, "app": bundle.split(separator: ".").last.map(String.init) ?? bundle, "bundle": bundle, "trust": "development",
+                                       "os": ProcessInfo.processInfo.operatingSystemVersionString, "device": device,
+                                       "bootWall": ((Date().timeIntervalSince1970 - (CACurrentMediaTime() - ExactEnv.t0)) * 1000).rounded(),
+                                       "pid": Int(ProcessInfo.processInfo.processIdentifier), "session": label,
+                                       "savedAt": (Date().timeIntervalSince1970 * 1000).rounded(), "hostBuild": hostBuild]
         let trace: [String: Any] = [
             "traceEvents": events,
-            "identity": ["host": host, "app": bundle.split(separator: ".").last.map(String.init) ?? bundle, "bundle": bundle, "trust": "development",
-                         "os": ProcessInfo.processInfo.operatingSystemVersionString, "device": device,
-                         "bootWall": ((Date().timeIntervalSince1970 - (CACurrentMediaTime() - ExactEnv.t0)) * 1000).rounded()],
+            "identity": identity,
             "proxies": ["period": "target: the sampler's own display link, targetTimestamp − timestamp",
                         "interval": "the sampler's display-link callback gap", "covers": ["batches", "frame-source", "turns"],
                         "overrun": "a main run-loop turn that began before the frame's targetTimestamp and went to sleep after it (after Core Animation's commit)",
@@ -306,6 +329,9 @@ extension ExactSession {
             // copied off by name (`agent.mjs trace --phone`), as its
             // screenshots are: devicectl lists no app's files.
             try data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent(Self.latestTrace), options: .atomic)
+            if signalled {
+                try data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent(TraceSignal.file), options: .atomic)
+            }
             log("trace saved: \(url.path)")
             FileHandle.standardError.write(Data("exact: trace saved to \(url.path)\n".utf8))
             return .success(url)
@@ -329,4 +355,50 @@ extension ExactSession {
     }
     /// The last saved trace, beside the stamped one (`agent.mjs` reads the name).
     static let latestTrace = "trace-latest.json"
+}
+
+/// `SIGUSR1` saves the session's trace, with no alert (LLP 1142 D5), as Linux's
+/// display loop does: `agent.mjs trace --pid <pid>` asks a running app for
+/// one with no person at its menu. Not in a production bake. The handler only
+/// marks the signal; the save runs on the main queue.
+public enum TraceSignal {
+    nonisolated(unsafe) private static var source: DispatchSourceSignal?
+    private static let pid = ProcessInfo.processInfo.processIdentifier
+    /// What a signalled save writes beside the stamped trace, in the
+    /// temporary directory: the driver waits for it.
+    static var file: String { "trace-pid-\(pid).json" }
+    /// Written when the handler is installed, so the driver signals only a
+    /// process that handles it: unhandled, `SIGUSR1` terminates it.
+    static var ready: URL { FileManager.default.temporaryDirectory.appendingPathComponent("exact-trace-\(pid).ready") }
+
+    /// `session` is asked at each signal: the one to save (a Mac app's front
+    /// window's; the trace names it), nil for none.
+    public static func install(_ session: @escaping () -> ExactSession?) {
+        guard FrameSampler.measured, source == nil else { return }
+        // Caught, not ignored: a caught signal resets to the default in an
+        // executed helper, as SIGTERM's does in ExactMac.
+        signal(SIGUSR1) { _ in }
+        let s = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        s.setEventHandler { _ = session()?.saveTrace(signalled: true) }
+        s.resume()
+        source = s
+        FileManager.default.createFile(atPath: ready.path, contents: Data("\(pid)\n".utf8))
+        atexit { try? FileManager.default.removeItem(at: TraceSignal.ready) }
+    }
+}
+
+extension ExactSession {
+    static let journal = Logger(subsystem: "com.exact.app", category: "journal")
+
+    /// A batch's failure lines (LLP 1142 D4: a resource refused, a request
+    /// or a send failed), written where a person or an agent looks: the
+    /// unified log (`log show --predicate 'subsystem == "com.exact.app"'`)
+    /// and stderr, which `build.mjs --run` shows. The runner queues them only
+    /// while it measures, so a production bake has none.
+    func logAlerts(_ lines: [String]) {
+        for line in lines {
+            Self.journal.error("\(self.label, privacy: .public): \(line, privacy: .public)")
+            FileHandle.standardError.write(Data("exact: \(line)\n".utf8))
+        }
+    }
 }

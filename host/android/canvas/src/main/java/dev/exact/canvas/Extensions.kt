@@ -40,11 +40,32 @@ abstract class ExactExtension(val context: ExtensionContext) {
     /** Handles a reply carried that the runner dropped, never the app's (LLP 1133.009 D10 item 10). */
     open fun dispose(ids: List<String>) {}
 
+    /** The send numbered [request] ([ExtensionContext.request]) was let go: what it started stops (LLP 1133.016 D15
+     * item 2). */
+    open fun cancel(request: Int) {}
+
     /** The app went to the foreground or left it ([ExtensionContext.foreground], LLP 1133.009 D10 item 3). */
     open fun foreground(shown: Boolean) {}
 
+    /** The wake [ExtensionContext.wake] raised for [id] ended with [outcome] (LLP 1133.017 D8), after its `ended`. */
+    open fun woke(id: String, outcome: String) {}
+
     /** The activity is in front again: what changed in Settings meanwhile is read again (Android has no event). */
     open fun resumed() {}
+
+    /**
+     * Picture [source] of the interface's `img` scheme (`photos:<id>`, LLP 1133.019 D2, D11 item 1) for a box of
+     * [width] by [height] device pixels at `object-fit` [fit], once the runner admitted it: [reply] once, from any
+     * thread, with the picture upright and no larger than the box needs, or null and an error code (`NotFoundError`),
+     * which empties the box. [owned]: admitted as the app's own item alone (D6), drawn only where the platform says it
+     * is.
+     */
+    open fun picture(source: String, width: Int, height: Int, fit: String, owned: Boolean, reply: (android.graphics.Bitmap?, String?) -> Unit) =
+        reply(null, "NotSupportedError")
+
+    /** The state the runner holds of each permission this extension's interfaces declare, by name, told with
+     * [preferred] under the agent (LLP 1133.019 §10). */
+    open fun permissions(states: JSONObject) {}
 
     /**
      * The session ends: finish what must be finished, then [done] (LLP 1133.009 D10 item 1). Android's session lives
@@ -75,6 +96,24 @@ abstract class ExactExtension(val context: ExtensionContext) {
 
     /** Prop [prop] of view [id], which binds a device, changed, by the origin of the commit that changed it. */
     open fun bound(session: String, id: String, prop: String, origin: String) {}
+
+    /**
+     * A text field whose `autocomplete` ends in `webauthn` was made ([present]) or went (LLP 1133.011 D10 item 4):
+     * the real view, on which a conditional credential request is set. Every live one is told to an extension when it
+     * is made.
+     */
+    open fun webauthnField(view: android.widget.EditText, present: Boolean) {}
+
+    /**
+     * The canvases of [surface], which this extension's input feeds ([ExtensionSurfaces]), were displayed or hidden,
+     * by the origin of the commit that did it (LLP 1133.013 D6, D12 item 3). The lease: hidden, the input pauses;
+     * shown by an `app` commit, it resumes; shown by a `tool`'s or a `wake`'s, it stays paused. A start on a hidden
+     * canvas is told this before the start.
+     */
+    open fun displayed(surface: String, shown: Boolean, origin: String) {}
+
+    /** The display's angle changed ([ExtensionContext.orientation]). */
+    open fun orientation(angle: Int) {}
 }
 
 /**
@@ -103,7 +142,7 @@ interface ExtensionRoster {
 }
 
 /** What an extension may use of the host. */
-class ExtensionContext internal constructor(val application: Context, name: String) {
+class ExtensionContext internal constructor(val application: Context, private val name: String) {
     /** The activity that shows the app now, if one does: a permission's rationale is read from it. */
     val activity: Activity? get() = Exact.reader?.get()
 
@@ -119,6 +158,11 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     /** Who made the call being answered now, `app`, `tool` or `wake`, read at [ExactExtension.later]'s entry: a
      * capture's first lease is refused to a tool's read (LLP 1133.009 D6). */
     var origin = "app"
+        internal set
+
+    /** The number the runner gave the send being answered now, which a later [ExactExtension.cancel] names; null for
+     * a source (LLP 1133.016 D15 item 2). */
+    var request: Int? = null
         internal set
 
     /** The session's track table, which its implementations share (LLP 1133.009 D10 item 6). */
@@ -138,8 +182,38 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     /** The session's clock, ms: the agent's under the agent (LLP 1133.009 D10 item 2). */
     fun now(): Double = Native.now()
 
+    /** The page's canvases, whose input an extension may feed (LLP 1133.013 D6). */
+    val surfaces = ExtensionSurfaces()
+
+    /**
+     * The display's angle as the web's `screen.orientation.angle` (0, 90, 180, 270; LLP 1133.013 D12 item 4), from
+     * `Display.getRotation`: [ExactExtension.orientation] is told each change.
+     */
+    val orientation: Int get() = Extensions.angle(activity)
+
     /** The readers of [topic] are asked again (LLP 1016.002). */
     fun changed(topic: String) = Exact.changed(topic)
+
+    /** Each [wake]'s `ended`, by id, until the runner tells its outcome. */
+    internal val ended = HashMap<String, (String) -> Unit>()
+
+    /**
+     * Raise the interface's wake event [event] with [args] for the platform's own [id] (LLP 1133.017 D8): the events
+     * of one id are one wake, run with the wake's origin, and [ended] hears its outcome once, on the main thread:
+     * `completed`, `expired`, `superseded`, `refused`, or `unheard` when no handler hears it. Its one channel to the
+     * runner is [changed], as on Apple (`exact-wake:`, `runner/src/runner/modules/wakes.rs`).
+     */
+    fun wake(event: String, args: JSONArray, id: String, ended: (String) -> Unit = {}) {
+        this.ended[id] = ended
+        changed("exact-wake:" + JSONObject().put("extension", name).put("event", event).put("args", args).put("id", id))
+    }
+
+    /** Every `img` showing picture [source] is emptied and fires `error`, and no reply in flight draws (LLP 1133.019
+     * D2): the photo left what the app may read. */
+    fun revokePicture(source: String) = Exact.pictureChanged(source, true)
+
+    /** Picture [source] is asked for again: the photo was edited. */
+    fun changedPicture(source: String) = Exact.pictureChanged(source, false)
 
     fun log(line: String) { Log.i("exact", line) }
 
@@ -165,6 +239,14 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
         return PermissionState(if (granted) "granted" else if (permanent) "denied" else "prompt", rationale, permanent)
     }
 
+    /**
+     * Start [intent] for its result (`Activity.startActivityForResult`), then [done] on the main thread with the
+     * result code and the result's data (LLP 1133.018 D13 item 2): a picker's or an editor's answer. A result that
+     * reaches an activity made again meanwhile settles the call, since the call is the process's. With no activity in
+     * front, or no app that handles [intent], nothing starts and [done] has `Activity.RESULT_CANCELED`.
+     */
+    fun startActivityForResult(intent: android.content.Intent, done: (Int, android.content.Intent?) -> Unit) = Extensions.start(intent, done)
+
     /** [requestPermissions] for [name], keeping the history [permission] reads. */
     fun askPermission(name: String, done: () -> Unit) = requestPermissions(arrayOf(name)) {
         val a = activity
@@ -175,12 +257,47 @@ class ExtensionContext internal constructor(val application: Context, name: Stri
     }
 }
 
+/** The page's canvases, as an extension feeds them ([ExtensionContext.surfaces]). */
+class ExtensionSurfaces internal constructor() {
+    /**
+     * The input of surface [surface]'s canvas: what is written there the host delivers to the live canvas of that
+     * surface once a display frame, before the frame's input reaches its module, every sample in order. Null when the
+     * page places no canvas of that surface, or the library predates canvas inputs.
+     */
+    fun input(surface: String): SurfaceInput? = try {
+        if (Native.surfaceHas(surface)) SurfaceInput(surface) else null
+    } catch (e: UnsatisfiedLinkError) { null }
+}
+
+/**
+ * A canvas's input that an extension writes ([ExtensionSurfaces.input]), from any thread: each call waits for nothing.
+ * The host keeps about a second at the fastest rate a phone samples; past it the oldest samples go, and the next
+ * sample of their sensor delivered counts them in its `dropped`.
+ */
+class SurfaceInput internal constructor(val surface: String) {
+    /**
+     * One sample of [sensor] (a Generic Sensor name: `gravity`, `gyroscope`, …): x, y, z, and w for an orientation's
+     * quaternion, finite, in the frame the input asked for. [dropped] counts the samples lost before it (a pause); [at]
+     * is the session clock's time (ms, [ExtensionContext.now]) when it was taken, which also stamps the canvas's keys
+     * and touches.
+     */
+    fun sample(sensor: String, values: DoubleArray, dropped: Int = 0, at: Double) = write(sensor, values, dropped, at, false)
+
+    /** The input of [sensor] ended (`stopSensorInput`, the canvas gone): its last sample no longer stands. */
+    fun end(sensor: String, at: Double) = write(sensor, DoubleArray(0), 0, at, true)
+
+    private fun write(sensor: String, values: DoubleArray, dropped: Int, at: Double, ended: Boolean) {
+        if (Native.sensorInput(surface, sensor, values, dropped, at, ended)) Exact.wake()
+    }
+}
+
 /** A runtime permission's state and the platform's words for it ([ExtensionContext.permission]). */
 class PermissionState(val state: String, val shouldShowRationale: Boolean, val permanentlyDenied: Boolean)
 
 /** The process's extensions: made at their first call, they outlive the activities that show the app. */
 internal object Extensions {
     private const val CODE = 0x45584154 and 0xffff
+    private const val RESULTS = 0x5000
     private val written: ExtensionRoster? by lazy {
         val type = try { Class.forName("exact.app.ExactExtensions") } catch (e: ClassNotFoundException) { return@lazy null }
         type.getDeclaredConstructor().newInstance() as ExtensionRoster
@@ -194,8 +311,36 @@ internal object Extensions {
     private var asking = false
     private val waiting = ArrayList<() -> Unit>()
 
+    /** The display's angle last told the extensions ([ExtensionContext.orientation]). */
+    private var told = -1
+
+    /** [activity]'s display's rotation in degrees, as the web's `screen.orientation.angle`. */
+    fun angle(activity: Activity?): Int = when (activity?.display?.rotation) {
+        android.view.Surface.ROTATION_90 -> 90
+        android.view.Surface.ROTATION_180 -> 180
+        android.view.Surface.ROTATION_270 -> 270
+        else -> 0
+    }
+
+    /** A display changed: the extensions made are told a new angle. */
+    private val displays = object : android.hardware.display.DisplayManager.DisplayListener {
+        override fun onDisplayAdded(id: Int) {}
+        override fun onDisplayRemoved(id: Int) {}
+        override fun onDisplayChanged(id: Int) {
+            val angle = angle(Exact.reader?.get())
+            if (angle == told) return
+            told = angle
+            made.values.forEach { it.orientation(angle) }
+        }
+    }
+
     /** The activity was made: the host binds the names of the extensions the APK carries. */
     fun bind(activity: Activity) {
+        if (application == null) {
+            val dm = activity.applicationContext.getSystemService(android.hardware.display.DisplayManager::class.java)
+            dm?.registerDisplayListener(displays, android.os.Handler(android.os.Looper.getMainLooper()))
+            told = angle(activity)
+        }
         if (application == null) application = activity.applicationContext
         Presence.application = activity.applicationContext
         if (roster.isNotEmpty()) Exact.bindExtensions(roster.keys.joinToString("\n"))
@@ -204,11 +349,22 @@ internal object Extensions {
     /**
      * Request [id]'s call, the runner's body: `{"extension", "source"|"send", "args", "preferred"?}`, `{"extension",
      * "release", "args"?}`, `{"extension", "preferred"}`, `{"extension", "dispose"}`, `{"extension", "foreground"}`, or
-     * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2).
+     * `{"extension", "view", "displayed"|"bound", "origin"}` (a package view's report, LLP 1133.008 D8 item 2),
+     * `{"extension", "surface", "displayed", "origin"}` (a canvas its input feeds, LLP 1133.013 D6),
+     * `{"extension", "picture", "width", "height", "fit", "owned"}` (LLP 1133.019 D11 item 1), answered with its
+     * pixels ([Exact.picture]), `{"extension", "cancel"}` (a send let go, LLP 1133.016 D15 item 2), or `{"extension",
+     * "woke", "outcome"}` (a wake [ExtensionContext.wake] raised ended, LLP 1133.017 D8).
      */
     fun call(id: Int, body: String) {
         var answered = false
-        val reply = { answer: JSONObject -> if (!answered) { answered = true; Exact.answer(id, answer.toString()) } }
+        // A list answer comes as `{"exact:answer": [...]}`, since a reply is an object (as on Apple).
+        val reply = { answer: JSONObject ->
+            if (!answered) {
+                answered = true
+                val listed = answer.length() == 1 && answer.has("exact:answer")
+                Exact.answer(id, if (listed) answer.get("exact:answer").toString() else answer.toString())
+            }
+        }
         try {
             val request = JSONObject(body)
             val name = request.getString("extension")
@@ -222,6 +378,21 @@ internal object Extensions {
                     if (request.has("bound")) extension.bound(extension.context.session, view, request.getString("bound"), origin)
                     reply(JSONObject())
                 }
+                request.has("surface") && request.has("displayed") -> {
+                    extension.displayed(request.getString("surface"), request.getBoolean("displayed"), request.optString("origin", "app"))
+                    reply(JSONObject())
+                }
+                request.has("picture") -> {
+                    val source = request.getString("picture")
+                    val (width, height) = request.getInt("width") to request.getInt("height")
+                    extension.picture(source, width, height, request.optString("fit", "fill"), request.optBoolean("owned")) { bitmap, error ->
+                        if (!answered) {
+                            answered = true
+                            val pixels = bitmap?.let(::software)
+                            Exact.picture(id, pixels, if (pixels == null) error ?: "UnknownError" else null)
+                        }
+                    }
+                }
                 released.isNotEmpty() -> {
                     val args = request.optJSONObject("args")
                     if (args != null) extension.release(released, args) else extension.release(released)
@@ -229,15 +400,27 @@ internal object Extensions {
                 }
                 declared.isNotEmpty() -> {
                     extension.context.origin = request.optString("origin").ifEmpty { "app" }
+                    extension.context.request = if (request.has("request")) request.getInt("request") else null
                     extension.later(declared, request.optJSONObject("args") ?: JSONObject(), request.opt("preferred"), reply)
                 }
                 request.has("preferred") -> {
+                    request.optJSONObject("permissions")?.let { extension.permissions(it) }
                     extension.preferred(request.optJSONObject("preferred") ?: JSONObject())
+                    reply(JSONObject())
+                }
+                request.has("cancel") -> {
+                    extension.cancel(request.getInt("cancel"))
                     reply(JSONObject())
                 }
                 request.has("dispose") -> {
                     val ids = request.optJSONArray("dispose") ?: JSONArray()
                     extension.dispose((0 until ids.length()).map { ids.getString(it) })
+                    reply(JSONObject())
+                }
+                request.has("woke") -> {
+                    val (woke, outcome) = request.getString("woke") to request.optString("outcome", "completed")
+                    extension.context.ended.remove(woke)?.invoke(outcome)
+                    extension.woke(woke, outcome)
                     reply(JSONObject())
                 }
                 request.has("foreground") -> {
@@ -254,6 +437,18 @@ internal object Extensions {
         }
     }
 
+    /** [bitmap] as the host copies it: software `ARGB_8888` in sRGB, drawn into one when it is not. */
+    private fun software(bitmap: android.graphics.Bitmap): android.graphics.Bitmap? {
+        val argb = android.graphics.Bitmap.Config.ARGB_8888
+        val srgb = android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB)
+        // A hardware bitmap's pixels are the GPU's: copied out first.
+        val soft = if (bitmap.config == android.graphics.Bitmap.Config.HARDWARE) bitmap.copy(argb, false) ?: return null else bitmap
+        if (soft.config == argb && soft.colorSpace?.let { it == srgb } != false) return soft
+        val out = android.graphics.Bitmap.createBitmap(soft.width, soft.height, argb, true, srgb)
+        android.graphics.Canvas(out).drawBitmap(soft, 0f, 0f, null)
+        return out
+    }
+
     /** Whether the activity is resumed ([resumed], [paused]). */
     val resumedNow: Boolean get() = foreground
 
@@ -262,7 +457,15 @@ internal object Extensions {
 
     /** Extension [name], made at its first call or view. */
     private fun extension(name: String): ExactExtension? = made[name]
-        ?: roster[name]?.let { make -> application?.let { make(ExtensionContext(it, name)) } }?.also { made[name] = it }
+        ?: roster[name]?.let { make -> application?.let { make(ExtensionContext(it, name)) } }?.also { made[name] = it; webauthn.forEach { f -> it.webauthnField(f, true) } }
+
+    /** The live fields whose `autocomplete` ends in `webauthn` ([Fields]). */
+    private val webauthn = LinkedHashSet<android.widget.EditText>()
+
+    fun webauthnField(view: android.widget.EditText, present: Boolean) {
+        if (if (present) !webauthn.add(view) else !webauthn.remove(view)) return
+        made.values.forEach { it.webauthnField(view, present) }
+    }
 
     /** The app's module views with each package's beside them, each made by its extension (LLP 1133.001 D1). */
     fun withViews(modules: Map<String, NativeModule>): Map<String, NativeModule> {
@@ -293,6 +496,27 @@ internal object Extensions {
         asking = true
         activity.requestPermissions(permissions, CODE)
     }
+
+    /** The calls waiting on an activity's result ([ExtensionContext.startActivityForResult]), by request code. */
+    private val results = HashMap<Int, (Int, android.content.Intent?) -> Unit>()
+    private var started = 0
+
+    fun start(intent: android.content.Intent, done: (Int, android.content.Intent?) -> Unit) {
+        val activity = Exact.reader?.get()
+        if (activity == null || !foreground) return done(Activity.RESULT_CANCELED, null)
+        // Request codes of their own range, apart from the permission request's [CODE].
+        val code = RESULTS + (started++ % 0x1000)
+        results[code] = done
+        try {
+            activity.startActivityForResult(intent, code)
+        } catch (e: android.content.ActivityNotFoundException) {
+            results.remove(code)
+            done(Activity.RESULT_CANCELED, null)
+        }
+    }
+
+    /** [Activity.onActivityResult]: the answer of the call that started it, if this process made one. */
+    fun activityResult(code: Int, result: Int, data: android.content.Intent?) { results.remove(code)?.invoke(result, data) }
 
     private fun settle() {
         asking = false

@@ -37,6 +37,10 @@ pub enum Deco {
 #[derive(Debug, Default)]
 pub(crate) struct Projection {
     pub runs: Vec<Run>,
+    /// The inline atoms' source ranges, sorted (LLP 1045.000 D5): each drawn
+    /// as one box, its source hidden. Never part of a cluster: a hidden
+    /// cluster beside one keeps its own caret positions.
+    pub atoms: Vec<(u32, u32)>,
     /// Adjacent runs merged: what a caret moves across as one step.
     pub clusters: Vec<(u32, u32)>,
     /// By paragraph start, in order.
@@ -63,7 +67,14 @@ impl Projection {
                 .filter(|s| s.style & MARKER != 0)
                 .map(|s| s.range.end)
         };
-        let mut out = Self::default();
+        let mut out = Self {
+            atoms: styled
+                .atoms
+                .iter()
+                .map(|a| (a.range.start, a.range.end))
+                .collect(),
+            ..Self::default()
+        };
         let mut prefixed = Vec::new();
         let mut prefixes = Vec::new();
         for p in &styled.paragraphs {
@@ -196,19 +207,64 @@ impl Projection {
         self.runs[from..].iter().take_while(move |r| r.end <= e)
     }
 
-    /// `p` counted in visible code units.
+    /// `p` counted in visible code units, an atom one of them; an offset
+    /// inside an atom counts as its end, where it draws.
     pub fn visible(&self, p: u32) -> u32 {
+        let p = self.inside_atom(p).map_or(p, |a| a.1);
+        let boxed: u32 = self.atoms[..self.atoms.partition_point(|a| a.1 <= p)]
+            .iter()
+            .map(|a| a.1 - a.0 - 1)
+            .sum();
         let k = self.clusters.partition_point(|c| c.0 < p);
         if k == 0 {
-            return p;
+            return p - boxed;
         }
         let c = self.clusters[k - 1];
-        p - self.prefix_sum[k - 1] - (c.1 - c.0).min(p - c.0)
+        p - self.prefix_sum[k - 1] - (c.1 - c.0).min(p - c.0) - boxed
+    }
+
+    /// The atom with `start < p < end`.
+    pub fn inside_atom(&self, p: u32) -> Option<(u32, u32)> {
+        let k = self.atoms.partition_point(|a| a.1 <= p);
+        self.atoms.get(k).filter(|a| a.0 < p).copied()
+    }
+
+    /// The atom that ends at `p`.
+    pub fn atom_ending(&self, p: u32) -> Option<(u32, u32)> {
+        let k = self.atoms.partition_point(|a| a.1 < p);
+        self.atoms.get(k).filter(|a| a.1 == p).copied()
+    }
+
+    /// The atom that starts at `p`.
+    pub fn atom_starting(&self, p: u32) -> Option<(u32, u32)> {
+        let k = self.atoms.partition_point(|a| a.0 < p);
+        self.atoms.get(k).filter(|a| a.0 == p).copied()
+    }
+
+    /// A range end inside an atom moved to the atom's outer edge, so a range
+    /// holds an atom whole or not at all.
+    pub fn outward(&self, (a, b): (u32, u32)) -> (u32, u32) {
+        (
+            self.inside_atom(a).map_or(a, |x| x.0),
+            self.inside_atom(b).map_or(b, |x| x.1),
+        )
+    }
+
+    /// Whether `from..to` is exactly one atom, with only hidden syntax beside it.
+    pub fn one_atom(&self, from: u32, to: u32) -> Option<(u32, u32)> {
+        match self.visible_parts(from, to).as_slice() {
+            [part] => self.atom_starting(part.0).filter(|a| a.1 == part.1),
+            _ => None,
+        }
     }
 
     /// Where a caret at `p` sits: before inline openers and closers, so it
-    /// takes the preceding style; after line prefixes and link closers.
+    /// takes the preceding style; after line prefixes and link closers; at
+    /// an atom's end when it is inside the atom (LLP 1045.000 D5).
     pub fn canonical(&self, p: u32) -> u32 {
+        if let Some(a) = self.inside_atom(p) {
+            return a.1;
+        }
         let Some(k) = self.cluster_index(p) else {
             return p;
         };
@@ -258,16 +314,5 @@ impl Projection {
 
     pub fn hidden_indices(&self) -> impl Iterator<Item = u32> + '_ {
         self.runs.iter().flat_map(|r| r.start..r.end)
-    }
-
-    pub fn visible_text(&self, source: &[u16]) -> Vec<u16> {
-        let mut out = Vec::with_capacity(source.len());
-        let mut at = 0;
-        for &(s, e) in &self.clusters {
-            out.extend_from_slice(&source[at..s as usize]);
-            at = e as usize;
-        }
-        out.extend_from_slice(&source[at.min(source.len())..]);
-        out
     }
 }

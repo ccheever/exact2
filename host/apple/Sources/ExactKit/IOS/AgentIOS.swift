@@ -58,6 +58,7 @@ extension Agent {
                 DispatchQueue.main.async { observers.forEach(notifications.removeObserver) }
                 out = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
                 reply(announcement)
+                DispatchQueue.main.async { watchForeground() }
                 serve(fd: fd)
             }.start()
             return
@@ -91,6 +92,7 @@ extension Agent {
             guard client >= 0 else { FileHandle.standardError.write(Data("exact: accept: \(String(cString: strerror(errno)))\n".utf8)); return }
             out = FileHandle(fileDescriptor: client, closeOnDealloc: false)
             reply(ready)
+            DispatchQueue.main.async { watchForeground() }
             serve(fd: client)
         }.start()
     }
@@ -138,7 +140,7 @@ extension Agent {
     /// Native transitions, keyboard work and an agent-issued caret reveal
     /// must finish before `clock settle` returns (LLP 1035.003 D5).
     func nativeInFlight() -> Bool {
-        if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
+        if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || nativeGeometryInFlight() { return true }
         // A smooth correction (a list following its end, a smooth
         // `scrollIntoView`) and an element reveal are UIKit's scroll
         // animation under platform timing (LLP 1070.000 §11, §14): the fixed
@@ -236,7 +238,7 @@ extension Agent {
             keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.pageOrigin.y)
         }
         #if !os(tvOS)
-        if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
+        if let view = presenter.session?.view, view.hasKeyboardGuide { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
         #endif
         var navigation = presenter.navigation.observation()
         navigation["presentation"] = presenter.modals.presentation ?? NSNull()
@@ -457,6 +459,16 @@ extension Agent {
         if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
         host.glassAgentFields(&native)
         if presenter.leaves.isPending(host) { native["pending"] = true }
+        // Read the owned bar's geometry independently of its accessibility representation
+        let navigation = presenter.navigation
+        let tabs = navigation.adopts(tablist: host) ? navigation.tabController : nil
+        let projectedBar = presenter.segments.bar(of: host.id)
+        if tabs != nil || projectedBar != nil {
+            let shown = tabs?.shownTabBar ?? NavigationHost.shownBar(projectedBar)
+            var observation: [String: Any] = ["visible": shown != nil]
+            if let shown { observation["frame"] = rect(box(shown)) }
+            native["tabBar"] = observation
+        }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let grouped = presenter.groupedLists?.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
@@ -628,7 +640,7 @@ extension Agent {
             Agent.scroll(from: list, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             return ["tapped": id, "wheel": wheel]
         }
-        guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), let win = v.window else { return miss(req) }
         var b = v.tapBox(box(v))
         // A run is touched on a fragment it paints (the web's driver taps
         // the span's), not at its paragraph's middle.
@@ -1021,7 +1033,7 @@ extension Agent {
     /// Set an input's text as typing does: the field focused, all selected,
     /// the text inserted — the field sends one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
-        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let v = view(req), v.window != nil else { return miss(req) }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         // An inert view takes no input, as a person cannot reach it (HTML inert; a modal presentation's background)
         guard !v.inert else { return ["error": "view \(v.id) is inert"] }
@@ -1092,7 +1104,7 @@ extension Agent {
             let phase = req["phase"] as? String
             if phase != "up" {
                 if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
-                else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+                else if let f = v.selectionField { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
                 else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             }
             // With nothing focused the first root hears it, as a keyboard's key reaches it (`ExactView`).
@@ -1147,11 +1159,11 @@ extension Agent {
                 } else if name == "Enter", let prompt = focus.headerField, let field = prompt.delegate as? PromptField {
                     // A prompt's field is UIKit's, standing in for this one: its Return.
                     _ = field.returnHeard(prompt)
-                } else if let f = focus.field as? TextField {
-                    f.heard = name
-                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) }
+                } else if let f = focus.selectionField {
+                    (f as? TextField)?.heard = name
+                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = f.delegate?.textFieldShouldReturn?(f) }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
-                    f.heard = nil
+                    (f as? TextField)?.heard = nil
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
                 } else {
                     #if os(iOS)
@@ -1172,9 +1184,8 @@ extension Agent {
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
-        // A prompt's field is UIKit's in the alert while it shows (`PromptField`).
-        let prompted = presenter.menus.nativeConfirmation.map { v.isDescendant(of: $0) } == true
-        guard let f = prompted ? v.selectionField : v.field else { return ["error": "view \(v.id) is not an input"] }
+        // Header search and prompts edit UIKit's displayed field, not their authored copy
+        guard let f = v.selectionField else { return ["error": "view \(v.id) is not an input"] }
         let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)

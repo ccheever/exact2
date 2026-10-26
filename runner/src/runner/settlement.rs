@@ -620,7 +620,8 @@ impl<D: DataSource> Runner<D> {
                                         && states[i].is_some() =>
                                 {
                                     let failure = crate::failure::Failure::of(&e);
-                                    self.log(super::lines::failed_now(
+                                    self.count_failure(i);
+                                    self.alert(super::lines::failed_now(
                                         self.plan.str(row.name),
                                         &failure.message,
                                     ));
@@ -643,6 +644,15 @@ impl<D: DataSource> Runner<D> {
                                         &self.resource_values[i],
                                         Some(old) if Held::same(old, &shown)
                                     );
+                                    // The failed ask watched what it read, as an
+                                    // answer does, so a change there (a permission
+                                    // granted) asks it again; the shown value's
+                                    // topics stay with it.
+                                    for topic in self.store.take_topics() {
+                                        if !self.watching[i].contains(&topic) {
+                                            self.watching[i].push(topic);
+                                        }
+                                    }
                                     resources[i] = Some(shown);
                                     settled_res[i] = true;
                                     progress = true;
@@ -700,7 +710,8 @@ impl<D: DataSource> Runner<D> {
                                     };
                                     effects[i] = RequestEffect::Answered;
                                     pending_res[i] = false;
-                                    self.log(super::lines::failed_now(&resource, &why));
+                                    self.count_failure(i);
+                                    self.alert(super::lines::failed_now(&resource, &why));
                                     self.failed_args[i] = Some(args.clone());
                                     self.failed_why[i] = Some(crate::failure::Failure {
                                         code,

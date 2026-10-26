@@ -346,6 +346,7 @@ pub(crate) fn button_lines(
     let runs = [TextRun {
         text: title.into(),
         style: exact_kernel::text::TextStyle::from_style(&style.title),
+        inline: None,
     }];
     let (limit, min) = match width {
         AxisOffer::Definite(w) => (Some(columns(w).saturating_sub(2)), false),
@@ -492,6 +493,7 @@ mod tests {
             let runs = [TextRun {
                 text: text.into(),
                 style: paragraph.strut,
+                inline: None,
             }];
             assert_layout(&runs, &paragraph, Some(limit), false, &expected);
         }
@@ -561,10 +563,12 @@ mod tests {
                     TextRun {
                         text: text[..split].into(),
                         style: paragraph.strut,
+                        inline: None,
                     },
                     TextRun {
                         text: text[split..].into(),
                         style: second,
+                        inline: None,
                     },
                 ];
                 for clamp in [0, 1] {
@@ -587,6 +591,7 @@ mod tests {
             let runs = [TextRun {
                 text: text.into(),
                 style: paragraph.strut,
+                inline: None,
             }];
             for mode in [
                 OverflowWrap::Normal,
@@ -596,6 +601,7 @@ mod tests {
                 paragraph.overflow_wrap = mode;
                 assert_layout(&runs, &paragraph, Some(0), true, &[("a", 1), ("b", 1)]);
                 let measured = CellMeasurer::default().measure(&TextMeasureRequest {
+                    atoms: Default::default(),
                     runs: &runs,
                     paragraph,
                     width: AxisOffer::MinContent,
@@ -622,10 +628,12 @@ mod tests {
                     TextRun {
                         text: text[..split].into(),
                         style: paragraph.strut,
+                        inline: None,
                     },
                     TextRun {
                         text: text[split..].into(),
                         style: second,
+                        inline: None,
                     },
                 ];
                 let lines = assert_layout(&runs, &paragraph, Some(4), false, &expected);
@@ -662,6 +670,7 @@ mod tests {
             let runs = [TextRun {
                 text: text.into(),
                 style: paragraph.strut,
+                inline: None,
             }];
             for mode in [
                 OverflowWrap::Normal,
@@ -676,6 +685,7 @@ mod tests {
                 };
                 assert_layout(&runs, &paragraph, Some(0), true, expected);
                 let metrics = CellMeasurer::default().measure(&TextMeasureRequest {
+                    atoms: Default::default(),
                     runs: &runs,
                     paragraph,
                     width: AxisOffer::MinContent,
@@ -699,6 +709,7 @@ mod tests {
         let runs = [TextRun {
             text: "👩🏽‍💻\u{200b}é界".into(),
             style: paragraph.strut,
+            inline: None,
         }];
         assert_layout(
             &runs,
@@ -715,6 +726,7 @@ mod tests {
         let runs = ["ab\u{ad}", "cd\u{200b}", "界\u{1b}"].map(|text| TextRun {
             text: text.into(),
             style: paragraph.strut,
+            inline: None,
         });
         for space in [
             WhiteSpace::Normal,
@@ -753,6 +765,7 @@ mod tests {
             let runs = [TextRun {
                 text: text.as_str().into(),
                 style: paragraph.strut,
+                inline: None,
             }];
             for white_space in [WhiteSpace::Normal, WhiteSpace::Nowrap, WhiteSpace::PreLine] {
                 paragraph.white_space = white_space;
@@ -767,6 +780,7 @@ mod tests {
                 let runs = [TextRun {
                     text: text.as_str().into(),
                     style: paragraph.strut,
+                    inline: None,
                 }];
                 paragraph.white_space = WhiteSpace::Normal;
                 assert_layout(&runs, &paragraph, Some(2), false, &expected);
@@ -780,6 +794,7 @@ mod tests {
         let runs = [TextRun {
             text: "".into(),
             style: TextStyle::from_style(&style),
+            inline: None,
         }];
         for width in [
             AxisOffer::MinContent,
@@ -789,6 +804,7 @@ mod tests {
         ] {
             assert_eq!(
                 CellMeasurer::default().measure(&TextMeasureRequest {
+                    atoms: Default::default(),
                     runs: &runs,
                     paragraph: Paragraph::from_style(&style),
                     width,
@@ -816,6 +832,7 @@ mod tests {
                 let runs = [&text[..split], &text[split..]].map(|text| TextRun {
                     text: text.into(),
                     style: TextStyle::from_style(&style),
+                    inline: None,
                 });
                 for (space, wrapping) in [
                     (WhiteSpace::Normal, WhiteSpace::Normal),
@@ -954,6 +971,7 @@ mod tests {
                     {
                         let height = AxisOffer::Definite((i + 1) as f32 * ROW);
                         let request = TextMeasureRequest {
+                            atoms: Default::default(),
                             runs: &runs,
                             paragraph: node.paragraph(),
                             width,
@@ -1004,6 +1022,7 @@ mod tests {
         for id in 1..=130 {
             let node = kernel.node(id).unwrap();
             let request = TextMeasureRequest {
+                atoms: Default::default(),
                 runs: &node.text_runs(),
                 paragraph: node.paragraph(),
                 width: AxisOffer::MaxContent,
@@ -1016,6 +1035,7 @@ mod tests {
         for id in 1..=130 {
             let node = kernel.node(id).unwrap();
             let request = TextMeasureRequest {
+                atoms: Default::default(),
                 runs: &node.text_runs(),
                 paragraph: node.paragraph(),
                 width: AxisOffer::Definite(COLUMN),
@@ -1099,6 +1119,7 @@ mod tests {
         let runs = ["  ab", "c 界 é\nxy  "].map(|text| TextRun {
             text: text.into(),
             style: TextStyle::from_style(&style),
+            inline: None,
         });
         for (white_space, limit, clamp, expected) in [
             (WhiteSpace::Normal, Some(4), 0, vec!["abc", "界 é", "xy"]),
@@ -1121,6 +1142,7 @@ mod tests {
                 .collect();
             assert_eq!(text, expected);
             let measured = CellMeasurer::default().measure(&TextMeasureRequest {
+                atoms: Default::default(),
                 runs: &runs,
                 paragraph,
                 width: limit.map_or(AxisOffer::MaxContent, |n| {
@@ -1151,6 +1173,7 @@ mod tests {
             let runs = [TextRun {
                 text: text.as_str().into(),
                 style: paragraph.strut,
+                inline: None,
             }];
             for white_space in [
                 WhiteSpace::Normal,
@@ -1191,6 +1214,7 @@ mod tests {
             let runs = [TextRun {
                 text: text.into(),
                 style: paragraph.strut,
+                inline: None,
             }];
             let lines = wrap(&runs, &paragraph, Some(4), false);
             assert_eq!(lines.len(), 2, "{text:?}");
@@ -1218,6 +1242,7 @@ mod tests {
             let runs = [TextRun {
                 text: text.into(),
                 style: paragraph.strut,
+                inline: None,
             }];
             let lines = wrap(&runs, &paragraph, Some(4), false);
             assert_eq!(lines.len(), 2, "{text:?}");
@@ -1241,6 +1266,7 @@ mod tests {
             let runs = [TextRun {
                 text: source.as_str().into(),
                 style: paragraph.strut,
+                inline: None,
             }];
             let lines = wrap(&runs, &paragraph, Some(4), false);
             assert_eq!(
@@ -1269,6 +1295,7 @@ mod tests {
         let runs = [TextRun {
             text: "A\r\nB".into(),
             style: paragraph.strut,
+            inline: None,
         }];
         let lines = wrap(&runs, &paragraph, Some(80), false);
         assert_eq!(lines.len(), 2);

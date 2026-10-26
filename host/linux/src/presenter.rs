@@ -150,8 +150,9 @@ pub use window::{Chrome, Window};
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     /// Scrolled lists whose collection turn waits for the frame (see
-    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
-    deferred_collections: Option<Vec<ViewId>>,
+    /// [`Presenter::set_deferred_collections`]), with whether input moved the
+    /// acknowledged offset; `None` when turns run at once.
+    deferred_collections: Option<Vec<(ViewId, bool)>>,
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
@@ -607,14 +608,23 @@ impl<D: DataSource> Presenter<D> {
             self.host.runner().delivery(),
             let_go,
         )?;
-        let (mut host, error) = Host::boot_with(
-            plan,
-            data,
-            Box::new(Measurer(candidate_text.clone())),
-            self.viewport.0,
-            self.viewport.1,
-            Some(&carried),
-            Some(self.host.runner().delivery().clone()),
+        let (mut host, error) = exact_runner::time::launching_with(
+            exact_runner::time::Launch {
+                time: Some(self.host.runner().wall_time()),
+                place: Some(self.host.runner().place().clone()),
+                ..exact_runner::time::Launch::NONE
+            },
+            || {
+                Host::boot_with(
+                    plan,
+                    data,
+                    Box::new(Measurer(candidate_text.clone())),
+                    self.viewport.0,
+                    self.viewport.1,
+                    Some(&carried),
+                    Some(self.host.runner().delivery().clone()),
+                )
+            },
         )?;
         if let Some(error) = error {
             return Err(HostError::Layout(error));
@@ -781,6 +791,12 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn service_commit(&mut self) -> Option<String> {
+        // A resource refused, a request or a send failed (LLP 1142 D4): on
+        // stderr as well as in the journal. The runner queues none unless it
+        // measures, so a production binary prints none.
+        for line in self.host.runner().take_alerts() {
+            eprintln!("exact: {line}");
+        }
         self.restore_scroll_anchors();
         self.alert_sync();
         // What the commit asked the host to run goes to the executor (LLP
@@ -1454,22 +1470,6 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(error);
         }
         self.dirty |= animating;
-    }
-
-    /// The pixels, as a PNG at `path`.
-    pub fn screenshot(&mut self, path: &str) -> Result<String, String> {
-        let frame = self.frame();
-        let png = frame.encode_png().map_err(|e| format!("png: {e}"))?;
-        std::fs::write(path, png).map_err(|e| format!("write {path}: {e}"))?;
-        let mut s = String::from("{\"screenshot\":");
-        quote(path, &mut s);
-        let _ = write!(
-            s,
-            ",\"w\":{},\"h\":{}}}",
-            num(r2(self.viewport.0)),
-            num(r2(self.viewport.1))
-        );
-        Ok(s)
     }
 
     /// The box of a node, if painted.

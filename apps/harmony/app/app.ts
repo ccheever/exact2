@@ -4,12 +4,14 @@
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { Snapback, refused, type Write } from './snapback4/snapback.ts';
 import { api } from './backend/api.ts';
+import { registerSync } from '@exact/background';
 import type { Rows } from './backend/api.ts';
 
 export const appId = 'com.example.harmony';            // app.json's "app": { "id" }
 // The Snapback origin: `snapback4 dev --port 4400` in the directory above; `.exact/backend-origin` overrides it at bake.
 const origin = 'http://127.0.0.1:4400';
-export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
+export const grants = `net.fetch ${origin}\nsqlite.open app:/data\nfs.read app:/data\nfs.write app:/data
+device.background-sync\ndevice.periodic-background-sync\ndevice.notifications purpose.notifications`;
 
 const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `harmony-${persona}`, origin,
   viewer: `dev:${persona}`, headers: () => ({ 'x-snapback-persona': persona }) }));
@@ -145,27 +147,77 @@ async function threadOf(db: Db, roomId: string, now: number, offset: number, me:
     members: members.sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
-// Live: Snapback's change feed (GET /changes?since&wait, the long-poll its own
-// clients hold) as server-sent events from the backend's front, `/live`, which
-// an Exact stream resource holds without holding an answer: each change the
-// persona can see moves `seq`, and the view reads `snapshot` again. Natively the
-// device serves one answer at a time, so the long-poll itself cannot be awaited
-// in a source (snapback4/README.md, "Live updates").
+// Live: Snapback's change feed, GET /changes?since&wait (the long-poll its own
+// clients hold), as an Exact long poll (`exactLongPoll`, LLP 1016.000 D8), which
+// a stream resource holds without holding an answer: each change the persona can
+// see moves `seq`, and the view reads `snapshot` again. The first ask's `since`
+// is past any head, which Snapback answers at once with the head; the host then
+// asks with `since` = that `seq`, held up to 25 s, and a reply at the same `seq`
+// is a heartbeat. Natively the device serves one answer at a time, so the
+// long-poll itself cannot be awaited in a source (snapback4/README.md, "Live
+// updates").
 function live(persona: string): Result<'live'> {
-  return fetch(`${origin}/live?as=${encodeURIComponent(persona)}`, {
+  return fetch(`${origin}/changes?since=${Number.MAX_SAFE_INTEGER}&wait=25`, {
+    headers: { 'x-snapback-persona': persona },
     exactStream: (event: { type: string; data?: unknown }) => {
       if (event.type !== 'message' || typeof event.data !== 'string') return { seq: -1, state: event.type };
       try { return { seq: Number((JSON.parse(event.data) as { seq: number }).seq), state: 'open' }; }
       catch { return { seq: -1, state: 'malformed' }; }
     },
+    exactLongPoll: { cursor: 'since', from: 'seq' },
   } as RequestInit) as unknown as Result<'live'>;
+}
+
+// A wake's outbox round for the persona the tag names. With the window shown
+// (`open` names its persona) another persona's waits, registered again, for
+// that persona's next open or a wake with no window; a failed round
+// registers it again, which waits out the platform's backoff.
+async function flushOutbox(tag: string, open: string, storage: Parameters<Answer>[3], native: Parameters<Answer>[4]): Promise<Result<'flushOutbox'>> {
+  const persona = tag.replace(/^outbox:/, '');
+  if (open !== '' && persona !== open) { await registerSync({ tag }); return { ok: true, sent: false }; }
+  return personas.use(persona, storage, native, async (db) => {
+    const round = await db.sync();
+    lastOnline = round.ok;
+    if (!round.ok && (await db.status()).queued?.length) await registerSync({ tag });
+    return { ok: true, sent: round.ok };
+  });
+}
+
+// A catch-up: one round, then the mentions of the persona newer than the mark
+// kept on this device, the newest room's as one notification. The mark moves
+// only once the answer is made, so a catch-up that never ends posts nothing
+// and the next one finds the same messages.
+const markFile = (persona: string) => `app:/data/mentions-${persona}.json`;
+async function catchUpMentions(persona: string, storage: Parameters<Answer>[3], native: Parameters<Answer>[4]): Promise<Result<'catchUpMentions'>> {
+  return personas.use(persona, storage, native, async (db) => {
+    const round = await db.sync();
+    lastOnline = round.ok;
+    const who = await directory(db, 0);
+    const me = who.get(`dev:${persona}`) ?? unknown(`dev:${persona}`);
+    let mark = 0;
+    try { mark = Number(JSON.parse(new TextDecoder().decode(await storage.fs.readFile(markFile(persona)))).at) || 0; } catch { /* none yet */ }
+    const found = await db.read(api.search, { q: me.handle }, 0);
+    if (found.denied) throw refused(found.denied);
+    const hits = (found.data ?? []).filter((m) => m.at > mark && m.authorId !== me.principal && mentions(m.body, me.handle)).sort((a, b) => b.at - a.at);
+    const newest = hits[0];
+    if (!newest) return { count: 0, roomId: '', title: '', body: '' };
+    await storage.fs.atomicWriteFile(markFile(persona), new TextEncoder().encode(JSON.stringify({ at: newest.at })));
+    const author = (who.get(newest.authorId) ?? unknown(newest.authorId)).name;
+    const room = newest.room?.kind === 'dm' ? author : `#${newest.room?.name ?? ''}`;
+    const inRoom = hits.filter((m) => m.roomId === newest.roomId).length;
+    return { count: hits.length, roomId: newest.roomId, title: `${author} in ${room}`, body: inRoom > 1 ? `${newest.body} (+${inRoom - 1} more)` : newest.body };
+  });
 }
 
 const sources: Sources = {
   live: ([persona, _epoch]) => live(persona),
+  flushOutbox: ([tag, open], _store, storage, native) => flushOutbox(tag, open, storage, native),
+  catchUpMentions: ([persona], _store, storage, native) => catchUpMentions(persona, storage, native),
   snapshot: ([persona, roomId, q, now, offset, _seq], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'snapshot'>> => {
     const round = unshown.delete(persona) ? { ok: lastOnline } : await db.sync();
     lastOnline = round.ok;
+    // Writes still on this device go out at the next chance (LLP 1133.017 §11): one tag a persona.
+    if (!round.ok && (await db.status()).queued?.length) await registerSync({ tag: `outbox:${persona}` });
     const who = await directory(db, now);
     const me = who.get(`dev:${persona}`) ?? unknown(`dev:${persona}`);
     const custom = await emojiTable(db, now);

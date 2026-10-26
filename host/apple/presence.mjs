@@ -42,3 +42,30 @@ export function macPresence(app, ceiling, { release = false, distribution = fals
   }
   log(`Locked secrets: this build keeps none, since ${why} (LLP 1133.010 D7): ${effect}.`);
 }
+
+/** The RP IDs a Mac needs an associated domain for: every `auth.passkey` line but `localhost`, which only the web admits. */
+export function passkeyLines(ceiling = '') {
+  return String(ceiling).split('\n').map((line) => line.trim().split(/\s+/))
+    .filter((w) => w[0] === 'auth.passkey' && w[1] && w[1] !== 'localhost').map((w) => w[1]);
+}
+
+/** The bake's associated domains for an entitlement. A passkey RP ID's `webcredentials:` in a development build is
+ * `?mode=developer`, so the device fetches the association from the domain rather than Apple's CDN (LLP 1133.011
+ * D6); a release build never asks for it. */
+export function associatedDomains(auth, debuggable) {
+  const passkeys = new Set((auth?.passkeys ?? []).map((rp) => `webcredentials:${rp}`));
+  return (auth?.associatedDomains ?? []).map((d) => debuggable && passkeys.has(d) ? `${d}?mode=developer` : d);
+}
+
+/** What a macOS build of `app` says of its passkey lines, or refuses (LLP 1133.011 D6): `webcredentials:` is a
+ * restricted entitlement on macOS, which only a provisioning profile authorizes (TN3125), and signing a Mac build
+ * with one is not built. So the build signs no associated domain, its ceremonies fail `NotSupportedError`, and a
+ * release build with a passkey line is refused (`grant-needs-profile`). */
+export function macPasskeys(app, ceiling, { release = false, log = console.log } = {}) {
+  const ids = passkeyLines(ceiling);
+  if (!ids.length) return;
+  const lines = ids.map((rp) => `auth.passkey ${rp}`).join(', ');
+  const why = `the Associated Domains entitlement needs a macOS provisioning profile for ${app.id}, and signing a Mac build with one is not built yet (LLP 1133.010 D7)`;
+  if (release) throw new Error(`grant-needs-profile: ${lines}: ${why}.`);
+  log(`Passkeys: this build signs no associated domain, since ${why}: getClientCapabilities().available is false and create and get fail NotSupportedError.`);
+}

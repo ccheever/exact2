@@ -8,6 +8,7 @@
 //! `next_due` is not: like `then_due` it is cleared before its commit, and
 //! armed only by the scan ([`Runner::arm_next`]) after a commit concludes.
 
+use super::modules::CallOrigin;
 use super::*;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -22,6 +23,8 @@ pub const QUEUE_BOUND: usize = 64;
 pub(super) struct Waiting {
     source: String,
     args: Vec<Value>,
+    /// The origin of the commit that sent it, which its `next` runs under.
+    origin: CallOrigin,
 }
 
 /// The state a refused `next` saw. A standing commit that changes a slot,
@@ -119,9 +122,11 @@ impl<D: DataSource> Runner<D> {
                 mutation: self.plan.str(self.plan.mutations[m].name).to_string(),
             });
         }
+        let origin = self.call_origin();
         self.queues.waiting[m].push_back(Waiting {
             source: source.to_string(),
             args: args.to_vec(),
+            origin,
         });
         self.pending_mut[m] = true;
         Ok(())
@@ -201,7 +206,11 @@ impl<D: DataSource> Runner<D> {
         let name = self.plan.str(self.plan.mutations[m].name).to_string();
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(false);
-        let (result, refusal) = match self.next_inner(m, &name) {
+        let origin = self.queues.waiting[m]
+            .front()
+            .map_or(CallOrigin::App, |w| w.origin);
+        let next = self.as_origin(origin, |r| r.next_inner(m, &name));
+        let (result, refusal) = match next {
             Ok(receipt) => (Ok(receipt), None),
             Err((e, why)) => (Err(e), Some(why)),
         };
@@ -298,6 +307,25 @@ impl<D: DataSource> Runner<D> {
         self.update().map_err(other)
     }
 
+    /// Whether a send of `origin` waits its turn.
+    pub(super) fn queued_of(&self, origin: CallOrigin) -> bool {
+        (self.queues.waiting.iter()).any(|w| w.iter().any(|s| s.origin == origin))
+    }
+
+    /// Drop the waiting sends of `origin`, one journal line per mutation.
+    pub(super) fn drop_queued_of(&mut self, origin: CallOrigin) {
+        for m in 0..self.queues.waiting.len() {
+            let before = self.queues.waiting[m].len();
+            self.queues.waiting[m].retain(|s| s.origin != origin);
+            let n = before - self.queues.waiting[m].len();
+            if n > 0 {
+                let name = self.plan.str(self.plan.mutations[m].name).to_string();
+                self.log(super::lines::forgot_waiting(n, &name));
+            }
+        }
+        self.sync_pending_flags();
+    }
+
     /// Drop every waiting send — poison, or a reload that does not carry
     /// them (D4). They were never asked: no ticket, no source call, one
     /// journal line per mutation.
@@ -379,7 +407,7 @@ impl<D: DataSource> Runner<D> {
                 message: why.clone(),
                 reason: reason.clone(),
             });
-            self.log(super::lines::send_failed_now(&name(&self.plan), why));
+            self.alert(super::lines::send_failed_now(&name(&self.plan), why));
             self.end_write(m, None);
             return Ok(Asked::Failed);
         }
@@ -393,7 +421,7 @@ impl<D: DataSource> Runner<D> {
                     return Err(self.shape(name(&self.plan), &v, ty));
                 }
                 if let Err(why) = self.stage_sockets(m, staged) {
-                    self.log(super::lines::send_failed_now(&name(&self.plan), &why));
+                    self.alert(super::lines::send_failed_now(&name(&self.plan), &why));
                     self.end_write(m, None);
                     return Ok(Asked::Failed);
                 }
@@ -403,7 +431,7 @@ impl<D: DataSource> Runner<D> {
             }
             Answer::Later(_) if !staged.is_empty() => {
                 let why = "a socket mutation must answer synchronously";
-                self.log(super::lines::send_failed_now(&name(&self.plan), why));
+                self.alert(super::lines::send_failed_now(&name(&self.plan), why));
                 self.end_write(m, None);
                 Ok(Asked::Failed)
             }

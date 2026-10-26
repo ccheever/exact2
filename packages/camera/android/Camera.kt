@@ -129,8 +129,12 @@ class CameraModule(context: ExtensionContext) : ExactExtension(context) {
     }
 
     override fun destroyView(view: View) {
-        val id = views.entries.firstOrNull { it.value.view === view }?.key ?: return
-        views.remove(id)?.sub?.leave?.invoke()
+        val v = views.values.firstOrNull { it.view === view } ?: return
+        // The reader lets a hidden viewfinder's view go (`display: none`) and makes another when it shows again,
+        // under the same id: what the runner said of it stands, since it reports a `srcObject` it bound only once.
+        v.view = null
+        v.sub?.leave?.invoke()
+        v.sub = null
     }
 
     override fun displayed(session: String, id: String, shown: Boolean, origin: String) {

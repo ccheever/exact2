@@ -79,6 +79,84 @@ final class HDRColorTests: XCTestCase {
         #endif
     }
 
+    func testParagraphHeadroomIncludesEachExtendedPaintColor() throws {
+        let hdr = try XCTUnwrap(fourTimesWhite.textChannels(dark: false))
+        let run = Run(text: "Sample", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let plain = Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        XCTAssertEqual(plain.headroom, 0)
+        for field in 0..<6 {
+            var spec = plain
+            switch field {
+            case 0: spec.color = hdr
+            case 1: spec.shadow = [0, 0, 0] + hdr
+            case 2: spec.runs[0].color = hdr
+            case 3: spec.runs[0].background = hdr
+            case 4: spec.runs[0].shadow = [0, 0, 0] + hdr
+            default: spec.runs[0].stroke = [1] + hdr
+            }
+            XCTAssertEqual(spec.headroom, 4, accuracy: 0.001, "paint field \(field)")
+        }
+    }
+
+    func testDrawnTextHeadroomStaysLazyAndFollowsStyleTextAndFlowChanges() throws {
+        let presenter = Presenter()
+        let node = NodeView(id: 1, kind: "text", presenter: presenter)
+        presenter.views[node.id] = node
+        node.props = ["text": "Sample"]
+        let flow: [[String: Any]] = [["kind": "Circle", "cx": 0, "cy": 1000, "r": 10]]
+        node.applyFlow(flow)
+        node.frame = CGRect(x: 0, y: 0, width: 80, height: 24)
+        XCTAssertNil(node.cachedTextSpec)
+        XCTAssertEqual(node.drawnHeadroom(drawing: false), 0)
+        XCTAssertNil(node.cachedTextSpec, "a range query outside drawing does not shape text")
+        for _ in 0..<2 { XCTAssertEqual(node.drawnHeadroom(drawing: true), 0) }
+        XCTAssertNotNil(node.cachedTextSpec)
+        #if os(macOS)
+        XCTAssertTrue(node.textIsSmall)
+        #endif
+        presenter.apply(wireBatch([["op": "style", "id": 1, "style": ["text_color": fourTimesWhite.any]]]))
+        XCTAssertNil(node.cachedTextSpec)
+        for _ in 0..<2 { XCTAssertEqual(node.drawnHeadroom(drawing: true), 4, accuracy: 0.001) }
+        #if os(macOS)
+        XCTAssertFalse(node.textIsSmall, "small HDR text still needs a raster")
+        #endif
+        presenter.apply(wireBatch([["op": "props", "id": 1, "set": ["text": "Changed"]]]))
+        XCTAssertNil(node.cachedTextSpec)
+        XCTAssertEqual(node.drawnHeadroom(drawing: false), 0)
+        XCTAssertNil(node.cachedTextSpec)
+        XCTAssertEqual(node.drawnHeadroom(drawing: true), 4, accuracy: 0.001)
+        XCTAssertEqual(node.paragraphSpec().runs.map(\.text).joined(), "Changed")
+        for shapes in [[], flow] {
+            node.applyFlow(shapes)
+            XCTAssertNil(node.cachedTextSpec)
+            XCTAssertEqual(node.drawnHeadroom(drawing: true), 4, accuracy: 0.001)
+        }
+        presenter.apply(wireBatch([["op": "style", "id": 1, "style": ["text_color": [255, 255, 255, 255]]]]))
+        XCTAssertEqual(node.drawnHeadroom(drawing: true), 0)
+        #if os(macOS)
+        XCTAssertTrue(node.textIsSmall)
+        #endif
+    }
+
+    #if os(macOS)
+    func testDrawnTextHeadroomFollowsEffectiveAppearance() throws {
+        let presenter = Presenter()
+        let node = NodeView(id: 1, kind: "text", presenter: presenter)
+        node.props = ["text": "Sample"]
+        node.applyFlow([["kind": "Circle", "cx": 0, "cy": 1000, "r": 10]])
+        node.frame = CGRect(x: 0, y: 0, width: 80, height: 24)
+        let pair: BatchValue = ["cs": [["s": "srgb-linear", "v": [1, 1, 1, 1]], ["s": "srgb-linear", "v": [4, 4, 4, 1]]],
+                                "c": [[255, 255, 255, 255], [255, 255, 255, 255]]]
+        node.applyStyle(["text_color": pair])
+        presenter.root.addSubview(node)
+        for (appearance, peak): (NSAppearance.Name, Float) in [(.aqua, 1), (.darkAqua, 4), (.aqua, 1)] {
+            node.appearance = NSAppearance(named: appearance)
+            XCTAssertEqual(node.drawnHeadroom(drawing: true), peak, accuracy: 0.001)
+            XCTAssertEqual(node.textIsSmall, peak <= 1)
+        }
+    }
+    #endif
+
     /// A text layer, a border or a shadow, and an SVG scene's shapes take the
     /// node's limit for their HDR colours; SDR ones stay standard.
     func testEveryPaintLayerTakesTheLimit() throws {

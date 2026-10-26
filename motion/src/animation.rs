@@ -26,6 +26,10 @@ pub const MAX_ANIMATIONS: usize = 8;
 /// Most keyframes one `@keyframes` rule may hold.
 pub const MAX_KEYFRAMES: usize = 32;
 
+/// Most values one keyframe declares: one per property, and one per axis
+/// of a `font-variation-settings`.
+pub const MAX_VALUES: usize = Property::COUNT + parse::MAX_AXES - 1;
+
 /// `animation-direction`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
@@ -115,6 +119,16 @@ pub struct Keyframe {
 }
 
 impl Keyframe {
+    /// The `font-variation-settings` axes it sets, sorted.
+    pub fn axis_tags(&self) -> Vec<u32> {
+        let mut tags: Vec<u32> = (self.values.iter())
+            .filter(|(p, _)| *p == Property::FontVariationSettings)
+            .map(|(_, v)| v.axis_tag())
+            .collect();
+        tags.sort_unstable();
+        tags
+    }
+
     /// A property's value under an appearance.
     fn get(&self, property: Property, dark: bool) -> Option<Value> {
         let own =
@@ -233,6 +247,7 @@ impl Keyframes {
             return Err(AnimationError::TooManyKeyframes);
         }
         let mut last = 0.0;
+        let mut axes: Option<Vec<u32>> = None;
         for frame in self.0.iter() {
             if !frame.offset.is_finite() {
                 return Err(AnimationError::NonFinite);
@@ -247,11 +262,17 @@ impl Keyframes {
             if let Some(e) = &frame.easing {
                 e.validate().map_err(AnimationError::Easing)?;
             }
-            if frame.values.len() > Property::ALL.len() {
+            if frame.values.len() > MAX_VALUES {
                 return Err(AnimationError::TooManyKeyframes);
             }
             for (i, (p, v)) in frame.values.iter().enumerate() {
-                if frame.values[..i].iter().any(|(q, _)| q == p) {
+                // One value per property; `font-variation-settings` has one
+                // per axis.
+                let twice = |(q, w): &(Property, Value)| {
+                    q == p
+                        && (*p != Property::FontVariationSettings || w.axis_tag() == v.axis_tag())
+                };
+                if frame.values[..i].iter().any(twice) {
                     return Err(AnimationError::TooManyKeyframes);
                 }
                 if !v.is_finite() {
@@ -269,6 +290,20 @@ impl Keyframes {
                 };
                 if half.is_some_and(|h| !frame.values.iter().any(|(q, _)| *q == h)) {
                     return Err(AnimationError::NotAnimatable(*p));
+                }
+            }
+            // Axes interpolate one by one (CSS Fonts 4 §7.2), so every
+            // keyframe that sets them names the same ones.
+            let tags = frame.axis_tags();
+            if !tags.is_empty() {
+                match &axes {
+                    Some(first) if *first != tags => {
+                        return Err(AnimationError::NotAnimatable(
+                            Property::FontVariationSettings,
+                        ))
+                    }
+                    Some(_) => {}
+                    None => axes = Some(tags),
                 }
             }
             for (i, (p, v)) in frame.dark.iter().enumerate() {

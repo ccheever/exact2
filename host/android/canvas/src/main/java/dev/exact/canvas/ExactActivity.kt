@@ -482,6 +482,13 @@ open class ExactActivity : Activity() {
         Extensions.permissionsResult(requestCode)
     }
 
+    /** An activity an extension started for its result ([ExtensionContext.startActivityForResult], LLP 1133.018 D13
+     * item 2). */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        Extensions.activityResult(requestCode, resultCode, data)
+    }
+
     override fun onDestroy() {
         pads.release()
         accessibility.removeAccessibilityStateChangeListener(accessWatch)

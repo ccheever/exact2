@@ -110,7 +110,11 @@ diagnostics, including related locations, before making the next repair. Each ha
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
 bar hides (`lower-header-unplaced`), a route's `header` a box below the route,
-which iOS leaves in the page (`lower-header-nested`), a content heading that says the bar's title
+which iOS leaves in the page (`lower-header-nested`), a heading header at the head of
+an app with no navigation route (`lower-header-routeless`: a lone `navigationKey`
+is only a root; add a navigation root holding
+a separately keyed screen whose first child is the header, or give the header
+`appearance="none"` to keep it drawn as written on iOS), a content heading that says the bar's title
 again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
@@ -150,7 +154,7 @@ by exact name with `symbols file.contract --name name`.
 After compiling, build and drive the actual app. From an `exact new` app:
 
 ```sh
-bun exact.mjs test web                          # app.test.contract; builds a stale web app first
+bun exact.mjs test web                          # the app's *.test.contract; builds a stale web app first
 bun exact.mjs agent web tree "tap add" state logs "screenshot out.png"
 bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized viewport
 ```
@@ -657,6 +661,13 @@ Children may hold state, derives, and actions. They cannot declare resources,
 mutations, or tasks. Lift shared data requests to the root and pass values and
 actions. A child used under `for` owns row state keyed to that row's identity.
 Stable keys matter when content is inserted, removed, filtered, or reordered.
+
+A root that has outgrown the 1,500-line cap keeps its members and moves them
+into files by feature: `members "./composer.contract"` in its body, and in that
+file a `members App` block of states, derives, resources, mutations, actions,
+tasks and sequences. The program is the one-file program, and every file sees
+every member; each file `use`s the shapes and `fn`s it calls
+(`docs/contract-grammar.md`, "Components and actions").
 
 A state cannot start from a resource, but a child's state can start from a prop.
 So a form that edits a saved record is a child made once the record is in: the
@@ -1555,6 +1566,13 @@ the existing platform default. `buttonStyle="glass"` on a bar button gives it a
 glass capsule of its own (`sharesBackground = false`), one for each button so styled. The wrappers remain ordinary layout on the web;
 this adds no spacing value or custom button face.
 
+A heading of only white space is no title on iOS, and a large title that starts empty
+takes no height. To keep that height while the words load, write the heading as
+`text "\u{200B}" role="heading" aria-level=1 color="transparent"`, the colour on the
+heading itself (UIKit draws U+200B alone as quotation marks), and drop the colour when
+the words arrive. Before iOS 26 a route pushed over it with no back control of its own
+shows that title on its Back button.
+
 The bar shows a header's heading, the first text after it (its subtitle), one search
 field, one tablist and its buttons; anything else in the header is not shown on iOS. A
 menu or `dialog` written in the header is its opener's, as on the web, not bar buttons.
@@ -1657,7 +1675,11 @@ nothing (the web and Apple journal `image refused`). Shrink a picked photo for a
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
 upright JPEG with no location metadata (`type: "image/png"` writes a PNG that
 keeps transparency; [reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
-Linux answers `unsupported`. Upload a file with `fetch(url, {method: "POST", headers:
+Linux answers `unsupported`. Save an edit (a turn, a flip, a crop, a size) with
+`storage.fs.transformImage(path, to, {rotate, crop})`, which keeps the photo's colour,
+HDR and metadata where the host can and says what it wrote
+([reference](reference.md#save-an-edit-of-a-photo-storagefstransformimage));
+`compressImage` takes `rotate`, `flip` and `crop` too. Upload a file with `fetch(url, {method: "POST", headers:
 {"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
 reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
 through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Keep a picked photo by copying it to
@@ -1989,6 +2011,13 @@ component Editor
       textarea id="editor" value=body input=edit select=selected markup="markdown"
       text body markup="markdown"
 ```
+
+Mentions, tags and citations drawn as pills in that editor and reader are
+inline atoms: declare `atom` kinds by their source form, list them in `atoms=`,
+give each source a face with `atomFaces=` and hear `atompress=`
+([inline atoms](contract-grammar.md#inline-atoms-atom-atoms-atomfaces-atompress)).
+Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
+editor keeps a caret out of an atom and deletes it whole.
 
 Choose a colour by what it means, not by how it looks. **The accent is for
 what the user can act on**: a link, a plain button's title or symbol, a filled
@@ -2463,7 +2492,9 @@ target's `key` handler when called there. `preventDefault()` keeps the field
 from editing. The container gains no Tab stop from `keycapture` alone.
 
 `key` is the DOM's keydown and `keyup` its keyup; an action that takes it hears
-a `KeyboardEvent` (`metaKey`, `code`, `repeat`, …). Track a held modifier as a
+a `KeyboardEvent` (`metaKey`, `code`, `repeat`, `isComposing`, …). An Enter or
+Escape handler at a field skips `e.isComposing`, as web code does: on the web
+the Enter that picks an input method's candidate arrives composing. Track a held modifier as a
 page does: set it from the event on every keydown and keyup, and forget it when
 the window loses the focus, since a key let go in another app sends no keyup
 (the page's `window` `blur`). `exactPage().hasFocus` turning false gates the task
@@ -2881,6 +2912,9 @@ alerts move to the trailing side of a book fold and can move to the top of a lap
 fold, and that action sheets, menus and popovers move clear too, which was not
 measured.
 
+A route moved off a window edge is still padded as if it reached it: its top on a
+laptop fold, its right on a book fold's segment 0.
+
 ## Inspection and testing
 
 On Apple development builds, an `iframe`'s web content is inspectable from
@@ -3082,6 +3116,12 @@ between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
 video plays that far (its `timeupdate`s arrive), and a reply that lands in the
 span lands (LLP 1042 §3).
+`clock +N real until <path>` is a test harness's affordance, not something an app
+drive needs: the same real time with the clock beside it, ended early once the
+file at `<path>` (a local path, not a URL or a glob; its directory must exist)
+exists, which the harness driving the drive writes at the event it waits for. The
+clock moves by exactly the real time gone, and the reply says `until: "met"` (at
+once, `real: 0`, when the file is there already) or `until: "bound"` after N ms.
 Under the driver a picker, an export, a share or an auth session opens no panel:
 it is held and `state` lists it under `pending` with its capability. Answer it by
 the node its answer arrives at (the `id` the command names) or by its capability:
@@ -3225,7 +3265,11 @@ go back from fails),
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
 a record's fields (`board.active.present`) or a list index (`rows.0`), and the
-number may be negative (`== -3`). A failed expect names any resource that
+number may be negative (`== -3`). `expect wakelock held|released` reads
+`state.wakelock.held`: the runner's record of displayed elements requesting the
+lock, not whether the OS or browser granted it. A mismatch names the holding
+view ids and their testIds when present, or says nothing holds it.
+A failed expect names any resource that
 failed, and why; with no input before it, the requests still in flight (the boot's
 own, or what a `clock +N` left on real time). An input step ends with what it settled: an answer the data
 module gave in the input's turn, and its mutation's `then`, are there for the
@@ -3287,7 +3331,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | A `button` inside a `button`, as a React Native `Pressable` in another (`lower-nested-button`): a press is the inner one's alone, but the outer's accessible name reads both ("Note Listen") | A `row` of the outer's content as one `button` (`flex=1`) and the inner one beside it |
 | A heading at the top of a route's content that says its `header` heading again, which shows twice under the iOS bar (`lower-title-twice`) | Drop it; the bar's title names the screen. A heading below names a section: `text "Results" role="heading" aria-level=2` |
 | An SVG `use` whose literal `href="#id"` targets a `foreignObject` or a subtree containing one (`lower-svg-use-foreign-object`). Only unconditional literal SVG ids from one source definition resolve. Repeated copies must all contain a `foreignObject`; a conditional copy, a copy without one, ids from different source definitions, dynamic hrefs and dynamic ids stay quiet. References inside the target are not followed | A `foreignObject` draws nothing through `use`. Place it directly in the SVG for the web; native hosts refuse it. For content on every host, position an ordinary box over the SVG |
-| A list and its detail (or a form) swapped by `if showingDetail` / `else`, each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
+| A list and its detail (or a form) swapped by `if showingDetail` / `else` or complementary sibling `if`s (also with the same viewport-only `or` term), each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
 | `column padding=24 width="100%"`, as wide as its parent's content plus the padding: it runs past the screen's right side (`lower-width-padding`) | Drop the width (a block or a stretched flex item fills its parent), or `box-sizing="border-box"` |
 | An absolute width ceiling containing scalable text stays bounded at accessibility sizes (`lower-text-px-width`). The lint follows `width` and `max-width` through their bounds: a fixed maximum alone caps growth; a minimum alone does not. A fixed minimum can override a smaller cap, but a growing or unknown minimum makes the lint stay silent. Absolute lengths include numbers, px, pt and absolute `calc()`; `em` is fixed against an authored absolute font. Flex can supersede width on a row’s main axis; zero grow with an auto basis keeps its ceiling, and flex does not size a column child’s width. Effective classes, declaration order and parent direction count. Unresolved classes and uncertain sizing stay silent. A computed display leaves the node uncertain but its children are still checked; known-hidden subtrees are skipped. Text in absolute positioning, popovers and dialogs is checked inside that subtree, without counting against enclosing boxes. Text inherits the platform root font. Native Apple controls use the Apple control font, which can scale with Dynamic Type; web controls inherit, and Linux control defaults are fixed. An absolute font size stops scaling within that boundary; `inherit` and `unset` use the parent font even on controls. The warning reads lowering’s grouped-list typography and checks layout boxes containing text runs or text fields, including HTML inside SVG `foreignObject`; an inline run’s own width does not constrain its paragraph | Express the width and its bounds in `rem`, such as `width="3rem"` or `max-width="3rem"`, so they follow the root font, or let the content determine the width |
 | `text "Results" aria-level=2`, a level with no role, which is no heading to a screen reader on any platform, gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
@@ -3741,10 +3785,18 @@ browser's 16). A `text role="heading"` with no `font-size` or `font-weight` of
 its own is the platform's text style for its `aria-level` (LLP 1115 D3): 1
 `title1`, 2 (the default) `title2`, 3 `title3`, 4 and on `headline`, sized for
 the reader's Dynamic Type by Apple's own ramp (iOS at the default size:
-28/22/20/17 pt, levels 1 and 2 bold and 3 semibold as Apple's emphasized titles, `headline`
-semibold; the Mac: 22/17/15/13, `headline` bold; the web reads the ramp at its
-16 px root: 27/21/19/16, in `rem`). So omit `font-size` on headings; a written
-`font-size` or `font-weight` on the heading wins, an inherited one does not.
+28/22/20/17 pt; the Mac: 22/17/15/13; the web reads the ramp at its
+16 px root: 27/21/19/16, in `rem`). iOS, macOS and Material keep each style's
+weight and leading. The web, neutral and terminal looks use bold for levels 1
+and 2, semibold for 3. Omit heading sizes and weights unless customizing them.
+An authored `font`, `font-size` or `font-weight` wins; an inherited one does not.
+
+Native navigation bars and grouped-list headers own title typography and spacing.
+On iOS, a route's level-1 heading gives a large navigation title; other levels
+give an inline title. Set UIKit's `largeTitleDisplayMode` through a native access
+hatch to change presentation while keeping the semantic rank. Check the host's
+implementation for its supported APIs.
+
 Other text takes a style by name with `font`, as WebKit's
 `font: -apple-system-headline`: `font="-exact-footnote"` (or
 `"-apple-system-footnote"`) sets the style's size and a `normal` font style, and
@@ -3948,8 +4000,9 @@ alerts), and `@exact/actions`' `actions.reply`, `actions.repost`,
 has no `sf`, so Apple draws the same path as the web. Still paths, as no
 template can draw them yet (QUEUE): ComposeFrame's gallery, camera and GIF,
 `BarItem`'s and `HeaderButton`'s icons and AtCard's Attie mark fill even-odd
-(a template fills nonzero), and the verified and verifier badges are two
-colours (a template is one).
+(a template takes `fill-rule="evenodd"` since stage 14 C2; they move to tokens
+in a later change), and the verified and verifier badges are two colours (a
+template is one).
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into

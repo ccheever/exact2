@@ -43,13 +43,20 @@ pub enum BlockAxis {
     /// An automatic size fits its content under this limit. An authored
     /// size or minimum may exceed it; percentages still use this basis.
     Fit(f32),
+    /// The region a box is placed in, CSS's inset-modified containing block
+    /// for a `position-area` (a popover's option, LLP 1021 D2): across, an
+    /// automatic size is `fit-content` in it, its content's min-content
+    /// winning where that is wider; down, its content's height, which may
+    /// overflow it (whether it does is what picks the option). Percentages
+    /// use it, and an authored size is the author's.
+    Region(f32),
 }
 
 impl BlockAxis {
     /// The length the host gave, the size or the maximum.
     pub fn length(self) -> f32 {
         match self {
-            BlockAxis::Is(v) | BlockAxis::AtMost(v) | BlockAxis::Fit(v) => v,
+            BlockAxis::Is(v) | BlockAxis::AtMost(v) | BlockAxis::Fit(v) | BlockAxis::Region(v) => v,
         }
     }
 }
@@ -254,21 +261,29 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
             *margin = Lpa::length(0.0);
         }
     };
-    if let BlockAxis::AtMost(most) | BlockAxis::Fit(most) = block.width {
+    // A region sets no ceiling: the engine sizes an absolutely positioned
+    // box with no inset as `fit-content` in its available width, which the
+    // block's length is, min-content winning, and down as its content.
+    let capped = |axis: BlockAxis, auto: bool| match axis {
+        BlockAxis::AtMost(_) => true,
+        BlockAxis::Fit(_) => auto,
+        BlockAxis::Is(_) | BlockAxis::Region(_) => false,
+    };
+    if let BlockAxis::AtMost(most) | BlockAxis::Fit(most) | BlockAxis::Region(most) = block.width {
         unplaced(&mut s.inset.left, &mut s.margin.left);
         unplaced(&mut s.inset.right, &mut s.margin.right);
         if in_flow {
             s.position = Position::Absolute;
             (s.inset.top, s.inset.bottom) = (Lpa::auto(), Lpa::auto());
         }
-        if matches!(block.width, BlockAxis::AtMost(_)) || s.size.width.is_auto() {
+        if capped(block.width, s.size.width.is_auto()) {
             s.max_size.width = ceiling(most, edges.horizontal_axis_sum(), s.max_size.width, most);
         }
     }
-    if let BlockAxis::AtMost(most) | BlockAxis::Fit(most) = block.height {
+    if let BlockAxis::AtMost(most) | BlockAxis::Fit(most) | BlockAxis::Region(most) = block.height {
         unplaced(&mut s.inset.top, &mut s.margin.top);
         unplaced(&mut s.inset.bottom, &mut s.margin.bottom);
-        if matches!(block.height, BlockAxis::AtMost(_)) || s.size.height.is_auto() {
+        if capped(block.height, s.size.height.is_auto()) {
             s.max_size.height = ceiling(most, edges.vertical_axis_sum(), s.max_size.height, most);
         }
     }
@@ -297,8 +312,8 @@ impl Kernel {
             }
             let refused = if self.arena.is_root(slot) {
                 Some("a root is laid out in its offer")
-            } else if self.arena.is_inline_run(slot) {
-                Some("an inline run has no box")
+            } else if self.arena.in_paragraph(slot) {
+                Some("an inline run or image has no box of its own")
             } else if self.region.is_some() {
                 Some("no block while a content region is registered")
             } else {
@@ -325,9 +340,25 @@ impl Kernel {
     /// in the region's trial (QUEUE, "A popover under a registered content
     /// region").
     pub(super) fn imply_blocks(&mut self) {
+        let (wants, moved) = self.implied_changes();
+        for (slot, want) in wants {
+            let before = self.arena.blocks.get(slot);
+            self.arena.blocks.imply(slot, want);
+            self.block_changed(slot, before);
+        }
+        // A block moved under a box replaced whole, or out from under one
+        // (its ancestors reparented), is styled again: `apply` reads that.
+        for slot in moved {
+            self.restyle_block(slot);
+        }
+    }
+
+    /// What `imply_blocks` would change: each box whose implied block is
+    /// to be another, and each block root to be styled again.
+    fn implied_changes(&self) -> (Vec<(u32, Option<HostBlock>)>, Vec<u32>) {
         let arena = &self.arena;
         if arena.top_layer_slots.is_empty() && !arena.blocks.any() {
-            return;
+            return (Vec::new(), Vec::new());
         }
         let (env, lifted) = (arena.env(), &arena.top_layer_slots);
         let (width, height) = (env.viewport_width, env.viewport_height);
@@ -346,28 +377,18 @@ impl Kernel {
                 // registered content region stays in the region's trial
                 // (theme2 09:54; the native region captures it: QUEUE).
                 let boxed = !arena.is_root(slot)
-                    && !arena.is_inline_run(slot)
+                    && !arena.in_paragraph(slot)
                     && arena.cover(slot) != Some(super::HostCover::Whole)
                     && region.is_none_or(|owner| !arena.is_ancestor(owner, slot));
                 (slot, viewport.filter(|_| lifted.contains(slot) && boxed))
             })
             .filter(|&(slot, want)| arena.blocks.implied(slot) != want)
             .collect();
-        for (slot, want) in wants {
-            let before = self.arena.blocks.get(slot);
-            self.arena.blocks.imply(slot, want);
-            self.block_changed(slot, before);
-        }
-        // A block moved under a box replaced whole, or out from under one
-        // (its ancestors reparented), is styled again: `apply` reads that.
-        let arena = &self.arena;
         let moved: Vec<u32> = (arena.blocks.0.iter())
             .filter(|b| b.buried != replaced_above(arena, b.slot))
             .map(|b| b.slot)
             .collect();
-        for slot in moved {
-            self.restyle_block(slot);
-        }
+        (wants, moved)
     }
 
     /// `slot`'s block root styled again, as its block or what is above it
@@ -634,15 +655,98 @@ impl Kernel {
         ) else {
             return (0.0, 0.0);
         };
-        let l = tree.layout(node);
-        let axis = |axis: BlockAxis, end: f32| match axis {
-            BlockAxis::Is(length) => length,
-            BlockAxis::AtMost(most) => end.clamp(0.0, most),
-            BlockAxis::Fit(_) => end.max(0.0),
-        };
-        (
-            axis(block.width, l.location.x + l.size.width + l.margin.right),
-            axis(block.height, l.location.y + l.size.height + l.margin.bottom),
-        )
+        used_in(block, &tree.layout(node))
     }
+
+    /// The used size `view`'s subtree would have in `block`, had its host
+    /// given that block instead of the one it holds: what `host_block_size`
+    /// would read after `set_host_block` and a layout, with the margins that
+    /// layout resolved (a percentage is of the block). A host weighing
+    /// several blocks for one box (a popover's position-area options, each
+    /// its own region) measures each, then gives the one it chose.
+    ///
+    /// The subtree is laid out as its block's root is, by the same path
+    /// (`layout::compute`: the engine, flow and fragment settling, fitting,
+    /// publication), in a copy of the arena and engine tree that is dropped
+    /// after: no block, frame or engine record the kernel holds changes,
+    /// and the next layout does what it would have done. Only the text
+    /// measurer, whose answers are a pure function of their inputs, may
+    /// remember what it was asked. `view` must hold a block (its host's, or
+    /// a top-layer box's viewport); zero where that layout would hide it,
+    /// as `host_block_size` reads then.
+    pub fn measure_block(
+        &mut self,
+        view: ViewId,
+        block: HostBlock,
+    ) -> Result<BlockMeasure, KernelError> {
+        let slot = self
+            .arena
+            .slot_of(view)
+            .ok_or(LayoutError::UnknownView(view))?;
+        let lengths = [block.width.length(), block.height.length()];
+        if !lengths.iter().all(|l| l.is_finite() && *l >= 0.0) {
+            return Err(LayoutError::InvalidOffer.into());
+        }
+        if !self.arena.blocks.holds(slot) {
+            return Err(
+                LayoutError::HostBlock("only a block's root is measured in a block").into(),
+            );
+        }
+        let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref);
+        let (Some(node), Some(tree)) = (self.arena.taffy(slot), tree) else {
+            return Err(LayoutError::HostBlock("not laid out yet").into());
+        };
+        // What only the kernel's next layout prepares, before it lays out,
+        // is not a trial's to do: a block to imply or restyle, a symbol to
+        // size; nor is a change under the root since the last layout (a
+        // text edit), which a measurer holding what that layout showed
+        // would take as the text it shows. Until that layout the host
+        // places by the last one.
+        let (wants, moved) = self.implied_changes();
+        if !wants.is_empty() || !moved.is_empty() || self.symbols_pending() || tree.is_dirty(node) {
+            return Err(LayoutError::HostBlock("a layout is due first").into());
+        }
+        let (mut arena, mut trial) = (self.arena.trial_copy(), tree.clone());
+        arena.blocks.set(slot, Some(block));
+        trial.restyle(&arena, slot, node);
+        trial.mark_dirty(node);
+        let offer = Offer::definite(lengths[0], lengths[1]);
+        layout::compute(&mut arena, &mut trial, self.measurer.as_mut(), slot, offer)?;
+        if arena.flags(slot).has(NodeFlags::HIDDEN) {
+            return Ok(BlockMeasure::default());
+        }
+        let l = trial.layout(node);
+        Ok(BlockMeasure {
+            used: used_in(block, &l),
+            border: (l.size.width, l.size.height),
+            margin: [l.margin.top, l.margin.right, l.margin.bottom, l.margin.left],
+        })
+    }
+}
+
+/// What `Kernel::measure_block` answers: the used size, the border box, and
+/// the margins, top, right, bottom and left, as the layout resolved them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BlockMeasure {
+    /// The used size, as `host_block_size` reads it.
+    pub used: (f32, f32),
+    /// The border box's width and height.
+    pub border: (f32, f32),
+    /// The margins, top, right, bottom and left.
+    pub margin: [f32; 4],
+}
+
+/// A block root's used size from its engine layout: the given length where
+/// the block is the size, and where it is a maximum or a fit its border box
+/// and margins, clamped only for `AtMost`.
+fn used_in(block: HostBlock, l: &taffy::tree::Layout) -> (f32, f32) {
+    let axis = |axis: BlockAxis, end: f32| match axis {
+        BlockAxis::Is(length) => length,
+        BlockAxis::AtMost(most) => end.clamp(0.0, most),
+        BlockAxis::Fit(_) | BlockAxis::Region(_) => end.max(0.0),
+    };
+    (
+        axis(block.width, l.location.x + l.size.width + l.margin.right),
+        axis(block.height, l.location.y + l.size.height + l.margin.bottom),
+    )
 }

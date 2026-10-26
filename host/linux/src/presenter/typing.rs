@@ -473,7 +473,9 @@ impl<D: DataSource> Presenter<D> {
     /// or none at all — a negative one is focusable but skipped — shown,
     /// not inert, with a box (display: none and `hidden` have none).
     pub(super) fn tabbable(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
-        self.focus_stop(id, boxed) && self.radio_tab_stop(id)
+        self.focus_stop(id, boxed)
+            && self.radio_tab_stop(id)
+            && (!self.alert_message(id) || self.alert_message_overflows(id))
     }
 
     /// A Tab stop but for HTML's one stop to a radio group: every enabled
@@ -496,7 +498,20 @@ impl<D: DataSource> Presenter<D> {
     /// wrapping, and from no focus, or one out of the order, to the first
     /// (Shift: the last). A `key` handler's `preventDefault()` keeps Tab.
     pub(crate) fn move_focus(&mut self, backward: bool, now_ms: f64) -> Option<String> {
-        let boxed = self.shown_boxes();
+        self.move_focus_filtered(backward, now_ms, |_, _| true)
+    }
+
+    pub(super) fn move_focus_filtered(
+        &mut self,
+        backward: bool,
+        now_ms: f64,
+        include: impl Fn(&Self, ViewId) -> bool,
+    ) -> Option<String> {
+        let boxed = self
+            .shown_boxes()
+            .into_iter()
+            .filter(|id| include(self, *id))
+            .collect();
         self.move_focus_in(backward, now_ms, &boxed)
     }
 

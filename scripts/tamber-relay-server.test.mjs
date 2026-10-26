@@ -319,6 +319,54 @@ test('R4\'s lines on loopback (scripts/tamber-relay-gate.mjs): every one met', a
   expect(results.length).toBe(7);
 }, 120_000);
 
+test('the gate against a deployed relay (R4) reads it from the environment: the tokens from their files, two labels', async () => {
+  const { deployedRelay } = await import('./tamber-relay-gate.mjs');
+  expect(deployedRelay({})).toBe(null);
+  const home = mkdtempSync(join(tmpdir(), 'exact-gate-home-'));
+  try {
+    const { mkdirSync } = await import('node:fs');
+    for (const l of ['alpha', 'beta']) { mkdirSync(join(home, '.exact', 'relay', l), { recursive: true }); writeFileSync(join(home, '.exact', 'relay', l, 'token'), `${l}-token\n`, { mode: 0o600 }); }
+    const d = deployedRelay({ RELAY_GATE_DOMAIN: 'Relay.Example', RELAY_GATE_RELAY: '127.0.0.1:18443', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home);
+    expect([d.domain, d.host, d.port, d.labels, d.tokens, d.certs, d.ca]).toEqual(['relay.example', '127.0.0.1', 18443, ['alpha', 'beta'], { alpha: 'alpha-token', beta: 'beta-token' }, null, undefined]);
+    expect(deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home).port).toBe(443);
+    expect(() => deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_ACCOUNTS: 'alpha,alpha' }, home)).toThrow('two labels');
+    expect(() => deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example' }, home)).toThrow(/acct/);
+    expect(deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_RELAY: '[::1]:8443', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home)).toMatchObject({ host: '::1', port: 8443 });
+    const { chmodSync } = await import('node:fs');
+    chmodSync(join(home, '.exact', 'relay', 'beta', 'token'), 0o644);
+    expect(() => deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_ACCOUNTS: 'alpha,beta' }, home)).toThrow('chmod 600');
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('the gate\'s deployed mode, against a relay of its own with certificates from a CA of its own: every line met', async () => {
+  const { deployedRelay, gate } = await import('./tamber-relay-gate.mjs');
+  const { spawnSync } = await import('node:child_process');
+  const { mkdirSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'exact-gate-deployed-'));
+  let relay = null;
+  try {
+    const ssl = (...a) => { const r = spawnSync('openssl', a, { cwd: dir, encoding: 'utf8' }); if (r.status !== 0) throw new Error(r.stderr); };
+    ssl('req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-days', '2', '-subj', '/CN=gate CA', '-keyout', 'ca.key', '-out', 'ca.pem');
+    const issue = (name, san) => {
+      ssl('req', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-subj', `/CN=${san}`, '-keyout', `${name}.key.pem`, '-out', `${name}.csr`);
+      writeFileSync(join(dir, `${name}.ext`), `subjectAltName=DNS:${san}\n`);
+      ssl('x509', '-req', '-in', `${name}.csr`, '-CA', 'ca.pem', '-CAkey', 'ca.key', '-CAcreateserial', '-days', '2', '-extfile', `${name}.ext`, '-out', `${name}.cert.pem`);
+    };
+    issue('relay', 'relay.example'); issue('alpha', '*.alpha.relay.example'); issue('beta', '*.beta.relay.example');
+    const home = join(dir, 'home'), tokens = { alpha: 'alpha-token-0123456789abcdef', beta: 'beta-token-0123456789abcdef' };
+    for (const l of ['alpha', 'beta']) { mkdirSync(join(home, '.exact', 'relay', l), { recursive: true }); writeFileSync(join(home, '.exact', 'relay', l, 'token'), tokens[l], { mode: 0o600 }); }
+    const sha = t => createHash('sha256').update(t).digest('hex');
+    writeFileSync(join(dir, 'accounts.json'), JSON.stringify({ accounts: { alpha: { token_sha256: sha(tokens.alpha) }, beta: { token_sha256: sha(tokens.beta) } }, revoked: [] }));
+    relay = relayServer({ domain: 'relay.example', listen: '127.0.0.1:0', tls: { cert: readFileSync(join(dir, 'relay.cert.pem'), 'utf8'), key: readFileSync(join(dir, 'relay.key.pem'), 'utf8') }, accounts: join(dir, 'accounts.json'), dns: { publish: async () => {}, clear: async () => {} } }, { log: () => {} });
+    const port = await relay.listen();
+    const deployed = deployedRelay({ RELAY_GATE_DOMAIN: 'relay.example', RELAY_GATE_RELAY: `127.0.0.1:${port}`, RELAY_GATE_ACCOUNTS: 'alpha,beta', RELAY_GATE_CA: join(dir, 'ca.pem'), RELAY_GATE_CERTS: dir }, home);
+    const said = [];
+    const results = await gate({ say: l => said.push(l), deployed });
+    expect(results.filter(r => !r.met).map(r => r.gate), said.join('\n')).toEqual([]);
+    expect(results.length).toBe(7);
+  } finally { await relay?.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 120_000);
+
 test('round 1: a hostile hello, cut and flipped anywhere, is never read past its record and never throws', async () => {
   const named = await helloTo('s1-tool.acct.relay.test');
   let seed = 7;

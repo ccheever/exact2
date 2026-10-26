@@ -38,14 +38,27 @@ use std::collections::{BTreeMap, BTreeSet};
 mod admit;
 mod agent;
 mod bound;
+mod ceremony;
+mod declared;
+mod events;
+mod fed;
 mod handles;
+mod invoke;
+mod permits;
+mod pictures;
 mod poll;
 mod presence;
+mod samples;
 mod views;
+mod wakes;
 pub use admit::CallOrigin;
 use admit::{Origins, Route};
+pub use declared::AppState;
+pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
 use std::sync::{Arc, Mutex};
+pub use wakes::WakeHow;
+pub(super) use wakes::TOLD;
 
 /// The continuation tokens the runner keeps for its held module requests:
 /// a data source's count up from zero, far below, and its reserved ones
@@ -73,6 +86,13 @@ pub(super) struct Extensions {
     agent: BTreeSet<String>,
     /// The bound live sources that have had a reader, until released.
     live: BTreeSet<String>,
+    /// What the declared substitute keeps (LLP 1133.004 §7): keyed lists,
+    /// values, and the effects held on a permission ticket.
+    declared: declared::Declared,
+    /// Module events not yet heard (D6).
+    pub(super) events: events::Events,
+    /// Wakes, running and to come (LLP 1133.017 D5).
+    wakes: wakes::Wakes,
     /// Each bound live source's Contract readers, by resource, with the
     /// arguments each last asked with (`bound.rs`).
     readers: BTreeMap<String, BTreeMap<usize, String>>,
@@ -94,6 +114,35 @@ pub(super) struct Extensions {
     failed: BTreeSet<String>,
     /// Presence secrets: the host's backend and the calls on it (`presence.rs`).
     presence: presence::Presence,
+    /// Sampled sources' cursors, tracks and canvas inputs (`samples.rs`).
+    samples: samples::Samples,
+    /// The ceremonies and signals held or answered, by held token, with
+    /// their extension (`ceremony.rs`).
+    ceremonies: Vec<(u64, String, Json)>,
+    /// The pictures admitted and refused, by extension (`pictures.rs`).
+    pictures: pictures::Pictures,
+    /// The canvases packages feed, and their leases (`fed.rs`).
+    fed: fed::Fed,
+    /// The handles whose work may call the app's handlers, and the handlers
+    /// running (`invoke.rs`).
+    invocations: invoke::Invocations,
+    /// The last number a forwarded send was given, and each send in flight
+    /// by ticket: its `extension.send` and number, which a `cancel` names
+    /// when it is let go (`bound.rs`).
+    requests: u64,
+    sent: BTreeMap<u64, (String, u64)>,
+    /// Each polled source's Contract readers whose last answer is within
+    /// its `while`, by resource (`poll.rs`).
+    within: BTreeMap<String, BTreeMap<usize, bool>>,
+}
+
+/// A Contract read or send of a module's name, as admission saw it.
+struct Called<'a> {
+    target: Target,
+    source: &'a str,
+    ty: TypesId,
+    origin: CallOrigin,
+    timeout: Option<f64>,
 }
 
 /// A held request's outcome once the agent answered it.
@@ -132,6 +181,10 @@ struct Held {
     args: Json,
     /// The permission it waits on or asked, by name; empty for none.
     permission: String,
+    /// A data-code call's request, whose reply carries handles (`handles.rs`).
+    request: Option<u64>,
+    /// A ceremony waiting behind a modal one, with no ticket yet (`ceremony.rs`).
+    queued: bool,
 }
 
 /// A held data-code call's two halves, whichever comes first: the host's
@@ -170,6 +223,13 @@ enum Waits {
     /// A send that is a person's check (`check`: LLP 1133.010 §7), answered
     /// by a tap: `allow` passes it, each other choice fails it.
     Check,
+    /// A sheet the person answers (`ceremony`: LLP 1133.011 §9), with a
+    /// typed response or a tap that fails it.
+    Ceremony,
+    /// A send that shows the person a choice the implementation then
+    /// answers from (`choose`: the limited selection, LLP 1133.019 §10): the
+    /// agent's `type @t` sets the agent word it names; `cancel` leaves it.
+    Choose,
 }
 
 impl Waits {
@@ -179,6 +239,8 @@ impl Waits {
             Waits::Value => "value",
             Waits::Raise => "raise",
             Waits::Check => "check",
+            Waits::Ceremony => "ceremony",
+            Waits::Choose => "choose",
         }
     }
 }
@@ -240,13 +302,47 @@ impl<D: DataSource> Runner<D> {
         ty: TypesId,
     ) -> Result<Answer, DataError> {
         let row = self.module_row(source);
-        let key = self.key(&row);
-        let args = self.args_json(&row, args);
+        let mut args = self.args_json(&row, args);
+        self.clamp_bounds(&row, &mut args);
         let send = matches!(target, Target::Mutation(_));
         let timeout = send.then(|| self.timeout(&row, &args)).flatten();
         let origin = self.origin_for(Some(target));
-        let route = self.route(&row);
+        let reader = match target {
+            Target::Resource(i) => Some(samples::Reader::Resource(i)),
+            Target::Mutation(_) => None,
+        };
+        // A sampled source's reader is known to its answer (`samples.rs`).
+        self.extensions.samples.asking = reader.map(|r| (r, origin));
+        self.sampled_ask(&row, &args);
         let decision = self.admitted(&row, &args, origin, send, timeout);
+        let called = Called {
+            target,
+            source,
+            ty,
+            origin,
+            timeout,
+        };
+        let out = self.module_decided(called, &row, args, decision);
+        self.extensions.samples.asking = None;
+        out
+    }
+
+    /// [`Self::module_target`] once admission decided.
+    fn module_decided(
+        &mut self,
+        called: Called,
+        row: &ModulesRow,
+        args: Json,
+        decision: Decision,
+    ) -> Result<Answer, DataError> {
+        let Called {
+            target,
+            source,
+            ty,
+            origin,
+            timeout,
+        } = called;
+        let (row, key, route) = (row.clone(), self.key(row), self.route(row));
         let what = match target {
             Target::Resource(i) => format!("query {}", self.plan.str(self.plan.resources[i].name)),
             Target::Mutation(m) => format!("send {}", self.plan.str(self.plan.mutations[m].name)),
@@ -255,9 +351,13 @@ impl<D: DataSource> Runner<D> {
             Target::Resource(i) => Some(i),
             Target::Mutation(_) => None,
         };
+        let feeds = !self.substitute(&row)["feeds"].is_null();
         match decision {
             Decision::Forward => {
                 self.log(format!("{what}: {key} (native)"));
+                if feeds {
+                    self.fed_send(&row, &args, origin);
+                }
                 Ok(Answer::Later(self.bound_request(&row, args, reader)))
             }
             Decision::Now(json) => {
@@ -269,6 +369,14 @@ impl<D: DataSource> Runner<D> {
                     "refused"
                 };
                 self.log(format!("{what}: {key} ({how})"));
+                if error_code(&json).is_none() && route == Route::Substitute {
+                    self.sampled_answered(&row, &json);
+                    self.sampled_reader(&row, &args);
+                    if feeds {
+                        self.fed_send(&row, &args, origin);
+                        self.feed(&row, &args, origin);
+                    }
+                }
                 self.answer_json(ty, &key, &json).map(Answer::Now)
             }
             Decision::Hold(waits) => {
@@ -340,6 +448,7 @@ impl<D: DataSource> Runner<D> {
     /// The reply to a held module request, as `fulfill` parses it.
     pub(super) fn module_parse(
         &mut self,
+        target: Target,
         ty: TypesId,
         source: &str,
         outcome: Outcome,
@@ -353,7 +462,12 @@ impl<D: DataSource> Runner<D> {
             .map_err(|e| DataError::Unavailable(format!("{key}: {e}")))?;
         let json = self.overlaid(&row, json);
         let json = self.presence_status(&row, json);
-        self.note_poll_answer(&row, error_code(&json).is_some());
+        self.note_poll_answer(&row, target, &json);
+        if let (Target::Resource(i), None) = (target, error_code(&json)) {
+            self.extensions.samples.asking = Some((samples::Reader::Resource(i), CallOrigin::App));
+            self.sampled_answered(&row, &json);
+            self.extensions.samples.asking = None;
+        }
         self.answer_json(ty, &key, &json).map(Answer::Now)
     }
 
@@ -387,14 +501,23 @@ impl<D: DataSource> Runner<D> {
             .cloned()
     }
 
-    fn permission_state(&self, name: &str) -> String {
-        (self.extensions.permission.get(name).cloned()).unwrap_or_else(|| "prompt".into())
-    }
-
     /// §6's transitions for a read (or a send) of `row` now.
     fn decide(&self, row: &ModulesRow, send: bool, args: &Json) -> Decision {
-        self.decide_permission(row, send, args)
-            .unwrap_or_else(|| self.decide_value(row, &self.substitute(row), send))
+        if self.unavailable(row) || self.unsupported_here(row) {
+            return Decision::Now(json!({ "error": "NotSupportedError" }));
+        }
+        if let Some(decision) = self.decide_permission(row, send, args) {
+            return decision;
+        }
+        let sub = self.substitute(row);
+        if send && sub["ceremony"].is_object() {
+            return self.decide_ceremony(row, &sub, args);
+        }
+        // A signal the substitute records (LLP 1133.011 §9) answers nothing.
+        if send && sub["records"] == true {
+            return Decision::Now(Json::Null);
+        }
+        self.decide_value(row, &sub, send, args)
     }
 
     /// What the runner's permission decides of `row` now: its status
@@ -406,26 +529,52 @@ impl<D: DataSource> Runner<D> {
         let state = self.permission_state(name);
         if !send && permission["status"].as_str() == Some(self.plan.str(row.declared)) {
             let mut status = self.value_of(row).unwrap_or(json!({}));
-            if let (Some(object), Some(field)) =
-                (status.as_object_mut(), permission["field"].as_str())
-            {
-                object.insert(field.into(), json!(state));
+            // Each permission this source answers the state of, in its field.
+            for p in self.statuses_of(row) {
+                if let (Some(object), Some(field), Some(name)) = (
+                    status.as_object_mut(),
+                    p["field"].as_str(),
+                    p["name"].as_str(),
+                ) {
+                    object.insert(field.into(), json!(self.permission_state(name)));
+                }
             }
             return Some(Decision::Now(status));
+        }
+        // A name admitted with no permission is never held or refused, and
+        // a request answers the status in every state but `prompt` (LLP
+        // 1133.004 §7).
+        match sub["admission"].as_str() {
+            Some("none") => return None,
+            Some("request") if state != "prompt" => return None,
+            _ => {}
         }
         // A denial that only gates part of what a call can ask fails a call
         // that asks for that part alone (`continues`: Face ID refused, the
         // passcode still works, LLP 1133.010 D12).
-        if state == "denied" && self.denial_fails(&sub, args) {
+        // A request that answers the status answers it denied too (WebKit's
+        // `requestPermission` resolves `denied`, LLP 1133.013 D11).
+        let answers_denied = send && sub["deniedAnswers"] == true;
+        if state == "denied" && self.denial_fails(&sub, args) && !answers_denied {
             return Some(Decision::Now(json!({ "error": permission["denied"] })));
         }
-        let asks = match self.plan.str(row.request) {
+        let asks = self.asks(row, send);
+        if state == "prompt" && asks && self.status_asks(row, &sub) {
+            return Some(Decision::Hold(Waits::Permission));
+        }
+        // A name that is no request fails until the state is granted, where
+        // the permission says so, naming the request that asks (D11).
+        (state == "prompt" && !asks && permission["whilePrompt"].is_object())
+            .then(|| Decision::Now(permission["whilePrompt"].clone()))
+    }
+
+    /// Whether a call of `row` may show the platform's prompt.
+    fn asks(&self, row: &ModulesRow, send: bool) -> bool {
+        match self.plan.str(row.request) {
             "always" => send,
             "when-prompt" => !send,
             _ => false,
-        };
-        (state == "prompt" && asks && self.status_asks(row, &sub))
-            .then_some(Decision::Hold(Waits::Permission))
+        }
     }
 
     /// Whether a denial fails a call with `args`: always, unless the
@@ -451,7 +600,20 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// What answers `row` once its permission allows it.
-    fn decide_value(&self, row: &ModulesRow, sub: &Json, send: bool) -> Decision {
+    fn decide_value(&self, row: &ModulesRow, sub: &Json, send: bool, args: &Json) -> Decision {
+        if let Some(choose) = self.decide_choose(row, send) {
+            return choose;
+        }
+        if !send && sub["samples"].is_object() {
+            return Decision::Now(self.sampled(row, args));
+        }
+        // A send that feeds a canvas's input answers which (`samples.rs`).
+        if send && sub["feeds"].is_object() {
+            let field = |k: &str| (sub["feeds"][k].as_str()).map(|o| args[o].clone());
+            return Decision::Now(
+                json!({ "surface": field("surface"), "sensor": field("sensor") }),
+            );
+        }
         // A person's check, unless the status says the device has none.
         if send && sub["check"].is_object() {
             let status = (sub["permission"]["status"].as_str())
@@ -497,13 +659,34 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A source's preferred value, completed by its `fill`; else its
-    /// default. Its `facts` are the runner's own, over either.
+    /// default. An interface that is its own substitute takes a partial
+    /// preferred value (LLP 1133.009 D10 item 11), laid over the default
+    /// where the runner answers itself (a status), as does a `partial`
+    /// source's. A default has this target's restrictions laid over it
+    /// (`targets`). Its `facts` are the runner's own, over either.
     fn value_of(&self, row: &ModulesRow) -> Option<Json> {
         let sub = self.substitute(row);
-        let mut value = self.preferred(row).or_else(|| {
-            let default = &sub["default"];
-            (!default.is_null()).then(|| default.clone())
-        })?;
+        if let Some(listed) = self.listed_value(&sub) {
+            return Some(listed);
+        }
+        let default = (!sub["default"].is_null()).then(|| {
+            let mut default = sub["default"].clone();
+            if let Some(restricted) = sub["targets"].get(self.host_target()) {
+                admit::overlay(&mut default, restricted);
+            }
+            default
+        });
+        let partial = sub["partial"] == true
+            || (sub["implementation"] == true && default.as_ref().is_some_and(Json::is_object));
+        let mut value = match self.preferred(row) {
+            Some(p) if partial && error_code(&p).is_none() => {
+                let mut value = default.unwrap_or(json!({}));
+                admit::overlay(&mut value, &p);
+                value
+            }
+            Some(p) => p,
+            None => default?,
+        };
         for (field, fact) in sub["facts"].as_object().into_iter().flatten() {
             let known = match fact.as_str() {
                 // The host keeps locked secrets (LLP 1133.010 D7).
@@ -561,7 +744,7 @@ impl<D: DataSource> Runner<D> {
         self.extensions.next += 1;
         let name = self.target_name(target);
         let permission = self.permission_name(&row, &args);
-        let hold = self.device_hold(&row, name, waits, origin, &permission);
+        let hold = self.device_hold(&row, name, waits, origin, &permission, &args);
         let deadline = timeout
             .filter(|_| waits == Waits::Value)
             .map(|t| self.now_ms + t);
@@ -579,6 +762,8 @@ impl<D: DataSource> Runner<D> {
             origin,
             args,
             permission,
+            request: None,
+            queued: false,
         });
         let verb = if row.send { "send" } else { "source" };
         let body =
@@ -596,16 +781,46 @@ impl<D: DataSource> Runner<D> {
         waits: Waits,
         origin: CallOrigin,
         permission: &str,
+        call: &Json,
     ) -> u64 {
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let checks = check_choices(&sub);
+        let taps = self.ceremony_choices(&sub);
+        let taps: Vec<&str> = taps.iter().map(String::as_str).collect();
+        // A permission's further answers (`choices`), after allow and deny.
+        let mut asked = vec!["allow".to_owned(), "deny".to_owned()];
+        asked.extend(
+            (self.permission_named(row, permission)["choices"].as_object())
+                .into_iter()
+                .flat_map(|c| c.keys().cloned()),
+        );
+        let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
+        // A sheet's taps besides `cancel` (LLP 1133.018 D13 item 4).
+        let sheet: Vec<&str> = (sub["choose"]["choices"].as_array().into_iter().flatten())
+            .filter_map(Json::as_str)
+            .collect();
         let (capability, args, choices, value) = match waits {
-            Waits::Permission => (
-                "permission".to_owned(),
-                json!({ "capability": permission, "request": declared, "origin": origin.word() }),
-                &["allow", "deny"][..],
-                false,
+            Waits::Permission => {
+                // What `allow` grants this request (`asks`, D13 item 3).
+                let line = self.asked_line(row);
+                let grants = self.permission_named(row, permission);
+                let asks = self.answer_fields(&grants, "allow", line.as_deref());
+                let mut args = json!({ "capability": permission, "request": declared, "origin": origin.word() });
+                if let (Some(asks), true) = (asks, line.is_some()) {
+                    args["asks"] = Json::Object(asks);
+                }
+                ("permission".to_owned(), args, &asked[..], false)
+            }
+            Waits::Choose => (
+                sub["choose"]["ticket"]
+                    .as_str()
+                    .unwrap_or("choose")
+                    .to_owned(),
+                // The sheet shows what the call asked (the properties, the event).
+                json!({ "request": declared, "origin": origin.word(), "options": call }),
+                &sheet[..],
+                sub["choose"]["typed"] != false,
             ),
             Waits::Value => (
                 sub["ticket"].as_str().unwrap_or("value").to_owned(),
@@ -630,6 +845,14 @@ impl<D: DataSource> Runner<D> {
                 json!({ "request": declared, "origin": origin.word() }),
                 &checks[..],
                 false,
+            ),
+            Waits::Ceremony => (
+                (sub["ceremony"]["ticket"].as_str())
+                    .unwrap_or("ceremony")
+                    .to_owned(),
+                self.ceremony_args(row, call, origin),
+                &taps[..],
+                true,
             ),
         };
         let ticket = self.hold(&capability, None, &args.to_string(), choices, value);
@@ -688,6 +911,7 @@ impl<D: DataSource> Runner<D> {
             return;
         };
         let held = self.extensions.held.remove(at);
+        let answer = self.ceremony_ended(&held, answer);
         match held.reply {
             Some(slot) => {
                 let row = self.module_row(&held.source);
@@ -750,18 +974,46 @@ impl<D: DataSource> Runner<D> {
         if row.send != send {
             return Some(now(json!({ "error": "NotSupportedError" })));
         }
-        let args = v.get("args").cloned().unwrap_or(json!({}));
+        let mut args = v.get("args").cloned().unwrap_or(json!({}));
+        self.clamp_bounds(&row, &mut args);
+        let origin = self.data_origin();
+        // A send that answers nothing (LLP 1133.004 D5) settles once done.
+        if self.is_effect(&row) {
+            return Some(self.effect_call(&row, args, origin));
+        }
         let held_args = args.clone();
         let timeout = self.timeout(&row, &args);
-        let origin = self.data_origin();
         let route = self.route(&row);
-        match self.admitted(&row, &args, origin, send, timeout) {
+        let reader = self.data_reader(&row, &args);
+        self.extensions.samples.asking = Some((reader.clone(), origin));
+        self.sampled_ask(&row, &args);
+        // The call's request, when its reply carries handles (`handles.rs`).
+        let request = self.claim_request(body);
+        let decision = self.admitted(&row, &args, origin, send, timeout);
+        let out = match decision {
             Decision::Forward => {
                 if !send {
                     self.bound_read(&key);
                 }
-                let body = self.forward_body(&row, args, None);
-                Some(self.to_implementation(body))
+                let sampled = self.samples_of(&row);
+                // The implementation hears the origin admission read, and a
+                // Contract send keeps the number it went out with (`bound.rs`).
+                let mut body = self.as_origin(origin, |r| r.forward_body(&row, args, None));
+                if let Some(n) = v["request"].as_u64() {
+                    body = numbered(&body, n);
+                }
+                // A reply carrying handles grants them the handlers its call
+                // listed (`invoke.rs`); a watched one's `watched` grants them.
+                let work = match request {
+                    Some(ticket) => self.watched(body, ticket),
+                    None => self.granting(&row, &body.clone(), self.to_implementation(body)),
+                };
+                Some(match (sampled, reader) {
+                    (Some(decl), samples::Reader::Data(id)) => {
+                        self.cursored(work, id, decl["cursor"].as_str().unwrap_or("sequence"))
+                    }
+                    _ => work,
+                })
             }
             Decision::Now(answer) => {
                 let how = if route == Route::Substitute || error_code(&answer).is_none() {
@@ -770,13 +1022,28 @@ impl<D: DataSource> Runner<D> {
                     "refused"
                 };
                 self.log(format!("native {key} ({how})"));
+                if error_code(&answer).is_none() {
+                    self.sampled_answered(&row, &answer);
+                }
+                let sub = self.substitute(&row);
+                if sub["ceremony"].is_object() || sub["records"] == true {
+                    let token = TOKENS.start + self.extensions.next;
+                    self.extensions.next += 1;
+                    let outcome = error_code(&answer).unwrap_or("recorded").to_owned();
+                    self.record_ceremony(token, &row, &args, &outcome);
+                }
                 Some(now(self.completed(&row, answer)))
             }
             Decision::Hold(waits) => {
                 let token = TOKENS.start + self.extensions.next;
                 self.extensions.next += 1;
                 let permission = self.permission_name(&row, &args);
-                let hold = self.device_hold(&row, key, waits, origin, &permission);
+                // One sheet at a time (`ceremony.rs`): behind a modal one, no ticket yet.
+                let queued = waits == Waits::Ceremony && self.ceremony_begins(&row);
+                let hold = match queued {
+                    true => u64::MAX,
+                    false => self.device_hold(&row, key, waits, origin, &permission, &args),
+                };
                 let slot = Arc::new(Mutex::new(Pending::default()));
                 let deadline = timeout
                     .filter(|_| waits == Waits::Value)
@@ -797,9 +1064,19 @@ impl<D: DataSource> Runner<D> {
                     deadline,
                     forward,
                     origin,
-                    args: held_args,
+                    args: held_args.clone(),
                     permission,
+                    request,
+                    queued,
                 });
+                if waits == Waits::Ceremony {
+                    self.record_ceremony(
+                        token,
+                        &row,
+                        &held_args,
+                        if queued { "queued" } else { "held" },
+                    );
+                }
                 Some(Dispatch::Run(Work::Later(Box::new(move |reply| {
                     let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
                     match s.outcome.take() {
@@ -808,7 +1085,31 @@ impl<D: DataSource> Runner<D> {
                     }
                 }))))
             }
-        }
+        };
+        self.extensions.samples.asking = None;
+        out
+    }
+
+    /// `work`, a data-code read of a sampled source, whose reply sets its
+    /// reader's cursor as it leaves the implementation (`samples.rs`).
+    fn cursored(&self, work: Dispatch, id: String, field: &str) -> Dispatch {
+        let Dispatch::Run(Work::Later(run)) = work else {
+            return work;
+        };
+        let (cursors, field) = (self.data_cursors(), field.to_owned());
+        Dispatch::Run(Work::Later(Box::new(move |reply| {
+            run(Reply::new(move |outcome| {
+                if let Outcome::Response(Response { body, .. }) = &outcome {
+                    let at = serde_json::from_slice::<Json>(body)
+                        .ok()
+                        .and_then(|v| v[&field].as_f64());
+                    if let (Some(at), Ok(mut cursors)) = (at, cursors.lock()) {
+                        cursors.insert(id, at);
+                    }
+                }
+                reply.send(outcome);
+            }));
+        })))
     }
 
     /// The topic a data-code read of a module's source watches, its key.
@@ -842,6 +1143,16 @@ impl<D: DataSource> Runner<D> {
     /// can be corrected. `None` when the hold is not a module's.
     pub(super) fn module_check(&self, ticket: u64, text: &str) -> Option<Result<(), String>> {
         let h = self.extensions.held.iter().find(|h| h.hold == ticket)?;
+        if h.waits == Waits::Ceremony {
+            let row = self.module_row(&h.source);
+            let typed = self.ceremony_typed(&row, text);
+            return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
+        }
+        if h.waits == Waits::Choose {
+            let row = self.module_row(&h.source);
+            let typed = self.choose_typed(&row, &h.args, text);
+            return Some(typed.map_err(|e| format!("@{ticket}: {e}")));
+        }
         if h.waits != Waits::Value {
             return Some(Err(format!("@{ticket}: answered by tap, not type")));
         }
@@ -901,6 +1212,12 @@ impl<D: DataSource> Runner<D> {
 
     /// The agent answered hold `hold`, already spent: §6's transitions.
     pub(super) fn module_answered(&mut self, hold: u64, answer: &HoldAnswer) {
+        if self.effect_answered(hold, answer) {
+            return;
+        }
+        if self.effect_answered(hold, answer) {
+            return;
+        }
         let Some(h) = self.extensions.held.iter().find(|h| h.hold == hold) else {
             return;
         };
@@ -910,9 +1227,18 @@ impl<D: DataSource> Runner<D> {
         let sub = self.substitute(&row);
         match (waits, answer) {
             (Waits::Permission, HoldAnswer::Choice(c)) => {
+                let chosen = self.permission_named(&row, &name)["choices"][c.as_str()].is_object();
+                // The access the request asked (`asks`, LLP 1133.018 D13 item 3).
+                let asked = self.asked_line(&row);
                 match c.as_str() {
-                    "allow" => self.set_permission(&name, "granted"),
+                    "allow" => {
+                        self.set_permission_asked(&name, "granted", "allow", asked.as_deref())
+                    }
                     "deny" => self.set_permission(&name, "denied"),
+                    // A grant of less than all (`limited`, LLP 1133.019 D11 item 3).
+                    choice if chosen => {
+                        self.set_permission_asked(&name, "granted", choice, asked.as_deref())
+                    }
                     // The dialog dismissed: the state stays, this request fails.
                     _ => {
                         let code = self.permission_named(&row, &name)["denied"].clone();
@@ -964,6 +1290,10 @@ impl<D: DataSource> Runner<D> {
                     }
                 };
                 self.release(token, answer);
+                // An implementation answering beside the runner's status hears it.
+                if c == "allow" && self.route(&row) == Route::Agent {
+                    self.tell_preferred(self.plan.str(row.extension));
+                }
                 self.announce(&key);
             }
             (Waits::Check, HoldAnswer::Choice(c)) => {
@@ -979,129 +1309,17 @@ impl<D: DataSource> Runner<D> {
                 };
                 self.release(token, answer);
             }
+            (Waits::Ceremony, HoldAnswer::Choice(c)) => {
+                let answer = self.ceremony_tapped(&sub, c);
+                self.release(token, answer);
+            }
+            (Waits::Ceremony, HoldAnswer::Value(text)) => {
+                if let Ok(response) = self.ceremony_typed(&row, text) {
+                    self.release(token, response);
+                }
+            }
+            (Waits::Choose, answer) => self.chosen(&row, token, answer),
             (Waits::Permission | Waits::Raise | Waits::Check, HoldAnswer::Value(_)) => {}
-        }
-    }
-
-    /// Set permission `name`'s state: the permission tickets pending for it
-    /// settle as `allow` or `deny` would, and every name of its module is
-    /// asked again.
-    fn set_permission(&mut self, name: &str, state: &str) {
-        self.extensions
-            .permission
-            .insert(name.to_owned(), state.to_owned());
-        self.log(format!("permission {name}: {state}"));
-        let rows: Vec<ModulesRow> = (self.plan.modules.iter())
-            .filter(|m| self.asks_permission(m, name))
-            .cloned()
-            .collect();
-        if state == "granted" {
-            self.allow(&rows);
-        }
-        type Waiting = (u64, u64, String, bool, Waits, Option<f64>, Json);
-        let held: Vec<Waiting> = (self.extensions.held.iter())
-            .filter(|h| h.permission == name)
-            .map(|h| {
-                (
-                    h.token,
-                    h.hold,
-                    h.source.clone(),
-                    h.send,
-                    h.waits,
-                    h.timeout,
-                    h.args.clone(),
-                )
-            })
-            .collect();
-        for (token, hold, source, send, waits, timeout, args) in held {
-            let row = self.module_row(&source);
-            if !rows.iter().any(|r| r.source == row.source) {
-                continue;
-            }
-            let fails = self.denial_fails(&self.substitute_for(&row, &args), &args);
-            match (state, waits) {
-                ("granted", Waits::Permission) | ("denied", Waits::Permission)
-                    if state == "granted" || !fails =>
-                {
-                    self.retire_hold(hold);
-                    // A call that needs another permission too asks it next
-                    // (`getUserMedia(audio=true, video=true)`, LLP 1133.009 D3).
-                    if state == "granted" && self.ask_next(&row, send, token, name, &args) {
-                        continue;
-                    }
-                    let forward = (self.extensions.held.iter())
-                        .any(|h| h.token == token && h.forward.is_some());
-                    if forward {
-                        self.release_forward(token);
-                        continue;
-                    }
-                    match self.decide_timed(&row, send, timeout, &args) {
-                        Decision::Now(answer) => self.release(token, answer),
-                        Decision::Forward => self.release_forward(token),
-                        Decision::Hold(waits) => {
-                            if let Some((held_by, origin)) = self.held_name(token, &row) {
-                                let hold = self.device_hold(&row, held_by, waits, origin, name);
-                                let deadline = timeout
-                                    .filter(|_| waits == Waits::Value)
-                                    .map(|t| self.now_ms + t);
-                                if let Some(h) =
-                                    self.extensions.held.iter_mut().find(|h| h.token == token)
-                                {
-                                    h.hold = hold;
-                                    h.waits = waits;
-                                    h.deadline = deadline;
-                                }
-                            }
-                        }
-                    }
-                }
-                ("denied", _) if fails => {
-                    self.retire_hold(hold);
-                    let code = self.permission_named(&row, name)["denied"].clone();
-                    self.release(token, json!({ "error": code }));
-                }
-                _ => {}
-            }
-        }
-        for row in &rows {
-            let key = self.key(row);
-            self.announce(&key);
-        }
-        self.pump_presence();
-    }
-
-    /// `allow` sets the status fields the app's grant line names (its
-    /// approximate grant reads `approximate`), as a preferred status.
-    fn allow(&mut self, rows: &[ModulesRow]) {
-        let grants = self.data.grants().to_owned();
-        for row in rows {
-            let sub = self.substitute(row);
-            let permission = &sub["permission"];
-            if permission["status"].as_str() != Some(self.plan.str(row.declared)) {
-                continue;
-            }
-            let mut status = self.value_of(row).unwrap_or(json!({}));
-            // The state is the permission's, never a preferred value's.
-            if let (Some(object), Some(field)) =
-                (status.as_object_mut(), permission["field"].as_str())
-            {
-                object.remove(field);
-            }
-            for (field, by_line) in permission["allow"].as_object().into_iter().flatten() {
-                // The longest line the app grants: the approximate one where both are.
-                let line = (by_line.as_object().into_iter().flatten())
-                    .filter(|(line, _)| {
-                        grants
-                            .lines()
-                            .any(|g| g.split_whitespace().next() == Some(line.as_str()))
-                    })
-                    .max_by_key(|(line, _)| line.len());
-                if let (Some((_, v)), Some(object)) = (line, status.as_object_mut()) {
-                    object.insert(field.clone(), v.clone());
-                }
-            }
-            let key = self.key(row);
-            self.extensions.preferred.insert(key, status);
         }
     }
 
@@ -1133,7 +1351,9 @@ impl<D: DataSource> Runner<D> {
     /// released, a refused commit): retired with their tickets (§6).
     pub(super) fn retire_modules(&mut self) {
         self.release_idle();
+        self.release_sampled();
         self.dispose_dropped();
+        self.cancel_let_go();
         self.prune_origins();
         let gone: Vec<u64> = (self.extensions.held.iter())
             .filter(|h| h.reply.is_none())
@@ -1190,10 +1410,20 @@ impl<D: DataSource> Runner<D> {
 
 /// The code of an error answer, `{"error": "POSITION_UNAVAILABLE"}`, which
 /// may say more in a `message`.
+/// Each platform's own code may travel beside it (`apple`, `android`; LLP
+/// 1133.011 D1).
 fn error_code(json: &Json) -> Option<&str> {
     let object = json.as_object()?;
-    let only = object.len() == 1 || (object.len() == 2 && object.contains_key("message"));
+    let only =
+        (object.keys()).all(|k| matches!(k.as_str(), "error" | "message" | "apple" | "android"));
     only.then(|| object.get("error")?.as_str())?
+}
+
+/// A forwarded body with the send's number `n`.
+fn numbered(body: &[u8], n: u64) -> Vec<u8> {
+    let mut v: Json = serde_json::from_slice(body).unwrap_or_default();
+    v["request"] = json!(n);
+    v.to_string().into_bytes()
 }
 
 /// The choices a `check` ticket's tap takes besides `cancel`: `allow`, and

@@ -152,6 +152,8 @@ impl<D: DataSource> Presenter<D> {
             .into_inner()
             .map(|index| (self.boxes_serial, order_epoch, index));
         self.images.order = Some((order_epoch, live));
+        let mut reports = reports;
+        reports.extend(self.pictures_out());
         self.dirty |= !reports.is_empty();
         self.images.settled = self.images.settled_at(epoch, reports.is_empty());
         if reports.is_empty() {

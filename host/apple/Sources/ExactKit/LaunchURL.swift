@@ -84,6 +84,12 @@ extension ExactSession {
         apply(batch)
     }
 
+    /// Complete a native history jump without intermediate route commits.
+    func hostBack(from source: String, to destination: String) {
+        guard state != .destroyed, booted, let batch = runtime.hostBack(from: source, to: destination, now: now()) else { return }
+        apply(batch)
+    }
+
     /// After the first frame: a launch location that matched no route and
     /// has no navigation root to hear it is journaled, then forgotten.
     func refuseUnheardLaunch() {

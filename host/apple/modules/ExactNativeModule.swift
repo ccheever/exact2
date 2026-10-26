@@ -98,11 +98,16 @@ public final class ExactModuleContext: @unchecked Sendable {
     var ticks: [UInt64: (ExactFrame) -> Void] = [:], afters: [UInt64: () -> Void] = [:]
     private var nextToken: UInt64 = 1
 
+    /// Who posts what an activation is for (LLP 1133.004 D7): the session, its owner, the process.
+    let poster: [String: String]
+    var emitted: UInt64 = 0
+
     init(json: [String: Any], host: UnsafeMutableRawPointer?, changed: @escaping ExactModuleChangedFn, now: @escaping ExactModuleNowFn) {
         diagnostics = ExactDiagnostics(host: host, scope: "module", node: 0)
         let url = { (key: String) in URL(fileURLWithPath: json[key] as? String ?? NSTemporaryDirectory(), isDirectory: true) }
         agent = json["agent"] as? Bool ?? false
         data = url("data"); cache = url("cache"); temporary = url("temporary")
+        poster = ["session", "owner", "process"].reduce(into: [:]) { $0[$1] = json[$1] as? String ?? "" }
         self.host = host; changedFn = changed; nowFn = now
     }
 
@@ -195,9 +200,11 @@ public final class ExactReply: @unchecked Sendable {
         bytes.withUnsafeBufferPointer { fn(taken, status, $0.baseAddress, $0.count) }
     }
 
-    /// Resolve the TypeScript promise with a JSON object.
+    /// Resolve the TypeScript promise with a JSON object, or with the value
+    /// of its one key `exact:answer` (a package's list, ExactPackage.swift).
     public func send(_ value: [String: Any]) {
-        guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else {
+        let sent: Any = value.count == 1 ? value["exact:answer"] ?? value : value
+        guard JSONSerialization.isValidJSONObject(sent), let data = try? JSONSerialization.data(withJSONObject: sent) else {
             return fail("the reply was not JSON")
         }
         answer(200, String(decoding: data, as: UTF8.self))
@@ -407,6 +414,8 @@ public final class ExactWindow {
     public internal(set) var frame = CGRect.zero
     /// The surface's safe area: top, right, bottom, left.
     public internal(set) var safeArea: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) = (0, 0, 0, 0)
+    /// The window's angle as the web's `screen.orientation.angle`: 0, 90, 180 or 270.
+    public internal(set) var angle: Double = 0
     /// True in the first `window` call of this handle; false on a size or safe-area change.
     public internal(set) var isNew = true
     public internal(set) var isLive = true
@@ -427,6 +436,7 @@ public final class ExactWindow {
         exclusive = json["exclusive"] as? Bool ?? false
         if let f = json["frame"] as? [Double], f.count == 4 { frame = CGRect(x: f[0], y: f[1], width: f[2], height: f[3]) }
         if let s = json["safeArea"] as? [Double], s.count == 4 { safeArea = (CGFloat(s[0]), CGFloat(s[1]), CGFloat(s[2]), CGFloat(s[3])) }
+        angle = json["angle"] as? Double ?? 0
     }
 }
 
@@ -522,6 +532,16 @@ final class ExactHatches {
     let onLineFn: OnLineFn?
     /// One of 136 or more: a capture's claim on the audio session and its release (LLP 1133.009 D7; ExactExtensions.swift).
     let audioClaimFn: AudioClaims.ClaimFn?, audioReleaseFn: AudioClaims.ReleaseFn?
+    /// One of 144 or more: a package picture changed (0) or revoked (1) (LLP 1133.019 D11 item 1).
+    typealias PictureFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
+    let pictureFn: PictureFn?
+    /// One of 160 or more: a package's canvas input (LLP 1133.013 D6; ExactExtensions.swift).
+    typealias SurfaceHasFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32
+    typealias SurfaceSensorFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32,
+                                                UnsafePointer<Double>?, UInt32, UInt32, Double, UInt32) -> Void
+    let surfaceHasFn: SurfaceHasFn?, surfaceSensorFn: SurfaceSensorFn?
+    /// One of 168 or more: a package's call of the app's handler (LLP 1133.016 D15 item 1; ExactExtensions.swift).
+    let invokeFn: Invocations.InvokeFn?
     #if os(iOS) || os(tvOS)
     /// One of 112 or more: a held tab's navigation controller, built (`ExactTab.controller`).
     typealias StackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -569,6 +589,40 @@ final class ExactHatches {
         let audio = table.load(as: UInt32.self) >= 136
         audioClaimFn = audio ? table.load(fromByteOffset: 120, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: AudioClaims.ClaimFn.self) } : nil
         audioReleaseFn = audio ? table.load(fromByteOffset: 128, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: AudioClaims.ReleaseFn.self) } : nil
+        pictureFn = table.load(as: UInt32.self) >= 144
+            ? table.load(fromByteOffset: 136, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PictureFn.self) } : nil
+        let surfaces = table.load(as: UInt32.self) >= 160
+        surfaceHasFn = surfaces ? table.load(fromByteOffset: 144, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: SurfaceHasFn.self) } : nil
+        surfaceSensorFn = surfaces ? table.load(fromByteOffset: 152, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: SurfaceSensorFn.self) } : nil
+        invokeFn = table.load(as: UInt32.self) >= 168
+            ? table.load(fromByteOffset: 160, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: Invocations.InvokeFn.self) } : nil
+    }
+
+    /// A package picture changed (0) or revoked (1): the host's raster loader acts on it.
+    func picture(_ kind: UInt32, _ source: String) {
+        let bytes = Array(source.utf8)
+        bytes.withUnsafeBufferPointer { pictureFn?(host, kind, $0.baseAddress, UInt32($0.count)) }
+    }
+
+    /// Whether the session places a canvas of surface `name`; nil when the host feeds no canvas input.
+    func hasSurface(_ name: String) -> Bool? {
+        guard let surfaceHasFn else { return nil }
+        let bytes = Array(name.utf8)
+        return bytes.withUnsafeBufferPointer { surfaceHasFn(host, $0.baseAddress, UInt32($0.count)) } == 1
+    }
+
+    /// A sample written into surface `surface`'s canvas input, or its end.
+    func sensor(_ surface: String, _ sensor: String, _ values: [Double], dropped: Int, at: Double, ended: Bool) {
+        guard let surfaceSensorFn else { return }
+        let s = Array(surface.utf8), n = Array(sensor.utf8)
+        s.withUnsafeBufferPointer { s in
+            n.withUnsafeBufferPointer { n in
+                values.withUnsafeBufferPointer { v in
+                    surfaceSensorFn(host, s.baseAddress, UInt32(s.count), n.baseAddress, UInt32(n.count), v.baseAddress, UInt32(v.count),
+                                    UInt32(clamping: dropped), at, ended ? 1 : 0)
+                }
+            }
+        }
     }
 
     func onLine() -> Bool? { onLineFn.flatMap { f in let answer = f(host); return answer > 1 ? nil : answer == 1 } }
@@ -905,6 +959,7 @@ private let moduleCreate: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeM
     let data = json.map { Data(bytes: $0, count: Int(length)) } ?? Data()
     let object = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     let instance = exactModule.init(context: ExactModuleContext(json: object, host: host, changed: changed, now: now))
+    ExactExtensions.created(instance)
     return Unmanaged.passRetained(instance).toOpaque()
 }
 
@@ -1187,6 +1242,7 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
     let handle = event == 0 ? ExactWindow() : (hatches.window ?? ExactWindow())
     handle.hatches = hatches
     let isNew = event == 0 || hatches.window == nil
+    let angle = hatches.window?.angle
     handle.read(fields)
     #if os(macOS)
     handle.window = window.map { Unmanaged<NSWindow>.fromOpaque($0).takeUnretainedValue() }
@@ -1205,6 +1261,7 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
     hatches.window = handle
     handle.isNew = isNew
     m.window(handle)
+    if angle != handle.angle { ExactExtensions.orientation(m, handle.angle) }
 }
 
 
@@ -1231,6 +1288,27 @@ private let moduleAuthenticate: @convention(c) (UnsafeMutableRawPointer?, Unsafe
     }
 }
 
+/// `image(module, json, len, ctx, done)` (LLP 1133.019 D11 item 1): a
+/// picture of a package's `img` scheme, which the runner admitted; json
+/// {"extension", "source", "width", "height", "fit", "owned"}. done(ctx,
+/// image, error, len) once, from any thread: the `CGImage` retained once for
+/// the host, or nil and an error's code.
+private let moduleImage: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?,
+                                         (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void)?) -> Void = { raw, json, length, ctx, done in
+    guard let done else { return }
+    let fail = { (code: String) in
+        let bytes = Array(code.utf8)
+        bytes.withUnsafeBufferPointer { done(ctx, nil, $0.baseAddress, $0.count) }
+    }
+    guard let m = module(raw), let json,
+          let request = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: length)) as? [String: Any]
+    else { return fail("NotSupportedError") }
+    ExactExtensions.image(m, request) { image, error in
+        guard let image else { return fail(error ?? "UnknownError") }
+        done(ctx, Unmanaged.passRetained(image).toOpaque(), nil, 0)
+    }
+}
+
 /// The ABI major this artifact was built against; the host refuses others.
 private let major: UInt32 = 3
 
@@ -1248,7 +1326,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse),\"firstFrame\":\(roster[tag]!.firstFrame)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 240
+    let size = 248
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1281,6 +1359,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleTamber, to: UnsafeRawPointer.self), toByteOffset: 216, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(ExactNativeViewABI.createView, to: UnsafeRawPointer.self), toByteOffset: 224, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleAuthenticate, to: UnsafeRawPointer.self), toByteOffset: 232, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleImage, to: UnsafeRawPointer.self), toByteOffset: 240, as: UnsafeRawPointer.self)
     return t
 }()
 

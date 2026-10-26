@@ -392,7 +392,7 @@ capability has a call of its own.
 | 8 | whether a displayed element says `wakelock="screen"` (LLP 1125 D11) | one word: 1 or 0; a reader's view starts at 0, so a reader made again is told only a 1 | `View.setKeepScreenOn` on the reader's view, so the screen stays on while its window is shown | none |
 | 9 | a date or time control's picker (LLP 1115.001.000 D1) | the control's node; then five strings: its kind (`date`, `time`, `datetime-local`), what it shows now, its `min`, `max` and `step`, each as HTML writes it; then its `accent-color`, opaque ARGB, or 0 for none | asks the node's Kotlin hatch (D3), then shows the activity's `pickers`: Compose Material 3's where the app links it, else the framework's dialogs ("Pickers and hatches", below) | the value chosen in HTML's form, which exact2 sets as a person's choice (`input`, then `change`), or null when dismissed; exact2 journals `picker: dismissed for <node>` |
 | 10 | the moments the app's Kotlin hatches hear, and what their clock and input call back (LLP 1115.001.000 D4) | for each, led by its scope: 1 the app or 3 a node, then its moment (0 built, 1 changed, 2 ended), the node, its box (four floats as bits, the document's points), its word and `id` as strings, the count of its `data-*` words and each name and value; 5 a tick, its ticket, the clock (an `f64`'s bits, high word first) and the commit; 6 an `after`, its ticket; 7 input, its ticket, the node, then 1 and a pointer's phase, points and whether it was handled, or 2 and a key's `key`, `code`, down, repeat and handled (`hatches/reader.rs`) | calls the app's `exact.app.Hatches` (`HatchReader.told`) | none: what a hatch asks goes by `Native.hatchAct` |
-| 11 | a call of a module a package implements here (LLP 1133.001 D5) | one string: the runner's body, `{"extension", "source"\|"send", "args"}` or `{"extension", "release"}` | calls the extension's `later` or `release` (`Extensions.call`, "Module implementations", below) | the reply's JSON, `{"error": code}` for a failure; null fails the call |
+| 11 | a call of a module a package implements here (LLP 1133.001 D5) | one string: the runner's body, `{"extension", "source"\|"send", "args"}` or `{"extension", "release"}`; or a package picture the runner admitted (LLP 1133.019 D11 item 1), `{"extension", "picture", "width", "height", "fit", "owned", "agent"}` | calls the extension's `later` or `release`, or `picture` (`Extensions.call`, "Module implementations", below) | the reply's JSON, `{"error": code}` for a failure; null fails the call. A picture is answered by `Native.picture` with its `Bitmap`, or with an error code |
 
 Kinds 5, 6, 7 and 8 are statements of the app's state, told when it changes and anew to a reader made again; exact2
 reads them as the queue is taken (`Presenter::tell_shell`), Back and the wake lock only after a commit or (Back) when
@@ -479,12 +479,14 @@ Kotlin under `sources.kotlin`) is compiled into the APK when the app binds it (L
 `exact.app.ExactExtensions`, and the permissions the app's grant lines derive (the bake's `reach.android`, from
 `runner/src/device.rs`) to the release manifest (`-Ppermissions`). The class subclasses `ExactExtension`
 (`Extensions.kt`): `later(name, args, reply)` for each source read and send (`later(name, args, preferred, reply)`
-under the agent), `release(name)` when a live source's last reader goes and `release(name, args)` when one argument
+under the agent; a list is answered as `{"exact:answer": [...]}`, since a reply is an object), `release(name)` when a live source's last reader goes and `release(name, args)` when one argument
 group's does, `dispose(ids)` for the handles of a reply the runner dropped, `foreground(shown)` when the app goes to
 the foreground or leaves it, `preferred(values)` for the agent's values, and `resumed()` when the activity is in front
 again, which is where it reads again what the person changed in Settings, since Android sends no event for it. Its
 `ExtensionContext` gives the application, the activity in front, `agent`, `now()` (the session's clock, the agent's
-under the agent), `foreground`, `changed(topic)`, which asks the topic's readers again, and
+under the agent), `foreground`, `changed(topic)`, which asks the topic's readers again, `wake(event, args, id,
+ended)`, which raises one of the interface's wake events and hears its outcome (LLP 1133.017 D8; `woke(id, outcome)`
+too), and
 `requestPermissions(permissions, done)`: one platform request, answered by `onRequestPermissionsResult`, or by the
 next resume when a recreated activity lost the result (LLP 1133.002 D9). The activity binds the roster's names as it
 is made (`Native.bindExtensions`). Outside the agent the host binds them as in production; under it, those a drive

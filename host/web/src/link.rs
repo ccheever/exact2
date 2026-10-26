@@ -17,8 +17,9 @@ use std::cell::Cell;
 /// The capabilities an artifact links: one registration per capability.
 #[derive(Clone, Copy)]
 pub struct Linked {
-    /// Markdown: a source as the batch's `markupPieces` JSON.
-    pub markup: Option<fn(&str) -> String>,
+    /// Markdown: a source, its `atoms` and its `atomFaces` (LLP 1045.000)
+    /// as the batch's `markupPieces` JSON.
+    pub markup: Option<fn(&str, &str, &str) -> String>,
     /// Motion: the spring engine a host holds instead of
     /// [`crate::motion::Still`].
     pub motion: Option<fn() -> Box<dyn crate::motion::Motion>>,

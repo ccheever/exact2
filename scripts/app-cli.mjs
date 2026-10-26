@@ -196,7 +196,8 @@ if (verb === 'contract') {
   const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some((a) => a === '--url' || a === '--web-dist');
   const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host) && !rest.includes('--device');
   // `test [host] [file|glob …]`: the test files named (each `.contract`, a glob or `--test <file>`, from the
-  // current directory), else app.test.contract; each runs in turn and any failure fails the command.
+  // current directory), else app.test.contract and every other `*.test.contract` beside it (an app's tests split
+  // by area under the line cap); each runs in turn and any failure fails the command.
   const tests = [];
   for (let i = verb === 'test' ? 0 : rest.length; i < rest.length;) {
     const named = rest[i] === '--test' ? rest.splice(i, 2)[1] : /\.contract$|\*/.test(rest[i]) ? rest.splice(i, 1)[0] : (i++, null);
@@ -239,8 +240,10 @@ if (verb === 'contract') {
   const { withAppServer } = await import(resolve(exact2, 'scripts/verify.mjs'));
   return log(await withAppServer(dir, async () => {
     let failed = 0;
-    for (const file of tests.length ? tests : [resolve(dir, 'app.test.contract')]) {
-      if (tests.length > 1) console.log(`# ${relative(process.cwd(), file)}`);
+    // None authored: app.test.contract, whose absence the driver names.
+    const files = tests.length ? tests : (await import(resolve(exact2, 'scripts/app.mjs'))).authoredTests(dir);
+    for (const file of files.length ? files : [resolve(dir, 'app.test.contract')]) {
+      if (files.length > 1) console.log(`# ${relative(process.cwd(), file)}`);
       failed = (await script(verbs.test, ['--test', file, ...rest])) || failed;
     }
     return failed;

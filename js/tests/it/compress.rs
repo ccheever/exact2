@@ -103,6 +103,75 @@ fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
     );
 }
 
+/// `storage.fs.transformImage` and `compressImage`'s edit (LLP 1133.019 D14,
+/// D15) from TypeScript, over the JSON wire (D17): on Apple the record says
+/// what was written, a `to` without an extension gains the type's, and the
+/// search runs on the edited picture; elsewhere `unsupported`. Each refusal
+/// carries its code, and a bad option is a `TypeError` before anything runs.
+#[test]
+fn transform_image_writes_the_edit_or_refuses_by_name() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    std::fs::write(
+        root.0.join("data/in.jpg"),
+        include_bytes!("../../../scripts/fixtures/picker/oriented-gps.jpg"),
+    )
+    .unwrap();
+    let text = call(&mut m, &mut s, "transform", "");
+    let lines: Vec<&str> = text.lines().collect();
+    let size = |name: &str| {
+        std::fs::metadata(root.0.join("data").join(name))
+            .map(|m| m.len())
+            .map_err(|e| format!("{name}: {e}: {text}"))
+    };
+    if cfg!(target_vendor = "apple") {
+        let turned = size("turned.jpg").unwrap();
+        assert_eq!(
+            lines[0],
+            format!("app:/data/turned.jpg image/jpeg {turned} 64 48 srgb false keep {turned}")
+        );
+        let private = size("private.png").unwrap();
+        assert_eq!(
+            lines[1],
+            format!(
+                "app:/data/private.png image/png {private} 24 32 srgb false no-location {private}"
+            )
+        );
+        let crop = size("crop.jpg").unwrap();
+        assert_eq!(
+            lines[2],
+            format!("app:/data/crop.jpg image/jpeg {crop} 64 24    {crop}")
+        );
+        assert!(
+            lines[3].starts_with(
+                "Error outside transformImage: outside: the crop misses the 48×64 image"
+            ),
+            "{text}"
+        );
+        assert!(
+            lines[4].starts_with("Error unsupported transformImage: unsupported: "),
+            "{text}"
+        );
+    } else {
+        for line in &lines[..5] {
+            assert!(line.starts_with("Error unsupported"), "{text}");
+        }
+        assert!(size("turned.jpg").is_err());
+    }
+    assert!(lines[5].starts_with("Error denied"), "{text}");
+    assert!(
+        lines[6].starts_with("TypeError undefined")
+            && lines[6].contains("flip must be \"horizontal\" or \"vertical\""),
+        "{text}"
+    );
+    assert!(
+        lines[7].starts_with("TypeError undefined") && lines[7].contains("crop must be"),
+        "{text}"
+    );
+}
+
 /// `type: "image/png"` (LLP 1069.002 A1.11) through the binding's fifth
 /// argument: on Apple a PNG with an alpha channel (IHDR colour type 6) at the
 /// fitted size; elsewhere `unsupported`. Any other type is a `TypeError`.

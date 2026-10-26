@@ -113,7 +113,12 @@ fn a_bare_chord_is_code_empty_and_a_keyup_takes_its_name_alone() {
 
 #[test]
 fn a_malformed_key_wire_is_refused_by_name() {
-    for payload in ["a\nKeyA", "a\nKeyA\nmaybe", "a\nKey-A\nfalse"] {
+    for payload in [
+        "a\nKeyA",
+        "a\nKeyA\nmaybe",
+        "a\nKey-A\nfalse",
+        "a\nKeyA\nfalse\nmaybe",
+    ] {
         assert_eq!(
             Event::of_host_kind(6, payload).err(),
             Some("invalid key event")
@@ -146,6 +151,36 @@ fn keyup_takes_keys_payload_and_record() {
     ))
     .unwrap_err();
     assert!(e.to_string().contains("keyup"), "{e}");
+}
+
+/// An input method's candidate Enter (`isComposing`), skipped as web code
+/// skips it: a composer sends only on an Enter that came after the
+/// composition. A host that writes no fourth line is not composing.
+const COMPOSER: &str = r#"component App
+  state sent = 0
+  state log = ""
+  action compose(k: string, e: KeyboardEvent)
+    log = `${log}${k}:${e.isComposing};`
+    if k == "Enter" and not e.isComposing
+      sent = sent + 1
+  view
+    input key=compose testId="field"
+"#;
+
+#[test]
+fn is_composing_lets_a_handler_skip_the_candidates_enter() {
+    let mut r = boot(COMPOSER);
+    let field = id(&r, "field");
+    r.dispatch(field, wire(6, "Enter\nEnter\nfalse\ntrue"))
+        .unwrap();
+    assert_eq!(r.slot("sent"), Some(&Value::Number(0.0)));
+    r.dispatch(field, wire(6, "Enter\nEnter\nfalse")).unwrap();
+    assert_eq!(r.slot("sent"), Some(&Value::Number(1.0)));
+    assert_eq!(r.slot("log"), Some(&Value::str("Enter:true;Enter:false;")));
+    // `isComposing` is a bool.
+    let e = contract::compile(&COMPOSER.replace("not e.isComposing", "e.isComposing == 1"))
+        .unwrap_err();
+    assert_eq!(e.id, "type-operand", "{e}");
 }
 
 /// Held modifiers the web's way (#140): each keydown and keyup sets the

@@ -2,14 +2,14 @@
 // viewport segments, and the iPhone Duo's stress fixture — what
 // `bun scripts/smoke.mjs duo` drives fully open, partially folded and closed.
 //
-// Four screens behind routes. Fold reads the three fields `exactViewport`
-// gained and lays two panes on the segments with `env(viewport-segment-*)`,
+// Fold reads the three fields `exactViewport` gained and lays two panes on the segments with `env(viewport-segment-*)`,
 // the fold band empty between them. Images is a virtualized list of a few
 // hundred image rows over four bundled PNGs (the raster budget's stress).
 // Reflow is one long Markdown document and a dense feed (the text caches'
 // stress from 951 to 466 points and back). Combinations pushes a route with
 // an absolutely positioned sheet holding a textarea, so keyboard + sheet +
-// pushed screen + fold is one sequence of taps.
+// pushed screen + fold is one sequence of taps. Keyboard adds physical-device
+// checks with an app-local geometry recorder and a native share sheet.
 
 routes nav
   tab fold "/"
@@ -17,6 +17,10 @@ routes nav
   tab reflow "/reflow"
   tab combos "/combos"
     note "/combos/note"
+  tab keyboard "/keyboard"
+    keyboard-editor "/keyboard/editor"
+    keyboard-form "/keyboard/form"
+    keyboard-search "/keyboard/search"
 
 // The web's vocabulary, exactly (LLP 1078 D1, D2): two postures, two counts.
 shape Viewport
@@ -40,6 +44,8 @@ shape FeedRow
   id: number
   who: string
   body: string
+shape KeyboardRow
+  id: number
 
 style Screen
   position="absolute"
@@ -49,6 +55,10 @@ style Screen
   bottom=0
   display="flex"
   flex-direction="column"
+// Add only the readable region beyond the list's existing native margins
+style ReadableList
+  margin-left="max(0px, calc(env(-exact-readable-content-corners-inset-left) - env(-exact-layout-margins-corners-inset-left)))"
+  margin-right="max(0px, calc(env(-exact-readable-content-corners-inset-right) - env(-exact-layout-margins-corners-inset-right)))"
 // The safe area kept clear of the panel's rounded corners (LLP 1123 D10)
 style Safe
   box-sizing="border-box"
@@ -96,23 +106,39 @@ component DuoLab
   resource rows = imageRows() as shape ImageRow[]
   resource doc = document() as shape Document
   resource feed = feed() as shape FeedRow[]
+  resource keyboardRows = keyboardRows() as shape KeyboardRow[]
   // Shared across the Fold screen's two layouts: a fold mid-reading keeps the item.
   state selected = 1
   state title = ""
   state draft = ""
   state noteFocused = false
   state sheetPx = 400
+  state checkText = ""
+  state checkUsername = ""
+  state checkPassword = ""
+  state checkEditor = ""
+  state checkFirst = ""
+  state checkLast = ""
+  state checkQuery = ""
+  state checkCommitted = ""
+  state checkBlurs = 0
+  state returnFocus = false
   derive current = top(nav)
   derive twoAcross = viewport.horizontalViewportSegments == 2
   derive twoDown = viewport.verticalViewportSegments == 2
-  // Partially folded like a book (two segments across), Combinations and the note
-  // screen, one pane each, take the trailing segment, off the hinge: the default
-  // docs/recipes/foldables.md chooses, as Apple's talk moves an alert there, under the
-  // outer display as the device closes. Segment 0 keeps a pane on the leading side.
+  // Combinations and the note screen are each a pane that does not scroll, so a fold
+  // moves it (docs/recipes/foldables.md). On a book fold (two segments across) it takes
+  // the trailing segment, as Apple's talk moves an alert there, near the outer display as
+  // the device closes. On one segment it is a column at most 480 points wide, about one
+  // panel, so a fold hardly resizes it; it is centred on the display, as UIKit centres a
+  // form sheet there. Its padding keeps only the part of an inset that its margin does
+  // not clear.
   // The tablist's tabs, where it is a bar along the bottom, keep to the trailing segment too.
-  derive paneLeft = twoAcross ? "env(viewport-segment-left 1 0)" : "0px"
-  derive paneWidth = twoAcross ? "env(viewport-segment-width 1 0)" : "100%"
-  derive paneInset = twoAcross ? "0px" : "env(-exact-safe-area-corners-inset-left)"
+  derive gutter = "max(0px, calc((100% - 480px) / 2))"
+  derive paneLeft = twoAcross ? "env(viewport-segment-left 1 0)" : gutter
+  derive paneRight = twoAcross ? "0px" : gutter
+  derive panePadLeft = `max(0px, calc(env(-exact-readable-content-corners-inset-left) - 16px - ${paneLeft}))`
+  derive panePadRight = twoAcross ? "env(-exact-safe-area-corners-inset-right)" : `max(0px, calc(env(-exact-readable-content-corners-inset-right) - 16px - ${gutter}))`
   action choose(id: number)
     selected = id
   action selectTab(name: string)
@@ -135,12 +161,123 @@ component DuoLab
     sheetPx = sheetStop(height + velocity * 0.15)
   action dismiss
     blur()
+  action checkOpenEditor(claim: bool)
+    returnFocus = claim
+    nav = push(nav, path("keyboard-editor"))
+  action checkOpen(name: string)
+    returnFocus = false
+    nav = push(nav, name)
+  action checkDismissBack
+    returnFocus = false
+    blur()
+    nav = back(nav)
+  action checkFocusFirst
+    focus("keyboard-first")
+  action checkFocusLast
+    focus("keyboard-last")
+  action checkWrite(v: string)
+    checkText = v
+  action checkWriteUsername(v: string)
+    checkUsername = v
+  action checkWritePassword(v: string)
+    checkPassword = v
+  action checkWriteEditor(v: string)
+    checkEditor = v
+  action checkWriteFirst(v: string)
+    checkFirst = v
+  action checkWriteLast(v: string)
+    checkLast = v
+  action checkWriteQuery(v: string)
+    checkQuery = v
+  action checkCommit(v: string)
+    checkCommitted = v
+  action checkSearchBlur
+    checkBlurs = checkBlurs + 1
   view
     main testId="root" navigationKey=`${current.id}` navigationBack="back" navigate=navigate viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" display="flex" flex-direction="column" overflow="hidden" font-family="system-ui"
       column flex=1 min-height=0 position="relative"
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for entry in t.stack key=entry.id
+              if t.name == "keyboard"
+                column navigationKey=`${entry.id}` navigationScroll=`keyboard-scroll-${entry.id}` id=`keyboard-route-${entry.id}` hatch="keyboard-route" data-keyboard-screen=entry.name data-focus-on-show=(entry.name == "keyboard-editor" ? "keyboard-editor" : entry.name == "keyboard" and returnFocus ? "keyboard-return" : "") class=Screen background-color=((entry.name == "keyboard" or entry.name == "keyboard-form") ? "-exact-grouped-background" : "Canvas") testId=`screen-${entry.name}`
+                  header class=Head display="flex" align-items="center" gap=8
+                    text (entry.name == "keyboard" ? "Keyboard Check" : entry.name == "keyboard-form" ? "Far focus" : entry.name == "keyboard-search" ? "Search" : "Editor") role="heading" aria-level=2
+                    if entry.name == "keyboard-form"
+                      button press=checkFocusFirst retainFocus=true testId="keyboard-focus-first"
+                        text "First"
+                    if entry.name == "keyboard-search"
+                      input type="search" value=checkQuery input=checkWriteQuery change=checkCommit blur=checkSearchBlur autofocus=true placeholder="Type sample text" aria-label="Search" testId="keyboard-search-field"
+                  if entry.name == "keyboard"
+                    list id=`keyboard-scroll-${entry.id}` flex=1 min-height=0 appearance="auto" listStyle="inset-grouped" class=ReadableList testId="keyboard-checks"
+                      section
+                        header
+                          text "Start here"
+                        row
+                          text "Tap Record in the bar. Run one check, then tap Share to send diagnostics. Use sample text, not a real password."
+                      section
+                        header
+                          text "Back and keyboard"
+                        button press=checkOpenEditor(false) testId="keyboard-open-editor"
+                          text "Open editor"
+                        row
+                          text "Type, swipe Back halfway and cancel, then complete a swipe. Repeat with the Back button. The returning screen should fill the window."
+                        button press=checkOpen("/keyboard/search") testId="keyboard-open-search"
+                          text "Open header search"
+                        row
+                          text `Last committed search: ${checkCommitted == "" ? "(empty)" : checkCommitted}. Blurs: ${checkBlurs}.`
+                      section
+                        header
+                          text "Native returning focus"
+                        row
+                          input id="keyboard-return" hatch="keyboard-field" value=checkText input=checkWrite placeholder="Returning field" aria-label="Returning field" testId="keyboard-return" flex=1
+                        button press=checkOpenEditor(true) retainFocus=true testId="keyboard-open-handoff"
+                          text "Open editor; return focus here"
+                        row
+                          text "A native UIKit focus claim during Back should keep the keyboard up. This case uses the hatched native field, not the queued focus() action. A cancelled swipe should restore focus to the editor without lowering the keyboard."
+                      section
+                        header
+                          text "Text and password"
+                        row
+                          input id="keyboard-username" hatch="keyboard-field" value=checkUsername input=checkWriteUsername autocomplete="username" placeholder="Sample username" aria-label="Sample username" testId="keyboard-username" flex=1
+                        row
+                          input id="keyboard-password" hatch="keyboard-field" type="password" value=checkPassword input=checkWritePassword autocomplete="current-password" placeholder="Sample password" aria-label="Sample password" testId="keyboard-password" flex=1
+                        row
+                          text "Switch fields several times. Share a screen recording too if the form or keyboard jumps."
+                      section
+                        header
+                          text "Offscreen focus"
+                        button press=checkOpen("/keyboard/form") testId="keyboard-open-form"
+                          text "Open the long form"
+                        row
+                          text "Tap the first field, then Focus last. The last field and Done should appear above the keyboard. Use First to jump back, and repeat."
+                  if entry.name == "keyboard-editor"
+                    scroll id=`keyboard-scroll-${entry.id}` flex=1 min-height=0 padding-top=16 padding-bottom=16 padding-left="env(-exact-readable-content-corners-inset-left)" padding-right="env(-exact-readable-content-corners-inset-right)" testId="keyboard-editor-scroll"
+                      column gap=16
+                        text "Type sample text. Try a cancelled swipe, a completed swipe, and the native Back button."
+                        input id="keyboard-editor" hatch="keyboard-field" value=checkEditor input=checkWriteEditor placeholder="Type here" aria-label="Editor" testId="keyboard-editor" width="100%"
+                        button press=checkDismissBack testId="keyboard-dismiss-back"
+                          text "Dismiss keyboard and go Back"
+                        text "If a blank band appears, tap Share immediately. The file keeps the recent geometry from before the share sheet."
+                  if entry.name == "keyboard-form"
+                    list id=`keyboard-scroll-${entry.id}` flex=1 min-height=0 appearance="auto" listStyle="inset-grouped" class=ReadableList testId="keyboard-long-form"
+                      section
+                        row
+                          input id="keyboard-first" hatch="keyboard-field" value=checkFirst input=checkWriteFirst placeholder="First field" aria-label="First field" testId="keyboard-first" flex=1
+                        button press=checkFocusLast retainFocus=true testId="keyboard-focus-last"
+                          text "Focus last"
+                      section
+                        for r in keyboardRows key=r.id
+                          row
+                            text `Row ${r.id + 1}`
+                      section
+                        row
+                          input id="keyboard-last" hatch="keyboard-field" value=checkLast input=checkWriteLast placeholder="Last field" aria-label="Last field" testId="keyboard-last" flex=1
+                        button press=dismiss testId="keyboard-form-done"
+                          text "Done"
+                  if entry.name == "keyboard-search"
+                    scroll id=`keyboard-scroll-${entry.id}` flex=1 min-height=0 padding-top=16 padding-bottom=16 padding-left="env(-exact-readable-content-corners-inset-left)" padding-right="env(-exact-readable-content-corners-inset-right)"
+                      text "Type sample text in the header, then use Back. The previous screen should show the final committed text and one blur. Repeat with a swipe. Check the committed text after Back, then Share from that screen; recording continues through Back."
               // Reflow and Images scroll the whole width under a header that is
               // UIKit's navigation bar, whose large title UIKit takes away as the
               // scroller immediately following the header moves. Fold, Combinations
@@ -150,25 +287,25 @@ component DuoLab
                 column navigationKey=`${entry.id}` navigationScroll="image-list" class=Screen testId="screen-images"
                   header class=Head
                     text "Images" role="heading" aria-level=1 testId="images-title"
-                    text `${rows.length} rows over four pictures; fold mid-scroll.`
-                  list id="image-list" appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-safe-area-corners-inset-left)" padding-right="env(-exact-safe-area-corners-inset-right)" overflow-x="hidden" testId="image-list"
+                    text `${rows.length} ${rows.length == 1 ? "row" : "rows"} over four pictures; fold mid-scroll.`
+                  list id="image-list" appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-readable-content-corners-inset-left)" padding-right="env(-exact-readable-content-corners-inset-right)" overflow-x="hidden" testId="image-list"
                     for row in rows key=row.id
-                      column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 testId=`image-row-${row.id}`
+                      column width="100%" box-sizing="border-box" padding-top=12 testId=`image-row-${row.id}`
                         image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="-exact-secondary-background"
                         text row.caption font-size=13 padding-top=6 color="-exact-secondary-label"
               if entry.name == "reflow"
                 column navigationKey=`${entry.id}` navigationScroll="reflow-scroll" class=Screen testId="screen-reflow"
                   header class=Head
                     text "Reflow" role="heading" aria-level=1 testId="reflow-title"
-                  scroll id="reflow-scroll" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-safe-area-corners-inset-left)" padding-right="env(-exact-safe-area-corners-inset-right)" testId="reflow-scroll"
-                    column width="100%" box-sizing="border-box" padding=16 gap=16
+                  scroll id="reflow-scroll" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-readable-content-corners-inset-left)" padding-right="env(-exact-readable-content-corners-inset-right)" testId="reflow-scroll"
+                    column width="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 gap=16
                       text doc.body markup="markdown" testId="document" width="100%" font-size=17 line-height="26px"
                       text "Feed" font-size=22 font-weight=700 testId="feed-title"
                       for post in feed key=post.id
                         row gap=10 class=Card testId=`feed-${post.id}`
                           text post.who font-size=14 font-weight=600 flex-shrink=0 width=72
                           text post.body font-size=14 flex=1 min-width=0
-              if entry.name != "images" and entry.name != "reflow"
+              if entry.name != "images" and entry.name != "reflow" and t.name != "keyboard"
                 column navigationKey=`${entry.id}` navigationBar="none" class=Screen testId=`screen-${entry.name}`
                   if entry.name == "fold"
                     // Two segments across: the list on the first, the detail on the
@@ -200,7 +337,7 @@ component DuoLab
                         column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
                           Detail(items=items, selected=selected)
                   if entry.name == "combos"
-                    column flex=1 min-height=0 margin-left=paneLeft width=paneWidth class=Safe padding-left=paneInset
+                    column flex=1 min-height=0 margin-left=paneLeft margin-right=paneRight class=Safe padding-left=panePadLeft padding-right=panePadRight
                       text "Combinations" class=Title testId="combos-title"
                       text "Push a screen, open its sheet, raise the keyboard, then fold." class=Note
                       column padding=16 gap=12
@@ -208,7 +345,7 @@ component DuoLab
                           text "Push the note screen" font-size=16 font-weight=600 color="AccentColorText"
                         text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="-exact-secondary-label"
                   if entry.name == "note"
-                    column flex=1 min-height=0 margin-left=paneLeft width=paneWidth class=Safe padding-left=paneInset
+                    column flex=1 min-height=0 margin-left=paneLeft margin-right=paneRight class=Safe padding-left=panePadLeft padding-right=panePadRight
                       row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12
                         button press=back testId="note-back" padding=8 border-radius=8 background-color="-exact-tertiary-fill"
                           text "Back" font-size=14 font-weight=600 color="AccentColor"
@@ -222,7 +359,7 @@ component DuoLab
                     // at most zero while the route reaches the segment and past any cap once it ends
                     // a point or more above it, then lifts the segment's cap, and the sheet riding
                     // the keyboard takes the room below the header.
-                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=0 height=sheetPx max-height=(twoDown ? "min(calc(100% - env(-exact-safe-area-corners-inset-top) - 72px), max(calc(100% - env(viewport-segment-top 0 1)), calc((env(viewport-segment-top 0 1) - 100%) * 1000)))" : "calc(100% - 72px)") box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
+                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=paneRight height=sheetPx max-height=(twoDown ? "min(calc(100% - env(-exact-safe-area-corners-inset-top) - 72px), max(calc(100% - env(viewport-segment-top 0 1)), calc((env(viewport-segment-top 0 1) - 100%) * 1000)))" : "calc(100% - 72px)") box-sizing="border-box" padding=16 padding-right=`calc(max(0px, env(-exact-safe-area-corners-inset-right) - ${paneRight}) + 16px)` padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=`calc(max(0px, env(-exact-safe-area-corners-inset-left) - ${paneLeft}) + 16px)` gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
                       column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                         text "Note" font-size=18 font-weight=600
                         text "Drag to resize" font-size=11 color="-exact-secondary-label"
@@ -249,6 +386,9 @@ component DuoLab
         button role="tab" aria-controls="panel-combos" aria-selected=(nav.tab == "combos") press=selectTab("combos") testId="tab-combos" flex=1
           image "symbol:layers"
           text "Combos"
+        button role="tab" aria-controls="panel-keyboard" aria-selected=(nav.tab == "keyboard") press=selectTab("keyboard") testId="tab-keyboard" flex=1
+          image "symbol:sf/keyboard"
+          text "Keyboard"
 
 // The three facts and the viewport, printed so a screenshot is its own evidence.
 component Facts

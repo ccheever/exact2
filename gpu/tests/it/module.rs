@@ -121,7 +121,7 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         parse_input(r#"{"t":"blur","at":5}"#).unwrap(),
         InputEvent::Blur { at_ms: 5.0 }
     );
-    // A pad's whole state: the only lists an input event carries.
+    // A pad's whole state, a list as a sensor's values are.
     let mut buttons = [0.0; 17];
     buttons[0] = 1.0;
     buttons[7] = 0.5;
@@ -140,8 +140,53 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         r#"{"t":"pad","index":0,"connected":true,"standard":true,"buttons":[1],"axes":[0,0,0,0],"at":6}"#,
         r#"{"t":"pad","index":0,"connected":true,"standard":true,"buttons":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],"axes":[0,0,0,0],"at":6}"#,
         r#"{"t":"key","code":["KeyW"],"key":"w","down":true,"repeat":false,"at":6}"#,
+        // A sensor's values are four finite numbers, its name one of seven.
+        r#"{"t":"sensor","sensor":"gravity","values":[0,0,9.8],"at":7}"#,
+        r#"{"t":"sensor","sensor":"gravity","values":[0,0,1e39,0],"at":7}"#,
+        r#"{"t":"sensor","sensor":"heading","values":[0,0,0,0],"at":7}"#,
+        r#"{"t":"sensorEnded","at":7}"#,
     ] {
         assert!(parse_input(bad).is_err(), "{bad}");
+    }
+    // A sensor's sample, `dropped` 0 when the host leaves it out (LLP 1133.013 D6).
+    use exact_gpu::SensorKind;
+    assert_eq!(
+        parse_input(
+            r#"{"t":"sensor","sensor":"gravity","values":[0,4.9,8.49,0],"dropped":3,"at":7}"#
+        )
+        .unwrap(),
+        InputEvent::Sensor {
+            sensor: SensorKind::Gravity,
+            values: [0., 4.9, 8.49, 0.],
+            dropped: 3,
+            at_ms: 7.
+        }
+    );
+    for kind in SensorKind::ALL {
+        let name = kind.name();
+        assert_eq!(SensorKind::from_name(name), Some(kind));
+        assert_eq!(
+            parse_input(&format!(
+                r#"{{"t":"sensor","sensor":"{name}","values":[1,2,3,4],"at":8}}"#
+            ))
+            .unwrap(),
+            InputEvent::Sensor {
+                sensor: kind,
+                values: [1., 2., 3., 4.],
+                dropped: 0,
+                at_ms: 8.
+            }
+        );
+        assert_eq!(
+            parse_input(&format!(
+                r#"{{"t":"sensorEnded","sensor":"{name}","at":9}}"#
+            ))
+            .unwrap(),
+            InputEvent::SensorEnded {
+                sensor: kind,
+                at_ms: 9.
+            }
+        );
     }
     for (phase, expected) in [
         ("down", PointerPhase::Down),

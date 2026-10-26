@@ -9,7 +9,7 @@ type Build = { status: any; plan?: string | null; design?: string | null; pinRev
 /** A selection with what it was made under: its build's facts (`at`), the
  * app design's axes, the scheme it is shown in ('' when not known), and why
  * it is no longer current, once it is not. */
-export type Selected = { e: any; at: string; axes: string; scheme: string; stale: string; files?: string; asking?: boolean; visit?: number };
+export type Selected = { e: any; at: string; axes: string; scheme: string; stale: string; files?: string; asking?: boolean; visit?: number; arrival?: number };
 // Each selection's visit, counted as the selections come: it moves when one names another view than the one before
 // it, so a round trip (A, then B, then A, however close together) is a new visit to A, and the Inspector's rows
 // nothing sets, opened for one visit, fold again (a refresh of the same view is the same visit).
@@ -67,7 +67,7 @@ const rowOf = (x: any, component: string) => x?.rung === 'template' || x?.rung =
       promote: x.rung === 'template' && x.text ? JSON.stringify({ addr: at(x), component: x.component ?? component, text: x.text }) : '', tokenize: x.rung === 'template' && x.text && !x.state, detach: '' }
   : { edit: '', editLabel: '', editText: '', editWords: '', promote: '', tokenize: false, detach: x?.rung === 'param' && x.template ? JSON.stringify({ addr: at(x.template), param: x.param }) : '' };
 const stateOf = (x: any) => x?.style ? { state: [x.style, x.state, x.row, x.file].join('|'), stateLabel: `Edit ${x.style} :${x.state} ${x.row}`, stateText: String(x.text ?? '') } : { state: '', stateLabel: '', stateText: '' };
-const noSelection = { key: '', visit: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '', libraryIdentity: '', libraryPart: '', libraryParts: [] };
+const noSelection = { key: '', visit: '', arrival: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], movedUp: -1, movedStepped: -1, modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '', libraryIdentity: '', libraryPart: '', libraryParts: [] };
 /** The part outline's fields: none outside a library component. */
 function libraryOf(library: any, partsOf: (identity: string) => { name: string; slot: boolean }[] | null) {
   if (!library || typeof library.identity !== 'string') return { libraryIdentity: '', libraryPart: '', libraryParts: [] };
@@ -105,9 +105,9 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
   });
   return {
     // (With the build's facts it was made under: a pin, a reload or a new plan since makes another copy.)
-    key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), s.at].join('|'), visit: `${s.visit ?? 0}`, files: s.files ?? '',
+    key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), s.at].join('|'), visit: `${s.visit ?? 0}`, arrival: `${s.arrival ?? 0}`, files: s.files ?? '',
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
-    source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: at(x), up: i + 1 })), modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
+    source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: at(x), up: i + 1 })), movedUp: Number.isSafeInteger(e.moved?.up) ? e.moved.up : -1, movedStepped: Number.isSafeInteger(e.moved?.stepped) ? e.moved.stepped : -1, modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
     // A node of an exported library component's own view (stage 12 D4, LLP 1139 D5): the component by its declaring
     // identity, the part this node is or none, and its parts as the server lists them, this one and the slot's marked.
     ...libraryOf(e.source?.library, partsOf),

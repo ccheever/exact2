@@ -69,7 +69,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var svgPressed: UInt32?
     /// Its button went down as a Control-click's context click (X85).
     var contextClicked = false
-    var cachedTextSpec: Spec?
+    var cachedTextSpec: Spec? { didSet { cachedTextHeadroom = nil } }
+    var cachedTextHeadroom: Float?
     var textLayoutValid = false
     /// The node whose `accent-color` this view last read as its tint, nil for the system's (NodeColorMac.swift).
     var tintSource: ObjectIdentifier?
@@ -155,8 +156,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// colours and radii. Cleared by whatever it reads (style, size, clip,
     /// raster, symbol, surface).
     var layerPaintCache: Bool?
-    /// What `applyProps` last wrote to AppKit's accessibility (see there).
-    struct AccessibilityWrite: Equatable { var enabled = true; var identifier: String?; var label: String? }
+    /// What the host last wrote to AppKit accessibility (props and form state).
+    struct AccessibilityWrite: Equatable { var enabled = true; var identifier: String?; var label: String?; var help: String?; var required = false; var formInitialized = false }
     var lastAccessibilityWrite = AccessibilityWrite()
     var boxGradient: CAGradientLayer?
     var imageLayer: CALayer?
@@ -239,13 +240,13 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         while let view = ancestor {
             if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
             if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
-            ancestor = presenter?.menus.parent(of: view) ?? view.superview
+            ancestor = presenter?.authoredSuperview(of: view) ?? view.superview
         }
         return false
     }
     /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
     var accessibilityHiddenByProp: Bool {
-        sequence(first: self as NSView, next: { self.presenter?.menus.parent(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
+        sequence(first: self as NSView, next: { self.presenter?.authoredSuperview(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
     }
     package var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
@@ -747,6 +748,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     package override func hitTest(_ point: NSPoint) -> NSView? {
+        // A plain leaf or clipped box cannot hit beyond its frame. Visible
+        // overflow and transformed or placed children still need the full walk.
+        if overlay == nil, !frame.contains(point), (clipsToBounds || subviews.isEmpty),
+           plane == nil { return nil }
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
@@ -851,7 +856,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the colours assigned outside a draw are re-applied. @ref LLP 1034 D2
     package override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        presenter?.tables.appearanceChanged(self); refreshGroupedSeparator()
+        presenter?.tables.appearanceChanged(self); refreshGroupedSeparator(); presenter?.navigation.split.recolor(self)
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         // An `svg`'s paints are resolved again; paint motion hears the appearance (LLP 1062 D4).
         presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint); presenter?.session?.noteAppearance(self)
@@ -864,6 +869,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// what it resolved is applied again, as for an appearance change; an
     /// untinted symbol follows the accent, so it counts too.
     func systemColorsChanged() {
+        presenter?.navigation.split.recolor(self)
         guard hasSchemeColor || hasSymbolLeaf || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
@@ -987,7 +993,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         for (k, v) in set { next[k] = v }
         props = next
         if set["groupedSeparator"] != nil || clear.contains("groupedSeparator") { applyGroupedSeparator() }
-        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten") { updateSymbol() }
+        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten")
+            || set["symbolFillRule"] != nil || clear.contains("symbolFillRule") { updateSymbol() }
         applyTextArea()
         remakeFieldIfNeeded()
         if let f = field {
@@ -1004,9 +1011,12 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
         }
         // Each AppKit accessibility write posts a notification, changed or
-        // not: write only what differs from the last write (a new view's
-        // is AppKit's own: enabled, no identifier, no label).
-        let ax = AccessibilityWrite(enabled: !disabled && !ariaUnavailable, identifier: props["testId"], label: props["accessibilityLabel"])
+        // not: write only what differs from the last write. The first form
+        // sync establishes enabled/help/required (`Accessibility.swift`).
+        var ax = lastAccessibilityWrite
+        ax.enabled = !disabled && !ariaUnavailable
+        ax.identifier = props["testId"]
+        ax.label = props["accessibilityLabel"]
         if ax != lastAccessibilityWrite {
             let last = lastAccessibilityWrite
             if ax.enabled != last.enabled { setAccessibilityEnabled(ax.enabled) }
@@ -1084,6 +1094,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let old = style
         style = s
         if old["display"] != s["display"] { isHidden = hostHidden }
+        if old["zoom"] != s["zoom"], kind == "iframe" { updateEmbedded() } // the guest's page zoom (LLP 1020.002 D6)
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if old["appearance"] != s["appearance"] { needsLayout = true } // a form row's bezel (FormRowsMac.swift)
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
@@ -1197,7 +1208,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
-            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style["font_variation_settings"]))
+            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
             f.textColor = fieldInk
             applyPlaceholder(f)
             styleNativeField()

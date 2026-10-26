@@ -364,6 +364,30 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("stop", "view", "stop=done"),
         ("seekbackwardOffset", "view", "seekbackwardOffset=15"),
         ("seekforwardOffset", "view", "seekforwardOffset=15"),
+        ("partition", "view", "partition=\"persist:work\""),
+        ("zoom", "view", "zoom=1.5"),
+        ("currententrychange", "view", "currententrychange=done"),
+        ("navigatesuccess", "view", "navigatesuccess=done"),
+        ("navigateerror", "view", "navigateerror=done"),
+        ("newwindow", "view", "newwindow=done"),
+        ("download", "view", "download=done"),
+        ("capture", "view", "capture=done"),
+        ("userpromptopened", "view", "userpromptopened=done"),
+        (
+            "apple.allowsBackForwardNavigationGestures",
+            "view",
+            "apple.allowsBackForwardNavigationGestures=true",
+        ),
+        (
+            "apple.allowsMagnification",
+            "view",
+            "apple.allowsMagnification=true",
+        ),
+        (
+            "apple.inactiveSchedulingPolicy",
+            "view",
+            "apple.inactiveSchedulingPolicy=\"throttle\"",
+        ),
     ];
     let listed: Vec<&str> = contract_lower::vocab::CONTEXTUAL
         .iter()
@@ -1044,6 +1068,9 @@ fn wakelock_says_its_two_words_and_where_it_holds() {
         "\"none\"",
         "display: none",
         "state.wakelock",
+        "expect wakelock held",
+        "expect wakelock released",
+        "not whether the OS or browser granted it",
     ] {
         assert!(text.contains(want), "{want}: {text}");
     }

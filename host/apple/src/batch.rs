@@ -36,6 +36,9 @@ pub struct Batch {
     /// The kernel transactions this batch carries, `"seq":[first,last]`,
     /// when the runner measures (LLP 1079 D3): the frame sampler's join.
     pub seq: Option<(u64, u64)>,
+    /// Failure lines for the platform's log, `"alerts":[…]`, each carried
+    /// once (LLP 1142 D4: [`exact_runner::Runner::take_alerts`]).
+    pub alerts: Vec<String>,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
@@ -879,6 +882,16 @@ impl Batch {
         }
         if let Some((first, last)) = self.seq {
             let _ = write!(s, ",\"seq\":[{first},{last}]");
+        }
+        if !self.alerts.is_empty() {
+            s.push_str(",\"alerts\":[");
+            for (i, line) in self.alerts.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(line, &mut s);
+            }
+            s.push(']');
         }
         let _ = write!(
             s,

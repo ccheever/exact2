@@ -483,7 +483,13 @@ dev connection remain available. Linux takes an optional adapter; its
 selected-asset resolver preserves complete-roster tombstones and boot-time
 integrity fallback without a dependency on the store. L=0 compatibility
 metadata contains no verification keys, trust epoch, store codec or accepted
-bundle kinds, and no update origin. The publisher emits a binary row for it
+bundle kinds, and no update origin. The build's resolved trust is recorded
+once outside the cohort inputs, as `embedded.trust` beside the GPU cards, and
+every production policy reads that one field (agent mode, LLP 1069.007 D2;
+the module override, LLP 1024 D5; collection, LLP 1079), so an L=0 production
+binary is production while its cohort id stays its development twin's (#948).
+`host/apple/build.mjs` bakes production trust whenever it stamps a build
+`release` or `archive`. The publisher emits a binary row for it
 without discovering or reading retired streams when all selected platforms are
 L=0; in a mixed run, retired records identified as an L=0 platform are omitted.
 Binary publication remains the separate unbuilt

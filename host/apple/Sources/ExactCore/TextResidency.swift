@@ -19,11 +19,14 @@ package enum TextMetricKey {
         // Only an expanded Markdown run has these; a plain run hashes as
         // its request's does (LLP 1045 D4).
         if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
+        // An image's box (LLP 1011.002), as its request's hashes.
+        if let b = r.box { h.combine(b) }
     }
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
                r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
                Int(r.font_variant_numeric), CGFloat(r.font_stretch), FontAxis.of(r), &h)
+        if let b = InlineBox(r) { h.combine(b) }
     }
     package static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
@@ -61,7 +64,12 @@ package enum TextMetricKey {
         }
         // A Markdown request hashes apart from the plain request of its one
         // source run; a plain request hashes as its Spec does.
-        if request.markup != 0 { h.combine(Int(request.markup)) }
+        if request.markup != 0 {
+            h.combine(Int(request.markup))
+            // A label's width is its face's (LLP 1045.000 D2).
+            if request.atoms_len > 0, let a = request.atoms { h.combine(bytes: UnsafeRawBufferPointer(start: a, count: request.atoms_len)) }
+            if request.faces_len > 0, let f = request.faces { h.combine(bytes: UnsafeRawBufferPointer(start: f, count: request.faces_len)) }
+        }
         h.combine(Int(request.text_box_trim)); h.combine(Int(request.text_box_over)); h.combine(Int(request.text_box_under))
         h.combine(Int(request.text_wrap_style))
         return h.finalize()
@@ -74,6 +82,7 @@ package enum TextMetricKey {
             && Int(raw.font_variant_numeric) == owned.numeric
             && CGFloat(raw.font_stretch) == owned.stretch
             && FontAxis.of(raw) == owned.variations
+            && InlineBox(raw) == owned.box
     }
     package static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;

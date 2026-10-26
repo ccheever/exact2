@@ -19,6 +19,14 @@ impl<D: DataSource> Presenter<D> {
         self.module = module;
     }
 
+    /// A dev loop's status the boot already said: the poll says it again
+    /// only once it changes.
+    pub fn said_at_boot(&mut self, said: Option<String>) {
+        if let (Some(dev), Some(said)) = (self.dev.as_mut(), said) {
+            dev.says(&said);
+        }
+    }
+
     /// Connect the existing development URL loop; polling starts after first pixel.
     pub fn set_development(&mut self, url: Option<String>, identity: Option<String>) {
         self.dev = url.map(|url| crate::fetch::Poller::new(url, self.compat.clone(), identity));
@@ -83,7 +91,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 self.pending_dev = Some(generation);
             }
-            Some(Err(error)) => eprintln!("exact url: {error}; keeping the running app"),
+            // A dev loop's status (its producers starting) once, not each tick.
+            Some(Err(error)) => self.dev.as_mut().unwrap().say(&error),
             _ => {}
         }
     }
@@ -168,14 +177,23 @@ impl<D: DataSource> Presenter<D> {
             validation
                 .activate_for_validation()
                 .map_err(|e| HostError::Asset(format!("candidate module: {e:?}")))?;
-            let (mut host, error) = Host::boot_with(
-                plan,
-                validation,
-                Box::new(Measurer(text.clone())),
-                self.viewport.0,
-                self.viewport.1,
-                Some(carried),
-                Some(delivery.clone()),
+            let (mut host, error) = exact_runner::time::launching_with(
+                exact_runner::time::Launch {
+                    time: Some(self.host.runner().wall_time()),
+                    place: Some(self.host.runner().place().clone()),
+                    ..exact_runner::time::Launch::NONE
+                },
+                || {
+                    Host::boot_with(
+                        plan,
+                        validation,
+                        Box::new(Measurer(text.clone())),
+                        self.viewport.0,
+                        self.viewport.1,
+                        Some(carried),
+                        Some(delivery.clone()),
+                    )
+                },
             )?;
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
@@ -291,14 +309,23 @@ impl<D: DataSource> Presenter<D> {
             &delivery,
             false,
         )?;
-        let (mut host, error) = Host::boot_with(
-            &candidate.plan,
-            data,
-            Box::new(Measurer(text.clone())),
-            self.viewport.0,
-            self.viewport.1,
-            Some(&carried),
-            Some(delivery),
+        let (mut host, error) = exact_runner::time::launching_with(
+            exact_runner::time::Launch {
+                time: Some(self.host.runner().wall_time()),
+                place: Some(self.host.runner().place().clone()),
+                ..exact_runner::time::Launch::NONE
+            },
+            || {
+                Host::boot_with(
+                    &candidate.plan,
+                    data,
+                    Box::new(Measurer(text.clone())),
+                    self.viewport.0,
+                    self.viewport.1,
+                    Some(&carried),
+                    Some(delivery),
+                )
+            },
         )?;
         if let Some(error) = error {
             return Err(HostError::Layout(error));
@@ -380,6 +407,123 @@ impl<D: DataSource> Presenter<D> {
 mod tests {
     use super::*;
     use crate::delivery::{Selection, Store};
+    use exact_runner::{DataError, Value};
+    use std::sync::Mutex;
+
+    #[derive(Clone, Default)]
+    struct FirstFacts(Arc<Mutex<Option<Vec<Value>>>>);
+
+    impl DataSource for FirstFacts {
+        fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
+            assert_eq!(name, "record");
+            self.0.lock().unwrap().get_or_insert_with(|| args.to_vec());
+            Ok(Value::Number(1.0))
+        }
+
+        fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+            Ok(self.clone())
+        }
+    }
+
+    fn candidate_plan() -> Vec<u8> {
+        crate::test_plan(
+            r#"shape Time
+  epochAtZero: number
+  utcOffset: number
+  locale: string
+  formatLocale: string
+  timeZone: string
+  seed: number
+component App
+  resource time = exactTime() as shape Time
+  resource first = record(time.epochAtZero, time.utcOffset, time.locale, time.formatLocale, time.timeZone, time.seed, performanceNow()) as shape number
+  view
+    text `${first}`
+"#,
+        )
+    }
+
+    fn dated_presenter() -> (Presenter<FirstFacts>, FirstFacts) {
+        let facts = FirstFacts::default();
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan("component App\n  view\n    text \"old\"\n"),
+            facts.clone(),
+            (100., 100.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        assert!(p.set_time(1_790_000_000_000.0, -240.0).is_none());
+        assert!(p
+            .set_place(&exact_runner::time::Place {
+                locale: "fr-CA".into(),
+                format_locale: "en-GB".into(),
+                time_zone: "America/Toronto".into(),
+                seed: 123_456_789.0,
+            })
+            .is_none());
+        assert!(p.clock(1250.0).1.is_none());
+        (p, facts)
+    }
+
+    fn assert_first_facts(facts: &FirstFacts) {
+        assert_eq!(
+            facts.0.lock().unwrap().as_deref(),
+            Some(
+                [
+                    Value::Number(1_790_000_000_000.0),
+                    Value::Number(-240.0),
+                    Value::str("fr-CA"),
+                    Value::str("en-GB"),
+                    Value::str("America/Toronto"),
+                    Value::Number(123_456_789.0),
+                    Value::Number(1250.0),
+                ]
+                .as_slice()
+            )
+        );
+    }
+
+    #[test]
+    fn development_candidate_first_settle_reads_launch_facts() {
+        let (mut p, facts) = dated_presenter();
+        assert!(p
+            .reload(&candidate_plan(), facts.clone())
+            .unwrap()
+            .is_none());
+        assert_first_facts(&facts);
+    }
+
+    #[test]
+    fn validation_candidate_first_settle_reads_launch_facts() {
+        let (mut p, facts) = dated_presenter();
+        p.painted = true;
+        let mut carried = p.host.carry();
+        p.prepare_logic(
+            &candidate_plan(),
+            facts.clone(),
+            Some(&crate::delivery::Module {
+                receipt: String::new(),
+                bytes: Vec::new(),
+            }),
+            &p.text,
+            &mut carried,
+            p.host.runner().delivery(),
+            false,
+        )
+        .unwrap();
+        assert_first_facts(&facts);
+    }
+
+    #[test]
+    fn update_candidate_first_settle_reads_launch_facts() {
+        let (mut p, facts) = dated_presenter();
+        p.set_updates(Some(Box::new(StagedPlan(candidate_plan().into()))));
+        assert!(p.activate_update(facts.clone()).unwrap());
+        assert_first_facts(&facts);
+    }
 
     struct StagedPlan(Arc<[u8]>);
 

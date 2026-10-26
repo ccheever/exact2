@@ -54,7 +54,27 @@ extension NodeView {
     /// the source, which selection still reads.
     var visibleParagraphText: String {
         guard !inlineText.isEmpty else { return paragraphText }
-        return inlineText.filter { $0.paints && !$0.run(dark: drawsDark).hidden }.map(\.text).joined()
+        return inlineText.filter { $0.paints && ($0.lightRun.box != nil || !$0.run(dark: drawsDark).hidden) }.map(\.spoken).joined()
+    }
+
+    /// `text`, the slice of this paragraph's shaped text (`paragraphSpec`)
+    /// from UTF-16 offset `start`, as it is copied: each image's U+FFFC its
+    /// `aria-label` (LLP 1011.002 D4), any other character itself.
+    func copiedText(_ text: String, from start: Int) -> String {
+        let runs = paragraphSpec().runs
+        guard runs.contains(where: { $0.box != nil }) else { return text }
+        var labels = inlineText.filter { $0.lightRun.box != nil }.map(\.spoken).makeIterator()
+        let slice = text as NSString, end = start + slice.length
+        var out = "", cursor = start, at = 0
+        for run in runs {
+            defer { at += (run.text as NSString).length }
+            guard run.box != nil else { continue }
+            let label = labels.next() ?? ""
+            guard at >= cursor, at < end else { continue }
+            out += slice.substring(with: NSRange(location: cursor - start, length: at - cursor)) + label
+            cursor = at + 1
+        }
+        return out + slice.substring(from: min(cursor - start, slice.length))
     }
 
     func visibleInlineText(in range: NSRange, source: NSString) -> String {
@@ -108,7 +128,8 @@ extension NodeView {
         #else
         // UIKit does not visit a container's children when it is itself an
         // accessibility element. Expose the paragraph plus its link targets.
-        isAccessibilityElement = !inlineText.contains(where: { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
+        // An image in the text is read in its words (LLP 1011.002 D4): no run of its own.
+        isAccessibilityElement = !inlineText.contains(where: { $0.lightRun.box == nil && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) })
         accessibilityTraits.insert(.staticText)
         // A heading says so, as on the web and macOS (found by `tree --ax` parity, LLP 1080.002).
         if headingLevel != nil { accessibilityTraits.insert(.header) } else { accessibilityTraits.remove(.header) }
@@ -177,13 +198,13 @@ extension NodeView {
         let links = Set(interactiveRuns.map(\.id))
         var children: [NSAccessibilityElement] = [], words: [InlineText] = []
         func stretch() {
-            let said = words.map(\.text).joined()
+            let said = words.map(\.spoken).joined()
             if !said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { children.append(ParagraphWords(owner: self, text: said, runs: words)) }
             words = []
         }
         for run in inlineText {
             if links.contains(run.id) { stretch(); children.append(InlineAccessibility(owner: self, run: run, text: text)) }
-            else if run.paints, !run.run(dark: drawsDark).hidden { words.append(run) }
+            else if run.paints, run.lightRun.box != nil || !run.run(dark: drawsDark).hidden { words.append(run) }
         }
         stretch()
         return children

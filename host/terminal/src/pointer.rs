@@ -94,8 +94,10 @@ impl<D: DataSource> Host<D> {
                 false
             }
         });
-        if run.is_some_and(|run| self.press_run(run)) {
-            return true;
+        if let Some(run) = run {
+            if !self.input_eligible(run) || self.press_run(run) {
+                return true;
+            }
         }
         match hit {
             Some(id) => {
@@ -109,6 +111,9 @@ impl<D: DataSource> Host<D> {
     /// A press on an inline run: its `press` handler, or else the link it
     /// or its paragraph names. Whether anything took it.
     pub fn press_run(&mut self, id: ViewId) -> bool {
+        if !self.input_eligible(id) {
+            return false;
+        }
         if self.handler(id, exact_plan::EventKind::Press).is_some() {
             self.press_with(id, false);
             return true;
@@ -149,6 +154,7 @@ impl<D: DataSource> Host<D> {
     /// in its bounds (its title, its padding) is inside it; one outside
     /// closes it only when `closedby="any"`, and presses nothing beneath.
     pub fn click(&mut self, x: i32, y: i32) {
+        self.advance_for_input();
         let Some(local) = self.local(y) else { return };
         let hit = self.hit(x, y);
         if let Some((top, ..)) = self.layers.last().copied() {
@@ -174,6 +180,7 @@ impl<D: DataSource> Host<D> {
     /// A wheel at a screen cell: the innermost presented scroller under it
     /// moves by rows (with a layer open, only the layer's are presented).
     pub fn wheel(&mut self, x: i32, y: i32, rows: i32) {
+        self.advance_for_input();
         let Some(y) = self.local(y) else { return };
         let found = self
             .presented

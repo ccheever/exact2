@@ -1,0 +1,35 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/contacts@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleContactsStatus": {
+      "authorizationStatus": "enum<notDetermined|restricted|denied|authorized|limited>"
+    }
+  },
+  "options": {
+    "selectContacts": {
+      "enablingPredicate": "string",
+      "displayedPropertyKeys": "string[]"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "contactStore",
+    "contactPicker"
+  ],
+  "sources": {
+    "swift": [
+      "Contacts.swift",
+      "AgentContacts.swift",
+      "ContactStore.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "ContactsModule"
+}

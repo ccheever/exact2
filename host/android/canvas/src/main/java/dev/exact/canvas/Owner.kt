@@ -580,9 +580,20 @@ internal object Exact {
 
     /** What the extensions tell exact2 ([Native.changed], [Native.bindExtensions]): on exact2's thread, in order. */
     fun changed(topic: String) { val o = owner; if (o != null) o.call { Native.changed(topic) } else Native.changed(topic) }
+    /** A turn on exact2's thread, which asks for a display frame while a canvas input's samples wait. */
+    fun wake() { owner?.call {} }
     fun presence(answer: String) { val o = owner; if (o != null) o.call { Native.presence(answer) } else Native.presence(answer) }
     fun hidden(hidden: Boolean) { val o = owner; if (o != null) o.call { Native.hidden(hidden) } else Native.hidden(hidden) }
     fun bindExtensions(names: String) { val o = owner; if (o != null) o.call { Native.bindExtensions(names) } else Native.bindExtensions(names) }
+    /** A package's picture for request [id] ([Native.picture]), or why there is none: on exact2's thread. */
+    fun picture(id: Int, bitmap: android.graphics.Bitmap?, error: String?) {
+        val o = owner
+        if (o != null) o.call { Native.picture(id, bitmap, error) } else Native.picture(id, bitmap, error)
+    }
+    fun pictureChanged(source: String, revoked: Boolean) {
+        val o = owner
+        if (o != null) o.call { Native.pictureChanged(source, revoked) } else Native.pictureChanged(source, revoked)
+    }
 
     /** Give a GPU canvas its window: on the exact thread, without waiting for it; [done] there with the handle. */
     fun attachSurface(view: Int, surface: android.view.Surface, width: Int, height: Int, done: (Long) -> Unit) {

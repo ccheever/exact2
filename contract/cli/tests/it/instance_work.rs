@@ -427,7 +427,7 @@ component App
         "{}",
         perf(&r)
     );
-    r.measure_later(Some(r#"{"inputs":{"trust":"production"}}"#));
+    r.measure_later(Some(r#"{"embedded":{"trust":"production"}}"#));
     assert!(perf(&r).contains("production trust"), "{}", perf(&r));
     r.measure_later(None);
     let asked = r.seq();
@@ -462,7 +462,7 @@ fn perf_streams_is_refused_under_production_trust() {
         ))
         .unwrap()
     };
-    r.measure_later(Some(r#"{"inputs":{"trust":"production"}}"#));
+    r.measure_later(Some(r#"{"embedded":{"trust":"production"}}"#));
     let refused = streams(&r);
     assert!(
         refused["error"]
