@@ -1091,6 +1091,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   failed. Judge a build by its exit status (`bun host/web/build.mjs`, `bun
   host/apple/build.mjs`). (Excord port, `symbol:warning`, LLP 1142 D7, 2026-10-25.)
 
+- **The first text read in a newly built Mac app takes a minute or more.** Vision's
+  text recognizer is compiled for the Neural Engine per app binary
+  (`ANECompilerService`, which a `sample` of the app shows as `_ANEClient
+  compileModel`), so a drive's first `detectText` after each build waits while the
+  later ones answer at once. It looks like a hang. Give the first read several
+  `clock data` ops, or keep one fixture between runs
+  (`EXACT_VISION_FIXTURE`, `packages/barcode-detection/test/agent.mjs`). (LLP
+  1133.027, 2026-10-26.)
+
 - **A host timing bug on iOS is chased with `NSLog` and rebuilds of exact2.** A
   development build already journals what the host did: `logs` has `host:` lines for
   navigation (`willShow`, `didShow`, and whether the app, UIKit's Back or the edge swipe

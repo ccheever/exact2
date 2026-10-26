@@ -36,6 +36,8 @@ final class VideoTrack {
     var facing = "environment"
     var settings: [String: Any] = [:], capabilities: [String: Any] = [:]
     var consumers: [ObjectIdentifier: (consumer: ExactTrackConsumer, origin: String)] = [:]
+    /// Outputs that are not consumers (LLP 1133.027 D17 item 1): told what consumers are told, holding no lease.
+    var observers: [ObjectIdentifier: ExactTrackConsumer] = [:]
     /// The capture whose lease it holds, if it holds one.
     var capture: VideoCapture?
     /// Leased under the agent, where no capture exists.
@@ -243,7 +245,29 @@ final class VideoTracks: ExactTrackOwner {
         }
     }
 
-    private func each(_ t: VideoTrack, _ f: (ExactTrackConsumer) -> Void) { for c in Array(t.consumers.values) { f(c.consumer) } }
+    /// `observer` watches `id` (LLP 1133.027 D17 item 1): it hears the capture while a consumer's lease runs it, and never
+    /// starts, holds or reopens one.
+    func observe(_ id: String, _ observer: ExactTrackConsumer) throws -> ExactSubscription {
+        guard let t = tracks[id] else { throw ExactTrackError("NotFoundError") }
+        if t.readyState == "ended" { observer.ended(); return ExactSubscription {} }
+        t.observers[ObjectIdentifier(observer)] = observer
+        say("\(t.id): an observer joins, taking no lease")
+        if t.leased {
+            observer.live(video: t.capture)
+            if t.muted { observer.muted(t.muteReason ?? "idle") }
+        } else {
+            observer.muted(t.muteReason ?? "idle")
+        }
+        return ExactSubscription { [weak self, weak t, weak observer] in
+            guard let t, let observer, t.observers.removeValue(forKey: ObjectIdentifier(observer)) != nil else { return }
+            self?.say("\(t.id): an observer leaves")
+        }
+    }
+
+    private func each(_ t: VideoTrack, _ f: (ExactTrackConsumer) -> Void) {
+        for c in Array(t.consumers.values) { f(c.consumer) }
+        for o in Array(t.observers.values) { f(o) }
+    }
 
     private func mute(_ t: VideoTrack, _ reason: String) {
         guard !(t.muted && t.muteReason == reason) else { return }
@@ -318,6 +342,7 @@ final class VideoTracks: ExactTrackOwner {
         say("\(t.id): ended (\(why))")
         each(t) { $0.ended() }
         t.consumers.removeAll()
+        t.observers.removeAll()
         announce()
     }
 

@@ -1,0 +1,38 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/text-detection@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos",
+    "tvos"
+  ],
+  "shapes": {
+    "AppleTextDetector": {
+      "supportedRecognitionLanguages": "string[]"
+    },
+    "AppleDetectedText": {
+      "confidence": "number"
+    }
+  },
+  "options": {
+    "detectText": {
+      "recognitionLevel": "enum<accurate|fast>",
+      "usesLanguageCorrection": "bool",
+      "customWords": "string[]",
+      "minimumTextHeight": "number"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "requestHatch"
+  ],
+  "sources": {
+    "swift": [
+      "TextDetection.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "TextDetectionModule"
+}

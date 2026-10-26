@@ -308,6 +308,12 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (!entry?.owner?.subscribe) throw Object.assign(new Error(`no track ${id}`), { code: "NotFoundError" });
       return entry.owner.subscribe(id, consumer, how);
     },
+    /** `observer` hears track `id` as a consumer does and takes no lease (LLP 1133.027 D17 item 1); its leave. */
+    observe(id, observer) {
+      const entry = table.get(id);
+      if (!entry?.owner?.observe) throw Object.assign(new Error(`no track ${id}`), { code: "NotFoundError" });
+      return entry.owner.observe(id, observer);
+    },
   };
   // An admitted path's file (LLP 1133.009 D10 item 4), in the store `storage.fs` reads: the app's, or the drive's
   // scratch store under the agent; none when the drive names none.

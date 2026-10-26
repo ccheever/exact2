@@ -1,0 +1,34 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/translation@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos",
+    "tvos"
+  ],
+  "frameworks": {
+    "Translation": {
+      "ios": "18.0",
+      "macos": "15.0"
+    }
+  },
+  "shapes": {
+    "AppleTranslatorAvailability": {
+      "installed": "option<string>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "Translation.swift",
+      "Hosted.swift",
+      "Languages.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "TranslationModule"
+}

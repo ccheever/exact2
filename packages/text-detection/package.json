@@ -1,0 +1,11 @@
+{
+  "name": "@exact/text-detection",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The text in a still image, by the Shape Detection API's TextDetector names (LLP 1133.027).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json"
+  }
+}

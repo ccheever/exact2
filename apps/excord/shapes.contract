@@ -410,3 +410,43 @@ shape MemberRow
   avatar: string
   color: string
   status: string
+
+// The app's own shapes and helpers.
+
+shape MediaPreferences
+  prefersContrast: string
+fn noAnswers(): string[] = []
+
+// Where a reader left a channel, kept for the session (§3.3).
+shape Place
+  channel: string
+  anchor: string
+  key: string
+  offset: number
+  atEnd: bool
+
+fn placeOf(places: Place[], channel: string): Place = match first(places.filter(p => p.channel == channel)) { case some(p) => p, case none => Place(channel="", anchor="", key="", offset=0, atEnd=true) }
+
+// A row's key for a message id: a send confirmed here keeps its nonce as key.
+fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
+shape Viewport
+  width: number
+  displayMode: string
+  prefersReducedMotion: bool
+  pointer: string
+
+// The page's visibility, for acknowledging what the reader sees (§2: an ack is a
+// write, sent as the official client sends it).
+shape Page
+  visibilityState: string
+
+shape Time
+  epochAtZero: number
+  utcOffset: number
+  locale: string
+
+// Someone typing: three dots that rise and fall in turn, as Discord draws them.
+keyframes typingDot
+  from opacity=0.35 translate="0px 0px"
+  50% opacity=1 translate="0px -2px"
+  to opacity=0.35 translate="0px 0px"

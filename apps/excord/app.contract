@@ -10,7 +10,9 @@
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
 
-use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, channelOf, connected, draftOf, withDraft, piece from "./shapes.contract"
+use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, MediaPreferences, Place, Viewport, Page, noAnswers, channelOf, connected, draftOf, withDraft, placeOf, piece, keyOf, Time, typingDot from "./shapes.contract"
+use MessageLanguage, Translated, withTranslated, pendingLineOf from "./translate.contract"
+use translatorAvailability, createTranslator, translate, createLanguageDetector, TranslatorAvailability, TranslatorInfo, TranslatorResult, LanguageDetectorInfo from "@exact/translation"
 use AgeGate from "./agegate.contract"
 use MessageRow from "./transcript.contract"
 use DirectoryList from "./directory.contract"
@@ -20,46 +22,9 @@ use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
 
-shape MediaPreferences
-  prefersContrast: string
-fn noAnswers(): string[] = []
-
-shape Time
-  epochAtZero: number
-  utcOffset: number
-
-// Where a reader left a channel, kept for the session (§3.3).
-shape Place
-  channel: string
-  anchor: string
-  key: string
-  offset: number
-  atEnd: bool
-
 routes nav
   home "/"
     channel "/c/:channel"
-
-fn placeOf(places: Place[], channel: string): Place = match first(places.filter(p => p.channel == channel)) { case some(p) => p, case none => Place(channel="", anchor="", key="", offset=0, atEnd=true) }
-
-// A row's key for a message id: a send confirmed here keeps its nonce as key.
-fn keyOf(rows: Message[], id: string): string = match first(rows.filter(r => r.id == id)) { case some(r) => r.key, case none => id }
-shape Viewport
-  width: number
-  displayMode: string
-  prefersReducedMotion: bool
-  pointer: string
-
-// Someone typing: three dots that rise and fall in turn, as Discord draws them.
-keyframes typingDot
-  from opacity=0.35 translate="0px 0px"
-  50% opacity=1 translate="0px -2px"
-  to opacity=0.35 translate="0px 0px"
-
-// The page's visibility, for acknowledging what the reader sees (§2: an ack is a
-// write, sent as the official client sends it).
-shape Page
-  visibilityState: string
 
 component Excord
   state now = 0
@@ -173,6 +138,20 @@ component Excord
   resource mediaPreferences = exactViewport() as shape MediaPreferences
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
+  // Translate: the aimed message's language, the pair to the person's, and each translation for the session.
+  state translated: Translated[] = []
+  state translating = ""
+  state translatingText = ""
+  state translatingFrom = ""
+  resource lang = messageLanguage(aimedText) as shape MessageLanguage else empty()
+  derive myLanguage = piece(time.locale.split("-"), 0)
+  resource pair = translatorAvailability(sourceLanguage=lang.language, targetLanguage=myLanguage) as shape TranslatorAvailability else empty()
+  mutation translator as shape TranslatorInfo then runTranslation
+  mutation translation as shape TranslatorResult then landTranslation
+  mutation detectorMade as shape LanguageDetectorInfo refreshes lang
+  derive canTranslate = lang.detector == "downloadable" or (lang.language != "" and lang.language != myLanguage and pair.availability != "unavailable")
+  derive pendingLine = translating == "" ? "" : pendingLineOf(match failure(translator) { case some(f) => f.code, case none => match failure(translation) { case some(f) => f.code, case none => "" } }, translatingFrom, pair)
+  derive translations = pendingLine == "" ? translated : withTranslated(translated, Translated(id=translating, text="", line=pendingLine))
   resource viewport = exactViewport() as shape Viewport
   // The gateway opens once the kept credentials are read, which only `session` reads, so
   // keeping a new identify or token re-asks it and not the socket. The launch's epoch makes
@@ -944,6 +923,22 @@ component Excord
   action copyLink
     let serverId = chan.guild == "" ? "@me" : chan.guild
     copyText(`https://discord.com/channels/${serverId}/${open}/${aimedId}`)
+  // On the web the detector itself may need a download, which this press makes; the next press translates (§10 step 4).
+  action translateAimed
+    if lang.detector == "downloadable"
+      send detectorMade = createLanguageDetector()
+    else
+      translating = aimedId
+      translatingText = aimedText
+      translatingFrom = lang.name
+      send translator = createTranslator(sourceLanguage=lang.language, targetLanguage=myLanguage)
+  action runTranslation
+    send translation = translate(translator=(match translator { case some(t) => t.id, case none => "" }), input=translatingText)
+  action landTranslation
+    translated = withTranslated(translated, Translated(id=translating, text=(match translation { case some(r) => r.text, case none => "" }), line=`Translated from ${translatingFrom}`))
+    translating = ""
+  action showOriginal(id: string)
+    translated = translated.filter(t => t.id != id)
   action reactAimed(emoji: string)
     send changed = react(open, aimedId, emoji)
   action openPicker
@@ -1249,6 +1244,8 @@ component Excord
                 text "Receive a message"
               button press=injectNow("burst") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-burst"
                 text "Receive a burst"
+              button press=injectNow("japanese") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-japanese"
+                text "Receive a message in Japanese"
               button press=injectNow("typing") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-typing"
                 text "Someone types"
               hr
@@ -1292,7 +1289,7 @@ component Excord
                       reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                       flex=1 min-height=0 padding-top=8 padding-bottom=22
                       for m in rows key=m.key
-                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" and m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" and dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, poll=pollAct)
+                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" and m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" and dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, poll=pollAct, translations=translations, original=showOriginal)
                   if rows.length == 0
                     column position="absolute" inset=0 align-items="center" justify-content="center" gap=12 padding=24
                       if historyFailed
@@ -1322,6 +1319,9 @@ component Excord
                     button press=copyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-copy"
                       image "symbol:copy"
                       text "Copy Text"
+                    if canTranslate
+                      button press=translateAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-translate"
+                        text "Translate"
                     button press=copyLink popovertarget="message-menu" popovertargetaction="hide" testId="menu-link"
                       image "symbol:link"
                       text "Copy Message Link"
