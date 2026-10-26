@@ -582,6 +582,33 @@ test.skipIf(process.platform !== 'darwin')('Icon Composer supplies the primary i
   assert.deepEqual(appIcon(app, mac, 'macos'), { CFBundleIconFile: 'AppIcon' });
 }), 60000);
 
+test.skipIf(process.platform !== 'darwin')('iOS alternate icon sets compile beside raster and Composer primaries for both device families', () => inDir(dir => {
+  const { useXcode } = require('../host/apple/devices.mjs');
+  const { iosAssets } = require('../host/apple/assets.mjs');
+  useXcode();
+  const primary = resolve(dir, 'icon.png');
+  writeFileSync(primary, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+  const set = resolve(dir, 'modules/apple/Icons.xcassets/Nested/Alternate.appiconset');
+  mkdirSync(set, { recursive: true });
+  const sized = spawnSync('sips', ['-z', '1024', '1024', primary, '--out', resolve(set, 'icon.png')], { encoding: 'utf8' });
+  assert.equal(sized.status, 0, sized.stderr);
+  writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ info: { author: 'xcode', version: 1 }, images: [{ idiom: 'universal', platform: 'ios', size: '1024x1024', filename: 'icon.png' }] }));
+  const app = composerFixture(dir);
+  app.manifest.icons = [{ src: 'icon.png', sizes: '1024x1024' }];
+  for (const [composer, catalog, device, folder] of [[true, true, false, 'composer'], [false, true, false, 'raster'], [false, false, false, 'development'], [false, true, true, 'device']]) {
+    if (!composer) delete app.manifest.host.ios.icon;
+    const out = resolve(dir, folder); mkdirSync(out);
+    const keys = iosAssets(app, out, device, { catalog });
+    for (const family of ['CFBundleIcons', 'CFBundleIcons~ipad']) {
+      assert.equal(keys[family].CFBundlePrimaryIcon.CFBundleIconName, composer ? 'Primary' : 'AppIcon');
+      assert.deepEqual(keys[family].CFBundleAlternateIcons, { Alternate: { CFBundleIconName: 'Alternate' } });
+    }
+    const inspected = spawnSync('xcrun', ['assetutil', '--info', resolve(out, 'Assets.car')], { encoding: 'utf8' });
+    assert.equal(inspected.status, 0, inspected.stderr);
+    assert.ok(JSON.parse(inspected.stdout).some(asset => asset.Name === 'Alternate'), 'the declared alternate must exist in Assets.car');
+  }
+}), 60000);
+
 test('Apple asset catalogs select platform modules and invalidate native receipts on additions and deletions', () => inDir(dir => {
   const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
   const { pendingBuildInputs } = require('./app.mjs');
