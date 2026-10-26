@@ -385,13 +385,8 @@ extension Agent {
             space["window"] = rect(inWindow)
             space["screen"] = rect(w.convert(inWindow, to: w.screen.coordinateSpace))
         }
-        // While the node's own layer animates, the frame on screen is the
-        // presentation layer's, reported beside the model's (LLP 1035.002
-        // D4) and never fabricated: absent when nothing is in flight.
-        if let shown = host.layer.presentation()?.frame, shown != host.layer.frame {
-            let d = CGPoint(x: shown.minX - host.layer.frame.minX, y: shown.minY - host.layer.frame.minY)
-            space["presented"] = rect(CGRect(x: b.minX + d.x, y: b.minY + d.y, width: shown.width, height: shown.height))
-        }
+        node["geometry"] = geometry(host, region: local)
+        if let scroll = host.scroll { node["scrollGeometry"] = Self.scrollGeometry(scroll) }
         node["space"] = space
         // Who hides or inerts it is named: a reader must not guess which
         // ancestor did.

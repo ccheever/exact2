@@ -83,6 +83,7 @@ final class FieldChromeCache: @unchecked Sendable {
         }
     }
     func measure(_ key: Key, font: UIFont) -> ExactFieldChrome {
+        HostPhases.shared.count(.nativeControlMeasurements)
         precondition(Thread.isMainThread)
         lock.lock(); let current = traits; lock.unlock()
         var result = ExactFieldChrome()

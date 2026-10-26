@@ -779,6 +779,8 @@ package final class Runtime {
 
     /// Host intrinsic sizes (nil clears one), under one layout.
     package func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
+        HostPhases.shared.count(.intrinsicReports, by: sizes.count)
+        HostPhases.shared.count(.intrinsicLayoutRequests)
         return on {
             var bytes = Data(capacity: sizes.count * 12)
             for (view, size) in sizes {

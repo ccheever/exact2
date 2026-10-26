@@ -95,6 +95,7 @@ final class ButtonMeasureCache: @unchecked Sendable {
     /// `probe` names the face's bytes, whose configured button later
     /// measurements in this main turn reuse; without it the button is fresh.
     func measure(_ face: ButtonFace, widthKind: UInt8, width: CGFloat, traits: UITraitCollection, probe key: Data? = nil) -> ExactButtonMeasure {
+        HostPhases.shared.count(.nativeControlMeasurements)
         precondition(Thread.isMainThread)
         var result = ExactButtonMeasure()
         traits.performAsCurrent {

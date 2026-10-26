@@ -875,3 +875,25 @@ test('main parses drag after a quoted target and across tab separators', async (
   assert.equal(calls[2][1].during.length, 1);
   assert.deepEqual(calls[2][1].path, [{ dx: 0, dy: -120 }]);
 });
+
+
+test('native live observation preserves virtual metadata without seeking or settling', async () => {
+  const calls = [];
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { calls.push(req); return { live: { to: 777, clockMode: 'virtual', clockChanged: false, performanceClaim: false }, virtual: true }; } };
+  const s = await open({ reuse: carrier });
+  const result = await s.perf(null, { live: 50 });
+  assert.equal(result.live.clockMode, 'virtual');
+  assert.equal(result.live.performanceClaim, false);
+  assert.deepEqual(calls, [{ op: 'perf', frames: true, live: 50 }]);
+  assert.equal(s.now, 777);
+});
+
+test('state marks a resource declaration unavailable when no compatible map exists', async () => {
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask() { return { planDigest: 'absent', resourceStatus: { rows: {} } }; } };
+  const s = await open({ reuse: carrier });
+  const reply = await s.state();
+  assert.deepEqual(reply.resourceStatus.rows.declaration,
+    { status: 'unavailable', reason: 'no compatible development source map' });
+});

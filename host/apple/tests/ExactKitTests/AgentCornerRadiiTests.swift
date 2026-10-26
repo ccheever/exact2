@@ -45,6 +45,12 @@ final class AgentCornerRadiiTests: XCTestCase {
             let node = try XCTUnwrap(rows.first { $0["id"] as? Int == id })
             return try XCTUnwrap(node["radii"] as? [[Double]])
         }
+        let geometry = agent.geometry(try XCTUnwrap(p.views[2]))
+        let target = try XCTUnwrap(geometry["target"] as? [String: Any])
+        XCTAssertEqual(target["w"] as? Double, 100)
+        #if os(macOS)
+        XCTAssertNotNil((geometry["presented"] as? [String: Any])?["unavailable"], "a model is never substituted for a missing presentation tree")
+        #endif
         XCTAssertNil(agent.layout()["layoutVersion"], "the protocol has no per-layout version")
         XCTAssertEqual(try radii(1), Array(repeating: [0, 0], count: 4))
         // The right edge's 80 + 20 is twice its height: all axes halve.
