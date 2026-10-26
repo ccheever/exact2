@@ -64,8 +64,11 @@ fn take(at: &mut Judged, members: &[(usize, &[Op])], vocab: &Vocab) {
         // time; the first is the judging any batch does): past it, nothing
         // more is judged, and the re-import is refused in the budget's
         // words, applying nothing (`reimport_against`).
+        if members.is_empty() {
+            return;
+        }
         let spent = round > 0 && crate::budget::spend(at.text.len() as u64).is_err();
-        if members.is_empty() || spent || crate::budget::spent().is_some() {
+        if spent || crate::budget::spent().is_some() {
             return;
         }
         round += 1;
@@ -294,6 +297,10 @@ fn settle(
             })
             .collect();
         let at = judged_on(current, cur.clone(), &ops, vocab);
+        // (past the budget, no member is asked again: Astra's round 2)
+        if crate::budget::spent().is_some() {
+            return;
+        }
         // Whether this round changed the proposal (then the next one asks
         // again; one that changes nothing settles every member).
         let mut moved = false;
