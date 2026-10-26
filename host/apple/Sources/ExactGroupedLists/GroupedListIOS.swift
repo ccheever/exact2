@@ -479,7 +479,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private(set) var rows: [UInt32: GroupedListModel.Row] = [:]
     /// Some row is custom: its views, carried, are laid out by the kernel.
     private(set) var carriesCustomRows = false
-    /// Each row's symbol tint as last configured.
+    /// Each row's symbol tint and authored minimum height, as last configured.
     private var looks: [UInt32: BatchValue?] = [:]
     /// Whether the list's author wrote its background, as its layout last drew it. What the author writes wins (LLP
     /// 1115 §2), as it replaces the sheet's grouped ground on the other hosts (LLP 1084 D7): the list's own layer paints
@@ -712,15 +712,15 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // Changed native parts configure the cell again. A custom row keeps
         // its own live views; mount carries their current box into the cell.
-        // A standard row whose symbol's authored tint or written colour
-        // changed is too (D7).
-        let tints: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, tint(of: $0)) })
+        // A standard row whose symbol's authored tint or written colour, or
+        // whose authored `min-height`, changed is too (D7).
+        let looking: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, .array([tint(of: $0) ?? .null, minimum(of: $0).map { .number(Double($0)) } ?? .null])) })
         // A row whose card changed (its section gained or lost one, or the
         // row moved between sections) is configured again.
         let wasCarded = Dictionary(previous.sections.flatMap { s in s.rows.map { ($0.view, s.card) } }, uniquingKeysWith: { a, _ in a })
         let recarded = Set(next.sections.flatMap { s in s.rows.compactMap { r in wasCarded[r.view].flatMap { $0 != s.card ? r.view : nil } } })
-        let changed = snapshot.itemIdentifiers.filter { id in rethemed || old[id].map { $0 != rows[id] || tints[id] != looks[id] || recarded.contains(id) } ?? false }
-        looks = tints
+        let changed = snapshot.itemIdentifiers.filter { id in rethemed || old[id].map { $0 != rows[id] || looking[id] != looks[id] || recarded.contains(id) } ?? false }
+        looks = looking
         // A row whose switch is firing is reconfigured once its action has
         // returned: rebuilding its accessories would take the switch out of
         // its superview inside its own action.
@@ -1075,6 +1075,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let carried as NodeView in cell.contentView.subviews { carried.removeFromSuperview() }
         forgetLook(id)
         cell.height = nil
+        cell.minimumHeight = minimum(of: id)
         heights[id] = nil
         var c: UIListContentConfiguration = row.subtitle ? .subtitleCell() : row.secondary != nil ? .valueCell() : .cell()
         c.image = row.symbol.flatMap { FaceSymbol.image($0, points: GroupedCell.pathPoints(cell.traitCollection)) }
@@ -1256,6 +1257,22 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let ink = symbol.props["symbolColorWritten"] == "1" ? symbol.style["text_color"] ?? .null : .null
         return .array([symbol.style["tint_color"] ?? .null, ink])
     }
+    /// The row's authored minimum height for its whole cell: the host sends
+    /// no other (`kept_geometry`). A percentage has no basis for an in-flow
+    /// row: its containing block is its section's card, as tall as its rows,
+    /// so CSS treats the minimum as 0 (CSS 2.2 §10.7), as the kernel does.
+    /// The sheet makes a row `border-box`; under an authored `content-box`
+    /// the minimum is the content's, and the padding and borders add to it
+    /// (CSS Box Sizing 3 §4.1).
+    private func minimum(of id: UInt32) -> CGFloat? {
+        guard let row = host.presenter.views[id], let least = row.style["min_height"]?.length(basis: 0) else { return nil }
+        if row.style["box_sizing"]?.string == "border-box" { return least }
+        // A percentage padding is of the containing block's width, the card's (CSS 2.2 §8.4)
+        let card = host.presenter.logicalParent(of: id).flatMap { host.presenter.views[$0] }
+        let basis = card?.contentBox().width ?? row.bounds.width
+        return ["padding_top", "padding_bottom", "border_width_top", "border_width_bottom"]
+            .reduce(least) { $0 + (row.style[$1]?.length(basis: basis) ?? 0) }
+    }
 
     /// A custom row's own views in its cell, at the row's place in its
     /// group, as tall as the row: its separator is decoration, which the
@@ -1364,12 +1381,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     /// Whether a tap presses the row: a button, or a radio's row, not
     /// disabled, not inert (its node or an ancestor, the section included).
-    private func pressable(_ id: UInt32) -> Bool {
+    func pressable(_ id: UInt32) -> Bool {
         guard let row = rows[id], row.pressable || radio(row) != nil, !row.disabled, let node = host.presenter.views[id] else { return false }
         return !(carried[id]?.inert ?? false) && !node.inert
     }
     /// The radio a row's tap checks, unless it is disabled or inert.
-    private func radio(_ row: GroupedListModel.Row) -> UInt32? {
+    func radio(_ row: GroupedListModel.Row) -> UInt32? {
         guard row.accessory == "radio", let target = row.target, let node = host.presenter.views[target], !node.disabled, !node.inert else { return nil }
         return target
     }
@@ -1405,49 +1422,6 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         if let cell = cell as? GroupedCell, !unavailable, !cell.markedNotEnabled { return }
         if unavailable { cell.accessibilityTraits.insert(.notEnabled) } else { cell.accessibilityTraits.remove(.notEnabled) }
         (cell as? GroupedCell)?.markedNotEnabled = unavailable
-    }
-    func collectionView(_ view: UICollectionView, shouldSelectItemAt path: IndexPath) -> Bool {
-        collectionView(view, shouldHighlightItemAt: path)
-    }
-    /// A tapped row stays selected while its press runs and, when the press
-    /// pushed a screen over the list's, under that screen: it fades as the
-    /// reader comes back (`deselect`), as a table view's row does
-    /// (`clearsSelectionOnViewWillAppear`; LLP 1115.000 D11.3). A row that
-    /// pushed nothing, or opened a sheet, lets go once its press has run.
-    func collectionView(_ view: UICollectionView, didSelectItemAt path: IndexPath) {
-        let letGo = { for selected in view.indexPathsForSelectedItems ?? [] { view.deselectItem(at: selected, animated: !ExactEnv.agentFreezes) } }
-        guard let id = source.itemIdentifier(for: path), pressable(id) else { return letGo() }
-        host.presenter.endEditing()
-        // The screen the list is on, read before the press can change it.
-        let screen = sequence(first: owner as UIResponder, next: { $0.next }).lazy.compactMap { $0 as? UIViewController }.first
-        // A radio's row checks its radio, as a click on the radio does:
-        // `input` and `change` carry its value, and the checkmark follows
-        // the bound `checked` (LLP 1115.000 D13.2).
-        if let row = rows[id], let target = radio(row) { host.presenter.checkRadio(target) }
-        guard rows[id]?.pressable == true else { return letGo() }
-        host.presenter.press(id)
-        if let screen, let stack = screen.navigationController, stack.viewControllers.contains(screen), stack.topViewController !== screen { return }
-        letGo()
-    }
-
-    /// The list's screen is coming back into view: its selected rows fade
-    /// with the transition, so the fade follows a back swipe's finger, and a
-    /// swipe let go of early leaves the row selected under the screen that
-    /// stayed. With no transition, at once.
-    func deselect(alongside coordinator: UIViewControllerTransitionCoordinator?) {
-        let paths = collection.indexPathsForSelectedItems ?? []
-        guard !paths.isEmpty else { return }
-        guard let coordinator, !ExactEnv.agentFreezes else {
-            for path in paths { collection.deselectItem(at: path, animated: false) }
-            return
-        }
-        let list = collection
-        coordinator.animate(alongsideTransition: { _ in
-            for path in paths { list.deselectItem(at: path, animated: true) }
-        }, completion: { context in
-            guard context.isCancelled else { return }
-            for path in paths { list.selectItem(at: path, animated: false, scrollPosition: []) }
-        })
     }
 }
 

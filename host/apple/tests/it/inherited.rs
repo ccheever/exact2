@@ -391,6 +391,63 @@ fn patterned_border_styles_reach_the_presenter() {
     assert_eq!(json["border_style_right"], "dashed");
 }
 
+/// A list row that UIKit's cell configuration sizes keeps the `min-height`
+/// its author wrote, so that one crosses to the presenter; the one a grouped
+/// row's sheet implies stays the kernel's, as layout rows do.
+#[test]
+fn an_authored_min_height_reaches_the_presenter() {
+    let plan = contract::compile(
+        r#"component App
+  view
+    list appearance="auto" listStyle="inset-grouped" testId="list"
+      section
+        button "Plain" testId="plain"
+        button "Tall" min-height=60 testId="tall"
+"#,
+    )
+    .unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    assert!(op(&first, view(&host, "tall")).contains("\"min_height\":60"));
+    assert!(!op(&first, view(&host, "plain")).contains("min_height"));
+}
+
+/// A percentage minimum has no basis for an in-flow grouped row: its
+/// containing block is its section's card, as tall as its rows, so the
+/// kernel lays the row out as it would without one (CSS 2.2 §10.7), and the
+/// host, reading the crossed percentage against 0, leaves UIKit's cell its
+/// own height.
+#[test]
+fn a_percentage_min_height_on_a_list_row_has_no_basis() {
+    let frame = |min: &str| {
+        let plan = contract::compile(&format!(
+            "component App\n  view\n    column height=\"100%\"\n      list appearance=\"auto\" listStyle=\"inset-grouped\" height=400\n        section\n          button \"Row\" {min}testId=\"row\"\n"
+        ))
+        .unwrap();
+        let (host, first) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            402.0,
+            874.0,
+        )
+        .unwrap();
+        let row = view(&host, "row");
+        let crossed = op(&first, row).contains("\"min_height\":{\"pct\":50}");
+        (host.runner().kernel().node(row).unwrap().frame, crossed)
+    };
+    let (none, _) = frame("");
+    let (half, crossed) = frame("min-height=\"50%\" ");
+    assert_eq!(half, none, "laid out as it is without a minimum");
+    assert!(crossed, "the percentage crosses as written");
+}
+
 #[test]
 #[ignore = "async lane: launches Bun and nested cargo builds; bun scripts/async.mjs runs it"]
 fn apple_artifacts_own_paths_locks_identity_and_failed_placement() {
