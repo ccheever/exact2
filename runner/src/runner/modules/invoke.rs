@@ -236,7 +236,7 @@ impl<D: DataSource> Runner<D> {
         let Some(run) = self.extensions.invocations.running.remove(&ticket) else {
             return;
         };
-        let answer = self.as_origin(run.origin, |r| {
+        let answer = self.as_invocation(run.origin, 0, |r| {
             let args = std::slice::from_ref(&run.args);
             (r.data).parse(&mut r.store, &run.source, args, outcome)
         });

@@ -347,6 +347,8 @@ test "Escape from history returns to the end and marks the channel read (§3.13)
   type "composer" "a saved draft"
   tap "transcript" into "1562230937540887704"
   clock data
+  // The list reports its scroll (which sets `away`) after `clock data` can return: wait for it.
+  clock settle
   expect state away == true
   type "composer" key "Escape"
   clock settle
@@ -395,8 +397,10 @@ test "relaunching during an edit preserves the unsent message draft (§3.12)"
   type "composer" "unsaved edit"
   reload
   clock +500 real
-  tap "channel-general"
   clock settle
+  // The relaunch reopens the channel its address names, with its draft and without the edit.
+  expect state chan.name == "general"
+  expect tree has "transcript"
   expect state editing == ""
   expect tree missing "editing"
   expect text "composer" == "Keep this unsent message"
@@ -415,11 +419,52 @@ test "relaunching during an edit does not turn it into a new message draft"
   type "composer" "unsaved edit"
   reload
   clock +500 real
-  tap "channel-general"
   clock settle
+  // The relaunch reopens the channel its address names, with its draft and without the edit.
+  expect state chan.name == "general"
+  expect tree has "transcript"
   expect state editing == ""
   expect tree missing "editing"
   expect text "composer" == ""
+
+test "a user action before the launch's restore lands wins: Back to the list cancels it"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  type "composer" "kept for later"
+  reload
+  // Back at once, before the gateway's READY lists the channel: the restore is dropped, not applied late.
+  back
+  clock +500 real
+  clock settle
+  expect state open == ""
+  expect state reading == false
+  // And the next launch starts at the list too.
+  reload
+  clock +500 real
+  clock settle
+  expect state open == ""
+  tap "channel-general"
+  clock settle
+  expect text "composer" == "kept for later"
+
+test "the launch's restore runs once: Back to the list stays, through a list refresh"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  reload
+  clock +500 real
+  clock settle
+  expect state chan.name == "general"
+  // A message arrives (the list's unread state refreshes) after Back: the list stays.
+  tap "fixture"
+  tap "inject-message"
+  back
+  clock settle
+  clock +3000
+  clock settle
+  expect state reading == false
+  expect tree has "channel-general"
 
 test "one author within seven minutes is one group; a day change draws its date (§3.15)"
   clock +500 real
@@ -704,6 +749,8 @@ test "scrolling up from the end acknowledges what was on screen (re-check: Grok 
   clock data
   tap "transcript" into "1562755578936174328"
   clock data
+  // The list reports its scroll (which sets `away`) after `clock data` can return: wait for it.
+  clock settle
   expect state away == true
   expect state channels.0 .unread == 0
 
@@ -750,6 +797,8 @@ test "Mark As Read away from the end reads the channel (re-check: Sol 3)"
   clock settle
   tap "transcript" into "1562230937540887704"
   clock data
+  // The list reports its scroll (which sets `away`) after `clock data` can return: wait for it.
+  clock settle
   expect state away == true
   tap "mark-read"
   clock data
@@ -836,29 +885,36 @@ test "the server rail switches the list to the direct messages, which open like 
   expect state server == "@me"
 
 test "image spoilers with and without dimensions wait for disclosure"
+  // #random's single spoiler pictures: one with no dimensions, then one with them (main's fixture tiles some photos,
+  // which moved the spoilers onto these messages).
   clock +500 real
   tap "channel-random"
   clock settle
   tap "transcript" into "1556955556722245885"
+  clock data
   clock settle
-  tap "transcript" into "1555571352889458936"
+  tap "transcript" into "1553618685438984394"
   clock settle
-  expect tree has "media-1555571352889458936-1555571352889561158"
-  expect tree has "reveal-media-1555571352889458936-1555571352889561158"
-  expect tree missing "media-image-1555571352889458936-1555571352889561158"
-  tap "reveal-media-1555571352889458936-1555571352889561158"
+  // It is a page further back than the window holds: the first tap brings the window there, this one lands.
+  tap "transcript" into "1553618685438984394"
+  clock settle
+  expect tree has "media-1553618685438984394-1553618685439086202"
+  expect tree has "reveal-media-1553618685438984394-1553618685439086202"
+  expect tree missing "media-image-1553618685438984394-1553618685439086202"
+  tap "reveal-media-1553618685438984394-1553618685439086202"
   clock settle
   expect state revealed.length == 1
-  expect tree has "media-image-1555571352889458936-1555571352889561158"
-  expect tree missing "reveal-media-1555571352889458936-1555571352889561158"
-  tap "transcript" into "1557156753160798473"
+  expect tree has "media-image-1553618685438984394-1553618685439086202"
+  expect tree missing "reveal-media-1553618685438984394-1553618685439086202"
+  tap "transcript" into "1557059859277414659"
   clock settle
-  expect tree has "reveal-media-1557156753160798473-1557156753160900848"
-  expect tree missing "media-image-1557156753160798473-1557156753160900848"
-  type "reveal-media-1557156753160798473-1557156753160900848" key "Enter"
+  expect tree has "reveal-media-1557059859277414659-1557059859277516980"
+  expect tree missing "media-image-1557059859277414659-1557059859277516980"
+  // Space presses a focused button on every host; on a Mac, Return is the default button's.
+  type "reveal-media-1557059859277414659-1557059859277516980" key " "
   clock settle
   expect state revealed.length == 2
-  expect tree has "media-image-1557156753160798473-1557156753160900848"
+  expect tree has "media-image-1557059859277414659-1557059859277516980"
 
 test "failed history can be retried without reopening the channel"
   fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
@@ -871,7 +927,7 @@ test "failed history can be retried without reopening the channel"
   expect state pageTries == 3
   type "composer" "Keep this draft"
   pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
-  type "retry-history" key "Enter"
+  type "retry-history" key " "
   clock settle
   expect tree has "message-1562887009075210000"
   expect tree missing "history-error"
@@ -900,7 +956,8 @@ test "a failed page leaves cached messages readable and another channel loads"
   tap "channel-general"
   clock settle
   expect tree missing "history-error"
-  expect state win.firstId == "1562033782335219374"
+  expect state pageTries == 0
+  expect tree has "message-1562732896249194217"
 
 test "a failed older page does not block a jump to a different history page"
   clock +500 real
@@ -1246,3 +1303,21 @@ test "an app's answer names who used the command, and its card shows its fields 
   expect tree has "used-1557316858871283989"
   expect tree has "field-1557316858871283989-e0.f3"
   expect text "footer-1557316858871283989-e0" == "Buildkite • 10/7/26, 2:01 AM"
+
+test "a file that is not a picture goes up with the message, shown by its name"
+  clock +500 real
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "attach"
+  pick "attach-input" "app.json"
+  clock data
+  expect state picked.length == 1
+  expect tree has "picked-file-app.json"
+  expect state attachError == ""
+  type "composer" "the manifest"
+  tap "send"
+  clock data
+  clock settle
+  clock data
+  expect state picked.length == 0

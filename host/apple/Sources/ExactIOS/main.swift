@@ -152,6 +152,12 @@ final class Controller: UIViewController {
     override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
     /// The style the app declared (LLP 1105 D6); `onStatusBarStyle` says when.
     override var preferredStatusBarStyle: UIStatusBarStyle { exactView.statusBarStyle }
+    /// The session's orientation lock (LLP 1133.029 D5).
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        exactView?.orientationMask ?? super.supportedInterfaceOrientations
+    }
+    @available(iOS 26, *)
+    override var prefersInterfaceOrientationLocked: Bool { exactView?.orientationLocked ?? false }
     #endif
     override func viewDidLoad() {
         super.viewDidLoad()

@@ -469,9 +469,10 @@ pub(crate) fn param_lines(
                 .any(|i| i.rsplit_once('#').is_some_and(|(_, c)| c == short(name)))
     };
     let mut out = Vec::new();
+    let resolver = crate::params::Resolver::new(params, identities);
     for entry in &design.params {
         let name = &entry.name.value;
-        let error = match crate::params::resolve(params, identities, name) {
+        let error = match resolver.resolve(name) {
             Err(e) if e.id == "tamber-param-unknown" && under_library(name) => LowerError {
                 id: "tamber-package-unknown",
                 message: format!("`{name}` in the design's `params` block names no param of the library: its names are its API, so a renamed or removed one fails the build (LLP 1139 D8)"),

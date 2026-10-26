@@ -1682,7 +1682,11 @@ HDR and metadata where the host can and says what it wrote
 `compressImage` takes `rotate`, `flip` and `crop` too. Upload a file with `fetch(url, {method: "POST", headers:
 {"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
 reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
-through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Keep a picked photo by copying it to
+through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Download a file with
+`fetch(url, {exactBodyTo: path})`, not `arrayBuffer()` then `writeFile`: the host writes a 2xx body into the
+file as it arrives (under `fs.write`, at most 1 GiB), so a large file never enters the engine's 64 MiB heap;
+`response.exactBodyTo.bytes` is its size, and a reply that is not 2xx leaves the file untouched and reads as
+usual. Keep a picked photo by copying it to
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
@@ -3990,19 +3994,24 @@ selection as the bar's current item (`aria-current="page"`, iOS's selected
 trait) and takes no long press itself: an item held for more puts
 `contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
 on the fill rather than the whole column.
-The in-repo packages' one-colour nonzero icons are icon tokens, which an app
-overrides by full name: `@exact/cards`' `cards.repost`, `cards.pin`,
-`cards.corner-down-right` (PostCard's context and reply lines), `cards.ban`,
-`cards.eye-slash`, `cards.warning`, `cards.circle-info` (ProfileHeader's
-alerts), and `@exact/actions`' `actions.reply`, `actions.repost`,
-`actions.heart`, `actions.heart-filled`, `actions.bookmark`,
-`actions.bookmark-filled`, `actions.share`, `actions.dots` (ActionRow). Each
-has no `sf`, so Apple draws the same path as the web. Still paths, as no
-template can draw them yet (QUEUE): ComposeFrame's gallery, camera and GIF,
-`BarItem`'s and `HeaderButton`'s icons and AtCard's Attie mark fill even-odd
-(a template takes `fill-rule="evenodd"` since stage 14 C2; they move to tokens
-in a later change), and the verified and verifier badges are two colours (a
-template is one).
+The in-repo packages' icons are icon tokens, which an app overrides by full
+name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
+(PostCard's context and reply lines), `cards.ban`, `cards.eye-slash`,
+`cards.warning`, `cards.circle-info` (ProfileHeader's alerts), `cards.attie`
+(AtCard's visit button) and `cards.verified`, `cards.verified-check`,
+`cards.verifier`, `cards.verifier-check` (VerifiedBadge), and `@exact/actions`'
+`actions.reply`, `actions.repost`, `actions.heart`, `actions.heart-filled`,
+`actions.bookmark`, `actions.bookmark-filled`, `actions.share`, `actions.dots`
+(ActionRow) and `actions.gallery`, `actions.camera`, `actions.gif`
+(ComposeFrame's toolbar). Each has no `sf`, so Apple draws the same path as the
+web. The Attie mark, the toolbar's three and the badges' paths were inline
+`svg` with `fill-rule="evenodd"`; each one's holes wind against its outline, so
+it fills the same nonzero, and its SVG has no `fill-rule` (an even-odd icon
+gives its app a new compat id). A badge is two one-colour templates stacked,
+its ground in its `ink` and its check in its `mark`, so both colours stay a
+card's tokens and a header's params; an override replaces one layer, its colour
+unchanged. Still paths: `BarItem`'s and `HeaderButton`'s icons, which are their
+caller's `d` (a prop), not the package's.
 Code outside a view names a token by its name too (LLP 1121 D12): a data module
 returns a `ColorToken` (or a `LengthToken`, `TypeToken`, … of its kind:
 `contract types` declares the design's, so an unknown one fails `tsc`), and `bun exact.mjs tamber gen ts|rust|swift|kotlin .` writes bindings into
@@ -4032,6 +4041,12 @@ a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
 `wakelock="screen"` on any node, bound to state (`wakelock=(playing ? "screen" :
 "none")`), keeps the display awake while that node is displayed; a hidden or
 unmounted one holds nothing (LLP 1125 D11; `state.wakelock` is `{held, by}`).
+`orientationlock` on any node (`orientationlock=(tilt ? "current" : "none")`)
+keeps the window to a Screen Orientation API lock type, or `current`, while
+that node is displayed; a sheet's lock wins over what it covers and a
+descendant's over its ancestor's. A type only narrows the manifest's
+`orientation`, and a lock inside a `dialog` is refused (LLP 1133.029;
+`contract vocab orientationlock`).
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `-exact-tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not

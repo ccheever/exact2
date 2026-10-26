@@ -572,6 +572,9 @@ function renderStreamTiming(t) {
   const ms = x => `p50 ${x.p50} p95 ${x.p95} p99 ${x.p99} max ${x.max} (${x.n})`;
   return [`stream timing over ${t.seconds} s`, ...t.streams.map(x => `  ${x.name ?? `ticket ${x.ticket}`}: ${x.messages} messages (${x.messageRate}/s) · ${x.commits} commits (${x.commitRate}/s) · ${x.decodes} decodes (${x.decodeRate}/s, ${x.decodedBytes} bytes)${x.frames != null ? ` · ${x.frames} frames out, ${x.decodeErrors} errors` : ''}${x.refused ? ` · ${x.refused} refused` : ''} · busy ${(x.busy * 100).toFixed(2)}%\n    receipt to entry ${ms(x.toEntry)}\n    receipt to decode ${ms(x.toDecode)}\n    receipt to commit ${ms(x.toCommit)}`)].join('\n');
 }
+/** Events a gesture sends on every frame, and how many make a fling's worth to judge (LLP 1144 D3). */
+const CONTINUOUS = new Set(['scroll', 'pointermove', 'wheel', 'drag']), CONTINUOUS_FROM = 20;
+
 function renderPerf(r) {
   if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms${r.tickMs ? ` · tick p50 ${r.tickMs.p50} p95 ${r.tickMs.p95} mean ${r.tickMs.mean}` : ''}`,
     ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
@@ -608,7 +611,11 @@ function renderPerf(r) {
   const unmapped = r.sites.find(x => x.source?.status !== 'compatible');
   // Each handler's dispatches and the ones that changed the tree (LLP 1142 D6): counts, no judgement.
   const handlers = (r.handlers ?? []).filter(h => h.dispatched > 0).sort((x, y) => y.dispatched - x.dispatched)
-    .map(h => `  ${h.event} at ${where(h)}${h.source?.status === 'compatible' ? ` (${h.source.component})` : ''}: ${h.dispatched} dispatched, ${h.committed} changed the tree`);
+    .map(h => `  ${h.event} at ${where(h)}${h.source?.status === 'compatible' ? ` (${h.source.component})` : ''}: ${h.dispatched} dispatched, ${h.committed} changed the tree`
+      // A scroll's every event a commit (LLP 1144 D3): said once, since that is what a fling multiplies.
+      + (CONTINUOUS.has(h.event) && h.dispatched >= CONTINUOUS_FROM && h.committed * 10 >= h.dispatched * 9
+        ? `\n    each ${h.event} event changed the tree, and each was a runner turn the main thread waited on`
+        : ''));
   return [`${r.target ?? 'every root'} — seq ${span(r.from?.seq, r.seq)} · clock ${span(r.from?.clock, r.clock)} ms · incarnation ${r.incarnation}${r.truncated ? ` · partial: ${r.walked} walked` : ''}${unmapped ? ` · source unavailable: ${unmapped.source?.reason ?? 'no development source map'}` : ''}`,
     pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : []), ...['work', 'hostWork'].filter(k => r[k]).map(k => `${k} (${r[k].scope}, since ${r[k].since ?? 'unmeasured'} ${r[k].timebase}): ${Object.entries(r[k].counts ?? {}).map(([n,v]) => `${n}=${v}`).join(' ')}`)].join('\n');
 }
@@ -749,7 +756,7 @@ export function renderTrace(t) {
     // journal's `t=` is the runner's logical clock, which need not be the
     // frame's (a page adopted from a checkpoint keeps the render's).
     const lines = t.journal?.lines ?? [];
-    if (t.frames.late?.some(r => r.phases)) out.push('  (phases: the main thread\'s host work inside each late interval, each charged only what nothing inside it took; unattributed: idle time, the platform\'s own work, anything not wrapped — LLP 1142 D1)');
+    if (t.frames.late?.some(r => r.phases)) out.push('  (phases: the main thread\'s host work inside each late interval, each charged only what nothing inside it took; unattributed: idle time, the platform\'s own work, Core Animation putting new pictures on screen, anything not wrapped — LLP 1142 D1, 1144 D2)');
     for (const r of t.frames.late ?? []) {
       const at = lines.findIndex(l => l.includes(` frame late at ${r.t}:`));
       let from = at;
@@ -841,6 +848,8 @@ export async function stateOp(s, args) {
   const page = { ...look, ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
   const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
   if (args[0] == null) return read();
+  // `state intents.entities <kind> [<text>]` (LLP 1133.023 §10): what the content index's query answers a system's.
+  if (args[0] === 'intents.entities') return s.op({ op: 'entities', kind: args[1], ...(args.length > 2 ? { matching: args.slice(2).join(' ') } : {}) });
   // `state <canvas> input` (LLP 1127.003 D8): the world's controls, the devices and pads held, contexts, bindings, and
   // what fired at the last tick.
   if (args[1] === 'input') {

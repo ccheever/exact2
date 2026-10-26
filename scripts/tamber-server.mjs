@@ -102,7 +102,9 @@ import { canvasGateway } from './tamber-canvas.mjs'; import { answerCanvasCheck,
 import { packageDesigns } from './tamber-package-designs.mjs'; import { editHeld } from './tamber-edit-held.mjs'; import { replacedProposals } from './tamber-replaced.mjs';
 import { serveTool, toolPage } from './tamber-tool-files.mjs'; import { generationOf } from '../host/web/generations.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
+export { op } from './tamber-op.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
+import { opsRefusal, overOps } from './tamber-ops-limit.mjs';
 import { earlyAnswer, probeTool, readBody, parseRequest as parse, tooDeep, upstream, viaDoor, waitForAnswer } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { TIMING } from './tamber-timing.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -110,6 +112,8 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
 const body = (req, res) => readBody(req, BODY_LIMIT, res); // over it, answered before the connection closes
+/** The local token's (the developer's own tools, a CLI import's sources). */
+const LOCAL_BODY_LIMIT = 16 << 20;
 const ANSWER_MS = 120_000, POLL_MS = TIMING.poll, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
@@ -533,10 +537,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
-    const text = await (early ?? body(req, res));
-    if (text == null) { if (text === null) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
+    // The local token's body may be 16 MiB (a CLI import's sources, tamber/1.17), judged from its header before a byte is read; every other client's 1 MiB.
+    const text = await (early ?? readBody(req, who.local && !access.remote ? LOCAL_BODY_LIMIT : BODY_LIMIT, res));
+    if (text == null) { if (text === null) json(res, 413, { error: { message: `a request is at most ${who.local && !access.remote ? 16 : 1} MiB` } }); return true; } // (undefined: the client left)
     const query = get ? eventsQuery(url) : null, request = get ? query.request : parse(text);
     if (query?.error) { json(res, 400, { error: { message: query.error } }); return true; }
+    // Past 1 MiB only an import (the local token's sources) is read further.
+    if (Buffer.byteLength(text) > BODY_LIMIT && request?.method !== 'import') { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
     // Nested past 64 levels: refused before anything of it is kept, since a
     // value kept (a held proposal's review) is sent on to every stream.
     if (request && tooDeep(request)) { json(res, 400, { error: { message: 'a request is nested at most 64 levels deep' } }); return true; }
@@ -546,6 +553,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // A local client may not name itself as a paired one (`remote:`).
     if (request && who.client) request.client = who.client;
     else if (request && !(url.pathname === '/__tamber' && request.method === 'revoke') && typeof request.client === 'string' && request.client.startsWith(REMOTE)) { json(res, 400, { error: { message: `a client named \`${REMOTE}…\` is a paired client's; name yours otherwise` } }); return true; }
+    // A client's operations, at most OPS_LIMIT (scripts/tamber-ops-limit.mjs), refused before any is read.
+    if (request && overOps(request)) { json(res, 400, { error: opsRefusal(request) }); return true; }
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: who.local ? down : scrubText(down) } }); return true; }
       const snapshot = namedPaths({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held(), builds: channel.list() }, appDir);
@@ -1444,35 +1453,6 @@ export async function forward(req, res, url, access, target) {
     else if (!gone.signal.aborted) json(res, 502, { error: { message: `the dev loop at ${target} did not answer: ${e.message}` } });
   }
   return true;
-}
-
-/** `bun exact.mjs tamber op <url> <request JSON>|subscribe`: the scripted
- * client. It takes the token as any local client does, from that origin and
- * no other (no redirect is followed), then prints the reply, or each event
- * as it comes. */
-export async function op(argv) {
-  const [base, what] = argv;
-  if (!base || !what) { console.error('usage: bun exact.mjs tamber op <server url> <request JSON>|subscribe'); return 2; }
-  const origin = new URL(base).origin;
-  const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error' });
-  if (!got.ok) { console.error(`tamber op: ${origin} gave no token (${got.status}); it answers this machine's loopback only`); return 1; }
-  const { token } = await got.json();
-  const headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
-  if (what === 'subscribe') {
-    const res = await fetch(`${origin}/__tamber/subscribe`, { method: 'POST', headers, redirect: 'error' });
-    if (!res.ok) { console.error(`tamber op: ${await res.text()}`); return 1; }
-    const decoder = new TextDecoder();
-    let buf = '';
-    for await (const chunk of res.body) {
-      buf += decoder.decode(chunk, { stream: true });
-      const parts = buf.split('\n\n'); buf = parts.pop();
-      for (const part of parts) if (part.startsWith('data: ')) console.log(part.slice(6));
-    }
-    return 0;
-  }
-  const res = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: what, redirect: 'error' });
-  console.log(await res.text());
-  return res.ok ? 0 : 1;
 }
 
 /** Whether an operation writes the app's own Contract, with no `file`

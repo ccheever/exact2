@@ -121,7 +121,8 @@ fn the_moved_functions_are_gone_and_nothing_draws_both_ways() {
                     path.display()
                 );
             }
-            // Glyph went with its last user; ToolGlyph stays (even-odd).
+            // Glyph went with its last user (ToolGlyph went with the
+            // last path icons: library_last_path_icons.rs).
             assert!(
                 !text.contains("component Glyph") && !text.contains(" Glyph("),
                 "{}",

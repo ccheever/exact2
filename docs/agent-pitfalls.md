@@ -1097,7 +1097,8 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   started it), sheets presented and dismissed, autofocus applied or skipped with what holds
   the focus, the keyboard, and the status bar's style. A run driven by hand prints them to
   `xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "dev.exact"
-  AND category == "host"'`. Read them before patching the host (LLP 1143 D2).
+  AND category == "host"'`, and the rest of the journal under `subsystem == "com.exact.app"
+  AND category == "journal"` (`--level info`). Read them before patching the host (LLP 1143).
 
 - **Repeated macOS `s.type("composer", text)` calls replace earlier text.** The
   string form sets the whole textarea: AppKit selects all, then inserts the supplied

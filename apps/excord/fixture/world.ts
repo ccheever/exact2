@@ -42,6 +42,7 @@ export interface Channel {
   recipient_ids?: string[];
   owner_id?: string;
   icon?: string | null;
+  nsfw?: boolean;
   permission_overwrites: unknown[];
 }
 

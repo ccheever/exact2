@@ -45,6 +45,22 @@ export function fixtureBackendSelection(app, env=process.env) {
   return { origin:httpOrigin(origin.href,'fixture origin'), source:given===undefined ? 'checkout fixture port' : at<0 ? 'PORT' : 'commands.server --port' };
 }
 
+// The bound on a type check that never ends (the design tool's `build.mjs --check` spun 4.7 days, found 2026-10-26):
+// 10 minutes, a bound for "never", not a target (the clone's check takes seconds). A test may shorten it
+// (EXACT_CHECK_BOUND_MS), read only under EXACT_TEST_TIMING=1, as the design server's clocks are
+// (scripts/tamber-timing.mjs); a value not shorter, not a whole number of ms from 50, or set without the switch is
+// ignored. Here, not in a module of its own: the native bake copies this file alone into its stage.
+export const CHECK_BOUND_MS = 10 * 60_000;
+
+export function checkBound(env = process.env) {
+  if (env.EXACT_TEST_TIMING !== '1') return CHECK_BOUND_MS;
+  const said = env.EXACT_CHECK_BOUND_MS, ms = /^\d+$/.test(said ?? '') ? Number(said) : NaN;
+  return ms >= 50 && ms < CHECK_BOUND_MS ? ms : CHECK_BOUND_MS;
+}
+
+/** The bound in words: `10 min`, `1.5 s`. */
+export const boundWords = ms => (ms >= 60_000 ? `${ms / 60_000} min` : `${ms / 1000} s`);
+
 /** Explain when an app-local selection takes precedence over the authored origin. */
 export function backendOriginWarning(code, selection, parse) {
   if (selection?.source !== '.exact/backend-origin') return null;
@@ -1155,7 +1171,7 @@ export function appleImplementations(app, target) {
     // An interface that declares an authenticator entry (LLP 1133.010 D13): its class serves it in process.
     const authenticator=!!i.declaration?.authenticator?.apple;
     const events=(i.declaration.names ?? []).some(n=>n.event);
-    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator,frameworks:impl.json.frameworks??{}}];
+    return [{extension,module:'ExactPkg_'+extension.replace(/\W/g,'_'),className:impl.json.class,sources:files.map(f=>resolve(impl.dir,f)),plist,views:packageViewTags(i,impl),authenticator,frameworks:impl.json.frameworks??{},activity:impl.json.apple?.activity??null}];
   });
 }
 
@@ -1179,7 +1195,7 @@ export function androidImplementations(app) {
   return moduleInterfaces(app).filter(i=>used.has(i.name) || usesInterface(i,named)).flatMap(i=>{
     const impl=implementationFor(app,i,'android'), dirs=impl?.json.platform==='android' && impl.json.sources?.kotlin;
     if (!impl || !dirs?.length || !impl.json.class) return [];
-    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl),maven:Array.isArray(impl.json.maven) ? impl.json.maven : []}];
+    return [{extension:i.name.split('/').at(-1),className:impl.json.class,dirs:dirs.map(d=>resolve(impl.dir,d)),views:packageViewTags(i,impl),maven:Array.isArray(impl.json.maven) ? impl.json.maven : [],manifest:impl.json.manifest ?? null}];
   });
 }
 
@@ -1359,7 +1375,9 @@ export function check(stage, tsc, libraries) {
   const script=head.startsWith('#!') && head.split(/\s+/).some(word=>['node','bun'].includes(word.split('/').at(-1)));
   const args=['--project',resolve(stage,'__exact_tsconfig.json'),'--pretty','false','--listFiles'];
   return new Promise((done, fail) => execFile(script ? process.execPath : tsc,script ? [tsc,...args] : args,
-    {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024}, (error, stdout, stderr) => {
+    {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024,timeout:checkBound(),killSignal:'SIGKILL'}, (error, stdout, stderr) => {
+      // (A tsc that never returns is stopped at the bound: checkBound above.)
+      if (error?.killed && error.signal === 'SIGKILL') return fail(new Error(`the TypeScript check did not finish in ${boundWords(checkBound())} (tsc stopped)`));
       if (error) {
         const diagnostics=String(stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
         const mutationFailure=/Type '(?:false|boolean)' is not assignable to type 'true'|SnapbackMutationSuccess/.test(diagnostics)

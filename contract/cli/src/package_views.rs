@@ -128,7 +128,7 @@ fn views(json: &Value, extension: &str, package: &str) -> Vec<PackageView> {
 }
 
 /// The nearest `package.json` above `app_root`: its `dependencies`' names.
-fn dependencies(app_root: &Path) -> Vec<String> {
+pub(crate) fn dependencies(app_root: &Path) -> Vec<String> {
     let Some(text) = app_root
         .ancestors()
         .find_map(|dir| std::fs::read_to_string(dir.join("package.json")).ok())
@@ -144,7 +144,7 @@ fn dependencies(app_root: &Path) -> Vec<String> {
 /// Package `name` installed above `app_root`: its directory and the
 /// `exact.json` its `exports` `"."` names; `None` for a package that is not a
 /// module (a Contract library, a JavaScript one).
-fn located(app_root: &Path, name: &str) -> Option<(PathBuf, Value)> {
+pub(crate) fn located(app_root: &Path, name: &str) -> Option<(PathBuf, Value)> {
     let root = app_root
         .ancestors()
         .map(|a| a.join("node_modules").join(name))
@@ -175,7 +175,7 @@ fn carried(root: &Path) -> Vec<Value> {
         .collect()
 }
 
-fn export<'a>(exports: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn export<'a>(exports: &'a Value, key: &str) -> Option<&'a str> {
     let target = match exports {
         Value::String(s) if key == "." => return Some(s),
         Value::Object(map) => map.get(key)?,
@@ -188,6 +188,6 @@ fn export<'a>(exports: &'a Value, key: &str) -> Option<&'a str> {
     }
 }
 
-fn read(path: &Path) -> Option<Value> {
+pub(crate) fn read(path: &Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }

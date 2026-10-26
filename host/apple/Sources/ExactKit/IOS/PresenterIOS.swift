@@ -290,8 +290,10 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        resetting = true; defer { resetting = false }
         MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
+        releaseOrientationLock()
         focusEvents.reset()
         // Every hatched node ends first, its view and platform object there.
         elements.reset()
@@ -690,6 +692,9 @@ package final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
     /// What native containers cover of boxes (LLP 1075.003 §3.5).
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// In `reset`: host state its views would move with no runtime to tell stays as it was (FocusEvents' focus,
+    /// OwnersIOS' blocks, ExactView `fit`'s geometry; ResetGate).
+    private(set) var resetting = false
     /// Work for after the batch being applied, or now: a hatch's act on an
     /// authored element never lands inside a batch (LLP 1075.003 §3.4).
     package func afterBatch(_ work: @escaping () -> Void) { if applying { waiting.append((nil, work)) } else { work() } }
@@ -732,7 +737,7 @@ package final class Presenter {
         session?.fieldChrome.presented(batch.layoutProvisional)
         let outerWaiting = fieldsWaiting; fieldsWaiting = menus.waitingFields(batch)
         defer { fieldsWaiting = outerWaiting }
-        defer { applyLanguage(batch); applyWakeLock(batch) }
+        defer { applyLanguage(batch); applyWakeLock(batch); applyOrientationLock(batch) }
         if applySnapshots(batch) { return }
         PaintOrder.begin(); let schemes = ColorSchemes.begin(); defer { schemes.end() }
         let post = Self.signposts.beginInterval("apply"), phase = HostPhases.shared.begin(.apply)
@@ -958,7 +963,7 @@ package final class Presenter {
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
-                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutResize = CGSize(width: CGFloat(op.w), height: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x; v.refreshPressOpacity()
@@ -1339,6 +1344,8 @@ package final class Presenter {
     var onStatusBar: ((StatusBarChoice) -> Void)?
     var statusBarNoted = Set<String>()
     #endif
+    /// The session's orientation lock (LLP 1133.029 D5, `OrientationLock.swift`).
+    package var orientationLock = OrientationLock()
     func headTitle(_ title: String?) {
         guard title != self.title else { return }
         self.title = title

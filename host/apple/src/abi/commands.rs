@@ -605,6 +605,16 @@ impl<D: DataSource> Bridge<D> {
         }
         0
     }
+
+    /// What the presenter applied of the orientation lock (`exact_orientation_applied`).
+    pub fn orientation_applied(&mut self, len: usize, conflict: bool) -> u32 {
+        let applied =
+            String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().set_orientation_applied(applied, conflict);
+        }
+        0
+    }
 }
 
 /// The host's answer to a package's call back: `reply(ctx, answer, len)`.

@@ -652,6 +652,49 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// LLP 1069.010 D1 (2026-10-26): `copyFile` takes a chosen file into an app
+/// file under `fs.read` on the one and `fs.write` on the other, needing the
+/// app's directories, while a copy between documents is still refused.
+#[test]
+fn a_chosen_file_is_copied_into_an_app_file_under_both_grants() {
+    let paths = Paths::new();
+    let folder = paths.0.join("chosen");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("a.png"), "picture").unwrap();
+    let doc = exact_data::documents::mint(&folder.join("a.png"), 9007).unwrap();
+    let copy = |grants: &str, to: &str| {
+        let args = serde_json::json!({"path": doc, "destination": to});
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"version":1,"op":"fs.copyFile","args":args}))
+                .unwrap();
+        assert_eq!(
+            super::native::independent_storage(&payload),
+            !to.starts_with("app:/")
+        );
+        storage::response(super::native::run(
+            Some(&paths.directories()),
+            grants,
+            &payload,
+            9007,
+        ))
+    };
+    let both = "fs.read doc:/\nfs.write app:/data";
+    assert_eq!(copy(both, "app:/data/a.png").unwrap(), Json::Null);
+    assert_eq!(
+        std::fs::read_to_string(paths.0.join("data/a.png")).unwrap(),
+        "picture"
+    );
+    for grants in ["fs.read doc:/\nfs.write app:/cache", "fs.write app:/data"] {
+        let refused = copy(grants, "app:/data/b.png").unwrap_err();
+        assert!(refused.starts_with("denied: "), "{grants}: {refused}");
+    }
+    assert!(!paths.0.join("data/b.png").exists());
+    let to_doc = format!("{}/copy.png", doc.rsplit_once('/').unwrap().0);
+    assert!(copy("fs.read doc:/\nfs.write doc:/", &to_doc).is_err());
+    assert!(!folder.join("copy.png").exists());
+    exact_data::documents::forget(9007);
+}
+
 /// LLP 1069.010.000 D2a: a write that expects the stat it read is refused
 /// `ECHANGED`, writing nothing, once another writer changed the file, and
 /// lands while the file is as read.
@@ -1293,12 +1336,14 @@ fn transform_image_answers_a_rust_source_as_typescripts() {
 }
 
 /// A Rust source's upload from a file (LLP 1108 D6 R2): the storage composer
-/// passes `Request::body_from` through untouched, the path alone, for the
-/// host's executor to read when it sends the request.
+/// passes `Request::body_from` and `body_to` through untouched, the paths
+/// alone, for the host's executor to read and write when it runs the request.
 #[test]
 fn a_rust_sources_body_from_passes_to_the_host_as_its_path() {
     let mut host = Storage::new(Fixture::new());
-    let mut upload = Request::get("https://example.test/upload").body_from("app:/data/photo.jpg");
+    let mut upload = Request::get("https://example.test/upload")
+        .body_from("app:/data/photo.jpg")
+        .body_to("app:/cache/reply.json");
     upload.method = "POST".into();
     host.source.request = upload.clone();
     host.configure_storage("data".into(), "cache".into(), "tmp".into())

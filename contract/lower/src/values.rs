@@ -994,6 +994,7 @@ pub(crate) fn check_prop_value(
         PropId::NavigationGrabber => Some((&["visible", "hidden", "auto"], "`navigationGrabber` takes \"visible\", \"hidden\" or \"auto\" (the default: the platform's, a grabber on a sheet with several detents)")),
         PropId::FocusGuide => Some((&["auto"], "`focusGuide` takes \"auto\"")),
         PropId::Wakelock => Some((&["screen", "none"], "`wakelock` takes \"screen\" (the display stays awake while this element is displayed) or \"none\" (the default)")),
+        PropId::Orientationlock => Some((&["portrait", "landscape", "portrait-primary", "portrait-secondary", "landscape-primary", "landscape-secondary", "natural", "any", "current", "none"], "`orientationlock` takes a Screen Orientation API lock type (\"portrait\", \"landscape\", \"portrait-primary\", \"portrait-secondary\", \"landscape-primary\", \"landscape-secondary\", \"natural\", \"any\"), \"current\" (the orientation the window has when the lock begins) or \"none\" (the default)")),
         PropId::AccessibilityLive => Some((&["off", "polite", "assertive"], "`aria-live` takes \"off\", \"polite\" or \"assertive\"")),
         _ => None,
     };

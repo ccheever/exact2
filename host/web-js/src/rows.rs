@@ -1001,6 +1001,8 @@ pub(super) fn attributes(
             _ => attrs.push((name.clone(), value.clone())),
         }
     }
+    // Off the page's thread, so an arrival does not hold a frame (LLP 1145 D3).
+    attrs.extend((element == "img").then(|| ("decoding".into(), "async".into())));
     (attrs, content, css)
 }
 
@@ -1074,6 +1076,7 @@ mod tests {
         let mut picture = exact_kernel::SortedMap::default();
         picture.insert("src".into(), "swatch:red".into());
         let picture_attrs = super::attributes("img", &picture).0;
+        assert!(picture_attrs.contains(&("decoding".into(), "async".into())));
         assert!(
             !picture_attrs.iter().any(|(name, _)| name == "src"),
             "a package's scheme is never fetched"
@@ -1081,6 +1084,7 @@ mod tests {
         let names: std::collections::BTreeSet<_> = names
             .into_iter()
             .chain(picture_attrs.iter().map(|(n, _)| n.as_str()))
+            .filter(|name| name.starts_with("data-"))
             .collect();
         for name in [
             "data-app-poster",

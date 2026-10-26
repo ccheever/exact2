@@ -98,7 +98,7 @@ mod apply;
 mod live_time;
 pub mod midi;
 mod modules;
-pub use modules::{AppState, CallOrigin, PresenceAnswer, PresenceAsk, WakeHow};
+pub use modules::{AppState, CallHow, CallOrigin, PresenceAnswer, PresenceAsk, WakeHow};
 mod split;
 mod surface_record;
 mod text_axes;
@@ -420,6 +420,7 @@ pub struct Runner<D: DataSource> {
     /// A grouped drop's source while its `reorderdrop` runs (D2).
     dropping_from: Option<exact_kernel::NodeKey>,
     ids: Ids,
+    pub(crate) orientation: crate::orientation::Said, // the host's readback, what was journaled (LLP 1133.029)
     now_ms: f64,
     timers: Vec<Timer>,
     clock: advance::Clock,
@@ -901,6 +902,7 @@ impl<D: DataSource> Runner<D> {
             reorder_session: None,
             dropping_from: None,
             ids: Ids::default(),
+            orientation: Default::default(),
             now_ms,
             timers: Vec::new(),
             clock: Default::default(),
@@ -1138,6 +1140,17 @@ impl<D: DataSource> Runner<D> {
     /// layout refusal) so one read sees everything in order.
     pub fn log(&mut self, line: impl Into<String>) {
         let line = line.into();
+        // While measuring, a development host also writes it to its
+        // platform's log (LLP 1143 open question 1).
+        if !self.ids.work.sites.is_empty() {
+            crate::perf::queue(&self.ids.work.journal, line.clone());
+        }
+        self.journal_only(line);
+    }
+
+    /// Append a line to the journal and nowhere else: an alert, which its
+    /// own queue carries to the platform's log.
+    pub(crate) fn journal_only(&mut self, line: String) {
         self.journal.push_back(lines::stamped(self.now_ms, &line));
         if self.journal.len() > JOURNAL_RING {
             self.journal.pop_front();

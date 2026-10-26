@@ -526,4 +526,26 @@ mod tests {
         );
         assert_eq!(alerts[1], "line 6");
     }
+
+    /// LLP 1143 open question 1: while measuring, every other journal line
+    /// reaches the host once, apart from the alerts, and nothing is queued
+    /// for a runner that measures nothing.
+    #[test]
+    fn journal_lines_reach_the_host_once_apart_from_alerts() {
+        let mut quiet = boot(false);
+        quiet.log("unmeasured");
+        assert!(quiet.take_journal().is_empty());
+        let mut r = boot(false);
+        r.measure(true, false);
+        r.take_journal();
+        r.log("a line");
+        r.alert("a failure");
+        assert_eq!(r.take_journal(), ["a line"]);
+        assert_eq!(r.take_alerts(), ["a failure"]);
+        assert!(r.take_journal().is_empty(), "each line is taken once");
+        assert!(
+            r.journal().any(|l| l.ends_with("a line"))
+                && r.journal().any(|l| l.ends_with("a failure"))
+        );
+    }
 }

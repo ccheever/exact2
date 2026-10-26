@@ -6,6 +6,10 @@
       "name": "exact2",
       "dependencies": {
         "@exact/actions": "workspace:*",
+        "@exact/age-range": "workspace:*",
+        "@exact/alarms": "workspace:*",
+        "@exact/altimeter": "workspace:*",
+        "@exact/attestation": "workspace:*",
         "@exact/background": "workspace:*",
         "@exact/browser": "workspace:*",
         "@exact/browser-automation": "workspace:*",
@@ -14,19 +18,24 @@
         "@exact/cards": "workspace:*",
         "@exact/contacts": "workspace:*",
         "@exact/geolocation": "workspace:*",
+        "@exact/health": "workspace:*",
         "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
         "@exact/passkeys": "workspace:*",
+        "@exact/pedometer": "workspace:*",
         "@exact/photos": "workspace:*",
+        "@exact/quick-actions": "workspace:*",
         "@exact/reading": "workspace:*",
         "@exact/recording": "workspace:*",
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
+        "@exact/search-index": "workspace:*",
         "@exact/speech-recognition": "workspace:*",
         "@exact/speech-synthesis": "workspace:*",
+        "@exact/tracking-consent": "workspace:*",
       },
       "devDependencies": {
         "@sqlite.org/sqlite-wasm": "3.53.4-build1",
@@ -40,6 +49,22 @@
     "packages/actions": {
       "name": "@exact/actions",
       "version": "0.1.0",
+    },
+    "packages/age-range": {
+      "name": "@exact/age-range",
+      "version": "1.0.0",
+    },
+    "packages/alarms": {
+      "name": "@exact/alarms",
+      "version": "1.0.0",
+    },
+    "packages/altimeter": {
+      "name": "@exact/altimeter",
+      "version": "1.0.0",
+    },
+    "packages/attestation": {
+      "name": "@exact/attestation",
+      "version": "1.0.0",
     },
     "packages/background": {
       "name": "@exact/background",
@@ -79,6 +104,10 @@
       "name": "@exact/geolocation",
       "version": "1.0.0",
     },
+    "packages/health": {
+      "name": "@exact/health",
+      "version": "1.0.0",
+    },
     "packages/language-model": {
       "name": "@exact/language-model",
       "version": "1.0.0",
@@ -103,8 +132,16 @@
       "name": "@exact/passkeys",
       "version": "1.0.0",
     },
+    "packages/pedometer": {
+      "name": "@exact/pedometer",
+      "version": "1.0.0",
+    },
     "packages/photos": {
       "name": "@exact/photos",
+      "version": "1.0.0",
+    },
+    "packages/quick-actions": {
+      "name": "@exact/quick-actions",
       "version": "1.0.0",
     },
     "packages/reading": {
@@ -129,6 +166,10 @@
       "name": "@exact/scale-fixture-notes",
       "version": "0.1.0",
     },
+    "packages/search-index": {
+      "name": "@exact/search-index",
+      "version": "1.0.0",
+    },
     "packages/speech-recognition": {
       "name": "@exact/speech-recognition",
       "version": "1.0.0",
@@ -143,9 +184,21 @@
       "name": "@exact/speech-synthesis",
       "version": "1.0.0",
     },
+    "packages/tracking-consent": {
+      "name": "@exact/tracking-consent",
+      "version": "1.0.0",
+    },
   },
   "packages": {
     "@exact/actions": ["@exact/actions@workspace:packages/actions"],
+
+    "@exact/age-range": ["@exact/age-range@workspace:packages/age-range"],
+
+    "@exact/alarms": ["@exact/alarms@workspace:packages/alarms"],
+
+    "@exact/altimeter": ["@exact/altimeter@workspace:packages/altimeter"],
+
+    "@exact/attestation": ["@exact/attestation@workspace:packages/attestation"],
 
     "@exact/background": ["@exact/background@workspace:packages/background"],
 
@@ -163,6 +216,8 @@
 
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 
+    "@exact/health": ["@exact/health@workspace:packages/health"],
+
     "@exact/language-model": ["@exact/language-model@workspace:packages/language-model"],
 
     "@exact/lists": ["@exact/lists@workspace:packages/lists"],
@@ -175,7 +230,11 @@
 
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
 
+    "@exact/pedometer": ["@exact/pedometer@workspace:packages/pedometer"],
+
     "@exact/photos": ["@exact/photos@workspace:packages/photos"],
+
+    "@exact/quick-actions": ["@exact/quick-actions@workspace:packages/quick-actions"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
 
@@ -185,9 +244,13 @@
 
     "@exact/scale-fixture-notes": ["@exact/scale-fixture-notes@workspace:packages/scale-fixture-notes"],
 
+    "@exact/search-index": ["@exact/search-index@workspace:packages/search-index"],
+
     "@exact/speech-recognition": ["@exact/speech-recognition@workspace:packages/speech-recognition"],
 
     "@exact/speech-synthesis": ["@exact/speech-synthesis@workspace:packages/speech-synthesis"],
+
+    "@exact/tracking-consent": ["@exact/tracking-consent@workspace:packages/tracking-consent"],
 
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
 

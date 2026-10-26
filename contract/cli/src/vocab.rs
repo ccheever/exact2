@@ -465,6 +465,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if matches!(name, "reachstart" | "reachend") {
             println!("  {}", vocab::collection_edge_refusal(name));
         }
+        if matches!(name, "reachstart" | "reachend") {
+            println!("  {REACH_MARGIN}");
+        }
         if name == "resize" {
             println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
         }
@@ -491,6 +494,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         }
         if name == "wakelock" {
             println!("  on any element (LLP 1125 D11). \"screen\" keeps the display from dimming or locking for idleness while the element is mounted and displayed (no ancestor `display: none`, under no unselected tab and no screen a stack keeps under its top; the one a sheet covers is shown), so a screen kept in a hidden tab panel holds nothing; \"none\", the default, holds nothing. Bind it to state: `wakelock=(playing ? \"screen\" : \"none\")`. A literal other than the two is refused; a computed one is journaled and holds nothing. iOS's idle timer, a macOS display-sleep assertion, the web's Screen Wake Lock (asked again when the page is visible again), Android's `keepScreenOn`; Linux and Windows journal it as unavailable. The agent's `state.wakelock` is `{{held, by}}`; `expect wakelock held` or `expect wakelock released` asserts this holder record (displayed elements requesting the lock), not whether the OS or browser granted it.");
+        }
+        if name == "orientationlock" {
+            println!("  on any element (LLP 1133.029). While the element is mounted and displayed (by `wakelock`'s rule) and outside every `dialog` and popover, the window keeps to the orientations it names: a Screen Orientation API lock type (\"portrait\", \"landscape\", \"portrait-primary\", \"portrait-secondary\", \"landscape-primary\", \"landscape-secondary\", \"natural\", \"any\"), or \"current\", the orientation the window has when the lock begins (a game steered by tilt); \"none\", the default, holds nothing. Bind it to state: `orientationlock=(tilt ? \"current\" : \"none\")`. The topmost sheet that holds wins over what it covers, a descendant's lock replaces its ancestor's (\"any\" there frees a subtree), and unrelated locks intersect; locks that share no orientation hold none and are journaled. A type only narrows the manifest's `orientation`: a literal outside it, or one inside a `dialog` or popover, is refused. iOS and Android (on a tablet only \"current\" holds), the web in fullscreen where the browser locks, Windows' auto-rotation preference; macOS, tvOS and Linux have no screen orientation and journal it once. The agent's `state.orientationlock` is `{{held, by, words, lock, conflict, applied}}`, `applied` the host's readback.");
         }
         if name == "navigationSplit" {
             println!("  on a stack's root route (LLP 1116.004 D1.2). A wide window (900 px and up on the web) shows a stack whose root route is a list whose rows push beside its top, as a split view does, with nothing to write: a row pushes when it draws the disclosure, an `image \"symbol:forward-chevron\"` (the chevron an iOS list draws) in a `link`, or in a `button` or pressable whose action writes the router (`push`, `open`, `go`); a chevron on a row that only selects is decoration, and its route is left unsplit, `navigationSplit=\"none\"` said for you. The list is a 320-wide column, its chevrons hidden and the row whose press pushed the detail marked; the top route is the detail beside it (a detail a row pushed has no Back), a `navigationPresentation=\"modal\"` route stays a sheet, and a phone pushes. The router is unchanged: a push from a row while a detail shows stacks it, so `replace` there to swap the detail. \"none\" keeps the stack pushed; a number is the column's width and splits a list the rule does not find. While nothing is selected the detail pane shows the platform's placeholder (\"No Selection\", centred, in the secondary label's colour); \"placeholder\" on a box in the root route (an `EmptyState`) is your own instead, shown only there and then and laid out nowhere else. A root `tablist` left as the tabs recipe places it is a sidebar on the same window. docs/recipes/navigation-stack.md");
@@ -855,6 +861,7 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
 /// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
+const REACH_MARGIN: &str = "reach-margin on a `list virtualized=true`: how far ahead of an edge `reachstart` and `reachend` fire, a literal one or two nonnegative px or % lengths (before, after; a % is of the list's port along its axis), default one port, \"100%\". \"200%\" fires `reachend` when the last row is two ports away (LLP 1145 D4)";
 const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`. Any other scroller, a horizontal strip too, opens at the offset its `scrollLeft=` and `scrollTop=` give, and moves when the value changes";
 
 /// What reaches `navigate=`, and which tab a location lands in (LLP 1038 D8):
@@ -989,6 +996,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if matches!(name, "scroll-start" | "scrollFollowEnd") {
         doc["note"] = TRANSCRIPT_END.into();
+    }
+    if name == "reach-margin" {
+        doc["note"] = REACH_MARGIN.into();
     }
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
@@ -1155,6 +1165,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if matches!(name, "scroll-start" | "scrollFollowEnd") {
                 return vec![line, TRANSCRIPT_END.into()];
+            }
+            if name == "reach-margin" {
+                return vec![line, REACH_MARGIN.into()];
             }
             if name == "accept" {
                 return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];

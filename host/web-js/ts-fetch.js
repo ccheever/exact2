@@ -23,8 +23,8 @@ export function fetch(input, options) {
   if (held && options.exactStream !== undefined) return Promise.reject(new TypeError('exactHeld: a stream is never held; it stops counting at its first message'));
   // A stream counts by its own rule (D5), never here.
   if (options?.exactStream !== undefined) return fetchNow(input, options);
-  // An upload is never held: its file is read before it is sent (Request::is_held).
-  return counting(held && options.exactBodyFrom === undefined ? 'held' : 'plain', () => fetchNow(input, options));
+  // An upload or a download to a file is never held (Request::is_held).
+  return counting(held && options.exactBodyFrom === undefined && options.exactBodyTo === undefined ? 'held' : 'plain', () => fetchNow(input, options));
 }
 /** Work an answer awaits that is no held fetch (a fetch, `crypto.subtle`, `native.later`, a kept key): counted on
  * its answer (`call.plain`), so the answer is never held while it is out (LLP 1016.000 D9). */
@@ -48,7 +48,7 @@ function fetchNow(input, options) {
     call.fetched = true;
     // A stream only registers with its answer, which ts-data.js then refuses;
     // a body from a file is read after its source returns, and checks then.
-    if (answering.sockets && options?.exactStream === undefined && options?.exactBodyFrom === undefined) {
+    if (answering.sockets && options?.exactStream === undefined && options?.exactBodyFrom === undefined && options?.exactBodyTo === undefined) {
       let target, init;
       try { target = input instanceof Request ? input : String(input); init = captured(options); } catch (e) { return Promise.reject(e); }
       return Promise.resolve().then(() => {
@@ -77,7 +77,8 @@ function captured(options) {
   return init;
 }
 function fetchOf(input, options, call) {
-  if (options?.exactStream === undefined && options?.exactBodyFrom === undefined) return fetchWith(tsGrantSet, input, options);
+  if (options?.exactStream === undefined && options?.exactBodyFrom === undefined && options?.exactBodyTo === undefined) return fetchWith(tsGrantSet, input, options);
+  if (options.exactStream !== undefined && options.exactBodyTo !== undefined) return Promise.reject(new TypeError("exactBodyTo: a stream's body is its messages, not a file"));
   let redirect;
   try { redirect = redirectOf(input, options); } catch (e) { return Promise.reject(e); }
   if (options.exactStream === undefined) {
@@ -86,7 +87,7 @@ function fetchOf(input, options, call) {
       // Keep inherited validation fields inherited, but take their values now.
       const own = ownWithout(options, ['redirect']);
       const inherited = {};
-      for (const key of ['exactBodyFrom', 'method', 'body', 'exactStream', 'signal', 'exactTimeout'])
+      for (const key of ['exactBodyFrom', 'exactBodyTo', 'exactIndependentHttp', 'method', 'body', 'exactStream', 'signal', 'exactTimeout'])
         if (!Object.hasOwn(own, key)) inherited[key] = options[key];
       init = Object.assign(Object.create(inherited), own);
       ms = init.exactTimeout;

@@ -41,7 +41,7 @@ fn a_sibling_slides_into_a_removed_nodes_place_which_leaves_at_once() {
     .unwrap()
     .0;
     let second = view(&h, "second");
-    assert_eq!(h.presented(second).layout, [0.0, 0.0, 1.0, 1.0]);
+    assert_eq!(h.presented(second).layout, [0.0; 4]);
     assert!(!h.motion());
     h.dispatch_at(view(&h, "toggle"), Event::Press, 100.);
     assert!(h.kernel().find_by_test_id("first").is_empty());
@@ -51,7 +51,7 @@ fn a_sibling_slides_into_a_removed_nodes_place_which_leaves_at_once() {
     let [_, mid, ..] = h.presented(second).layout;
     assert!(mid > 0.0 && mid < from, "{mid} of {from}");
     h.tick(421.);
-    assert_eq!(h.presented(second).layout, [0.0, 0.0, 1.0, 1.0]);
+    assert_eq!(h.presented(second).layout, [0.0; 4]);
     assert!(!h.motion());
     let logs = h.agent("{\"op\":\"logs\"}");
     assert!(
@@ -70,12 +70,12 @@ fn a_growing_box_starts_from_its_old_size_and_a_gained_row_animates_its_first_mo
     // One commit gives the card the row, moves it up and grows it.
     h.dispatch_at(view(&h, "go"), Event::Press, 100.);
     let after = h.kernel().node(card).unwrap().frame.height;
-    let [dx, dy, sx, sy] = h.presented(card).layout;
-    assert_eq!((dx, sx), (0.0, 1.0));
+    let [dx, dy, dw, dh] = h.presented(card).layout;
+    assert_eq!((dx, dw), (0.0, 0.0));
     assert!((dy - 50.0).abs() < 1e-3, "{dy}");
-    assert!((sy - before / after).abs() < 1e-6, "{sy}");
+    assert!((dh - (before - after)).abs() < 1e-3, "{dh}");
     h.tick(301.);
-    assert_eq!(h.presented(card).layout, [0.0, 0.0, 1.0, 1.0]);
+    assert_eq!(h.presented(card).layout, [0.0; 4]);
 }
 
 #[test]
@@ -90,21 +90,21 @@ fn a_resize_retires_running_layout_before_the_next_tick() {
         h.tick(500.0);
         let mid = h.presented(box_id).layout;
         assert_ne!(mid[1], 0.0);
-        assert_ne!(mid[3], 1.0);
+        assert_ne!(mid[3], 0.0);
         let before = h.kernel().node(box_id).unwrap().frame;
         assert!(h.resize(300.0, 700.0).is_none());
         let after = h.kernel().node(box_id).unwrap().frame;
         assert_eq!(before == after, width == "100");
         assert_eq!(
             h.presented(box_id).layout,
-            [0.0, 0.0, 1.0, 1.0],
+            [0.0; 4],
             "width={width}: the resize itself resets the presentation"
         );
         assert!(!h.motion());
         h.tick(600.0);
-        assert_eq!(h.presented(box_id).layout, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(h.presented(box_id).layout, [0.0; 4]);
         h.dispatch_at(move_id, Event::Press, 600.0);
-        assert_ne!(h.presented(box_id).layout, [0.0, 0.0, 1.0, 1.0]);
+        assert_ne!(h.presented(box_id).layout, [0.0; 4]);
     }
 }
 
@@ -165,6 +165,47 @@ fn a_growing_box_reveals_its_content_at_its_final_size_and_never_scales_it() {
     }
 }
 
+#[test]
+fn a_clipping_box_closing_to_zero_width_shrinks_its_clip_to_zero() {
+    use exact_linux::{presenter::PainterChoice, Presenter};
+    let source = "component App\n  state closed = false\n  action close\n    closed = true\n  view\n    column\n      button press=close testId=\"close\"\n        text \"Close\"\n      view testId=\"clip\" width=(closed ? 0 : 200) height=120 overflow=\"hidden\" -exact-layout-transition=\"1000ms linear\"\n        view testId=\"child\" width=200 height=120 background-color=\"#ff0000\"\n";
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &plan,
+        (),
+        (400., 600.),
+        1.,
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let id = |p: &Presenter<()>, name: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+    };
+    let clip = id(&p, "clip");
+    p.tap(id(&p, "close")).unwrap();
+    p.tick(500.);
+    assert_eq!(p.host().kernel().node(clip).unwrap().frame.width, 0.0);
+    let state: serde_json::Value =
+        serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    let observed = state["presence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == clip)
+        .unwrap();
+    assert_eq!(observed["w"], 100.0, "half way from 200 to 0: {observed}");
+    let (x, y, ..) = p.rect_of(clip).unwrap();
+    let frame = p.frame();
+    // The child keeps its 200 points; the clip shows its first 100.
+    assert!(is(&frame, x + 50., y + 60., 0), "clipped to the shown box");
+    assert!(!is(&frame, x + 150., y + 60., 0), "and no further");
+    p.tick(1001.);
+    let frame = p.frame();
+    assert!(!is(&frame, x + 50., y + 60., 0), "closed");
+}
+
 /// `clock +N` as the agent runs it (`clock_stepped`): the request stops it
 /// took.
 fn agent_jump(h: &mut Host<()>, to: f64) -> usize {
@@ -218,7 +259,7 @@ fn a_box_a_timer_moves_inside_an_agents_jump_starts_moving_at_the_timer() {
     let [dx, ..] = h.presented(capsule).layout;
     assert!((dx + 39.0).abs() < 1e-3, "half way at 300 ms, not {dx}");
     agent_jump(&mut h, 1000.);
-    assert_eq!(h.presented(capsule).layout, [0.0, 0.0, 1.0, 1.0]);
+    assert_eq!(h.presented(capsule).layout, [0.0; 4]);
     // A frame task's every frame for two minutes is one call, not a request
     // stop each (the agent's 4,096 would end at 68 s).
     assert_eq!(agent_jump(&mut h, 121_000.), 1);

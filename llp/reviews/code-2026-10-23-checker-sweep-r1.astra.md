@@ -1,0 +1,27 @@
+# Code review: the checker sweep (after the checker bound), round 1 of 3, 2026-10-23 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via `codex exec`, reasoning effort max, `-s read-only`, a throwaway worktree at `79dd820d6f`.
+- **Method:** one brief (sha256 `3bf9ec8bf108f02b652dd9d48eafc4ae59768dd08d8807d409940a64516ec1ae`), blind to the other reviewer; 3 rounds (security and write-check work), the last with a security pass, then narrow re-checks until clean. The author (Claude, reload1) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+
+- **BLOCKER — Re-holds can add targets past the ops limit.** [scripts/tamber-ops-limit.mjs:33](scripts/tamber-ops-limit.mjs:33) keys targets only by `[op, name]`. Axis-value operations identify their target with `axis`; `file` is also omitted. An in-memory Bun repro with 1,025 operations changed the held operation’s axis from `theme` to `density`, and `overOps()` returned `false`. Use operation-specific target identities, including the destination file.
+
+- **BLOCKER — Contrast checking remains quadratic on valid designs.** [tamber/src/lib.rs:364](tamber/src/lib.rs:364) searches all tokens for every declared pair. With N tokens each declaring `pair=ground` and `ground` last, this performs roughly N² comparisons on every check. All new bounds permit that design; a single value edit reaches it. Index the checked tokens once, preserving first-wins lookup.
+
+- **BLOCKER — One operation can trigger quadratic condition validation before preflight.** [tamber/src/edit.rs:336](tamber/src/edit.rs:336) compares each condition’s axis with every preceding axis. A single `set-token` containing 30,000 distinct conditions occupies 888,974 JSON bytes and requires 449,985,000 comparisons in this scan. `MAX_AXES` caps declarations, so it does not protect this path. Use a set or reject oversized condition lists before scanning.
+
+- **BLOCKER — The retention rewrite still rescans case-colliding buckets.** [contract/lower/src/theme.rs:350](contract/lower/src/theme.rs:350) tracks visited names case-sensitively but retrieves definitions by lowercase name. Thousands of valid, distinct case variants can therefore each expand the same thousands-entry bucket. Half literals and half aliases to distinct literals suffice; reference depth stays small. Track bucket expansion separately while retaining every required original spelling.
+
+- **SHOULD — Export membership remains tokens × exports.** [tamber/src/session.rs:135](tamber/src/session.rs:135) scans the entire export list for each otherwise-unretained token when `bindable` is true. Both build retention and transaction shape calculation call this. A design explicitly exporting N tokens still takes quadratic work despite the changed-token optimization. Precompute export membership.
+
+- **SHOULD — History does not benefit from the new bounds.** [tamber/src/history.rs:118](tamber/src/history.rs:118) calls the linear `branch()` search for every branch, retaining quadratic work in `when` count. History deliberately parses unchecked versions, so `MAX_WHENS` never runs there. Thousands of distinct historical branches remain reachable through `history`/`revert`. Axis-value handling has the same problem in [history.rs:533](tamber/src/history.rs:533). These paths need indexes independently of checker caps.
+
+- **SHOULD — Large fresh imports still execute quadratic edits in the shared server.** [tamber/src/edit.rs:509](tamber/src/edit.rs:509) reparses and copies the growing design for every `AddToken`. Server-planned imports bypass the client count limit, and holding them invokes this path after the isolated planner has finished. Thus a successful import with thousands of new tokens performs quadratic work outside its `Work` budget and watchdog, before acceptance. Batch structural edits or bound/isolate this application phase.
+
+- **SHOULD — Import landing loses the promised bound ID.** [tamber/src/import/landing.rs:274](tamber/src/import/landing.rs:274) wraps checker refusals as `tamber-import-axis`. Importing a shadcn theme into a valid design with 32 singleton axes creates a 33rd axis and returns that generic ID instead of `tamber-axes`. Preserve bound diagnostics through landing.
+
+- **SHOULD — The CLI now rejects previously supported source sizes.** [scripts/tamber-import-review.mjs:68](scripts/tamber-import-review.mjs:68) sends all source text through the roughly 1 MiB HTTP door. Previously, `sourcesOf()` allowed 16 MiB and the CLI sent only the planned operations. A 2 MiB stylesheet containing mostly comments and one mapped value previously worked but now receives 413. Preserve that local import capability or explicitly resolve this behavior change.
+
+- **SHOULD — Condition canonicalization changes unchecked-history semantics.** [tamber/src/syntax.rs:262](tamber/src/syntax.rs:262) preserves duplicate multiplicities, whereas the previous comparison treated equal-length lists as sets. For example, nine conditions containing eight copies of A and one B previously matched one A and eight Bs; now they differ. History accepts unchecked parses, so its ambiguity detection and reported edits change. Preserve the previous equivalence or explicitly handle repeated axes before canonicalization.
+
+The ops-door finding was reproduced with Bun. Rust and integration tests could not run: the workspace is read-only and has no compiled `target/`. No files were changed.

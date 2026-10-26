@@ -19,6 +19,13 @@ const END_SLACK = 1;
 // A port in the padding before the first row is at the rows' start, unless the target is there too (start.rs).
 const atTarget = (a, c, offset, sent) => { if (c >= 0) offset = Math.max(0, offset); const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap < END_SLACK && Math.abs(c - sent) <= 0.01); };
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
+// `reach-margin` (reach.rs `Margin`, @ref LLP 1145 D4): px or % of the port, before and after an edge; default one port.
+const reachMargin = text => {
+  const parts = (text ?? "100%").trim().split(/\s+/).map(p => { const m = /^(.*?)(px|%)$/i.exec(p), n = m && m[1] !== "" ? Number(m[1]) : NaN; return isFinite(n) && n >= 0 ? [n, m[2] === "%"] : null; });
+  if (parts.length > 2 || parts.includes(null)) throw new Refusal("reach margin must be one or two nonnegative px or % lengths");
+  return [parts[0], parts.at(-1)];
+};
+const reachLead = (margin, port) => margin.map(([n, percent]) => percent ? port * n / 100 : n);
 const same = Object.is;
 // A row remeasured within this of the height it already has keeps that
 // height (mod.rs `MEASURE_NOISE`): a translated row reads float32 ulps off
@@ -237,7 +244,7 @@ class Collection {
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
       zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
       kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0 });
-    this.edges = [o.start, o.end];
+    this.edges = [o.start, o.end]; this.reach = reachMargin(o.reach);
   }
   snapshot() {
     const g = this.geometry;
@@ -765,10 +772,11 @@ class Collection {
   edge() {
     const reached = [false, false], g = this.geometry;
     if (g && this.index.len) {
-      const w = this.index.window(g.offset, g.port_main);
+      // Reached within the reach margin; re-armed only once the mounted window (one port each side) is measured (reach.rs).
+      const w = this.index.window(g.offset, g.port_main), within = this.index.window(g.offset, g.port_main, reachLead(this.reach, g.port_main));
       const n = this.index.len - 1;
-      reached[0] = w.segments.some(r => 0 >= r[0] && 0 < r[1]);
-      reached[1] = w.segments.some(r => n >= r[0] && n < r[1]);
+      reached[0] = within.segments.some(r => 0 >= r[0] && 0 < r[1]);
+      reached[1] = within.segments.some(r => n >= r[0] && n < r[1]);
       if (!(this.edgeArmed[0] && this.edgeArmed[1]) && this.index.rangeMeasured(...w.overscan)) for (const i of [0, 1]) this.edgeArmed[i] ||= !reached[i];
     }
     const ready = [0, 1].map(i => reached[i] && this.edgeArmed[i] && !!this.edges[i]);

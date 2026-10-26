@@ -293,9 +293,11 @@ impl Lowerer<'_> {
         // are refused.
         let identities = crate::params::identities(file);
         let mut overridden: Vec<(String, Span)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let resolver = crate::params::Resolver::new(&kinded, &identities);
         for entry in &design.params {
-            if let Ok(p) = crate::params::resolve(&kinded, &identities, &entry.name.value) {
-                if !overridden.iter().any(|(t, _)| *t == p.token) {
+            if let Ok(p) = resolver.resolve(&entry.name.value) {
+                if seen.insert(p.token.clone()) {
                     let span = self.token_span(&origin, entry.name.line, entry.name.col);
                     overridden.push((p.token.clone(), span));
                 }
@@ -335,22 +337,34 @@ impl Lowerer<'_> {
             .flat_map(|d| crate::params::design_tokens(d).0);
         let mut kept: Vec<String> = designed.map(|p| p.token).collect();
         let mut roots = std::collections::BTreeSet::new();
+        // A role's spelling in any case, as the fold reads one: the tokens
+        // and icons by their names lowercased, once (linear: the checker
+        // bound's sweep).
+        let mut by_lower: std::collections::HashMap<String, Vec<&tamber::Token>> =
+            std::collections::HashMap::new();
+        for t in design.tokens.iter().chain(&design.icons) {
+            by_lower
+                .entry(t.name.value.to_ascii_lowercase())
+                .or_default()
+                .push(t);
+        }
+        // Each spelling kept; each lowercased name's tokens read once, however
+        // many spellings reach it (round 1 of the checker sweep).
+        let mut expanded = std::collections::HashSet::new();
         while let Some(name) = kept.pop() {
             if !roots.insert(name.clone()) {
                 continue;
             }
-            for t in design
-                .tokens
-                .iter()
-                .chain(&design.icons)
-                // A role's spelling in any case, as the fold reads one.
-                .filter(|t| t.name.value.eq_ignore_ascii_case(&name))
-            {
+            words.insert(name.clone());
+            let lower = name.to_ascii_lowercase();
+            if !expanded.insert(lower.clone()) {
+                continue;
+            }
+            for t in by_lower.get(&lower).into_iter().flatten() {
                 let read =
                     std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
                 kept.extend(read.flat_map(|v| scan::words(v)).map(str::to_string));
             }
-            words.insert(name);
         }
         let retention = tamber::Retention {
             bindable,

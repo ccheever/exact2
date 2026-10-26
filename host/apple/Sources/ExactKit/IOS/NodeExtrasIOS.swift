@@ -82,7 +82,8 @@ final class NodeExtras {
     /// How far its scroller's scroll moves a sticky box (LLP 1083, `Sticky.swift`).
     var stickyOffset: CGPoint = .zero
     var keyboardLift: CGFloat = 0
-    var layoutScale = CGPoint(x: 1, y: 1)
+    /// How far its surface's size stands from the laid-out size (LLP 1063).
+    var layoutResize: CGSize = .zero
     /// Its surface at a layout transition's size (`Surface.swift`).
     var surface: SurfaceLayer?
     var layoutPanRecognizer: UIPanGestureRecognizer?
@@ -274,7 +275,7 @@ extension NodeView {
     var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
     /// How far a keyboard toolbar rides up with the keyboard (KeyboardToolbarIOS).
     var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }
-    var layoutScale: CGPoint { get { extras?.layoutScale ?? CGPoint(x: 1, y: 1) } set { if newValue != CGPoint(x: 1, y: 1) || extras != nil { more.layoutScale = newValue } } }
+    var layoutResize: CGSize { get { extras?.layoutResize ?? .zero } set { if newValue != .zero || extras != nil { more.layoutResize = newValue } } }
     var surface: SurfaceLayer? { get { extras?.surface } set { if newValue != nil || extras != nil { more.surface = newValue } } }
     var layoutPanRecognizer: UIPanGestureRecognizer? { get { extras?.layoutPanRecognizer } set { if newValue != nil || extras != nil { more.layoutPanRecognizer = newValue } } }
     var layoutPanOrigin: CGPoint { get { extras?.layoutPanOrigin ?? .zero } set { if newValue != .zero || extras != nil { more.layoutPanOrigin = newValue } } }

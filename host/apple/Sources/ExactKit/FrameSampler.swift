@@ -54,9 +54,14 @@ final class FrameSampler: NSObject {
         /// A late frame's main-thread host phases inside its interval, and
         /// what none of them took (LLP 1142 D1, `HostPhases.window`).
         var phases: [String: Any]?
+        /// The tracked scroller's offset as the last turn committed it, and
+        /// its phase: `t` tracking, `d` decelerating, `b` past its range,
+        /// `-` at rest (LLP 1144 D1).
+        var scroll: (Double, String)?
         var json: [String: Any] {
             var o: [String: Any] = ["t": t, "target": t + period, "period": period, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
             o["seq"] = seq.map { [$0.0, $0.1] } ?? NSNull()
+            if let scroll { o["scroll"] = [scroll.0, scroll.1] }
             if let hatches { o.merge(hatches) { a, _ in a } }
             if let phases {
                 o["phases"] = phases["phases"]; o["unattributed"] = phases["unattributed"]
@@ -72,6 +77,25 @@ final class FrameSampler: NSObject {
     private var active = -Double.infinity
     private var observing = false
     var observationStopped: ((String) -> Void)?
+    /// `perf frames hold` (LLP 1144 D1): the segment stays open with no batch,
+    /// so a list built up front is sampled as it glides; released by `perf
+    /// frames release`, or by anything that stops sampling.
+    var held = false {
+        didSet {
+            if held { activity() } else { tracked = nil }
+            #if os(macOS)
+            // A held fling on the Mac is a person's, on the trackpad: AppKit scrolls it.
+            if !ExactEnv.agentFreezes { ChainingScrollView.appliesAtOnce = Self.wheelAppliesAtOnce(agentMode: ExactEnv.agentMode, held: held) }
+            #endif
+        }
+    }
+    #if os(macOS)
+    static func wheelAppliesAtOnce(agentMode: Bool, held: Bool) -> Bool { agentMode && !held }
+    #endif
+    /// The scroller a held fling watches (`perf frames hold` with a target):
+    /// its offset and phase, read where each turn ends, after its commit.
+    var tracked: (() -> (Double, String)?)?
+    private var committed: (Double, String)?
     private var period: Double?
     private var records: [Record] = [], late: [Record] = []
     private var dropped = 0, presented = 0, lateCount = 0, missed = 0, segments = 0
@@ -193,6 +217,7 @@ final class FrameSampler: NSObject {
 
     /// A turn that began before the frame's target and ended after it.
     func turnEnded(at now: CFTimeInterval) {
+        if let tracked { committed = tracked() }
         defer { turnBegan = nil }
         guard let target, let began = turnBegan, began < target, now > target else { return }
         overrun = max(overrun, (now - target) * 1000)
@@ -200,8 +225,10 @@ final class FrameSampler: NSObject {
 
     @objc func tick(_ link: CADisplayLink) {
         observe(now: link.timestamp, target: link.targetTimestamp, at: CACurrentMediaTime())
+        // Which images show without their pixels this frame (LLP 1145 D2).
+        session?.rasters.sampleBlank()
         // The session's own frame source running is activity too.
-        if session?.frames.link != nil { active = CACurrentMediaTime() }
+        if session?.frames.link != nil || held { active = CACurrentMediaTime() }
         if !observing && CACurrentMediaTime() - active > Self.quiet { stop() }
     }
 
@@ -227,6 +254,7 @@ final class FrameSampler: NSObject {
         var record = Record(t: r2((now - ExactEnv.t0) * 1000), interval: r2(interval), missed: missedHere, seq: seq, batches: pending.batches, apply: r2(pending.apply))
         record.period = r2(p)
         record.overrun = r2(overrun)
+        if tracked != nil, let c = committed { record.scroll = (r2(c.0), c.1) }
         overrun = 0
         pending = (nil, nil, 0, 0)
         records.append(record)
@@ -258,7 +286,7 @@ final class FrameSampler: NSObject {
     func endObservation() {
         observationStopped = nil
         observing = false
-        if session?.clock != nil || CACurrentMediaTime() - active > Self.quiet { stop() }
+        if session?.clock != nil || (!held && CACurrentMediaTime() - active > Self.quiet) { stop() }
     }
     func observation(from: Double, before: Int) -> [String: Any] {
         let kept = records.filter { $0.t > from }
@@ -429,6 +457,16 @@ extension ExactSession {
             FileHandle.standardError.write(Data("exact: \(line)\n".utf8))
         }
     }
+
+    /// The journal's other lines (LLP 1143 open question 1), at a lower
+    /// level than a failure and not on stderr: a run a person drives reads
+    /// what `logs` would have said with `log stream --level info`. A host
+    /// line (`host: …`) is HostLog's, already written as it happened.
+    func logJournal(_ lines: [String]) {
+        for line in lines where !line.hasPrefix("host: ") {
+            Self.journal.info("\(self.label, privacy: .public): \(line, privacy: .public)")
+        }
+    }
 }
 
 /// One bounded capture's completion, including interruption. The wire's
@@ -466,7 +504,7 @@ extension Agent {
         let observation = FrameObservation(ms: ms) { [self] reason in
             sampler.endObservation()
             let storageSubstituted = ExactEnv.environment["EXACT_AGENT"] != nil && ExactEnv.environment["EXACT_STORE"] != "real"
-            var result = sampler.reply(late: request["late"] as? Int ?? 20)
+            var result = sampler.reply(late: request["late"] as? Int ?? 20, all: request["records"] as? Bool == true)
             result["live"] = ["ms": (CACurrentMediaTime() - start) * 1000, "from": from, "to": session.now(),
                               "clockMode": session.clock == nil ? "real" : "virtual", "clockChanged": false,
                               "execution": ExactEnv.agentMode ? "agent" : "normal",

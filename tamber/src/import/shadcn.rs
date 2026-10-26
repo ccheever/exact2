@@ -124,6 +124,8 @@ pub fn import(
     design: &Design,
     vocab: &Vocab,
 ) -> Result<Import, Vec<Diagnostic>> {
+    // Its work charged to one import's budget, as DTCG's and Pencil's is.
+    let _work = crate::budget::Work::begin(crate::budget::IMPORT);
     super::bounded(import_unbounded(css, prefix, design, vocab))
 }
 
@@ -230,8 +232,9 @@ fn import_unbounded(
         .iter()
         .find(|a| a.name.value == "theme")
         .map_or(Vec::new(), |a| a.values.clone());
+    let mut have: std::collections::HashSet<String> = axis.iter().cloned().collect();
     for v in std::iter::once("default".to_string()).chain(themes.iter().cloned()) {
-        if !axis.contains(&v) {
+        if have.insert(v.clone()) {
             axis.push(v);
         }
     }

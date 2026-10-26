@@ -39,6 +39,10 @@ pub struct Batch {
     /// Failure lines for the platform's log, `"alerts":[…]`, each carried
     /// once (LLP 1142 D4: [`exact_runner::Runner::take_alerts`]).
     pub alerts: Vec<String>,
+    /// The journal's other lines, `"journal":[…]`, for the platform's log at
+    /// a lower level (LLP 1143 open question 1:
+    /// [`exact_runner::Runner::take_journal`]).
+    pub journal: Vec<String>,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
@@ -57,6 +61,9 @@ pub struct Batch {
     /// Whether a displayed element holds the wake lock, when that changed
     /// (`Host::wakelock_moved`, LLP 1125 D11).
     pub wakelock: Option<bool>,
+    /// The session's orientation lock, JSON, when it changed
+    /// (`Host::orientation_moved`, LLP 1133.029 D3).
+    pub orientationlock: Option<String>,
 }
 
 pub use exact_runner::agent::quote;
@@ -792,8 +799,8 @@ impl Batch {
     }
 
     /// `{"op":"present","id":…,"property":"layout","x":…,"y":…,"w":…,"h":…}`
-    /// — a layout transition's offset and scale of the laid-out box (LLP
-    /// 1063).
+    /// — a layout transition's offset from the laid-out box and its size's
+    /// difference from it (LLP 1063).
     pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
@@ -864,6 +871,9 @@ impl Batch {
         if let Some(held) = self.wakelock {
             let _ = write!(s, ",\"wakelock\":{held}");
         }
+        if let Some(lock) = &self.orientationlock {
+            let _ = write!(s, ",\"orientationlock\":{lock}");
+        }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");
             for (i, src) in self.images.iter().enumerate() {
@@ -883,9 +893,12 @@ impl Batch {
         if let Some((first, last)) = self.seq {
             let _ = write!(s, ",\"seq\":[{first},{last}]");
         }
-        if !self.alerts.is_empty() {
-            s.push_str(",\"alerts\":[");
-            for (i, line) in self.alerts.iter().enumerate() {
+        for (key, lines) in [("alerts", &self.alerts), ("journal", &self.journal)] {
+            if lines.is_empty() {
+                continue;
+            }
+            let _ = write!(s, ",\"{key}\":[");
+            for (i, line) in lines.iter().enumerate() {
                 if i > 0 {
                     s.push(',');
                 }

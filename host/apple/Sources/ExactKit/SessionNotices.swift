@@ -45,6 +45,7 @@ extension ExactSession {
     /// order, before any batch made after them (T4). At any other time a
     /// notice is told at once, so it has taken effect when it returns.
     func tellSoon(_ calls: [(Runtime) -> Batch]) {
+        guard !runtime.holds("tellSoon(_:)") else { return } // (a notice a restart's reset sets off: held before it is counted or queued, ResetGate)
         noticesInFlight += calls.count
         let captured = generation
         runtime.later(calls) { [weak self] batch in self?.publish(.notice, batch, captured) }

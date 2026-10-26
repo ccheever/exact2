@@ -37,6 +37,21 @@ final class FrameSamplerTests: XCTestCase {
     }
 
     #if os(macOS)
+    func testHeldSamplingRestoresTheExecutionModesWheelRouting() throws {
+        XCTAssertFalse(FrameSampler.wheelAppliesAtOnce(agentMode: false, held: true))
+        XCTAssertFalse(FrameSampler.wheelAppliesAtOnce(agentMode: false, held: false))
+        XCTAssertFalse(FrameSampler.wheelAppliesAtOnce(agentMode: true, held: true))
+        XCTAssertTrue(FrameSampler.wheelAppliesAtOnce(agentMode: true, held: false))
+        let original = ChainingScrollView.appliesAtOnce
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy(); ChainingScrollView.appliesAtOnce = original }
+        let sampler = try XCTUnwrap(session.sampler)
+        sampler.held = true
+        XCTAssertEqual(ChainingScrollView.appliesAtOnce, ExactEnv.agentFreezes ? original : false)
+        sampler.held = false
+        XCTAssertEqual(ChainingScrollView.appliesAtOnce, ExactEnv.agentFreezes ? original : ExactEnv.agentMode)
+    }
+
     func testCaptureCompletionReturnsToAppKitsEventPumpAndRepliesOnce() throws {
         let app = NSApplication.shared
         var returned = false, heard = false, replies = 0

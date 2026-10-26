@@ -32,31 +32,37 @@ use crate::failure::FailureCode;
 use crate::request::{Answer, Dispatch, Outcome, Reply, Request, Response, Work};
 use crate::HoldAnswer;
 use exact_plan::{ModulesRow, TypesId, Value};
-use serde_json::{json, Map, Value as Json};
+use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod admit;
 mod agent;
 mod bound;
+mod calls;
 mod ceremony;
 mod declared;
 mod events;
 mod fed;
 mod handles;
 mod invoke;
+mod keyed;
 mod permits;
 mod pictures;
 mod poll;
 mod presence;
 mod samples;
+mod values;
 mod views;
 mod wakes;
 pub use admit::CallOrigin;
+pub(super) use admit::OriginsSaved;
 use admit::{Origins, Route};
+pub use calls::CallHow;
 pub use declared::AppState;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
 use std::sync::{Arc, Mutex};
+use values::{absent_is_none, fill, set_path};
 pub use wakes::WakeHow;
 pub(super) use wakes::TOLD;
 
@@ -73,6 +79,9 @@ pub(super) struct Extensions {
     preferred: BTreeMap<String, Json>,
     /// Each declared permission's state, by its name: `prompt` when absent.
     permission: BTreeMap<String, String>,
+    /// The facts a person's answer kept beside a state the platform hides
+    /// (`keyed.rs`): `shared` and `since`, by permission.
+    facts: BTreeMap<String, Json>,
     /// Requests held for the agent.
     held: Vec<Held>,
     /// Held requests answered, with whether the host has dispatched them.
@@ -93,6 +102,8 @@ pub(super) struct Extensions {
     pub(super) events: events::Events,
     /// Wakes, running and to come (LLP 1133.017 D5).
     wakes: wakes::Wakes,
+    /// Tool calls, running and to come (LLP 1133.023 D7).
+    calls: calls::Calls,
     /// Each bound live source's Contract readers, by resource, with the
     /// arguments each last asked with (`bound.rs`).
     readers: BTreeMap<String, BTreeMap<usize, String>>,
@@ -175,6 +186,8 @@ struct Held {
     /// The call's body for the implementation, once the ticket allows it.
     forward: Option<Vec<u8>>,
     origin: CallOrigin,
+    /// The invocation it is part of (`admit.rs`); 0 for none.
+    id: u64,
     /// The call's arguments: a denial fails it only where they ask for what
     /// the permission gates (`permission.continues`), and which of an
     /// interface's permissions it asks (`permission_of`).
@@ -488,7 +501,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn substitute(&self, row: &ModulesRow) -> Json {
-        serde_json::from_str(self.plan.str(row.substitute)).unwrap_or_default()
+        let mut sub = serde_json::from_str(self.plan.str(row.substitute)).unwrap_or_default();
+        self.this_target(&mut sub);
+        sub
     }
 
     /// The row of the name `declared` that `row`'s extension declares.
@@ -523,20 +538,24 @@ impl<D: DataSource> Runner<D> {
     /// What the runner's permission decides of `row` now: its status
     /// source's answer, a denial, or a ticket; `None` when it allows the call.
     fn decide_permission(&self, row: &ModulesRow, send: bool, args: &Json) -> Option<Decision> {
+        if let Some(each) = self.decide_each(row, send, args) {
+            return each;
+        }
         let sub = self.substitute_for(row, args);
         let permission = &sub["permission"];
         let name = permission["name"].as_str()?;
         let state = self.permission_state(name);
         if !send && permission["status"].as_str() == Some(self.plan.str(row.declared)) {
             let mut status = self.value_of(row).unwrap_or(json!({}));
-            // Each permission this source answers the state of, in its field.
-            for p in self.statuses_of(row) {
-                if let (Some(object), Some(field), Some(name)) = (
-                    status.as_object_mut(),
-                    p["field"].as_str(),
-                    p["name"].as_str(),
-                ) {
-                    object.insert(field.into(), json!(self.permission_state(name)));
+            // Each permission this source answers the state of, in its field:
+            // a path into a record the status has (`android.notifications`).
+            // A target whose restriction makes the module absent keeps its
+            // own answer (`unknown`, LLP 1133.030 D7).
+            let absent =
+                self.substitute(row)["targets"][self.host_target()]["available"] == json!(false);
+            for p in self.statuses_of(row).into_iter().filter(|_| !absent) {
+                if let (Some(field), Some(name)) = (p["field"].as_str(), p["name"].as_str()) {
+                    set_path(&mut status, field, json!(self.permission_state(name)));
                 }
             }
             return Some(Decision::Now(status));
@@ -628,6 +647,9 @@ impl<D: DataSource> Runner<D> {
             }
             return Decision::Hold(Waits::Check);
         }
+        if !send && sub["counts"].is_object() {
+            return Decision::Now(self.counted(row, sub, args));
+        }
         if !send {
             return Decision::Now(
                 self.value_of(row)
@@ -666,7 +688,7 @@ impl<D: DataSource> Runner<D> {
     /// (`targets`). Its `facts` are the runner's own, over either.
     fn value_of(&self, row: &ModulesRow) -> Option<Json> {
         let sub = self.substitute(row);
-        if let Some(listed) = self.listed_value(&sub) {
+        if let Some(listed) = self.listed_value(row, &sub) {
             return Some(listed);
         }
         let default = (!sub["default"].is_null()).then(|| {
@@ -760,6 +782,7 @@ impl<D: DataSource> Runner<D> {
             deadline,
             forward,
             origin,
+            id: self.invocation_id(),
             args,
             permission,
             request: None,
@@ -783,6 +806,9 @@ impl<D: DataSource> Runner<D> {
         permission: &str,
         call: &Json,
     ) -> u64 {
+        if let Some(hold) = self.shared_hold(waits, permission) {
+            return hold;
+        }
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let checks = check_choices(&sub);
@@ -797,9 +823,8 @@ impl<D: DataSource> Runner<D> {
         );
         let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
         // A sheet's taps besides `cancel` (LLP 1133.018 D13 item 4).
-        let sheet: Vec<&str> = (sub["choose"]["choices"].as_array().into_iter().flatten())
-            .filter_map(Json::as_str)
-            .collect();
+        let sheet = self.sheet_choices(row);
+        let sheet: Vec<&str> = sheet.iter().map(String::as_str).collect();
         let (capability, args, choices, value) = match waits {
             Waits::Permission => {
                 // What `allow` grants this request (`asks`, D13 item 3).
@@ -810,7 +835,11 @@ impl<D: DataSource> Runner<D> {
                 if let (Some(asks), true) = (asks, line.is_some()) {
                     args["asks"] = Json::Object(asks);
                 }
-                ("permission".to_owned(), args, &asked[..], false)
+                // A request asking several together names each (`keyed.rs`).
+                if self.is_each(row) {
+                    args["permissions"] = json!(permission.split(',').collect::<Vec<_>>());
+                }
+                ("permission".to_owned(), args, &asked[..], self.is_each(row))
             }
             Waits::Choose => (
                 sub["choose"]["ticket"]
@@ -818,7 +847,7 @@ impl<D: DataSource> Runner<D> {
                     .unwrap_or("choose")
                     .to_owned(),
                 // The sheet shows what the call asked (the properties, the event).
-                json!({ "request": declared, "origin": origin.word(), "options": call }),
+                json!({ "request": declared, "origin": origin.word(), "options": call, "target": self.host_target() }),
                 &sheet[..],
                 sub["choose"]["typed"] != false,
             ),
@@ -1064,6 +1093,7 @@ impl<D: DataSource> Runner<D> {
                     deadline,
                     forward,
                     origin,
+                    id: self.invocation_id(),
                     args: held_args.clone(),
                     permission,
                     request,
@@ -1153,6 +1183,10 @@ impl<D: DataSource> Runner<D> {
             let typed = self.choose_typed(&row, &h.args, text);
             return Some(typed.map_err(|e| format!("@{ticket}: {e}")));
         }
+        if h.waits == Waits::Permission && self.is_each(&self.module_row(&h.source)) {
+            let typed = self.each_typed(&h.permission, text);
+            return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
+        }
         if h.waits != Waits::Value {
             return Some(Err(format!("@{ticket}: answered by tap, not type")));
         }
@@ -1212,10 +1246,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The agent answered hold `hold`, already spent: §6's transitions.
     pub(super) fn module_answered(&mut self, hold: u64, answer: &HoldAnswer) {
-        if self.effect_answered(hold, answer) {
-            return;
-        }
-        if self.effect_answered(hold, answer) {
+        if self.effect_answered(hold, answer) || self.each_answered(hold, answer) {
             return;
         }
         let Some(h) = self.extensions.held.iter().find(|h| h.hold == hold) else {
@@ -1436,47 +1467,4 @@ fn check_choices(sub: &Json) -> Vec<&'static str> {
         }
     }
     out
-}
-
-/// Set `path` (`coords.accuracy`) in `value` to `filler` where it is absent.
-fn fill(value: &mut Json, path: &str, filler: Json) {
-    let mut at = value;
-    let mut parts = path.split('.').peekable();
-    while let Some(part) = parts.next() {
-        let Some(object) = at.as_object_mut() else {
-            return;
-        };
-        if parts.peek().is_none() {
-            object.entry(part).or_insert(filler);
-            return;
-        }
-        at = object
-            .entry(part)
-            .or_insert_with(|| Json::Object(Map::new()));
-    }
-}
-
-/// A module's answer leaves out an option field it has nothing for (a
-/// platform's words where another platform answers, a declared default):
-/// absent is `none`, as an omitted word is (LLP 1133.002 D2).
-fn absent_is_none(json: &mut Json, shape: &exact_js_value::Shape) {
-    use exact_js_value::Shape;
-    match (json, shape) {
-        (Json::Object(map), Shape::Record(fields)) => {
-            for (name, field) in fields {
-                match map.get_mut(name) {
-                    Some(value) => absent_is_none(value, field),
-                    None if matches!(field, Shape::Option(_)) => {
-                        map.insert(name.clone(), Json::Null);
-                    }
-                    None => {}
-                }
-            }
-        }
-        (Json::Array(items), Shape::List(item)) => {
-            items.iter_mut().for_each(|v| absent_is_none(v, item))
-        }
-        (value, Shape::Option(inner)) if !value.is_null() => absent_is_none(value, inner),
-        _ => {}
-    }
 }

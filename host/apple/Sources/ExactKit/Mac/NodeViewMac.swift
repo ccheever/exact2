@@ -114,7 +114,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.intersection(FileDrag.events) != oldValue.intersection(FileDrag.events) { syncDropTypes() }; syncDisabledLook() } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types; a disabled pressable's look
     var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
-    var layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
+    var layoutOffset = CGPoint.zero, layoutResize = CGSize.zero // layout*: the box layout moved it from, and its surface's size from the laid-out one (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
     /// translation plus `stickyOffset` (`applyTransform`).
@@ -236,14 +236,24 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var authoredInert: Bool { inert(forAccessibility: false, blocked: false) }
     private func inert(forAccessibility: Bool, blocked: Bool = true) -> Bool {
         if blocked, forAccessibility ? presenter?.dialogs.accessibilityBlocks(self) == true : presenter?.dialogs.blocks(self) == true { return true }
-        var ancestor: NSView? = self
+        var ancestor: NSView? = self, walked: [ObjectIdentifier] = [], inert = false
         while let view = ancestor {
-            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
+            if let known = NodeView.hitInert?[ObjectIdentifier(view)] { inert = known; break }
+            walked.append(ObjectIdentifier(view))
+            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { inert = true; break }
             if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
             ancestor = presenter?.authoredSuperview(of: view) ?? view.superview
         }
-        return false
+        // Every view walked ends at the same answer, so a hit test asks each ancestor once.
+        if NodeView.hitInert != nil { for id in walked { NodeView.hitInert?[id] = inert } }
+        return inert
     }
+    /// The ancestor walk's answers while a hit test runs: it asks every node it visits whether it is
+    /// inert, and nothing that decides it changes until it returns. Without them a hit test in a long
+    /// list walked to the root from each node, most of the main thread's time while content scrolled
+    /// under the pointer.
+    static var hitInert: [ObjectIdentifier: Bool]?
+    static var hitDepth = 0
     /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
     var accessibilityHiddenByProp: Bool {
         sequence(first: self as NSView, next: { self.presenter?.authoredSuperview(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
@@ -752,6 +762,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // overflow and transformed or placed children still need the full walk.
         if overlay == nil, !frame.contains(point), (clipsToBounds || subviews.isEmpty),
            plane == nil { return nil }
+        NodeView.hitDepth += 1
+        if NodeView.hitDepth == 1 { NodeView.hitInert = [:] }
+        defer { NodeView.hitDepth -= 1; if NodeView.hitDepth == 0 { NodeView.hitInert = nil } }
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }

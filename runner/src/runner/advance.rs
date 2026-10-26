@@ -284,6 +284,8 @@ impl<D: DataSource> Runner<D> {
         self.queues.stopped_on_next = false;
         // A module's value ticket that timed out by now (LLP 1133.002 §6).
         self.module_deadlines(now_ms);
+        // A listed entry now due, and an app's list another session changed.
+        self.listed_due(now_ms);
         self.pump_presence();
         loop {
             // The earliest due timer, deterministic by index on ties.
@@ -422,9 +424,10 @@ impl<D: DataSource> Runner<D> {
                 let action = self.plan.mutations[m].then.expect("armed only with a then");
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
-                // A `then` runs under its answer's origin (LLP 1133.002 D12).
-                let origin = self.then_origin(m);
-                let result = self.as_origin(origin, |r| {
+                // A `then` runs under its answer's origin (LLP 1133.002 D12)
+                // and invocation (LLP 1133.023 D7).
+                let (origin, id) = self.then_origin(m);
+                let result = self.as_invocation(origin, id, |r| {
                     r.scheduled(at, |r| r.run_action(action, Vec::new(), &[]))
                 });
                 match result {

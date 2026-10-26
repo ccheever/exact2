@@ -1,7 +1,8 @@
-//! What an outcome keeps until the UI takes it, and how a fetch's failure
-//! is worded: shared by the workers and the asynchronous core.
-use super::failed;
-use exact_runner::{FailureKind, Outcome};
+//! What an outcome keeps until the UI takes it, a fetch's request and
+//! headers as the transport takes and gives them, and how its failure is
+//! worded: shared by the workers and the asynchronous core.
+use super::{failed, MAX_HEADERS};
+use exact_runner::{FailureKind, Outcome, Request};
 use ibex2::stdlib::abort::AbortController;
 
 pub(super) fn bounded_outcome(outcome: Outcome, limit: usize) -> Outcome {
@@ -63,6 +64,42 @@ pub(super) fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortControll
             e.to_string().chars().take(2048).collect::<String>(),
         ),
     }
+}
+
+/// The transport's request for a runner's.
+pub(super) fn fetch_request(request: Request, forced: bool) -> ibex2::stdlib::fetch::Request {
+    let mut req = ibex2::stdlib::fetch::Request::get(&request.url);
+    req.method = request.method;
+    req.redirect = match request.redirect {
+        exact_runner::Redirect::Follow => ibex2::stdlib::fetch::RedirectMode::Follow,
+        exact_runner::Redirect::Manual => ibex2::stdlib::fetch::RedirectMode::Manual,
+        exact_runner::Redirect::Error => ibex2::stdlib::fetch::RedirectMode::Error,
+    };
+    for (k, v) in &request.headers {
+        req.headers.append(k, v);
+    }
+    if forced {
+        req.headers.set("cache-control", "no-cache");
+    }
+    if !request.body.is_empty() {
+        req.body = Some(request.body);
+    }
+    req
+}
+
+pub(super) fn check_headers(
+    r: ibex2::stdlib::fetch::StreamingResponse,
+) -> Result<ibex2::stdlib::fetch::StreamingResponse, ibex2::boundary::HostError> {
+    let headers = r.headers.entries();
+    let bytes = headers.iter().try_fold(0usize, |n, (k, v)| {
+        n.checked_add(k.len())?.checked_add(v.len())
+    });
+    if bytes.is_none_or(|n| n > MAX_HEADERS) || headers.len() > 1024 {
+        return Err(ibex2::boundary::HostError::Failed(
+            "HTTP headers exceed limit".into(),
+        ));
+    }
+    Ok(r)
 }
 
 /// A count a measurement build sets (LLP 1120 §5's arms: `EXACT_HTTP_WORKERS`,
