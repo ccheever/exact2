@@ -275,12 +275,9 @@ component Excord
   state profileUser = ""
   state profileMessage = ""
   state profileChannel = ""
-  // A channel a link or mention opens once its server's list holds it, and the message to show there.
-  state pendingOpen = ""
   // The member list: shown beside a channel when there is room for it (`paneWidth`), else in a sheet.
   state showMembers = true persist
   state paneWidth = 0
-  state pendingMessage = ""
   resource profile = userProfile(profileUser != "" ? profileChannel : "", profileUser, profileMessage) as shape Profile else empty()
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
   // The fixture signs itself in, unless the platform dropped its locked token (Lock Excord).
@@ -318,8 +315,6 @@ component Excord
   task record when gw.state == "recording"
     after(1, recordNow)
   // Discord refusing the token (close 4004) signs out: the channel on screen goes with the account.
-  task opening when pendingOpen != "" and listed.map(c => c.id).includes(pendingOpen)
-    after(1, openPending)
   task resume when wide and top(nav).name == "home" and resumeChannel != "" and not signedOutNow and pendingOpen == ""
     after(1, openResume)
   task signedOutHome when signedOutNow and top(nav).name != "home"
@@ -431,6 +426,7 @@ component Excord
   // (§3.2), or where this session left it (§3.3).
   action openChannel(id: string)
     closePicker()
+    intent = intent + 1
     let c = channelOf(channels.concat(dms).concat(targets.map(t => t.channel)), id)
     let p = placeOf(places, id)
     // A split opens one channel over another: the one left keeps its place and draft, and is read
@@ -481,6 +477,7 @@ component Excord
       send age = requestAgeRange(ageGates=[18])
     send joined = viewChannel(id)
     lastChannels = withDraft(lastChannels, c.guild != "" ? c.guild : "@me", id)
+    visitNames = withDraft(visitNames, id, c.guild != "" ? `# ${c.name}` : c.name)
     // Beside the list (a split) one channel replaces another, as a sidebar's selection does; a picture
     // open over the channel left closes with it.
     nav = top(nav).name == "photo" ? replace(photoOverChannel ? back(nav) : nav, path("channel", id)) : top(nav).name == "channel" ? replace(nav, path("channel", id)) : push(nav, path("channel", id))
@@ -496,7 +493,7 @@ component Excord
     refresh categories
   action pickServer(v: string)
     server = v
-    pendingOpen = ""
+    intent = intent + 1
     if wide and top(nav).name != "home"
       leaving()
       nav = go(nav, "/")
@@ -519,26 +516,20 @@ component Excord
     toSignIn()
     send signedOut = signOut()
   action toSignIn
+    supersede()
     cancelEditLookup()
     nav = go(nav, "/")
     open = ""
     dmsShownCount = 100
     profileUser = ""
     close("profile")
-  // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
-  // what was on screen at the end. A picture opens from its thumbnail only, so
-  // a Forward to one is refused; from over a picture, its channel's address
-  // closes the picture alone. The address on screen (an entry a reload's
-  // stray picture left beside its channel's) leaves nothing.
+  // An address the host navigated to is a request (`askRoute`, routing.contract): a Forward to a picture is
+  // refused, and from over a picture its channel's address closes the picture alone. Leaving keeps the
+  // reader's place, puts an unsaved edit away and acknowledges what was on screen at the end.
   action leave(url: string)
-    if not url.includes("/photo/") and url != top(nav).url
-      if top(nav).name != "photo" or url != path("channel", top(nav).params.channel)
-        leaving()
-      nav = go(nav, url)
+    askRoute(url)
   action back
-    restore = restore == "?" ? "!" : restore
-    leaving()
-    nav = back(nav)
+    askBack()
   action leaving
     cancelEditLookup()
     places = places.filter(p => p.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
@@ -972,36 +963,21 @@ component Excord
       close("react-picker")
   // What a mention or a Discord link in a message opens (a run's `ref`, shapes.contract): a person's
   // card, a channel, or a message in its channel, highlighted. Another server's channel opens once that
-  // server's list holds it (`opening`), so it opens with its unread state, as from the list.
+  // server's list holds it (`opening`, routing.contract), so it opens with its unread state, as from the list.
   action follow(ref: string)
     let part = ref.split(":")
     if piece(part, 0) == "u"
       showProfile(piece(part, 1), "")
     else
-      let guildId = piece(part, 1)
       let channelId = piece(part, 2)
       let messageId = piece(part, 3)
-      if channelId == open and messageId != ""
-        jumpTo(messageId)
-      else if channelId != "" and channelId != open
-        server = guildId != "" ? guildId : "@me"
-        pendingOpen = channelId
-        pendingMessage = messageId
-  action openPending
-    let id = pendingOpen
-    let message = pendingMessage
-    pendingOpen = ""
-    pendingMessage = ""
-    openChannel(id)
-    // A message that is not there leaves the reader at the channel's end.
-    if message != ""
-      highlight = message
-      anchor = message
-      target = message
-      targetBlock = "center"
-      jumpFromAnchor = ""
-      jumpFromKey = "end"
-      jumpFromOffset = 0
+      // The channel open: a newer step than any request still out, and its message shown.
+      if channelId != "" and channelId == open
+        stayOpen()
+        if messageId != ""
+          jumpTo(messageId)
+      else if channelId != ""
+        askFollow(channelId, messageId)
   action showProfile(userId: string, messageId: string)
     if not locked
       profileUser = userId
@@ -1164,7 +1140,7 @@ component Excord
     send unlocked = signInAgain()
 
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave key=windowKey interactive-widget="resizes-content" width="100%" height="100%"
+    main testId="excord" navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave key=windowKey interactive-widget="resizes-content" width="100%" height="100%"
       head title=pageTitle
       for e in stack(nav) key=e.id
         if e.name == "home" and signedOutNow
@@ -1232,6 +1208,12 @@ component Excord
           column navigationKey=`${e.id}` navigationPresentation="fullscreen" navigationSource=`photo-${e.params.photo}` position="absolute" inset=0 class=ViewerRoute animation=(viewZoom == 1 ? "viewerFade 1s linear both" : "none")
             if viewing != "" and not locked
               ImageViewer(src=viewing, photo=`photo-${e.params.photo}`, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)
+        // A channel visit beneath another (a link's) shows its title, not its transcript: one transcript, the
+        // top visit's, its ids the page's.
+        else if e.id != shownVisit
+          column navigationKey=`${e.id}` position="absolute" inset=0 background-color="-exact-background"
+            header display="flex" align-items="center" gap=8 padding="8px 16px"
+              h2 draftOf(visitNames, e.params.channel) flex=1 min-width=0 line-clamp=1
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
@@ -1252,6 +1234,10 @@ component Excord
                 text "Receive a burst"
               button press=injectNow("japanese") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-japanese"
                 text "Receive a message in Japanese"
+              button press=injectNow("links") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-links"
+                text "Receive channel links"
+              button press=injectNow("hold-guilds") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-hold-guilds"
+                text "Hold the servers at the next launch"
               button press=injectNow("typing") popovertarget="fixture-menu" popovertargetaction="hide" testId="inject-typing"
                 text "Someone types"
               hr

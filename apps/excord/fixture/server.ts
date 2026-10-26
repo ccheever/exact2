@@ -268,6 +268,10 @@ export function startFixture(options: FixtureOptions = {}) {
   let rotatedToken: string | null = null, identifyToken: string | null = null;
   let stopAcks = false, readyBytes = 0, loginBytes = 0, frameParts = 1, syntheticCounter = 10000;
   let readyShape: GuildShape = {};
+  // The next login holds the guilds back for this long (READY names them unavailable, GUILD_CREATE comes later):
+  // what the launch's restore waits on while the reader acts first. Kept through a reset (it is for the next
+  // IDENTIFY, which resets the world; an explicit reset drops it).
+  let holdGuildsMs = 0;
   let closed = false;
   let resetVersion = 0;
   let clockOffsetMs = 0, messageTimestamp = 0, messageSequence = 0, passiveUpdateCount = 0;
@@ -463,7 +467,10 @@ export function startFixture(options: FixtureOptions = {}) {
     const shape = readyShape;
     readyShape = {};
     loginBytes = 0;
+    const held = holdGuildsMs;
+    holdGuildsMs = 0;
     const ready = sizedReady(world, session.id, gatewayUrl, session.seq + 1, size, shape);
+    if (held) ready.d.guilds = world.guilds.map(guild => ({ id: guild.id, unavailable: true }));
     let sent = await send(socket, dispatch(session, 'READY', ready.d));
     if (version !== resetVersion || socket.data.closed) return;
     sent += await send(socket, dispatch(session, 'READY_SUPPLEMENTAL', {
@@ -473,6 +480,12 @@ export function startFixture(options: FixtureOptions = {}) {
     }));
     if (world.lazyGuildId) {
       sent += await send(socket, dispatch(session, 'GUILD_CREATE', world.guilds.find(guild => guild.id === world.lazyGuildId)));
+    }
+    if (held) {
+      setTimeout(() => {
+        if (version !== resetVersion || socket.data.closed) return;
+        for (const guild of world.guilds) void send(socket, dispatch(session, 'GUILD_CREATE', guild)).catch(() => {});
+      }, held);
     }
     while (!socket.data.closed && sent <= burst && burst > 0) {
       const guild = syntheticGuild(world, syntheticCounter++, Math.min(200000, burst - sent + 4096));
@@ -761,6 +774,8 @@ export function startFixture(options: FixtureOptions = {}) {
     forced.length = requests.length = frames.length = 0;
     connectionCounter = sessionCounter = identifyCount = resumeCount = loginsDone = 0;
     readyBytes = loginBytes = 0; readyShape = {}; frameParts = 1; stopAcks = false; syntheticCounter = 10000;
+    // An IDENTIFY's reset (`keep`) leaves the guild hold for that login; an explicit reset drops it.
+    if (!keep) holdGuildsMs = 0;
     world = buildWorld();
     if (rotatedToken) world.token = rotatedToken;
     if (keep) {
@@ -783,6 +798,7 @@ export function startFixture(options: FixtureOptions = {}) {
         const dispatches: InjectedDispatch[] = [];
         await injectionDispatches.run(dispatches, () => inject(world, request, {
           origin, typingUsers, failNext, remove, typing, broadcast,
+          holdGuilds: (ms: number) => { holdGuildsMs = ms; },
           isCurrent: () => version === resetVersion && !closed,
           create: (channelId, content, authorId, at) => createMessage(channelId, content, authorId, {}, at),
           react: async (channelId, id) => {
