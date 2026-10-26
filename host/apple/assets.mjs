@@ -561,6 +561,9 @@ export function frameworkLayout(dir, name, platform) {
   return { binary: resolve(version, name), modules: resolve(version, 'Modules'), info: resolve(resources, 'Info.plist') };
 }
 
+// Bump with framework metadata changes so signed GPU caches rebuild.
+const frameworkPackagingVersion = 1;
+
 /** A loose `Frameworks/lib….dylib` as `Frameworks/<name>.framework/<name>`,
  * which is the only form App Store Connect accepts for an embedded library
  * (ITMS-90171, ITMS-90432). The presenter loads either (`embeddedModule` in ExactKit). */
@@ -606,12 +609,12 @@ export function signedGpuProduct(product, { identity = '-', framework = null, ap
   // Cargo puts its own unsigned file back on every build, and a signature
   // carries its signing time: signing in place made the app's bake (which
   // names this product's digest) run on every build. Sign a copy beside it,
-  // again only when Cargo's bytes or the identity change.
+  // again only when its bytes, signing options or framework packaging change.
   const directory = resolve(dirname(product), 'signed', ...(framework ? ['frameworks', basename(product)] : []));
   const container = resolve(directory, framework ? `${framework}.framework` : basename(product));
   const signed = framework ? resolve(container, framework) : container, record = `${container}.source`;
   const source = JSON.stringify([createHash('sha256').update(readFileSync(product)).digest('hex'), identity ?? '-',
-    hardened, framework, framework ? [app.id, app.manifest.host?.ios?.minimumOS ?? '17.0', platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0'] : null]);
+    hardened, framework, framework ? [frameworkPackagingVersion, app.id, app.manifest.host?.ios?.minimumOS ?? '17.0', platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0'] : null]);
   // An ad-hoc signature (`-`: every simulator build) names no certificate
   // to require; asked for one, the verification failed, and the copy was
   // signed again by every build, which reran the app's bake and compile.
