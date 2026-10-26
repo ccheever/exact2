@@ -76,6 +76,13 @@ test('probeTool: refused is listening, a held hello is starting, a token or hell
     setTimeout(() => half.stop(true), 50); await Bun.sleep(5000); return Response.json({});
   } });
   expect(await probeTool(`http://127.0.0.1:${half.port}`)).toEqual({ wait: 'listening' });
+  // A hello answered with an error status, its body then cut off: an answer (no design server), never a wait.
+  const erring = Bun.serve({ port: 0, hostname: '127.0.0.1', idleTimeout: 0, fetch(req) {
+    if (new URL(req.url).pathname === '/__tamber/token') return Response.json({ token: 't' });
+    const body = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"err')); setTimeout(() => c.error(new Error('cut')), 30); } });
+    return new Response(body, { status: 404, headers: { 'content-type': 'application/json' } });
+  } });
+  try { expect(await probeTool(`http://127.0.0.1:${erring.port}`)).toEqual({ answer: { app: null } }); } finally { erring.stop(true); }
   // No design server (the token refused): an answer, `{app: null}`.
   const none = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('', { status: 404 }) });
   try { expect(await probeTool(`http://127.0.0.1:${none.port}`)).toEqual({ answer: { app: null } }); } finally { none.stop(true); }
