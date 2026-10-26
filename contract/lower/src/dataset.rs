@@ -395,7 +395,7 @@ mod tests {
             "decoration-styles",
             "decorationstyles",
             "safearea",
-    "scroll",
+            "scroll",
         ] {
             assert!(reserved(taken), "{taken}");
         }

@@ -69,6 +69,14 @@ final class RouteSafeAreaIOSTests: XCTestCase {
         XCTAssertLessThanOrEqual(f.scroll.contentOffset.y, f.scroll.contentSize.height + f.scroll.adjustedContentInset.bottom - f.scroll.bounds.height)
     }
 
+    func testChangingClearancePreservesAnExistingPullPastTheStart() {
+        let f = Fixture()
+        f.scroll.automatic.top = 100
+        f.scroll.contentOffset.y = -180
+        f.policy("top")
+        XCTAssertEqual(f.scroll.contentOffset.y, -80, accuracy: 0.01)
+    }
+
     func testEveryEdgeIsCancelledOnBothKindsOfPrimaryScroller() {
         for bottomOnly in [false, true] {
             let f = Fixture(bottomOnly: bottomOnly)

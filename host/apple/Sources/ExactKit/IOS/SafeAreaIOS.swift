@@ -170,6 +170,9 @@ final class RouteSafeArea {
             }
             let anchor = CGPoint(x: scroll.contentOffset.x + adjusted.left, y: scroll.contentOffset.y + adjusted.top)
             let changed = current != next
+            let withinRange = anchor.x >= -0.5 && anchor.y >= -0.5 &&
+                anchor.x <= max(0, scroll.contentSize.width + adjusted.left + adjusted.right - scroll.bounds.width) + 0.5 &&
+                anchor.y <= max(0, scroll.contentSize.height + adjusted.top + adjusted.bottom - scroll.bounds.height) + 0.5
             applied = wanted; last = next
             if changed {
                 scroll.contentInset = next
@@ -188,7 +191,7 @@ final class RouteSafeArea {
             if changed {
                 let inset = scroll.adjustedContentInset
                 let point = PixelGrid.offset(CGPoint(x: anchor.x - inset.left, y: anchor.y - inset.top), in: scroll,
-                                             clamped: !scroll.isTracking && !scroll.isDragging && !scroll.isDecelerating)
+                                             clamped: withinRange && !scroll.isTracking && !scroll.isDragging && !scroll.isDecelerating)
                 if scroll.contentOffset != point { scroll.contentOffset = point }
             }
             if scroll.contentInset != next { owner?.pending = true }
