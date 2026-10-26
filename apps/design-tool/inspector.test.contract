@@ -1283,3 +1283,36 @@ test "a design that declares no mode axes is read, not 'not read yet': its copy 
   clock data
   expect text "selection-stale" == "No longer current: the app's design is not read yet. Select it again to edit from here."
   request POST "/__stub/restart" {} as ada
+
+test "a selection made before another run's describe is read is placed once it is, not against the last run's axes (no-axes round 2)"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  // (This run's design has two axes, read.) Another run, whose design has none, its describe refused for now.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/no-axes" {} as ada
+  request POST "/__stub/event" {"refuseDescribe": "describe refused (a test)", "events": [{"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 12, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": [{"name": "background_color", "value": "#f1f3f5ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "selection-stale" == "No longer current: the app's design is not read yet. Select it again to edit from here."
+  // Its describe answered (a file's change reads the design again): the same selection is placed, and edits.
+  request POST "/__stub/event" {"refuseDescribe": "", "events": [{"client": "agent:codex", "edited": ["app.tamber"], "changed": []}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree missing "selection-stale"
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  request POST "/__stub/restart" {} as ada
