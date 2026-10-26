@@ -67,6 +67,9 @@ export function again(kept: Kept | undefined, epoch: string, described: any, cha
   return names;
 }
 
+// The most names one batch asks: about 370 KB of the clone's answers (the server takes 4,096, 16 MiB of answers).
+const BATCH_NAMES = 1024;
+
 /** Each of `names`' `resolve`, as one per name answers it (a refused one
  * `{error, reply: {error}}`): one `resolve` with `tokens` (tamber/1.17, the
  * third pass's #5 B), one snapshot and one fold at the server; else, from a
@@ -75,7 +78,17 @@ export function again(kept: Kept | undefined, epoch: string, described: any, cha
  * false: none once it is. */
 export async function resolveAll<R extends { error: string; reply: any }>(call: (path: string, body: unknown, timeout: number) => Promise<R>, names: string[], which: { file?: string }, timeout: number, still: () => boolean): Promise<R[]> {
   if (!names.length || !still()) return [];
+  // At most 1,024 names an ask (the server takes 4,096), and half as many again when a batch's answers pass its bytes.
+  if (names.length > BATCH_NAMES) {
+    const out: R[] = [];
+    for (let at = 0; at < names.length && still(); at += BATCH_NAMES) out.push(...await resolveAll(call, names.slice(at, at + BATCH_NAMES), which, timeout, still));
+    return out;
+  }
   const batch = await call('/__tamber', { method: 'resolve', tokens: names, ...which }, timeout), answers = batch.reply?.ok?.answers;
+  if (batch.reply?.error?.id === 'tamber-resolve-batch' && names.length > 1) {
+    const half = Math.ceil(names.length / 2), first = await resolveAll(call, names.slice(0, half), which, timeout, still);
+    return first.length < half ? first : [...first, ...await resolveAll(call, names.slice(half), which, timeout, still)];
+  }
   if (!batch.error && Array.isArray(answers) && answers.length === names.length) {
     return answers.map((a: any) => (a?.error ? { ...batch, error: String(a.error.message ?? 'The design server refused the token.'), reply: { error: a.error } } : { ...batch, reply: { ok: { ...a, files: batch.reply.ok.files } } }));
   }

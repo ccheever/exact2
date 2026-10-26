@@ -161,6 +161,17 @@ test('resolveAll: one resolve with tokens; asked again by name when a server ans
   const gone = async (_, body) => { sent.push(body); return { error: 'no server', reply: {} }; };
   expect((await resolveAll(gone, ['x', 'y'], {}, 1000, () => true)).map(r => r.error)).toEqual(['no server', 'no server']);
   expect(sent.length).toBe(1);
+  // Past 1,024 names, an ask each 1,024; a batch whose answers pass the server's bytes, asked again in halves.
+  sent.length = 0;
+  const many = Array.from({ length: 2500 }, (_, i) => `t${i}`);
+  const r2500 = await resolveAll(batch, many, {}, 1000, () => true);
+  expect(sent.map(b => b.tokens.length)).toEqual([1024, 1024, 452]);
+  expect(r2500.map(r => r.reply.ok.token)).toEqual(many);
+  sent.length = 0;
+  const heavy = async (_, body) => { sent.push(body); return body.tokens.length > 2 ? { error: 'refused', reply: { error: { message: 'tamber-resolve-batch: one resolve answers at most 16 MiB', id: 'tamber-resolve-batch' } } } : batch(_, body).then(r => (sent.pop(), r)); };
+  const r5 = await resolveAll(heavy, ['a', 'b', 'c', 'd', 'e'], {}, 1000, () => true);
+  expect(r5.map(r => r.reply.ok.token)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  expect(sent.map(b => b.tokens.length)).toEqual([5, 3, 2, 1, 2]);
   // The gateway's 504 while the batch still runs (or any other refusal): each name's answer, nothing asked again.
   sent.length = 0;
   const late = async (_, body) => { sent.push(body); return { error: 'the design server did not answer', reply: { error: { message: 'the design server did not answer' } } }; };
