@@ -24,14 +24,14 @@ const DISCORD: string = 'https://discord.com';
 export const grants = {
   'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790',
     'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock',
-    'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload',
+    'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload', 'fs.read doc:/',
     'fs.read app:/data/fixture-identifies.json', 'fs.write app:/data/fixture-identifies.json'],
   // The gateway resumes on other subdomains (`resume_gateway_url`).
   'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg',
     'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock',
     // A message's files go to Discord's upload bucket (`upload` below), with no credentials.
     'net.fetch https://discord-attachments-uploads-prd.storage.googleapis.com',
-    'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload',
+    'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload', 'fs.read doc:/',
     'fs.read app:/data/discord-identifies.json',
     'fs.write app:/data/discord-identifies.json'],
 };
@@ -166,6 +166,10 @@ function channelRecord(id: string): Channel {
     arrived: live.arrived.get(id) ?? 0,
     typing: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…` };
 }
+let pastes = 0;
+const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', tif: 'image/tiff', tiff: 'image/tiff',
+  bmp: 'image/bmp' };
 // Discord's upload limit for an account without Nitro; a picture over it, or in a format other people's
 // clients may not draw (HEIC), is sent as a JPEG that fits.
 const UPLOAD_LIMIT = 10 * 1024 * 1024;
@@ -426,6 +430,34 @@ const sources: Sources = {
     touched(live, channel);
     live.arrived.set(channel, (live.arrived.get(channel) ?? 0) + 1);
     return { ok: true, error: '', key, channel };
+  },
+  // Pictures pasted into the composer (a screenshot arrives as `image.png`), copied beside the uploads as a
+  // picked file's copy is: an `image` draws an `app:` path on every host, not a `doc:` handle, and the
+  // image calls read only `app:` paths. Anything not a picture is left out.
+  adoptPasted: async ([channel, paths, now], _secrets, storage) => {
+    const files: Result<'adoptPasted'>['files'] = [], skipped: string[] = [], failed: string[] = [];
+    const made = storage.fs.mkdir('app:/tmp/upload').catch((e: { code?: string }) => { if (e?.code !== 'EEXIST') throw e; });
+    for (const path of paths) {
+      const name = path.split('/').pop() || 'image.png';
+      const extension = name.split('.').pop()?.toLowerCase() ?? '';
+      const type = Object.hasOwn(IMAGE_TYPES, extension) ? IMAGE_TYPES[extension] : undefined;
+      if (!type) { skipped.push(name); continue; }
+      // The paste's time and a count name the copy: tabs of one origin share the folder.
+      const copy = `app:/tmp/upload/pasted-${Math.round(now)}-${++pastes}-${name}`;
+      try {
+        await made;
+        const stat = await storage.fs.stat(path);
+        if (!stat.isFile) { skipped.push(name); continue; }
+        // A native host reads a file of up to about 12 MB into the data module; a larger one is refused here.
+        await storage.fs.writeFile(copy, await storage.fs.readFile(path));
+        files.push({ path: copy, name, type, size: stat.size, width: null, height: null, duration: null });
+      } catch {
+        failed.push(name);
+      }
+    }
+    const said = [skipped.length ? `${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} not a picture` : '',
+      failed.length ? `${failed.join(', ')} could not be added (it may be too large to paste: try +)` : ''];
+    return { channel, files, error: said.filter(Boolean).join('; ') };
   },
   postMessage: async ([channel, key], _secrets, storage) => {
     const send = live.sends.get(key);

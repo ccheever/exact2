@@ -260,6 +260,12 @@ shape Suggestion
 
 // An emoji the reaction picker offers: a custom one's image (`avatar`) or a
 // Unicode one's `glyph`; `value` is what the reaction names.
+// Pictures pasted into a channel's composer, copied where the upload reads them, and what could not be.
+shape Pasted
+  channel: string
+  files: Picked[]
+  error: string
+
 shape EmojiChoice
   id: string
   label: string
