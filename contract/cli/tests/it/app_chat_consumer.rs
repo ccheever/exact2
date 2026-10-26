@@ -5,7 +5,7 @@ use exact_plan::{Plan, TypeKind, TypesId, Value};
 use exact_runner::geometry::{GeometryAnswer, GeometryEnv, GeometryLinks, Scrolled};
 use exact_runner::held::Held;
 use exact_runner::vm::{self, Env};
-use serde_json::{Value as Json, json};
+use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -112,12 +112,10 @@ impl Context {
         let supplied = std::env::var_os(variable)
             .unwrap_or_else(|| panic!("{variable} must name its admitted source context"));
         let supplied = PathBuf::from(supplied);
-        assert!(
-            !fs::symlink_metadata(&supplied)
-                .unwrap()
-                .file_type()
-                .is_symlink()
-        );
+        assert!(!fs::symlink_metadata(&supplied)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         let root = supplied.canonicalize().unwrap();
         let inventory: Json = serde_json::from_slice(
             &fs::read(root.join("source-context.json")).expect("admitted context inventory"),
@@ -423,11 +421,10 @@ fn normalized(plan: &Plan, ty: TypesId, value: &Value) -> Json {
             _ => panic!("option"),
         },
         TypeKind::List => match value {
-            Value::List(v) => json!(
-                v.iter()
-                    .map(|v| normalized(plan, row.elem.unwrap(), v))
-                    .collect::<Vec<_>>()
-            ),
+            Value::List(v) => json!(v
+                .iter()
+                .map(|v| normalized(plan, row.elem.unwrap(), v))
+                .collect::<Vec<_>>()),
             _ => panic!("list"),
         },
         TypeKind::Record => match value {
@@ -820,19 +817,15 @@ fn check_return(evaluation: &Evaluation, composed: bool) {
             );
         }
     }
-    assert!(
-        evaluation.observed["commands"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(evaluation.observed["commands"]
+        .as_array()
+        .unwrap()
+        .is_empty());
     assert!(evaluation.observed["sends"].as_array().unwrap().is_empty());
-    assert!(
-        evaluation.observed["geometry"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(evaluation.observed["geometry"]
+        .as_array()
+        .unwrap()
+        .is_empty());
     let writes = evaluation.observed["writes"].as_array().unwrap();
     assert_eq!(writes.len(), 1);
     assert_eq!(writes[0][0], "output");
