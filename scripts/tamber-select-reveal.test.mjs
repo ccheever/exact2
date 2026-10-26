@@ -1,9 +1,10 @@
-// An outline brings the selection's own copy into view (Apple pass #2, theme2's 13:44 approval; host/web/dev.js, as
-// the Apple hosts' Inspect.revealing), on both web pages over apps/select-walk-fixture, whose Card has two copies (in
-// Post, near the top, and in Outer, at the foot). The page scrolled to Outer's: (a) a move up from `wrapped` lands on
-// Outer's card and the page stays (it scrolled to Post's, the first copy, before); (c) scrolled back to the top, an
-// outline of the card brings Outer's in, not Post's; (e) that copy hidden, then gone, the outline scrolls nothing;
-// (d) with no selection (the tool's Outline), the first copy in the page's order, as before.
+// An outline brings the selection's own copy into view (Apple pass #2, theme2's 13:44 approval; host/web/dev.js and
+// host/web-js/inspect-dev.js, as the Apple hosts' Inspect.revealing), on both web pages over apps/select-walk-fixture,
+// whose Card has two copies (in Post, above, and in Outer, at the foot). The selection is made on the copy the page
+// does NOT list first (the old rule's pick), so each case is red on the old code (theme2's 16:25 (3)): (a) a move up
+// to that card leaves the page where it is; (c) at the other copy, an outline brings the selection's in; (e) that copy
+// hidden, then gone, the outline scrolls nothing; (d) with no selection (the tool's Outline), the first copy in the
+// page's order, as before. Each case is checked on its own and every red one said at the end.
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -66,74 +67,79 @@ test('an outline on both web pages brings the selection\'s own copy into view, n
       // An outline applied: its dashed marks drawn again (the page scrolls before it draws them; Astra's round 1).
       const unmarked = () => page.evaluate(() => { for (const m of document.querySelectorAll('[data-exact-outline]')) m.remove(); });
       const marked = async () => { await until(() => page.evaluate(() => document.querySelectorAll('[data-exact-outline]').length > 0), 30_000, 'the outline drawn'); await page.waitForTimeout(100); };
-      const shows = (nth) => page.evaluate((n) => { const r = document.querySelectorAll('[data-testid="card"]')[n].getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }, nth); // (on screen at all)
-      const cards = await page.locator('[data-testid="card"]').count();
-      expect(cards).toBe(2);
-      // As short as Outer's card and what follows it (the fixture is short), so the page scrolls to it with Post's card
-      // above the top.
+      const shows = (nth) => page.evaluate((n) => { const r = document.querySelectorAll('[data-testid="card"]')[n].getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }, nth); // (wholly on screen)
+      expect(await page.locator('[data-testid="card"]').count()).toBe(2);
+      // The two copies, Post's (0, above) and Outer's (1, at the foot); a window as tall as the taller and a little
+      // more, so one card can show without the other: at P Post's whole and not Outer's, at O the reverse.
       const rect = n => page.evaluate(n => { const r = document.querySelectorAll('[data-testid="card"]')[n].getBoundingClientRect(); return { top: r.top + scrollY, bottom: r.bottom + scrollY }; }, n);
       const [c0, c1] = [await rect(0), await rect(1)];
-      const tall = await page.evaluate(() => document.querySelector('[data-testid="root"]').getBoundingClientRect().bottom + scrollY);
-      expect(c1.top - 4).toBeGreaterThan(c0.bottom);
-      await page.setViewportSize({ width: 1000, height: Math.floor(tall - c1.top + 4) });
+      expect(c1.top).toBeGreaterThan(c0.bottom);
+      const h = Math.ceil(Math.max(c0.bottom - c0.top, c1.bottom - c1.top)) + 4;
+      await page.setViewportSize({ width: 1000, height: h });
       await settle();
-      const toOuter = async () => { await page.evaluate(y => scrollTo(0, y), Math.floor(c1.top - 4)); await settle(); };
-      // Outer's card in view, Post's not.
-      await toOuter();
-      expect([page_, await shows(1), await shows(0)], JSON.stringify({ c0, c1, tall, y: await scrollY() })).toEqual([page_, true, false]);
-      const box = await page.locator('[data-testid="wrapped"]').boundingBox();
-      let seen = events.length;
-      await page.mouse.click(box.x + Math.min(6, box.width / 2), box.y + box.height / 2);
-      await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, 'wrapped selected');
-      await settle();
-      const at = await scrollY();
-      // (a) Up one: Outer's card; its outline (no click token) leaves the page where it is.
-      seen = events.length;
-      await unmarked();
-      expect((await post({ method: 'inspect', client: 'tool', build: build.id, select: { up: 1 } })).ok).toEqual({ builds: [build.id] });
-      const moved = await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, 'the move up');
-      expect(moved.source.line).toBe(line('card'));
-      await marked();
-      check('(a) the move leaves the page', (await scrollY()) === at && await shows(1), { at, now: await scrollY() });
-      // (c) Back at the top, an outline of the card brings Outer's copy in, the selection's, not Post's.
-      const outline = async () => { await unmarked(); expect((await post({ method: 'outline', client: 'tool', at: [{ file: moved.source.file, line: moved.source.line, col: moved.source.col }] })).ok?.builds).toEqual([build.id]); await marked(); };
-      await page.evaluate(() => scrollTo(0, 0));
-      await settle();
-      expect(await shows(1)).toBe(false);
+      const at = { P: Math.floor(c0.top - 2), O: Math.ceil(c1.bottom + 2 - h), top: 0 };
+      const to = async (where) => { await page.evaluate(y => scrollTo(0, y), at[where]); await settle(); expect([page_, where, await scrollY()]).toEqual([page_, where, at[where]]); };
+      const click = async (id) => {
+        const box = await page.locator(`[data-testid="${id}"]`).boundingBox(), seen = events.length;
+        await page.mouse.click(box.x + Math.min(6, box.width / 2), box.y + box.height / 2);
+        return until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, `${id} selected`);
+      };
+      const moveUp = async () => {
+        const seen = events.length;
+        await unmarked();
+        expect((await post({ method: 'inspect', client: 'tool', build: build.id, select: { up: 1 } })).ok).toEqual({ builds: [build.id] });
+        const s = await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, 'the move up');
+        await marked();
+        return s;
+      };
+      const restart = async () => {
+        expect((await post({ method: 'inspect', client: 'tool', on: false })).ok).toBeTruthy();
+        expect((await post({ method: 'inspect', client: 'tool', on: true })).ok.builds).toEqual([build.id]);
+        await settle();
+      };
+      // The card's source, from a move to it; then, with no selection, which copy this page lists first (its first
+      // dashed mark): the selection is made on the OTHER, so the old rule (the first copy) is wrong on every case.
+      await to('P');
+      await click('body');
+      const card = (await moveUp()).source;
+      expect(card.line).toBe(line('card'));
+      const outline = async () => { await unmarked(); expect((await post({ method: 'outline', client: 'tool', at: [{ file: card.file, line: card.line, col: card.col }] })).ok?.builds).toEqual([build.id]); await marked(); };
+      await restart();
+      await to('top');
       await outline();
-      check('(c) the selection\'s copy is brought in', await shows(1), { now: await scrollY() });
-      // (d) No selection (inspect mode off and on again), neither copy on screen: the first in the page's order is
+      const firstTop = await page.evaluate(() => document.querySelector('[data-exact-outline]').getBoundingClientRect().top + scrollY);
+      const listedFirst = Math.abs(firstTop - c0.top) < Math.abs(firstTop - c1.top) ? 0 : 1, sel = 1 - listedFirst;
+      const mine = sel === 0 ? 'P' : 'O', theirs = sel === 0 ? 'O' : 'P', start = sel === 0 ? 'body' : 'wrapped';
+      // (a) The copy shown, its start clicked and moved up to its card: that outline (no click token) leaves the page.
+      await to(mine);
+      await click(start);
+      await moveUp();
+      check('(a) the move leaves the page', (await scrollY()) === at[mine] && await shows(sel), { listedFirst, at: at[mine], now: await scrollY() });
+      // (c) At the other copy, an outline of the card brings the selection's copy in, not the one listed first.
+      await to(theirs);
+      await outline();
+      check('(c) the selection\'s copy is brought in', await shows(sel), { listedFirst, now: await scrollY() });
+      // (e) The selection's copy hidden (`visibility: hidden`, its box kept), then gone, neither copy on screen: the
+      // outline scrolls nothing, never to the other copy.
+      await page.evaluate(n => { document.querySelectorAll('[data-testid="card"]')[n].style.visibility = 'hidden'; }, sel);
+      await to('top');
+      await outline();
+      check('(e) a hidden copy scrolls nothing', (await scrollY()) === 0, { listedFirst, now: await scrollY() });
+      await page.evaluate(n => { document.querySelectorAll('[data-testid="card"]')[n].style.visibility = ''; }, sel);
+      // (d) No selection (inspect mode off and on again), at the selection's copy: the first in the page's order is
       // brought in, as before.
-      expect((await post({ method: 'inspect', client: 'tool', on: false })).ok).toBeTruthy();
-      expect((await post({ method: 'inspect', client: 'tool', on: true })).ok.builds).toEqual([build.id]);
-      await page.evaluate(() => scrollTo(0, 0));
-      await settle();
-      expect([await shows(0), await shows(1)]).toEqual([false, false]);
+      await restart();
+      await to(mine);
       await outline();
-      // (the first mark is the first copy in the page's own order: it is on screen)
-      check('(d) the first copy without a selection', await page.evaluate(() => { const r = document.querySelector('[data-exact-outline]').getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }), { now: await scrollY() });
-      // (e) A held selection whose copy is gone from the page: the outline scrolls nothing, never to Post's copy.
-      await toOuter();
-      const box2 = await page.locator('[data-testid="wrapped"]').boundingBox();
-      seen = events.length;
-      await page.mouse.click(box2.x + Math.min(6, box2.width / 2), box2.y + box2.height / 2);
-      await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, 'wrapped selected again');
-      seen = events.length;
-      await post({ method: 'inspect', client: 'tool', build: build.id, select: { up: 1 } });
-      await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, 'the move up again');
-      await settle();
-      // Hidden (`visibility: hidden`, its box kept), then gone from the page.
-      const kept = await scrollY();
-      await page.evaluate(() => { document.querySelectorAll('[data-testid="card"]')[1].style.visibility = 'hidden'; scrollTo(0, 0); });
-      await settle();
-      const atTop = await scrollY();
+      check('(d) the first copy without a selection', await shows(listedFirst), { listedFirst, now: await scrollY() });
+      // (e) again with the copy gone: selected again, then removed from the page.
+      await to(mine);
+      await click(start);
+      await moveUp();
+      await page.evaluate(n => document.querySelectorAll('[data-testid="card"]')[n].remove(), sel);
+      await to('top');
       await outline();
-      check('(e) a hidden copy scrolls nothing', (await scrollY()) === atTop, { atTop, now: await scrollY() });
-      await page.evaluate(y => { document.querySelectorAll('[data-testid="card"]')[1].remove(); scrollTo(0, y); }, kept);
-      await settle();
-      const goneAt = await scrollY(); // (the page shorter by that card)
-      await outline();
-      check('(e) a gone copy scrolls nothing', (await scrollY()) === goneAt, { goneAt, now: await scrollY() });
+      check('(e) a gone copy scrolls nothing', (await scrollY()) === 0, { listedFirst, now: await scrollY() });
       state.polling = false;
       await poll.catch(() => {});
       await page.close();
