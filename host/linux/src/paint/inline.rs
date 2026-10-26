@@ -5,6 +5,36 @@ use crate::text::markup::QUIET;
 use crate::text::{backgrounds::InlineBackground, Paragraph, RunPaint};
 use exact_kernel::{Kernel, NodeRef, NodeType, PropId, StyleId};
 
+pub(super) fn focus_fragments(
+    kernel: &Kernel,
+    paragraph: &Paragraph,
+    palette: &[RunPaint],
+    focus: exact_kernel::ViewId,
+) -> Vec<super::Shape> {
+    let backgrounds: Vec<_> = palette
+        .iter()
+        .map(|run| {
+            let mut at = Some(run.source);
+            while let Some(id) = at {
+                if id == focus {
+                    return Some(InlineBackground {
+                        id: focus,
+                        color: [255; 4],
+                        radii: [exact_kernel::Dimension::Points(2.0); 4],
+                    });
+                }
+                at = kernel.node(id).and_then(|n| n.parent);
+            }
+            None
+        })
+        .collect();
+    paragraph
+        .inline_backgrounds(&backgrounds, &kernel.env())
+        .into_iter()
+        .map(|(shape, _)| shape)
+        .collect()
+}
+
 /// Mirror the canonical run ownership (own text suppresses descendants),
 /// retaining paint-only information without adding it to the metric ABI.
 pub(crate) fn text_palette(

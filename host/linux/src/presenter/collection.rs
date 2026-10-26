@@ -720,7 +720,7 @@ impl<D: DataSource> Presenter<D> {
             .collect()
     }
 
-    pub(crate) fn queue_collections(&mut self) {
+    pub(super) fn schedule_collections(&mut self) {
         let retained = self.arrange_pin().map(|p| p.0);
         if self.collection.interaction.is_some_and(|id| {
             Some(id) != retained
@@ -729,6 +729,10 @@ impl<D: DataSource> Presenter<D> {
             self.collection.interaction = None;
         }
         self.collection.schedule(&self.host.collections_shallow());
+    }
+
+    pub(crate) fn queue_collections(&mut self) {
+        self.schedule_collections();
         // A host that runs a scroll's pass itself (`defer`) is not woken for it.
         if self.collection.pending() && !self.collection.defer {
             // GUI poll observes this FD. Headless advances on existing pump/frame

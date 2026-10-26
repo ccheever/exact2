@@ -1,5 +1,13 @@
 # Vendored Ibex split crates — Exact integration ledger
 
+## Windows WebSocket readiness
+
+`crates/ibex2/src/transport/websocket.rs` subscribes to writable readiness only
+while output is pending. Windows rearms readiness after a blocked read; keeping
+writable interest on an empty output queue makes an outstanding receive spin.
+The idle-receive regression in `websocket_tests.rs` checks that the pump stays
+parked and still wakes on cancellation.
+
 ## Mac widget Keychain (LLP 1126.001 WP16)
 
 `crates/ibex2/src/secrets/darwin_keychain.mm` selects the restricted

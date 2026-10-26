@@ -187,6 +187,11 @@ const sources: Sources = {
   loadDms: () => S.dms(store).map(c => channelRecord(c.id)),
   loadChannel: ([channel]) => (channel ? channelRecord(channel) : channelRecord('')),
   loadWindow: ([channel, anchor, , since]) => loadWindow(channel, anchor, since),
+  loadEditTarget: ([channel]) => {
+    const candidate = channel ? S.latestEditable(store, channel) : { row: null, need: '', cursor: '' };
+    return { channel, id: candidate.row?.id ?? '', content: candidate.row?.content ?? '',
+      need: candidate.need, cursor: candidate.cursor };
+  },
   loadPage: ([channel, need, cursor]) => write(async () => {
     const query = QUERIES[need];
     if (!query) throw new Error(`No page called ${need}`);
@@ -230,7 +235,12 @@ const sources: Sources = {
     if (row.status !== 'sent' || row.id === null) {
       S.removePending(store, channel, key); live.sends.delete(key); touched(live, channel); return;
     }
-    await call(live, rest.deleteMessage(context(live), channel, row.id));
+    try {
+      await call(live, rest.deleteMessage(context(live), channel, row.id));
+    } catch (error) {
+      if (error instanceof RestError) throw error;
+      throw new Error('Check your connection and try again.');
+    }
     applyEvent(live, 'MESSAGE_DELETE', { id: row.id, channel_id: channel });
   }),
   editMessage: ([channel, id, content]) => write(async () => {

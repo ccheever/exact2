@@ -4,6 +4,10 @@
 //! real `@exact/geolocation`, linked into the app's `node_modules` as a
 //! `file:` dependency installs it.
 
+#[cfg(unix)]
+use std::os::unix::fs::symlink as symlink_dir;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_dir;
 use std::path::PathBuf;
 
 struct App(PathBuf);
@@ -16,7 +20,7 @@ impl App {
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(path.join("node_modules/@exact")).unwrap();
         let package = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/geolocation");
-        std::os::unix::fs::symlink(
+        symlink_dir(
             package.canonicalize().unwrap(),
             path.join("node_modules/@exact/geolocation"),
         )

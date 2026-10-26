@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   addPending, applyDispatch, applyHistoryPage, channel, channelVersion, createStore, dms, expireTyping,
-  failPending, firstUnread, guildChannels, guilds, latestWindow, removePending, sidebarVersion, storeSeq, typingUsers, unread,
+  failPending, firstUnread, guildChannels, guilds, latestWindow, latestEditable, removePending, sidebarVersion, storeSeq, typingUsers, unread,
   user, windowAfter, windowAround, windowBefore, type DiscordObject, type MessageWindow, type Store,
 } from './store.ts';
 import { snowflakeFromMs } from './ids.ts';
@@ -36,6 +36,51 @@ function readyAgain(s: Store, lastId: string | null) {
     { id: cid, type: 0, last_message_id: lastId },
   ] }], read_state: [{ id: cid, last_message_id: '99', mention_count: 2 }] }, 200);
 }
+
+describe('last own message for editing', () => {
+  test('skips pending sends, other authors, system messages and webhooks; accepts replies', () => {
+    const s = seeded('6');
+    applyHistoryPage(s, cid, { limit: 50 }, [msg(6), msg(5, { author: me, webhook_id: 'hook' }),
+      msg(4, { author: me, type: 6 }), msg(3, { author: me, type: 19, content: '**reply**' }),
+      msg(2, { author: me }), msg(1)]);
+    addPending(s, cid, { nonce: 'pending', content: 'not sent', nowMs: Date.now() });
+    expect(latestEditable(s, cid).row).toMatchObject({ id: '3', content: '**reply**' });
+    failPending(s, cid, 'pending', 'offline');
+    expect(latestEditable(s, cid).row?.id).toBe('3');
+    event(s, 'MESSAGE_DELETE', { id: '3' });
+    expect(latestEditable(s, cid).row?.id).toBe('2');
+  });
+
+  test('requests gaps from the live tail instead of choosing a disconnected older own message', () => {
+    const s = seeded();
+    applyHistoryPage(s, cid, { around: '20', limit: 3 }, [msg(21), msg(20, { author: me }), msg(19)]);
+    expect(latestEditable(s, cid)).toEqual({ row: null, need: 'latest', cursor: '' });
+    applyHistoryPage(s, cid, { limit: 5 }, page(96, 100));
+    expect(latestEditable(s, cid)).toEqual({ row: null, need: 'before', cursor: '96' });
+    applyHistoryPage(s, cid, { before: '96', limit: 5 }, [msg(95), msg(94, { author: me }), ...page(91, 93)]);
+    expect(latestEditable(s, cid).row?.id).toBe('94');
+    readyAgain(s, '103');
+    expect(latestEditable(s, cid)).toEqual({ row: null, need: 'latest', cursor: '' });
+    applyHistoryPage(s, cid, { limit: 5 }, page(99, 103));
+    expect(latestEditable(s, cid)).toEqual({ row: null, need: 'before', cursor: '99' });
+  });
+
+  test('looks beyond a display window and stops at a confirmed beginning with no own message', () => {
+    const s = seeded('299');
+    applyHistoryPage(s, cid, { limit: 50 }, page(250, 299));
+    for (let end = 249; end >= 99; end -= 50) {
+      applyHistoryPage(s, cid, { before: String(end + 1), limit: 50 }, page(end - 49, end));
+    }
+    applyHistoryPage(s, cid, { before: '50', limit: 50 }, [...page(2, 49), msg(1, { author: me })]);
+    expect(latestWindow(s, cid, 200).rows.every(r => r.author.id !== me.id)).toBe(true);
+    expect(latestEditable(s, cid).row?.id).toBe('1');
+    event(s, 'MESSAGE_DELETE', { id: '1' });
+    expect(latestEditable(s, cid)).toEqual({ row: null, need: '', cursor: '' });
+    const empty = seeded();
+    applyHistoryPage(empty, cid, { limit: 50 }, [], { since: storeSeq(empty) });
+    expect(latestEditable(empty, cid)).toEqual({ row: null, need: '', cursor: '' });
+  });
+});
 
 describe('READY and sidebar', () => {
   for (const wrapped of [false, true]) test(`READY accepts ${wrapped ? 'properties, recipient_ids and read-state entries' : 'flat guilds, recipients and read-state arrays'}`, () => {

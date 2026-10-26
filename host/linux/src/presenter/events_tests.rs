@@ -1156,15 +1156,18 @@ fn a_reload_forgets_unbound_controls_own_state() {
 /// `bad` and the background round ask with a deadline only HTTP takes, so
 /// the executor refuses both at admission; `good` asks for work it runs.
 #[derive(Default)]
+#[cfg(unix)]
 struct Refused {
     armed: bool,
     landed: Arc<std::sync::atomic::AtomicUsize>,
     good: Arc<std::sync::atomic::AtomicUsize>,
 }
+#[cfg(unix)]
 fn with_deadline(mut request: exact_runner::Request) -> exact_runner::Request {
     request.timeout_ms = Some(5);
     request
 }
+#[cfg(unix)]
 impl DataSource for Refused {
     fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(name.into()))
@@ -1259,10 +1262,12 @@ fn a_send_held_behind_a_refused_background_round_runs_on_the_wake() {
 /// Every answer waits on shared work: its continuation is a re-ask
 /// (`Dispatch::Again`), asked once, then the answer settles.
 #[derive(Default)]
+#[cfg(unix)]
 struct Waiting {
     asked: std::collections::HashSet<String>,
     settled: Arc<std::sync::atomic::AtomicUsize>,
 }
+#[cfg(unix)]
 impl DataSource for Waiting {
     fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(name.into()))

@@ -680,7 +680,13 @@ impl<D: DataSource> Presenter<D> {
     pub(super) fn copy_text(&mut self, args: &[exact_plan::Value]) {
         match args {
             [text] if text.is_str() => {
-                self.request(Request::Copy(text.text().to_string()));
+                if let Some(clipboard) = &mut self.clipboard {
+                    if let Err(error) = clipboard.write_text(text.text()) {
+                        self.host.log(error);
+                    }
+                } else {
+                    self.request(Request::Copy(text.text().to_string()));
+                }
             }
             _ => self.host.log("copyText requires one string"),
         }
@@ -694,6 +700,11 @@ impl<D: DataSource> Presenter<D> {
         // The app's page in Settings (LLP 1133.002 D11), the shell's to open;
         // under the agent, journaled only.
         if url == Some("app-settings:") {
+            if !self.has_shell() {
+                self.host
+                    .log("openURL app-settings: unavailable on this host");
+                return;
+            }
             let agent = std::env::var("EXACT_AGENT").is_ok_and(|v| v == "1");
             self.host.log(format!(
                 "openURL app-settings: opens the app's page in Settings{}",
@@ -716,7 +727,14 @@ impl<D: DataSource> Presenter<D> {
     /// Leave the app for `url`, where a shell can and `url` is one of the
     /// four kinds that do; whether it was asked.
     pub(super) fn leave(&mut self, url: &str) -> bool {
-        let target = crate::text::markup::target(url).filter(|t| !t.starts_with('/'));
+        let target =
+            crate::text::markup::target(url).filter(|t| !t.starts_with('/') && !t.contains('\0'));
+        if let (Some(target), Some(open)) = (target, self.url_opener.as_ref()) {
+            if let Err(error) = open(target) {
+                self.host.log(format!("openURL: {error}"));
+            }
+            return true;
+        }
         match target.filter(|_| self.requests.shell) {
             Some(target) => {
                 self.request(Request::Open(target.to_string()));

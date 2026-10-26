@@ -16,6 +16,36 @@ fn boot(source: &str) -> Presenter<()> {
     p
 }
 
+#[test]
+fn recycling_a_frame_preserves_other_readers_and_reuses_released_storage() {
+    let mut p = boot(
+        r##"component App
+  state changed = false
+  action change
+    changed = true
+  view
+    box width="100%" height="100%" background-color=(changed ? "#204060" : "#a02040") press=change testId="change"
+"##,
+    );
+    let first = p.frame();
+    let address = first.data().as_ptr();
+    let old_pixels = first.data().to_vec();
+    p.recycle_frame(first.clone());
+    let key = p.host.kernel().find_by_test_id("change")[0];
+    p.tap(p.host.kernel().node_by_key(key).unwrap().id).unwrap();
+    let second = p.frame();
+    assert_ne!(second.data().as_ptr(), address);
+    assert!(first.data() == old_pixels);
+    assert!(second
+        .data()
+        .chunks_exact(4)
+        .all(|pixel| pixel == [32, 64, 96, 255]));
+    p.recycle_frame(first);
+    let reused = p.frame();
+    assert_eq!(reused.data().as_ptr(), address);
+    assert!(reused.data() == second.data());
+}
+
 /// A phone's window: a status bar under a cutout, a gesture bar below.
 fn phone() -> Window {
     Window {

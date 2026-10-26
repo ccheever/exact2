@@ -201,6 +201,9 @@ component RowText
             text v color="-exact-secondary-label" font-variant-numeric="tabular-nums" min-width=0
           case none
 
+shape BadgePreferences
+  prefersContrast: string
+
 // A status in a word, as "Full", "Cancelled" or "Locked": the label in a
 // capsule, in the caption style (semibold), so a state reads as text, never
 // as a colour alone. `tint` is its fill: `none` the neutral grey, the accent
@@ -215,15 +218,21 @@ component RowText
 // teal, cyan, yellow and orange, which white fails (green is 2.2:1), keep
 // dark ink. It keeps its own size: centred in a row, beside a title that
 // gives way (`flex=1 min-width=0`), and at the start of a column.
+// Windows contrast themes use the system's highlight/text pair for role tints,
+// as WinUI's InfoBadge does. Literal fills retain the caller's choice.
 // Call: Badge(label="Full", tint=some("-exact-system-orange"))
 component Badge
   props
     label: string
     tint: option<string>
+  resource preferences = exactViewport() as shape BadgePreferences
   derive fill = match tint { case some(t) => t, case none => "-exact-tertiary-fill" }
   view
     row flex-shrink=0 align-items="center"
-      if fill == "-exact-tertiary-fill"
+      if preferences.prefersContrast == "custom" and (fill.startsWith("-exact-") or fill == "AccentColor")
+        row padding="2px 8px" border-radius=999 background-color="Highlight"
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="HighlightText"
+      else if fill == "-exact-tertiary-fill"
         row padding="2px 8px" border-radius=999 background-color=fill
           text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
       else if fill == "AccentColor"

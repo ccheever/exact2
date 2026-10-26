@@ -59,6 +59,23 @@ fn settle<D: DataSource>(p: &mut Presenter<D>) {
     }
 }
 #[test]
+fn settled_collection_frames_do_not_schedule_another_frame() {
+    let mut p = boot("text `row ${x}` height=24");
+    settle(&mut p);
+    for tick in 1..=10 {
+        let now = tick as f64 * 16.;
+        assert!(p.pump(now).is_none());
+        assert!(p.animation_frame(now).is_none());
+        p.tick(now);
+        p.frame();
+        assert!(!p.collection.pending());
+        assert!(
+            !p.executor.take_wake(),
+            "an unchanged list rearmed its own frame"
+        );
+    }
+}
+#[test]
 fn collection_boot_measures_wrappers_in_nested_port_and_scroll_rewindows() {
     let mut p = boot("text `row ${x}` height=24");
     settle(&mut p);

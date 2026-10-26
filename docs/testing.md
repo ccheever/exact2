@@ -199,6 +199,11 @@ on the tailnet (LLP 1115.004 D13). As recorded on 2026-10-23:
   is not installed (`EXACT_FONT=unpinned`) to draw the system's own. In
   PowerShell, `$env:EXACT_FONT = ""` removes the variable, and the pin
   returns.
+- **Confirm focus independently when reports disagree.** Sky's focused-element
+  field can remain on Excord's composer after Tab moves to a button. Windows SDK
+  Inspect reports the button's UI Automation focus correctly, and Enter activates
+  it. Check the visible focus, action and an independent accessibility client
+  before changing the provider (`target/windows-chat-comparison/focus-inspect-qualification.json`).
 
 ## Pixels
 

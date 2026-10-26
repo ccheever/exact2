@@ -14,6 +14,16 @@
 epoch "2026-10-22T18:00:00Z"
 time-zone "America/Los_Angeles"
 
+test "the fixture account menu has reachable account details"
+  clock +500 real
+  tap "account"
+  tap "account-details"
+  expect text "account-identity" == "Sample account: Charlie"
+  tap "account-close"
+  tap "channel-general"
+  clock settle
+  expect tree has "composer"
+
 test "a channel opens at its newest message, live (§3.1)"
   clock +500 real
   tap "channel-general"
@@ -207,6 +217,146 @@ test "Return sends and Shift-Return breaks the line (§3.12, §3.13)"
   expect text "composer" == ""
   expect state win.rows.49 .plain == "first line\nsecond line"
 
+test "Up edits the newest own message from history and Escape cancels it (§3.13)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "my newest **message**"
+  tap "send"
+  clock +350
+  clock settle
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  type "composer" key "ArrowUp"
+  clock settle
+  expect state editing == "1562888267366400000"
+  expect text "composer" == "my newest **message**"
+  expect tree has "editing"
+  type "composer" key "Escape"
+  expect state editing == ""
+  expect text "composer" == ""
+
+test "Cancel finding a message restores typing focus and prevents a late edit"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  type "composer" key "ArrowUp"
+  expect state editLookup == true
+  tap "cancel-find-edit"
+  expect state editLookup == false
+  expect state composerFocused == true
+  clock settle
+  expect state editing == ""
+  expect text "composer" == ""
+  type "composer" key "ArrowUp"
+  type "cancel-find-edit" key "Escape"
+  expect state editLookup == false
+  expect state composerFocused == true
+  clock settle
+  expect state editing == ""
+  type "composer" key "ArrowUp"
+  type "composer" "a new draft"
+  clock settle
+  expect state editLookup == false
+  expect state editing == ""
+  expect text "composer" == "a new draft"
+
+test "Up preserves drafts, modified arrows and replies (§3.13)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  type "composer" "leave this draft"
+  type "composer" key "ArrowUp"
+  expect state editing == ""
+  expect text "composer" == "leave this draft"
+  type "composer" ""
+  type "composer" key "Shift+ArrowUp"
+  expect state editLookup == false
+  expect state editing == ""
+  tap "row-1562887009075210000" contextmenu
+  tap "menu-reply"
+  type "composer" key "ArrowUp"
+  expect state replyTo == "1562887009075210000"
+  expect state editing == ""
+  expect state editLookup == false
+
+test "Escape cancels a reply and preserves the draft (§3.13)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  type "composer" "a saved draft"
+  tap "row-1562887009075210000" contextmenu
+  tap "menu-reply"
+  expect state replyTo == "1562887009075210000"
+  type "composer" key "Escape"
+  expect state replyTo == ""
+  expect tree missing "replying"
+  expect text "composer" == "a saved draft"
+
+test "Cancel reply and Cancel edit return keyboard focus to the preserved draft"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "original message"
+  tap "send"
+  clock +350
+  clock settle
+  type "composer" "a saved draft"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-reply"
+  tap "cancel-reply"
+  expect state replyTo == ""
+  expect state composerFocused == true
+  expect text "composer" == "a saved draft"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  type "composer" "unsaved edit"
+  tap "cancel-edit"
+  expect state editing == ""
+  expect state composerFocused == true
+  expect text "composer" == "a saved draft"
+  expect state win.rows.49 .plain == "original message"
+
+test "Escape cancels an edit and restores the stashed draft (§3.13)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "original message"
+  tap "send"
+  clock +350
+  clock settle
+  type "composer" "a saved draft"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  type "composer" "unsaved changes"
+  type "composer" key "Escape"
+  expect state editing == ""
+  expect state stash == ""
+  expect tree missing "editing"
+  expect text "composer" == "a saved draft"
+  expect state win.rows.49 .plain == "original message"
+
+test "Escape from history returns to the end and marks the channel read (§3.13)"
+  clock +500 real
+  tap "channel-help"
+  clock settle
+  type "composer" "a saved draft"
+  tap "transcript" into "1562230937540887704"
+  clock data
+  expect state away == true
+  type "composer" key "Escape"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect tree missing "unread"
+  expect tree missing "jump-present"
+  expect state chan.unread == 0
+  expect text "composer" == "a saved draft"
+
 test "a draft survives switching channels and relaunching (§3.12)"
   clock +500 real
   tap "channel-general"
@@ -229,6 +379,47 @@ test "a draft survives switching channels and relaunching (§3.12)"
   tap "channel-general"
   clock settle
   expect text "composer" == "half a thought"
+
+test "relaunching during an edit preserves the unsent message draft (§3.12)"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "original message"
+  tap "send"
+  clock +350
+  clock settle
+  type "composer" "Keep this unsent message"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  type "composer" "unsaved edit"
+  reload
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  expect state editing == ""
+  expect tree missing "editing"
+  expect text "composer" == "Keep this unsent message"
+
+test "relaunching during an edit does not turn it into a new message draft"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "original message"
+  tap "send"
+  clock +350
+  clock settle
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  type "composer" "unsaved edit"
+  reload
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  expect state editing == ""
+  expect tree missing "editing"
+  expect text "composer" == ""
 
 test "one author within seven minutes is one group; a day change draws its date (§3.15)"
   clock +500 real
@@ -275,6 +466,25 @@ test "a send from a window pinned inside the tail shows at the end (review: Sol 
   expect state endGap == 0
   expect tree has "message-1562888267366400000"
 
+test "spoilers in headings, small text and timestamps reveal only when pressed"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "# ||Heading surprise||\n-# ||Quiet surprise||\nA date: ||<t:1700000000:D>||\nA paragraph: ||Body surprise||"
+  tap "send"
+  clock +350
+  clock settle
+  expect state revealed.length == 0
+  tap "Heading surprise"
+  expect state revealed.length == 1
+  tap "Quiet surprise"
+  expect state revealed.length == 2
+  tap "November 14, 2023"
+  expect state revealed.length == 3
+  tap "Body surprise"
+  expect state revealed.length == 4
+
 test "Edit starts from the message's Markdown, spoilers kept (review: Sol 1)"
   clock +500 real
   tap "channel-general"
@@ -297,6 +507,9 @@ test "an edit the server refuses keeps its text and says why (review: Sol 4)"
   tap "send"
   clock +350
   clock settle
+  type "composer" "reply draft"
+  tap "row-1562887009075210000" contextmenu
+  tap "menu-reply"
   tap "row-1562888267366400000" contextmenu
   tap "menu-edit"
   type "composer" "second try"
@@ -308,6 +521,39 @@ test "an edit the server refuses keeps its text and says why (review: Sol 4)"
   clock settle
   expect text "composer" == "second try"
   expect tree has "edit-error"
+  expect state replyTo == ""
+  tap "cancel-edit"
+  expect state replyTo == "1562887009075210000"
+  expect text "replying" == "Replying to Ada"
+  expect text "composer" == "reply draft"
+
+test "a refused deletion says why, keeps the message and draft, and can be retried"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "message to delete"
+  tap "send"
+  clock +350
+  clock settle
+  type "composer" "Keep this draft"
+  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages/1562888267366400000" times 1
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-delete"
+  tap "delete-confirm"
+  clock settle
+  expect state win.rows.49 .plain == "message to delete"
+  expect text "composer" == "Keep this draft"
+  expect text "delete-error" == "Check your connection and try again."
+  tap "delete-error-ok"
+  pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages/1562888267366400000"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-delete"
+  tap "delete-confirm"
+  clock settle
+  expect tree missing "message-1562888267366400000"
+  expect state deleteError == ""
+  expect text "composer" == "Keep this draft"
 
 test "a send settles while its reader is in another channel (review: Sol 5)"
   clock +500 real
@@ -589,3 +835,166 @@ test "the server menu switches the list to the direct messages, which open like 
   reload
   clock +500 real
   expect state server == "@me"
+
+test "image spoilers with and without dimensions wait for disclosure"
+  clock +500 real
+  tap "channel-random"
+  clock settle
+  tap "transcript" into "1556955556722245885"
+  clock settle
+  tap "transcript" into "1555571352889458936"
+  clock settle
+  expect tree has "media-1555571352889458936-1555571352889561158"
+  expect tree has "reveal-media-1555571352889458936-1555571352889561158"
+  expect tree missing "media-image-1555571352889458936-1555571352889561158"
+  tap "reveal-media-1555571352889458936-1555571352889561158"
+  clock settle
+  expect state revealed.length == 1
+  expect tree has "media-image-1555571352889458936-1555571352889561158"
+  expect tree missing "reveal-media-1555571352889458936-1555571352889561158"
+  tap "transcript" into "1557156753160798473"
+  clock settle
+  expect tree has "reveal-media-1557156753160798473-1557156753160900848"
+  expect tree missing "media-image-1557156753160798473-1557156753160900848"
+  type "reveal-media-1557156753160798473-1557156753160900848" key "Enter"
+  clock settle
+  expect state revealed.length == 2
+  expect tree has "media-image-1557156753160798473-1557156753160900848"
+
+test "failed history can be retried without reopening the channel"
+  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  expect text "history-error" == "Couldn’t load messages."
+  expect tree has "retry-history"
+  expect tree missing "history-loading"
+  expect state pageTries == 3
+  type "composer" "Keep this draft"
+  pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
+  type "retry-history" key "Enter"
+  clock settle
+  expect tree has "message-1562887009075210000"
+  expect tree missing "history-error"
+  expect text "composer" == "Keep this draft"
+
+test "a failed page leaves cached messages readable and another channel loads"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  expect text "history-error" == "Couldn’t load more messages."
+  expect tree has "message-1562732896249194217"
+  expect state pageTries == 3
+  back
+  clock settle
+  tap "channel-help"
+  clock settle
+  expect tree missing "history-error"
+  expect state pageTries == 0
+  back
+  clock settle
+  pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
+  tap "channel-general"
+  clock settle
+  expect tree missing "history-error"
+  expect state win.firstId == "1562033782335219374"
+
+test "a failed older page does not block a jump to a different history page"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  tap "transcript" into "1562624645306263268"
+  clock settle
+  expect text "history-error" == "Couldn’t load more messages."
+  expect state pageTries == 3
+  tap "reply-to-1562624645306263268"
+  clock settle
+  expect state anchor == "1518635600276626020"
+  expect tree has "message-1518635600276626020"
+  expect tree missing "history-error"
+  expect state pageTries == 0
+
+test "retrying older history at the exact top keeps the first visible message"
+  size 1100x760
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  type "transcript" key "Home"
+  clock settle
+  expect state pageTries == 3
+  expect state historyStart == true
+  expect state topKey == "1562618399954052832"
+  pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  tap "retry-history"
+  clock settle
+  expect tree has "message-1562618399954052832"
+  expect state target == ""
+  expect state historyStart == false
+
+test "choosing Reply during an edit restores the draft and sends a reply"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "original message"
+  tap "send"
+  clock +350
+  clock settle
+  type "composer" "a saved draft"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  type "composer" "unsaved edit"
+  tap "row-1562887009075210000" contextmenu
+  tap "menu-reply"
+  expect state editing == ""
+  expect state replyTo == "1562887009075210000"
+  expect tree missing "editing"
+  expect text "replying" == "Replying to Ada"
+  expect text "composer" == "a saved draft"
+  tap "send"
+  clock settle
+  expect state win.rows.49 .plain == "original message"
+  expect state win.rows.50 .plain == "a saved draft"
+  expect state win.rows.50 .reply.0 .id == "1562887009075210000"
+
+test "editing temporarily puts a reply aside and restores it on cancel or save"
+  clock +500 real
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  type "composer" "original message"
+  tap "send"
+  clock +350
+  clock settle
+  type "composer" "reply draft"
+  tap "row-1562887009075210000" contextmenu
+  tap "menu-reply"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  expect state editing == "1562888267366400000"
+  expect state replyTo == ""
+  expect tree missing "replying"
+  type "composer" "unsaved edit"
+  type "composer" key "Escape"
+  expect state editing == ""
+  expect state replyTo == "1562887009075210000"
+  expect text "replying" == "Replying to Ada"
+  expect text "composer" == "reply draft"
+  tap "row-1562888267366400000" contextmenu
+  tap "menu-edit"
+  type "composer" "saved edit"
+  tap "send"
+  clock settle
+  expect state editing == ""
+  expect state replyTo == "1562887009075210000"
+  expect text "replying" == "Replying to Ada"
+  expect text "composer" == "reply draft"
+  expect state win.rows.49 .plain == "saved edit"

@@ -112,9 +112,15 @@ pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<Path
     )))
 }
 
-/// Where `secret.keep` names and kept answers live (`<root>/secrets`,
-/// `<root>/kv`). A named agent drive keeps them in its scratch tree, beside
-/// its `app:/data`; outside the agent the app keeps them in its own data root,
+/// Root for kept answers and persisted states (`<root>/kv`), including
+/// Windows outside the agent. A nameless drive has no persistent storage.
+pub(crate) fn store_root(app_id: &str) -> Result<Option<PathBuf>, DataError> {
+    Ok(app_dirs(app_id)?.and_then(|(roots, _)| roots[0].parent().map(|path| path.to_path_buf())))
+}
+
+/// Where `secret.keep` names live (`<root>/secrets`). A named agent drive
+/// keeps them in its scratch tree beside its `app:/data`; outside the agent
+/// the app keeps them in its own data root,
 /// `$XDG_DATA_HOME/exact/<app id>` (`~/.local/share` when unset), as Ibex's
 /// file backends: a file per secret, `0600` in a `0700` directory, written
 /// whole and renamed into place, not encrypted (LLP 1027.007 D13, ibex LLP
@@ -128,7 +134,7 @@ pub(crate) fn secret_root(app_id: &str) -> Result<Option<PathBuf>, DataError> {
     // `roots[0]` is `<root>/data`. In a drive, secrets live in the scratch
     // tree, so a fresh drive's emptying of that tree ([`empty_fresh_tree`])
     // takes them too.
-    Ok(app_dirs(app_id)?.and_then(|(roots, _)| roots[0].parent().map(|path| path.to_path_buf())))
+    store_root(app_id)
 }
 
 /// The scratch trees a fresh drive has emptied in this process.

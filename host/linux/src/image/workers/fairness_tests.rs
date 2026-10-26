@@ -95,6 +95,39 @@ fn metadata(workers: &Workers, events: &Events, name: &'static str) -> (Arc<Back
 }
 
 #[test]
+fn metadata_arriving_after_the_scan_is_not_lost_before_an_unbounded_wait() {
+    let workers = workers();
+    let events = Events::default();
+    let (backend, assets) = metadata(&workers, &events, "metadata");
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(|| {
+            let mut source = None;
+            let mut turn = true;
+            workers.turn(&mut turn, || {
+                source = Some(
+                    backend
+                        .source(backend.generation(), "new", &assets)
+                        .unwrap(),
+                );
+            });
+            workers.turn(&mut turn, || {
+                panic!("the announced header must be prepared")
+            });
+            done_tx.send(()).unwrap();
+            drop(source);
+        });
+        let completed = done_rx.recv_timeout(Duration::from_secs(3));
+        // Release a missed wake before joining, so a regression cannot strand
+        // the scoped thread. The timeout only bounds a hang, not performance.
+        backend.session.wake();
+        worker.join().unwrap();
+        completed.unwrap();
+    });
+    assert_eq!(*events.lock().unwrap(), ["metadata"]);
+}
+
+#[test]
 fn waited_decode_must_give_the_next_turn_to_metadata() {
     let workers = workers();
     let events = Events::default();

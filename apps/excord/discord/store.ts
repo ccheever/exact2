@@ -857,6 +857,25 @@ export function latestWindow(s: Store, channelId: string, limit = 50): MessageWi
   return window;
 }
 
+/** Find the newest editable own message without crossing an unconfirmed history gap.
+ * A caller may fetch the missing page and ask again; pending sends are never edit targets. */
+export function latestEditable(s: Store, channelId: string): { row: MessageRow | null; need: string; cursor: string } {
+  const run = s.histories.get(channelId)?.live;
+  const missing = (cursor: string) => ({ row: null, need: cursor ? 'before' : 'latest', cursor });
+  if (!run?.reachesNewest) return missing('');
+  let cursor = '';
+  for (let i = run.entries.length - 1; i >= 0; i--) {
+    const { row, verified } = run.entries[i];
+    if (row.status !== 'sent' || row.id === null) continue;
+    if (!verified) return missing(cursor);
+    if (row.author?.id === s.meId && !row.webhook_id && (row.type === undefined || row.type === 0 || row.type === 19)) {
+      return { row, need: '', cursor: '' };
+    }
+    cursor = row.id;
+  }
+  return run.reachesStart ? { row: null, need: '', cursor: '' } : missing(cursor);
+}
+
 /** Return one bounded run centered on an id, without crossing an unfetched history gap. */
 export function windowAround(s: Store, channelId: string, messageId: string, limit = 50): MessageWindow {
   const count = windowLimit(limit);

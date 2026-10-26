@@ -3,10 +3,32 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg(windows)]
+mod accessibility;
+#[cfg(windows)]
+mod appearance;
+#[cfg(windows)]
+mod caret;
+#[cfg(windows)]
+mod clicks;
+#[cfg(windows)]
+mod clipboard;
+#[cfg(windows)]
+mod edit_menu;
+#[cfg(windows)]
+mod ime;
+#[cfg(windows)]
+mod keyboard;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod pad_poll;
 #[cfg(windows)]
 mod pads;
+#[cfg(windows)]
+mod placement;
+#[cfg(windows)]
+mod url;
+#[cfg(windows)]
+mod wheel;
 #[cfg(windows)]
 mod window;
 

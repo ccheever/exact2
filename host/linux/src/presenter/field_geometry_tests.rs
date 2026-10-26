@@ -3,6 +3,67 @@ use super::*;
 use exact_runner::{FieldSelection, SelectionDirection};
 
 #[test]
+fn composition_underline_stays_next_to_ink_with_large_line_spacing_and_device_scale() {
+    for line_height in [24, 80] {
+        for scale in [1., 1.5, 2.] {
+            let source = format!(
+                r##"component Fields
+  view
+    column width=400 height=600 background-color="#ffffff"
+      textarea testId="field" value="" appearance="none" outline="none" border="0" padding=4 width=220 height=120 color="#000000" background-color="#ffffff" caret-color="transparent" font-size=16 line-height="{line_height}px"
+"##
+            );
+            let (mut p, field) = boot_source(&source);
+            assert!(p.resize_scaled(400., 600., scale).is_none());
+            p.set_focus(Some(field), 0.);
+            p.frame();
+            assert!(p.ime_begin(p.ime_target().unwrap()));
+            p.ime_preedit("ab", None);
+            let composing = p.frame();
+            p.ime_unconverted(&[(0, 2)]);
+            let dotted = p.frame();
+            p.ime_commit("ab");
+            let committed = p.frame();
+            let changed = |pixels: &tiny_skia::Pixmap| {
+                pixels
+                    .pixels()
+                    .iter()
+                    .zip(committed.pixels())
+                    .filter(|(a, b)| a != b)
+                    .count()
+            };
+            assert!(
+                changed(&dotted) > 0 && changed(&dotted) < changed(&composing),
+                "unconverted text has visible gaps in its underline at scale {scale}"
+            );
+            let width = committed.width() as usize;
+            let ink_bottom = committed
+                .pixels()
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.red() < 128 && c.green() < 128 && c.blue() < 128)
+                .map(|(i, _)| i / width)
+                .max()
+                .expect("committed text is visible");
+            let underline_top = composing
+                .pixels()
+                .iter()
+                .zip(committed.pixels())
+                .enumerate()
+                .filter(|(_, (a, b))| a != b)
+                .map(|(i, _)| i / width)
+                .min()
+                .expect("composition has visible decoration");
+            assert!(
+                underline_top > ink_bottom
+                    && underline_top <= ink_bottom + (4. * scale).ceil() as usize,
+                "line-height {line_height}, scale {scale}: ink ends at {ink_bottom}, underline starts at {underline_top}"
+            );
+        }
+    }
+}
+
+#[test]
 fn decorations_paint_runs_without_moving_the_fields_layout() {
     let source = r##"decoration mention color="#0000ff" background-color="#ffff00" text-decoration="underline"
 component Fields
@@ -648,16 +709,20 @@ fn field_control_arrows_move_by_word_and_shift_extends() {
     p.mark_field(id, &value, FieldSelection::caret(0), false);
     p.hold_modifier("ControlLeft", true);
     key(&mut p, id, "ArrowRight");
-    assert_eq!(p.field_selection(id), FieldSelection::caret(3));
+    assert_eq!(
+        p.field_selection(id),
+        FieldSelection::caret(if cfg!(windows) { 4 } else { 3 })
+    );
     key(&mut p, id, "ArrowRight");
-    assert_eq!(p.field_selection(id), FieldSelection::caret(7));
+    let end = if cfg!(windows) { 9 } else { 7 };
+    assert_eq!(p.field_selection(id), FieldSelection::caret(end));
     p.hold_modifier("ShiftLeft", true);
     key(&mut p, id, "ArrowLeft");
     assert_eq!(
         p.field_selection(id),
         FieldSelection {
             start: 4,
-            end: 7,
+            end,
             direction: SelectionDirection::Backward
         }
     );
@@ -749,10 +814,19 @@ fn field_empty_line_and_ligature_have_caret_boundaries() {
 
 #[test]
 fn field_word_boundaries_include_punctuation_and_utf16() {
-    // Chromium on Linux, with the same values and Control arrows.
+    // Rich Edit on Windows skips trailing spaces; Chromium on Linux stops
+    // at the word's end. Both use UTF-16 selection offsets.
     for (value, forward, backward) in [
-        ("one... two", vec![3, 6, 10], vec![7, 3, 0]),
-        ("a😀b café", vec![1, 3, 4, 9], vec![5, 3, 1, 0]),
+        (
+            "one... two",
+            vec![3, if cfg!(windows) { 7 } else { 6 }, 10],
+            vec![7, 3, 0],
+        ),
+        (
+            "a😀b café",
+            vec![1, 3, if cfg!(windows) { 5 } else { 4 }, 9],
+            vec![5, 3, 1, 0],
+        ),
     ] {
         let (mut p, id) = boot("input", value, "");
         p.set_focus(Some(id), 0.);
@@ -957,13 +1031,29 @@ fn field_horizontal_arrows_and_delete_use_graphemes() {
 }
 
 #[test]
-fn field_word_arrows_group_adjacent_emoji_as_chrome() {
-    // Chrome 151.0.7922.34 on Linux, measured with Control+ArrowRight/Left.
+fn field_word_arrows_group_adjacent_emoji() {
+    // Rich Edit on Windows and Chrome 151.0.7922.34 on Linux.
     for (value, forward, backward) in [
         ("😀👍", vec![4], vec![0]),
         ("a😀👍b", vec![1, 5, 6], vec![5, 1, 0]),
-        ("a…… b", vec![1, 3, 5], vec![4, 1, 0]),
-        ("a😀...👍b", vec![1, 8, 9], vec![8, 1, 0]),
+        (
+            "a…… b",
+            vec![1, if cfg!(windows) { 4 } else { 3 }, 5],
+            vec![4, 1, 0],
+        ),
+        (
+            "a😀...👍b",
+            if cfg!(windows) {
+                vec![1, 3, 6, 8, 9]
+            } else {
+                vec![1, 8, 9]
+            },
+            if cfg!(windows) {
+                vec![8, 6, 3, 1, 0]
+            } else {
+                vec![8, 1, 0]
+            },
+        ),
     ] {
         let (mut p, id) = boot("input", value, "");
         p.set_focus(Some(id), 0.);

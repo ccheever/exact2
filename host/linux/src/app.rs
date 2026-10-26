@@ -353,6 +353,10 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
         booted.0.set_hatches(hatches);
+        #[cfg(windows)]
+        booted.0.serve_overlays();
+        #[cfg(windows)]
+        booted.0.refresh_scrollbar_preferences();
         if let Some(e) = booted.0.set_place(&place) {
             eprintln!("exact: {e}");
         }
