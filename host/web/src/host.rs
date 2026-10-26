@@ -1043,6 +1043,7 @@ impl<D: DataSource> Host<D> {
     pub(crate) fn finish(&self, batch: Batch, error: Option<&str>) -> String {
         let due = self.runner.timer_due_ms();
         let batch = batch.seq(self.runner.seq_range());
+        let batch = batch.alerts(self.runner.take_alerts());
         batch.finish(due, self.runner.wants_frames(), self.runner.now_ms(), error)
     }
 

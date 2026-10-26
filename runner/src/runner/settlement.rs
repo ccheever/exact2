@@ -17,7 +17,7 @@ pub(super) struct Settled {
     pending_mut: Vec<bool>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     store_readers: Vec<bool>,
-    resource_args: Vec<Vec<Value>>,
+    pub(super) resource_args: Vec<Vec<Value>>,
 }
 
 /// Which derives and resources this pass has settled, and which of them
@@ -494,6 +494,7 @@ impl<D: DataSource> Runner<D> {
                     };
                     // When the standing answer was asked; a fresh one's is now.
                     let mut origin = states[i].as_ref().map_or(0, |s| s.origin);
+                    let mut generation = states[i].as_ref().map_or(0, |s| s.inspection_generation);
                     let mut answered_for = if reuse.is_some() {
                         states[i].as_ref().expect("reused").answered_for.clone()
                     } else {
@@ -542,6 +543,7 @@ impl<D: DataSource> Runner<D> {
                             awaiting[i] = false;
                             adopted[i] = true;
                             origin = 0;
+                            generation = 0;
                             if let Ok(Value::List(baked)) =
                                 Value::from_bytes(self.plan.bytes(row.initial_args))
                             {
@@ -567,6 +569,7 @@ impl<D: DataSource> Runner<D> {
                             awaiting[i] = true;
                             placeholder = true;
                             origin = 0;
+                            generation = 0;
                             Held::new(self.placeholder(i, &row, &resources).expect("checked"))
                         }
                         None => {
@@ -587,6 +590,7 @@ impl<D: DataSource> Runner<D> {
                             self.store.take_topics();
                             let reconciling = self.reconciling.contains(&i);
                             self.reconciling.retain(|r| *r != i);
+                            self.inspect_request(i);
                             let asked = match self.query(i, &args) {
                                 // A reconciling answer outside its shape fails
                                 // the resource too.
@@ -685,6 +689,7 @@ impl<D: DataSource> Runner<D> {
                                     awaiting[i] = true;
                                     placeholder = true;
                                     origin = 0;
+                                    generation = 0;
                                     Held::new(value)
                                 }
                                 // @ref LLP 1027.000 D3 — a TypeScript answer's
@@ -722,6 +727,7 @@ impl<D: DataSource> Runner<D> {
                                 }
                                 Err(error) => return Err(error),
                                 Ok(Answer::Now(v)) => {
+                                    generation = self.inspected_request(i);
                                     if pending_res[i] || self.streaming(i) {
                                         // Newer arguments answered now: the older
                                         // request's reply is no longer wanted.
@@ -815,6 +821,7 @@ impl<D: DataSource> Runner<D> {
                     );
                     resources[i] = Some(shown);
                     states[i] = Some(ResourceState {
+                        inspection_generation: generation,
                         args: value_args,
                         value,
                         store_revision: self.store.revision(),
@@ -823,6 +830,7 @@ impl<D: DataSource> Runner<D> {
                         origin,
                         answered_for,
                     });
+                    self.inspected_success(i, generation);
                     settled_res[i] = true;
                     progress = true;
                 }

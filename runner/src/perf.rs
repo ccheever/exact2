@@ -68,6 +68,12 @@ pub struct Work {
     pub later: bool,
     /// Refused answers by resource index since measuring began (LLP 1142 D4).
     pub failures: Vec<Failures>,
+    /// Current request and last successful request, only while measuring (LLP 1142 D9).
+    pub resources: Vec<ResourceWork>,
+    /// Next observation identifier; refusals never reuse one.
+    pub resource_serial: u64,
+    /// Runner clock when resource observation began.
+    pub resources_since: f64,
     /// Failure lines a development host also writes to its platform's log,
     /// oldest first, and how many were dropped past [`ALERTS`] (D4).
     pub alerts: std::cell::RefCell<(std::collections::VecDeque<String>, u64)>,
@@ -78,6 +84,15 @@ pub struct Work {
 
 /// The most alert lines kept for a host that has not taken them.
 pub const ALERTS: usize = 64;
+
+/// Opaque observation identifiers; never used to admit or retain an answer.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ResourceWork {
+    /// Latest source invocation observed.
+    pub request: u64,
+    /// Latest invocation whose valid answer committed.
+    pub successful: u64,
+}
 
 /// One resource's refused answers (LLP 1142 D4): how many, and the runner's
 /// clock at the first and the latest. Not reset by a success, nor rolled
