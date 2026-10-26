@@ -33,7 +33,7 @@ import { annotationAttachedToDraft } from './browser-annotation';
 import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, tabProfile, type BrowserDefaults } from './browser-profiles';
 import { addressBarSearchTemplate, resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
-import { browserKey, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
+import { browserKey, focusUrlTaken, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { browserHistory } from './browser-history';
 import { environmentHostname, preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
 import { fleet } from '../connections/settings-b-fleet';
@@ -487,6 +487,7 @@ export async function frameLocal(client: T3Client, native: Native, op: string, i
     case 'frame-prompt': adoptFramePrompt(client, id, value); break;
     case 'frame-answer': await answerFramePrompt(client, id, value); break;
     case 'frame-key': await browserKey(client, id, value); break;
+    case 'frame-url-focused': focusUrlTaken(client, id, Number(value) || 0); break;
     // A person's download asks where with the platform's save sheet; an agent's goes to setDownloadBehavior's folder and
     // then into the artifact directory. The app shows nothing about either, as the reference's handler shows nothing.
     case 'frame-download': await adoptAgentDownload(client, native, value); break;

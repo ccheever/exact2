@@ -10,7 +10,6 @@ final class T3Module: ExactModule {
     let composer: T3Composer
     /// Weak view registry for the shared Settings prompt sample.
     let promptPreview = T3ComposerPreview()
-    private let media: T3MediaPreview // Attachment PDF and HTML bodies (T3MediaPreview.swift).
     private let mediaFocus = T3MediaFocus() // A press elsewhere takes the focus off a media node (T3MediaActions.swift).
     let devices: T3DeviceStreams // Device screens, input and screenshots (T3DeviceStream.swift).
     let snapShot: T3SnapShot
@@ -33,8 +32,6 @@ final class T3Module: ExactModule {
         sidebar = T3Sidebar(agent: context.agent, changed: changed)
         snapShot = T3SnapShot(directory: context.data, agent: context.agent, changed: changed)
         composer = T3Composer(changed: changed)
-        let staged = context.data.appendingPathComponent("composer-files", isDirectory: true)
-        media = T3MediaPreview(agent: context.agent, stagedFile: { T3MediaPreview.stagedCopy($0, in: staged) }) // a draft file's preview reads its staged copy
         devices = T3DeviceStreams(access: { [links] done in links.deviceHubAccess(done) }, changed: changed)
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         latinChords = T3LatinChords(agent: context.agent)
@@ -72,7 +69,7 @@ final class T3Module: ExactModule {
         case "status":
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return failed(T3Failure(kind: "Closed", message: "The window was closed.")) }
-                let presentation = self.composer.status.merging(self.media.status) { first, _ in first }.merging(self.devices.status) { first, _ in first }.merging(self.browserPages.status) { first, _ in first }
+                let presentation = self.composer.status.merging(self.devices.status) { first, _ in first }.merging(self.browserPages.status) { first, _ in first }
                 reply.send(["ok": true, "generation": generation, "value": ["presentation": presentation]])
             }
         // The data module's connected environments (src/transport/transport.ts pushLinks).
@@ -82,18 +79,18 @@ final class T3Module: ExactModule {
         }
     }
     override func element(_ element: ExactElement) {
-        composer.install(element); promptPreview.install(element); chrome.install(element); menus.install(element); media.install(element); devices.install(element)
+        composer.install(element); promptPreview.install(element); chrome.install(element); menus.install(element); devices.install(element)
         mediaFocus.install(element); browserPages.install(element)
         activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)
         if element.hatch == .t3Composer { snapShot.setComposer(key: ObjectIdentifier(element), owner: element.data[.snapshotOwner] ?? "", view: element.view, focus: { [weak element] in element?.focus() }) }
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }
     }
     override func elementEnded(_ element: ExactElement) {
-        composer.remove(element); promptPreview.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element); browserPages.remove(element)
+        composer.remove(element); promptPreview.remove(element); devices.remove(element); mediaFocus.remove(element); browserPages.remove(element)
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { detachAppControl(); links.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); latinChords.destroy(); textMenu.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); media.destroy(); devices.destroy(); chrome.destroy(); menus.destroy(); ssh.destroy(); browserPages.destroy(); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
+    override func destroy() { detachAppControl(); links.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); latinChords.destroy(); textMenu.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); devices.destroy(); chrome.destroy(); menus.destroy(); ssh.destroy(); browserPages.destroy(); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self

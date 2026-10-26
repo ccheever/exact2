@@ -1,5 +1,4 @@
 import AppKit
-import WebKit
 import XCTest
 
 // The desktop shell's menu (DesktopWindow.ts installContextMenu) wherever the page shows none, per
@@ -179,7 +178,7 @@ final class ShellPageMenuTests: ShellMenuCase {
         var tracked = 0
         agent.present = { _, _, _ in tracked += 1 }
         agent.install()
-        defer { agent.destroy(); T3ShellWebView.agent = false }
+        defer { agent.destroy() }
         rightClick(at: NSPoint(x: 400, y: 200))
         XCTAssertEqual(agent.lastShown, ["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"])
         XCTAssertEqual(tracked, 0)
@@ -320,7 +319,7 @@ final class ShellTextMenuTests: ShellMenuCase {
         var tracked = 0
         agent.present = { _, _, _ in tracked += 1 }
         agent.install()
-        defer { agent.destroy(); T3ShellWebView.agent = false }
+        defer { agent.destroy() }
         rightClick(at: at(field, NSPoint(x: 100, y: 12)))
         XCTAssertEqual(agent.lastShown, ["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All (disabled)"])
         XCTAssertEqual(tracked, 0)
@@ -343,97 +342,5 @@ final class ShellTemplateTests: XCTestCase {
         params.canCopy = true
         XCTAssertEqual(T3ShellMenu.describe(T3ShellMenu.menu(params, T3ShellMenuActions())),
                        ["a", "b", "—", "Copy Link", "—", "Copy Image", "—", "Cut (disabled)", "Copy", "Paste (disabled)", "Select All"])
-    }
-}
-
-/// Browser pages (T3ShellWebView, the Browser panel's and an HTML attachment's web view): WebKit's menu rebuilt as the
-/// shell's, read back from a real WKWebView under the agent (the menu is cancelled before it tracks).
-final class ShellWebMenuTests: XCTestCase {
-    private var window: NSWindow!
-    private var web: T3ShellWebView!
-    private let clipboard = NSPasteboard(name: NSPasteboard.Name("t3-shell-web-menu-tests"))
-
-    override func setUp() {
-        _ = NSApplication.shared
-        clipboard.clearContents()
-        T3ShellMenu.pasteboard = clipboard
-        T3ShellWebView.agent = true
-        window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        web = T3ShellWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        window.contentView = web
-        window.orderFrontRegardless()
-        let png = "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGNgYGBgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg=="
-        web.loadHTMLString("""
-            <!doctype html><body style="margin:0;font:16px sans-serif">
-            <p style="position:absolute;left:10px;top:10px;margin:0">Plain words here</p>
-            <a href="https://example.com/x" style="position:absolute;left:10px;top:50px">Example link</a>
-            <img src="data:image/png;base64,\(png)" style="position:absolute;left:10px;top:90px;width:60px;height:60px">
-            <textarea id=a spellcheck=true style="position:absolute;left:10px;top:170px;width:400px;height:30px;font:16px sans-serif">Plese chek the parsr</textarea>
-            <input id=e style="position:absolute;left:10px;top:220px;width:200px">
-            <p style="position:absolute;left:10px;top:260px;margin:0" oncontextmenu="event.preventDefault()">Own menu</p>
-            </body>
-            """, baseURL: URL(string: "http://localhost/"))
-        spin(2)
-    }
-    override func tearDown() {
-        window.orderOut(nil)
-        T3ShellWebView.agent = false
-        T3ShellMenu.pasteboard = .general
-    }
-
-    private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-
-    /// Right-clicks the page at (x, top-down y) and waits for the reshaped menu, or nil when the page took the click.
-    private func menu(_ x: CGFloat, _ y: CGFloat, prepare: String? = nil) -> [String]? {
-        if let prepare { web.evaluateJavaScript(prepare); spin(0.5) }
-        var shown: [String]?
-        web.shown = { shown = $0 }
-        let point = NSPoint(x: x, y: 400 - y)
-        for type in [NSEvent.EventType.rightMouseDown, .rightMouseUp] {
-            NSApp.sendEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
-        }
-        let deadline = Date().addingTimeInterval(3)
-        while shown == nil, Date() < deadline { spin(0.05) }
-        return shown
-    }
-
-    func testEachPageCaseGetsTheReferencesItems() {
-        XCTAssertEqual(menu(30, 18), ["Cut (disabled)", "Copy", "Paste (disabled)", "Select All"], "a word: selected, Copy enabled")
-        XCTAssertEqual(menu(40, 58, prepare: "getSelection().removeAllRanges()"),
-                       ["Copy Link", "—", "Cut (disabled)", "Copy", "Paste (disabled)", "Select All"], "a link: Copy Link, its text selected")
-        XCTAssertEqual(menu(30, 110, prepare: "getSelection().removeAllRanges()"),
-                       ["Copy Image", "—", "Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"])
-        XCTAssertEqual(menu(60, 228), ["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All (disabled)"], "an empty <input>")
-        XCTAssertNil(menu(30, 268), "the page's own contextmenu (preventDefault): no menu")
-        XCTAssertEqual(menu(500, 360, prepare: "document.activeElement.blur(); getSelection().removeAllRanges()"),
-                       ["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"], "an empty area")
-    }
-
-    func testAMisspelledWordInAFieldGetsWebKitsFirstFiveGuesses() throws {
-        web.evaluateJavaScript("const a = document.getElementById('a'); a.focus(); a.setSelectionRange(a.value.length, a.value.length); document.execCommand('insertText', false, ' ')")
-        spin(1.5)
-        let shown = try XCTUnwrap(menu(68, 185))
-        let separator = try XCTUnwrap(shown.firstIndex(of: "—"))
-        XCTAssertLessThanOrEqual(separator, 5, "at most five suggestions (WebKit lists more)")
-        XCTAssertEqual(shown.first, "check", "NSSpellChecker's first guess for \"chek\", as the reference's")
-        XCTAssertEqual(Array(shown[(separator + 1)...]), ["Cut", "Copy", "Paste (disabled)", "Select All"])
-    }
-
-    func testReshapeKeepsWebKitsOwnItemsForTheHitAndDropsTheRest() {
-        let menu = NSMenu()
-        func item(_ title: String, _ tag: Int, enabled: Bool = true) -> NSMenuItem {
-            let entry = NSMenuItem(title: title, action: T3ShellWebMenu.forward, keyEquivalent: "")
-            entry.tag = tag
-            entry.isEnabled = enabled
-            return entry
-        }
-        let guess = item("check", 15), link = item("Copy Link", 3)
-        for entry in [guess, item("chef", 15), item("Ignore Spelling", 17), item("Open Link", 33), link, item("Look Up", 22),
-                      item("Cut", 13), item("Copy", 8, enabled: false), item("Paste", 14)] { menu.addItem(entry) }
-        T3ShellWebMenu.reshape(menu, target: nil, clipboard: false)
-        XCTAssertEqual(T3ShellMenu.describe(menu), ["check", "chef", "—", "Copy Link", "—", "Cut", "Copy", "Paste (disabled)", "Select All"])
-        XCTAssertTrue(menu.items[0] === guess && menu.items[3] === link, "WebKit's items keep their actions (replace the misspelling, copy the hit link)")
     }
 }

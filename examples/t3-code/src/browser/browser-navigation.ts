@@ -35,11 +35,12 @@ import { SANDBOX } from './browser-automation-scripts';
 
 // ── Per-client state the reference keeps in components (HostedBrowserWebview, ZoomIndicator) ──────
 /** `now`: the latest projection's wall time (a data source reads no clock), the time a visit an op makes is recorded at. */
-type Nav = { zoomSeen: Map<string, number>; zoomSerial: Map<string, number>; viewportSerial: Map<string, number>; aspectLocked: Set<string>; now: number };
+/** `focusUrl`: a page's ⌘L that the address bar has not yet taken, by tab runtime id (browserKey, focusUrlTaken). */
+type Nav = { zoomSeen: Map<string, number>; zoomSerial: Map<string, number>; viewportSerial: Map<string, number>; aspectLocked: Set<string>; focusUrl: Map<string, number>; focusUrlCount: number; now: number };
 const navs = new WeakMap<T3Client, Nav>();
 function nav(client: T3Client): Nav {
   let value = navs.get(client);
-  if (!value) { value = { zoomSeen: new Map(), zoomSerial: new Map(), viewportSerial: new Map(), aspectLocked: new Set(), now: 0 }; navs.set(client, value); }
+  if (!value) { value = { zoomSeen: new Map(), zoomSerial: new Map(), viewportSerial: new Map(), aspectLocked: new Set(), focusUrl: new Map(), focusUrlCount: 0, now: 0 }; navs.set(client, value); }
   return value;
 }
 
@@ -82,11 +83,13 @@ export type BrowserNavigationView = {
   zoomFactor: number; zoomLabel: string; zoomSerial: number; colorScheme: string; windowZoom: number;
   viewportMode: string; viewportWidth: number; viewportHeight: number; viewportKey: string; viewportSerial: number; presetId: string; presetLabel: string; aspectLocked: boolean;
   presets: BrowserPresetChoice[]; keys: string; recents: BrowserRecent[]; servers: BrowserServer[];
+  /** A page's ⌘L for the address bar to take (PreviewChromeRow focusUrlNonce), 0 once taken. */
+  focusUrlSerial: number;
 };
 const PRESET_CHOICES: BrowserPresetChoice[] = PREVIEW_VIEWPORT_PRESETS.map(preset => ({ id: preset.id, label: preset.label, detail: preset.detail }));
 export const emptyNavigationView = (): BrowserNavigationView => ({
   zoomFactor: 1, zoomLabel: '100%', zoomSerial: 0, colorScheme: 'system', windowZoom: 1, viewportMode: 'fill', viewportWidth: 0, viewportHeight: 0, viewportKey: 'fill', viewportSerial: 0,
-  presetId: '', presetLabel: 'Responsive', aspectLocked: false, presets: PRESET_CHOICES.map(choice => ({ ...choice })), keys: '', recents: [], servers: [],
+  presetId: '', presetLabel: 'Responsive', aspectLocked: false, presets: PRESET_CHOICES.map(choice => ({ ...choice })), keys: '', recents: [], servers: [], focusUrlSerial: 0,
 });
 
 /** The chords the module answers while the preview has the focus (`when: previewFocus`), as `chord=command` words. */
@@ -101,8 +104,9 @@ export function previewKeys(client: T3Client): string {
  *  ViewZoom: `chord`, its ARIA name; `step`, the window zoom step it would set). A partitioned frame reports no focus
  *  (clone/issues/browser-frame-focus-chords.md), so the page is asked, `document.hasFocus()` as a read. While it holds the
  *  focus, ⌘R reloads it (Manager.ts isPreviewRefreshShortcut) and a chord bound to a preview command under `previewFocus`
- *  runs that command (Manager.ts forwardedShortcuts); otherwise the window does what the chord does there, through the
- *  root's `window` frame command. */
+ *  runs that command (Manager.ts forwardedShortcuts), Focus URL by asking the address bar to take the focus; otherwise the
+ *  window does what the chord does there, through the root's `window` frame command, and ⌘L, which the window binds to
+ *  nothing, does nothing. */
 export async function browserKey(client: T3Client, frameIds: string, packed: string): Promise<void> {
   const q = new URLSearchParams(packed), chord = (q.get('chord') ?? '').replaceAll(' ', '+').toLowerCase(); // the View items send `meta+r` unencoded
   const bound = [...previewWinners(client)].find(([candidate]) => candidate.toLowerCase() === chord)?.[1] ?? '';
@@ -117,7 +121,16 @@ export async function browserKey(client: T3Client, frameIds: string, packed: str
   if (focused && command === 'refresh') commandFrame(client, focused.runtimeId, 'refresh');
   else if (focused && (command === 'zoom-in' || command === 'zoom-out')) setFrame(client, focused.runtimeId, { zoomStep: command === 'zoom-in' ? 'in' : 'out' });
   else if (focused && command === 'reset-zoom') setFrame(client, focused.runtimeId, { zoom: 1 });
-  else enqueue(client, { kind: 'window', id: '', url: '', delta: Number(q.get('step')) || 0, flag: chord === 'meta+r' });
+  else if (focused && command === 'focus-url') { const state = nav(client); state.focusUrl.set(focused.runtimeId, ++state.focusUrlCount); }
+  else if (chord !== 'meta+l') enqueue(client, { kind: 'window', id: '', url: '', delta: Number(q.get('step')) || 0, flag: chord === 'meta+r' });
+  client.revision++;
+}
+
+/** The address bar took the focus a page's ⌘L asked for (browser-surface.contract BrowserChrome): a later mount of the
+ *  chrome must not take it again. */
+export function focusUrlTaken(client: T3Client, runtimeId: string, serial: number): void {
+  const pending = nav(client).focusUrl;
+  if (serial > 0 && pending.get(runtimeId) === serial) pending.delete(runtimeId);
   client.revision++;
 }
 
@@ -147,7 +160,7 @@ export function navigationView(client: T3Client, ref: ScopedThreadRef, runtimeId
     windowZoom: windowZoomFactor(client),
     viewportMode: viewport._tag, viewportWidth: viewport._tag === 'fill' ? 0 : viewport.width, viewportHeight: viewport._tag === 'fill' ? 0 : viewport.height,
     viewportKey: browserViewportSettingKey(viewport), viewportSerial: state.viewportSerial.get(runtimeId) ?? 0, presetId: preset?.id ?? '', presetLabel: preset?.label ?? 'Responsive',
-    aspectLocked: viewport._tag !== 'fill' && state.aspectLocked.has(runtimeId), keys: previewKeys(client),
+    aspectLocked: viewport._tag !== 'fill' && state.aspectLocked.has(runtimeId), keys: previewKeys(client), focusUrlSerial: state.focusUrl.get(runtimeId) ?? 0,
   };
   if (!empty) return view;
   // PreviewEmptyState: Recently used (parseable, at most 8) and the live Local servers.

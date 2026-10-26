@@ -1,5 +1,4 @@
 import AppKit
-import WebKit
 import XCTest
 
 // The shell's context menu as a person's right-click found it (#407).
@@ -171,70 +170,5 @@ final class RealInput1010gTests: ShellMenuCase {
         T3TextContextMenu.withoutSystemItems(menu)
         XCTAssertFalse(menu.allowsContextMenuPlugIns)
         if #available(macOS 15.2, *) { XCTAssertFalse(menu.automaticallyInsertsWritingToolsItems, "no Writing Tools where Apple Intelligence is on") }
-    }
-}
-
-/// A Browser page's web view that keeps the menu WebKit opens (WebKit's menu has a delegate of its own).
-private final class ReadingWebView: T3ShellWebView {
-    weak var opened: NSMenu?
-    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-        super.willOpenMenu(menu, with: event)
-        opened = menu
-    }
-}
-
-/// The same in a Browser page (T3ShellWebView, #407 step 6 and 7): WebKit pops its menu through AppKit too, so the reshaped
-/// menu is drawn without Services or AutoFill, as the reference's `<webview>` menu.
-final class RealInput1010gWebTests: XCTestCase {
-    private var window: NSWindow!
-    private var web: ReadingWebView!
-
-    override func setUp() {
-        _ = NSApplication.shared
-        T3ShellWebView.agent = false
-        window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        web = ReadingWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        window.contentView = web
-        window.orderFrontRegardless()
-        web.loadHTMLString("""
-            <!doctype html><body style="margin:0;font:16px sans-serif">
-            <p style="position:absolute;left:10px;top:10px;margin:0">Plain words here</p>
-            <input id=f value="Field text" style="position:absolute;left:10px;top:60px;width:200px;font:16px sans-serif">
-            </body>
-            """, baseURL: URL(string: "http://localhost/"))
-        RunLoop.main.run(until: Date().addingTimeInterval(2))
-    }
-    override func tearDown() { window.orderOut(nil) }
-
-    /// Right-clicks the page at (x, top-down y) and reads the menu AppKit draws, from a timer in the menu's tracking loop.
-    private func drawn(_ x: CGFloat, _ y: CGFloat) -> [String]? {
-        var drawn: [String]?
-        web.opened = nil
-        let reader = Timer(timeInterval: 0.1, repeats: true) { [unowned self] timer in
-            guard let menu = web.opened else { return }
-            let items = DrawnMenuReader.drawnItems()
-            guard !items.isEmpty else { return }
-            drawn = items
-            timer.invalidate()
-            menu.cancelTrackingWithoutAnimation()
-        }
-        RunLoop.main.add(reader, forMode: .common)
-        defer { reader.invalidate() }
-        let point = NSPoint(x: x, y: 400 - y)
-        for type in [NSEvent.EventType.rightMouseDown, .rightMouseUp] {
-            NSApp.sendEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
-        }
-        let deadline = Date().addingTimeInterval(4)
-        while drawn == nil, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-        return drawn
-    }
-
-    func testABrowserPagesMenuIsDrawnWithoutServicesOrAutoFill() {
-        let word = drawn(30, 18), field = drawn(40, 70)
-        print("t3.rg3: Browser page, a word: \(word ?? []); a word in a field: \(field ?? [])")
-        XCTAssertEqual(word, ["Cut", "Copy", "Paste", "Select All"], "a word: selected, Copy (#407 step 6)")
-        XCTAssertEqual(field, ["Cut", "Copy", "Paste", "Select All"], "a word in a field (#407 step 7)")
     }
 }

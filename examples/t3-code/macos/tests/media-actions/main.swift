@@ -3,13 +3,11 @@ import CryptoKit
 import ImageIO
 import Network
 import UniformTypeIdentifiers
-import WebKit
 import XCTest
 
 // T3MediaActions.swift (the media menu, Save, Copy image, Copy path) against a
-// loopback server, and the rendered HTML preview's external hosts (T3MediaPreview.swift). Every
-// pasteboard write goes to the agent's private pasteboard; saves go to a temporary exports/.
-// `T3_MEDIA_ACTIONS_NETWORK=1` adds the public https host (needs the network).
+// loopback server. Every pasteboard write goes to the agent's private pasteboard; saves go to a
+// temporary exports/.
 
 final class Fixture {
     private let listener: NWListener
@@ -192,62 +190,6 @@ final class MediaActionsTests: XCTestCase {
         XCTAssertEqual(panel.allowedContentTypes, [UTType(filenameExtension: "mp4")!])
         XCTAssertTrue(panel.allowsOtherFileTypes)
         print("save: sha256 \(SHA256.hash(data: saved).description.suffix(16)) equal to the source; second save named \"clip one (1).mp4\"")
-    }
-
-    /// The rendered HTML preview loads assets from other hosts as the reference's sandboxed frame does:
-    /// an http IP host (stylesheet, script, fetch), a named http host resolving to loopback
-    /// (localtest.me: this unbundled binary has no ATS; the bundle allows it through app.json's
-    /// `appTransportSecurity`, exact2 #106), and, with the
-    /// network, a public https image.
-    func testRenderedHtmlLoadsExternalAssets() throws {
-        _ = NSApplication.shared
-        let other = try Fixture()
-        let media = T3MediaPreview(agent: true)
-        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 520, height: 420), styleMask: [.titled], backing: .buffered, defer: false)
-        let host = NSView(frame: window.contentView!.bounds)
-        window.contentView!.addSubview(host)
-        window.orderFrontRegardless()
-        defer { media.destroy(); window.orderOut(nil) }
-        let ip = "http://127.0.0.1:\(other.port)", named = "http://localtest.me:\(other.port)"
-        let network = ProcessInfo.processInfo.environment["T3_MEDIA_ACTIONS_NETWORK"] == "1"
-        other.routes["/style.css"] = (200, "text/css", Data("h1 { color: rgb(9, 8, 7); }".utf8))
-        other.routes["/app.js"] = (200, "text/javascript", Data("window.external = 'ran';".utf8))
-        other.routes["/data.json"] = (200, "application/json", Data("{\"ok\":1}".utf8))
-        other.routes["/named.svg"] = (200, "image/svg+xml", Data("<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14'><rect width='14' height='14' fill='green'/></svg>".utf8))
-        fixture.routes["/api/assets/tok/page.html"] = (200, "text/html", Data("""
-        <!doctype html><html><head><link rel="stylesheet" href="\(ip)/style.css"><script src="\(ip)/app.js"></script></head>
-        <body><h1 id="h">External assets</h1><img id="n" src="\(named)/named.svg" alt="">\(network ? "<img id=\"s\" src=\"https://www.google.com/favicon.ico\" alt=\"\">" : "")
-        <script>fetch('\(ip)/data.json').then(function (r) { return r.text(); }).then(function (t) { document.body.dataset.fetched = t; }, function () { document.body.dataset.fetched = 'refused'; });</script>
-        </body></html>
-        """.utf8))
-        media.mount(host: host, kind: "html", raw: "\(fixture.base)/api/assets/tok/page.html", name: "page.html")
-        let web = try XCTUnwrap(host.subviews.first as? WKWebView)
-        func evaluate(_ script: String) -> String {
-            var value: String?
-            let end = Date().addingTimeInterval(5)
-            while media.documentFrame(of: web) == nil && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-            guard let frame = media.documentFrame(of: web) else { return "no frame" }
-            web.evaluateJavaScript(script, in: frame, in: .page) { result in
-                switch result { case .success(let any): value = (any as? String) ?? "\(any)"; case .failure(let error): value = "error: \(error.localizedDescription)" }
-            }
-            while value == nil && Date() < end.addingTimeInterval(5) { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-            return value ?? "timeout"
-        }
-        func settle(_ script: String, _ expected: String) -> String {
-            let end = Date().addingTimeInterval(network ? 10 : 6)
-            var value = evaluate(script)
-            while value != expected && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.1)); value = evaluate(script) }
-            return value
-        }
-        XCTAssertEqual(settle("getComputedStyle(document.getElementById('h')).color", "rgb(9, 8, 7)"), "rgb(9, 8, 7)", "http IP stylesheet")
-        XCTAssertEqual(settle("String(window.external)", "ran"), "ran", "http IP script")
-        XCTAssertEqual(settle("String(document.body.dataset.fetched)", "{\"ok\":1}"), "{\"ok\":1}", "http IP fetch")
-        XCTAssertEqual(settle("String(document.getElementById('n').naturalWidth)", "14"), "14", "named http host (loopback)")
-        var https = "not run"
-        if network { https = settle("String(document.getElementById('s').naturalWidth > 0)", "true"); XCTAssertEqual(https, "true", "public https image") }
-        let reached = Set(other.seen.map { String($0.split(separator: "?").first ?? "") })
-        XCTAssertEqual(reached, ["/style.css", "/app.js", "/data.json", "/named.svg"])
-        print("rendered html: http IP css/js/fetch loaded; named http host (localtest.me) loaded in this unbundled binary; public https image: \(https)")
     }
 }
 

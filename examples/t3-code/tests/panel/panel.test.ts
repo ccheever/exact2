@@ -19,6 +19,7 @@ import { diagramPreviewAction, diagramPreviewView, noteMermaidFrame } from '../.
 import type { Native } from '../../src/client/protocol';
 import { value } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
+import { memoryAppFiles, serveAssets } from '../support/asset-server';
 
 const panel = (): PanelState => ({ surfaces: [], active: '', visible: false, userRevision: 0 });
 type Call = { method: string; payload: Record<string, unknown>; write: boolean };
@@ -175,7 +176,10 @@ describe('Files surface', () => {
     const subheader = async (path: string) => { await surfaceLocal(client, native, 'file', path, ''); const files = (await panelView(client, native, 0)).files; return [files.preview, files.rawText, files.openInBrowser]; };
     expect(await subheader('docs/notes.ts')).toEqual(['code', true, false]);
     expect(await subheader('docs/page.html')).toEqual(['html', false, true]);
-    expect(await subheader('docs/guide.pdf')).toEqual(['pdf', false, true]);
+    // The PDF's frame shows a local copy of the asset (media-frame.ts).
+    const server = serveAssets(() => ({ body: '%PDF-1.4' }));
+    memoryAppFiles();
+    try { expect(await subheader('docs/guide.pdf')).toEqual(['pdf', false, true]); } finally { server.restore(); }
     expect(await subheader('docs/logo.png')).toEqual(['media', false, false]);
     // The page's source (the eye toggle) is text again: word wrap comes back, the Browser button stays.
     await surfaceLocal(client, native, 'files-render', 'docs/page.html', '');
