@@ -1,0 +1,20 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/search-index@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.searchindex.SearchIndexModule"
+}

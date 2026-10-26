@@ -108,6 +108,37 @@ android {
             manifestChildren(fragment, services.entries.joinToString("") { service(it.key, it.value) }) + "</manifest>\n")
         sourceSets["release"].manifest.srcFile(permissions)
     }
+    // The manifest's `shortcuts` as the launcher activity's static shortcuts (LLP 1133.023 D3, D17), in order: each
+    // starts the activity with its location as the intent's data, which the reader takes as a link's. Labels and the
+    // disabled message are string resources, as `shortcuts.xml` requires; an app with none has an empty list.
+    run {
+        val res = layout.buildDirectory.dir("shortcuts/res").get().asFile
+        val items = (manifest["shortcuts"] as List<*>?).orEmpty().map { it as Map<*, *> }
+        val pkg = (identity["id"] as String).replace('-', '_') + ((project.findProperty("idSuffix") as String?) ?: "")
+        val attr = { v: String -> v.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;") }
+        // A string resource's own escapes: a backslash, an apostrophe, and `@` or `?` leading.
+        val text = { v: String -> attr(v).replace("\\", "\\\\").replace("'", "\\'").replace(Regex("^([@?])"), "\\\\$1") }
+        val strings = StringBuilder()
+        val shortcuts = StringBuilder()
+        items.forEachIndexed { i, item ->
+            val name = item["name"] as String
+            val disabled = (item["android"] as Map<*, *>?)?.get("disabledMessage") as String?
+            strings.append("    <string name=\"exact_shortcut_${i}_short\">${text((item["short_name"] as String?) ?: name)}</string>\n")
+            strings.append("    <string name=\"exact_shortcut_${i}_long\">${text(name)}</string>\n")
+            disabled?.let { strings.append("    <string name=\"exact_shortcut_${i}_disabled\">${text(it)}</string>\n") }
+            shortcuts.append("    <shortcut android:shortcutId=\"manifest-$i\" android:enabled=\"true\"\n" +
+                "        android:shortcutShortLabel=\"@string/exact_shortcut_${i}_short\" android:shortcutLongLabel=\"@string/exact_shortcut_${i}_long\"" +
+                (disabled?.let { "\n        android:shortcutDisabledMessage=\"@string/exact_shortcut_${i}_disabled\"" } ?: "") + ">\n" +
+                "        <intent android:action=\"android.intent.action.VIEW\" android:targetPackage=\"$pkg\"\n" +
+                "            android:targetClass=\"dev.exact.app.MainActivity\" android:data=\"${attr(item["url"] as String)}\" />\n" +
+                "    </shortcut>\n")
+        }
+        res.resolve("xml").mkdirs()
+        res.resolve("values").mkdirs()
+        res.resolve("xml/exact_shortcuts.xml").writeText("<shortcuts xmlns:android=\"http://schemas.android.com/apk/res/android\">\n$shortcuts</shortcuts>\n")
+        res.resolve("values/exact_shortcuts.xml").writeText("<resources>\n$strings</resources>\n")
+        sourceSets["main"].res.directories.add(res.path)
+    }
     // The token names `bun exact.mjs tamber gen kotlin` wrote (LLP 1121 D12; never committed).
     appDir.resolve(".exact/tamber/TamberTokens.kt").takeIf { it.isFile }?.let { sourceSets["main"].kotlin.directories.add(it.parent) }
     if (compose) buildFeatures { this.compose = true }

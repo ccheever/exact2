@@ -497,6 +497,8 @@ internal object Exact {
     const val KEY_WAIT_MS = 2L
 
     fun back(): Boolean = owner?.sync { Native.back() } ?: Native.back()
+    /** A URL given to the running app ([Native.open], LLP 1133.023 D15 item 3): on exact2's thread, in order. */
+    fun open(href: String) { val o = owner; if (o != null) { o.input(); o.call { Native.open(href) } } else Native.open(href) }
 
     /** A driver's request ([Native.agent], [AgentDrive]): answered on exact2's thread, which then publishes what it
      * painted; waited for, since the driver's next request follows its answer. Carried only where exact2 has a

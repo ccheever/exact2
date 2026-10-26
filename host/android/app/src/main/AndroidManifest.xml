@@ -30,6 +30,8 @@
                 <!-- The TV launcher's entry (D5). -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- The app manifest's `shortcuts` (app/build.gradle.kts writes the list; LLP 1133.023 D3). -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/exact_shortcuts" />
         </activity>
     </application>
 </manifest>

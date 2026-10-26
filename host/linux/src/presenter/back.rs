@@ -49,7 +49,7 @@ impl<D: DataSource> Presenter<D> {
     /// The navigation root that shows: the first node in tree order that
     /// carries `navigationBack` (lowering gives the first root with a
     /// `navigationKey` one, empty where the author named no control).
-    fn navigation_root(&self) -> Option<ViewId> {
+    pub(super) fn navigation_root(&self) -> Option<ViewId> {
         let kernel = self.host.kernel();
         if !kernel.has_prop(PropId::NavigationBack) {
             return None;

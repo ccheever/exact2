@@ -125,8 +125,16 @@ pub(crate) fn test_plan(source: &str) -> Vec<u8> {
     if let Some(plan) = plans.lock().unwrap_or_else(|e| e.into_inner()).get(source) {
         return plan.clone();
     }
-    // Compiled outside the lock, so one test's compile never waits on another's
-    let plan = test_compile(source);
+    // Compiled outside the lock, so one test's compile never waits on another's. Shelf's at its own
+    // path, where its app.json is read.
+    let plan = if source == include_str!("../../../apps/shelf/app.contract") {
+        let shelf = concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/shelf/app.contract");
+        contract::compile_path_source(std::path::Path::new(shelf), source)
+            .unwrap()
+            .encode()
+    } else {
+        test_compile(source)
+    };
     plans
         .lock()
         .unwrap_or_else(|e| e.into_inner())

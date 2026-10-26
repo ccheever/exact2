@@ -106,6 +106,17 @@ open class ExactActivity : Activity() {
         }
         setContentView(root)
         accessibility.addAccessibilityStateChangeListener(accessWatch)
+        // A launch with a URL (a shortcut, a link) into a process whose host runs goes where the URL says; one the
+        // system restores (a saved state) keeps where it was. The first launch's is the host's launch location
+        // ([environment]).
+        if (again && state == null) intent.data?.let { Exact.open(it.toString()) }
+    }
+
+    /** A URL given to the running activity (LLP 1133.023 D15 item 3): its location, as a link's. */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.data?.let { Exact.open(it.toString()) }
     }
 
     /** Whether an accessibility service is on (LLP 1115.001 D13). The reader answers one through its root
@@ -521,6 +532,9 @@ open class ExactActivity : Activity() {
     /** The launch extras that reach exact2 as its environment, written before its library loads. */
     private fun environment() {
         android.system.Os.setenv("XDG_CACHE_HOME", cacheDir.absolutePath, true)
+        // The launching intent's URL is the launch location (LLP 1133.023 D15 item 3): the activity is exported, so
+        // any app may start it with one, which reaches only what the navigation root routes, as a link does.
+        intent.data?.let { android.system.Os.setenv("EXACT_LAUNCH_URL", it.toString(), true) }
         // rows=0: no kept rows, every frame walks every row (exact2's EXACT_ROWS), to compare.
         if (intent.getStringExtra("rows") == "0") android.system.Os.setenv("EXACT_ROWS", "0", true)
         // imgvp=N: keep N viewports of decoded pictures (exact2's EXACT_IMAGE_VIEWPORTS; 12 by default).

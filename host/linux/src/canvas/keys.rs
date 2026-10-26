@@ -53,4 +53,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.force |= taken;
         taken
     }
+
+    /// A URL the activity was given while the app runs (`onNewIntent`, or
+    /// an activity made again in a running process), as a link's location
+    /// (LLP 1133.023 D15 item 3). The one at launch is `EXACT_LAUNCH_URL`.
+    pub fn open(&mut self, href: &str) {
+        let now = self.now();
+        if let Some(error) = self.p.open_location(href, now) {
+            eprintln!("exact: {error}");
+        }
+        self.force = true;
+    }
 }

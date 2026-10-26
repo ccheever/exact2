@@ -5,6 +5,7 @@
   "description": "The menu of the app's icon, with the Web App Manifest's ShortcutItem (LLP 1133.023).",
   "exports": {
     ".": "./exact.json",
-    "./apple": "./apple/exact.json"
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json"
   }
 }

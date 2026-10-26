@@ -83,7 +83,8 @@ pub struct Config {
     /// Explicit consumer registration before the first layout; ordinary default
     /// is None. This trial never guesses bindings from test IDs.
     pub content_region: Option<crate::content_region::ContentRegionRegistration>,
-    /// The first location-bearing argument, canonicalized by exact-route.
+    /// The first location-bearing argument, else `EXACT_LAUNCH_URL`,
+    /// canonicalized by exact-route.
     pub launch: String,
     /// The plan to boot: the binary's own bytes, borrowed, unless another
     /// plan was selected.
@@ -238,7 +239,9 @@ impl Config {
             .unwrap_or((420.0, 860.0));
         Config {
             content_region: None,
-            launch: launch_location(std::env::args().skip(1)),
+            // An argument, else `EXACT_LAUNCH_URL`: the Android reader's launching intent's data has no
+            // command line to arrive by (LLP 1133.023 D15 item 3).
+            launch: launch_location(std::env::args().skip(1).chain(env("EXACT_LAUNCH_URL"))),
             plan,
             fallback_plan,
             assets: env("EXACT_ASSETS")
