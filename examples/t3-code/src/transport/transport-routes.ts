@@ -16,7 +16,8 @@ import { sendsCredentialInClear, type ConnectionRoute } from '../connections/con
 
 export interface HttpReply { status: number; text: string }
 /** `maxBytes`: the reply's ceiling (default 1 MiB); each request may overlap the others (exact2's independent HTTP). */
-export interface HttpInit { method?: string; headers?: Record<string, string>; body?: string | Uint8Array; timeoutMs: number; signal?: AbortSignal; maxBytes?: number }
+/** `bodyFrom`: an app file the host sends as the body (`exactBodyFrom`), whose bytes never enter JavaScript. */
+export interface HttpInit { method?: string; headers?: Record<string, string>; body?: string | Uint8Array; bodyFrom?: string; timeoutMs: number; signal?: AbortSignal; maxBytes?: number }
 /** A GET or POST the routes and sessions make; resolves with any status, rejects only when nothing came back. */
 export type Http = (url: string, init: HttpInit) => Promise<HttpReply>;
 /** A reply's JSON body; undefined when it is not JSON. An empty body is an empty object. */

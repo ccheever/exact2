@@ -9,8 +9,12 @@ import { decodePng } from './png-decode';
 
 /** Where the fetched image and its scaled PNG are written for the moment of the read (app.ts grants). */
 export const ACCENT_SCRATCH = 'app:/tmp/image-accent';
-/** PROVIDER_SEND_TURN_MAX_IMAGE_BYTES, with room: a larger reply is refused by the fetch, and the chip keeps its tone. */
-const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+/**
+ * The largest image read for an accent; a larger reply is refused by the fetch, and the chip keeps its tone. The bytes
+ * pass through JavaScript twice (the reply, then their base64 to write the file), and a 6 MB image's copies exceeded
+ * the module's 64 MiB heap, aborting the app.
+ */
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const ACCENT_SIDE = 128;
 
 interface AccentFiles {

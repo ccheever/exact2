@@ -26,11 +26,12 @@ async function questionSubmission(gate?: Gate) {
   const entered = new Promise<void>(resolve => { reached = resolve; });
   const held = new Promise<void>(resolve => { release = resolve; });
   const calls: { request: Obj; afterSwitch: boolean }[] = [];
-  const original = native.later.bind(native), write = disk.fs.atomicWriteFile.bind(disk.fs), read = fs.readFile.bind(fs);
-  fs.readFile = async (path: string) => {
-    calls.push({ request: { op: 'readStaged', path }, afterSwitch: changed });
+  const original = native.later.bind(native), write = disk.fs.atomicWriteFile.bind(disk.fs), stat = fs.stat.bind(fs);
+  // The upload looks up its staged copy (stagedUpload) before it mints an upload URL.
+  fs.stat = async (path: string) => {
+    calls.push({ request: { op: 'statStaged', path }, afterSwitch: changed });
     if (waiting && gate === 'read' && path.startsWith(STAGED)) { waiting = false; reached(); await held; }
-    return read(path);
+    return stat(path);
   };
   native.later = async input => {
     const request = obj(input); calls.push({ request, afterSwitch: changed });
@@ -61,7 +62,7 @@ describe('pending question submission ownership', () => {
       stageTextAttachment(client, 'replacement context', 'replacement.txt', 'text/plain', 'second-file');
       release(); await submitting;
       expect(native.committed.filter(request => request.type === 'runtime-request.respond')).toEqual([]);
-      expect(calls.filter(call => call.afterSwitch && ['readStaged', 'uploadAttachment'].includes(String(call.request.op)))).toEqual([]);
+      expect(calls.filter(call => call.afterSwitch && ['statStaged', 'uploadAttachment'].includes(String(call.request.op)))).toEqual([]);
       expect(calls.filter(call => call.afterSwitch && ['attachments.createUploadUrl', 'orchestration.dispatchCommand'].includes(String(call.request.method)))).toEqual([]);
       expect(client.local.pending).toEqual({});
       expect(client.local.drafts[draftKey]).toBe('Keep the original draft');

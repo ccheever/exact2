@@ -50,7 +50,8 @@ describe('Attach files: plain files (addComposerAttachments)', () => {
     expect(fileChipContexts(client, prompt)).toEqual({ [`file/file_${uuid(1)}`]: 'file\t1 KB' });
     const attachments = await composerFileAttachments(client, native, prompt);
     expect(rpcs).toEqual([{ method: 'attachments.createUploadUrl', payload: { type: 'file', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 5 } }]);
-    expect(calls.find(call => call.op === 'uploadAttachment')).toMatchObject({ path: '/api/attachments/upload/y', base64: 'aGVsbG8=', contentType: 'text/markdown' });
+    // The host sends the staged copy from its path, as the reference's XMLHttpRequest sends the File.
+    expect(calls.find(call => call.op === 'uploadAttachment')).toMatchObject({ path: '/api/attachments/upload/y', bodyFrom: `${STAGED}/${uuid(1)}`, sizeBytes: 5, contentType: 'text/markdown' });
     expect(released()).toEqual([uuid(1)]);
     expect(attachments).toEqual([{ type: 'file', id: 'att-7', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 5 }]);
     expect(composerFileRecords(client, prompt)).toMatchObject([{ kind: 'file', contextId: `file_${uuid(1)}`, attachmentId: 'att-7', name: 'notes.md' }]);

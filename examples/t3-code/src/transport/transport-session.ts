@@ -435,14 +435,14 @@ export class Session {
   }
 
   /** One request on the connected origin; the JSON reply, or the failure the reference reports. */
-  async http(target: string, options: { epoch: number; method?: string; body?: string | Uint8Array; contentType?: string; authorized?: boolean; long?: boolean; large?: boolean }): Promise<unknown> {
+  async http(target: string, options: { epoch: number; method?: string; body?: string | Uint8Array; bodyFrom?: string; contentType?: string; authorized?: boolean; long?: boolean; large?: boolean }): Promise<unknown> {
     if (!this.origin) throw new TransportFailure('Disconnected', 'Connect to a server first.');
     const url = onOrigin(target, this.origin);
     const headers: Record<string, string> = { 'x-t3-orchestration-protocol': '2', Accept: 'application/json' };
-    if (options.body !== undefined) headers['Content-Type'] = options.contentType ?? 'application/json';
+    if (options.body !== undefined || options.bodyFrom) headers['Content-Type'] = options.contentType ?? 'application/json';
     if (options.authorized !== false) headers.Authorization = `Bearer ${this.token}`;
     let reply: HttpReply;
-    try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, timeoutMs: options.long ? 60_000 : 30_000, signal: this.abort?.signal, maxBytes: options.large ? MAXIMUM_BYTES : undefined }); }
+    try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, ...(options.bodyFrom ? { bodyFrom: options.bodyFrom } : {}), timeoutMs: options.long ? 60_000 : 30_000, signal: this.abort?.signal, maxBytes: options.large ? MAXIMUM_BYTES : undefined }); }
     catch (error) {
       if (letGoAbort(error)) throw error;
       if (!this.alive || this.generation !== options.epoch) throw new TransportFailure('Replaced', 'The connection changed during the request.');
@@ -968,9 +968,19 @@ export class Session {
     const declared = str(request.contentType);
     const typed = !!declared && /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+(;[ A-Za-z0-9=._-]*)?$/.test(declared);
     const target = str(request.path);
+    const limit = (typed ? 50 : 10) * 1024 * 1024;
+    // A staged file or image draft is sent from its app file, as the reference's XMLHttpRequest sends a File: the host
+    // reads it as the request goes out, so neither its bytes nor their base64 enter JavaScript.
+    const from = str(request.bodyFrom), size = Number(request.sizeBytes);
+    if (from) {
+      if (!target.startsWith('/api/attachments/upload/') || !from.startsWith('app:/') || !(size > 0) || size > limit) {
+        throw this.argument(typed ? 'Choose a file up to 50MB.' : 'Choose a valid captured PNG up to10MB.');
+      }
+      return this.ok(await this.http(target, { epoch: this.generation, method: 'POST', bodyFrom: from, contentType: typed ? declared : 'image/png', authorized: false, large: true }));
+    }
     let data: Uint8Array | null = null;
     try { data = typeof request.base64 === 'string' ? Uint8Array.from(atob(request.base64), char => char.charCodeAt(0)) : null; } catch { data = null; }
-    if (!target.startsWith('/api/attachments/upload/') || !data || !data.length || data.length > (typed ? 50 : 10) * 1024 * 1024) {
+    if (!target.startsWith('/api/attachments/upload/') || !data || !data.length || data.length > limit) {
       throw this.argument(typed ? 'Choose a file up to 50MB.' : 'Choose a valid captured PNG up to10MB.');
     }
     const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
