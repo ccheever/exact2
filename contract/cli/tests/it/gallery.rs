@@ -944,3 +944,64 @@ fn a_string_shown_as_an_image_gets_a_neutral_picture_and_text_keeps_its_name() {
     assert!(text.contains("width='150' height='150'"), "{banner}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const STYLED: &str = r#"component Dot
+  props
+    size: string
+    ink: string
+    label: string
+  view
+    column width=size height=size background-color=ink aria-label=label
+      text label
+
+component Ring
+  props
+    edge: string
+    tint: string
+  view
+    Dot(size=edge, ink=tint, label="ring")
+"#;
+
+const STYLED_APP: &str = r#"use Dot, Ring from "@acme/lib"
+
+component App
+  view
+    column
+      Dot(size="4px", ink="red", label="a")
+      Ring(edge="4px", tint="red")
+"#;
+
+/// A string prop written as a style row's value, directly or through a
+/// component it is passed to, gets a value of that row's kind, not its name,
+/// which no row reads (LLP 1121 stage 15 B: Avatar's `width=size`,
+/// VerifiedBadge's `color=ink`): a length row `24px`, a colour row
+/// `currentcolor`; a label keeps its name.
+#[test]
+fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
+    let dir = fixture("styled");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), STYLED).unwrap();
+    std::fs::write(dir.join("app.contract"), STYLED_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(
+        g.cells.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        g.cells.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    let dot = text
+        .lines()
+        .find(|l| l.contains("Dot("))
+        .expect("a Dot cell");
+    assert!(dot.contains(r#"size="24px""#), "{dot}");
+    assert!(dot.contains(r#"ink="currentcolor""#), "{dot}");
+    assert!(dot.contains(r#"label="label""#), "{dot}");
+    let ring = text
+        .lines()
+        .find(|l| l.contains("Ring("))
+        .expect("a Ring cell");
+    assert!(ring.contains(r#"edge="24px""#), "{ring}");
+    assert!(ring.contains(r#"tint="currentcolor""#), "{ring}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

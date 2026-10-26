@@ -3999,6 +3999,13 @@ selection as the bar's current item (`aria-current="page"`, iOS's selected
 trait) and takes no long press itself: an item held for more puts
 `contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
 on the fill rather than the whole column.
+The in-repo `@exact/cards` exports PostCard, AtCard, ProfileHeader (and its
+ProfileAlert shape), Avatar `(src, size)` and VerifiedBadge `(badge, size,
+ink, mark)`; `badge` is `"verified"`, `"verifier"`, or `""` for none, which
+draws nothing. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
+`ink` and `mark`, have no defaults: pass token or role names
+(`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or
+your own), not literal colours, so setting those tokens restyles them.
 The in-repo packages' icons are icon tokens, which an app overrides by full
 name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
 (PostCard's context and reply lines), `cards.ban`, `cards.eye-slash`,

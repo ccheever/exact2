@@ -314,6 +314,80 @@ fn shows(c: &Component, file: &File, prop: &str, seen: &mut Vec<(String, String)
         })
 }
 
+/// What a string prop the view writes as a style row's value is shown
+/// with, by the row's kind: a colour row's `currentcolor` (the text's
+/// colour, a CSS colour every host reads), a length row's `24px`, where the
+/// prop's name would be no colour, token or length (Avatar's `width=size`,
+/// VerifiedBadge's `color=ink`, LLP 1121 stage 15 B); a length row is one
+/// whose every row is a dimension (a width, a padding), so a font's family
+/// or a weight keeps its name. Through a component
+/// of `file` the prop is passed to, at any depth, as [`shows_image`]; a
+/// colour row first where it reaches both. None for a prop no row takes.
+pub(super) fn style_sample(c: &Component, file: &File, prop: &str) -> Option<&'static str> {
+    let (colour, length) = styled(c, file, prop, &mut Vec::new());
+    if colour {
+        Some("currentcolor")
+    } else if length {
+        Some("24px")
+    } else {
+        None
+    }
+}
+
+/// Whether `c`'s view (or a component it passes `prop` to) writes `prop`
+/// as a colour row's value, and as a length row's.
+fn styled(
+    c: &Component,
+    file: &File,
+    prop: &str,
+    seen: &mut Vec<(String, String)>,
+) -> (bool, bool) {
+    use contract_lower::tags::AttrTarget;
+    use exact_kernel::generated::StyleCodec;
+    use exact_kernel::style::theme::{admits, Kind};
+    let key = (c.name.clone(), prop.to_string());
+    if seen.contains(&key) {
+        return (false, false);
+    }
+    seen.push(key);
+    let (mut colour, mut length) = (false, false);
+    let mut used: Vec<(String, String)> = Vec::new();
+    each(&c.view, &[], &mut |node, bound| {
+        if bound.iter().any(|b| b == prop) {
+            return;
+        }
+        match node {
+            Node::Element { attrs, .. } => {
+                for a in attrs.iter().filter(|a| yields(&a.value, prop)) {
+                    if let Some(AttrTarget::Styles(rows)) =
+                        contract_lower::style_names::lookup(&a.name)
+                    {
+                        colour |= !rows.is_empty() && rows.iter().all(|r| admits(Kind::Color, *r));
+                        length |= !rows.is_empty()
+                            && rows
+                                .iter()
+                                .all(|r| matches!(r.codec(), StyleCodec::Dimension));
+                    }
+                }
+            }
+            Node::Use { name, args, .. } => used.extend(
+                args.iter()
+                    .filter(|a| yields(&a.value, prop))
+                    .map(|a| (name.clone(), a.name.clone())),
+            ),
+            _ => {}
+        }
+    });
+    for (name, param) in used {
+        if let Some(d) = file.components.iter().find(|d| d.name == name) {
+            let (c2, l2) = styled(d, file, &param, seen);
+            colour |= c2;
+            length |= l2;
+        }
+    }
+    (colour, length)
+}
+
 /// Whether `e`'s value is `prop`'s, unchanged: the name itself, a template
 /// of it alone (`` `${src}` ``), or either branch of a `?:` (a fallback
 /// beside it). A template that adds text (`symbol:${name}`) makes another
