@@ -1694,7 +1694,11 @@ HDR and metadata where the host can and says what it wrote
 `compressImage` takes `rotate`, `flip` and `crop` too. Upload a file with `fetch(url, {method: "POST", headers:
 {"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
 reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
-through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Keep a picked photo by copying it to
+through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Download a file with
+`fetch(url, {exactBodyTo: path})`, not `arrayBuffer()` then `writeFile`: the host writes a 2xx body into the
+file as it arrives (under `fs.write`, at most 1 GiB), so a large file never enters the engine's 64 MiB heap;
+`response.exactBodyTo.bytes` is its size, and a reply that is not 2xx leaves the file untouched and reads as
+usual. Keep a picked photo by copying it to
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
@@ -3113,6 +3117,9 @@ After an action that causes a push you will read (a write the server echoes, a b
 request in flight (or each named) has had one reply, the server's own timeout answer included; then `clock
 data` lands what that reply started. Past its bound (20 s) it answers `settled: false, reason: "held"`,
 naming the targets that had none.
+A stream counts as landed at its first message, so for state it reaches later (a socket's READY after HELLO),
+wait with `clock until state <path> == <literal> within <ms>`: real time with the clock frozen, polling `state`
+until it equals the JSON literal; a miss fails naming the last value.
 `clock settle` also runs the clock to where the last running finite, unpaused
 transition or animation ends, firing the timers due on the way, so a test on a timer's grid moves with it,
 and on past a task due a commit later (`after(1, …)`, which an input or an answer armed) until none is.
@@ -3261,7 +3268,9 @@ the down, then every 83 ms),
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `clock held [<resource>…] [<n>s|<n>ms]`
 (the driver's: real time with the clock frozen until each held request, or each named, has had a reply, such as a
-long poll's after a push the test caused, within the bound, 20 s unless given; then `clock data`), `resize
+long poll's after a push the test caused, within the bound, 20 s unless given; then `clock data`), `clock until
+state <path> == <literal> within <ms>` (real time with the clock frozen until `expect state`'s path equals a
+string, number, `true`, `false` or `null`), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, including a `secret.keep`, its state and
 clock starting over, so a test shows what persists; the web reloads its current

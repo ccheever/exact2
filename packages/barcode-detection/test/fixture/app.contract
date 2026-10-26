@@ -1,0 +1,206 @@
+// The vision and translation packages' conformance fixture (LLP 1133.001 D7,
+// LLP 1133.027 §9): @exact/barcode-detection, @exact/text-detection and
+// @exact/translation read and sent as an app would, each answer shown by
+// testId for the suites. An image comes in through the file input, as a
+// person's pick does; a live scan reads the back camera the viewfinder shows,
+// which can be hidden.
+use getSupportedFormats, detectBarcodes, detectedBarcodes, BarcodeFormats, DetectedBarcodeList, BarcodeScan from "@exact/barcode-detection"
+use textDetectorAvailability, detectText, TextDetectorAvailability, DetectedTextList from "@exact/text-detection"
+use translatorAvailability, createTranslator, translate, destroyTranslator, languageDetectorAvailability, createLanguageDetector, detectLanguage, destroyLanguageDetector, TranslatorAvailability, TranslatorInfo, TranslatorResult, LanguageDetectorAvailability, LanguageDetectorInfo, LanguageDetectionResults, TranslationDone from "@exact/translation"
+use getUserMedia, stopTrack, MediaStream, MediaStreamTrack from "@exact/media-capture"
+use takePhoto, Photo from "@exact/camera"
+
+component Fixture
+  state image = ""
+  state answers = 0
+  state track = ""
+  state shown = true
+  state src = "ja"
+  state dst = "en"
+  state input = "明日の会議は十時からです。"
+  resource formats = getSupportedFormats() as shape BarcodeFormats else empty()
+  resource reader = textDetectorAvailability() as shape TextDetectorAvailability else empty()
+  resource readerEn = textDetectorAvailability(languages=["en-US", "fr"]) as shape TextDetectorAvailability else empty()
+  resource scan = detectedBarcodes(track=track) as shape BarcodeScan else empty()
+  resource pair = translatorAvailability(sourceLanguage=src, targetLanguage=dst) as shape TranslatorAvailability else empty()
+  resource identifier = languageDetectorAvailability() as shape LanguageDetectorAvailability else empty()
+  mutation found as shape DetectedBarcodeList then tally
+  mutation read as shape DetectedTextList
+  mutation opened as shape MediaStream then arm
+  mutation stopped as shape MediaStreamTrack
+  mutation shot as shape Photo
+  mutation translator as shape TranslatorInfo
+  mutation translated as shape TranslatorResult
+  mutation detector as shape LanguageDetectorInfo
+  mutation detected as shape LanguageDetectionResults
+  mutation destroyed as shape TranslationDone
+  derive foundError = match failure(found) { case some(f) => f.code, case none => "" }
+  derive readError = match failure(read) { case some(f) => f.code, case none => "" }
+  derive translatorId = match translator { case some(t) => t.id, case none => "" }
+  derive detectorId = match detector { case some(d) => d.id, case none => "" }
+  action picked(files: Picked[])
+    image = match files.at(0) { case some(f) => f.path, case none => "" }
+  action tally
+    answers = answers + 1
+  action choose
+    showPicker("image")
+  action detectDefault
+    send found = detectBarcodes(image=image)
+  action detectUpc
+    send found = detectBarcodes(image=image, formats=["upc_a"])
+  action detectEan
+    send found = detectBarcodes(image=image, formats=["ean_13"])
+  action detectQr
+    send found = detectBarcodes(image=image, formats=["qr_code"])
+  action detectUnknown
+    send found = detectBarcodes(image=image, formats=["unknown"])
+  action detectOutside
+    send found = detectBarcodes(image="app:/data/none.png")
+  action detectMissing
+    send found = detectBarcodes(image="app:/tmp/picked/missing.png")
+  action readText
+    send read = detectText(image=image)
+  action readMissing
+    send read = detectText(image="app:/tmp/picked/missing.png")
+  action readTextEn
+    send read = detectText(image=image, languages=["en-US", "fr"])
+  action open
+    send opened = getUserMedia(video=true)
+  action arm
+    match opened
+      case some(s)
+        track = match s.tracks.at(0) { case some(t) => t.id, case none => "" }
+      case none
+        track = ""
+  action stop
+    send stopped = stopTrack(track=track)
+  action shoot
+    send shot = takePhoto(track=track)
+  action toggle
+    shown = not shown
+  action languages(s: string, d: string)
+    src = s
+    dst = d
+  action create
+    send translator = createTranslator(sourceLanguage=src, targetLanguage=dst)
+  action run
+    send translated = translate(translator=translatorId, input=input)
+  action destroy
+    send destroyed = destroyTranslator(translator=translatorId)
+  action createDetector
+    send detector = createLanguageDetector()
+  action identify
+    send detected = detectLanguage(detector=detectorId, input=input)
+  action destroyDetector
+    send destroyed = destroyLanguageDetector(detector=detectorId)
+  action say(v: string)
+    input = v
+  view
+    column gap=8 padding=16
+      input type="file" accept="image/*" id="image" change=picked testId="image"
+      text image testId="path"
+      text `${formats.formats.join(",")} ${formats.tracks}` testId="formats"
+      match found
+        case some(f)
+          text `${f.width}x${f.height} ${f.barcodes.length}` testId="found"
+          for b in f.barcodes key=b.rawValue
+            text `${b.format} ${b.rawValue} ${b.boundingBox.x} ${b.boundingBox.y} ${b.boundingBox.width} ${b.boundingBox.height} ${b.cornerPoints.length}` testId="code"
+        case none
+          text "none" testId="found"
+      text foundError testId="found-error"
+      text `${answers}` testId="answers"
+      text `${reader.availability} ${match reader.reason { case some(r) => r, case none => "-" }} ${reader.languages.length}` testId="reader"
+      text `${readerEn.availability} ${match readerEn.reason { case some(r) => r, case none => "-" }} ${readerEn.languages.join(",")}` testId="reader-en"
+      match read
+        case some(r)
+          text `${r.width}x${r.height} ${r.texts.length}` testId="read"
+          text r.texts.map(t => t.rawValue).join("|") testId="lines"
+          for t in r.texts key=t.rawValue
+            text `${t.rawValue}|${t.boundingBox.x} ${t.boundingBox.y} ${t.boundingBox.width} ${t.boundingBox.height}` testId="line"
+        case none
+          text "none" testId="read"
+      text readError testId="read-error"
+      text `${scan.state} ${scan.frame} ${scan.barcodes.length} ${scan.width}x${scan.height} ${match scan.error { case some(e) => e, case none => "-" }}` testId="scan"
+      for s in scan.seen key=s.rawValue
+        text `${s.format} ${s.rawValue} ${s.firstSeen} ${s.lastSeen} ${s.frames}` testId="seen"
+      text `${pair.availability} ${match pair.reason { case some(r) => r, case none => "-" }} ${match pair.progress { case some(p) => p, case none => -1 }}` testId="pair"
+      text `${identifier.availability} ${match identifier.reason { case some(r) => r, case none => "-" }}` testId="identifier"
+      match translator
+        case some(t)
+          text `${t.id} ${t.sourceLanguage} ${t.targetLanguage} ${match t.attribution { case some(a) => a, case none => "-" }}` testId="translator"
+        case none
+          text "none" testId="translator"
+      text (match failure(translator) { case some(f) => f.code, case none => "" }) testId="translator-error"
+      match translated
+        case some(t)
+          text t.text testId="translated"
+        case none
+          text "none" testId="translated"
+      text (match failure(translated) { case some(f) => f.code, case none => "" }) testId="translated-error"
+      match detected
+        case some(d)
+          for r in d.results key=r.detectedLanguage
+            text `${r.detectedLanguage} ${r.confidence}` testId="language"
+        case none
+          text "none" testId="language"
+      text (match failure(detector) { case some(f) => f.code, case none => "" }) testId="detector-error"
+      text (match failure(detected) { case some(f) => f.code, case none => "" }) testId="detected-error"
+      row gap=4 flex-wrap="wrap"
+        button press=choose testId="choose"
+          text "Choose"
+        button press=detectDefault testId="detect"
+          text "Detect"
+        button press=detectUpc testId="detect-upc"
+          text "UPC-A"
+        button press=detectEan testId="detect-ean"
+          text "EAN-13"
+        button press=detectQr testId="detect-qr"
+          text "QR"
+        button press=detectUnknown testId="detect-unknown"
+          text "Unknown"
+        button press=detectOutside testId="detect-outside"
+          text "Outside"
+        button press=detectMissing testId="detect-missing"
+          text "Missing"
+        button press=readText testId="read-text"
+          text "Read"
+        button press=readMissing testId="read-missing"
+          text "Read missing"
+        button press=readTextEn testId="read-text-en"
+          text "Read en"
+        button press=open testId="open"
+          text "Open"
+        button press=stop testId="stop"
+          text "Stop"
+        button press=shoot testId="shoot"
+          text "Shoot"
+        button press=toggle testId="toggle"
+          text "Toggle"
+      row gap=4 flex-wrap="wrap"
+        button press=languages("ja", "en") testId="pair-ja-en"
+          text "ja→en"
+        button press=languages("zh-TW", "en") testId="pair-zh-tw"
+          text "zh-TW→en"
+        button press=languages("en", "en-GB") testId="pair-same"
+          text "en→en-GB"
+        button press=languages("ja", "xx") testId="pair-unknown"
+          text "ja→xx"
+        button press=create testId="create"
+          text "Create"
+        button press=run testId="translate"
+          text "Translate"
+        button press=destroy testId="destroy"
+          text "Destroy"
+        button press=createDetector testId="create-detector"
+          text "Detector"
+        button press=identify testId="identify"
+          text "Identify"
+        button press=destroyDetector testId="destroy-detector"
+          text "Drop detector"
+        button press=say("Привет, как дела?") testId="say-ru"
+          text "ru"
+        button press=say("안녕하세요") testId="say-ko"
+          text "ko"
+        button press=say("") testId="say-empty"
+          text "empty"
+      exact-camera srcObject=track testId="viewfinder" width=320 height=240 display=(shown ? "block" : "none")

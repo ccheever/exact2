@@ -1,0 +1,182 @@
+{
+  "kind": "interface",
+  "name": "@exact/alarms",
+  "version": "1.0.0",
+  "grants": [
+    "device.alarms"
+  ],
+  "permission": [
+    {
+      "name": "alarms",
+      "grants": ["device.alarms"],
+      "status": "alarmStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "requires": { "android": ["notifications"] },
+      "allowOn": {
+        "ios": { "apple": { "authorizationState": "authorized" } },
+        "android": { "android": { "canScheduleExactAlarms": true } }
+      },
+      "denyOn": {
+        "ios": { "apple": { "authorizationState": "denied" } }
+      }
+    },
+    {
+      "name": "notifications",
+      "grants": [],
+      "status": "alarmStatus",
+      "field": "android.notifications",
+      "denied": "NotAllowedError"
+    }
+  ],
+  "shapes": {
+    "Alarm": {
+      "tag": "string",
+      "title": "string",
+      "state": "enum<scheduled|countdown|paused|alerting>",
+      "at": "option<number>",
+      "duration": "option<number>",
+      "remaining": "option<number>",
+      "snooze": "option<number>"
+    },
+    "AlarmStatus": {
+      "available": "bool",
+      "state": "enum<granted|denied|prompt|unknown>",
+      "countdown": "bool",
+      "apple": "option<AppleAlarmStatus>",
+      "android": "option<AndroidAlarmStatus>"
+    }
+  },
+  "names": [
+    {
+      "source": "alarmStatus",
+      "live": true,
+      "answers": "AlarmStatus",
+      "sync": { "name": "alarmStatusSync", "from": "read" },
+      "substitute": {
+        "default": { "available": true, "state": "prompt", "countdown": true },
+        "targets": {
+          "ios": { "apple": { "authorizationState": "notDetermined" } },
+          "android": { "android": { "canScheduleExactAlarms": false, "notifications": "prompt" } },
+          "web": { "available": false, "state": "unknown", "countdown": false },
+          "macos": { "available": false, "state": "unknown", "countdown": false },
+          "linux": { "available": false, "state": "unknown", "countdown": false },
+          "tvos": { "available": false, "state": "unknown", "countdown": false },
+          "windows": { "available": false, "state": "unknown", "countdown": false },
+          "terminal": { "available": false, "state": "unknown", "countdown": false }
+        },
+        "web": { "available": false, "state": "unknown", "countdown": false }
+      }
+    },
+    {
+      "source": "alarms",
+      "live": true,
+      "answers": "Alarm[]",
+      "sync": { "name": "alarmsSync", "from": "read" },
+      "substitute": {
+        "listed": {
+          "state": "alarms",
+          "fields": ["tag", "title", "state", "at", "duration", "remaining", "snooze"]
+        }
+      }
+    },
+    {
+      "send": "scheduleAlarm",
+      "permission": "asks",
+      "origin": "app",
+      "grants": ["device.alarms"],
+      "options": {
+        "tag": "string",
+        "title": "string",
+        "at": "option<number>",
+        "duration": "option<number>",
+        "snooze": "option<number>"
+      },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web", "macos", "linux", "tvos", "windows", "terminal"],
+        "checks": [
+          { "one": ["at", "duration"], "error": "TypeError" },
+          { "after": "at", "error": "TypeError" },
+          { "min": { "duration": 1000, "snooze": 1000 }, "error": "TypeError" },
+          { "nonEmpty": ["title"], "error": "TypeError" }
+        ],
+        "list": {
+          "state": "alarms",
+          "key": "tag",
+          "scope": "app",
+          "due": {
+            "at": "at",
+            "after": "duration",
+            "into": "at",
+            "as": { "at": { "state": "scheduled" }, "after": { "state": "countdown" } },
+            "fires": { "state": "alerting" }
+          },
+          "tap": {
+            "choices": {
+              "stop": { "retire": true },
+              "snooze": { "after": "snooze", "set": { "state": "countdown" } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": "cancelAlarm",
+      "permission": "none",
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web", "macos", "linux", "tvos", "windows", "terminal"],
+        "unlist": "tag"
+      }
+    },
+    {
+      "send": "pauseAlarm",
+      "permission": "none",
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web", "macos", "linux", "tvos", "windows", "terminal"],
+        "update": {
+          "state": "alarms",
+          "key": "tag",
+          "when": { "state": "countdown" },
+          "else": "InvalidStateError",
+          "set": { "state": "paused" },
+          "pause": "remaining"
+        }
+      }
+    },
+    {
+      "send": "resumeAlarm",
+      "permission": "asks",
+      "origin": "app",
+      "grants": ["device.alarms"],
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web", "macos", "linux", "tvos", "windows", "terminal"],
+        "update": {
+          "state": "alarms",
+          "key": "tag",
+          "when": { "state": "paused" },
+          "else": "InvalidStateError",
+          "set": { "state": "countdown" },
+          "resume": "remaining"
+        }
+      }
+    },
+    {
+      "send": "requestAlarmPermission",
+      "permission": "request",
+      "grants": ["device.alarms"],
+      "answers": "AlarmStatus",
+      "substitute": {
+        "unsupported": ["web", "macos", "linux", "tvos", "windows", "terminal"],
+        "answers": "alarmStatus",
+        "deniedAnswers": true
+      }
+    }
+  ]
+}

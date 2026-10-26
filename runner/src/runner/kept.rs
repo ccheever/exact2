@@ -305,6 +305,7 @@ impl<D: DataSource> Runner<D> {
             }
             if let Some((args, value)) = self.kept_seed(i) {
                 self.resources[i] = Some(ResourceState {
+                    inspection_generation: 0,
                     args,
                     value: crate::held::Held::new(value),
                     store_revision: self.store.revision(),

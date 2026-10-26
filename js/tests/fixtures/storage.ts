@@ -391,6 +391,32 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // `exactBodyTo` (LLP 1108 D6 R2): the host writes a 2xx body to the file.
+  // The status, what was written, the body and the header names, or the
+  // rejection's name, kind and message.
+  if (op === "download" || op === "download-missing") {
+    try {
+      const r = await fetch("https://example.test/" + op, { exactBodyTo: value } as any);
+      return {text: [r.status, JSON.stringify((r as any).exactBodyTo), await r.text(), [...r.headers.keys()].join(",")].join(" ")};
+    } catch (e:any) { return {text: e.name + " " + e.kind + " " + e.message}; }
+  }
+  if (op === "download-refusals") {
+    const url = "https://example.test/download", data = storage.fs.directories.data, out: string[] = [];
+    const inits: any[] = [
+      { exactBodyTo: 42 },
+      { exactBodyTo: "/tmp/photo.jpg" },
+      { exactBodyTo: data + "/../photo.jpg" },
+      { exactBodyTo: data + "/" + "\ud800".repeat(1500) },
+      { method: "HEAD", exactBodyTo: data + "/photo.jpg" },
+      { exactBodyTo: data + "/photo.jpg", exactStream: () => null },
+      { exactBodyTo: data + "/photo.jpg", exactIndependentHttp: { maxResponseBytes: 1073741825 } },
+      { exactIndependentHttp: { maxResponseBytes: 67108865 } },
+    ];
+    for (const init of inits) {
+      try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
   if (op === "write-slow") {
     await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));
     return {text: "wrote " + value};

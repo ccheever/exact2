@@ -386,6 +386,17 @@ impl Module {
                 Json::String(path) => request.body_from = Some(path.clone()),
                 _ => return Err(unavailable("exactBodyFrom must be an app:/ path")),
             }
+            // `exactBodyTo`: the page writes a 2xx body to the file, at most
+            // the ceiling the fetch names (else 1 GiB).
+            match &r["body_to"] {
+                Json::Null => {}
+                Json::String(path) => request.body_to = Some(path.clone()),
+                _ => return Err(unavailable("exactBodyTo must be an app:/ path")),
+            }
+            if let (Some(_), Some(n)) = (&request.body_to, r["max_response_bytes"].as_u64()) {
+                let n = u32::try_from(n).map_err(|_| unavailable("invalid response ceiling"))?;
+                request = request.independent_http(n);
+            }
             if r["stream"] == true {
                 // The page opens it; its events come back as messages.
                 request = match Answer::stream(request) {

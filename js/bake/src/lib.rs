@@ -14,7 +14,7 @@ pub use resident::Producer;
 
 use contract::DataSource;
 use exact_js::Module;
-use linked::{names_its_plan, take_baked, LINKED_BYTECODE, NAMED};
+use linked::{names_its_plan, take_baked, EMBEDDED, LINKED_BYTECODE, NAMED};
 #[cfg(test)]
 use linked::{COMPILED, LINKED};
 use package_tool::package_tool;
@@ -81,17 +81,6 @@ pub const APP_BYTECODE: &[u8] = {
     static BYTES: &Aligned<[u8]> = &Aligned(*include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc")));
     &BYTES.0
 };
-"#;
-
-/// The entry's plan and compatibility document, embedded from OUT_DIR.
-const EMBEDDED: &str = r#"#[allow(dead_code)]
-fn exact_plan() -> &'static [u8] {
-    include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"))
-}
-#[allow(dead_code)]
-fn exact_compat() -> &'static str {
-    include_str!(concat!(env!("OUT_DIR"), "/compat.json"))
-}
 "#;
 
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
@@ -565,6 +554,7 @@ fn build_sources(
         println!("cargo:rerun-if-changed={}", file.display());
     }
     println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
+    println!("cargo:rerun-if-env-changed=PORT");
     // An absent file Cargo watches is a missing input, which reran this bake
     // on every build. The builder says whether the selection exists
     // (EXACT_BACKEND_SELECTION, as EXACT_ASSET_ROOTS names the asset roots

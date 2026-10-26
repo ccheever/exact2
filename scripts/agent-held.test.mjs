@@ -1,8 +1,8 @@
 // `clock held` (scripts/agent-held.mjs, LLP 1016.000 D9) over a stand-in session: it waits for each held target's
 // count of replies to rise, never takes a request let go (or no longer counted held) for a reply, and says who had
-// none past its bound.
+// none past its bound. `clock until state` (the same file) over a stand-in whose state changes on the wall clock.
 import { test, expect } from 'bun:test';
-import { heldClock, inFlightNote } from './agent-held.mjs';
+import { heldClock, inFlightNote, untilClock } from './agent-held.mjs';
 
 /** A session whose `state` is `states[i]`, the last repeated, answered through the host's light `held` op (or,
  * `heldOp: false`, only through `state`), and whose `clock data` is recorded. */
@@ -94,4 +94,67 @@ test('a look that answers past the bound counts nothing', async () => {
   const started = performance.now();
   expect(await heldClock(s, ['50ms'])).toMatchObject({ settled: false, reason: 'held', heldTargets: ['item'] });
   expect(performance.now() - started).toBeLessThan(140);
+});
+
+/** A session whose `gateway.state` is `before` until `after` ms of real time have passed since it was made, then
+ * `ready`; it records every op, so a test sees that the clock never moved. */
+function flipping(after, host = 'web', { slow = 0 } = {}) {
+  const t0 = performance.now(), said = [];
+  const s = {
+    now: 7, carrier: { host },
+    async op(req) {
+      said.push(req);
+      if (slow && req.op === 'state') await new Promise((ok) => setTimeout(ok, slow));
+      if (req.take) return { clock: 9 };
+      if (req.op === 'tags') return { epoch: 3, incarnation: 1 };
+      if (req.land) return { clock: s.now };
+      const state = performance.now() - t0 >= after ? 'ready' : 'identifying';
+      return { resources: { gateway: { state, seq: 2 } }, slots: { rows: [{ n: -3 }] }, derives: {}, tasks: { record: 8, beat: 1000 } };
+    },
+  };
+  return { s, said };
+}
+
+test('clock until state waits on the wall clock, the clock frozen, until the value holds', async () => {
+  const { s, said } = flipping(120);
+  const started = performance.now();
+  const r = await untilClock(s, 'until state gateway.state == "ready" within 2000');
+  expect(r).toEqual({ clock: 7, real: expect.any(Number), until: 'met', value: 'ready' });
+  expect(performance.now() - started).toBeGreaterThanOrEqual(110);
+  expect(r.real).toBeLessThan(1000);
+  // Reads, each after landing what arrived: no clock op moved the app's time.
+  const ops = said;
+  expect(ops.length).toBeGreaterThanOrEqual(4);
+  ops.forEach((q, i) => expect(q).toEqual(i % 2 ? { op: 'state' } : { op: 'clock', land: true }));
+  // Already true: met at the first look. A list index, a negative number.
+  expect(await untilClock(flipping(0).s, 'until state rows.0.n == -3 within 10')).toMatchObject({ until: 'met', value: -3 });
+});
+
+test('a miss fails at its bound naming the last value; a missing field is named as one', async () => {
+  const started = performance.now();
+  await expect(untilClock(flipping(60_000).s, 'until state gateway.state == "ready" within 150')).rejects.toThrow(
+    /^clock until state gateway\.state == "ready" within 150: gateway\.state was "identifying" after \d+ ms of real time, the clock frozen at 7 ms; `record` is due a commit later \(an `after\(1, …\)`\), which the frozen clock never reaches: `clock settle` or `clock \+1` before this step runs it$/);
+  expect(performance.now() - started).toBeGreaterThanOrEqual(145);
+  await expect(untilClock(flipping(0).s, 'until state gateway.user == null within 60')).rejects.toThrow('gateway has no field "user"');
+});
+
+test('a look that answers past the bound counts nothing, a value met late included', async () => {
+  const started = performance.now();
+  await expect(untilClock(flipping(0, 'web', { slow: 300 }).s, 'until state gateway.state == "ready" within 50')).rejects.toThrow(
+    'clock until state gateway.state == "ready" within 50: no look answered within the bound after');
+  expect(performance.now() - started).toBeLessThan(250);
+});
+
+test('clock until state refuses what is not its form; on Apple it takes the clock over first', async () => {
+  const { s, said } = flipping(0, 'ios');
+  expect(await untilClock(s, 'until state gateway.state == "ready" within 10')).toMatchObject({ clock: 9, until: 'met' });
+  expect(said[0]).toEqual({ op: 'clock', take: true });
+  for (const [spec, says] of [
+    ['until state gateway.state == ready within 10', 'ready is not one'],
+    ['until state gateway == {} within 10', '{} is not one'],
+    ['until state gateway == 1e400 within 10', '1e400 is not one'],
+    ['until state gateway.state == "ready"', 'not `clock until state'],
+    ['until state gateway.state == 1 within 0', 'a bound is 1 ms up to an hour'],
+    ['until state nothing == 1 within 10', 'no state named "nothing" (gateway, rows)'],
+  ]) await expect(untilClock(flipping(0).s, spec)).rejects.toThrow(says);
 });

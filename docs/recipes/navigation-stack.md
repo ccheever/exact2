@@ -3,7 +3,7 @@
 A list pushing a detail, a Cancel/Save sheet and an alert (`pattern list-detail`).
 A second screen is a route (`if` over state gets no Back, links or split).
 
-A route's first `header`, with one heading, is its bar (the title: large at `aria-level=1`,
+A route's first `header` with one heading is its bar (title large at `aria-level=1`,
 inline at 2); buttons before it lead, after it trail. A pushed route has
 UIKit's Back, a bare chevron from iOS 26; a `button id="back"` (the root's
 `navigationBack`) with `text "Notes"` titles it "‹ Notes".
@@ -138,7 +138,10 @@ test "add, open, delete after asking"
   dismisses outside. Another modal is a sheet, closed on ok ([after-a-write](after-a-write.md)).
 - Routes stay mounted: unique `testId`s. `clock settle` after a push, sheet or alert;
   `clock data` before reading a save.
-- From 900 px, pushed rows split list and detail; `navigationSplit="none"` keeps them pushed.
 - A run (a workout, a quiz) has one exit that ends it or asks; no Back leaves it running.
 - An unmatched location offers home (`notfound`); a missing detail says so.
-- A deep link ([app-json](app-json.md)) in a drive: `type <root> euxy://p/1`.
+
+## A screen open twice
+
+A screen as a component, `Finder(entry=e)` (`props entry: Entry`), has `state` per
+entry, gone when it pops; resources, mutations and tasks are the root's.

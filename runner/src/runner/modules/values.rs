@@ -1,5 +1,6 @@
 //! Completing a module's answer: a field it left out, by its declaration
-//! (`fill`) or by its shape (`absent_is_none`).
+//! (`fill`) or by its shape (`absent_is_none`); a permission's state written
+//! into a status at its path (`set_path`).
 
 use serde_json::{Map, Value as Json};
 
@@ -18,6 +19,19 @@ pub(super) fn fill(value: &mut Json, path: &str, filler: Json) {
         at = object
             .entry(part)
             .or_insert_with(|| Json::Object(Map::new()));
+    }
+}
+
+/// Set `path` in `value` to `to` where every record before its last part
+/// exists: a path into a record this target's status leaves out sets nothing.
+pub(super) fn set_path(value: &mut Json, path: &str, to: Json) {
+    let (parents, last) = path.rsplit_once('.').unwrap_or(("", path));
+    let parent = parents
+        .split('.')
+        .filter(|p| !p.is_empty())
+        .try_fold(value, |at, part| at.get_mut(part));
+    if let Some(object) = parent.and_then(Json::as_object_mut) {
+        object.insert(last.into(), to);
     }
 }
 

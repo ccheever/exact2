@@ -7,9 +7,11 @@
       "dependencies": {
         "@exact/actions": "workspace:*",
         "@exact/age-range": "workspace:*",
+        "@exact/alarms": "workspace:*",
         "@exact/altimeter": "workspace:*",
         "@exact/attestation": "workspace:*",
         "@exact/background": "workspace:*",
+        "@exact/barcode-detection": "workspace:*",
         "@exact/browser": "workspace:*",
         "@exact/browser-automation": "workspace:*",
         "@exact/calendar": "workspace:*",
@@ -34,7 +36,9 @@
         "@exact/search-index": "workspace:*",
         "@exact/speech-recognition": "workspace:*",
         "@exact/speech-synthesis": "workspace:*",
+        "@exact/text-detection": "workspace:*",
         "@exact/tracking-consent": "workspace:*",
+        "@exact/translation": "workspace:*",
       },
       "devDependencies": {
         "@sqlite.org/sqlite-wasm": "3.53.4-build1",
@@ -53,6 +57,10 @@
       "name": "@exact/age-range",
       "version": "1.0.0",
     },
+    "packages/alarms": {
+      "name": "@exact/alarms",
+      "version": "1.0.0",
+    },
     "packages/altimeter": {
       "name": "@exact/altimeter",
       "version": "1.0.0",
@@ -64,6 +72,16 @@
     "packages/background": {
       "name": "@exact/background",
       "version": "1.0.0",
+    },
+    "packages/barcode-detection": {
+      "name": "@exact/barcode-detection",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
     },
     "packages/browser": {
       "name": "@exact/browser",
@@ -179,8 +197,16 @@
       "name": "@exact/speech-synthesis",
       "version": "1.0.0",
     },
+    "packages/text-detection": {
+      "name": "@exact/text-detection",
+      "version": "1.0.0",
+    },
     "packages/tracking-consent": {
       "name": "@exact/tracking-consent",
+      "version": "1.0.0",
+    },
+    "packages/translation": {
+      "name": "@exact/translation",
       "version": "1.0.0",
     },
   },
@@ -189,11 +215,15 @@
 
     "@exact/age-range": ["@exact/age-range@workspace:packages/age-range"],
 
+    "@exact/alarms": ["@exact/alarms@workspace:packages/alarms"],
+
     "@exact/altimeter": ["@exact/altimeter@workspace:packages/altimeter"],
 
     "@exact/attestation": ["@exact/attestation@workspace:packages/attestation"],
 
     "@exact/background": ["@exact/background@workspace:packages/background"],
+
+    "@exact/barcode-detection": ["@exact/barcode-detection@workspace:packages/barcode-detection"],
 
     "@exact/browser": ["@exact/browser@workspace:packages/browser"],
 
@@ -243,7 +273,11 @@
 
     "@exact/speech-synthesis": ["@exact/speech-synthesis@workspace:packages/speech-synthesis"],
 
+    "@exact/text-detection": ["@exact/text-detection@workspace:packages/text-detection"],
+
     "@exact/tracking-consent": ["@exact/tracking-consent@workspace:packages/tracking-consent"],
+
+    "@exact/translation": ["@exact/translation@workspace:packages/translation"],
 
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
 

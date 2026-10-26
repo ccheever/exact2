@@ -422,3 +422,81 @@ test "nothing holds after toggling off"
     } finally { server.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 180_000);
+
+// docs/recipes/navigation-stack.md, "A screen open twice" (issues/closed/20261021-repeated-routes-share-root-state.md):
+// a route drawn by its own component has `state` per stack entry (LLP 1017.000 P4c), so two entries of one route keep
+// separate state, and the entry a pop removed takes its state with it: the next one opens fresh. The two entries have
+// different URLs, since a push of the location already on top is no new visit (route/src/router.rs `push`).
+test('a screen open twice keeps state per entry, and a popped entry\'s is gone', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-test-twice-'));
+  const contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Twice', app: { id: 'test.exact.twice', name: 'Twice' }, host: {}, deploy: {} }));
+  writeFileSync(contract, `routes nav
+  home "/"
+    finder "/finder/:from"
+
+component App
+  action open(from: string)
+    nav = push(nav, path("finder", from))
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
+          column navigationKey=\`\${e.id}\` position="absolute" inset=0
+            button press=open("home") testId="open"
+              text "Find a shoe"
+        if e.name == "finder"
+          Finder(entry=e, open=open)
+
+component Finder
+  props
+    entry: Entry
+    open: action
+  state pick = ""
+  action choose(v: string)
+    pick = v
+  view
+    column navigationKey=\`\${entry.id}\` position="absolute" inset=0
+      header
+        text "Finder" role="heading" aria-level=2
+      text pick testId=\`pick-\${entry.id}\`
+      button press=choose("trail") testId=\`trail-\${entry.id}\`
+        text "Trail"
+      button press=open(\`\${entry.id}\`) testId=\`again-\${entry.id}\`
+        text "Another"
+`);
+  writeFileSync(file, `test "two entries keep their own state; a popped one's goes with it"
+  tap "open"
+  clock settle
+  tap "trail-1"
+  expect text "pick-1" == "trail"
+  tap "again-1"
+  clock settle
+  expect text "pick-2" == ""
+  tap "trail-2"
+  expect text "pick-2" == "trail"
+  back
+  clock settle
+  expect tree missing "pick-2"
+  expect text "pick-1" == "trail"
+  tap "again-1"
+  clock settle
+  expect text "pick-3" == ""
+`);
+  const root = new URL('..', import.meta.url).pathname;
+  const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
+  try {
+    const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+    expect(compile.status, compile.stderr).toBe(0);
+    const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'twice', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8' });
+    expect(build.status, build.stderr).toBe(0);
+    const server = createServer((request, response) => serveBuildTree(dist, request, response));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+      expect(r.results.map(t => t.failures)).toEqual([[]]);
+    } finally { server.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 180_000);

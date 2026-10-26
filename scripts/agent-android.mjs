@@ -35,6 +35,7 @@ import { HOST_DEV, buildBake, cargoEnvironment, copyShaders, injectedProfiles, l
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 import { androidImplementations } from '../js/bake/src/typescript.mjs';
+import { manifestFragment } from './android-manifest.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -349,8 +350,8 @@ function mavenGraph(app, writeLocks) {
 
 /** What the modules the app uses add to the APK (LLP 1133.001 D4, D5; LLP 1133.002 D6): each bound implementation's
  * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), and the
- * permissions the app's grant lines derive (the bake's `reach.android`) with those its names derive, as Gradle
- * properties. */
+ * permissions the app's grant lines derive (the bake's `reach.android`) with those its names derive, and the
+ * components its packages' manifest fragments declare, as Gradle properties. */
 function extensionArgs(app, out) {
   const bound = androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
   rmSync(generated, { recursive: true, force: true });
@@ -368,7 +369,12 @@ function extensionArgs(app, out) {
       `    override val views: Map<String, String> = mapOf(${bound.flatMap((b) => (b.views ?? []).map((tag) => `${JSON.stringify(tag)} to ${JSON.stringify(b.extension)}`)).join(', ')})`,
       '}', ''].join('\n'));
   }
-  return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : [])];
+  // The components the packages' manifest fragments declare, under the allow-list (LLP 1133.030 D9).
+  const fragment = manifestFragment(bound), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
+  rmSync(fragmentFile, { force: true });
+  if (fragment) { mkdirSync(dirname(fragmentFile), { recursive: true }); writeFileSync(fragmentFile, fragment); }
+  return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : []),
+    ...(fragment ? [`-PmanifestFragment=${fragmentFile}`] : [])];
 }
 
 if (import.meta.main && process.argv[2] === 'relay') {

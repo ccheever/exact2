@@ -12,6 +12,7 @@ pub struct Batch {
     ops: Vec<String>,
     collection_accepted: bool,
     seq: Option<(u64, u64)>,
+    alerts: Vec<String>,
 }
 
 /// Validate before token translation or storage/continuation serialization.
@@ -25,15 +26,16 @@ impl Batch {
 }
 
 pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'static str> {
-    if let exact_runner::HttpScheduling::Independent { max_response_bytes } = request.http {
+    if let exact_runner::HttpScheduling::Independent { .. } = request.http {
         if request.storage.is_some() || request.continuation.is_some() {
             return Some("only HTTP may opt into independent transport");
         }
-        if max_response_bytes == 0 || max_response_bytes > 64 * 1024 * 1024 {
-            return Some("independent HTTP response limit must be 1..=64 MiB");
-        }
     }
-    (request.timeout_refusal().or(request.body_from_refusal())).or(request.long_poll_refusal())
+    (request.ceiling_refusal())
+        .or(request.timeout_refusal())
+        .or(request.body_from_refusal())
+        .or(request.body_to_refusal())
+        .or(request.long_poll_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -654,6 +656,11 @@ impl Batch {
             s.push_str(",\"bodyFrom\":");
             quote(path, &mut s);
         }
+        // `exactBodyTo`: the page writes a 2xx body to the app file.
+        if let Some(path) = &r.request.body_to {
+            s.push_str(",\"bodyTo\":");
+            quote(path, &mut s);
+        }
         // Absent is `follow` (http-body.js)
         if r.request.redirect != exact_runner::Redirect::Follow {
             s.push_str(",\"redirect\":");
@@ -899,6 +906,12 @@ impl Batch {
         self
     }
 
+    /// Failure lines already bounded by the runner, delivered once (LLP 1142 D9).
+    pub fn alerts(mut self, lines: Vec<String>) -> Batch {
+        self.alerts = lines;
+        self
+    }
+
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
@@ -921,6 +934,16 @@ impl Batch {
         }
         s.push(']');
         let timers = timer_due_ms.is_some();
+        if !self.alerts.is_empty() {
+            s.push_str(",\"alerts\":[");
+            for (i, line) in self.alerts.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(line, &mut s);
+            }
+            s.push(']');
+        }
         if let Some(due) = timer_due_ms {
             push_text!(&mut s, ",\"timer_due_ms\":{}", Shortest(due));
         }
@@ -983,6 +1006,14 @@ mod timer_tests {
         let frames = super::Batch::new().finish(None, true, 0.0, None);
         assert!(frames.contains("\"frames\":true"), "{frames}");
         assert!(empty.contains("\"timers\":false"), "{empty}");
+        let alerts = super::Batch::new()
+            .alerts(vec!["bad \"field\"\n".into()])
+            .finish(None, false, 0.0, None);
+        assert!(
+            alerts.contains("\"alerts\":[\"bad \\\"field\\\"\\n\"]"),
+            "{alerts}"
+        );
+        assert!(!empty.contains("alerts"));
     }
 }
 

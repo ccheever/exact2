@@ -15,6 +15,101 @@ fn checks() -> usize {
     SHAPE_CHECKS.with(|count| count.replace(0))
 }
 
+#[test]
+fn resource_inspection_distinguishes_retained_requests_equal_refresh_and_recovery() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(1)),
+    );
+    let status = |r: &Runner<Data>| -> serde_json::Value {
+        serde_json::from_str::<serde_json::Value>(&crate::agent::state(r)).unwrap()
+            ["resourceStatus"]["rows"]
+            .clone()
+    };
+    assert!(!crate::agent::state(&r).contains("resourceStatus"));
+    r.measure(true, false);
+    let first = status(&r);
+    assert_eq!(first["displayed"], "current");
+    assert_eq!(first["argumentsEqual"], true);
+    r.data().later = true;
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let b = r.take_requests().pop().unwrap();
+    let pending = status(&r);
+    assert_eq!(pending["displayed"], "retained");
+    assert_eq!(pending["argumentsEqual"], false);
+    assert_eq!(pending["displayedGeneration"], first["displayedGeneration"]);
+    assert_ne!(pending["requestGeneration"], first["requestGeneration"]);
+    assert_eq!(pending["pending"], true);
+    r.data().value = Value::list(vec![Value::record(vec![Value::str("invalid")])]);
+    r.fulfill(b.ticket, Outcome::Storage(vec![])).unwrap();
+    assert_eq!(status(&r)["pending"], false);
+    assert_eq!(status(&r)["argumentsEqual"], false);
+    assert!(r.failed_resources()[0].1.contains("value"));
+    assert_eq!(r.failure_counts()[0].1.count, 1);
+
+    // A -> B -> A has equal arguments, but its value still answers the old A.
+    r.act("change", vec![Value::Number(0.)]).unwrap();
+    assert!(r.take_requests().is_empty());
+    assert_eq!(status(&r)["displayed"], "retained");
+    assert_eq!(status(&r)["argumentsEqual"], true);
+    r.act("refresh", vec![]).unwrap();
+    let a = r.take_requests().pop().unwrap();
+    r.data().value = records(2);
+    assert!(r
+        .fulfill(b.ticket, Outcome::Storage(vec![]))
+        .unwrap()
+        .is_none());
+    r.fulfill(a.ticket, Outcome::Storage(vec![])).unwrap();
+    assert_eq!(status(&r)["displayed"], "current");
+    let recovered = status(&r);
+    r.act("refresh", vec![]).unwrap();
+    let refresh = r.take_requests().pop().unwrap();
+    r.data().fail_parse = true;
+    r.fulfill(refresh.ticket, Outcome::Storage(vec![])).unwrap();
+    assert_eq!(status(&r)["displayed"], "retained");
+    assert_eq!(status(&r)["argumentsEqual"], true);
+    assert_eq!(
+        status(&r)["lastSuccessfulGeneration"],
+        recovered["displayedGeneration"]
+    );
+    assert_eq!(r.failure_counts()[0].1.count, 2);
+    r.data().fail_parse = false;
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let old = r.take_requests().pop().unwrap();
+    r.act("change", vec![Value::Number(2.)]).unwrap();
+    let current = r.take_requests().pop().unwrap();
+    let generation = status(&r)["requestGeneration"].clone();
+    assert!(r
+        .fulfill(old.ticket, Outcome::Storage(vec![]))
+        .unwrap()
+        .is_none());
+    assert_eq!(status(&r)["requestGeneration"], generation);
+    r.fulfill(current.ticket, Outcome::Storage(vec![])).unwrap();
+    assert_eq!(status(&r)["displayed"], "current");
+    assert_eq!(r.failure_counts()[0].1.count, 2);
+    r.measure(false, false);
+    assert!(!crate::agent::state(&r).contains("resourceStatus"));
+}
+
+#[test]
+fn resource_inspection_restores_generations_when_a_later_resource_refuses() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, true),
+        Data::new(records(1)),
+    );
+    r.measure(true, false);
+    let before = r.ids.work.resources.clone();
+    let generation = r.resources[0].as_ref().unwrap().inspection_generation;
+    r.data().bad_guard = true;
+    r.data().value = records(2);
+    assert!(r.act("change", vec![Value::Number(1.)]).is_err());
+    assert_eq!(r.ids.work.resources[0].request, before[0].request);
+    assert_eq!(
+        r.resources[0].as_ref().unwrap().inspection_generation,
+        generation
+    );
+}
+
 struct Data {
     value: Value,
     queries: usize,

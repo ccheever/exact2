@@ -39,3 +39,10 @@ Separately, a job whose charge cannot fit beside the lane's long-lived streams s
 timeout) rather than wait with no end.
 
 Other hosts were not checked.
+
+## Partly resolved
+
+A download written to a file (`fetch(url, {exactBodyTo})`, LLP 1108 D6 R2, 2026-10-26) is charged only the 1 MiB
+it can hold, whatever its ceiling (up to 1 GiB), so it is neither refused nor left waiting beside open streams. A
+preview that reads a file the host downloaded, as the T3 Code clone's PDF preview can, no longer needs a large
+ceiling. A reply read into memory still has the 2× charge and the 32 MiB limit, and can still wait with no end.

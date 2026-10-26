@@ -26,6 +26,10 @@ export function scaledScreenshot(r, scale, host) {
   return { image: shrink(png, Math.max(1, Math.round(png.width * scale / drawn)), Math.max(1, Math.round(png.height * scale / drawn))), shrunk: true };
 }
 
+const sourceLocation = value => value && typeof value.file === 'string' && value.file.length > 0
+  && ['line', 'col', 'end_col'].every(key => Number.isSafeInteger(value[key]) && value[key] > 0)
+  && value.end_col >= value.col && typeof value.component === 'string';
+
 /** @ref LLP 1035.005 D3 / 1035.002 D6 — only the driver reads source maps.
  * The locator discovers candidates; the node's same-reply digest decides whether
  * one is compatible. Identical plans can have different formatting/ranges, so
@@ -53,9 +57,6 @@ export function sourceMapReader(locator) {
     } finally { await reader.cancel(); }
     return Buffer.concat(parts, length);
   }
-  const location = value => value && typeof value.file === 'string' && value.file.length > 0
-    && ['line', 'col', 'end_col'].every(key => Number.isSafeInteger(value[key]) && value[key] > 0)
-    && value.end_col >= value.col && typeof value.component === 'string';
   const at = value => ({file: value.file, line: value.line, col: value.col, end_col: value.end_col, component: value.component});
   return {
     /** The map read for a plan digest, if any (LLP 1142 D2: `trace --out` writes it). */
@@ -102,7 +103,7 @@ export function sourceMapReader(locator) {
       for (const style of Object.values(node.style ?? {})) { delete style.origin; delete style.state; delete style.at; }
       const map = digest(node.planDigest) ? maps.get(node.planDigest) : null;
       const entry = Number.isSafeInteger(node.site) && node.site >= 0 ? map?.nodes[node.site] : null;
-      if (!entry || !location(entry) || !Array.isArray(entry.chain) || !entry.chain.every(location)
+      if (!entry || !sourceLocation(entry) || !Array.isArray(entry.chain) || !entry.chain.every(sourceLocation)
         || !Array.isArray(entry.bindings) || !entry.bindings.every(b => b && typeof b.row === 'string'
           // A base origin, absent where only a state part writes the row; each part's own (theme2's 03:18).
           && (b.origin === undefined || origin(b.origin)) && (b.states === undefined || Array.isArray(b.states) && b.states.every(p => p && typeof p.state === 'string' && origin(p.origin))))) {
@@ -138,6 +139,19 @@ export function sourceMapReaders(locators) {
     async refresh() { return (await Promise.all(readers.map(r => r.refresh()))).some(Boolean); },
     attach(node) { for (const r of readers) { r.attach(node); if (node.sourceMap?.status === 'compatible') return; } },
   };
+}
+
+/** Resource declarations are joined only to the digest in this same state reply. */
+export function identifyResources(reply, maps) {
+  const digest = reply.planDigest, map = maps?.get(digest);
+  for (const [name, row] of Object.entries(reply.resourceStatus ?? {})) {
+    const at = map?.resources?.[name];
+    const valid = sourceLocation(at);
+    row.declaration = valid
+      ? {status:'compatible', digest, file:at.file, line:at.line, col:at.col, end_col:at.end_col, component:at.component}
+      : {status:'unavailable', reason:map ? 'no resource declaration in this map' : 'no compatible development source map'};
+  }
+  return reply;
 }
 
 /** LLP 1104 D2 / 1035.002 D3: list reasons only when geometry and tree
@@ -416,7 +430,7 @@ function renderNode(n) {
 }
 
 /** The counters a `perf` site row may carry, in the order they print (LLP 1079 D1). */
-const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved'];
+const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved', 'rowConstructed', 'rowRebound', 'rowRetired'];
 
 /** `perf [<target>] [during "<op>" …]` and `perf frames [live <ms>] [late <n>]`
  * (LLP 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
@@ -505,7 +519,21 @@ export function perfDelta(a, b) {
     const was = ran.get(`${h.site} ${h.event}`);
     return { ...h, dispatched: h.dispatched - (was?.dispatched ?? 0), committed: h.committed - (was?.committed ?? 0) };
   }).filter(h => h.dispatched > 0);
-  return { ...b, sites, handlers, from: { seq: a.seq, clock: a.clock } };
+  const counted = {};
+  for (const key of ['work', 'hostWork']) {
+    if (!b[key]) continue;
+    const before = a[key], after = b[key];
+    if (!before || before.since !== after.since || before.scope !== after.scope || before.timebase !== after.timebase)
+      throw Error(`perf: ${key} measurement coverage changed between reads; no difference is defined`);
+    const counts = {};
+    for (const [name, value] of Object.entries(after.counts ?? {})) {
+      if (typeof before.counts?.[name] !== 'number') throw Error(`perf: ${key}.${name} was not measured in the first read`);
+      counts[name] = value - before.counts[name];
+      if (counts[name] < 0) throw Error(`perf: ${key}.${name} went backwards; counters restarted`);
+    }
+    counted[key] = {...after, counts};
+  }
+  return { ...b, ...counted, sites, handlers, from: { seq: a.seq, clock: a.clock } };
 }
 
 function renderHatchPerf(r) {
@@ -553,13 +581,18 @@ function renderPerf(r) {
   if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.streamTiming) return renderStreamTiming(r.streamTiming);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
-  if (r.unavailable) return 'this host observes no presented frames';
+  if (r.unavailable) return `this host observes no presented frames${r.reason ? `: ${r.reason}` : ''}`;
   if (r.unmeasured) return `frames not measured: ${r.unmeasured}`;
   if (r.lifetime) {
     const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
     const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed}${r.lifetime.overruns != null ? ` · overruns ${r.lifetime.overruns}` : ''} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
       `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
-    if (r.live) out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to}`);
+    if (r.live) {
+      const o = r.live.observation;
+      out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to} · ${r.live.clockMode ?? 'unspecified'} clock · execution ${r.live.execution ?? 'unspecified'}${r.live.performanceClaim === false ? ' · does not qualify ordinary app performance' : ''}`);
+      if (o) out.push(`observation: ${o.samples} callbacks, ${o.dropped} dropped · ${o.proxy}`);
+      if (r.live.substitutions?.length) out.push(`execution substitutions: ${r.live.substitutions.join('; ')}`);
+    }
     for (const w of r.world ?? []) {
       const g = n => n == null ? '—' : `${Math.round(n * 100) / 100} ms`, ms = x => x ? `p50 ${g(x.p50)} p95 ${g(x.p95)} p99 ${g(x.p99)} mean ${g(x.mean)}` : '—';
       out.push(`  world ${w.canvas}: frame ${ms(w.perf.frameMs)} · tick ${ms(w.perf.tickMs)} · feed ${ms(w.perf.feedMs)} · encode ${ms(w.perf.encodeMs)}`);
@@ -584,7 +617,7 @@ function renderPerf(r) {
         ? `\n    each ${h.event} event changed the tree, and each was a runner turn the main thread waited on`
         : ''));
   return [`${r.target ?? 'every root'} — seq ${span(r.from?.seq, r.seq)} · clock ${span(r.from?.clock, r.clock)} ms · incarnation ${r.incarnation}${r.truncated ? ` · partial: ${r.walked} walked` : ''}${unmapped ? ` · source unavailable: ${unmapped.source?.reason ?? 'no development source map'}` : ''}`,
-    pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : [])].join('\n');
+    pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : []), ...['work', 'hostWork'].filter(k => r[k]).map(k => `${k} (${r[k].scope}, since ${r[k].since ?? 'unmeasured'} ${r[k].timebase}): ${Object.entries(r[k].counts ?? {}).map(([n,v]) => `${n}=${v}`).join(' ')}`)].join('\n');
 }
 
 /** `bun scripts/agent.mjs trace <file>` (LLP 1079 D5): a person's session

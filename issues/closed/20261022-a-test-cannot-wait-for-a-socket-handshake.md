@@ -1,6 +1,7 @@
 # A test cannot wait for a socket's handshake: `clock data` stops at its first message
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Built the ask's second shape as ruled (Charlie, 2026-10-26): `clock until state <path> == <literal> within <ms>`, a form of `clock` in the driver (scripts/agent-held.mjs) and in authored tests, waits on real time with the clock frozen and fails naming the last value; Excord's first test uses it after `clock settle`, which runs the `after(1, …)` task that sends IDENTIFY.
 **Systems:** the agent's `clock data` and an authored test's launch wait (`scripts/agent-test.mjs`, the runner's stream settlement, LLP 1016.000 D5), every host
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from Excord's wiring lane (`apps/excord/llp/0001-excord.rfc.md` §4.2)

@@ -276,6 +276,85 @@ impl Parser {
         })
     }
 
+    /// A state's name, then fields and list indexes at any depth, joined by
+    /// `.` (`gateway.state`, `rows.0`: feed F10, drums R7).
+    fn state_path(&mut self) -> R<String> {
+        let (mut name, _) = self.ident()?;
+        while self.eat_punct(".") {
+            name.push('.');
+            match self.peek_kind().clone() {
+                TokenKind::Number(n)
+                    if n.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&n) =>
+                {
+                    self.next();
+                    name.push_str(&format!("{}", n as u64));
+                }
+                TokenKind::Ident(_) => name.push_str(&self.ident()?.0),
+                other => {
+                    return self.err(
+                        "syntax-expected-name",
+                        format!(
+                            "expected a field or a list index after `.`, found {}",
+                            describe(&other)
+                        ),
+                    );
+                }
+            }
+        }
+        Ok(name)
+    }
+
+    /// `clock until state <path> == <literal> within <ms>` (rules/DEFERRED.md,
+    /// "Agent API", 2026-10-26), after `until`: the driver's own words, the
+    /// literal as JSON text.
+    fn clock_until(&mut self) -> R<String> {
+        if !self.at_ident("state") {
+            return self.err(
+                "syntax-expected-step",
+                "`clock until` takes `state <name> == <literal> within <ms>`",
+            );
+        }
+        self.next();
+        let path = self.state_path()?;
+        self.expect_punct("==")?;
+        let token = self.next();
+        let value = match token.kind {
+            TokenKind::Str(s) => json_string(&s),
+            // A number too large for a double is no JSON the driver reads back.
+            TokenKind::Number(n) if n.is_finite() => format!("{n}"),
+            TokenKind::Punct("-") if matches!(self.peek_kind(), TokenKind::Number(n) if n.is_finite()) => {
+                format!("-{}", self.step_number("a number")?)
+            }
+            TokenKind::Ident(w) if w == "true" || w == "false" || w == "null" => w,
+            other => {
+                return Err(SyntaxError {
+                    id: "syntax-expected-step",
+                    message: format!(
+                        "`clock until state {path} ==` takes a string, a number, true, false or null, not {}",
+                        describe(&other)
+                    ),
+                    span: token.span,
+                })
+            }
+        };
+        if !self.at_ident("within") {
+            let found = describe(&self.peek_kind().clone());
+            return self.err(
+                "syntax-expected-step",
+                format!("expected `within <ms>` after `clock until state {path} == {value}`, found {found}: the wall-clock bound"),
+            );
+        }
+        self.next();
+        let ms = self.step_number("the bound in milliseconds")?;
+        if ms.fract() != 0.0 || !(1.0..=3_600_000.0).contains(&ms) {
+            return self.err(
+                "syntax-expected-step",
+                format!("`within` takes whole milliseconds, up to an hour, not {ms}"),
+            );
+        }
+        Ok(format!("until state {path} == {value} within {ms}"))
+    }
+
     /// A JSON value from its tokens, as JSON text: a request's body. Its
     /// brackets may span lines.
     fn json_value(&mut self) -> R<String> {
@@ -611,6 +690,12 @@ impl Parser {
                         }
                         arg
                     }
+                    // `clock until state <path> == <literal> within <ms>`: the wall
+                    // clock passes, the clock frozen, until the state holds.
+                    TokenKind::Ident(w) if w == "until" => {
+                        self.next();
+                        self.clock_until()?
+                    }
                     TokenKind::Punct("+") => {
                         self.next();
                         match self.peek_kind().clone() {
@@ -645,7 +730,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`clock` takes `settle`, `data`, `held`, `+ms`, `+ms real`, or `ms`, found {}",
+                                "`clock` takes `settle`, `data`, `held`, `until state`, `+ms`, `+ms real`, or `ms`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -895,29 +980,7 @@ impl Parser {
                     "midi" => self.expect_midi(span)?,
                     "mediasession" => self.expect_media_session(span)?,
                     "state" => {
-                        let (mut name, _) = self.ident()?;
-                        // A field, or a list index (`rows.0`), at any depth (feed F10, drums R7).
-                        while self.eat_punct(".") {
-                            name.push('.');
-                            match self.peek_kind().clone() {
-                                TokenKind::Number(n)
-                                    if n.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&n) =>
-                                {
-                                    self.next();
-                                    name.push_str(&format!("{}", n as u64));
-                                }
-                                TokenKind::Ident(_) => name.push_str(&self.ident()?.0),
-                                other => {
-                                    return self.err(
-                                        "syntax-expected-name",
-                                        format!(
-                                            "expected a field or a list index after `.`, found {}",
-                                            describe(&other)
-                                        ),
-                                    );
-                                }
-                            }
-                        }
+                        let name = self.state_path()?;
                         self.expect_punct("==")?;
                         // `-3` is a number (drums R7). Other expressions stay refused.
                         let value = match self.expr()? {

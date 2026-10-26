@@ -32,6 +32,7 @@ impl<D: DataSource> Host<D> {
     /// What `view`'s subtree would measure in `block` (`Kernel::measure_block`):
     /// no layout of the page, no batch; `None` when refused.
     pub fn measure_block(&mut self, view: ViewId, block: HostBlock) -> Option<BlockMeasure> {
+        self.runner.count_kernel_layout();
         self.runner.kernel_mut().measure_block(view, block).ok()
     }
 

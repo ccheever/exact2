@@ -39,6 +39,7 @@ final class ButtonMeasureCache: @unchecked Sendable {
         return provisional
     }
     func measure(_ face: ButtonFace, widthKind: UInt8, width: CGFloat, appearance: NSAppearance, scale: CGFloat) -> ExactButtonMeasure {
+        HostPhases.shared.count(.nativeControlMeasurements)
         precondition(Thread.isMainThread)
         var result = ExactButtonMeasure()
         appearance.performAsCurrentDrawingAppearance {

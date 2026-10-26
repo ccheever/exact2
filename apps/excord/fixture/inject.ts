@@ -39,6 +39,12 @@ export async function inject(world: World, request: Injection, controls: Control
     }
     return;
   }
+  // A message to translate (LLP 1133.027 §10, drive 7).
+  if (what === 'japanese') {
+    const created = controls.create(channelId, '明日の会議は十時からです。', world.users[1].id, at);
+    await controls.broadcast('MESSAGE_CREATE', created);
+    return;
+  }
   if (what === 'delete-unread') {
     const lastRead = world.read_state.entries.find(entry => entry.id === channelId)!.last_message_id;
     const first = history.find(message => lastRead === null || compareIds(message.id, lastRead) > 0);

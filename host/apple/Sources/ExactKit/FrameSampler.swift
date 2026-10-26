@@ -44,6 +44,7 @@ final class FrameSampler: NSObject {
 
     struct Record {
         let t: Double, interval: Double, missed: Int, seq: (UInt64, UInt64)?, batches: Int, apply: Double
+        var period = 0.0
         /// How long past the frame's target the main thread's turn ended,
         /// milliseconds (0: within it): a commit that landed after it.
         var overrun = 0.0
@@ -58,7 +59,7 @@ final class FrameSampler: NSObject {
         /// `-` at rest (LLP 1144 D1).
         var scroll: (Double, String)?
         var json: [String: Any] {
-            var o: [String: Any] = ["t": t, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
+            var o: [String: Any] = ["t": t, "target": t + period, "period": period, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
             o["seq"] = seq.map { [$0.0, $0.1] } ?? NSNull()
             if let scroll { o["scroll"] = [scroll.0, scroll.1] }
             if let hatches { o.merge(hatches) { a, _ in a } }
@@ -74,6 +75,8 @@ final class FrameSampler: NSObject {
     private var link: CADisplayLink?
     private var last: CFTimeInterval?
     private var active = -Double.infinity
+    private var observing = false
+    var observationStopped: ((String) -> Void)?
     /// `perf frames hold` (LLP 1144 D1): the segment stays open with no batch,
     /// so a list built up front is sampled as it glides; released by `perf
     /// frames release`, or by anything that stops sampling.
@@ -82,10 +85,13 @@ final class FrameSampler: NSObject {
             if held { activity() } else { tracked = nil }
             #if os(macOS)
             // A held fling on the Mac is a person's, on the trackpad: AppKit scrolls it.
-            if !ExactEnv.agentFreezes { ChainingScrollView.appliesAtOnce = !held }
+            if !ExactEnv.agentFreezes { ChainingScrollView.appliesAtOnce = Self.wheelAppliesAtOnce(agentMode: ExactEnv.agentMode, held: held) }
             #endif
         }
     }
+    #if os(macOS)
+    static func wheelAppliesAtOnce(agentMode: Bool, held: Bool) -> Bool { agentMode && !held }
+    #endif
     /// The scroller a held fling watches (`perf frames hold` with a target):
     /// its offset and phase, read where each turn ends, after its commit.
     var tracked: (() -> (Double, String)?)?
@@ -142,7 +148,7 @@ final class FrameSampler: NSObject {
 
     /// Something visible may be happening: open a segment, or keep it open.
     func activity() {
-        guard let session, session.clock == nil, session.state != .destroyed else { return }
+        guard let session, (session.clock == nil || observing), session.state != .destroyed else { return }
         active = CACurrentMediaTime()
         guard link == nil else { return }
         #if canImport(UIKit)
@@ -171,6 +177,8 @@ final class FrameSampler: NSObject {
     }
 
     func stop() {
+        let interrupted = observationStopped
+        observationStopped = nil
         link?.invalidate()
         link = nil
         last = nil
@@ -179,6 +187,7 @@ final class FrameSampler: NSObject {
         // A segment's timing is its own: an overrun not yet sampled goes
         // with it, not onto the next segment's first frame.
         target = nil; turnBegan = nil; overrun = 0
+        interrupted?("display observation stopped")
     }
 
     /// A frame the display link delivered on time can still miss the
@@ -220,7 +229,7 @@ final class FrameSampler: NSObject {
         session?.rasters.sampleBlank()
         // The session's own frame source running is activity too.
         if session?.frames.link != nil || held { active = CACurrentMediaTime() }
-        if CACurrentMediaTime() - active > Self.quiet { stop() }
+        if !observing && CACurrentMediaTime() - active > Self.quiet { stop() }
     }
 
     /// One display callback: its time and the next frame's target, seconds;
@@ -243,6 +252,7 @@ final class FrameSampler: NSObject {
         let missedHere = max(0, Int((interval / p).rounded()) - 1)
         let seq = pending.first.flatMap { first in pending.last.map { (first, $0) } }
         var record = Record(t: r2((now - ExactEnv.t0) * 1000), interval: r2(interval), missed: missedHere, seq: seq, batches: pending.batches, apply: r2(pending.apply))
+        record.period = r2(p)
         record.overrun = r2(overrun)
         if tracked != nil, let c = committed { record.scroll = (r2(c.0), c.1) }
         overrun = 0
@@ -264,6 +274,27 @@ final class FrameSampler: NSObject {
         let past = record.overrun > 0 ? ", main \(record.overrun) ms past the target" : ""
         session?.log("frame late at \(record.t): \(missedHere) missed (\(record.interval) ms / \(r2(p)) target)\(past)\(range) apply \(record.apply)")
     }
+
+    /// Observe callbacks at rest too, without advancing or taking the session clock.
+    func beginObservation() -> Bool {
+        guard !observing else { return false }
+        observing = true
+        activity()
+        if link == nil { observing = false; return false }
+        return true
+    }
+    func endObservation() {
+        observationStopped = nil
+        observing = false
+        if session?.clock != nil || (!held && CACurrentMediaTime() - active > Self.quiet) { stop() }
+    }
+    func observation(from: Double, before: Int) -> [String: Any] {
+        let kept = records.filter { $0.t > from }
+        return ["records": kept.map(\.json), "samples": presented - before,
+                "dropped": max(0, presented - before - kept.count),
+                "proxy": "CADisplayLink callback timestamps; not physical display presentation"]
+    }
+    var observedCount: Int { presented }
 
     /// `{"op":"perf","frames":true[,"late":N]}` (D4): lifetime counters, the
     /// ring's percentiles with the range they cover, the most recent late
@@ -435,5 +466,56 @@ extension ExactSession {
         for line in lines where !line.hasPrefix("host: ") {
             Self.journal.info("\(self.label, privacy: .public): \(line, privacy: .public)")
         }
+    }
+}
+
+/// One bounded capture's completion, including interruption. The wire's
+/// reader waits on this callback while the main event pump keeps running.
+final class FrameObservation {
+    private var timer: Timer?
+    private var completed: ((String?) -> Void)?
+    init(ms: Int, completed: @escaping (String?) -> Void) {
+        self.completed = completed
+        let end = Timer(timeInterval: Double(ms) / 1000, repeats: false) { [self] _ in finish() }
+        timer = end
+        RunLoop.main.add(end, forMode: .common)
+    }
+    func finish(_ reason: String? = nil) {
+        guard let completed else { return }
+        self.completed = nil
+        timer?.invalidate(); timer = nil
+        completed(reason)
+    }
+}
+
+// @ref LLP 1142 §13 D8 — independent real-time observation, never a clock loan.
+extension Agent {
+    func liveFrames(_ request: [String: Any], completed: @escaping ([String: Any]) -> Void) {
+        guard let ms = Agent.integer(request["live"]), (1...120_000).contains(ms) else {
+            completed(["malformed": true, "error": "perf frames live: milliseconds must be an integer in 1...120000"])
+            return
+        }
+        guard FrameSampler.measured, let sampler = session.sampler else { completed(["unavailable": true]); return }
+        guard sampler.beginObservation() else {
+            completed(["unavailable": true, "reason": "capture already active or no visible window display link", "clockMode": session.clock == nil ? "real" : "virtual"])
+            return
+        }
+        let start = CACurrentMediaTime(), from = session.now(), before = sampler.observedCount
+        let observation = FrameObservation(ms: ms) { [self] reason in
+            sampler.endObservation()
+            let storageSubstituted = ExactEnv.environment["EXACT_AGENT"] != nil && ExactEnv.environment["EXACT_STORE"] != "real"
+            var result = sampler.reply(late: request["late"] as? Int ?? 20, all: request["records"] as? Bool == true)
+            result["live"] = ["ms": (CACurrentMediaTime() - start) * 1000, "from": from, "to": session.now(),
+                              "clockMode": session.clock == nil ? "real" : "virtual", "clockChanged": false,
+                              "execution": ExactEnv.agentMode ? "agent" : "normal",
+                              "scheduling": ExactEnv.agentMode ? "agent" : "normal",
+                              "performanceClaim": !ExactEnv.agentMode && !storageSubstituted && session.clock == nil,
+                              "inputPath": "unknown", "observation": sampler.observation(from: (start - ExactEnv.t0) * 1000, before: before),
+                              "substitutions": ExactEnv.agentMode ? ["timers", "collection-fill-scheduling", "scroll-velocity", "wheel-routing", "device-facts", "capabilities"] : storageSubstituted ? ["storage", "secret-presence"] : []] as [String: Any]
+            if let reason { result["error"] = session.state == .destroyed ? "session destroyed during live observation" : reason }
+            completed(result)
+        }
+        // A nested Foundation run loop does not dispatch AppKit's events.
+        sampler.observationStopped = { observation.finish($0) }
     }
 }

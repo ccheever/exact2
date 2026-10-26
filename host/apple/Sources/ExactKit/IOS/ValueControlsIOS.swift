@@ -155,6 +155,7 @@ extension ControlHost {
 
     /// HTML sizes a select to its widest option, whichever is shown (D3).
     func naturalSize(_ control: UIControl, _ owner: NodeView) -> CGSize {
+        HostPhases.shared.count(.nativeControlMeasurements)
         #if !os(tvOS)
         // A slider has no width of its own: it is as wide as its node, which
         // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the

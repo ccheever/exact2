@@ -102,6 +102,7 @@ package final class Owner: @unchecked Sendable {
             NSLog("exact: a runtime call from inside a callback the owner is waiting on was refused (LLP 1072 T5)")
             return busy()
         }
+        if main { HostPhases.shared.count(.ownerSync) }
         // Main's wait is the runtime phase of a late frame (LLP 1142 D1).
         let phase = main ? HostPhases.shared.begin(.runtime) : false
         defer { HostPhases.shared.end(phase) }
