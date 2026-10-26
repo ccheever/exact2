@@ -79,10 +79,14 @@ test('an outline on both web pages brings the selection\'s own copy into view, n
       await settle();
       const at = { P: Math.floor(c0.top - 2), O: Math.ceil(c1.bottom + 2 - h), top: 0 };
       const to = async (where) => { await page.evaluate(y => scrollTo(0, y), at[where]); await settle(); expect([page_, where, await scrollY()]).toEqual([page_, where, at[where]]); };
+      // A click's selection and its outline drawn (so a later outline's marks are never this one's; Astra's check).
       const click = async (id) => {
         const box = await page.locator(`[data-testid="${id}"]`).boundingBox(), seen = events.length;
+        await unmarked();
         await page.mouse.click(box.x + Math.min(6, box.width / 2), box.y + box.height / 2);
-        return until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, `${id} selected`);
+        const s = await until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, `${id} selected`);
+        await marked();
+        return s;
       };
       const moveUp = async () => {
         const seen = events.length;
