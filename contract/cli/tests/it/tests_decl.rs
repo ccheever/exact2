@@ -827,3 +827,54 @@ fn clock_held_names_its_targets_up_to_the_line_end_and_a_bound_last() {
     // A number with no unit is no bound.
     assert!(contract::tests("test \"push\"\n  clock held changes 30\n").is_err());
 }
+
+/// `clock until state <path> == <literal> within <ms>` (rules/DEFERRED.md, "Agent API", 2026-10-26): the driver's words,
+/// the path's fields and indexes joined by `.`, the literal as JSON text, the bound whole milliseconds; and through the
+/// JSON the driver reads.
+#[test]
+fn clock_until_state_takes_a_path_a_json_literal_and_a_bound() {
+    let src = "test \"socket\"\n  clock until state gateway.state == \"ready\" within 2000\n  clock until state rows.0.n == -3 within 500\n  clock until state ok == true within 1\n  clock until state picked == null within 10\n  clock until state say == \"a \\\"b\\\"\" within 10\n  tap \"go\"\n";
+    let tests = contract::tests(src).unwrap();
+    let args: Vec<_> = tests[0].steps[..5]
+        .iter()
+        .map(|s| match s {
+            Step::Clock { arg, .. } => arg.as_str(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        args,
+        [
+            "until state gateway.state == \"ready\" within 2000",
+            "until state rows.0.n == -3 within 500",
+            "until state ok == true within 1",
+            "until state picked == null within 10",
+            "until state say == \"a \\\"b\\\"\" within 10",
+        ]
+    );
+    assert!(matches!(&tests[0].steps[5], Step::Tap { target, .. } if target == "go"));
+    assert!(contract::tests_json(&tests)
+        .contains(r#""op":"clock","arg":"until state gateway.state == \"ready\" within 2000""#));
+    let huge = format!("clock until state g == -1{} within 10", "0".repeat(400));
+    let positive = huge.replace("-1", "1");
+    for (bad, says) in [
+        ("clock until gateway.state == 1 within 10", "takes `state"),
+        ("clock until state g == 1", "expected `within <ms>`"),
+        ("clock until state g == 1 within 2.5", "whole milliseconds"),
+        ("clock until state g == 1 within 0", "whole milliseconds"),
+        (
+            "clock until state g == [] within 10",
+            "a string, a number, true, false or null",
+        ),
+        (
+            "clock until state g == none within 10",
+            "a string, a number, true, false or null",
+        ),
+        ("clock until state g within 10", "=="),
+        (huge.as_str(), "a string, a number"),
+        (positive.as_str(), "a string, a number"),
+    ] {
+        let e = contract::tests(&format!("test \"t\"\n  {bad}\n")).unwrap_err();
+        assert!(format!("{e:?}").contains(says), "{bad}: {e:?}");
+    }
+}

@@ -376,7 +376,8 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `clock settle`, `clock data`, `clock +ms`, `clock +ms real`, `clock ms`.
+    /// `clock settle`, `clock data`, `clock held …`, `clock until state …`,
+    /// `clock +ms`, `clock +ms real`, `clock ms`.
     Clock {
         /// The argument as the agent takes it.
         arg: String,

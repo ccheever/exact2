@@ -3105,6 +3105,9 @@ After an action that causes a push you will read (a write the server echoes, a b
 request in flight (or each named) has had one reply, the server's own timeout answer included; then `clock
 data` lands what that reply started. Past its bound (20 s) it answers `settled: false, reason: "held"`,
 naming the targets that had none.
+A stream counts as landed at its first message, so for state it reaches later (a socket's READY after HELLO),
+wait with `clock until state <path> == <literal> within <ms>`: real time with the clock frozen, polling `state`
+until it equals the JSON literal; a miss fails naming the last value.
 `clock settle` also runs the clock to where the last running finite, unpaused
 transition or animation ends, firing the timers due on the way, so a test on a timer's grid moves with it,
 and on past a task due a commit later (`after(1, …)`, which an input or an answer armed) until none is.
@@ -3253,7 +3256,9 @@ the down, then every 83 ms),
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
 what is in flight lands, with each answer's `then`, the clock unmoved), `clock held [<resource>…] [<n>s|<n>ms]`
 (the driver's: real time with the clock frozen until each held request, or each named, has had a reply, such as a
-long poll's after a push the test caused, within the bound, 20 s unless given; then `clock data`), `resize
+long poll's after a push the test caused, within the bound, 20 s unless given; then `clock data`), `clock until
+state <path> == <literal> within <ms>` (real time with the clock frozen until `expect state`'s path equals a
+string, number, `true`, `false` or `null`), `resize
 800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, including a `secret.keep`, its state and
 clock starting over, so a test shows what persists; the web reloads its current
