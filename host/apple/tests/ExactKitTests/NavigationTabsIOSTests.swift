@@ -986,8 +986,14 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertNotNil(owner.view.window)
         let selected = try XCTUnwrap(navigation.primaryNavigation?.topViewController as? RouteController)
         XCTAssertTrue(selected.node.isDescendant(of: owner.view), "the eager view holds the live selected route")
-        try tapNode(session, "tab-second")
+        let control = try XCTUnwrap(owner.view.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        control.selectedSegmentIndex = 1
+        for case let target as NSObject in control.allTargets {
+            for name in control.actions(forTarget: target, forControlEvent: .valueChanged) ?? [] { target.perform(Selector(name), with: control) }
+        }
         until("the eager container shows Second") { navigation.routerTab == 1 && navigation.activeRoute?.node.props["testId"] == "route-second" }
+        XCTAssertEqual(control.selectedSegmentIndex, 1)
+        XCTAssertFalse(stacks[1].view.isHidden)
         XCTAssertTrue(try XCTUnwrap(navigation.activeRoute).node.isDescendant(of: owner.view))
     }
 
