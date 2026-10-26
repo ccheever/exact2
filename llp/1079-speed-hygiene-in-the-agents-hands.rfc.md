@@ -748,8 +748,9 @@ rebind means a wrapper takes a different item, not merely an unchanged row visit
 JS target constructs and retires rows but does not rebind them, so it omits that counter.
 
 `work` names the runner session scope, measurement start and clock. Apple reports
-`counts.kernelLayouts` at actual kernel layout entries, including provisional retries and
-failed attempts; hosts that do not instrument the entry omit it. Swift’s `hostWork` names its
+`counts.kernelLayouts` at kernel layout API entries: root and region layout, height-target
+measurement, fitted-content measurement and block measurement, including provisional retries
+and failed attempts. This counts API calls, not internal per-node walks; hosts that do not instrument the entry omit it. Swift’s `hostWork` names its
 process scope and counts synchronous owner submissions, intrinsic reports, resulting intrinsic
 layout submissions and uncached native control measurements. These are sequential observations
 across the owner boundary, not one atomic snapshot. Unknown sites stay unknown; a target does
