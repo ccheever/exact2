@@ -966,23 +966,36 @@ component Glow
     glow: string
   view
     text "g" text-shadow=glow
+
+component Inks
+  props
+    caret: string
+    accent: string
+    pressed: string
+    pressInk: string
+    go: action
+  view
+    column press=go -exact-press-background-color=pressed -exact-press-color=pressInk
+      input value="" aria-label="field" caret-color=caret accent-color=accent
 "#;
 
-const STYLED_APP: &str = r#"use Dot, Ring, Glow from "@acme/lib"
+const STYLED_APP: &str = r#"use Dot, Ring, Glow, Inks from "@acme/lib"
 
 component App
+  action go
   view
     column
       Dot(size="4px", ink="red", label="a")
       Ring(edge="4px", tint="red")
       Glow(glow="glow")
+      Inks(caret="red", accent="red", pressed="red", pressInk="red", go=go)
 "#;
 
 /// A string prop written as a style row's value, directly or through a
 /// component it is passed to, gets a value of that row's kind, not its name,
 /// which no row reads (LLP 1121 stage 15 B: Avatar's `width=size`,
-/// VerifiedBadge's `color=ink`): a length row `24px`, a colour row
-/// `currentcolor`; a label keeps its name, and so does a shadow (a row that
+/// VerifiedBadge's `color=ink`): a length row `24px`, a colour row the
+/// role `-exact-label` (a caret, an accent and a press colour too); a label keeps its name, and so does a shadow (a row that
 /// holds a colour but takes no colour alone; its name may be a token's).
 #[test]
 fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
@@ -1008,18 +1021,30 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         .find(|l| l.contains("Dot("))
         .expect("a Dot cell");
     assert!(dot.contains(r#"size="24px""#), "{dot}");
-    assert!(dot.contains(r#"ink="currentcolor""#), "{dot}");
+    assert!(dot.contains(r#"ink="-exact-label""#), "{dot}");
     assert!(dot.contains(r#"label="label""#), "{dot}");
     let ring = text
         .lines()
         .find(|l| l.contains("Ring("))
         .expect("a Ring cell");
     assert!(ring.contains(r#"edge="24px""#), "{ring}");
-    assert!(ring.contains(r#"tint="currentcolor""#), "{ring}");
+    assert!(ring.contains(r#"tint="-exact-label""#), "{ring}");
     let glow = text
         .lines()
         .find(|l| l.contains("Glow("))
         .expect("a Glow cell");
     assert!(glow.contains(r#"glow="glow""#), "{glow}");
+    // A caret, an accent and the press colours, which refuse `currentcolor`,
+    // read the role (Astra r2).
+    let inks = text
+        .lines()
+        .find(|l| l.contains("Inks("))
+        .expect("an Inks cell");
+    for prop in ["caret", "accent", "pressed", "pressInk"] {
+        assert!(
+            inks.contains(&format!(r#"{prop}="-exact-label""#)),
+            "{inks}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

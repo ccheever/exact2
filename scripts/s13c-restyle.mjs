@@ -242,7 +242,10 @@ export function readsOf(key) {
 const componentOfPath = token => {
   const batch = BATCHES.find(b => b.names?.includes(token)) ?? BATCHES.find(b => b.prefix?.test(token));
   if (!batch) throw new Error(`${token}: in no batch`);
-  return batch.components.length === 1 ? batch.components[0] : token === 'lists.switch-on' ? 'SwitchRow' : 'ListRow';
+  if (batch.components.length === 1) return batch.components[0];
+  if (batch.name === 'lists') return token === 'lists.switch-on' ? 'SwitchRow' : 'ListRow';
+  // The exports' batch draws with one token in two components: a read names its instances.
+  throw new Error(`${token}: a read in the ${batch.name} batch names no instance of one component (not *)`);
 };
 
 /** The packages' tokens from their designs: [{ name, kind }], `kind` a
