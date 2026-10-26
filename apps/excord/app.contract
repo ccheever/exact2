@@ -1,6 +1,5 @@
 // Excord (apps/excord/llp/0001): a Discord client. Stage 1 is the transcript and
 // its composer on iOS, against the fixture server (§3, §4.2, §4.4).
-//
 // The data seam is §4.2's: `gatewayState` is the gateway's stream and its small
 // snapshot (a version for the lists and one per channel); each list is a
 // resource taking its version, and the transcript is one resource, `loadWindow`,
@@ -191,10 +190,9 @@ component Excord
   // The server's channels, never another's: a load that failed keeps the last server's answer.
   derive here = categories.filter(g => g.channels.map(c => c.guild).includes(guild.id))
   derive channels = here.map(g => g.channels).flat()
-  // A browser window wide enough to show the channel beside the list (the web's split, from 900
-  // points) opens the server's last channel, or its first, as Discord's web app does, and hides Back,
-  // which would only reopen it (the browser's Back still presses it, keeping the place). The Mac's
-  // split gives the list its own column's width; Windows and Android push, showing the list first.
+  // From 900 points, browsers open the last or first channel beside the list and omit Back.
+  // Browser history keeps the reader's place through `leave`. The Mac's split gives the list
+  // its own column's width; Windows and Android push, showing the list first.
   derive wide = viewport.displayMode == "browser" and viewport.width >= 900
   derive listed = dmsShown ? dms : channels
   derive remembered = draftOf(lastChannels, dmsShown ? "@me" : guild.id)
@@ -1157,10 +1155,11 @@ component Excord
       hidePopover("fixture-menu")
     launched = true
   action unlockTap
-    if session.locked
-      send unlocked = unlockSession()
-    else
-      send returned = authenticate(reason="reason.unlock")
+    if not pending(unlocked) and not pending(returned)
+      if session.locked
+        send unlocked = unlockSession()
+      else
+        send returned = authenticate(reason="reason.unlock")
   action afterReturn
     lockedOut = false
   action toggleLock
@@ -1242,8 +1241,9 @@ component Excord
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
-              button id="back" press=back aria-label="Back" testId="back" display=(wide ? "none" : "flex")
-                image "symbol:back"
+              if not wide
+                button id="back" press=back aria-label="Back" testId="back"
+                  image "symbol:back"
               h2 (chan.guild != "" ? `# ${chan.name}` : chan.name) flex=1 min-width=0 line-clamp=1
               if chan.guild != ""
                 button press=toggleMembers aria-label="Members" aria-pressed=membersBeside testId="members-toggle"
@@ -1495,5 +1495,5 @@ component Excord
         column position="absolute" inset=0 align-items="center" justify-content="center" gap=16 padding=24 background-color="-exact-background" testId="lock-screen"
           image "symbol:lock" font-size=44 color="-exact-secondary-label"
           text "Excord is locked" font="-exact-title3"
-          button press=unlockTap buttonStyle="filled" testId="unlock"
-            text "Unlock"
+          button press=unlockTap disabled=(pending(unlocked) or pending(returned)) buttonStyle="filled" testId="unlock"
+            text ((pending(unlocked) or pending(returned)) ? "Unlocking…" : "Unlock")

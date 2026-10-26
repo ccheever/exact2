@@ -71,6 +71,7 @@ final class EventStore: NSObject {
             DispatchQueue.main.async {
                 self?.say("asked \(level): \(granted ? "granted" : "not granted")")
                 done()
+                self?.changed()
             }
         }
         if #available(iOS 17, macOS 14, *) {

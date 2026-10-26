@@ -218,6 +218,7 @@ package enum AudioSession {
     /// from the first claim, activated. 0 when the session would not
     /// activate (a call), and then nothing is held.
     package static func claimCapture(mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions, background: Bool,
+                                     failure: (Error) -> Void = { _ in },
                                      events: @escaping (UInt32) -> Void) -> UInt64 {
         observe()
         let claim = Capture(mode: mode, options: options, background: background, events: events)
@@ -228,6 +229,7 @@ package enum AudioSession {
                 try session.setCategory(.playAndRecord, mode: mode, options: options)
                 try session.setActive(true)
             } catch {
+                failure(error)
                 restoreAfterCaptures()
                 return 0
             }

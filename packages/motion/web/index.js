@@ -269,6 +269,8 @@ export function implementation({ changed, now = () => performance.now(), foregro
         const said = results.map(r => (r.status === 'fulfilled' ? r.value : 'prompt'));
         decided = said.includes('denied') ? 'denied' : said.every(s => s === 'granted') ? 'granted' : decided;
         changed('motion.motionStatus');
+        // Failed readers keep their last value until their source changes.
+        for (const name of Object.keys(sources)) changed(`motion.${name}`);
         return status();
       });
     },

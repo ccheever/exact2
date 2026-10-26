@@ -246,17 +246,19 @@ component Harmony
   // Changes arrive through `live`; the clock still moves every ten seconds,
   // between writes, for what changes with time alone (a typing line that
   // expires, "Today"), and as a fallback should the feed drop.
-  task clock when not writing
+  task clock when page.visibilityState == "visible" and not writing
     every(10000, tick)
   // The open room is read as soon as it is seen, and again as messages arrive.
-  task follow when live.seq != seenSeq and not pending(world) key=live.seq
+  task follow when page.visibilityState == "visible" and live.seq != seenSeq and not pending(world) key=live.seq
     after(1, catchUp)
   task relive when live.state == "error" key=liveEpoch
     after(2000, reconnect)
-  task readOpen when roomId != "" and shown.unread > 0 and not pending(world) key=roomId
+  task readOpen when page.visibilityState == "visible" and roomId != "" and shown.unread > 0 and not pending(world) key=roomId
     after(300, markOpen)
   task fillStatus when world.loaded key=persona
     after(1, loadStatus)
+  task returned when page.visibilityState == "visible"
+    after(1, tick)
   action tick
     if not pending(world)
       sampledAt = performanceNow()
@@ -619,11 +621,14 @@ component Harmony
                         text "Harmony has no sign-in yet: choose who you are. Each person keeps their own copy of every room on this device, unread marks included."
                     if background.periodic
                       section
-                        row
-                          text "Notify Me of Mentions"
-                          input type="checkbox" switch checked=notifying change=setMentions aria-label="Notify me of mentions" testId="notify-mentions"
+                        if background.state == "denied"
+                          text "Background Activity Disabled" testId="background-denied"
+                        else
+                          row
+                            text "Notify Me of Mentions"
+                            input type="checkbox" switch checked=notifying change=setMentions aria-label="Notify me of mentions" testId="notify-mentions"
                         footer
-                          text "While Harmony is closed, it checks for mentions now and then, when the system allows."
+                          text (background.state == "denied" ? "Enable background activity in system settings to check for mentions while Harmony is closed." : "While Harmony is closed, it checks for mentions now and then, when the system allows.")
                     section
                       header
                         text "Custom Emoji"

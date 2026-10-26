@@ -197,7 +197,8 @@ private let hatchAudioClaim: HatchAudioClaimFn = { host, mode, length, options, 
     let defaults: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
     #endif
     let id = AudioSession.claimCapture(mode: modes[word] ?? .default, options: options == 0 ? defaults : AVAudioSession.CategoryOptions(rawValue: chosen),
-                                       background: background != 0) { code in event(context, code) }
+                                       background: background != 0,
+                                       failure: { hatchSession(host)?.log("audio session: capture activation failed: \($0 as NSError)") }) { code in event(context, code) }
     if id == 0 { hatchSession(host)?.log("audio session: the capture's claim was refused (the session would not activate)") }
     return id
     #else

@@ -269,3 +269,258 @@ fn body(outcome: &Outcome) -> String {
         other => panic!("{other:?}"),
     }
 }
+
+fn unavailable_presence(
+    occupancy: Occupancy,
+) -> (
+    Runner<Source>,
+    MemoryVault,
+    Arc<Mutex<Option<&'static str>>>,
+) {
+    let mut memory = MemoryVault::default();
+    let policy = crate::grants::parse(GRANTS)
+        .unwrap()
+        .presence()
+        .next()
+        .unwrap()
+        .1;
+    match occupancy {
+        Occupancy::Plain => memory.put_plain("token", Some(b"alice")).unwrap(),
+        Occupancy::Locked => {
+            memory.add_locked("token", 1, &policy, b"alice").unwrap();
+            memory
+                .put_record("token", Some(b"locked user-presence optional"))
+                .unwrap();
+        }
+        _ => unreachable!(),
+    }
+    let failure = Arc::new(Mutex::new(Some("generations")));
+    let vault = crate::presence::tests::UnavailableVault {
+        memory: memory.clone(),
+        failure: failure.clone(),
+    };
+    let backend = Backend::new(Box::new(vault), vec![("token".into(), Some(policy))]);
+    let mut plan = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 0);
+    plan.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut runner = Runner::boot_stored(
+        plan.finish().unwrap(),
+        Source { ready: true },
+        Kernel::with_monospace(),
+        backend.snapshot_entries(true),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    runner.install_presence(backend, None);
+    assert_eq!(runner.store.occupancy("token"), Some(Occupancy::Pending));
+    (runner, memory, failure)
+}
+
+#[test]
+fn presence_retry_deadline_finishes_an_idle_unlock_without_another_request() {
+    for repeated_failure in [false, true] {
+        let (mut r, vault, failure) = unavailable_presence(Occupancy::Locked);
+        assert!(!r.has_timers(), "no authored timer can rescue this request");
+        let unlock = Request::native(br#"{"presence":"unlock","name":"token"}"#.to_vec());
+        let (slot, reply) = pending();
+        let Dispatch::Run(Work::Later(work)) = r.native_work(&unlock) else {
+            panic!("the unlock waits for reconciliation")
+        };
+        work(reply);
+        assert!(r.device_holds().is_empty());
+        let mut due = r
+            .timer_due_ms()
+            .expect("the pending probe must wake its host");
+        assert_eq!(due, 1000.0);
+        r.advance(due - 1.0).unwrap();
+        assert!(r.device_holds().is_empty());
+        if repeated_failure {
+            r.advance(due).unwrap();
+            assert!(r.device_holds().is_empty());
+            let next = r
+                .timer_due_ms()
+                .expect("a failed retry must schedule another");
+            assert!(next > due);
+            due = next;
+        }
+        *failure.lock().unwrap() = None;
+        r.advance(due).unwrap();
+        assert_eq!(r.store.occupancy("token"), Some(Occupancy::Locked));
+        assert_eq!(r.timer_due_ms(), None);
+        assert_eq!(r.device_holds().len(), 1);
+        let hold = r.device_holds()[0].clone();
+        assert!(slot.lock().unwrap().is_none());
+        r.answer_hold(hold.ticket, &HoldAnswer::Choice("allow".into()))
+            .unwrap();
+        assert_eq!(
+            body(&slot.lock().unwrap().take().unwrap()),
+            r#"{"value":"alice"}"#
+        );
+        assert_eq!(
+            vault.memory().locked.values().collect::<Vec<_>>(),
+            [&b"alice".to_vec()]
+        );
+        holds_no(&r, "alice");
+    }
+}
+
+#[test]
+fn presence_retry_deadline_publishes_recovered_occupancy_without_a_call() {
+    for occupancy in [Occupancy::Plain, Occupancy::Locked] {
+        let (mut r, _, failure) = unavailable_presence(occupancy);
+        let due = r
+            .timer_due_ms()
+            .expect("reconciliation must wake an idle host");
+        *failure.lock().unwrap() = None;
+        let receipts = r.advance(due).unwrap();
+        assert_eq!(receipts.len(), 1, "the recovered occupancy is committed");
+        assert_eq!(r.store.occupancy("token"), Some(occupancy));
+        assert_eq!(r.timer_due_ms(), None);
+        assert!(
+            r.device_holds().is_empty(),
+            "reconciliation never authenticates"
+        );
+        if occupancy == Occupancy::Plain {
+            assert_eq!(r.store.get("token"), Some("alice"));
+        } else {
+            holds_no(&r, "alice");
+        }
+    }
+}
+
+#[test]
+fn presence_retry_deadline_retries_a_failed_forget_without_another_request() {
+    let (mut r, vault, failure) = unavailable_presence(Occupancy::Locked);
+    *failure.lock().unwrap() = None;
+    r.advance(r.timer_due_ms().unwrap()).unwrap();
+    *failure.lock().unwrap() = Some("delete");
+    r.store.forget("token").unwrap();
+    assert!(r.take_store_writes().is_empty());
+    let due = r
+        .timer_due_ms()
+        .expect("a failed forget must wake its host");
+    assert!(due > r.now_ms());
+    r.advance(due).unwrap();
+    assert!(!vault.memory().locked.is_empty());
+    assert!(!vault.memory().records.is_empty());
+    let next = r.timer_due_ms().expect("the queued forget retains a retry");
+    assert!(
+        next > due,
+        "failed deletion must not cause an overdue wake loop"
+    );
+    *failure.lock().unwrap() = None;
+    r.advance(next).unwrap();
+    assert!(vault.memory().locked.is_empty());
+    assert!(vault.memory().records.is_empty());
+    assert_eq!(r.store.occupancy("token"), Some(Occupancy::Absent));
+    assert_eq!(r.timer_due_ms(), None);
+    assert!(r.device_holds().is_empty());
+}
+
+#[test]
+fn presence_retry_deadline_waits_for_an_authenticated_read_before_replacing_its_item() {
+    let (mut r, vault, failure) = unavailable_presence(Occupancy::Locked);
+    *failure.lock().unwrap() = None;
+    r.advance(r.timer_due_ms().unwrap()).unwrap();
+    *failure.lock().unwrap() = Some("add");
+    r.store.set("token", "bob").unwrap();
+    assert!(r.take_store_writes().is_empty());
+    let due = r
+        .timer_due_ms()
+        .expect("the refused write must wake its host");
+    *failure.lock().unwrap() = None;
+    let unlock = Request::native(br#"{"presence":"unlock","name":"token"}"#.to_vec());
+    let (slot, reply) = pending();
+    let Dispatch::Run(Work::Later(work)) = r.native_work(&unlock) else {
+        panic!("the check waits for the person")
+    };
+    work(reply);
+    let hold = r.device_holds()[0].clone();
+    assert_eq!(
+        r.timer_due_ms(),
+        None,
+        "a pending check suspends the write retry"
+    );
+    r.advance(due).unwrap();
+    assert_eq!(
+        vault.memory().locked.values().collect::<Vec<_>>(),
+        [&b"alice".to_vec()]
+    );
+    assert!(slot.lock().unwrap().is_none());
+    r.answer_hold(hold.ticket, &HoldAnswer::Choice("allow".into()))
+        .unwrap();
+    assert_eq!(
+        body(&slot.lock().unwrap().take().unwrap()),
+        r#"{"value":"alice"}"#
+    );
+    assert_eq!(
+        r.timer_due_ms(),
+        Some(due),
+        "the finished read releases the retry"
+    );
+    r.advance(due).unwrap();
+    assert_eq!(
+        vault.memory().locked.values().collect::<Vec<_>>(),
+        [&b"bob".to_vec()]
+    );
+    assert_eq!(r.timer_due_ms(), None);
+    holds_no(&r, "bob");
+}
+
+#[test]
+fn presence_retry_deadline_preserves_the_virtual_request_stop_when_recovery_asks_data() {
+    struct RequestOnRecovery;
+    impl DataSource for RequestOnRecovery {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!("the fixture implements answer")
+        }
+        fn answer(&mut self, store: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            Ok(if store.locked("token") {
+                Answer::Now(Value::str("locked"))
+            } else {
+                Answer::Later(Request::get("https://example.test/recovered"))
+            })
+        }
+        fn ready(&self) -> bool {
+            true
+        }
+        fn grants(&self) -> &str {
+            "secret.keep token user-presence optional\ndevice.local-auth purpose.lock\nnet.fetch https://example.test"
+        }
+    }
+    let mut memory = MemoryVault::default();
+    memory.put_plain("token", Some(b"alice")).unwrap();
+    let failure = Arc::new(Mutex::new(Some("generations")));
+    let vault = crate::presence::tests::UnavailableVault {
+        memory,
+        failure: failure.clone(),
+    };
+    let policy = crate::grants::parse(GRANTS)
+        .unwrap()
+        .presence()
+        .next()
+        .unwrap()
+        .1;
+    let backend = Backend::new(Box::new(vault), vec![("token".into(), Some(policy))]);
+    let mut r = Runner::boot_stored(
+        plan(),
+        RequestOnRecovery,
+        Kernel::with_monospace(),
+        backend.snapshot_entries(true),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.install_presence(backend, None);
+    assert!(r.take_requests().is_empty());
+    let due = r.timer_due_ms().unwrap();
+    *failure.lock().unwrap() = None;
+    let advanced = r.advance_until_request(due);
+    assert!(advanced.error.is_none(), "{:?}", advanced.error);
+    assert!(advanced.stopped_on_request);
+    assert_eq!(advanced.now_ms, due);
+    assert_eq!(advanced.receipts.len(), 1);
+    assert_eq!(r.take_requests().len(), 1);
+    assert_eq!(r.store.occupancy("token"), Some(Occupancy::Plain));
+    assert_eq!(r.timer_due_ms(), None);
+}

@@ -102,7 +102,10 @@ final class Viewfinder: NSObject, ExactPackageView {
 
     /// The capture's frames, through a preview layer on its session.
     func show(source: ExactVideoSource) {
-        guard source !== self.source || preview == nil else { return }
+        if source === self.source, let preview {
+            preview.isHidden = false
+            return
+        }
         blank()
         self.source = source
         let layer = AVCaptureVideoPreviewLayer(session: source.session)
@@ -137,6 +140,13 @@ final class Viewfinder: NSObject, ExactPackageView {
         picture = layer
         layOut()
         once()
+    }
+
+    /// Keep the capture connection through an interruption: removing it can
+    /// end the interruption, whose unmute would reconnect it in the background.
+    func mute() {
+        preview?.isHidden = true
+        picture?.isHidden = true
     }
 
     func blank() {

@@ -654,6 +654,24 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        if !stopped_on_request {
+            let ticket = self.next_ticket;
+            match self.tick_presence() {
+                Ok(receipt) => receipts.extend(receipt.map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                })),
+                Err(error) => {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(error),
+                        stopped_on_request: false,
+                    }
+                }
+            }
+            stopped_on_request = until_request && self.next_ticket != ticket;
+        }
         // A polled module source whose period passed (LLP 1133.009 D10 item
         // 7): asked once, at the clock the advance landed on.
         if !stopped_on_request {
