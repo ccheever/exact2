@@ -1177,9 +1177,10 @@ fn reimport_within(
                     tried += 1;
                     // Each candidate charged to the re-import's budget for
                     // the tuples and `when` lines it is held against (the
-                    // checker's work in token counts): past it, the line
-                    // naming every axis, and the re-import is refused at
-                    // its next charge.
+                    // checker's work in token counts). Past the 4096
+                    // candidates, the line naming every axis (the
+                    // selector's rule); past the budget, the same, and the
+                    // re-import is then refused in the budget's words.
                     let cost = tuples.len() * (1 + decl.whens.len() + token_ops.len());
                     if tried > crate::selectors::SELECTORS
                         || crate::budget::spend(cost as u64).is_err()
@@ -1320,6 +1321,10 @@ fn reimport_within(
                 unreachable!("a round's answer is folded into its plan")
             }
         }
+    }
+    // Past the budget, nothing more is planned: refused in its words.
+    if let Some(why) = crate::budget::spent() {
+        return Err(refuse(why));
     }
     // A changed value whose line is one dial alone is that dial's change
     // (D14; stage 10b), first in the transaction.
