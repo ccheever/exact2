@@ -211,6 +211,9 @@ test "a move whose page finds its selection gone ends there and leaves Up workin
   request POST "/__stub/restart" {} as ada
 
 test "the inspector: inspect mode on the builds, a selection's source and rows, the token rung on the branch that won, a link for an inherited colour, a style's row read-only, and the token's impact"
+  // (Tall enough that the edit dock, open on a selected token, leaves the Inspector's rows clear: the agent's tap
+  // does not scroll a covered row above it, as a person would.)
+  size 1280x2000
   type "name" "Ada"
   tap "save-name"
   clock data
@@ -263,6 +266,9 @@ test "the inspector: inspect mode on the builds, a selection's source and rows, 
   request POST "/__stub/restart" {} as ada
 
 test "the param rung: a row that reads a component param opens the param on the branch that won, its edit set-param, the token it aliases offered, never the default"
+  // (Tall enough that the edit dock, open on a selected token, leaves the Inspector's rows clear: the agent's tap
+  // does not scroll a covered row above it, as a person would.)
+  size 1280x2000
   type "name" "Ada"
   tap "save-name"
   clock data
@@ -918,6 +924,9 @@ test "a gallery cell selected: its literal rows read only, the gallery's reason 
   request POST "/__stub/restart" {} as ada
 
 test "the inspector folds the rows nothing sets behind one control, opened per selection, and never folds the row being edited"
+  // (Tall enough that the edit dock, open on a selected token, leaves the Inspector's rows clear: the agent's tap
+  // does not scroll a covered row above it, as a person would.)
+  size 1280x2000
   request POST "/__stub/restart" {} as ada
   type "name" "Ada"
   tap "save-name"
