@@ -569,11 +569,13 @@ final class RasterLoader {
         case .source(let record):
             cancel(view.id)
             interests[view.id] = Interest(view: view, generation: view.loadGeneration, source: record)
+            timings.asked(view.id); timings.admitted(view.id)
         case .busy:
             // The caps free as inspections land and views go; each wakes a
             // pass that admits it (`admitDeferred`), with no prop change.
             cancel(view.id)
             deferred[view.id] = DeferredInterest(view: view, resolver: resolver, source: source)
+            timings.asked(view.id)
             view.presenter?.session?.log("image queued: raster metadata/source admission")
         case .refused:
             view.presenter?.session?.log("image deferred: invalid raster source or stopped loader")
@@ -586,6 +588,7 @@ final class RasterLoader {
         return true
     }
     func cancel(_ view: UInt32) {
+        timings.retired(view)
         deferred.removeValue(forKey: view)
         refusedPictures.removeValue(forKey: view)
         refused.removeValue(forKey: view)
@@ -640,6 +643,15 @@ final class RasterLoader {
             cancel(id)
             load(view, source: source, resolver: resolver)
         }
+    }
+    /// When each image arrived, and which arrived late (LLP 1145 D2).
+    let timings = RasterTimings()
+    /// A presented frame (the frame sampler's): each loading image whose box
+    /// shows starts its blank time.
+    func sampleBlank() {
+        guard HatchDiagnostics.available, !timings.live.isEmpty else { return }
+        timings.showing(interests.compactMap { key, i in !i.delivered && i.failure == nil && i.view.map(Self.mayShow) == true ? key : nil }
+            + deferred.compactMap { key, d in d.view.map(Self.mayShow) == true ? key : nil })
     }
     /// Images on screen still loading (the agent's `clock` and `screenshot`
     /// wait for them).
@@ -761,6 +773,9 @@ final class RasterLoader {
         testReconciliations += 1
         #endif
         guard !destroyed, !paused else { return }
+        // Decoded pictures put on their layers: a late frame's `image` (LLP 1144 D2).
+        let began = HostPhases.shared.begin(.image)
+        defer { HostPhases.shared.end(began) }
         admitDeferred()
         // Every image this turn lands reports its natural size together,
         // after the loop: one layout for them all, not one each.
@@ -792,7 +807,9 @@ final class RasterLoader {
                 let state = exact_raster_status(id, item.request)
                 if state == 4, let lease = NativeRasterLease(exact_raster_take_ready(id, item.request)) {
                     item.delivered = true; item.declines = 0; progress = true
+                    timings.decoded(viewID)
                     if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)); settle(&item, view) }
+                    timings.delivered(viewID)
                     interests[viewID] = item
                 } else if state == 115, item.declines < Self.declineDelays.count,
                           let decode = item.decode, backend.declined(item.source, decode) {
@@ -880,6 +897,7 @@ final class RasterLoader {
             #else
             item.request = exact_raster_request(id, demand)
             #endif
+            if item.request != 0 { timings.requested(viewID) }
             item.requestedPixel = pixel; item.offeredPixel = offered
             item.variant = plan.variant
             item.decode = RasterDecodeKey(width: plan.width, height: plan.height, variant: plan.variant)
@@ -1025,6 +1043,7 @@ final class RasterLoader {
             case .source(let source):
                 deferred.removeValue(forKey: viewID)
                 interests[viewID] = Interest(view: view, generation: item.generation, source: source)
+                timings.admitted(viewID)
                 deferredCursor = viewID
             case .busy:
                 continue
@@ -1109,8 +1128,9 @@ final class RasterLoader {
                 ["view": view, "source": String(interest.source.id), "offeredPixel": interest.offeredPixel,
                  "admittedPixel": interest.requestedPixel, "status": exact_raster_status(id, interest.request),
                  "failure": interest.failure ?? "", "declines": interest.declines, "parked": interest.parked, "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0],
-                 "color": Self.colorFacts(interest)]
+                 "color": Self.colorFacts(interest), "timing": timings.stamps(view) ?? NSNull()]
             },
+            "lateImages": timings.summary,
             "deferred": interests.values.filter { $0.admissionDeferred || $0.failure != nil || ($0.request != 0 && exact_raster_status(id, $0.request) == 2) }.count,
             "deferredAdmission": deferred.count, "parked": parked.count,
             "scope": "Exact-owned RGBA storage plus conservative thumbnail/conversion reservation; ImageIO internals excluded"]
