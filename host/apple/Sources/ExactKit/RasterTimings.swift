@@ -46,13 +46,14 @@ final class RasterTimings {
     func admitted(_ view: UInt32) { stamp(view) { if $0.admitted == nil { $0.admitted = self.clock() } } }
     func requested(_ view: UInt32) { stamp(view) { if $0.requested == nil { $0.requested = self.clock() } } }
     func decoded(_ view: UInt32) { stamp(view) { if $0.decoded == nil { $0.decoded = self.clock() } } }
+    /// Its pixels are on its layer: counted if it showed blank, and let go of.
     func delivered(_ view: UInt32) {
-        stamp(view) { s in
-            guard s.delivered == nil else { return }
-            s.delivered = self.clock()
-            self.close(s)
-        }
+        guard var s = live.removeValue(forKey: view), s.delivered == nil else { return }
+        s.delivered = clock()
+        close(s)
     }
+    /// A replaced runner's views are gone.
+    func reset() { live.removeAll() }
     /// The row retired: a blank box that never got its pixels counts too.
     func retired(_ view: UInt32) {
         guard var s = live.removeValue(forKey: view) else { return }
@@ -98,6 +99,6 @@ final class RasterTimings {
         guard let s = live[view] else { return nil }
         let ms = { (t: Double?) -> Any in t.map { (($0 - s.asked) * 10000).rounded() / 10 } ?? NSNull() }
         return ["admitted": ms(s.admitted), "requested": ms(s.requested), "decoded": ms(s.decoded), "delivered": ms(s.delivered),
-                "blankFrom": ms(s.blankFrom), "stage": s.delivered == nil ? Self.stage(s) : "shown"]
+                "blankFrom": ms(s.blankFrom), "stage": Self.stage(s)]
     }
 }

@@ -117,13 +117,11 @@ export function report({ frames, motion, work, images, flings, distance }) {
   return lines.join('\n');
 }
 
-/** The testId or id of the target's first child row, after the fling's lift. */
-async function firstRow(s, target) {
+/** The tracked scroller's offset now: the newest frame record's (the held segment tracks it). */
+async function offsetNow(s) {
   await sleep(150);
-  // The scroller, its content, then the rows the list has mounted around what shows.
-  const nodes = (await s.tree(target)).nodes ?? [], depth = nodes[0]?.depth ?? 1;
-  const row = nodes.find((n) => n.depth === depth + 2) ?? nodes[1];
-  return row?.props?.testId ?? row?.id ?? null;
+  const r = await s.op({ op: 'perf', frames: true, records: true, late: 0 });
+  return (r.records ?? []).findLast((x) => Array.isArray(x.scroll))?.scroll[0] ?? null;
 }
 
 async function toScreen(s, op) {
@@ -154,29 +152,35 @@ export async function main(argv) {
     if (before.virtual) throw new Error('fling: the clock was taken, so frames are virtual; an op in --to took it');
     const workBefore = await s.perf();
     const travel = Math.min(args.distance, box.h * 0.7), moved = [];
-    // Toward the end first; a list already at its end (a chat) turns around.
+    // Toward the end first.
     let flip = 0;
     if (args.host === 'macos') {
       process.stderr.write(`fling ${args.target} on the trackpad as often as you like, then press Enter\n`);
       await new Promise((r) => process.stdin.once('data', r));
       args.flings = 0;
     }
-    const before0 = await firstRow(s, args.target);
+    const before0 = await offsetNow(s), records = new Map();
+    // The sampler keeps 600 frames: each fling's are read as it ends, so a long run loses none.
+    const collect = async () => { for (const r of (await s.op({ op: 'perf', frames: true, records: true, late: 0 })).records ?? []) if (r.t > (before.window?.to ?? -Infinity)) records.set(r.t, r); };
     for (let i = 0; i < args.flings; i++) {
       const down = (i + flip) % 2 === 1;
       await s.tap(args.target, { drag: { dx: 0, dy: down ? travel : -travel, from: [box.w / 2, down ? box.h * 0.15 : box.h * 0.85], over: FLING_MS } });
-      // A real touch's reply comes before UIKit's deceleration: what moved is read from the list's first row.
-      const first = await firstRow(s, args.target);
-      if (i === 0 && first === before0) flip = 1;
-      moved.push(first);
+      // A real touch's reply comes before UIKit's deceleration: what moved is read from the offset the frames recorded.
+      const now = await offsetNow(s);
+      // A list already at its end (a chat): the first fling goes the other way, once.
+      if (i === 0 && !flip && now === before0) { flip = 1; i--; continue; }
+      moved.push(now);
       await sleep(1500); // UIKit's deceleration, then rest
+      await collect();
     }
     if (moved.length && moved.every((m) => m === before0)) throw new Error(`fling: ${args.target} did not scroll: it is at the end of its range, or its content fits it`);
     const after = await s.op({ op: 'perf', frames: true, hold: false, records: true, late: 100 });
     const workAfter = await s.perf();
     // Images whose box showed before their pixels (LLP 1145 D2), from the app's start: the screen's own loading too.
     const images = (await s.op({ op: 'state' }))?.raster?.lateImages ?? null;
-    const result = { frames: framesBetween(before, after), motion: motionOf(framesBetween.records(before, after)), work: workBetween(workBefore, workAfter), images, flings: args.flings, distance: Math.round(travel) };
+    for (const r of framesBetween.records(before, after)) records.set(r.t, r);
+    const all = [...records.values()].sort((a, b) => a.t - b.t);
+    const result = { frames: framesBetween(before, { ...after, records: all }), motion: motionOf(all), work: workBetween(workBefore, workAfter), images, flings: args.flings, distance: Math.round(travel) };
     console.log(args.json ? JSON.stringify(result) : report(result));
     return args.failOn.includes('late') && result.frames.late > 0 ? 1 : 0;
   } finally { await s.close(); await served?.stop(); }

@@ -78,7 +78,13 @@ final class FrameSampler: NSObject {
     /// so a list built up front is sampled as it glides; released by `perf
     /// frames release`, or by anything that stops sampling.
     var held = false {
-        didSet { if held { activity() } else { tracked = nil } }
+        didSet {
+            if held { activity() } else { tracked = nil }
+            #if os(macOS)
+            // A held fling on the Mac is a person's, on the trackpad: AppKit scrolls it.
+            if !ExactEnv.agentFreezes { ChainingScrollView.appliesAtOnce = !held }
+            #endif
+        }
     }
     /// The scroller a held fling watches (`perf frames hold` with a target):
     /// its offset and phase, read where each turn ends, after its commit.
