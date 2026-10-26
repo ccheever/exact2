@@ -65,7 +65,7 @@ test('all channel histories preserve the generator, unread positions, replies, m
       expect(message.id).toBe(snowflakeFromMs(original.timestamp, i + 1));
       if (i) expect(compareIds(history[i - 1].id, message.id)).toBeLessThan(0);
       expect(message).toMatchObject({ author: world.users[members.findIndex(user => user.id === original.author.id)],
-        content: rewrite(original.content), timestamp: new Date(original.timestamp).toISOString(),
+        content: original.forwarded ? '' : rewrite(original.content), timestamp: new Date(original.timestamp).toISOString(),
         edited_timestamp: original.edited_timestamp === null ? null : new Date(original.edited_timestamp).toISOString(),
         type: original.type, pinned: false, tts: false, flags: 0 });
       expect(message.mentions).toEqual(world.users.filter(user => message.content.includes(`<@${user.id}>`)));
@@ -89,7 +89,8 @@ test('all channel histories preserve the generator, unread positions, replies, m
           expect(message.referenced_message).not.toHaveProperty('referenced_message');
           expect(message.referenced_message).not.toBe(target);
         }
-      } else expect(message.message_reference).toBeUndefined();
+      } else if (original.forwarded) expect(message.message_reference).toMatchObject({ type: 1, channel_id: channel.id });
+      else expect(message.message_reference).toBeUndefined();
       expect(message.attachments).toHaveLength(original.attachments.length);
       for (const [a, attachment] of message.attachments.entries()) {
         attachments++;

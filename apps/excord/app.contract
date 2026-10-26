@@ -123,6 +123,8 @@ component Excord
   state aimedText = ""
   state aimedMine = false
   state aimedAuthor = ""
+  // A forward is deleted, never edited, as in Discord.
+  state aimedForward = false
   // The row the pointer is over, and the row that shows its hover. While the list scrolls the hover is
   // hidden, and rows sliding under a still pointer move only `pointerKey`: each change was a commit that
   // built or dropped a row's toolbar, many a second in a fling. The scroll's end shows it again, or 200 ms
@@ -643,7 +645,7 @@ component Excord
     // composer edits your last message; Escape ends an edit or a reply, else goes to the newest message
     // and reads the channel; Page Up and Page Down scroll the transcript a screen.
     else if k == "ArrowUp" and draft == "" and editing == "" and not e.isComposing and not e.shiftKey and not e.altKey and not e.metaKey and not e.ctrlKey
-      match rows.filter(r => r.mine and r.state == "sent").at(-1)
+      match rows.filter(r => r.mine and r.state == "sent" and not r.forwarded).at(-1)
         case some(r)
           preventDefault()
           stash = ""
@@ -753,7 +755,8 @@ component Excord
     viewZoom = viewZoom > 1 ? 1 : 2
     viewPanX = 0
     viewPanY = 0
-  action aim(key: string, id: string, mine: bool, text: string, author: string)
+  action aim(key: string, id: string, mine: bool, text: string, author: string, forwarded: bool)
+    aimedForward = forwarded
     aimedAuthor = author
     aimed = key
     aimedId = id
@@ -1196,9 +1199,10 @@ component Excord
                       text "Copy Message Link"
                     if aimedMine
                       hr
-                      button press=editAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
-                        image "symbol:pencil"
-                        text "Edit Message"
+                      if not aimedForward
+                        button press=editAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
+                          image "symbol:pencil"
+                          text "Edit Message"
                       button press=askDelete destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
                         image "symbol:delete"
                         text "Delete Message"

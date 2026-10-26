@@ -72,7 +72,7 @@ test('store rows supply the transcript identity, author, clock and declared fiel
     isNew: false, media: [], embeds: [], reactions: [], reply: [] });
   expect(second).toMatchObject({ author: 'buildbot', color: '#e67e22', bot: true, mine: false,
     at: NOW + 1000, prevAt: NOW, grouped: false });
-  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'files', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'stickers', 'system']);
+  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'files', 'forwarded', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'note', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'stickers', 'system']);
   expect(f.render(f.row(m.id))).toBe(first);
   // A role's new colour redraws its holders' rows.
   S.applyDispatch(f.store, 'GUILD_ROLE_UPDATE', { guild_id: gid, role: { id: role, name: 'Maintainers', color: 0x112233,
@@ -409,4 +409,54 @@ test('a Lottie name follows an edited message\'s marker, is never jumbo, and pla
   expect(row.jumbo).toBe(false);
   expect(row.blocks.map(b => b.runs.map(r => r.kind))).toEqual([['text', 'edited'], ['text']]);
   expect(row.plain).toBe('👋\nWave, Party');
+});
+
+test('a forward shows the message it forwards, under its label, and is never edited', () => {
+  const forward = message(0, { content: '', message_reference: { ...reference(snowflakeFromMs(NOW - 5000)), type: 1 },
+    message_snapshots: [{ message: { content: 'look **here**', attachments: [], embeds: [], type: 0,
+      timestamp: new Date(NOW - 5000).toISOString(), edited_timestamp: null } }] } as Partial<Message>);
+  const reply = message(1000, { content: 'nice', type: 19, message_reference: reference(forward.id) } as Partial<Message>);
+  const [f, r] = fixture([forward, reply]).view().rows;
+  expect(f.forwarded).toBe(true);
+  expect(f.plain).toBe('look here');
+  expect(f.reply).toEqual([]);
+  expect(r.forwarded).toBe(false);
+  expect(r.reply[0].preview).toBe('look here');
+  expect(f.source).toBe('');
+});
+
+test('a user a forward mentions is named from the forwarded message', () => {
+  const friend: User = { id: snowflakeFromMs(DIRECTORY, 9), username: 'friend', global_name: 'Outside Friend' };
+  const forward = message(0, { content: '', message_reference: { ...reference(snowflakeFromMs(NOW - 5000)), type: 1 },
+    message_snapshots: [{ message: { content: `hi <@${friend.id}>`, attachments: [], embeds: [], mentions: [friend], type: 0,
+      timestamp: new Date(NOW - 5000).toISOString(), edited_timestamp: null } }] } as Partial<Message>);
+  const [f] = fixture([forward]).view().rows;
+  expect(f.plain).toBe('hi @Outside Friend');
+});
+
+test('a forward\'s own words show above it, and only they mention the reader', () => {
+  const forward = message(0, { content: 'see this', message_reference: { ...reference(snowflakeFromMs(NOW - 5000)), type: 1 },
+    message_snapshots: [{ message: { content: `ping <@${me.id}>`, attachments: [], embeds: [], mentions: [me], type: 0,
+      timestamp: new Date(NOW - 5000).toISOString(), edited_timestamp: null } }] } as Partial<Message>);
+  const [f] = fixture([forward]).view().rows;
+  expect(f.note.flatMap(b => b.runs).map(r => r.text).join('')).toBe('see this');
+  expect(f.plain).toBe('see this\nping @Charlie Cheever');
+  expect(f.mentionsMe).toBe(false);
+  const spoilers = (bs: typeof f.blocks) => bs.flatMap(b => b.runs).map(r => r.spoiler).filter(Boolean);
+  const both = message(1000, { content: '||a||', message_reference: { ...reference(snowflakeFromMs(NOW - 5000)), type: 1 },
+    message_snapshots: [{ message: { content: '||b||', attachments: [], embeds: [], type: 0,
+      timestamp: new Date(NOW - 5000).toISOString(), edited_timestamp: null } }] } as Partial<Message>);
+  const reply = message(2000, { content: 'ok', type: 19, message_reference: reference(both.id) } as Partial<Message>);
+  const [, s, r] = fixture([forward, both, reply]).view().rows;
+  expect(spoilers(s.note).some(id => spoilers(s.blocks).includes(id))).toBe(false);
+  expect(r.reply[0].preview).toBe('a b');
+});
+
+test('a reply to a forward the cache does not hold names the users the forward mentions', () => {
+  const friend: User = { id: snowflakeFromMs(DIRECTORY, 9), username: 'friend', global_name: 'Outside Friend' };
+  const quoted = { id: snowflakeFromMs(NOW - 9000), channel_id: cid, author: bot, content: '', type: 0,
+    message_snapshots: [{ message: { content: `hi <@${friend.id}>`, mentions: [friend], attachments: [], embeds: [] } }] };
+  const reply = message(0, { content: 'yes', type: 19, message_reference: reference(quoted.id), referenced_message: quoted } as Partial<Message>);
+  const [r] = fixture([reply]).view().rows;
+  expect(r.reply[0].preview).toBe('hi @Outside Friend');
 });
