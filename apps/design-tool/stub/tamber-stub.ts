@@ -96,7 +96,8 @@ let longPolls = false, skipCursor = false, refuseHello = false; // (`refuseHello
 const LONG_POLL_MS = 25_000;
 let beat = LONG_POLL_MS;
 // Held proposals, as a test holds them (`/__stub/hold`).
-let held: any[] = [], holds = 0, moves = 0; // (`holds`: the ids made; with `moves`, a choice recorded, the held list's revision)
+let held: any[] = [], holds = 0, moves = 0, protocolSaid: string | null = null; // (`protocolSaid`: what hello says, a test's (`/__stub/protocol`))
+// (`holds`: the ids made; with `moves`, a choice recorded, the held list's revision.)
 // The `choose`s asked, as a test reads them (`/__stub/chooses`).
 let chooses: { proposal: string; items: number[]; client: string }[] = [];
 // Live copies (LLP 1122 T7), as a test turns them on (`/__stub/copies`):
@@ -230,7 +231,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
       // (A server that lies to a paired client, saying it is local with a page, as a test asks: `/__stub/forge-local`.)
       if (request.method === 'hello' && refuseHello) return send({ error: { message: 'the design files could not be read' } }, 500);
-      if (request.method === 'hello') return send({ ok: { protocol: longPolls ? 'tamber/1.18' : 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
+      if (request.method === 'hello') return send({ ok: { protocol: protocolSaid ?? (longPolls ? 'tamber/1.18' : 'tamber/1.13'), format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
       // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
       if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
       if (request.method === 'pair-code') return mint(request);
@@ -416,6 +417,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'choose' && longPolls) {
         const p = held.find(h => h.proposal === request.proposal);
         if (!p) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        // A server before 1.18 has no choose: one sent it is marked on the proposal's diff, for a test to see.
+        if (protocolSaid && protocolSaid !== 'tamber/1.18') { p.diff = `choose sent to a ${protocolSaid} server`; moves++; return send({ error: { message: 'the stub answers no choose' } }, 400); }
         Object.assign(p, { choice: [...new Set(request.items as number[])].sort((a, b) => a - b), choiceBy: request.client, choiceAt: (p.choiceAt ?? 0) + 1 }); moves++; // (it moves the held list, as the server's does)
         chooses.push({ proposal: p.proposal, items: p.choice, client: request.client });
         return send({ ok: { proposal: p.proposal, choice: p.choice, choiceBy: p.choiceBy, choiceAt: p.choiceAt } });
@@ -562,7 +565,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       TOKEN = `stub-token-${restarts}`;
       log.length = 0;
       held = [];
-      holds = 0; moves = 0; chooses = [];
+      holds = 0; moves = 0; chooses = []; protocolSaid = null;
       dryAsks = 0; namelessAsks = 0;
       longPolls = false; skipCursor = false; refuseHello = false; beat = LONG_POLL_MS;
       heldAnswer = null;
@@ -587,6 +590,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   // (Its files join every reply's, as the server's own Contract sources are in each.)
   '/__stub/package-component': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); PACKAGED = await req.json(); filesBefore ??= FILES; FILES = { ...FILES, ...PACKAGED!.files }; return send({ ok: true }); } },
   '/__stub/library': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); LIBRARY = await req.json(); return send({ ok: true }); } },
+  '/__stub/protocol': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); protocolSaid = (await req.json()).protocol ?? null; return send({ ok: true }); } },
   '/__stub/chooses': { GET: (req) => (driver(req) ? send({ chooses }) : send({ message: 'Not found.' }, 404)) },
   // Another client's choice on a held proposal, as a test makes one (`{proposal, items, client}`).
   '/__stub/choose': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); const b = await req.json(); const p = held.find(h => h.proposal === b.proposal); if (!p) return send({ message: 'no such proposal' }, 404); Object.assign(p, { choice: b.items, choiceBy: b.client, choiceAt: (p.choiceAt ?? 0) + 1 }); moves++; return send({ ok: true }); } },
