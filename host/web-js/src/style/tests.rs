@@ -411,6 +411,87 @@ pub(crate) fn assert_spring_transitions(map: &str) {
     }
 }
 
+#[test]
+fn computed_layout_transitions_match_the_kernel_web_protocol() {
+    let result = style_writes(StyleId::LayoutTransition as u16, false, true);
+    assert!(
+        result.is_ok(),
+        "issue809 feature: {:?}",
+        result.as_ref().err()
+    );
+    let writes = result.unwrap();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].name, "--exact-layout-transition");
+    let mut values: Vec<String> = [
+        "260ms ease",
+        "ease 0.26s 30ms",
+        "0.123456789s 0.01234567s linear",
+        "all 1s, opacity 2s",
+        "opacity 1s, 2s",
+        "2s, color 1s",
+        "all 1s, all 2s",
+        "d 1s, all 2s",
+        "0.000000000000000001s linear",
+        "1e100s linear",
+        "1s cubic-bezier(0, 1e100, 1, -1e100)",
+        "opacity 1s",
+        "260ms cubic-bezier(.32,.72,0,1)",
+        "1s steps(3, start)",
+        "1s linear(0, .2 25%, 1)",
+        "-exact-spring()",
+        "-exact-spring(300, 24, 1) 20ms",
+        "",
+        "none",
+        "unset",
+        "inherit",
+        "not-a-transition",
+        "-1s linear",
+        "1s 2s 3s",
+        "1e309s",
+        "spring(300, 24, 1)",
+        "1s -exact-spring(300, 24, 1)",
+        "-exact-spring(300, 24, 1) -1ms",
+        "-exact-spring(100, 1e200, 1)",
+        "opacity 1s, invalid 2s",
+        "1s ease linear",
+        "1s cubic-bezier(-1, 0, 1, 1)",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect();
+    for count in [8, 9] {
+        values.push(vec!["100ms linear"; count].join(", "));
+    }
+    for count in [64, 65] {
+        values.push(format!("200ms linear({})", vec!["0"; count].join(",")));
+    }
+    let expected: Vec<_> = values
+        .iter()
+        .map(|value| {
+            let mut props = exact_kernel::StyleProps::default();
+            let _ = props.set_dynamic(
+                StyleId::LayoutTransition,
+                &exact_kernel::StyleValue::Text(value.as_str().into()),
+            );
+            let (css, _) = exact_web::css::css_text(&props, &[]);
+            css.split(';')
+                .find_map(|decl| decl.strip_prefix("--exact-layout-transition:"))
+                .map(str::to_string)
+        })
+        .collect();
+    let values: Vec<_> = values.iter().map(String::as_str).collect();
+    assert_eq!(
+        run(
+            &format!(
+                "v=>({})(v)",
+                writes[0].map.expect("a validated layout value map")
+            ),
+            &values
+        ),
+        serde_json::json!(expected)
+    );
+}
+
 /// LLP 1034 §8: a bound `color-scheme` writes `light` or `dark`, and a
 /// bound `normal` (or an invalid value) retains an unset declaration.
 #[test]

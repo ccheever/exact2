@@ -687,6 +687,71 @@ fn bound_transition_stacking_matches_kernel() {
     );
 }
 
+#[test]
+fn bound_layout_transition_policy_keeps_valid_none_but_unsets_refused_values() {
+    let values = [
+        "",
+        "none",
+        "unset",
+        "UNSET",
+        "inherit",
+        "not-a-transition",
+        "-1s",
+        "opacity 1s",
+        "d 1s, all 2s",
+        "100ms linear",
+    ];
+    let plan = fixture_plan("", "2>1>");
+    let (_, expression) = crate::paint::binding(
+        &plan,
+        NodeType::View,
+        &BindingsRow {
+            kind: BindingKind::Style,
+            id: StyleId::LayoutTransition as u16,
+            expr: Default::default(),
+            written: true,
+        },
+    )
+    .unwrap();
+    let script = format!(
+        "const values={};console.log(JSON.stringify(values.map(v=>({expression})!==0)));",
+        serde_json::to_string(&values).unwrap()
+    );
+    let output = bun_command().args(["-e", &script]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: Vec<_> = values
+        .iter()
+        .map(|text| {
+            let mut style = exact_kernel::StyleProps::default();
+            let value = Value::str(*text);
+            if !exact_runner::bridge::unsets(StyleId::LayoutTransition as u16, &value) {
+                let _ = exact_runner::bridge::set_style(
+                    &mut style,
+                    StyleId::LayoutTransition as u16,
+                    &value,
+                    0,
+                );
+            }
+            exact_kernel::paint_order::own_from(exact_kernel::paint_order::Facts {
+                style: &style,
+                props: &Default::default(),
+                kind: NodeType::View,
+                root: false,
+                parent_display: None,
+                beside_exclusion: false,
+                holds_layout_transition: false,
+            })
+            .policy
+        })
+        .collect();
+    assert_eq!(actual, expected, "{values:?}");
+}
+
 struct ManyItems;
 impl exact_runner::DataSource for ManyItems {
     fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, exact_runner::DataError> {

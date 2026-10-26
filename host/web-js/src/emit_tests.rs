@@ -78,6 +78,29 @@ fn font_variation_settings_are_written_literal_and_bound() {
 }
 
 #[test]
+fn a_dynamic_only_layout_transition_registers_presence() {
+    let app = |row: &str| {
+        format!("component App\n  state reduced = true\n  action enable\n    reduced = false\n  view\n    column\n      button \"Enable\" press=enable\n      column height=(reduced ? 40 : 140) -exact-layout-transition={row}\n        text \"Card\"\n")
+    };
+    let literal = contract::compile(&app("\"260ms ease\"")).unwrap();
+    crate::emit::emit(&literal, false, false).expect("literal layout control emits");
+    let dynamic = contract::compile(&app("(reduced ? \"none\" : \"260ms ease\")")).unwrap();
+    let result = crate::emit::emit(&dynamic, false, false);
+    assert!(
+        result.is_ok(),
+        "issue809 feature: {:?}",
+        result.as_ref().err()
+    );
+    let js = result.unwrap().js;
+    assert!(js.contains("--exact-layout-transition"), "{js}");
+    assert_eq!(
+        js.matches("pr(").count(),
+        1,
+        "the dynamic-only site must register presence: {js}"
+    );
+}
+
+#[test]
 fn a_constant_template_family_emits_as_a_literal_stack() {
     let plan = contract::compile(
         "component App\n  view\n    text \"x\" font-family=`Arial, ui-monospace`\n",
