@@ -39,6 +39,10 @@ pub struct Batch {
     /// Failure lines for the platform's log, `"alerts":[…]`, each carried
     /// once (LLP 1142 D4: [`exact_runner::Runner::take_alerts`]).
     pub alerts: Vec<String>,
+    /// The journal's other lines, `"journal":[…]`, for the platform's log at
+    /// a lower level (LLP 1143 open question 1:
+    /// [`exact_runner::Runner::take_journal`]).
+    pub journal: Vec<String>,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
@@ -883,9 +887,12 @@ impl Batch {
         if let Some((first, last)) = self.seq {
             let _ = write!(s, ",\"seq\":[{first},{last}]");
         }
-        if !self.alerts.is_empty() {
-            s.push_str(",\"alerts\":[");
-            for (i, line) in self.alerts.iter().enumerate() {
+        for (key, lines) in [("alerts", &self.alerts), ("journal", &self.journal)] {
+            if lines.is_empty() {
+                continue;
+            }
+            let _ = write!(s, ",\"{key}\":[");
+            for (i, line) in lines.iter().enumerate() {
                 if i > 0 {
                     s.push(',');
                 }

@@ -266,9 +266,11 @@ quick` is not needed: nothing here touches `contract/`, `runner/`, `plan/` or
 
 ## Open questions
 
-1. D2's lines go to the unified log as well as the journal. Should the
-   runner's own journal lines go there too in a development build? That
-   generalizes LLP 1142's failure path, so it waits for that to land.
+1. **Settled (Charlie, 2026-10-26: "finish it").** While the runner measures, every
+   journal line goes to the unified log too: the runner queues each one (bounded,
+   as LLP 1142's failure lines are), the Apple batch carries them (`journal`), and
+   the session writes them to `com.exact.app`/`journal` at info level. Failure
+   lines stay errors, and `host:` lines are written once, as they happen.
 2. The app behind D5's 500 findings is not in this repository. Classifying its
    standing set, and fixing the `check` heuristics that misfire on its design,
    is the real repair. That needs the app or its report, so it goes to

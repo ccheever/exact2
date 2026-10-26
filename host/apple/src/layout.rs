@@ -48,6 +48,7 @@ impl<D: DataSource> Host<D> {
         batch.frames = self.runner.wants_frames();
         batch.seq = self.runner.seq_range();
         batch.alerts = self.runner.take_alerts();
+        batch.journal = self.runner.take_journal();
         batch.canvas_frames(self.runner.canvas_wants_frame());
         self.canvas_owed_onto(batch);
     }

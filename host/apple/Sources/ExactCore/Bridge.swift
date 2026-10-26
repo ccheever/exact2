@@ -59,6 +59,8 @@ public struct Batch {
     public var seq: (UInt64, UInt64)?
     /// Failure lines the session writes to the unified log, each once (LLP 1142 D4).
     public var alerts: [String] = []
+    /// The journal's other lines, for the unified log at a lower level (LLP 1143).
+    public var journal: [String] = []
     package init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false, busy: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending

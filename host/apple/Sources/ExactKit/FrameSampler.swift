@@ -401,4 +401,14 @@ extension ExactSession {
             FileHandle.standardError.write(Data("exact: \(line)\n".utf8))
         }
     }
+
+    /// The journal's other lines (LLP 1143 open question 1), at a lower
+    /// level than a failure and not on stderr: a run a person drives reads
+    /// what `logs` would have said with `log stream --level info`. A host
+    /// line (`host: …`) is HostLog's, already written as it happened.
+    func logJournal(_ lines: [String]) {
+        for line in lines where !line.hasPrefix("host: ") {
+            Self.journal.info("\(self.label, privacy: .public): \(line, privacy: .public)")
+        }
+    }
 }
