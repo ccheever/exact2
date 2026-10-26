@@ -7,6 +7,7 @@
 // It reads only captured configuration; the producer owns the stage.
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
+import { boundWords, checkBound } from './check-bound.mjs';
 import { createHash } from 'node:crypto';
 import { builtinModules, createRequire } from 'node:module';
 import { resolve, relative, dirname, basename, join, sep, isAbsolute } from 'node:path';
@@ -1338,7 +1339,9 @@ export function check(stage, tsc, libraries) {
   const script=head.startsWith('#!') && head.split(/\s+/).some(word=>['node','bun'].includes(word.split('/').at(-1)));
   const args=['--project',resolve(stage,'__exact_tsconfig.json'),'--pretty','false','--listFiles'];
   return new Promise((done, fail) => execFile(script ? process.execPath : tsc,script ? [tsc,...args] : args,
-    {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024}, (error, stdout, stderr) => {
+    {cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024,timeout:checkBound(),killSignal:'SIGKILL'}, (error, stdout, stderr) => {
+      // (A tsc that never returns is stopped at the bound: js/bake/src/check-bound.mjs.)
+      if (error?.killed && error.signal === 'SIGKILL') return fail(new Error(`the TypeScript check did not finish in ${boundWords(checkBound())} (tsc stopped)`));
       if (error) {
         const diagnostics=String(stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
         const mutationFailure=/Type '(?:false|boolean)' is not assignable to type 'true'|SnapbackMutationSuccess/.test(diagnostics)
