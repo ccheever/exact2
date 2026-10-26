@@ -1,6 +1,7 @@
 // Writes each spec's data/*.json from a fixed seed, so every build of a spec starts from the same rows.
 //   bun bench/bakeoff/specs/gen.mjs
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const DIR = resolve(new URL('.', import.meta.url).pathname);
@@ -93,4 +94,32 @@ const LISTS = ['Home', 'Work', 'Errands', 'Garden', 'Reading', 'Trip'];
 const VERB = ['Buy', 'Call', 'Email', 'Fix', 'Clean', 'Plan', 'Read', 'Water', 'Book', 'Return', 'Sort', 'Write'];
 const THING = ['the gutters', 'the plumber', 'Priya', 'the tax forms', 'the garage', 'the tomatoes', 'chapter 4', 'train tickets', 'the library books', 'the photos', 'thank-you notes', 'the bike'];
 write('tasks', 'tasks.json', Array.from({ length: 180 }, (_, i) => ({ id: i + 1, list: pick(LISTS), title: `${pick(VERB)} ${pick(THING)}`, due: rnd() < 0.5 ? day(int(-30, 10)) : null, done: rnd() < 0.25, priority: pick(['none', 'none', 'low', 'high']), notes: rnd() < 0.2 ? 'See the email from last week.' : '' })));
-console.log('wrote data for 11 specs');
+
+// The scroll-stress specs. Their pictures are generated (images.swift), not kept in the repository.
+const pictures = (spec, count, seed, side) => {
+  const r = spawnSync('swift', [resolve(DIR, 'images.swift'), resolve(DIR, spec, 'data/images'), String(count), String(seed), String(side)], { encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`images.swift: ${r.stderr}`);
+  return JSON.parse(readFileSync(resolve(DIR, spec, 'data/images/images.json'), 'utf8'));
+};
+const SENT = ['Finally finished the bookshelf.', 'Morning light on the harbor today.', 'Does anyone have a good recipe for focaccia?', 'Three weeks into learning the cello and my neighbors are being very patient.', 'The new bike lane on Fifth is great.', 'Saw the first frost on the garden this morning, earlier than last year by almost two weeks, which feels like a sign of something.', 'Trying to read more poetry this winter.', 'Lunch spot recommendations near the station?', 'Our team shipped the thing!', 'Repotted every plant in the apartment and now I have soil everywhere.', 'Highly recommend the exhibit at the maritime museum.', 'Ran my first 10k.'];
+const feedImages = pictures('feed', 120, 11, 900);
+write('feed', 'posts.json', Array.from({ length: 400 }, (_, i) => {
+  const kind = rnd();
+  return { id: i + 1, author: `${pick(FIRST)} ${pick(LAST)}`, handle: `@${pick(FIRST).toLowerCase()}${int(1, 99)}`, minutesAgo: i * int(3, 40), text: Array.from({ length: int(1, 6) }, () => pick(SENT)).join(' '),
+    image: kind < 0.45 ? pick(feedImages).file : null,
+    carousel: kind > 0.82 ? Array.from({ length: int(4, 10) }, () => ({ title: `${pick(DISH)} ${pick(BASE)}`, image: pick(feedImages).file })) : null,
+    likes: int(0, 900), liked: rnd() < 0.1, replies: int(0, 60) };
+}));
+const photoImages = pictures('photos', 240, 23, 1200);
+const ALBUMS = ['Summer', 'Hikes', 'Family', 'City', 'Food', 'Pets', 'Screenshots', 'Travel'];
+write('photos', 'photos.json', Array.from({ length: 1500 }, (_, i) => ({ id: i + 1, file: photoImages[i % photoImages.length].file, width: photoImages[i % photoImages.length].width, height: photoImages[i % photoImages.length].height,
+  taken: `${day(Math.floor(i / 6))}T${String(int(7, 21)).padStart(2, '0')}:${String(int(0, 59)).padStart(2, '0')}:00Z`, album: pick(ALBUMS), favorite: rnd() < 0.05 })));
+const STATIONS = ['Harbor', 'Market St', 'Civic Center', 'Union', 'Elm Park', 'University', 'Riverside', 'Old Town', 'Airport', 'Stadium', 'North Hill', 'Lakeview', 'Mill Creek', 'Ferry Building', 'Chinatown', 'Mission', 'Glen Park', 'Balboa', 'Daly', 'Colma'];
+const TRANSIT = [{ id: 'R', name: 'Red', color: '#D62828' }, { id: 'B', name: 'Blue', color: '#1D4ED8' }, { id: 'G', name: 'Green', color: '#15803D' }, { id: 'Y', name: 'Yellow', color: '#CA8A04' }, { id: 'O', name: 'Orange', color: '#EA580C' }];
+const deps = [];
+for (const station of STATIONS) for (let t = 5 * 60; t < 25 * 60; t += int(4, 14)) {
+  const line = pick(TRANSIT);
+  deps.push({ station, line: line.id, destination: pick(STATIONS.filter((x) => x !== station)), minute: t % (24 * 60), platform: int(1, 4), status: rnd() < 0.08 ? `Delayed ${int(2, 15)} min` : rnd() < 0.02 ? 'Cancelled' : 'On time' });
+}
+write('timetable', 'departures.json', { lines: TRANSIT, stations: STATIONS, departures: deps });
+console.log('wrote data for 14 specs');
