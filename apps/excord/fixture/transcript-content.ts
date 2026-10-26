@@ -15,6 +15,7 @@ export interface Message {
   message_reference?: { message_id: string }; nonce?: string; type: number;
   sticker_items?: { id: string; name: string; format_type: number }[];
   forwarded?: string;
+  poll?: Record<string, unknown>;
   state: 'sent' | 'pending' | 'failed'; revision: number;
 }
 
@@ -202,6 +203,19 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
     // And, before those, a forward of a message from elsewhere: the latest with no reply, picture or link of its own.
     const plainOne = messages.slice(0, -2).findLast(m => !m.message_reference && !m.attachments.length && !m.embeds.length && m.type === 0);
     if (plainOne) plainOne.forwarded = 'Shipping the new **anchor** fix tonight; ping me if anything regresses.';
+    // And before it a poll, open for two more days, that the reader has not voted in.
+    const asked = messages.slice(0, -2).findLast(m => m !== plainOne && !m.message_reference && !m.attachments.length
+      && !m.embeds.length && m.type === 0 && m.author.id !== 'me');
+    if (asked) Object.assign(asked, { content: '', poll: {
+      question: { text: 'Where should the team offsite be?' },
+      answers: [
+        { answer_id: 1, poll_media: { text: 'Mountains', emoji: { id: null, name: '🏔️' } } },
+        { answer_id: 2, poll_media: { text: 'The beach', emoji: { id: null, name: '🏖️' } } },
+        { answer_id: 3, poll_media: { text: 'Stay in the city' } },
+      ],
+      expiry: new Date(WORLD_NOW + 2 * 86400000).toISOString(), allow_multiselect: false, layout_type: 1,
+      results: { is_finalized: false, answer_counts: [{ id: 1, count: 5, me_voted: false }, { id: 2, count: 3, me_voted: false }] },
+    } });
     messages[messages.length - 1].sticker_items = [{ id: '601', name: 'Wave', format_type: 1 }];
   }
   return { messages, lastRead: messages[spec.count - spec.unread - 1]?.id ?? '', deleted };

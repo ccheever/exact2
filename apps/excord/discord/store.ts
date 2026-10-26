@@ -52,7 +52,7 @@ export interface MemberList { id: string; items: (MemberItem | undefined)[]; rev
 interface ReadState { lastReadId: string | null; mentionCount: number }
 interface Entry {
   row: MessageRow; sortId: string; tie: number; run: Run; unanchored?: boolean;
-  changedAt: number; contentAt: number; reactionsAt: number; verified: boolean;
+  changedAt: number; contentAt: number; reactionsAt: number; pollAt: number; verified: boolean;
 }
 interface Run {
   entries: Entry[];
@@ -311,9 +311,14 @@ function mergeMessage(entry: Entry, data: DiscordObject, page?: { since?: number
   if (older || (!newer && page?.since !== undefined && entry.contentAt > page.since)) {
     for (const field of contentFields) if (old[field] !== undefined) next[field] = old[field];
   }
+  // Reactions and poll votes arrive as their own events, which a page fetched before them must not undo.
   if (page?.since !== undefined && entry.reactionsAt > page.since && old.reactions !== undefined) {
     next.reactions = old.reactions;
   }
+  if (page?.since !== undefined && entry.pollAt > page.since && old.poll !== undefined) next.poll = old.poll;
+  // A poll without `results` is one whose counts Discord did not send (Discord: Poll Results Object), not one
+  // without votes.
+  else if (next.poll && !next.poll.results && old.poll?.results) next.poll = { ...next.poll, results: old.poll.results };
   return { ...next, id: data.id, channel_id: old.channel_id, key: old.key, status: 'sent' } as MessageRow;
 }
 
@@ -321,6 +326,7 @@ function updateMessage(s: Store, entry: Entry, data: DiscordObject): void {
   const next = mergeMessage(entry, data);
   if (contentFields.some(field => next[field] !== entry.row[field])) entry.contentAt = s.sequence;
   if (next.reactions !== entry.row.reactions) entry.reactionsAt = s.sequence;
+  if (next.poll?.results !== entry.row.poll?.results) entry.pollAt = s.sequence;
   entry.row = next;
   entry.changedAt = s.sequence;
 }
@@ -345,7 +351,8 @@ function storedMessage(s: Store, h: History, channelId: string, data: DiscordObj
   } else {
     entry = { row: { ...data, id, channel_id: channelId, key: id, status: 'sent' }, sortId: id, tie: 0,
       run: newRun(), changedAt: page ? 0 : s.sequence, contentAt: page ? 0 : s.sequence,
-      reactionsAt: !page && data.reactions !== undefined ? s.sequence : 0, verified: true };
+      reactionsAt: !page && data.reactions !== undefined ? s.sequence : 0, pollAt: !page && data.poll?.results !== undefined ? s.sequence : 0,
+      verified: true };
   }
   h.messages.set(id, entry);
   return entry;
@@ -606,6 +613,32 @@ function reaction(s: Store, t: string, data: DiscordObject, c: Changes): void {
   c.channels.add(data.channel_id);
 }
 
+// A vote on a poll: Discord sends one event an answer a voter adds or takes back.
+function pollVote(s: Store, t: string, data: DiscordObject, c: Changes): void {
+  const entry = s.histories.get(data.channel_id)?.messages.get(data.message_id);
+  const poll = entry?.row.poll;
+  const mine = data.user_id === s.meId, add = t === 'MESSAGE_POLL_VOTE_ADD';
+  // Counts Discord did not send stay unknown until a page or an update brings them (`partial`); only the
+  // reader's own choice is kept meanwhile.
+  const partial = !poll?.results || poll.results.partial === true;
+  if (!entry || !poll || (partial && !mine)) return;
+  const counts = (poll.results?.answer_counts ?? []) as DiscordObject[];
+  const index = counts.findIndex(a => String(a.id) === String(data.answer_id));
+  const previous = counts[index];
+  // A vote applied on the REST reply comes back from the gateway as a repeat.
+  if ((!add && !previous) || (mine && add && previous?.me_voted) || (mine && !add && !previous?.me_voted)) return;
+  const updated = { ...previous, id: previous?.id ?? Number(data.answer_id), count: Math.max(0, (previous?.count ?? 0) + (add ? 1 : -1)),
+    me_voted: mine ? add : previous?.me_voted ?? false };
+  const next = [...counts];
+  if (index < 0) next.push(updated);
+  else next[index] = updated;
+  // Partial results are no news about the counts, so a page asked before them still brings its own.
+  entry.changedAt = s.sequence;
+  if (!partial) entry.pollAt = s.sequence;
+  entry.row = { ...entry.row, poll: { ...poll, results: { ...(poll.results ?? { is_finalized: false, partial: true }), answer_counts: next } } };
+  c.channels.add(data.channel_id);
+}
+
 function deleteMessages(s: Store, channelId: string, ids: string[], c: Changes): void {
   const h = historyFor(s, channelId);
   const channel = s.channelMap.get(channelId);
@@ -720,6 +753,8 @@ export function applyDispatch(s: Store, t: string, d: DiscordObject, nowMs: numb
     case 'MESSAGE_REACTION_REMOVE':
     case 'MESSAGE_REACTION_REMOVE_ALL':
     case 'MESSAGE_REACTION_REMOVE_EMOJI': reaction(s, t, d, c); break;
+    case 'MESSAGE_POLL_VOTE_ADD':
+    case 'MESSAGE_POLL_VOTE_REMOVE': pollVote(s, t, d, c); break;
     case 'MESSAGE_REACTION_ADD_MANY':
       for (const r of d.reactions ?? []) for (const user_id of r.users ?? []) {
         reaction(s, 'MESSAGE_REACTION_ADD', { ...d, emoji: r.emoji, user_id }, c);
@@ -860,7 +895,7 @@ export function addPending(s: Store, channelId: string, message: PendingMessage)
     // Freeze display order on confirmation: another user's message may have arrived after this slot.
     sortId: last?.sortId ?? lastId ?? '0', tie: ++h.nextTie, run,
     unanchored: last?.unanchored ?? (!last && !lastId),
-    changedAt: 0, contentAt: 0, reactionsAt: 0, verified: true,
+    changedAt: 0, contentAt: 0, reactionsAt: 0, pollAt: 0, verified: true,
   };
   insert(run, entry);
   h.pending.set(message.nonce, entry);

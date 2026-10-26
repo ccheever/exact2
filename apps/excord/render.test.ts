@@ -72,7 +72,7 @@ test('store rows supply the transcript identity, author, clock and declared fiel
     isNew: false, media: [], embeds: [], reactions: [], reply: [] });
   expect(second).toMatchObject({ author: 'buildbot', color: '#e67e22', bot: true, mine: false,
     at: NOW + 1000, prevAt: NOW, grouped: false });
-  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'files', 'forwarded', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'note', 'plain', 'prevAt', 'reactions', 'reply', 'source', 'state', 'stickers', 'system']);
+  expect(Object.keys(first).sort()).toEqual(['at', 'author', 'authorId', 'avatar', 'blocks', 'bot', 'color', 'edited', 'embeds', 'files', 'forwarded', 'grouped', 'id', 'isNew', 'jumbo', 'key', 'media', 'mentionsMe', 'mine', 'note', 'plain', 'poll', 'prevAt', 'reactions', 'reply', 'source', 'state', 'stickers', 'system', 'systemIcon']);
   expect(f.render(f.row(m.id))).toBe(first);
   // A role's new colour redraws its holders' rows.
   S.applyDispatch(f.store, 'GUILD_ROLE_UPDATE', { guild_id: gid, role: { id: role, name: 'Maintainers', color: 0x112233,
@@ -459,4 +459,23 @@ test('a reply to a forward the cache does not hold names the users the forward m
   const reply = message(0, { content: 'yes', type: 19, message_reference: reference(quoted.id), referenced_message: quoted } as Partial<Message>);
   const [r] = fixture([reply]).view().rows;
   expect(r.reply[0].preview).toBe('hi @Outside Friend');
+});
+
+test('a poll shows its answers with their share of the votes, and its closing names it', () => {
+  const poll = { question: { text: 'Lunch?' }, allow_multiselect: false, expiry: new Date(NOW + 3600000).toISOString(),
+    answers: [{ answer_id: 1, poll_media: { text: 'Tacos', emoji: { id: null, name: '🌮' } } },
+      { answer_id: 2, poll_media: { text: 'Ramen', emoji: { id: '501', name: 'ramen' } } }, { answer_id: 3, poll_media: { text: 'Salad' } }],
+    results: { is_finalized: true, answer_counts: [{ id: 1, count: 2, me_voted: true }, { id: 2, count: 1, me_voted: false }] } };
+  const asked = message(0, { content: '', poll } as Partial<Message>);
+  const closed = message(1000, { content: '', type: 46, author: bot, message_reference: reference(asked.id),
+    embeds: [{ type: 'poll_result', fields: [{ name: 'poll_question_text', value: 'Lunch?' }] }] } as Partial<Message>);
+  const [p, c] = fixture([asked, closed]).view().rows;
+  expect(p.plain).toBe('Lunch?');
+  expect(p.poll).toEqual([{ question: 'Lunch?', multi: false, known: true, expiry: NOW + 3600000, closed: true, voted: true, votes: 3, answers: [
+    { id: '1', text: 'Tacos', emoji: '🌮', src: '', count: 2, percent: 67, me: true, winner: true },
+    { id: '2', text: 'Ramen', emoji: '', src: `${cdn}/emojis/501.png`, count: 1, percent: 33, me: false, winner: false },
+    { id: '3', text: 'Salad', emoji: '', src: '', count: 0, percent: 0, me: false, winner: false }] }]);
+  expect(c).toMatchObject({ system: "buildbot's poll Lunch? has closed.", systemIcon: 'chart', embeds: [] });
+  const reply = message(2000, { content: 'ok', type: 19, message_reference: reference(asked.id) } as Partial<Message>);
+  expect(fixture([asked, reply]).view().rows[1].reply[0].preview).toBe('Lunch?');
 });

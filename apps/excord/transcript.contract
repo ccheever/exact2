@@ -5,7 +5,7 @@
 // A row's testIds name its message's id (a send's nonce until Discord confirms
 // it); its identity in the list is its key, which a confirmation keeps.
 
-use Run, Block, Media, FileRef, Embed, Reaction, ReplyRef, Message from "./shapes.contract"
+use Run, Block, Media, FileRef, Embed, Reaction, Poll, ReplyRef, Message from "./shapes.contract"
 use Badge from "exact:content"
 
 // A code token's colour, after Xcode's default theme in the platform's palette.
@@ -15,6 +15,10 @@ fn codeColor(kind: string): string = kind == "hl-keyword" ? "-exact-system-pink"
 // the week and the short date before it ("Tuesday, 4:42 PM", "10/11/26, 4:42 PM").
 fn recent(day: string): bool = day == "Today" or day == "Yesterday" or day == "Tomorrow"
 fn stamp(at: number, clock: number, offset: number): string = recent(formatDay(at, clock, offset, "day")) ? formatDay(at, clock, offset, "day-time") : `${formatDay(at, clock, offset, "list")}, ${formatTime(at, offset, "short")}`
+
+// How long a poll has left, as Discord words it.
+fn timeLeft(ms: number): string = ms >= 86400000 ? `${floor(ms / 86400000)}d left` : ms >= 3600000 ? `${floor(ms / 3600000)}h left` : `${max(1, ceil(ms / 60000))}m left`
+fn votes(n: number): string = n == 1 ? "1 vote" : `${formatNumber(n, "decimal")} votes`
 
 fn decoration(r: Run): string = r.underline and r.strike ? "underline line-through" : r.underline ? "underline" : r.strike ? "line-through" : "none"
 
@@ -26,6 +30,7 @@ component MessageRow
     isNew: bool
     lit: bool
     revealed: string[]
+    picks: string[]
     swipeX: number
     dragging: bool
     reveal: action
@@ -42,6 +47,7 @@ component MessageRow
     reply: action
     profile: action
     follow: action
+    poll: action
   derive dayChange = m.prevAt == 0 or formatDate(m.at, offset, "iso") != formatDate(m.prevAt, offset, "iso")
   derive leads = not m.grouped or dayChange or isNew or m.reply.length > 0
   view
@@ -57,7 +63,7 @@ component MessageRow
           Badge(label="NEW", tint=some("-exact-system-red"))
       if m.system != ""
         row gap=12 padding="2px 16px" align-items="center"
-          image "symbol:forward" font="-exact-subheadline" color="-exact-system-green" margin-left=12
+          image `symbol:${m.systemIcon}` font="-exact-subheadline" color=(m.systemIcon == "forward" ? "-exact-system-green" : "-exact-secondary-label") margin-left=12
           text m.system font="-exact-subheadline" color="-exact-secondary-label" flex=1 min-width=0
       else
         column position="relative" padding="2px 16px" testId=`row-${m.id}` hover=hover(m.key)
@@ -141,6 +147,8 @@ component MessageRow
                   image s.src width=160 height=160 object-fit="contain" aria-label=s.name testId=`sticker-${m.key}-${s.id}`
                 for e in m.embeds key=e.id
                   EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show, follow=follow)
+                for p in m.poll key=p.question
+                  PollView(p=p, mkey=m.key, mid=m.id, clock=clock, picks=picks, results=revealed.includes(`poll:${m.id}`), poll=poll)
               if m.reactions.length > 0
                 row gap=6 flex-wrap="wrap" padding-top=2
                   for x in m.reactions key=x.id
@@ -396,3 +404,65 @@ component EmbedView
           MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
       for t in e.thumbnail key=t.id
         image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
+
+// A poll, as Discord draws it: before the reader votes, its answers to choose and a Vote button; once they
+// have voted, asked to see the results, or the poll has closed, each answer's share as a bar.
+// `poll(what, message, answer, multi)` does what the card asks: "pick", "vote", "unvote", "results" or "back".
+component PollView
+  props
+    p: Poll
+    mkey: string
+    mid: string
+    clock: number
+    picks: string[]
+    results: bool
+    poll: action
+  derive ended = p.closed or (p.expiry > 0 and clock >= p.expiry)
+  derive tally = ended or p.voted or results
+  derive chosen = picks.filter(k => k.startsWith(`${mid}:`)).length
+  view
+    column max-width="28rem" padding=16 gap=12 border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background" testId=`poll-${mkey}`
+      column gap=2
+        text p.question font="-exact-headline"
+        text (p.multi ? "Select one or more answers" : "Select one answer") font="-exact-footnote" color="-exact-secondary-label"
+      column gap=8
+        for a in p.answers key=a.id
+          if tally
+            row position="relative" z-index=0 overflow="hidden" align-items="center" gap=8 padding="10px 12px" border-radius=8
+              border=(a.me ? "1px solid AccentColor" : "1px solid -exact-separator")
+              aria-label=`${a.text}${p.known ? `, ${votes(a.count)}, ${a.percent}%` : ""}${a.me ? ", your vote" : ""}${a.winner ? ", winning answer" : ""}` testId=`poll-${mkey}-${a.id}`
+              view position="absolute" z-index=-1 top=0 left=0 bottom=0 width=`${a.percent}%` background-color=(a.me ? "AccentColor" : "-exact-tertiary-fill") opacity=(a.me ? 0.2 : 1)
+              if a.src != ""
+                image a.src width=20 height=20 aria-label=a.emoji
+              else if a.emoji != ""
+                text a.emoji
+              text a.text flex=1 min-width=0 font-weight=(a.winner ? 600 : 400)
+              if a.me or a.winner
+                image "symbol:select-fill" width=18 height=18 color=(a.me ? "AccentColor" : "-exact-system-green")
+              if p.known
+                text votes(a.count) font="-exact-footnote" color="-exact-secondary-label" font-variant-numeric="tabular-nums" testId=`poll-${mkey}-${a.id}-votes`
+                text `${a.percent}%` font-weight=600 font-variant-numeric="tabular-nums" min-width="2.75em" text-align="right" testId=`poll-${mkey}-${a.id}-share`
+          else
+            button appearance="none" press=poll("pick", mid, a.id, p.multi) aria-pressed=picks.includes(`${mid}:${a.id}`) testId=`poll-${mkey}-${a.id}` -exact-press-haptic="selection"
+              row align-items="center" gap=8 padding="10px 12px" border-radius=8
+                border=(picks.includes(`${mid}:${a.id}`) ? "1px solid AccentColor" : "1px solid -exact-separator")
+                background-color=(picks.includes(`${mid}:${a.id}`) ? "-exact-quaternary-fill" : "transparent")
+                if a.src != ""
+                  image a.src width=20 height=20 aria-label=a.emoji
+                else if a.emoji != ""
+                  text a.emoji
+                text a.text flex=1 min-width=0 text-align="left"
+                image (picks.includes(`${mid}:${a.id}`) ? "symbol:select-fill" : "symbol:circle") width=20 height=20
+                  color=(picks.includes(`${mid}:${a.id}`) ? "AccentColor" : "-exact-tertiary-label")
+      row align-items="center" gap=12 flex-wrap="wrap"
+        text `${p.known ? `${votes(p.votes)} · ` : ""}${ended ? "Poll closed" : p.expiry > 0 ? timeLeft(p.expiry - clock) : "No end"}` font="-exact-footnote" color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+        if not ended and not p.voted
+          button appearance="none" press=poll(results ? "back" : "results", mid, "", p.multi) testId=`poll-${mkey}-results`
+            text (results ? "Go back to vote" : "Show results") font="-exact-footnote" font-weight=600 color="AccentColor"
+        if not ended and p.voted
+          button appearance="none" press=poll("unvote", mid, "", p.multi) testId=`poll-${mkey}-unvote`
+            text "Remove vote" font="-exact-footnote" font-weight=600 color="AccentColor"
+        if not tally
+          view flex=1
+          button press=poll("vote", mid, "", p.multi) disabled=(chosen == 0) buttonStyle="filled" testId=`poll-${mkey}-vote`
+            text "Vote"

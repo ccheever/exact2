@@ -18,6 +18,8 @@ use MemberList from "./members.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 
+fn noAnswers(): string[] = []
+
 shape Time
   epochAtZero: number
   utcOffset: number
@@ -106,6 +108,8 @@ component Excord
   state jumpFromKey = ""
   state jumpFromOffset = 0
   state revealed: string[] = []
+  // A poll's answers chosen before its vote, as `${message id}:${answer id}`.
+  state pollPicks: string[] = []
   // The picture the viewer shows full screen ("" while it is closed).
   state viewing = ""
   state viewingAlt = ""
@@ -723,6 +727,20 @@ component Excord
   // A message's own controls. `aimedText` is the message's Markdown as sent.
   action reveal(key: string)
     revealed = revealed.concat([key])
+  // What a poll's card asks (`PollView`); a vote replaces the reader's earlier one, as in Discord.
+  action pollAct(what: string, id: string, answer: string, multi: bool)
+    if what == "pick"
+      pollPicks = pollPicks.includes(`${id}:${answer}`) ? pollPicks.filter(k => k != `${id}:${answer}`) : (multi ? pollPicks : pollPicks.filter(k => not k.startsWith(`${id}:`))).concat([`${id}:${answer}`])
+    else if what == "vote"
+      // The choices stay until the vote is taken back, so a vote Discord refuses can be sent again.
+      send changed = vote(open, id, pollPicks.filter(k => k.startsWith(`${id}:`)).map(k => k.slice(id.length + 1)))
+    else if what == "unvote"
+      send changed = vote(open, id, noAnswers())
+      pollPicks = pollPicks.filter(k => not k.startsWith(`${id}:`))
+    else if what == "results"
+      revealed = revealed.concat([`poll:${id}`])
+    else
+      revealed = revealed.filter(k => k != `poll:${id}`)
   action show(src: string, alt: string, w: number, h: number)
     viewingAlt = alt
     viewingWidth = w
@@ -1176,7 +1194,7 @@ component Excord
                       reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                       flex=1 min-height=0 padding-top=8 padding-bottom=22
                       for m in rows key=m.key
-                        MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow)
+                        MessageRow(m=m, clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(m.key == swipeKey ? swipeX : 0), dragging=(dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, poll=pollAct)
                   column id="message-menu" popover="auto" role="menu"
                     button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
                       image "symbol:reply"

@@ -106,6 +106,11 @@ export function removeReaction(ctx: RestContext, channelId: string, messageId: s
   return request(ctx, 'DELETE', `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`);
 }
 
+/** Build the current user's vote on a poll: the answers chosen, none to take the vote back. */
+export function votePoll(ctx: RestContext, channelId: string, messageId: string, answerIds: string[]): RestRequest {
+  return request(ctx, 'PUT', `/channels/${channelId}/polls/${messageId}/answers/@me`, { answer_ids: answerIds });
+}
+
 /** Build an explicit read acknowledgement; lastViewed is Discord's day counter, not milliseconds. */
 export function ack(ctx: RestContext, channelId: string, messageId: string, opts: { token: string | null; lastViewed: number }): RestRequest {
   return request(ctx, 'POST', `/channels/${channelId}/messages/${messageId}/ack`, {
