@@ -1,7 +1,8 @@
 // The previews' PDF and rendered-page bodies (MIT reference, see LICENSE-T3: components/files/BrowserDocumentFrame.tsx)
 // as Contract iframes (media-frame.contract, LLP 1020.002). A PDF frame shows a local file in the platform's viewer
-// (D10: PDFKit's PDFView on Apple), so a server's signed PDF is fetched into app:/cache first, and a draft's staged
-// copy, which has no extension, is copied there under a `.pdf` name, by which the host knows its type. A sent page is
+// (D10: PDFKit's PDFView on Apple), so a server's signed PDF is downloaded into app:/cache first (the host writes the
+// body, `fetch`'s `exactBodyTo`), and a draft's staged copy, which has no extension, is copied there under a `.pdf`
+// name, by which the host knows its type. A sent page is
 // framed at its signed asset URL, as the reference frames it; a draft page is its staged copy under an `.html` name,
 // which the host serves as the frame's own document with no siblings, as a Blob URL's page has none.
 import { appFiles } from './save-file';
@@ -11,20 +12,14 @@ import { STAGED } from '../composer/composer-staged-copies';
 export const MEDIA_CACHE = 'app:/cache/media-preview';
 /** The prefix a draft's PDF or page URL carries (composer-chip-file.ts draftSource): its staged copy's name follows. */
 export const STAGED_SCHEME = 't3-staged:';
-/** The largest PDF fetched for a frame. The Apple host charges an independent fetch twice its ceiling against a 64 MiB
- *  lane and starts it only when the lane has that much free (host/apple/src/executor_core.rs `reservation`, `next_job`).
- *  Each open server socket holds about 2 MiB of the lane (a stream's 1 MiB ceiling, charged the same way), so a
- *  ceiling near 32 MiB never starts while one is open, and the fetch waits forever. 24 MiB leaves room for seven
- *  sockets or the transport's requests; a larger PDF shows "Could not load this file." A draft's staged copy is read
- *  from disk and has no such limit. */
-const MAX_BYTES = 24 * 1024 * 1024;
+/** The largest PDF downloaded for a frame: `fetch`'s maximum for a body written to a file, which goes to disk. */
+const MAX_BYTES = 1024 * 1024 * 1024;
 /** Documents kept at once; the oldest file goes when another arrives. */
 const KEPT = 16;
 const FAILED = 'Could not load this file.';
 
 interface FrameFiles {
-  readFile(path: string): Promise<ArrayBuffer>;
-  writeFile(path: string, bytes: Uint8Array): Promise<unknown>;
+  copyFile(from: string, to: string): Promise<unknown>;
   mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>;
   rm?(path: string): Promise<unknown>;
 }
@@ -51,14 +46,12 @@ const kept = new Map<string, Promise<string>>();
 let serial = 0;
 
 async function fetched(url: string, path: string): Promise<void> {
-  const reply = await fetch(url, { exactTimeout: 60_000, exactIndependentHttp: { maxResponseBytes: MAX_BYTES } } as RequestInit);
+  const reply = await fetch(url, { exactTimeout: 60_000, exactBodyTo: path, exactIndependentHttp: { maxResponseBytes: MAX_BYTES } } as RequestInit);
   if (!reply.ok) throw new Error(`HTTP ${reply.status}`);
-  await files().writeFile(path, new Uint8Array(await reply.arrayBuffer()));
 }
 
 async function copied(name: string, path: string): Promise<void> {
-  const bytes = new Uint8Array(await files().readFile(`${STAGED}/${name}`));
-  await files().writeFile(path, bytes);
+  await files().copyFile(`${STAGED}/${name}`, path);
 }
 
 /** The local file for `key`, written once by `write`; a failure is not kept, so Try again writes it afresh. */

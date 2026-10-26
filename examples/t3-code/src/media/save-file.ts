@@ -51,6 +51,22 @@ export function completeSave(client: object, nonce: number): void {
   if (queue?.pending[0]?.nonce === nonce) queue.pending.shift();
 }
 
+/** The largest download Save takes: `fetch`'s maximum for a body written to a file (`exactBodyTo`). */
+export const DOWNLOAD_BYTES = 1024 * 1024 * 1024;
+
+/**
+ * Downloads `url` under app:/tmp/saves/ and asks the window to save it as `name`. The host writes the reply's body to
+ * the file (`fetch`'s `exactBodyTo`), so its bytes never enter JavaScript, as a browser's download does not. Throws on
+ * a non-2xx reply; asks nothing when `current` says the request was let go meanwhile.
+ */
+export async function saveDownload(client: object, url: string, name: string, options: { init?: RequestInit; maxBytes?: number; current?: () => boolean } = {}): Promise<void> {
+  const fs = appFiles().fs, directory = `${SAVES}/${++written}`, path = `${directory}/${name}`;
+  await fs.mkdir(directory, { recursive: true });
+  const reply = await fetch(url, { ...options.init, exactBodyTo: path, exactIndependentHttp: { maxResponseBytes: options.maxBytes ?? DOWNLOAD_BYTES } } as RequestInit);
+  if (!reply.ok) throw new Error(`HTTP ${reply.status}`);
+  if (options.current?.() !== false) requestSave(client, path, name);
+}
+
 /** Writes `bytes` under app:/tmp/saves/ and asks the window to save them as `name`. */
 export async function saveBytes(client: object, bytes: Uint8Array, name: string): Promise<void> {
   const fs = appFiles().fs, directory = `${SAVES}/${++written}`;
