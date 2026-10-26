@@ -663,9 +663,30 @@ After the event-pump fix, a Mac scratch fixture observed 42 display callbacks ov
 with an 8.33 ms target cadence and no ring drops. The clock remained real, scheduling normal,
 and the subsequent tree read returned 62 nodes. Eleven focused Swift tests passed, including
 an AppKit event delivered during capture, exactly-once interrupted completion, and presented
-bounds during animation. The integrated driver suite passed 61 tests, with one missing-Chromium
-skip; separate Chrome app and list drives used the installed browser. This is callback timing, not proof of compositor presentation
+bounds during animation. The integrated driver suite passed all 62 tests with the installed Chrome; the initial
+missing-Chromium skip was rerun successfully with that browser. This is callback timing, not proof of compositor presentation
 or a native bounce. A same-binary count-hook microbenchmark measured 3.75 ns disabled and
 23.83 ns enabled; it does not establish end-to-end app overhead. tvOS compiled the shared UIKit
 code. iOS touch/keyboard dismissal, Windows and Android app behavior, a physical iPhone and
 production app equivalence were not qualified by these runs.
+
+Final integration checks at code revision `835be01839`: build, clippy, formatting, caps,
+boot and workspace compilation passed. The quick Contract semantics differential run agreed
+with no divergences. The generated-bundle audit and measured-layout regression passed.
+The default test run failed only the Apple library target: its nested async-executor suite
+reported four worker/socket timeouts. The nested suite reproduces the failure; one socket
+case passes alone. Those executor sources are unchanged from base `7c2fe1b36c`, but a clean
+base comparison has not been performed, so this is not classified as a proven baseline defect.
+`QUEUE.md` records the follow-up. No test was weakened or skipped to make this gate pass.
+
+The repeated gate took 264.92 s: build 24.88, tests 172.52, clippy 15.20, formatting 6.26,
+caps 2.97, boot 0.03 and workspace 43.06. This does not meet the 65 s budget. The separate
+quick differential run took 3.81 s. These results qualify the focused tooling evidence above,
+not a green merge gate or the repository's loop budget.
+
+The second Sol code review found a cleanup leak when same-checkout drives overlapped on
+different explicit ports. A real two-port regression reproduced it. Commit `f74625bf80`
+validates each recorded server at its own origin while preserving process and checkout
+ownership checks; the regression and foreign-server refusal cases pass after integration.
+Sol’s focused follow-up found the issue resolved. The fix changes only fixture cleanup;
+Rust, Swift and browser runtime sources remain at the code revision checked above.
