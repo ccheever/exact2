@@ -667,6 +667,8 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "copy" | "cut" | "paste" STRING ) NL
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
+              | "clock" "until" "state" IDENT { "." ( IDENT | NUMBER ) } "==" scalar "within" NUMBER NL
+                                                     (* real time, the clock frozen, until it holds *)
               | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
               | "prefer" IDENT IDENT NL              (* change a media preference now *)
               | "reload" NL
@@ -687,6 +689,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "expect" "mediasession" ( IDENT "==" ( STRING | "none" )
                   | ( "has" | "missing" ) STRING ) NL ;
 test-value    = [ "-" ] NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
+scalar        = [ "-" ] NUMBER | STRING | "true" | "false" | "null" ;
 METHOD        = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" ;
 json          = "{" [ STRING ":" json { "," STRING ":" json } ] "}"   (* strict JSON: quoted keys, no *)
               | "[" [ json { "," json } ] "]"                         (* trailing comma; brackets may *)
