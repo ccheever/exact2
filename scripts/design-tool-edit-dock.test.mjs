@@ -31,6 +31,10 @@ test('a cell pressed opens its editor in the dock, in the window, the cell marke
       // A tall editor (a shadow list's typed fields) and its draft's proposal joining it: the dock at its tallest, the
       // cell still clear above it.
       'tap cell-shadow.ring-0-light', ...wait, 'type part-0.spread-field 1px', ...wait, 'layout', `screenshot ${join(shots, 'edit-dock-900-tall.png')}`,
+      // Cancel: the pressed button gone, the focus stays in the dock, where Escape reaches it.
+      'tap cancel-edit', ...wait, 'tree',
+      // A token that follows others: the dock focused (no field), then Pin brings the field and the focus into it.
+      'tap cell-accent.fill-0-light', ...wait, 'tree', 'tap pin', ...wait, 'tree',
     ]);
     const trees = replies.filter(r => r.nodes && !('x' in (r.nodes[0] ?? {}))), layouts = replies.filter(r => r.nodes?.some(n => 'x' in n));
     const one = (t, id) => t.nodes.find(n => n.props?.testId === id);
@@ -57,5 +61,9 @@ test('a cell pressed opens its editor in the dock, in the window, the cell marke
     expect(tall.y + tall.h).toBeLessThanOrEqual(view.h + 1);
     expect(ring.y).toBeGreaterThanOrEqual(0);
     expect(ring.y + ring.h).toBeLessThanOrEqual(tall.y);
+    expect(one(trees[2], 'edit-dock')?.focused).toBe(true);
+    expect(one(trees[3], 'branch-value')).toBeUndefined();
+    expect(one(trees[3], 'edit-dock')?.focused).toBe(true);
+    expect(one(trees[4], 'branch-value')?.focused).toBe(true);
   } finally { await tool.close(); rmSync(app, { recursive: true, force: true }); }
 }, 1_200_000);

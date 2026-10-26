@@ -861,6 +861,17 @@ test "the edit dock: a cell's editor and its edit's proposal in one dock; Close 
   expect tree missing "proposal"
   expect tree has "branch"
   expect tree has "edit-dock-close"
+  // A rename typed and not proposed is pending too: no Close until it is cleared.
+  type "rename-to" "surface.cardx"
+  expect tree missing "edit-dock-close"
+  type "rename-to" ""
+  expect tree has "edit-dock-close"
+  // Escape in the Remove confirmation closes it, never the dock (it is outside it).
+  tap "remove"
+  type "confirm-remove-yes" key "Escape"
+  clock data
+  expect tree has "edit-dock"
+  expect state selToken == "surface.card"
   // Escape now ends the selection: the dock goes.
   type "branch-value" key "Escape"
   clock data

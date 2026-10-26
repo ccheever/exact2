@@ -41,10 +41,16 @@ whose design the port serves.
   or cell edit, never the default): each value the draft takes is a `scrub`
   frame previewed on every running copy and written to no file, while the
   tool says "Previewing". Keep is `scrub-release`, one write undone in one
-  step (refused, it names who moved the file); Cancel or Escape is
-  `scrub-cancel`; an end the server makes (another write, idle 30 s, the
+  step (refused, it names who moved the file); Cancel is `scrub-cancel`
+  (Escape is not: it never ends a pending edit, the third pass's #7); an end the server makes (another write, idle 30 s, the
   tool gone) is said. An edit that rebuilds, or a tool with no dev loop,
   offers no scrub, and says why.
+- The edit dock (the third hands-on pass's #7): a grid cell pressed opens
+  its editor, with the edit's proposal, in one dock at the window's bottom
+  (at most half of it); the cell gets an accent ring and `aria-current`, and
+  stays clear of the dock. The press moves the focus into the editor; Close
+  or Escape, only with nothing pending (no typed value, draft or scrub),
+  ends the selection and gives the focus back to the cell.
 - The inspector (T2b, LLP 1122 D5): Inspect turns inspect mode on every
   build that can (the wasm page now). The toggle follows the server's
   `inspect` events, so another client taking a build, or this tool's
