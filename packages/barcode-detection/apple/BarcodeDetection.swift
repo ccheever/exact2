@@ -129,24 +129,55 @@ public final class BarcodeDetectionModule: ExactPackage {
     /// The barcodes Vision finds in `handler`'s image, `width` by `height` upright pixels, after D11's rule.
     func detect(_ handler: VNImageRequestHandler, width: Double, height: Double, keep: Set<String>, all: Bool) throws -> [[String: Any]] {
         let request = VNDetectBarcodesRequest()
+        #if targetEnvironment(simulator)
+        // Revisions 3 and 4 find no code on the simulators' CPU; revision 2
+        // does, once per scan line it reads, which `merged` makes one.
+        request.revision = VNDetectBarcodesRequestRevision2
+        let older = Set((try? request.supportedSymbologies()) ?? [])
+        request.symbologies = Self.symbologies(for: all ? nil : keep).filter(older.contains)
+        #else
         request.symbologies = Self.symbologies(for: all ? nil : keep)
+        #endif
         if !context.agent { Self.requestHatch?(request) }
         simulatorCPU(request)
         try handler.perform([request])
-        return Self.normalised((request.results ?? []).map { Self.shape($0, width: width, height: height) }, keep: all ? nil : keep)
+        #if targetEnvironment(simulator)
+        let found = Self.merged((request.results ?? []).map { ($0, $0.boundingBox) })
+        #else
+        let found = (request.results ?? []).map { ($0, $0.boundingBox) }
+        #endif
+        return Self.normalised(found.map { Self.shape($0.0, box: $0.1, width: width, height: height) }, keep: all ? nil : keep)
     }
 
-    /// One observation in the upright image's pixels, top left origin, its corners clockwise from the top left.
-    static func shape(_ o: VNBarcodeObservation, width: Double, height: Double) -> [String: Any] {
+    #if targetEnvironment(simulator)
+    /// The observations of one value as one, with their union box. Two copies of one code in an image are one
+    /// on a simulator, whose scan lines of one code need not meet.
+    static func merged(_ found: [(VNBarcodeObservation, CGRect)]) -> [(VNBarcodeObservation, CGRect)] {
+        var out: [(VNBarcodeObservation, CGRect)] = []
+        for (o, box) in found {
+            if let i = out.firstIndex(where: { $0.0.symbology == o.symbology && $0.0.payloadStringValue == o.payloadStringValue }) {
+                out[i].1 = out[i].1.union(box)
+            } else {
+                out.append((o, box))
+            }
+        }
+        return out
+    }
+    #endif
+
+    /// One observation in the upright image's pixels, top left origin, its corners clockwise from the top left. A
+    /// `box` other than the observation's own (several merged) gives the corners too.
+    static func shape(_ o: VNBarcodeObservation, box b: CGRect, width: Double, height: Double) -> [String: Any] {
         let point = { (p: CGPoint) -> [String: Any] in ["x": Double(p.x) * width, "y": (1 - Double(p.y)) * height] }
-        let b = o.boundingBox
+        let corners = b == o.boundingBox ? [o.topLeft, o.topRight, o.bottomRight, o.bottomLeft]
+            : [CGPoint(x: b.minX, y: b.maxY), CGPoint(x: b.maxX, y: b.maxY), CGPoint(x: b.maxX, y: b.minY), CGPoint(x: b.minX, y: b.minY)]
         var apple: [String: Any] = ["symbology": o.symbology.rawValue]
         if #available(iOS 17.0, macOS 14.0, tvOS 17.0, *), let data = o.payloadData { apple["payloadData"] = data.base64EncodedString() }
         return [
             "rawValue": o.payloadStringValue ?? "",
             "format": format(o.symbology) ?? "unknown",
             "boundingBox": ["x": Double(b.minX) * width, "y": (1 - Double(b.maxY)) * height, "width": Double(b.width) * width, "height": Double(b.height) * height],
-            "cornerPoints": [o.topLeft, o.topRight, o.bottomRight, o.bottomLeft].map(point),
+            "cornerPoints": corners.map(point),
             "apple": apple,
         ]
     }
