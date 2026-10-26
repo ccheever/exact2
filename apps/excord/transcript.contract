@@ -84,7 +84,13 @@ component MessageRow
           for r in m.reply key=r.id
             row align-items="stretch" gap=6 min-width=0 padding-left=19 padding-bottom=2
               view width=29 margin-top=9 flex-shrink=0 border-left="2px solid -exact-separator" border-top="2px solid -exact-separator" border-top-left-radius=6 aria-hidden=true
-              if r.state == "deleted"
+              if r.state == "command"
+                row gap=4 align-items="center" flex=1 min-width=0 testId=`used-${m.id}`
+                  image r.avatar width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill"
+                  text r.author font="-exact-footnote" font-weight=600 color=(r.color != "" ? r.color : "-exact-secondary-label") flex="0 1 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                  text "used" font="-exact-footnote" color="-exact-secondary-label" flex-shrink=0
+                  text r.preview font="-exact-footnote" color="AccentColor" flex="0 100 auto" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+              else if r.state == "deleted"
                 text "Original message was deleted" font="-exact-footnote" font-style="italic" color="-exact-secondary-label" flex=1 min-width=0 line-clamp=1 testId=`reply-to-${m.id}`
               else
                 button appearance="none" press=jump(r.id) flex=1 min-width=0 testId=`reply-to-${m.id}` aria-label=(r.state == "unknown" ? "Replying to an earlier message" : `Replying to ${r.author}: ${r.preview}`)
@@ -147,7 +153,7 @@ component MessageRow
                 for s in m.stickers key=s.id
                   image s.src width=160 height=160 object-fit="contain" aria-label=s.name testId=`sticker-${m.key}-${s.id}`
                 for e in m.embeds key=e.id
-                  EmbedView(e=e, mkey=m.key, revealed=revealed, reveal=reveal, show=show, follow=follow)
+                  EmbedView(e=e, mkey=m.key, clock=clock, offset=offset, revealed=revealed, reveal=reveal, show=show, follow=follow)
                 for p in m.poll key=p.question
                   PollView(p=p, mkey=m.key, mid=m.id, clock=clock, picks=picks, results=revealed.includes(`poll:${m.id}`), poll=poll)
               if m.reactions.length > 0
@@ -352,6 +358,8 @@ component EmbedView
   props
     e: Embed
     mkey: string
+    clock: number
+    offset: number
     revealed: string[]
     reveal: action
     show: action
@@ -363,7 +371,14 @@ component EmbedView
         if e.provider != ""
           text e.provider font="-exact-caption1" color="-exact-secondary-label" overflow-wrap="break-word"
         if e.author != ""
-          text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+          row gap=6 align-items="center" min-width=0
+            if e.authorIcon != ""
+              image e.authorIcon width=20 height=20 border-radius=10 object-fit="cover" flex-shrink=0 aria-hidden=true
+            if e.authorUrl != ""
+              link href=e.authorUrl min-width=0
+                text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+            else
+              text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
         if e.title != ""
           if e.url != ""
             link href=e.url
@@ -372,8 +387,20 @@ component EmbedView
             text e.title font-weight=600 overflow-wrap="break-word"
         for b in e.description key=b.id
           BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
+        if e.fields.length > 0
+          row flex-wrap="wrap" column-gap=16 row-gap=8 padding-top=2
+            for f in e.fields key=f.id
+              column gap=2 min-width=0 flex=(f.inline ? "1 1 28%" : "1 1 100%") testId=`field-${mkey}-${f.id}`
+                text f.name font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
+                for b in f.value key=b.id
+                  BlockView(b=b, mkey=mkey, jumbo=false, revealed=revealed, reveal=reveal, follow=follow)
         for i in e.image key=i.id
           MediaView(i=i, mkey=mkey, revealed=revealed, reveal=reveal, show=show)
+        if e.footer != "" or e.at > 0
+          row gap=6 align-items="center" padding-top=2 min-width=0
+            if e.footerIcon != ""
+              image e.footerIcon width=16 height=16 border-radius=8 object-fit="cover" flex-shrink=0 aria-hidden=true
+            text (e.footer != "" and e.at > 0 ? `${e.footer} • ${stamp(e.at, clock, offset)}` : e.footer != "" ? e.footer : stamp(e.at, clock, offset)) font="-exact-caption1" color="-exact-secondary-label" min-width=0 overflow-wrap="break-word" testId=`footer-${mkey}-${e.id}`
       for t in e.thumbnail key=t.id
         image t.src width=72 height=72 object-fit="cover" border-radius=6 margin="10px 10px 10px 0px" flex-shrink=0 aria-label=t.alt
 

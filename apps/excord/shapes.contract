@@ -71,16 +71,31 @@ shape FileRef
   url: string
   spoiler: bool
 
+// An embed's field: `inline` ones sit up to three abreast, as Discord lays them out.
+shape EmbedField
+  id: string
+  name: string
+  value: Block[]
+  inline: bool
+
+// A link's or a bot's card. `authorIcon` and `footerIcon` are pictures ("" for none); `at` is the
+// embed's own timestamp, shown in the footer (0 for none).
 shape Embed
   id: string
   color: string
   provider: string
   author: string
+  authorIcon: string
+  authorUrl: string
   title: string
   url: string
   description: Block[]
+  fields: EmbedField[]
   image: Media[]
   thumbnail: Media[]
+  footer: string
+  footerIcon: string
+  at: number
 
 shape Reaction
   id: string
@@ -117,7 +132,9 @@ shape Poll
 
 // The message a reply answers. `state` is "present", "deleted" (the store saw it
 // deleted, or Discord sent the reply with a null `referenced_message`) or
-// "unknown" (the store does not hold it, so a jump has to load it).
+// "unknown" (the store does not hold it, so a jump has to load it). An app's
+// answer to a command has one too, "command": `author` used `preview`, the
+// command's name.
 shape ReplyRef
   id: string
   author: string

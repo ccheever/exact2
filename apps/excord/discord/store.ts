@@ -286,6 +286,9 @@ function messageUsers(s: Store, data: DiscordObject): void {
     }
   }
   for (const user of data.referenced_message?.mentions ?? []) rememberUser(s, user);
+  // An app's answer to a command carries whoever used it.
+  rememberUser(s, data.interaction_metadata?.user);
+  rememberUser(s, data.interaction?.user);
 }
 
 function olderEdit(incoming: string | null | undefined, previous: string): boolean {

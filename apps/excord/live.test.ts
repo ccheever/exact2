@@ -447,6 +447,21 @@ test('9. deleting an uncached original advances history and redraws its cached r
   expect(window().rows.find(row => row.id === reply.id)!.reply[0]).toMatchObject({ id: original, state: 'deleted' });
 });
 
+test('9b. a person\'s new name redraws the open channel, and an unchanged member update does not', () => {
+  const { fixture } = rig, channel = fixture.world.generalChannelId, guild = fixture.world.guilds[0].id;
+  const live = createLive({ rest: fixture.origin, gateway: fixture.gatewayUrl, cdn: fixture.origin, fixture: true });
+  applyEvent(live, 'READY', readyPayload(fixture.world, 'member-test', fixture.gatewayUrl));
+  live.viewing = { channel, guild };
+  const user = fixture.world.users.find(u => u.id !== fixture.world.me.id)!;
+  const update = (global_name: string | null) => applyEvent(live, 'GUILD_MEMBER_UPDATE', { guild_id: guild, roles: [], user: { ...user, global_name } });
+  update(user.global_name);
+  const before = live.history.get(channel) ?? 0;
+  update(user.global_name);
+  expect(live.history.get(channel) ?? 0).toBe(before);
+  update('Someone New');
+  expect(live.history.get(channel) ?? 0).toBe(before + 1);
+});
+
 test('10. a token Discord refuses (4004) is forgotten and the gateway says signed out', async () => {
   const secrets = secretsStore();
   secrets.set('fixture-token', 'not-the-fixture-token');

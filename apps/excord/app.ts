@@ -67,6 +67,7 @@ const dirs: Directories = {
   user: id => S.user(store, id),
   channelName: id => S.channel(store, id)?.name ?? 'unknown-channel',
   channelGuild: id => S.channel(store, id)?.guild_id ?? '',
+  guildName: id => store.guildMap.get(id)?.name ?? '',
   canOpen: id => { const c = S.channel(store, id); return !!c && (!c.guild_id || (TEXT.has(c.type ?? 0) && S.canView(store, c))); },
   roleName: id => {
     for (const guild of S.guilds(store)) for (const role of guild.roles ?? []) if (role.id === id) return role.name;

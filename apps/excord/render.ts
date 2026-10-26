@@ -23,6 +23,8 @@ export interface Directories {
   channelName(id: string): string;
   /** The guild a channel is in ("" for a DM or one the store does not hold). */
   channelGuild(id: string): string;
+  /** A guild's name ("" for one the store does not hold). */
+  guildName(id: string): string;
   /** Whether the reader can open a channel: the store holds it and the account can see it. */
   canOpen(id: string): boolean;
   roleName(id: string): string;
@@ -175,6 +177,16 @@ function context(dirs: Directories): Context { return { dirs, block: 0, spoiler:
 const isReply = (m: Stored): boolean => !!m.message_reference?.message_id && (m.type === 19 || m.type === undefined);
 
 function replyOf(m: Stored, dirs: Directories): Row['reply'] {
+  // An app's answer to a command (20) or a context menu (23): Discord names who used it above, as a reply's original.
+  const used = m.interaction_metadata ?? m.interaction;
+  if ((m.type === 20 || m.type === 23) && used) {
+    const user: User = dirs.user(String(used.user?.id ?? '')) ?? used.user ?? { id: '' };
+    // The name is on the older `interaction`, which Discord still sends; `interaction_metadata` documents none.
+    const name = String(m.interaction?.name ?? used.name ?? '');
+    return [{ id: `used:${used.id ?? m.id}`, author: displayName(user), avatar: dirs.avatar(user),
+      color: dirs.nameColor(m.channel_id, m.interaction?.member?.roles ?? []),
+      preview: !name ? 'a command' : m.type === 20 ? `/${name}` : name, state: 'command' }];
+  }
   if (!isReply(m)) return [];
   const id = String(m.message_reference.message_id);
   const held = dirs.message(m.channel_id, id);
@@ -210,11 +222,47 @@ function editable(content: string, dirs: Directories): string {
 const STICKER_EXTENSION: Record<number, string> = { 1: 'png', 2: 'png', 4: 'gif' };
 const stickersOf = (m: Stored): Record<string, any>[] => Array.isArray(m.sticker_items) ? m.sticker_items : [];
 const stickerName = (s: Record<string, any>): string => String(s.name ?? '') || 'Sticker';
-// A system message's line and its icon. A closed poll's (46) names it from its `poll_result` embed.
-const SYSTEM: Record<number, [string, (who: string, m: Stored) => string]> = {
+// A system message's line and its icon, in Discord's words. A closed poll's (46) names it from its
+// `poll_result` embed; a member added or removed (in a group DM, or a thread in a server) is the first
+// of `mentions`.
+const SYSTEM: Record<number, [string, (who: string, m: Stored, dirs: Directories) => string]> = {
+  1: ['follow', (who, m, dirs) => `${who} added ${target(m, dirs)} to the ${place(m, dirs)}.`],
+  2: ['minus-circle', (who, m, dirs) => String(m.mentions?.[0]?.id ?? '') === String(m.author?.id ?? '')
+    ? `${who} left the ${place(m, dirs)}.` : `${who} removed ${target(m, dirs)} from the ${place(m, dirs)}.`],
+  3: ['speaker', (who, m, dirs) => {
+    const lasted = m.call?.ended_timestamp ? ` that lasted ${duration(Date.parse(m.call.ended_timestamp) - timeOf(m))}` : '';
+    const missed = String(m.author?.id ?? '') !== dirs.me() && Array.isArray(m.call?.participants)
+      && !m.call.participants.includes(dirs.me()) && !!m.call.ended_timestamp;
+    return missed ? `You missed a call from ${who}${lasted}.` : `${who} started a call${lasted}.`;
+  }],
+  4: ['pencil', (who, m) => m.content ? `${who} changed the channel name: ${m.content}` : `${who} removed the custom group name.`],
+  5: ['pencil', who => `${who} changed the channel icon.`],
   6: ['pin', who => `${who} pinned a message.`],
   7: ['forward', who => `${who} joined the server.`],
+  8: ['sparkles', (who, m) => boosted(who, m)],
+  9: ['sparkles', (who, m, dirs) => `${boosted(who, m)} ${server(m, dirs)} has achieved Level 1!`],
+  10: ['sparkles', (who, m, dirs) => `${boosted(who, m)} ${server(m, dirs)} has achieved Level 2!`],
+  11: ['sparkles', (who, m, dirs) => `${boosted(who, m)} ${server(m, dirs)} has achieved Level 3!`],
+  12: ['follow', (who, m) => `${who} has added ${m.content ?? ''} to this channel. Its most important updates will show up here.`],
+  18: ['messages', (who, m) => `${who} started a thread: ${m.content ?? ''}.`],
   46: ['chart', (who, m) => [`${who}'s poll`, pollResult(m, 'poll_question_text'), 'has closed.'].filter(Boolean).join(' ')],
+};
+// A length as Discord words a call's: Moment's `humanize`, each unit rounded from the whole length, with its
+// thresholds (seconds below 45, minutes below 45, hours below 22, days below 26, months below 11).
+function duration(ms: number): string {
+  const s = Math.round(ms / 1000), m = Math.round(ms / 60000), h = Math.round(ms / 3600000), d = Math.round(ms / 86400000);
+  const months = Math.round(ms / (86400000 * 30.436875)), years = Math.round(ms / (86400000 * 365.2425));
+  return s < 45 ? 'a few seconds' : m <= 1 ? 'a minute' : m < 45 ? `${m} minutes` : h <= 1 ? 'an hour'
+    : h < 22 ? `${h} hours` : d <= 1 ? 'a day' : d < 26 ? `${d} days` : months <= 1 ? 'a month'
+    : months < 11 ? `${months} months` : years <= 1 ? 'a year' : `${years} years`;
+}
+const place = (m: Stored, dirs: Directories): string => dirs.channelGuild(m.channel_id) ? 'thread' : 'group';
+const boosted = (who: string, m: Stored): string =>
+  Number(m.content) > 1 ? `${who} just boosted the server ${m.content} times!` : `${who} just boosted the server!`;
+const server = (m: Stored, dirs: Directories): string => dirs.guildName(dirs.channelGuild(m.channel_id)) || 'The server';
+const target = (m: Stored, dirs: Directories): string => {
+  const u = m.mentions?.[0];
+  return displayName(dirs.user(String(u?.id ?? '')) ?? u, 'someone');
 };
 const pollResult = (m: Stored, name: string): string => String((m.embeds ?? []).find((e: Record<string, any>) => e.type === 'poll_result')
   ?.fields?.find((f: Record<string, any>) => f.name === name)?.value ?? '');
@@ -277,15 +325,20 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     const image = (kind: 'image' | 'thumbnail'): Media[] => e[kind] ? [media(`e${i}.${kind}`, e[kind], e.title ?? '', false)] : [];
     // An image or video link's embed is its picture alone, as Discord draws it.
     const bare = e.type === 'image' || e.type === 'gifv' || e.type === 'video';
+    const picture = (p: Record<string, any> | undefined): string => String(p?.proxy_icon_url ?? p?.icon_url ?? '');
     return { id: `e${i}`, color: e.color == null ? '' : `#${(e.color & 0xffffff).toString(16).padStart(6, '0')}`,
-      provider: e.provider?.name ?? '', author: e.author?.name ?? '', title: e.title ?? '', url: e.url ?? '',
+      provider: e.provider?.name ?? '', author: e.author?.name ?? '', authorIcon: picture(e.author), authorUrl: e.author?.url ?? '',
+      title: e.title ?? '', url: e.url ?? '',
       description: flatten(parse(e.description ?? ''), ctx),
+      fields: (Array.isArray(e.fields) ? e.fields : []).map((f: Record<string, any>, n: number) => ({ id: `e${i}.f${n}`,
+        name: String(f.name ?? ''), value: flatten(parse(String(f.value ?? ''), { headings: false }), ctx), inline: f.inline === true })),
+      footer: e.footer?.text ?? '', footerIcon: picture(e.footer), at: e.timestamp ? Date.parse(e.timestamp) || 0 : 0,
       image: bare ? (e.image ? image('image') : image('thumbnail')) : image('image'), thumbnail: bare ? [] : image('thumbnail') };
   });
   const user: User = dirs.user(authorId) ?? m.author ?? { id: authorId };
   const author = displayName(user, authorId);
   const [systemIcon, line] = SYSTEM[m.type] ?? ['', () => ''];
-  const system = line(author, m);
+  const system = line(author, m, dirs);
   const at = timeOf(m), prevAt = previous ? timeOf(previous) : 0, delta = previous ? at - prevAt : 0;
   return { key: m.key, id: m.id ?? m.key, authorId, author,
     avatar: dirs.avatar(user), color: dirs.nameColor(m.channel_id, m.member?.roles ?? []),
@@ -311,21 +364,28 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
 }
 
 /** A renderer that redraws a row only when its message, its predecessor, its reply's original (or its
- * deletion), its author or its guild's roles changed: the store replaces each of these objects whenever it
- * changes it. */
+ * deletion), its author, whoever used the command it answers or its system line names, its guild's roles,
+ * or the guild's name its line reads changed: the store replaces each of these objects whenever it changes it. */
 export function createRenderer(dirs: Directories): (m: Stored, previous?: Stored) => Row {
-  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; gone: boolean; roles: unknown; author: User | null; row: Row }>();
+  const cache = new Map<string, { m: Stored; previous?: Stored; ref?: Stored; gone: boolean; roles: unknown; author: User | null;
+    invoker: User | null; named: User | null; server: string; row: Row }>();
   return (m, previous) => {
     const refId = m.message_reference?.message_id;
     const ref = refId ? dirs.message(m.channel_id, String(refId)) : undefined;
     const gone = refId ? dirs.deleted(m.channel_id, String(refId)) : false;
     const roles = dirs.roles(m.channel_id), author = dirs.user(String(m.author?.id ?? ''));
+    // Whoever used the command an app's answer names, the member a system line names, and its server's name.
+    const used = m.interaction_metadata ?? m.interaction;
+    const invoker = used?.user?.id ? dirs.user(String(used.user.id)) : null;
+    const named = m.type === 1 || m.type === 2 ? dirs.user(String(m.mentions?.[0]?.id ?? '')) : null;
+    const server = m.type >= 9 && m.type <= 11 ? dirs.guildName(dirs.channelGuild(m.channel_id)) : '';
     const key = `${m.channel_id}:${m.key}`, found = cache.get(key);
     if (found && found.m === m && found.previous === previous && found.ref === ref && found.gone === gone
-      && found.roles === roles && found.author === author) return found.row;
+      && found.roles === roles && found.author === author && found.invoker === invoker && found.named === named
+      && found.server === server) return found.row;
     const row = renderMessage(m, previous, dirs);
     cache.delete(key);
-    cache.set(key, { m, previous, ref, gone, roles, author, row });
+    cache.set(key, { m, previous, ref, gone, roles, author, invoker, named, server, row });
     if (cache.size > 1200) cache.delete(cache.keys().next().value!);
     return row;
   };

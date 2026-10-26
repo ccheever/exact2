@@ -1234,3 +1234,15 @@ test "a poll takes the reader's vote, shows the results, and gives the vote back
   clock data
   clock settle
   expect text "poll-1562732834387394850-3-votes" == "1 vote"
+
+test "an app's answer names who used the command, and its card shows its fields and footer"
+  clock +500 real
+  tap "channel-random"
+  clock data
+  clock settle
+  tap "transcript" into "1557316858871283989"
+  clock data
+  clock settle
+  expect tree has "used-1557316858871283989"
+  expect tree has "field-1557316858871283989-e0.f3"
+  expect text "footer-1557316858871283989-e0" == "Buildkite • 10/7/26, 2:01 AM"

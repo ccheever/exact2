@@ -5,6 +5,7 @@ export interface Attachment { id: string; url: string; filename: string; width?:
 export interface Embed {
   type: string; title?: string; description?: string; url?: string; color?: number;
   provider?: { name: string }; author?: { name: string };
+  fields?: { name: string; value: string; inline?: boolean }[]; footer?: { text: string }; timestamp?: string;
   image?: { url: string; width?: number; height?: number };
   thumbnail?: { url: string; width?: number; height?: number };
 }
@@ -16,6 +17,8 @@ export interface Message {
   sticker_items?: { id: string; name: string; format_type: number }[];
   forwarded?: string;
   poll?: Record<string, unknown>;
+  // An app's answer to a slash command, and who used it.
+  command?: { name: string; by: string };
   state: 'sent' | 'pending' | 'failed'; revision: number;
 }
 
@@ -216,6 +219,17 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
       expiry: new Date(WORLD_NOW + 2 * 86400000).toISOString(), allow_multiselect: false, layout_type: 1,
       results: { is_finalized: false, answer_counts: [{ id: 1, count: 5, me_voted: false }, { id: 2, count: 3, me_voted: false }] },
     } });
+    // And before that, an app's answer to a member's command, and a thread started.
+    const plain = (m: Message) => m !== plainOne && m !== asked && !m.message_reference && !m.attachments.length
+      && !m.embeds.length && m.type === 0 && m.author.id !== 'me';
+    const answered = messages.slice(0, -2).findLast(plain);
+    if (answered) Object.assign(answered, { author: members[13], type: 20, content: 'Deployed **main** to staging.',
+      command: { name: 'deploy', by: '101' }, embeds: [{ type: 'rich', title: 'Deploy #482', color: 0x2f9e78,
+        fields: [{ name: 'Branch', value: '`main`', inline: true }, { name: 'Duration', value: '2m 14s', inline: true },
+          { name: 'Status', value: 'Passed', inline: true }, { name: 'Changes', value: '- Keep the visible row anchored\n- A faster first paint' }],
+        footer: { text: 'Buildkite' }, timestamp: new Date(answered.timestamp).toISOString() }] });
+    const thread = messages.slice(0, -2).findLast(m => plain(m) && m !== answered);
+    if (thread) Object.assign(thread, { type: 18, content: 'Weekend ride plans' });
     messages[messages.length - 1].sticker_items = [{ id: '601', name: 'Wave', format_type: 1 }];
   }
   return { messages, lastRead: messages[spec.count - spec.unread - 1]?.id ?? '', deleted };
