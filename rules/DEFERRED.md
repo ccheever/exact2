@@ -1198,6 +1198,27 @@ reading. Nothing that isn't HTML is added by it.
   sound as tier 1, buttons that run app code, an author-drawn countdown,
   alarms set or resumed by tools and wakes, the Windows cell until the
   desktop builder, and the web, macOS, Linux and tvOS cells.
+- Finding services on the local network was never on the doing list, and
+  the listener's record above keeps listening beyond loopback out.
+  **Expanded (Charlie, 2026-10-26, "Accept r9, build (Recommended)",
+  waived; LLP 1133.036 §15 question 8):** finding services on the local
+  network by DNS-SD (`localNetworkStatus`, `browseServices`,
+  `resolveService` from `@exact/local-network`) on iOS, macOS, tvOS and
+  Android, and Linux and Windows over LLP 1133.022's desktop builder; and
+  reaching them under a `local-network` grant source for `net.fetch` and
+  `net.websocket`, with every host's local-network fact and the origin
+  rule at every fetch hop and WebSocket open whose destination can show a
+  prompt (LLP 1133.036 D5, D6). With the seam additions of LLP 1133.036
+  D16. Consumer: Lights, a controller for WLED lights. Unblocks listing
+  the devices of a known type on the person's network and reaching one
+  by name or typed address, without app Swift or Kotlin, and closes a
+  tool's or a wake's reach to the LAN opening the system's prompt. Take:
+  none named; the ruling is its own waiver. Still out, each until a
+  consumer asks (LLP 1133.036 §13): advertising and a LAN listener;
+  Wi-Fi Aware, Wi-Fi Direct and DeviceDiscoveryUI pairing; browsing every
+  type or an unlisted one, subtypes, wide-area DNS-SD and raw TXT bytes;
+  a client socket for raw TCP or UDP, SSDP and UPnP; systemd-resolved's
+  browse on Linux; and a browse in a wake or the background.
 - **Expanded (Charlie, 2026-10-25, "Waive both (Recommended)", on LLP
   1133.027 §13 question 9):** barcodes and QR codes read in a still image
   and live in a camera track a viewfinder shows (`getSupportedFormats`,
