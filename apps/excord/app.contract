@@ -1437,7 +1437,7 @@ component Excord
                     // The field draws no ring of its own: the pill's border shows the focus. One line
                     // sits at Send's middle, whatever height the platform gives Send; Send stays at the
                     // bottom as the field grows.
-                    row flex=1 min-width=0 min-height=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
+                    row flex=1 min-width=0 min-height=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing and viewport.pointer != "coarse" ? "1px solid AccentColor" : "1px solid -exact-separator")
                       focusin=composerFocus(true) focusout=composerFocus(false)
                       textarea id="composer" value=draft input=edit selectionchange=caretMoved paste=pastedInto key=keyed focus=focusComposer blur=blurComposer rows=1 field-sizing="content" max-height="9rem" min-height=0
                         placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
