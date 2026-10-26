@@ -106,8 +106,9 @@ pub use page::Page;
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, LongPoll, Message, Outcome,
     Placement, Redirect, Reply, Request, RequestOut, Response, RetryReader, Retrying, SocketOp,
-    SocketOrigin, SocketSend, SurfaceOutcome, SurfaceRequest, Work, LONG_POLL_REPLY,
-    MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
+    SocketOrigin, SocketSend, SurfaceOutcome, SurfaceRequest, Work, BODY_TO_HELD_BYTES,
+    BODY_WRITTEN, LONG_POLL_REPLY, MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_BODY_TO_BYTES,
+    MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
 };
 pub use runner::{
     canvas_engine, press_writes_router, routing, virtual_frame, Advanced, Announce, AuthLinks,

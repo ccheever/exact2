@@ -368,6 +368,8 @@ impl<D: DataSource> Runner<D> {
 
 /// What asking a send gave: an answer now for the mutation's slot, or a
 /// request for the host.
+// (most sends that reach the host are requests: boxing one would cost each an allocation)
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Asked {
     Now(usize, Value),
     Later(Request),

@@ -340,6 +340,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         // `after`s (LLP 1075.003.000.001 §2.4).
         p.animation_frame(now);
         p.run_commands(D::default);
+        crate::orientation::apply(p);
         // The hatches' turn: what they asked of elements runs, then the
         // moments this turn's commits and the window's new size caused; an
         // overlay published here is in the frame painted below.

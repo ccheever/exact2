@@ -106,6 +106,20 @@ mod implementation {
             Err(unsupported())
         }
     }
+    pub struct Staged;
+    impl AppDirectories {
+        pub fn stage(&self, _grants: &GrantSet, _path: &str) -> Result<Staged, HostError> {
+            Err(unsupported())
+        }
+    }
+    impl Staged {
+        pub fn write_all(&mut self, _bytes: &[u8]) -> Result<(), HostError> {
+            Err(unsupported())
+        }
+        pub fn publish(self) -> Result<(), HostError> {
+            Err(unsupported())
+        }
+    }
     pub(crate) struct AtomicTarget;
     impl AtomicTarget {
         pub(crate) fn write(self, _data: &[u8]) -> Result<(), HostError> {

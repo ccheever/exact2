@@ -61,6 +61,9 @@ pub struct Batch {
     /// Whether a displayed element holds the wake lock, when that changed
     /// (`Host::wakelock_moved`, LLP 1125 D11).
     pub wakelock: Option<bool>,
+    /// The session's orientation lock, JSON, when it changed
+    /// (`Host::orientation_moved`, LLP 1133.029 D3).
+    pub orientationlock: Option<String>,
 }
 
 pub use exact_runner::agent::quote;
@@ -867,6 +870,9 @@ impl Batch {
         }
         if let Some(held) = self.wakelock {
             let _ = write!(s, ",\"wakelock\":{held}");
+        }
+        if let Some(lock) = &self.orientationlock {
+            let _ = write!(s, ",\"orientationlock\":{lock}");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");

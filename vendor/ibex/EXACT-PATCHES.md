@@ -332,6 +332,16 @@ is the provider asked. The source opens as `readFile` opens it
 (`app_fs::document_file`, Unix and Windows) and the host copies its bytes, so
 no result envelope bounds them. Replay on a refresh.
 
+## Local patch 19, an app file staged in pieces and published whole
+
+`stdlib/app_fs_unix.rs` and `app_fs_windows.rs` add `AppDirectories::stage(grants,
+path)` and `Staged` (`write_all`, `publish`), for `fetch(url, {exactBodyTo})` (exact2
+LLP 1108 D6 R2, ruled 2026-10-26): the host writes a reply's body into an app file as it
+arrives. `stage` admits `fs.write` on the path, refuses a missing parent or a target that
+is not a regular file, and creates `.exact-<hex>.partial` beside the target through the
+pinned parent. `publish` syncs it and renames it over the target; a `Staged` dropped
+unpublished removes it. The stub for other platforms refuses. Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

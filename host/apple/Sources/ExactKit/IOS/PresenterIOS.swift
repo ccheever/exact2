@@ -293,6 +293,7 @@ package final class Presenter {
         resetting = true; defer { resetting = false }
         MainActor.assumeIsolated { HeldState.retire(self) } // before its views leave the map (HeldState.swift)
         WakeLock.hold(self, false) // the new host's first batch says it again
+        releaseOrientationLock()
         focusEvents.reset()
         // Every hatched node ends first, its view and platform object there.
         elements.reset()
@@ -736,7 +737,7 @@ package final class Presenter {
         session?.fieldChrome.presented(batch.layoutProvisional)
         let outerWaiting = fieldsWaiting; fieldsWaiting = menus.waitingFields(batch)
         defer { fieldsWaiting = outerWaiting }
-        defer { applyLanguage(batch); applyWakeLock(batch) }
+        defer { applyLanguage(batch); applyWakeLock(batch); applyOrientationLock(batch) }
         if applySnapshots(batch) { return }
         PaintOrder.begin(); let schemes = ColorSchemes.begin(); defer { schemes.end() }
         let post = Self.signposts.beginInterval("apply"), phase = HostPhases.shared.begin(.apply)
@@ -1343,6 +1344,8 @@ package final class Presenter {
     var onStatusBar: ((StatusBarChoice) -> Void)?
     var statusBarNoted = Set<String>()
     #endif
+    /// The session's orientation lock (LLP 1133.029 D5, `OrientationLock.swift`).
+    package var orientationLock = OrientationLock()
     func headTitle(_ title: String?) {
         guard title != self.title else { return }
         self.title = title

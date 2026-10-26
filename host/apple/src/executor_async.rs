@@ -648,6 +648,11 @@ impl Machine {
         if let Some(why) = request.timeout_refusal().or(request.long_poll_refusal()) {
             return refuse(failed(FailureKind::Refused, why));
         }
+        // Writing a body to a file is the workers' (`executor_body_to.rs`) until this core has it.
+        if request.body_to.is_some() {
+            let why = "exactBodyTo: not on the asynchronous executor (EXACT_HTTP_ASYNC) yet";
+            return refuse(failed(FailureKind::Unsupported, why));
+        }
         let Some((transport, fetch)) = &self.transports[lane] else {
             return refuse(failed(FailureKind::Refused, self.unbound.clone()));
         };
