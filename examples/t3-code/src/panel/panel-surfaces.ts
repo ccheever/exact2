@@ -26,7 +26,7 @@ import { prsView, prsLocal, prsCommand, emptyPrs, readLinkedBreakdowns, type Prs
 import { releaseChangeBreakdowns, requestChangeBreakdown } from '../pull-requests/pr-change-breakdown';
 import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceHidden, deviceStateOf, type DeviceView } from '../device/device-surface';
 // Opening a device, its workspace and the floating player (device-session.ts).
-import { deviceSessionView, deviceMini, deviceSessionLocal, deviceSessionCommand, emptyMini, deviceTab, floatMiniDevice, type DeviceMini } from '../device/device-session';
+import { deviceSessionView, deviceMini, deviceSessionLocal, deviceSessionCommand, emptyMini, deviceTab, floatMiniDevice, refreshDeviceHub, type DeviceMini } from '../device/device-session';
 import { threadDevices, visibleMini } from '../device/floating-player';
 import { activeSerial, tabStrip, NO_TAB_STRIP, type TabStrip } from './tab-strip'; // The tab strip scrolls
 // The Pull request (P) surface and sent attachments (pr-attachment-surfaces.ts).
@@ -451,6 +451,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const deviceSetup = store.deviceSetup !== '' && store.deviceSetup === panelKey(client);
   const deviceShown = !!live && open && active.kind === 'device';
   if (!deviceShown) deviceHidden(client); // DevicePanel lists the devices each time it shows (device-surface.ts deviceView)
+  if (live) await refreshDeviceHub(client, live); // a ticket the module asked for, which the stream nodes carry
   const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown, deviceSetup) : emptyDevice();
   if (live && open && active.kind === 'device' && !deviceSetup) device.session = await deviceSessionView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
   if (open && active.kind === 'pull-requests') await readLinkedBreakdowns(client, native);

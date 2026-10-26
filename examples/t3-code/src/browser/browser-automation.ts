@@ -307,7 +307,7 @@ export async function serveAutomation(client: T3Client, native: Native, link: Li
         if (fleetKey && !entry) return; // the environment went: its request cannot be answered there
         const on = entry ? fleetLink(entry, slotNative) : focusedLink(client, slotNative);
         await runAutomation(client, (fleetKey ? { ...plan, fleet: fleetKey } : plan) as unknown as Obj, {
-          native: slotNative, rpc: (method, payload) => on.call({ op: 'request', method, payload }),
+          native: slotNative, rpc: (method, payload) => on.call({ op: 'request', method, payload }), origin: on.environmentUrl,
           adopt: note => {
             const notes = opened.get(client) ?? [];
             notes.push({ connectionId: pending.connectionId, requestId: pending.request.requestId, environmentId: link.environmentId, threadId: pending.request.threadId, fleet: fleetKey ?? '', ...note });

@@ -169,6 +169,7 @@ export class Session {
         case 'disconnect': return this.disconnect(request);
         case 'http': return await this.readHTTP(request);
         case 'previewStreamAccess': return await this.previewStreamAccess();
+        case 'deviceHubAccess': return await this.deviceHubAccess();
         case 'uploadAttachment': return await this.uploadAttachment(request);
         case 'request': return await new Promise<Reply>(done => this.rpc(request, done));
         case 'subscribe': return this.subscribe(request);
@@ -933,14 +934,25 @@ export class Session {
   }
 
   private async previewStreamAccess(): Promise<Reply> {
+    const { origin, ticket } = await this.hubTicket('the browser stream');
+    return this.ok({ httpBase: `${origin}/api/preview-stream`, wsBase: `${origin.replace(/^http/, 'ws')}/api/preview-stream`, ticket });
+  }
+
+  /** The device hub's origin and a fresh ticket (resolveDeviceHubAccess), which the device views carry as `data-device-*`. */
+  private async deviceHubAccess(): Promise<Reply> {
+    return this.ok(await this.hubTicket('the device stream'));
+  }
+
+  /** A fresh WebSocket ticket for a stream that cannot carry the bearer, with the origin it was minted for. */
+  private async hubTicket(what: string): Promise<{ origin: string; ticket: string }> {
     if (this.state !== 'connected') throw notConnected();
     const epoch = this.generation, origin = this.origin;
     const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
     if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a WebSocket ticket.');
-    if (epoch !== this.generation || origin !== this.origin) throw new TransportFailure('stale', 'The connection changed while preparing the browser stream.');
+    if (epoch !== this.generation || origin !== this.origin) throw new TransportFailure('stale', `The connection changed while preparing ${what}.`);
     this.privateValues.push(ticket);
     this.privateValues = this.privateValues.slice(-32);
-    return this.ok({ httpBase: `${origin}/api/preview-stream`, wsBase: `${origin.replace(/^http/, 'ws')}/api/preview-stream`, ticket });
+    return { origin, ticket };
   }
 
   private async readHTTP(request: Obj): Promise<Reply> {

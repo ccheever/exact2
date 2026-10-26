@@ -133,6 +133,8 @@ final class T3DeviceToolFeeds: NSObject, URLSessionDataDelegate {
     static let eventLimit = 100
     private let access: T3DeviceClient.Access
     private let changed: (String) -> Void
+    /// The hub refused a feed's or a read's ticket: the next one is minted afresh (renewDeviceHubAccess).
+    var expired: () -> Void = {}
     private lazy var session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: .main)
     private struct Feed { let key: String; let kind: String; var task: URLSessionDataTask?; var buffer = Data(); var retry = 0 }
     private var feeds: [String: Feed] = [:] // "\(kind)\u{1}\(key)"
@@ -228,6 +230,7 @@ final class T3DeviceToolFeeds: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let parts = task.taskDescription?.components(separatedBy: "\u{2}"), parts.count == 5, let feed = feeds[parts[0]], feed.task === task else { return }
+        if [401, 403].contains((task.response as? HTTPURLResponse)?.statusCode ?? 0) { expired() }
         let extra = parts[4].split(separator: "&").compactMap { pair -> URLQueryItem? in
             let bits = pair.split(separator: "=", maxSplits: 1).map(String.init)
             return bits.count == 2 ? URLQueryItem(name: bits[0], value: bits[1]) : nil
@@ -266,7 +269,8 @@ final class T3DeviceToolFeeds: NSObject, URLSessionDataDelegate {
             let path = platform == "ios" ? "\(vendor)/helper/\(deviceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deviceId)/ax" : "\(vendor)/api/accessibility"
             let query = platform == "ios" ? [] : [URLQueryItem(name: "device", value: deviceId)]
             guard let origin, let ticket, let url = T3DeviceWire.url(origin: origin, path: path, query: query, ticket: ticket, hostId: hostId) else { return done(nil) }
-            URLSession(configuration: .ephemeral).dataTask(with: URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)) { data, response, _ in
+            URLSession(configuration: .ephemeral).dataTask(with: URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)) { [weak self] data, response, _ in
+                if [401, 403].contains((response as? HTTPURLResponse)?.statusCode ?? 0) { DispatchQueue.main.async { self?.expired() } }
                 guard let data, ((response as? HTTPURLResponse)?.statusCode ?? 0) / 100 == 2, let payload = try? JSONSerialization.jsonObject(with: data) else { return done(nil) }
                 done(T3DeviceAx.parse(platform: platform, payload))
             }.resume()
