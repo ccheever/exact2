@@ -87,7 +87,7 @@ component Inspector
           if inspected.libraryIdentity != ""
             column gap=2 testId="selection-library"
               text `Library: ${inspected.libraryIdentity}` font="-exact-footnote" role="heading" aria-level=3 testId="library-identity"
-              text (inspected.libraryPart != "" ? `This node is its part ${inspected.libraryPart}` : "This node is no part of it") color="-exact-secondary-label" font="-exact-footnote" testId="library-part"
+              text (inspected.libraryPart != "" ? `This node is its part ${inspected.libraryPart}` : "Not one of its parts.") color="-exact-secondary-label" font="-exact-footnote" testId="library-part"
               for p in inspected.libraryParts key=p.name
                 text `${p.here ? "▸ " : ""}${p.name}${p.slot ? " · its slot" : ""}` color=(p.here ? "-exact-label" : "-exact-secondary-label") font="-exact-footnote" testId=`library-part-${p.name}`
               text "Its rows are the package's recipe, read only here; a token or param a row reads is set for this app." color="-exact-secondary-label" font="-exact-caption1" testId="library-readonly"

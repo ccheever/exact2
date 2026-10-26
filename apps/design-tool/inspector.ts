@@ -28,6 +28,11 @@ const CSS: Record<string, string> = {
     'symbol_effect', 'press_haptic', 'content_transition', 'scroll_edge_effect', 'hover_effect', 'smart_invert', 'animation_trigger', 'control_size', 'fit', 'mode']
     .map(n => [n, `-exact-${n.replace(/_/g, '-')}`])),
 };
+// The rows lowering writes itself with no source place, at their own defaults (stage 15 D4 batch 1 #5): a symbol's
+// tint as `currentcolor` (contract/lower symbols/ink.rs). Folded with the rows nothing sets, never named as editable.
+const LOWERED: Record<string, string> = { tint_color: 'currentcolor' };
+const lowered = (r: any) => !r.editable?.rung && r.origin === 'own' && typeof r.value === 'string' && LOWERED[String(r.name)] === r.value.trim().toLowerCase();
+
 /** A row's author-facing name, as its source spells it: a border side's
  * longhand puts the side first (`border-top-left-radius`). */
 export const rowName = (name: string) => CSS[name] ?? name.replace(/^border_(width|style|color|radius)_(.+)$/, 'border_$2_$1').replace(/_/g, '-');
@@ -102,7 +107,7 @@ export function selectionView(s: Selected | null, stale: string, read: Axis[] | 
   const partAt = (x: any) => `${String(x.file ?? '').split('/').pop()}:${x.line}`;
   const row = (r: any) => ({
     // Nothing sets it (its initial value): the Inspector folds it behind a count, unless it is the row being edited.
-    initial: r.source === 'initial',
+    initial: r.source === 'initial' || lowered(r),
     name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
     source: r.source && typeof r.source === 'object' ? `${r.state ? `:${r.state} part at ` : ''}${partAt(r.source)}` : `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.fromAt?.line != null ? ` from ${r.fromAt.component ?? 'a node'} (${String(r.fromAt.file).split('/').pop()}:${r.fromAt.line})` : r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
     rung: usable ? String(r.editable?.rung ?? '') : '', token: usable ? String(r.editable?.token ?? r.editable?.link ?? '') : '',

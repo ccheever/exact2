@@ -75,7 +75,7 @@ component Proposals
               button press=dropProposal(h.proposal) disabled=(writing or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
                 text "Drop"
           else
-            text `${h.client} proposes ${h.tokens.join(", ")}` testId=`held-title-${h.proposal}`
+            text `${h.client} proposes ${h.title}` testId=`held-title-${h.proposal}`
             if h.editedBy != "" and h.editedBy != h.client
               text `Edited by ${h.editedBy}` font="-exact-footnote" color="-exact-secondary-label" testId=`held-edited-${h.proposal}`
             // (Edited, then perhaps recomputed: either way held again, the editor named above.)

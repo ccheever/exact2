@@ -21,3 +21,15 @@ export const opWords = (o: any): string =>
   : o?.op === 'unset-state' ? `unset ${o.style} :${String(o.state).replace(/^:/, '')} ${o.row}`
   : typeof o?.op === 'string' && /axis/.test(o.op) ? `${o.op.replace(/-/g, ' ')} ${o.name ?? o.axis ?? ''}${o.value ? ` ${o.value}` : ''}${o.values ? ` = ${[].concat(o.values).join(' | ')}` : ''}`.trim()
   : JSON.stringify(o);
+
+/** A param or token as a person names it: a param's `component.param` (never its declaring path, `@exact/cards/x.contract#Card.fill`). */
+export const shortName = (name: string): string => name.includes('#') ? name.slice(name.lastIndexOf('#') + 1) : name;
+
+/** A held proposal's title (stage 15 D4 batch 1 #4): the tokens and params its operations edit, then the ones it
+ * changes only because they read those, counted and named; everything it changes when no operation names one. */
+export function heldTitle(ops: any[], changed: string[]): string {
+  const edited = [...new Set(ops.map(o => o?.op === 'rename-token' ? o.from : o?.name).filter((n): n is string => typeof n === 'string'))];
+  if (!edited.length) return changed.map(shortName).join(', ');
+  const others = changed.filter(t => !edited.includes(t) && !edited.includes(shortName(t))).map(shortName);
+  return `${edited.map(shortName).join(', ')}${others.length ? ` (and ${others.length} that read ${edited.length === 1 ? 'it' : 'them'}: ${others.join(', ')})` : ''}`;
+}

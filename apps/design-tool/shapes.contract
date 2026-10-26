@@ -168,6 +168,8 @@ shape Held
   tint: string
   diff: string
   tokens: string[]
+  // Its title's words: what its operations edit, then what reads those (optext.ts heldTitle).
+  title: string
   replaces: string
   items: HeldItem[]
   // An import's ("" for any other proposal).

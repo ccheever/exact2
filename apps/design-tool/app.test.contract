@@ -385,6 +385,17 @@ test "a restarted server starts the changeset again"
   expect tree has "entry-1"
   expect tree has "changed-by-surface.card"
 
+test "a held proposal's title names what it edits, then what reads it, a param by component.param (stage 15 D4 batch 1 #4)"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "p9", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "cards.avatar-default"}, {"file": "app.tamber", "token": "cards.banner"}, {"file": "app.tamber", "token": "@exact/cards/profile-header.contract#ProfileHeader.banner"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "cards.avatar-default", "value": "#aa00aa"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p9" == "agent:d4 proposes cards.avatar-default (and 2 that read it: cards.banner, ProfileHeader.banner)"
+  request POST "/__stub/restart" {} as ada
+
 test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"
   type "name" "Ada"
   tap "save-name"
