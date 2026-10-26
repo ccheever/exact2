@@ -21,9 +21,11 @@ let child = null, builderPid = 0, ended = false;
 // fd-3 write.)
 const group = () => {
   if (!child?.pid) return;
-  if (process.platform === 'win32') killGroup(child.pid);
-  else for (const signal of ['SIGCONT', 'SIGTERM']) try { process.kill(child.pid, signal); } catch {}
-  if (killGroup(builderPid) && process.platform !== 'win32') killGroup(child.pid);
+  // (The leader signalled only while it runs: once it has exited and been reaped, its pid may be another process's.)
+  const running = child.exitCode === null && child.signalCode === null;
+  if (running && process.platform === 'win32') killGroup(child.pid);
+  else if (running) for (const signal of ['SIGCONT', 'SIGTERM']) try { process.kill(child.pid, signal); } catch {}
+  if (killGroup(builderPid) && running && process.platform !== 'win32') killGroup(child.pid);
 };
 const end = (code, said) => {
   if (ended) return;
