@@ -10,12 +10,15 @@
 // rows mounted, the reader's first visible row where nothing has just been
 // estimated. Where a property is a position on screen, a drive measures it.
 // The gateway's READY follows HELLO and IDENTIFY on real time, which no clock step
-// waits for: each launch lets 500 ms of it pass.
+// waits for: each launch lets 500 ms of it pass, or waits for it with the clock
+// frozen (`clock until state`) once `clock settle` has run the `after(1, …)`
+// task that sends IDENTIFY.
 epoch "2026-10-22T18:00:00Z"
 time-zone "America/Los_Angeles"
 
 test "the fixture account menu has reachable account details"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 5000
   tap "account"
   tap "account-details"
   expect text "account-identity" == "Sample account: Charlie"
