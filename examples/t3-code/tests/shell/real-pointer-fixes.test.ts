@@ -1,6 +1,5 @@
 // Pointer/state defects found with real input, and the
-// ⌘] minor, at the logic level (the AppKit halves are macos/tests/sidebar and
-// macos/tests/window-frame).
+// ⌘] minor, at the logic level (the AppKit half is macos/tests/sidebar).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { noPrimary, resetPrimary } from '../support/local-primary-fixture';
 // These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
