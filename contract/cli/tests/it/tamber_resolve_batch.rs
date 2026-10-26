@@ -142,6 +142,22 @@ fn a_batch_whose_answers_pass_their_bytes_is_refused_whole() {
     assert_eq!(r["ok"]["answers"].as_array().map(Vec::len), Some(100));
 }
 
+/// What a server before the batch answers one (it reads `token` alone): the
+/// refusal the design tool asks again by name on (apps/design-tool/reread.ts
+/// `resolveAll`), pinned here so a change to its words breaks a test, not
+/// the fallback.
+#[test]
+fn a_resolve_naming_no_token_is_refused_in_the_words_the_tool_falls_back_on() {
+    let dir = reading("resolve-batch-words");
+    let mut s = Serve::start(&dir, &[]);
+    let (r, _) = s.ask(json!({"method": "resolve"}));
+    assert_eq!(
+        r["error"]["message"],
+        json!("`token` is a string, and needed"),
+        "{r}"
+    );
+}
+
 /// Whether `changed` names `token` in `file`.
 fn names(changed: &Value, file: &str, token: &str) -> bool {
     changed
