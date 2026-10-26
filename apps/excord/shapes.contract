@@ -134,6 +134,10 @@ shape Message
   source: string
   isNew: bool
   blocks: Block[]
+  // A forward: what shows is the message it forwarded (`message_snapshots`), under a Forwarded label.
+  forwarded: bool
+  // A forward's own words, above its Forwarded label ([] for any other message).
+  note: Block[]
   media: Media[]
   files: FileRef[]
   stickers: Sticker[]

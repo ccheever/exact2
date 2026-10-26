@@ -278,6 +278,14 @@ function rememberUser(s: Store, user: DiscordObject | undefined): void {
 function messageUsers(s: Store, data: DiscordObject): void {
   rememberUser(s, data.author);
   for (const user of data.mentions ?? []) rememberUser(s, user);
+  // A forward names the users its forwarded message mentions in that message's own list, and a reply
+  // carries the message it answers, which may be a forward the cache does not hold.
+  for (const message of [data, data.referenced_message]) {
+    for (const snapshot of Array.isArray(message?.message_snapshots) ? message.message_snapshots : []) {
+      for (const user of snapshot?.message?.mentions ?? []) rememberUser(s, user);
+    }
+  }
+  for (const user of data.referenced_message?.mentions ?? []) rememberUser(s, user);
 }
 
 function olderEdit(incoming: string | null | undefined, previous: string): boolean {

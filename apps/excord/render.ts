@@ -184,7 +184,10 @@ function replyOf(m: Stored, dirs: Directories): Row['reply'] {
   const author: User = dirs.user(ref.author?.id) ?? ref.author ?? { id: '' };
   return [{ id, author: displayName(author),
     avatar: dirs.avatar(author), color: dirs.nameColor(m.channel_id, ref.member?.roles ?? []),
-    preview: (plain(flatten(parse(String(ref.content ?? '')), context(dirs))) || stickersOf(ref).map(stickerName).join(', '))
+    // A forward's own words first, then the message it forwards.
+    preview: ([ref.message_snapshots?.[0]?.message ? ref.content : '', (ref.message_snapshots?.[0]?.message ?? ref).content]
+      .map(words => plain(flatten(parse(String(words ?? '')), context(dirs)))).filter(Boolean).join(' ')
+      || stickersOf(ref.message_snapshots?.[0]?.message ?? ref).map(stickerName).join(', '))
       .replace(/\s+/g, ' ').trim().slice(0, 100),
     state: 'present' }];
 }
@@ -208,14 +211,24 @@ const stickerName = (s: Record<string, any>): string => String(s.name ?? '') || 
 const SYSTEM: Record<number, (who: string) => string> = { 6: who => `${who} pinned a message.`, 7: who => `${who} joined the server.` };
 
 export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Directories): Row {
-  const stickers = stickersOf(m), lottie = stickers.filter(s => !STICKER_EXTENSION[s.format_type]);
+  // A forward (Discord's `message_snapshots`) carries no words of its own: what shows is the forwarded
+  // message, under a Forwarded label.
+  const snapshot: Stored | undefined = m.message_snapshots?.[0]?.message;
+  const shown: Stored = snapshot ? { ...snapshot, key: m.key, id: m.id, channel_id: m.channel_id, status: m.status } : m;
+  const stickers = stickersOf(shown), lottie = stickers.filter(s => !STICKER_EXTENSION[s.format_type]);
   // A Lottie sticker's name follows the text in the message's own size, so its emoji are not jumbo.
-  const ctx = context(dirs), content = String(m.content ?? ''), parsed = parse(content), isJumbo = jumbo(parsed) && !lottie.length;
+  const ctx = context(dirs), content = String(shown.content ?? ''), parsed = parse(content), isJumbo = jumbo(parsed) && !lottie.length;
   // A jumbo message's custom emoji are images in its paragraph, in order with its Unicode ones.
   const blocks = flatten(parsed, ctx);
+  // A forward's own words, if it has any, show above its Forwarded label; only they and the forward's own
+  // mentions can mention the reader (Discord does not for the forwarded message's).
+  // They share the message's context so its block and spoiler ids stay distinct (a spoiler in each is
+  // revealed apart); only the reader's mention is counted afresh.
+  let ownMentionsMe = ctx.mentionsMe, note: Block[] = [];
+  if (snapshot) { ctx.mentionsMe = false; note = flatten(parse(String(m.content ?? '')), ctx); ownMentionsMe = ctx.mentionsMe; }
   // The message as words: its text, then its stickers' names (a sticker alone reads as its name).
-  const text = [plain(blocks), stickers.map(stickerName).join(', ')].filter(Boolean).join('\n');
-  const edited = m.edited_timestamp != null;
+  const text = [plain(note), plain(blocks), stickers.map(stickerName).join(', ')].filter(Boolean).join('\n');
+  const edited = shown.edited_timestamp != null;
   if (edited) {
     if (blocks[blocks.length - 1]?.kind !== 'paragraph') blocks.push(block(ctx, 'paragraph', false));
     const last = blocks[blocks.length - 1];
@@ -228,9 +241,9 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     blocks.push(b);
   }
   const me = dirs.me(), authorId = String(m.author?.id ?? '');
-  const mentionsMe = ctx.mentionsMe || (authorId !== me && (m.mention_everyone === true
+  const mentionsMe = ownMentionsMe || (authorId !== me && (m.mention_everyone === true
     || (m.mentions ?? []).some((u: User) => u.id === me)));
-  const embeds: Embed[] = (m.embeds ?? []).map((e: Record<string, any>, i: number) => {
+  const embeds: Embed[] = (shown.embeds ?? []).map((e: Record<string, any>, i: number) => {
     const image = (kind: 'image' | 'thumbnail'): Media[] => e[kind] ? [media(`e${i}.${kind}`, e[kind], e.title ?? '', false)] : [];
     // An image or video link's embed is its picture alone, as Discord draws it.
     const bare = e.type === 'image' || e.type === 'gifv' || e.type === 'video';
@@ -249,12 +262,14 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     grouped: !!previous && String(previous.author?.id) === authorId && delta >= 0 && delta < 7 * 60000 &&
       (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',
     edited, mine: authorId === me, state: m.status, mentionsMe, jumbo: isJumbo,
-    system, plain: system || text, source: editable(content, dirs), isNew: false, blocks,
-    media: (m.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
+    // A forward is never edited: it has no words of its own to edit.
+    system, plain: system || text, source: snapshot ? '' : editable(content, dirs), isNew: false, blocks,
+    forwarded: !!snapshot, note,
+    media: (shown.attachments ?? []).filter(isImage).map((a: Record<string, any>) =>
       media(String(a.id), a, String(a.filename ?? ''), String(a.filename ?? '').startsWith('SPOILER_'))),
     stickers: stickers.filter(s => STICKER_EXTENSION[s.format_type]).map(s =>
       ({ id: String(s.id), src: dirs.sticker(String(s.id), STICKER_EXTENSION[s.format_type]), name: String(s.name ?? '') })),
-    files: (m.attachments ?? []).filter((a: Record<string, any>) => !isImage(a)).map((a: Record<string, any>) =>
+    files: (shown.attachments ?? []).filter((a: Record<string, any>) => !isImage(a)).map((a: Record<string, any>) =>
       ({ id: String(a.id), name: String(a.filename ?? 'file'), size: byteSize(Number(a.size ?? 0)), url: String(a.url ?? ''),
         spoiler: String(a.filename ?? '').startsWith('SPOILER_') })),
     embeds,

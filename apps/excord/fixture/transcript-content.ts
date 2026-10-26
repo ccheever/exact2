@@ -14,6 +14,7 @@ export interface Message {
   reactions: { emoji: { id: string | null; name: string }; count: number; me: boolean }[];
   message_reference?: { message_id: string }; nonce?: string; type: number;
   sticker_items?: { id: string; name: string; format_type: number }[];
+  forwarded?: string;
   state: 'sent' | 'pending' | 'failed'; revision: number;
 }
 
@@ -198,6 +199,9 @@ export function generate(channel: string): { messages: Message[]; lastRead: stri
   // #random ends with a sticker (Discord draws a PNG one as a picture) after one that is a Lottie animation.
   if (channel === 'random' && messages.length > 1) {
     messages[messages.length - 2].sticker_items = [{ id: '602', name: 'Party Parrot', format_type: 3 }];
+    // And, before those, a forward of a message from elsewhere: the latest with no reply, picture or link of its own.
+    const plainOne = messages.slice(0, -2).findLast(m => !m.message_reference && !m.attachments.length && !m.embeds.length && m.type === 0);
+    if (plainOne) plainOne.forwarded = 'Shipping the new **anchor** fix tonight; ping me if anything regresses.';
     messages[messages.length - 1].sticker_items = [{ id: '601', name: 'Wave', format_type: 1 }];
   }
   return { messages, lastRead: messages[spec.count - spec.unread - 1]?.id ?? '', deleted };
