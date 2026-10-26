@@ -7,6 +7,31 @@ import XCTest
 /// LLP 1079 D3–D5 on Apple: the trailer's `seq`, the sampler's arithmetic
 /// against the link's own target period, its journal line, and Save Trace.
 final class FrameSamplerTests: XCTestCase {
+    func testObservationReturnsOnlyItsWindowAndReportsRingDrops() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        let p = 1.0 / 60, start = ExactEnv.t0 + 50
+        sampler.observe(now: start - p, target: start)
+        let before = sampler.observedCount
+        for i in 0...FrameSampler.ring {
+            let t = start + Double(i) * p
+            sampler.observe(now: t, target: t + p)
+        }
+        let result = sampler.observation(from: (start - p / 2 - ExactEnv.t0) * 1000, before: before)
+        XCTAssertEqual(result["samples"] as? Int, FrameSampler.ring + 1)
+        XCTAssertEqual(result["dropped"] as? Int, 1)
+        let records = try XCTUnwrap(result["records"] as? [[String: Any]])
+        XCTAssertEqual(records.count, FrameSampler.ring)
+        XCTAssertNotNil(records.first?["period"])
+        XCTAssertNotNil(records.first?["target"])
+        session.clock = 1234
+        let invalid = Agent(session: session).liveFrames(["live": 0])
+        XCTAssertNotNil(invalid["malformed"])
+        XCTAssertEqual(session.clock, 1234, "a refused observation never takes or seeks the clock")
+    }
+
     func testTheTrailerCarriesTheTransactionsItApplies() {
         let batch = Batch.decode(Data(#"{"ops":[],"seq":[3,7],"timers":false,"motion":false,"canvas":false,"clock":0,"error":null}"#.utf8))
         XCTAssertNil(batch.error)

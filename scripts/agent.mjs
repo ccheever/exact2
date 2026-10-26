@@ -14,7 +14,7 @@ import {refusalMessage} from './agent-keys.mjs';
 // only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, webNeeds, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, webChanges, bakedPlans, parityScript, netFlags, launchEntries } from './agent-launch.mjs';
 import { widgetStep } from './agent-widget.mjs';
-import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, pidTrace, writeTrace, layoutArgs, tapRefusal, nextCommitTasks, settleBound, worldView, phoneTrace, stateOp, worldLook, worldTells, lookAcross, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyResources, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, pidTrace, writeTrace, layoutArgs, tapRefusal, nextCommitTasks, settleBound, worldView, phoneTrace, stateOp, worldLook, worldTells, lookAcross, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { guardFlags } from './help.mjs';
 import { nativeBuild, planOverride, refuseBuild } from './agent-build.mjs';
@@ -594,7 +594,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     pid = ready.pid ?? null;
     // The sample host routes by label, as the macOS one does over stdio.
     const state = { session: session ?? null };
-    const ask = (req, session = state.session) => waitAtMost(lines.ask(session ? { ...req, session } : req), REPLY_MS, () => {
+    const ask = (req, session = state.session) => waitAtMost(lines.ask(session ? { ...req, session } : req), req.op === 'perf' && req.live > 0 ? req.live + REPLY_MS : REPLY_MS, () => {
       const why = hangup({ what: `${req.op} did not answer within ${REPLY_MS / 1000} s`, pid, hostLines }); lines.fail(why); throw new Error(why);
     });
     let canvasContact = false;
@@ -780,7 +780,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       return canvas?.world ? s.op({op:"tree", id:canvas.id, world:true, ...under}) : reply;
     },
     world(name) { return worldView(this, name); },
-    state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target, false, true) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    async state(target, under, pose = false, busy = false, page = {}) {
+      const reply = await s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target, false, true) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) });
+      await sourceMaps.refresh();
+      return identifyResources(reply, sourceMaps);
+    },
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs({all = false} = {}) {
       const since = all ? 0 : s.logCursor;
@@ -804,8 +808,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (frames?.live != null) {
         // A live window (LLP 1079 D4): the page's clock follows the wall for `live` ms, and the driver's follows the page's.
         const r = await s.op({ op: 'perf', frames: true, live: frames.live, ...(frames.late != null ? { late: frames.late } : {}) });
-        if (r.virtual) throw Error(`perf frames live: the ${s.host} host has no live window; the web's wasm target (a game's) has one`);
-        if (r.live) s.now = r.live.to;
+        if (r.virtual && !r.live) throw Error(`perf frames live: the ${s.host} host has no live observation`);
+        if (Number.isFinite(r.live?.to)) s.now = r.live.to;
         return r;
       }
       if (frames) return s.op({ op: 'perf', frames: true, ...(frames.late != null ? { late: frames.late } : {}) });

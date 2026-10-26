@@ -64,6 +64,27 @@ final class HostPhasesTests: XCTestCase {
         XCTAssertNil(p.window(from: 6.5, to: 6.6)?["coverage"])
     }
 
+    func testWorkCountsAreFixedAggregatesAndOffCollectsNothing() throws {
+        let p = HostPhases()
+        p.count(.ownerSync)
+        var work = p.work()
+        XCTAssertEqual((work["counts"] as? [String: Int])?["ownerSync"], 0)
+        p.on = true
+        p.count(.ownerSync)
+        p.count(.intrinsicReports, by: 150)
+        p.count(.intrinsicLayoutRequests)
+        work = p.work()
+        let counts = try XCTUnwrap(work["counts"] as? [String: Int])
+        XCTAssertEqual(counts.count, HostPhases.Operation.allCases.count)
+        XCTAssertEqual(counts["intrinsicReports"], 150)
+        XCTAssertEqual(counts["intrinsicLayoutRequests"], 1)
+        XCTAssertEqual(work["scope"] as? String, "process")
+        XCTAssertEqual(work["site"] as? String, "unknown")
+        p.on = false
+        p.count(.intrinsicReports)
+        XCTAssertEqual((p.work()["counts"] as? [String: Int])?["intrinsicReports"], 150)
+    }
+
     func testNothingIsRecordedWhileOff() {
         let p = HostPhases()
         p.clock = { [unowned self] in now }

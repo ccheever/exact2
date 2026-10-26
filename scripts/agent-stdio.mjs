@@ -96,7 +96,7 @@ export async function openStdio({ host, plan, world, size, app, env: extra = {},
     // `s.session = "b"` moves every later request to another.
     const state = { session: session ?? null };
     const heldButton = mouseContact();
-    const ask = (req, session = state.session) => waitAtMost(lines.ask(session ? { ...req, session } : req), device ? 45000 : REPLY_MS, () => {
+    const ask = (req, session = state.session) => waitAtMost(lines.ask(session ? { ...req, session } : req), req.op === 'perf' && req.live > 0 ? req.live + (device ? 45000 : REPLY_MS) : device ? 45000 : REPLY_MS, () => {
       const why = device ? `phone ${req.op} did not answer within 45 s; check app health, foreground state and network\n` + hostLines.slice(-20).join('\n')
         : hangup({ what: `${req.op} did not answer within ${REPLY_MS / 1000} s`, pid: child.pid, hostLines });
       if (device) bridge.close(); else lines.fail(why);

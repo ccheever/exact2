@@ -380,7 +380,7 @@ public final class Agent {
             Agent.reply(session.hatchPerf())
         // `perf frames` is this host's (LLP 1079 D4); `perf <target>` is the runner's, below.
         case "perf" where req["frames"] as? Bool == true:
-            Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20) ?? ["unavailable": true])
+            Agent.reply(req["live"] != nil ? liveFrames(req) : session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20) ?? ["unavailable": true])
         default:
             // The library's operations take the request without the
             // carrier's routing field.
@@ -389,7 +389,11 @@ public final class Agent {
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
             let reply = session.agent(json)
             // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.1).
-            Agent.raw(op == "perf" ? session.hatchDiagnostics.joined(perf: reply) : reply)
+            if op == "perf", let data = session.hatchDiagnostics.joined(perf: reply).data(using: .utf8),
+               var result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                result["hostWork"] = HostPhases.shared.work()
+                Agent.reply(result)
+            } else { Agent.raw(reply) }
         }
     }
 
