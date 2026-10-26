@@ -248,8 +248,13 @@ component Excord
   derive draft = draftOf(drafts, open)
   // A name being written (`@ada`, `#gen`, `:fer`) and what it could be.
   resource suggestions = suggest(open, draft) as shape Suggestion[] else empty()
-  // The reaction picker's search and what it finds; nothing is asked while it is closed.
+  // The emoji picker's search and what it finds; nothing is asked while it is closed. It reacts to the
+  // aimed message, or (`pickingForDraft`) puts the emoji in the composer where the caret is.
   state picking = false
+  state pickingForDraft = false
+  // The composer's selection, as its last `selectionchange` left it (-1 before any): where a picked emoji goes.
+  state caretFrom = -1
+  state caretTo = -1
   state pickerQuery = ""
   resource choices = emojiChoices(picking ? open : "", pickerQuery) as shape EmojiChoice[] else empty()
   // The quick switcher (⌘K): its search and matches, asked only while it shows.
@@ -770,14 +775,28 @@ component Excord
     send changed = react(open, aimedId, emoji)
   action openPicker
     pickerQuery = ""
+    pickingForDraft = false
+    picking = true
+    showModal("react-picker")
+  action caretMoved(e: InputEvent)
+    caretFrom = e.selectionStart
+    caretTo = e.selectionEnd
+  action openDraftPicker
+    pickerQuery = ""
+    pickingForDraft = true
     picking = true
     showModal("react-picker")
   action searchPicker(v: string)
     pickerQuery = v
-  action reactPicked(value: string)
+  action emojiPicked(value: string, text: string)
     picking = false
     close("react-picker")
-    send changed = react(open, aimedId, value)
+    if pickingForDraft
+      let from = caretFrom < 0 ? draft.length : min(caretFrom, draft.length)
+      setRangeText("composer", text, from, max(from, min(caretTo, draft.length)), "end")
+      focus("composer")
+    else
+      send changed = react(open, aimedId, value)
   action pickerClosed
     picking = false
   // What a mention or a Discord link in a message opens (a run's `ref`, shapes.contract): a person's
@@ -1159,13 +1178,13 @@ component Excord
                       button press=askDelete destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
                         image "symbol:delete"
                         text "Delete Message"
-                  dialog id="react-picker" aria-label="Add Reaction" close=pickerClosed testId="react-picker"
+                  dialog id="react-picker" aria-label=(pickingForDraft ? "Emoji" : "Add Reaction") close=pickerClosed testId="react-picker"
                     column gap=10 padding=12 width="22rem" max-width="100%"
                       input type="search" value=pickerQuery input=searchPicker placeholder="Find an emoji" aria-label="Find an emoji" autofocus=true testId="picker-search"
                       scroll height="16rem"
                         view display="grid" grid-template-columns="repeat(auto-fill, minmax(44px, 1fr))" gap=2
                           for e in choices key=e.id
-                            button appearance="none" press=reactPicked(e.value) aria-label=e.label padding=6 border-radius=8 testId=`pick-${e.id}`
+                            button appearance="none" press=emojiPicked(e.value, e.text) aria-label=e.label padding=6 border-radius=8 testId=`pick-${e.id}`
                               if e.avatar != ""
                                 image e.avatar width=28 height=28 margin="auto"
                               else
@@ -1241,9 +1260,14 @@ component Excord
                     // bottom as the field grows.
                     row flex=1 min-width=0 align-items="center" padding="3px 3px 3px 14px" border-radius=21 border=(composing ? "1px solid AccentColor" : "1px solid -exact-separator")
                       focusin=composerFocus(true) focusout=composerFocus(false)
-                      textarea id="composer" value=draft input=edit key=keyed rows=1 field-sizing="content" max-height="9rem"
+                      textarea id="composer" value=draft input=edit selectionchange=caretMoved key=keyed rows=1 field-sizing="content" max-height="9rem"
                         placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
                         line-height="20px" padding="8px 0px" border="none" outline="none" background-color="transparent"
+                      // Discord's emoji button: dim until the pointer is over it.
+                      button appearance="none" press=openDraftPicker aria-label="Emoji" testId="composer-emoji" padding="4px 6px" align-self="flex-end" margin-bottom=5 opacity=0.6
+                        :hover
+                          opacity = 1
+                        text "🙂" font-size=20 line-height="24px"
                       button press=post disabled=(draft.trim() == "" and picked.length == 0) buttonStyle="filled"
                         retainFocus=true aria-label="Send" testId="send" align-self="flex-end"
                         image "symbol:send"
