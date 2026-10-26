@@ -1,7 +1,9 @@
 //! Bake `app.contract` and `app.ts`. Before the bake, `local.ts` (gitignored)
 //! is written from `EXPOSE_OPENROUTER_KEY` when that is set, or created empty
 //! when it is missing, so the key a developer bakes into their own build never
-//! enters the repository and a clean checkout still builds.
+//! enters the repository, and the bake watches the file (one added later, by
+//! hand or another platform's build, bakes again). A checkout no native build
+//! has touched resolves `./local` to the tracked `local/index.ts` (no key).
 
 fn main() {
     println!("cargo:rerun-if-env-changed=EXPOSE_OPENROUTER_KEY");
