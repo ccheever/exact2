@@ -4,7 +4,7 @@
 // grades and summary into bench/bakeoff/results/<name>/.
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { availableParallelism, homedir, loadavg } from 'node:os';
 import { resolve } from 'node:path';
 
 const HERE = resolve(new URL('.', import.meta.url).pathname);
@@ -76,11 +76,16 @@ async function feel() {
     if (!rec.app) continue;
     const out = resolve(ROUND, 'feel', `${spec}-${arm}`);
     if (!opt.redo && existsSync(resolve(out, 'feel.json'))) continue;
+    // Timing is only comparable on a quiet machine: wait (at most 20 minutes) for the load to fall under the core
+    // count, and keep the load each probe ran at beside its result.
+    for (const until = Date.now() + 20 * 60000; loadavg()[0] > availableParallelism() && Date.now() < until;) await new Promise((r) => setTimeout(r, 15000));
+    const load = Math.round(loadavg()[0]);
     spawnSync('xcrun', ['simctl', 'install', sim, rec.app]);
     const steps = (() => { try { return readFileSync(resolve(HERE, 'specs', spec, 'feel-steps.txt'), 'utf8').trim(); } catch { return ''; } })();
     const r = await run('bun', [probe, '--udid', sim, '--app', rec.appId, '--out', out, ...(steps ? ['--steps', steps] : [])], `${spec}-${arm}.feel.txt`);
     spawnSync('xcrun', ['simctl', 'uninstall', sim, rec.appId]);
-    say(`feel ${spec}-${arm}: exit ${r.code}`);
+    writeFileSync(resolve(out, 'load.json'), JSON.stringify({ load, cores: availableParallelism() }) + '\n');
+    say(`feel ${spec}-${arm}: exit ${r.code} (load ${load})`);
   }
 }
 
