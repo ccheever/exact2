@@ -116,7 +116,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     opening: crate::Window,
     plan: &[u8],
     compat: &str,
-    hatches: Option<exact_linux::hatches::Install>,
+    composed: exact_linux::Composed,
 ) -> i32 {
     if app::print_baked_receipt(compat) {
         return 0;
@@ -149,7 +149,8 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     app::show_neutral_look();
     let mut config = Config::from_env(plan, compat);
     // The presenter makes the hatches' value after its first frame is shown.
-    config.hatches = hatches;
+    config.hatches = composed.hatches;
+    config.packages = composed.packages;
     // Config has already stripped EXACT_AGENT_* for a production bake.
     let frame_limit = match std::env::var("EXACT_AGENT_WINDOW_FRAMES") {
         Ok(value) => match value.parse::<u64>() {
@@ -676,6 +677,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             // The window is going: its hatch, then the app's, ends.
             if let Some(p) = &mut self.presenter {
                 p.end_hatches();
+                p.end_packages();
             }
             events.exit();
             return;

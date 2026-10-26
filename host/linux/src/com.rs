@@ -14,3 +14,22 @@ pub fn ensure_mta() -> Result<(), windows::core::HRESULT> {
             .map_err(|error| error.code())
     })
 }
+
+/// Make this thread a single-threaded apartment, once, for the packages'
+/// WinRT calls on the loop's thread (LLP 1133.022 D10 item 5): a WinRT
+/// picker and a GATT client run there. A thread winit already initialized
+/// for OLE stays as it is (`RPC_E_CHANGED_MODE` or `S_FALSE`, both kept).
+pub fn ensure_sta() {
+    thread_local!(static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
+    if DONE.with(|done| done.replace(true)) {
+        return;
+    }
+    // SAFETY: never uninitialized; the loop's thread keeps its apartment
+    // until the process ends.
+    let _ = unsafe {
+        windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
+        )
+    };
+}

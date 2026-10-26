@@ -15,6 +15,9 @@ use crate::package_views::PackageView;
 use contract_syntax::{File, Span};
 use std::path::Path;
 
+mod packages;
+pub use packages::{bound, plan_packages, rust_packages, write_desktop_packages, Bound};
+
 /// The roster in `manifest`, each name checked against the tag grammar.
 pub fn roster(manifest: &Manifest) -> Result<Vec<String>, String> {
     let Some(value) = manifest.json.get("modules") else {
