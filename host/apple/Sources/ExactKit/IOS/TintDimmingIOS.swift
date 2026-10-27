@@ -102,8 +102,18 @@ extension NodeView {
         guard !TintDimming.tints.contains(key), dimsItsPaint,
               let rgb = c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil),
               let parts = rgb.components, parts.count == 4 else { return c }
-        let grey = TintDimming.grey(parts.map { Double($0) * 255 })
-        return SRGBColors.color(grey[0], grey[1], grey[2], grey[3])
+        let channels = parts.map { Double($0) * 255 }, grey = TintDimming.grey(channels)
+        // Keep a neutral colour as written, in its own space and range (an HDR white)
+        return grey == channels ? c : SRGBColors.color(grey[0], grey[1], grey[2], grey[3])
+    }
+
+    /// The colour of row `key` as written, never greyed: what Exact bakes into an image UIKit draws
+    /// (a bar item's face), which UIKit leaves undimmed and which stays as baked once the dimming ends
+    func undimmedChannels(_ key: String, dark: Bool) -> [Double]? {
+        style[key].flatMap { row in
+            row.channels(dark: dark, contrast: drawsHighContrast, elevated: drawsElevated,
+                         tint: row.namesTint ? (tintAdjustmentMode == .dimmed ? restingTint : viewTint) : nil)
+        }
     }
 
     /// The paragraph's runs as it paints them now: every run greyed while it dims its paint, and

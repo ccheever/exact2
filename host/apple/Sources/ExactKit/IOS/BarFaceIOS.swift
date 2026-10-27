@@ -60,7 +60,7 @@ struct ChipFace: Equatable {
         let bold = traits.legibilityWeight == .bold
         var parts: [Part] = [], opacities: [CGFloat] = [], lineHeights: [CGFloat?] = [], dotted = false, typed = false, gap: CGFloat?
         func pair(_ node: NodeView, _ key: String) -> [[Double]] {
-            [node.channels(key, dark: false) ?? [0, 0, 0, 1], node.channels(key, dark: true) ?? [1, 1, 1, 1]]
+            [node.undimmedChannels(key, dark: false) ?? [0, 0, 0, 1], node.undimmedChannels(key, dark: true) ?? [1, 1, 1, 1]]
         }
         // A childless box (often a flat leaf, a layer and no view,
         // FlatLeavesIOS) with no authored size in points has none to draw.

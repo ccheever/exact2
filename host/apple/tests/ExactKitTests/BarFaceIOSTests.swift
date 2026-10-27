@@ -64,6 +64,18 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertGreaterThan(image.size.width, 14 + 5)
     }
 
+    /// A face read while UIKit dims tints takes its colours as written: the bar item's image is
+    /// baked once, UIKit leaves it undimmed, and it stays as baked when the dimming ends
+    func testAFaceReadWhileDimmedKeepsItsColours() throws {
+        let red: [Double] = [255, 59, 48, 255]
+        let (p, node) = button([dot, label(["text_color": red, "written": ["text_color"]])])
+        node.tintAdjustmentMode = .dimmed
+        let face = try XCTUnwrap(ChipFace(node, engine: TextEngine(resolve: { _ in nil })))
+        withExtendedLifetime(p) {}
+        guard case .text(_, _, let color) = face.parts[1] else { return XCTFail("\(face.parts)") }
+        XCTAssertEqual(color?[0], red, "the colour its author wrote, not its grey")
+    }
+
     /// A colour only inherited from the page is unsaid: the bar's ink, as a
     /// title's (LLP 1115 D4), never the page's grey or red.
     func testAnInheritedColourIsTheBarsInk() throws {

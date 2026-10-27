@@ -68,6 +68,25 @@ final class TintDimmingIOSTests: XCTestCase {
         XCTAssertEqual(Array(restored.dropFirst(4)), [1, 1, 0, 0, 1], "display-p3 (`textChannels`' space code 1) and its channels")
     }
 
+    /// A neutral colour stays exactly as written on a dimmed face: an HDR white fill keeps its range
+    func testANeutralHDRFillKeepsItsRangeWhileDimmed() throws {
+        let fourTimesWhite: [String: Any] = ["cs": [["s": "srgb-linear", "v": [4.0, 4.0, 4.0, 1.0]]], "c": [255, 255, 255, 255]]
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": fourTimesWhite, "written": ["background_color"]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let button = try XCTUnwrap(p.views[1])
+        button.layer.displayIfNeeded()
+        XCTAssertTrue(ColorRange.isHDR(button.layer.backgroundColor), "an HDR fill before the dimming")
+        dim(p, true)
+        button.layer.displayIfNeeded()
+        let fill = try XCTUnwrap(button.layer.backgroundColor)
+        XCTAssertTrue(ColorRange.isHDR(fill), "the HDR fill while dimmed: \(fill)")
+        XCTAssertEqual(fill.components, [4, 4, 4, 1], "in its own space, as written")
+        dim(p, false)
+    }
+
     /// Boxes drawn flat in a control's layer grey with it, one alone and a run of alike ones that
     /// one shape layer draws, and take their colour back
     func testFlatBoxesInAControlGreyWithIt() throws {
