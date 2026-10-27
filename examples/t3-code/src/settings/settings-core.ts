@@ -462,8 +462,8 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
   const textState = value('textGenerationModelSelection'), textSelection = obj(textState.value);
   const textControl = modelControl(context, textSelection, true); // a Mixed text generation model keeps its Traits picker
   const newThreads: CoreRow[] = [
-    serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : 'Default model for new threads. Projects can override it.', 'model',
-      { status: !scope.connected || modelState.mixed || modelState.source === 'project' ? '' : modelState.value === null ? 'Automatic' : '', resetLabel: 'default model',
+    serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : scope.connected && !modelState.mixed && modelState.source !== 'project' && modelState.value === null ? 'Default model for new threads, selected automatically. Projects can override it.' : 'Default model for new threads. Projects can override it.', 'model',
+      { status: '', resetLabel: 'default model',
         ...modelRow, ...(modelState.mixed && modelRow.kind !== 'text-only' ? { label: 'Mixed', mixed: true, label2: '' } : {}) }, modelState.value !== null),
     serverRow(context, 'defaultRuntimeMode', 'default-permissions', 'Permissions', project ? 'Permissions for new threads in this project.' : 'Default permissions for new threads. Projects can override them.', 'select',
       { value: str(runtime.value), label: runtime.mixed ? 'Mixed' : runtimeEntry[1], icon: runtime.mixed ? '' : runtimeEntry[3], resetLabel: 'default permissions', menuWidth: 372,
@@ -480,8 +480,8 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
     // c5a929e1: Project order (client setting sidebarProjectSortOrder), w-full sm:w-44.
     deviceRow('sidebarProjectSortOrder', 'project-order', 'Project order', 'Order of projects in the sidebar project picker and command palette.', 'select',
       { ...select(prefs.sidebarProjectSortOrder, [['updated_at', 'Last user message'], ['created_at', 'Created at'], ['manual', 'Manual']]), width: 176, resetLabel: 'project order' }),
-    serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Auto-resume limited threads', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
-    serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze limited threads', 'Snooze usage-limit stops until the reported reset time. Combine with auto-resume to continue when they wake.', 'switch', {}, false),
+    serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Resume after usage limits', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
+    serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze until limits reset', 'Snooze usage-limit stops until reset. Pair with resume to continue on wake.', 'switch', {}, false),
     deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section (beta)', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
     serverRow(context, 'compactIdleThreads', 'compact-idle-threads', 'Compact idle Claude threads (beta)', 'Compact long idle Claude threads just before their prompt cache expires, so coming back costs less.', 'switch', { resetLabel: 'compact idle Claude threads' }, false),
     ...(autoSettle ? [
@@ -689,7 +689,7 @@ export function parseCoreTarget(id: string) {
   return { row: colon < 0 ? head : head.slice(0, colon), part: colon < 0 ? '' : head.slice(colon + 1), machine: rest.slice(0, second), projectKey: rest.slice(second + 1), checkout: id.slice(last + 1) };
 }
 const SERVER_LABELS: Record<string, string> = {
-  autoResumeLimitedThreads: 'Auto-resume limited threads', snoozeLimitedThreads: 'Snooze limited threads', sidebarAutoSettleOnMerge: 'Auto-settle merged threads',
+  autoResumeLimitedThreads: 'Resume after usage limits', snoozeLimitedThreads: 'Snooze until limits reset', sidebarAutoSettleOnMerge: 'Auto-settle merged threads',
   sidebarAutoSettleKeepPullRequests: 'Keep threads with a PR', sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
   continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
   newWorktreesStartFromOrigin: 'New worktrees start from remote', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
@@ -716,7 +716,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
   ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],
   ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Keep threads with a PR', 'server', ['sidebarAutoSettleKeepPullRequests']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
-  ['Auto-resume limited threads', 'server', ['autoResumeLimitedThreads']], ['Snooze limited threads', 'server', ['snoozeLimitedThreads']],
+  ['Resume after usage limits', 'server', ['autoResumeLimitedThreads']], ['Snooze until limits reset', 'server', ['snoozeLimitedThreads']],
   ['Word wrap', 'device', ['wordWrap']], ['Composer context', 'device', ['persistComposerContextStrip']],
   ['Interface font', 'device', ['fontFamilySans', 'fontSizeInterface']], ['Prompt font', 'device', ['fontFamilyComposer', 'fontSizePrompt']],
   ['Code font', 'device', ['fontFamilyCode', 'fontSizeCode']], ['Terminal font', 'device', ['fontFamilyTerminal', 'fontSizeTerminal']],

@@ -71,34 +71,32 @@ component ScopeSentence
   view
     row flex-wrap="wrap" align-items="center" column-gap="0.375rem" row-gap="0.25rem" padding-left="1rem" padding-right="1rem" width="100%" box-sizing="border-box" position="relative" z-index=(menu.startsWith("scope/") ? 50 : 1) testId="settings-scope-sentence"
       row align-items="center" gap="0.375rem" min-width=0
-        text "Applying settings for" font-size="1rem" line-height="1.5rem" color=pal.muted flex-shrink=0 id="paint-ScopeSentence-1" data-paint="mutedForeground" data-pick="mutedForeground"
+        text "Applying settings for" font-size="0.875rem" line-height="1.25rem" color=pal.muted flex-shrink=0 id="paint-ScopeSentence-1" data-paint="mutedForeground" data-pick="mutedForeground"
         box position="relative"
-          button id="settings-scope-project" popovertarget="settings-scope-project-menu" key=projectKey class=SettingsGhost gap="0.375rem" padding=0 height="1.5rem" aria-label=`Project scope: ${projectLabel}` testId="settings-scope-project" title=""
+          button id="settings-scope-project" popovertarget="settings-scope-project-menu" key=projectKey class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" aria-label=`Project scope: ${projectLabel}` testId="settings-scope-project" title=""
             if projectMark != ""
               CoreMark(label=projectMark, ink=projectInk, surface=projectSurface)
             // Keyed by its label: a reused one-line text kept drawing the old string clipped to the new width.
             for keyed in projectKeyed key=keyed.id
               column position="relative"
-                text keyed.label font-size="1rem" font-weight=500 line-height="1.5rem" color=pal.text line-clamp=1 max-width="18rem" id=`paint-ScopeSentence-2-${keyed.id}` data-paint="text" data-pick="text"
-                svg position="absolute" left=0 right=0 bottom=1 height=2 width="100%" viewBox="0 0 400 2" preserveAspectRatio="none" aria-hidden=true
-                  path d="M0 1H400" stroke=pal.text stroke-opacity=0.3 stroke-width=1.5 stroke-dasharray="1.5 2.5"
-            CorePaintIcon(ownId="paint-icon-ScopeSentence-1", paint="mutedForeground", name="chevron-down", size=14, color=pal.muted)
+                text keyed.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text line-clamp=1 max-width="18rem" id=`paint-ScopeSentence-2-${keyed.id}` data-paint="text" data-pick="text"
+            box opacity=0.7 margin-right="-0.125rem" flex-shrink=0
+              CorePaintIcon(ownId="paint-icon-ScopeSentence-1", paint="mutedForeground", name="chevron-down", size=14, color=pal.muted)
           if projects.filter((choice) => choice.id != "").length > 6
             ScopeSearchMenu(pal=pal, choices=projects, project=true, menuId="settings-scope-project-menu", choose=choose)
           else
             ScopeMenu(pal=pal, choices=projects, project=true, menuId="settings-scope-project-menu", items=projectItems, keyed=0, choose=choose)
       row align-items="center" gap="0.375rem" min-width=0
-        text connective font-size="1rem" line-height="1.5rem" color=pal.muted flex-shrink=0 id="paint-ScopeSentence-3" data-paint="mutedForeground" data-pick="mutedForeground"
+        text connective font-size="0.875rem" line-height="1.25rem" color=pal.muted flex-shrink=0 id="paint-ScopeSentence-3" data-paint="mutedForeground" data-pick="mutedForeground"
         box position="relative"
-          button id="settings-scope-environment" popovertarget="settings-scope-environment-menu" key=environmentKey class=SettingsGhost gap="0.375rem" padding=0 height="1.5rem" aria-label=`Environment scope: ${environmentLabel}` testId="settings-scope-environment" title=""
+          button id="settings-scope-environment" popovertarget="settings-scope-environment-menu" key=environmentKey class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" aria-label=`Environment scope: ${environmentLabel}` testId="settings-scope-environment" title=""
             if environmentIcon != ""
               CnMachineIcon(kind=environmentIcon, size=14, color=pal.text)
             for keyed in environmentKeyed key=keyed.id
               column position="relative"
-                text keyed.label font-size="1rem" font-weight=500 line-height="1.5rem" color=pal.text line-clamp=1 max-width="18rem" id=`paint-ScopeSentence-4-${keyed.id}` data-paint="text" data-pick="text"
-                svg position="absolute" left=0 right=0 bottom=1 height=2 width="100%" viewBox="0 0 400 2" preserveAspectRatio="none" aria-hidden=true
-                  path d="M0 1H400" stroke=pal.text stroke-opacity=0.3 stroke-width=1.5 stroke-dasharray="1.5 2.5"
-            CorePaintIcon(ownId="paint-icon-ScopeSentence-2", paint="mutedForeground", name="chevron-down", size=14, color=pal.muted)
+                text keyed.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text line-clamp=1 max-width="18rem" id=`paint-ScopeSentence-4-${keyed.id}` data-paint="text" data-pick="text"
+            box opacity=0.7 margin-right="-0.125rem" flex-shrink=0
+              CorePaintIcon(ownId="paint-icon-ScopeSentence-2", paint="mutedForeground", name="chevron-down", size=14, color=pal.muted)
           if environments.filter((choice) => choice.id != "").length > 6
             ScopeSearchMenu(pal=pal, choices=environments, project=false, menuId="settings-scope-environment-menu", choose=choose)
           else
@@ -128,11 +126,11 @@ component ScopeMenu
   view
     // SettingsScopeSentence: MenuPopup align="start" (its content w-72), 4 pt below the trigger's start, flipping near an edge.
     column id=menuId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="18rem"
-      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu") id=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu") data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu") id=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu") data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
         KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
           for choice in choices key=choice.id
             column width="100%"
-              button id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` press=choose(project, choice.id, choice.member) popovertarget=menuId popovertargetaction="hide" hover=hover(choice.id, `settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}`) focus=focused(choice.id, true) blur=focused(choice.id, false) role="menuitemradio" aria-checked=choice.selected class=SettingsGhost justify-content="flex-start" width="100%" height="auto" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" background-color=(lit == choice.id or choice.selected ? pal.highlight : "#00000000") testId=`settings-scope-choice-${project ? "project" : "environment"}-${choice.id == "" ? "all" : choice.id}` data-paint=`${(lit == choice.id or choice.selected ? "text" : "")}` data-pick=((lit == choice.id or choice.selected ? "text" : "") != "" ? (lit == choice.id or choice.selected ? "text" : "") : "")
+              button id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` press=choose(project, choice.id, choice.member) popovertarget=menuId popovertargetaction="hide" hover=hover(choice.id, `settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}`) focus=focused(choice.id, true) blur=focused(choice.id, false) role="menuitemradio" aria-checked=choice.selected class=SettingsGhost justify-content="flex-start" width="100%" height="auto" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" background-color=(lit == choice.id or choice.selected ? pal.highlight : "#00000000") testId=`settings-scope-choice-${project ? "project" : "environment"}-${choice.id == "" ? "all" : choice.id}` data-paint=`${(lit == choice.id or choice.selected ? "text" : "")}` data-pick=((lit == choice.id or choice.selected ? "text" : "") != "" ? (lit == choice.id or choice.selected ? "text" : "") : "")
                 if project and choice.mark != ""
                   CoreMark(label=choice.mark, ink=choice.ink, surface=choice.surface)
                 if not project and choice.mark != ""
@@ -213,7 +211,7 @@ component ScopeSearchMenu
   action hoverRow(id: string, over: bool)
     cursor = over ? id : (highlight == id ? "-" : highlight)
   view
-    column id=menuId toggle=toggled key=searchKey popover="auto" aria-modal=true position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="20rem" max-height="23rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=(project ? "Project scope" : "Environment scope") testId=`settings-scope-search-${scope}` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+    column id=menuId toggle=toggled key=searchKey popover="auto" aria-modal=true position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="20rem" max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=(project ? "Project scope" : "Environment scope") testId=`settings-scope-search-${scope}` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
       DialogOpenFocus(target=`settings-scope-${scope}-search`)
       column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%" flex-shrink=0
         row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=pal.border id=`paint-ScopeSearchMenu-1-${menuId}` data-paint="border" data-pick="border"
@@ -227,7 +225,7 @@ component ScopeSearchMenu
           if matches.length == 0
             text "No matches found." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color=pal.muted role="status" testId=`settings-scope-${scope}-empty` id=`settings-scope-${scope}-empty` data-paint="mutedForeground" data-pick="mutedForeground"
           for choice in matches key=choice.id
-            button tabindex=-1 press=pickRow(choice.id) hover=hoverRow(choice.id == "" ? "all" : choice.id) role="option" aria-selected=choice.selected id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` testId=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(highlight == (choice.id == "" ? "all" : choice.id) or choice.selected ? pal.highlight : "#00000000")
+            button tabindex=-1 press=pickRow(choice.id) hover=hoverRow(choice.id == "" ? "all" : choice.id) role="option" aria-selected=choice.selected id=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` testId=`settings-scope-choice-${scope}-${choice.id == "" ? "all" : choice.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(highlight == (choice.id == "" ? "all" : choice.id) or choice.selected ? pal.highlight : "#00000000")
               if project and choice.mark != ""
                 CoreMark(label=choice.mark, ink=choice.ink, surface=choice.surface)
               if not project and choice.mark != ""
@@ -266,13 +264,13 @@ component CoreSections
             // LegacyFeaturesSection's trigger (CollapsibleTrigger, a button) holds `<h2>Legacy features</h2>` and the
             // chevron: button › heading [level=2] (main #451).
             button press=toggleLegacy class=SettingsGhost justify-content="flex-start" gap="0.5rem" min-height="2rem" padding-left="1rem" padding-right="1rem" width="100%" aria-expanded=legacyOpen testId=`settings-section-toggle-${section.id}`
-              text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role="heading" aria-level=2 id=`paint-CoreSections-1-${section.id}` data-paint="text" data-pick="text"
+              text section.title font-size="1rem" font-weight=600 line-height="1.5rem" color=pal.text role="heading" aria-level=2 id=`paint-CoreSections-1-${section.id}` data-paint="text" data-pick="text"
               box rotate=(legacyOpen ? "90deg" : "0deg")
                 CorePaintIcon(ownId=`paint-icon-CoreSections-1-${section.id}`, paint="mutedForeground", name="chevron-right", size=16, color=pal.muted)
           else
             row min-height="1.75rem" align-items="center" justify-content="space-between" padding-left="1rem" padding-right="1rem"
               // SettingsSection's title is an `<h2>`, SettingsRow's an `<h3>` (settingsLayout.tsx).
-              text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role="heading" aria-level=2 id=`paint-CoreSections-2-${section.id}` data-paint="text" data-pick="text"
+              text section.title font-size="1rem" font-weight=600 line-height="1.5rem" color=pal.text role="heading" aria-level=2 id=`paint-CoreSections-2-${section.id}` data-paint="text" data-pick="text"
               if section.id == "typography"
                 row gap="0.5rem" align-items="center"
                   text "Advanced" font-size="0.875rem" line-height="1.25rem" color=pal.muted id=`paint-CoreSections-3-${section.id}` data-paint="mutedForeground" data-pick="mutedForeground"
@@ -298,6 +296,18 @@ component CoreRowView
     slide: action
     navigate: action
   derive traitsItems = row.options2.filter((option) => option.icon != "section" and option.icon != "section-rule").map((option) => KmItem(id=`setting-${row.id}-effort-menu-${option.id}`, label=option.label))
+  // SettingsRow: a marker for a value set right here (default or environment, no project overriding it) explains nothing
+  // new, so it shows on row hover, its own focus or while its popover is open.
+  derive quietMarker = (row.inheritance == "default" or row.inheritance == "environment") and row.layerGroups.filter((group) => group.overrides.length > 0).length == 0
+  state rowHovered = false
+  state markerFocused = false
+  state markerOpen = false
+  action rowHover(over: bool)
+    rowHovered = over
+  action markerFocus(on: bool)
+    markerFocused = on
+  action markerToggled(e: ToggleEvent)
+    markerOpen = e.newState == "open"
   action traitsKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
       preventDefault()
@@ -308,7 +318,7 @@ component CoreRowView
         if target != ""
           focus(target)
   view
-    column width="100%" padding-top="0.75rem" padding-bottom=(row.info.startsWith("preview-") ? "0.25rem" : "0.75rem") padding-left="1rem" padding-right="1rem" gap="0.75rem" box-sizing="border-box" border-top-width=(row.divider ? 1 : 0) border-top-style="solid" border-color=pal.divider position="relative" z-index=(menu.startsWith(`${section}/${row.id}`) ? 50 : 1) id=row.id testId=`setting-row-${row.id}` data-paint="border" data-pick="border"
+    column hover=rowHover width="100%" padding-top="0.75rem" padding-bottom=(row.info.startsWith("preview-") ? "0.25rem" : "0.75rem") padding-left="1rem" padding-right="1rem" gap="0.75rem" box-sizing="border-box" border-top-width=(row.divider ? 1 : 0) border-top-style="solid" border-color=pal.divider position="relative" z-index=(menu.startsWith(`${section}/${row.id}`) ? 50 : 1) id=row.id testId=`setting-row-${row.id}` data-paint="border" data-pick="border"
       row width="100%" gap="2rem" align-items="center"
         column flex=1 min-width=0 gap="0.25rem"
           row min-height="1.25rem" align-items="center" gap="0.375rem"
@@ -322,12 +332,12 @@ component CoreRowView
               PolicyTip(tip=row.info, tipId=`setting-info-${row.id}`)
                 CorePaintIcon(ownId=`paint-icon-CoreRowView-1-${row.id}`, paint="mutedForeground", name="info", size=14, color=pal.muted)
             if row.inheritance != ""
-              box position="relative"
-                button popovertarget=`inherit-${section}-${row.id}` class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}` title=""
+              box position="relative" opacity=(quietMarker and not rowHovered and not markerFocused and not markerOpen ? 0 : 1)
+                button popovertarget=`inherit-${section}-${row.id}` focus=markerFocus(true) blur=markerFocus(false) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}` title=""
                   // SettingInheritance: LayersIcon size-3, text-primary only when overridden, text-warning when mixed.
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-2-${row.id}`, paint=(row.inheritance == "overridden" ? "accent" : (row.inheritance == "mixed" ? "" : "mutedForeground")), name="layers", size=12, color=(row.inheritance == "overridden" ? pal.accent : (row.inheritance == "mixed" ? "#fe9a00" : pal.muted)))
-                column id=`inherit-${section}-${row.id}` popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="19.375rem"
-                  column width="100%" padding="0.5rem" gap="0.125rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" testId=`setting-inheritance-${row.id}-popover` id=`setting-inheritance-${row.id}-popover` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+                column id=`inherit-${section}-${row.id}` toggle=markerToggled popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="19.375rem"
+                  column width="100%" padding="0.5rem" gap="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" testId=`setting-inheritance-${row.id}-popover` id=`setting-inheritance-${row.id}-popover` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
                     if row.layerGroups.length > 0
                       for group in row.layerGroups key=group.id
                         InheritanceGroupView(group=group, textColor=pal.text, muted=pal.muted, highlight=pal.highlight, accent=pal.accent, rowId=row.id, clear=change(row.id, "clear-overrides", group.overrideTargets))
@@ -337,7 +347,7 @@ component CoreRowView
               button press=change(row.id, "reset", row.target) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" disabled=busy aria-label=`Reset ${row.resetLabel} to default` testId=`setting-reset-${row.id}` title=""
                 CorePaintIcon(ownId=`paint-icon-CoreRowView-5-${row.id}`, paint="mutedForeground", name="undo-2", size=12, color=pal.muted)
           if row.description != ""
-            text row.description font-size="0.75rem" line-height="1.125rem" color=pal.description max-width="36rem" testId=`setting-description-${row.id}` id=`setting-description-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+            text row.description font-size="0.75rem" line-height="1.125rem" color=pal.muted max-width="42rem" text-wrap="balance" testId=`setting-description-${row.id}` id=`setting-description-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
           if row.status != ""
             text row.status font-size="0.75rem" line-height="1rem" color=pal.muted padding-top="0.125rem" testId=`setting-status-${row.id}` id=`setting-status-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
         if row.kind == "version"
@@ -439,7 +449,7 @@ component SelectFace
     pal: CorePalette
     dim: bool
   view
-    row justify-content="space-between" align-items="center" gap="0.5rem" min-width=(width > 0 ? `${width / 16}rem` : "0px") max-width=(width > 0 ? `${width / 16}rem` : "25rem") height="1.75rem" padding-left="0.5625rem" padding-right="0.3125rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(dim ? "none" : "0 1px 2px #0000000d") box-sizing="border-box" opacity=(dim ? 0.64 : 1) id=`paint-SelectFace-1-${rowId}` data-paint="input canvas" data-pick="canvas"
+    row justify-content="space-between" align-items="center" gap="0.5rem" min-width=(width > 0 ? `${width / 16}rem` : "0px") max-width=(width > 0 ? `${width / 16}rem` : "25rem") height="1.75rem" padding-left="0.5625rem" padding-right="0.3125rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(dim ? "none" : "0 1px 2px #0000000d") box-sizing="border-box" opacity=(dim ? 0.64 : 1) id=`paint-SelectFace-1-${rowId}` data-paint="input canvas" data-pick="canvas"
       row gap="0.375rem" align-items="center" min-width=0 flex=1
         if icon == "dots-red-green" or icon == "dots-blue-orange"
           row gap="0.25rem" flex-shrink=0
@@ -448,8 +458,8 @@ component SelectFace
         if icon != "" and icon != "dots-red-green" and icon != "dots-blue-orange" and icon != "checks"
           CorePaintIcon(ownId=`paint-icon-SelectFace-1-${rowId}`, paint="mutedForeground", name=icon, size=14, color=pal.muted)
         text value font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0 id=`paint-SelectFace-2-${rowId}` data-paint="text" data-pick="text"
-      box opacity=0.5 flex-shrink=0
-        CorePaintIcon(ownId=`paint-icon-SelectFace-2-${rowId}`, paint="text", name="chevron-down", size=12, color=pal.text)
+      box opacity=0.7 flex-shrink=0
+        CorePaintIcon(ownId=`paint-icon-SelectFace-2-${rowId}`, paint="text", name="chevron-down", size=14, color=pal.text)
 
 component CoreMenu
   props
@@ -476,10 +486,10 @@ component CoreMenu
   view
     // SettingsPanels' SelectPopup align="end" alignItemWithTrigger={false}: its right edge under the trigger's, flipping near an edge.
     column id=menuId popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width=(width > 0 ? `${width / 16}rem` : "10rem") width=(width > 200 ? `${width / 16}rem` : "auto")
-      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="listbox" testId=testId id=testId data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="listbox" testId=testId id=testId data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
         KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
           for option in options key=option.id
-            button id=`${testId}-${option.id}` press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id, `${testId}-${option.id}`, option.disabled) focus=focused(option.id, true) blur=focused(option.id, false) role="option" aria-selected=option.selected disabled=option.disabled class=SettingsGhost justify-content="flex-start" align-items=(option.detail != "" ? "flex-start" : "center") width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" opacity=(option.disabled ? 0.64 : 1) background-color=(lit == option.id or option.selected ? pal.highlight : "#00000000") testId=`${testId}-${option.id}` data-paint=`${(lit == option.id or option.selected ? "text" : "")}` data-pick=((lit == option.id or option.selected ? "text" : "") != "" ? (lit == option.id or option.selected ? "text" : "") : "")
+            button id=`${testId}-${option.id}` press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id, `${testId}-${option.id}`, option.disabled) focus=focused(option.id, true) blur=focused(option.id, false) role="option" aria-selected=option.selected disabled=option.disabled class=SettingsGhost justify-content="flex-start" align-items=(option.detail != "" ? "flex-start" : "center") width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.25rem" opacity=(option.disabled ? 0.64 : 1) background-color=(lit == option.id or option.selected ? pal.highlight : "#00000000") testId=`${testId}-${option.id}` data-paint=`${(lit == option.id or option.selected ? "text" : "")}` data-pick=((lit == option.id or option.selected ? "text" : "") != "" ? (lit == option.id or option.selected ? "text" : "") : "")
               column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
                 row gap="0.375rem" align-items="center"
                   if option.icon != "" and option.icon != "codex" and option.icon != "claudeAgent"
@@ -508,7 +518,7 @@ component CoreField
   action edit(next: string)
     draft = next
   view
-    input value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=`${width / 16}rem` height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}` autocorrect="off" data-paint="input canvas text" data-pick="canvas" data-editable="yes"
+    input value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=`${width / 16}rem` height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}` autocorrect="off" data-paint="input canvas text" data-pick="canvas" data-editable="yes"
       ::placeholder
         color=pal.muted
 
@@ -549,7 +559,7 @@ component CoreSlider
     row width=`${row.width / 16}rem` gap="0.75rem" align-items="center"
       text `${label}${row.suffix}` font-family="ui-monospace" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? "4rem" : "3rem") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value` id=`setting-${row.id}-value` data-paint="text secondary" data-pick="secondary"
       box position="relative" width=trackWidth height="1.5rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1)
-        box position="absolute" left=0 top="0.5625rem" width=trackWidth height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#71717b38, #81818138)"
+        box position="absolute" left=0 top="0.5625rem" width=trackWidth height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#71717b38, #a1a1a138)"
         box position="absolute" left=0 top="0.5625rem" width=(ratio * (trackWidth - rem) + 0.5 * rem) height="0.375rem" border-radius="0.1875rem" background-color=pal.accent testId=`setting-${row.id}-fill` id=`setting-${row.id}-fill` data-paint="accent" data-pick="accent"
         box position="absolute" left=0 top="0.5625rem" width=trackWidth height="0.375rem" border-radius="0.1875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff0d)" box-sizing="border-box"
         box position="absolute" left=(ratio * (trackWidth - rem)) top="0.25rem" width="1rem" height="1rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f" id=`paint-CoreSlider-3-${row.id}` data-paint="accent canvas" data-pick="canvas"
