@@ -20,6 +20,12 @@ exact-runner = { path = "../runner" }
 serde_json = "1.0"
 sha2 = "0.10"
 
+# A turn's own time: this thread's CPU clock (src/turn.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
 [build-dependencies]
 cc = "1"
 hermes-lean-sys = { path = "../vendor/ibex/crates/hermes-lean-sys", default-features = false }

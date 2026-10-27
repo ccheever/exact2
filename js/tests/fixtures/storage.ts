@@ -105,6 +105,8 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch(error:any) { return {text:'refused: ' + error.message}; }
   }
   if (op === 'native-direct') return {text: String(native!.call({value}).text)}; // no bake branch
+  // A turn of the module's own work, `value` iterations long (the turn budget's test: turn_budget.rs).
+  if (op === 'busy') { let acc = 0; for (let i = 0, n = Number(value); i < n; i++) acc = (acc + i * 7) % 1000003; return {text: String(acc)}; }
   if (op === 'native' || op === 'native-fetch') {
     if (!native?.available) return {text: 'no native module'};
     try {

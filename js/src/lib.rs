@@ -65,6 +65,7 @@ mod pure;
 mod socket;
 mod source;
 mod storage;
+mod turn;
 mod turns;
 mod watch;
 mod wire;
@@ -89,6 +90,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::Arc;
 use std::time::Instant;
+use turn::TurnClock;
 use watch::{Watch, Watched};
 use wire::outcome_to_json;
 
@@ -105,7 +107,8 @@ pub fn abi_supported(abi: &str) -> bool {
 }
 /// Authoritative Ibex2 storage declarations included by the TypeScript bake.
 pub const STORAGE_TYPES: &str = ibex2::bindings::TYPESCRIPT;
-/// The per-call wall-clock budget a module is held to, unless the host says otherwise.
+/// The per-turn budget a module is held to, unless the host says otherwise: its own time, on the
+/// calling thread's CPU clock where there is one, with a wall backstop of ten budgets (`turn.rs`).
 pub const DEFAULT_BUDGET_MS: f64 = 100.0;
 /// A module load longer than this is journalled: on an iPhone 17 Pro Max a 2 MB
 /// catalog built at the top level took 314 ms, all of it after first pixel.
@@ -180,9 +183,9 @@ const YIELDED: u64 = u64::MAX - 2;
 const TOOL: &str = "tool:";
 
 /// A turn of an answer over its budget: the message names the repair.
-fn over_budget(source: &str, took_ms: f64, budget_ms: f64) -> DataError {
+fn over_budget(source: &str, why: &str) -> DataError {
     DataError::Unavailable(format!(
-        "`{source}` took {took_ms:.1} ms, over the {budget_ms} ms budget for one turn; \
+        "`{source}` {why}; \
          a long loop can `await scheduler.yield()` every few thousand items to go on in a new turn"
     ))
 }
@@ -916,6 +919,8 @@ impl Module {
         let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
             deadline.saturating_duration_since(started).as_secs_f64() * 1e3
         });
+        // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
+        let clock = TurnClock::start();
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
@@ -941,8 +946,10 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
-        let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > budget_ms {
+        let over = clock
+            .took()
+            .over(budget_ms, self.snapshot_deadline.is_some());
+        if result.is_err() || over.is_some() {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
         // What the turn sent as an answer goes whatever it answers (the
@@ -974,10 +981,10 @@ impl Module {
                 "`{source}` was interrupted"
             )));
         }
-        if took_ms > budget_ms {
+        if let Some(why) = over {
             self.overruns += 1;
             self.finish_let_go();
-            return Err(over_budget(source, took_ms, budget_ms));
+            return Err(over_budget(source, &why));
         }
         let answer = match result {
             Err(e) => Err(e),
@@ -1096,6 +1103,8 @@ impl Module {
         let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
             deadline.saturating_duration_since(started).as_secs_f64() * 1e3
         });
+        // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
+        let clock = TurnClock::start();
         let engine = self.engine.as_mut().expect("checked above");
         let text = engine
             .call(
@@ -1103,11 +1112,12 @@ impl Module {
                 [source, &args_json.to_string(), &payload.to_string()],
             )
             .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay threw: {e}")))?;
-        let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if took_ms > budget_ms {
+        if let Some(why) = clock
+            .took()
+            .over(budget_ms, self.snapshot_deadline.is_some())
+        {
             return Err(DataError::Unavailable(format!(
-                "`{source}`'s overlay took {took_ms:.1} ms, over the {} ms budget",
-                budget_ms
+                "`{source}`'s overlay {why}"
             )));
         }
         let reply: Json = serde_json::from_str(&text)
@@ -1184,6 +1194,8 @@ impl Module {
         let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
             deadline.saturating_duration_since(started).as_secs_f64() * 1e3
         });
+        // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
+        let clock = TurnClock::start();
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             if ticket == WAITING {
@@ -1230,8 +1242,10 @@ impl Module {
         if !answer_ops.is_empty() {
             self.stage_answer(store, source, answer_ops);
         }
-        let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > budget_ms {
+        let over = clock
+            .took()
+            .over(budget_ms, self.snapshot_deadline.is_some());
+        if result.is_err() || over.is_some() {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
         if result.is_err() && self.watch.take() {
@@ -1240,10 +1254,10 @@ impl Module {
                 "`{source}` was interrupted"
             )));
         }
-        if took_ms > budget_ms {
+        if let Some(why) = over {
             self.overruns += 1;
             self.finish_let_go();
-            return Err(over_budget(source, took_ms, budget_ms));
+            return Err(over_budget(source, &why));
         }
         let answer = match result {
             Err(e) => Err(e),
@@ -1316,6 +1330,8 @@ impl Module {
         let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
             deadline.saturating_duration_since(started).as_secs_f64() * 1e3
         });
+        // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
+        let clock = TurnClock::start();
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked by resume");
             let text = engine
@@ -1351,19 +1367,18 @@ impl Module {
             self.streams.remove(at);
             self.forget_calls(vec![call]);
         }
-        let took_ms = started.elapsed().as_secs_f64() * 1e3;
-        if result.is_err() || took_ms > budget_ms {
+        let over = clock
+            .took()
+            .over(budget_ms, self.snapshot_deadline.is_some());
+        if result.is_err() || over.is_some() {
             self.engine
                 .as_mut()
                 .expect("checked by resume")
                 .clear_reply();
         }
-        if took_ms > budget_ms {
+        if let Some(why) = over {
             self.overruns += 1;
-            return Err(DataError::Unavailable(format!(
-                "`{source}` took {took_ms:.1} ms, over the {} ms budget",
-                budget_ms
-            )));
+            return Err(DataError::Unavailable(format!("`{source}` {why}")));
         }
         match result? {
             Step::Done(r) => r.map(Answer::Now),

@@ -1508,8 +1508,10 @@ dependencies = [
  "hermes-lean-sys",
  "ibex2",
  "ibex2-sqlite",
+ "libc",
  "serde_json",
  "sha2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
