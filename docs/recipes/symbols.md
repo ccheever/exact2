@@ -25,7 +25,7 @@ component Toolbar
 The roles: `add`, `close`, `back`, `forward-chevron`, `chooser`, `compose`, `pencil`, `delete`,
 `search`, `filter` (narrowing a list: Apple's decreasing lines), `adjust` (sliders), `sort`,
 `more`, `ellipsis`, `menu` (a drawer or sidebar), `share`, `copy`, `link`, `pin`, `refresh`,
-`download`, `download-pending`, `install`, `open-app`, `package`, `mail`, `emoji`,
+`download`, `download-pending`, `install`, `open-app`, `package`, `mail`, `emoji`, `translate`,
 `bookmark`, `heart`, `star` (each with `-fill`), `checkmark`, `select`,
 `circle`, `minus`, `minus-circle`, `alert`, `info` (each with `-fill`), `lock`, `settings`, `home`,
 `person`, `people`, `follow`, `sign-out`, `messages`, `reply`, `send`, `quote`, `at`,

@@ -55,6 +55,7 @@ component MessageMenu
         text "Copy Text"
       if canTranslate
         button press=translate popovertarget="message-menu" popovertargetaction="hide" testId="menu-translate"
+          image "symbol:translate"
           text "Translate"
       button press=copyLink popovertarget="message-menu" popovertargetaction="hide" testId="menu-link"
         image "symbol:link"

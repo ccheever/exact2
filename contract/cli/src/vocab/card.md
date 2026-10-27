@@ -81,7 +81,7 @@ component App
 ```
 - `select value=v change=set` holds `option "Label" value="x"`. Tabs: a `row role="tablist"` of `button role="tab" aria-controls="panel-x" aria-selected=… press=…`, each panel a `column role="tabpanel" id="panel-x"`; `routes nav`, `tab`, `select(nav, name)`.
 - A number field's `min`, `max`, `step` are numbers (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
-- Symbols: `"symbol:<role>"` (roles below); `symbol:sf/<name>` is Apple-only.
+- Symbols: `"symbol:<role>"` (below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract (`contract vocab <name>` says what instead): abs pow sqrt sort reduce find some every contains padStart parseInt.
 
 ## how
@@ -144,7 +144,7 @@ Root `state` only: a number, string or bool (or an option or list of one) up to 
 state units = "C" persist
 ```
 ### colour
-Leave the accent unsaid (a brand is an app.tamber) and controls unpainted; elsewhere a role (it follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+Leave the accent unsaid (a brand is an app.tamber) and controls unpainted; elsewhere a role (follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
 ```contract
 main
   text "Total" color="-exact-secondary-label"
