@@ -29,7 +29,9 @@ final class ScrollEndMacTests: XCTestCase {
         p.onScrollend = { ends.append($0) }
         move(sv, to: 40); move(sv, to: 80)
         XCTAssertEqual(ends, [], "not before it has been still")
-        spin(ScrollEnd.quiet + 0.1)
+        // On its event, not a 0.2 s deadline (a loaded run's settle came later; EventWaits).
+        let took = waitFor("the end after the last move", late: ScrollEnd.quiet + 0.1) { !ends.isEmpty }
+        XCTAssertGreaterThanOrEqual(took, ScrollEnd.quiet - 0.01, "not before the offset was still for quiet")
         XCTAssertEqual(ends, [1], "once, after the last move")
         spin(ScrollEnd.quiet + 0.05)
         XCTAssertEqual(ends, [1], "nothing more without another move")
@@ -54,7 +56,8 @@ final class ScrollEndMacTests: XCTestCase {
         spin(ScrollEnd.quiet + 0.1)
         XCTAssertEqual(ends, [], "a live scroll holds its end, its momentum included")
         NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: sv)
-        spin(0.02)
+        XCTAssertEqual(ends, [], "not at the notification itself")
+        waitFor("the live scroll's end", late: 0.02) { !ends.isEmpty }
         XCTAssertEqual(ends, [1], "on the next turn, after the end's other observers")
         // A live scroll that moved nothing ends nothing.
         NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: sv)

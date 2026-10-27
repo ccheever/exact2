@@ -275,7 +275,9 @@ final class HoverFollowsLayoutMacTests: XCTestCase {
             XCTAssertFalse(p.followPending, "no hit-test while the scroll moves")
             XCTAssertNotNil(p.scrollRestFollow, "one waits for the scroll to rest")
         }
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: Presenter.scrollRestInterval + 0.1))
+        // On its event, not a fixed deadline (a loaded run's rest came later; EventWaits).
+        let took = waitFor("the scroll rested", late: Presenter.scrollRestInterval + 0.1) { p.scrollRestFollow == nil }
+        XCTAssertGreaterThanOrEqual(took, Presenter.scrollRestInterval - 0.01, "not before it rested for the interval")
         XCTAssertNil(p.scrollRestFollow)
         XCTAssertTrue(p.followPending, "the scroll rested: the hit-test waits for the next frame")
         XCTAssertEqual(log, [], "nothing until the frame")
