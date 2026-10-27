@@ -283,6 +283,12 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         p.apply(wireBatch([["op": "props", "id": 4, "set": ["testId": "rows"], "clear": [String]()]]))
         let trailing = try list(p).swipeActions(at: IndexPath(item: 0, section: 0), leading: false)
         XCTAssertEqual(trailing?.actions.count, 1, "its Delete, as the rows that were there before the sheet")
+        // Its cell, configured under the sheet, takes a tap and is an element
+        // (r28's expenses: a saved expense neither opened nor was read until relaunch).
+        try list(p).collection.layoutIfNeeded()
+        let cell = try XCTUnwrap(list(p).cell(21))
+        XCTAssertTrue(cell.isUserInteractionEnabled, "a tap reaches it")
+        XCTAssertFalse(cell.accessibilityElementsHidden, "VoiceOver reads it")
     }
 }
 #endif
