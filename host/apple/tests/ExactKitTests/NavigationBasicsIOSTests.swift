@@ -1475,7 +1475,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
 
 /// A pop the test drives: a cross-fade animator under a percent-driven
 /// interaction, as NavigationBarIOSTests' forwarded delegate does.
-private final class InteractivePop: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
+final class InteractivePop: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
     var interactive = false
     let interaction = UIPercentDrivenInteractiveTransition()
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,

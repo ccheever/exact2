@@ -196,12 +196,15 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "settings", shownKeys: ["settings", "updates"], rootKey: "updates"))
         // UIKit's long-press Back menu took two routes away
         XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates", "log"], uikitTop: "settings", shownKeys: ["settings", "updates", "log"], rootKey: "log"))
-        // Cancelled, or the app already went back: nothing popped is the app's top
+        // The app selected Updates again during a pop from Log to Settings: the pop took it
+        XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates", "log"], uikitTop: "settings", shownKeys: ["settings", "updates"], rootKey: "updates"))
+        // Nothing popped is the app's top: nothing popped, or the app already went back
         XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: [], uikitTop: "updates", shownKeys: ["settings", "updates"], rootKey: "updates"))
         XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "settings", shownKeys: ["settings"], rootKey: "settings"))
         // A route the app pushed during the pop was never on UIKit's stack
         XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["thread"], uikitTop: "inbox", shownKeys: ["inbox", "thread", "compose"], rootKey: "compose"))
-        // UIKit's top is not beneath the app's top in the app's stack
+        // UIKit's top is above the app's top in the app's stack, or not in it
+        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "log", shownKeys: ["settings", "updates", "log"], rootKey: "updates"))
         XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "specs", shownKeys: ["settings", "updates"], rootKey: "updates"))
     }
 
