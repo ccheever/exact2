@@ -4057,8 +4057,9 @@ name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
 (ActionRow), `actions.gallery`, `actions.camera`, `actions.gif`
 (ComposeFrame's toolbar) and `actions.follow-add`, `actions.follow-check`
 (FollowButton). Each but FollowButton's two has no `sf`, so Apple draws the
-same path as the web; those two name SF Symbols' `plus` and `checkmark`, as
-the copies they replace drew them on Apple, beside Bluesky's paths. The Attie mark, the toolbar's three and the badges' paths were inline
+same path as the web; those two name SF Symbols' `plus` and `checkmark`
+beside Bluesky's paths, so Apple draws the symbols (as some of the clone's
+copies did; a copy that drew a path there changes, a named pixel change). The Attie mark, the toolbar's three and the badges' paths were inline
 `svg` with `fill-rule="evenodd"`; each one's holes wind against its outline, so
 it fills the same nonzero, and its SVG has no `fill-rule` (an even-odd icon
 gives its app a new compat id). A badge is two one-colour templates stacked,

@@ -114,7 +114,8 @@ test("every round FollowButton cell names its label, the label swapped with the 
   const placed = placements(app, ['FollowButton']);
   const round = placed.filter(p => option(p.values.shape) === 'round');
   expect(round.length).toBeGreaterThanOrEqual(3);
-  for (const p of round) expect([p.id, option(p.values.label) !== '']).toEqual([p.id, true]);
+  // Written, as a string literal with words in it (a missing prop or "" fails).
+  for (const p of round) expect([p.id, /^"\s*\S[^"]*"$/.test(p.values.label ?? '')]).toEqual([p.id, true]);
   expect(new Set(round.map(p => option(p.values.following))).size).toBe(2);
   // Each cell's words are its state's: the spoken label (the text where it's
   // "") starts "Following" following, "Follow " or is "Follow" not.

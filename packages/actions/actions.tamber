@@ -118,23 +118,28 @@ theme
   actions.header-icon-small: length = 20px
   actions.header-lead: length = -3px
   // A person's Follow button (FollowButton, Bluesky's FollowButtonInner):
-  // each tone's fill and text, not following and following, Bluesky's
-  // palette (primary_500 and white; contrast_50 and contrast_700 once
-  // following; secondary_inverted's contrast_900 and contrast_25;
-  // primary_subtle's primary_50 and primary_500, clear once following; on a
-  // video, contrast_900 in both states).
+  // each tone's fill and text, not following and following, from Bluesky's
+  // Button.tsx over ALF's palette (dark is ALF's dim, as the package's other
+  // colours are). primary: primary_500 and white; following, secondary's
+  // contrast_50 and contrast_700 (inverted's following too). inverted:
+  // secondary_inverted's contrast_900 and text_inverted (contrast_0).
+  // subtle: primary_subtle's primary_50 and primary_600; following, the
+  // notification author's ghost secondary, the page (contrast_0) and
+  // contrast_600. overlay: secondary_inverted in the video feed's own dark
+  // theme (ALF's dark, black), contrast_900 and contrast_0, in both schemes
+  // and both states.
   actions.follow-fill = light-dark(#006aff, #0f73ff)
   actions.follow-ink = #ffffff  scheme=fixed
   actions.follow-following-fill = light-dark(#eff2f6, #222e3f)
   actions.follow-following-ink = light-dark(#405168, #abb8c9)
   actions.follow-inverted-fill = light-dark(#232e3e, #e2e7ee)
-  actions.follow-inverted-ink = light-dark(#f9fafb, #1c2736)
+  actions.follow-inverted-ink = light-dark(#ffffff, #151d28)
   actions.follow-subtle-fill = light-dark(#e5f0ff, #122949)
-  actions.follow-subtle-ink = light-dark(#006aff, #0f73ff)
-  actions.follow-subtle-following-fill = transparent
-  actions.follow-subtle-following-ink = light-dark(#006aff, #0f73ff)
-  actions.follow-overlay-fill = light-dark(#232e3e, #e2e7ee)
-  actions.follow-overlay-ink = light-dark(#f9fafb, #1c2736)
+  actions.follow-subtle-ink = light-dark(#0059d6, #4d97ff)
+  actions.follow-subtle-following-fill = light-dark(#ffffff, #151d28)
+  actions.follow-subtle-following-ink = light-dark(#526580, #8d9db4)
+  actions.follow-overlay-fill = #dce2ea  scheme=fixed
+  actions.follow-overlay-ink = #000000  scheme=fixed
   // Bluesky's Button sizes: small (8 by 14, gap 5, text_sm medium, a 16
   // icon in a 17 box pulled 2 each side; round 33) and tiny (5 by 10, gap 3,
   // text_xs semi-bold, a 12 icon in a 15 box pulled 1; round 25), both

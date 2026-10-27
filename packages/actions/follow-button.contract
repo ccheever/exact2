@@ -6,7 +6,8 @@
 // subtle (primary_subtle) and overlay (on a video); `size` small or tiny;
 // `shape` a pill with its label, or round (33 by 33, icon only); `icon` the
 // three patterns Bluesky draws (plus and check, plus only, check only) or
-// none. Following, every tone but overlay takes its following colours.
+// none. Following, primary and inverted take secondary's colours and subtle
+// the ghost secondary (Bluesky's notification author); overlay keeps its own.
 // Its words are the app's (no English in a package): `text` is the visible
 // label (Follow, Follow back, Following), `label` the spoken one ("" says
 // `text`). Following is said by the label alone, as Bluesky does, with no
