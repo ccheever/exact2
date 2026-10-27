@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { manifestFragment } from './android-manifest.mjs';
+import { fragmentPermissions, manifestFragment } from './android-manifest.mjs';
 import { androidImplementations } from '../js/bake/src/typescript.mjs';
 
 const impl = (manifest) => [{ extension: 'alarms', className: 'exact.alarms.AlarmsModule', manifest }];
@@ -111,4 +111,13 @@ test("health's fragment: Health Connect queried, the rationale and the usage ali
   assert.doesNotMatch(xml, /<provider|<uses-permission|android:process/);
   // No activity, no policy carried.
   assert.doesNotMatch(manifestFragment([{ ...health[0], manifest: { queries: json.manifest.queries } }], { privacyPolicy: 'https://example.com/privacy' }), /meta-data|<application/);
+});
+
+test("device's normal permission is declared, and a runtime one refused", () => {
+  const json = JSON.parse(readFileSync(resolve(import.meta.dir, '../packages/device/android/exact.json'), 'utf8'));
+  const bound = [{ extension: 'device', className: 'exact.device.DeviceModule', manifest: json.manifest }];
+  assert.deepEqual(fragmentPermissions(bound), ['android.permission.ACCESS_NETWORK_STATE']);
+  assert.equal(manifestFragment(bound), '', 'a permission adds no component');
+  assert.deepEqual(fragmentPermissions(impl(undefined)), []);
+  assert.throws(() => fragmentPermissions(impl({ permissions: ['android.permission.ACCESS_FINE_LOCATION'] })), (e) => e.message.includes('ACCESS_FINE_LOCATION') && e.message.includes('normal permissions only'));
 });

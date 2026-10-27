@@ -35,7 +35,7 @@ import { HOST_DEV, buildBake, cargoEnvironment, copyShaders, injectedProfiles, l
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 import { androidImplementations, packageConfig } from '../js/bake/src/typescript.mjs';
-import { configMetaData, manifestFragment, withMetaData } from './android-manifest.mjs';
+import { configMetaData, fragmentPermissions, manifestFragment, withMetaData } from './android-manifest.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -371,6 +371,8 @@ function extensionArgs(app, out, config) {
   } catch { /* no bake output: none */ }
   // And what the module names the app calls derive beside their lines (`android_entry`'s `permissions.txt`, LLP 1133.018 D11).
   try { permissions = [...new Set([...permissions, ...readFileSync(resolve(out, 'permissions.txt'), 'utf8').split('\n').filter(Boolean)])].sort(); } catch { /* none */ }
+  // And the normal permissions the packages' manifest fragments declare (LLP 1133.031 D12 item 1).
+  permissions = [...new Set([...permissions, ...fragmentPermissions(bound)])].sort();
   if (bound.length) {
     mkdirSync(resolve(generated, 'exact/app'), { recursive: true });
     writeFileSync(resolve(generated, 'exact/app/ExactExtensions.kt'), ['// Written by scripts/agent-android.mjs (LLP 1133.001 D5); never edited.', 'package exact.app', '',

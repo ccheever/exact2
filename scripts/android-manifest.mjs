@@ -11,7 +11,8 @@
 //     "queries": [{"package": "com.google.android.apps.healthdata"}, {"action": "android.intent.action.TTS_SERVICE"}],
 //     "activities": [{"name": "<class>", "actions": ["androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"]}],
 //     "aliases": [{"name": "<class>", "targetActivity": "<an activity above>", "action": "android.intent.action.VIEW_PERMISSION_USAGE",
-//                  "category": "android.intent.category.HEALTH_PERMISSIONS"}]
+//                  "category": "android.intent.category.HEALTH_PERMISSIONS"}],
+//     "permissions": ["android.permission.ACCESS_NETWORK_STATE"]
 //   }
 //
 // Receivers and services are `exported="false"`: the system's protected broadcasts still reach an unexported receiver,
@@ -19,8 +20,10 @@
 // since the system starts it, but only for an action on the list, and never shows: it is `Theme.NoDisplay` and opens
 // the app's privacy policy, which the application's `exact.privacy_policy` meta-data carries (Health Connect's
 // rationale, [Health Connect: get started](https://developer.android.com/health-and-fitness/guides/health-connect/develop/get-started)).
-// An alias is guarded by `START_VIEW_PERMISSION_USAGE`, which only the system holds. There is no `<provider>`, no
-// `<uses-permission>` (permissions come only from grants, LLP 1133.002 D6) and no `android:process`.
+// An alias is guarded by `START_VIEW_PERMISSION_USAGE`, which only the system holds. A permission is only one whose
+// protection level is `normal`, on `NORMAL_PERMISSIONS` (LLP 1133.031 D12 item 1), which the system grants at install
+// and asks nothing for; a runtime permission comes only from a grant line, which derives its prompt (LLP 1133.002 D6).
+// There is no `<provider>` and no `android:process`.
 
 /** The broadcasts a package's receiver may name: the boot, the package replaced, the clock and zone, the exact-alarm
  * switch (LLP 1133.030 D9). */
@@ -50,6 +53,27 @@ export const ACTIVITY_ACTIONS = new Set(['androidx.health.ACTION_SHOW_PERMISSION
 /** An alias's action and category: Android 14's permission-usage entry for Health (LLP 1133.026 D19 item 3). */
 export const ALIAS_ACTIONS = new Set(['android.intent.action.VIEW_PERMISSION_USAGE']);
 export const ALIAS_CATEGORIES = new Set(['android.intent.category.HEALTH_PERMISSIONS']);
+
+/** The normal permissions a fragment may declare (LLP 1133.031 D12 item 1): `protectionLevel="normal"` in the
+ * platform's own manifest, granted at install with no prompt. */
+export const NORMAL_PERMISSIONS = new Set(['android.permission.ACCESS_NETWORK_STATE']);
+
+/** The normal permissions every bound implementation's fragment declares, which the build adds as `<uses-permission>`
+ * beside the grants' (`-Ppermissions`). Throws, naming the package, for any permission not on the list. */
+export function fragmentPermissions(bound) {
+  const names = new Set();
+  for (const impl of bound) {
+    const list = impl.manifest?.permissions;
+    if (list == null) continue;
+    const refuse = (what) => { throw new Error(`${impl.extension}'s Android implementation: its manifest fragment ${what} (LLP 1133.031 D12 item 1: normal permissions only; a runtime permission comes from a grant line)`); };
+    if (!Array.isArray(list)) refuse('has permissions that are not a list');
+    for (const p of list) {
+      if (!NORMAL_PERMISSIONS.has(p)) refuse(`asks for ${JSON.stringify(p)}, which is not on the list`);
+      names.add(p);
+    }
+  }
+  return [...names];
+}
 
 const FIELDS = {
   receivers: new Set(['name', 'directBootAware', 'actions']),
@@ -108,7 +132,8 @@ export function manifestFragment(bound, { privacyPolicy = null } = {}) {
     const kinds = Object.keys(fragment).sort((a, b) => (a === 'aliases') - (b === 'aliases'));
     for (const kind of kinds) {
       const list = fragment[kind];
-      if (!FIELDS[kind]) refuse(`names "${kind}"; only ${Object.keys(FIELDS).join(', ')} are allowed`);
+      if (kind === 'permissions') continue; // fragmentPermissions'
+      if (!FIELDS[kind]) refuse(`names "${kind}"; only ${[...Object.keys(FIELDS), 'permissions'].join(', ')} are allowed`);
       if (!Array.isArray(list)) refuse(`has ${kind} that is not a list`);
       for (const c of list) {
         for (const key of Object.keys(c ?? {})) if (!FIELDS[kind].has(key)) refuse(`gives a ${ONE[kind]} "${key}", which the list does not allow`);
