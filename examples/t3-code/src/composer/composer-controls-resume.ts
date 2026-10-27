@@ -1,6 +1,6 @@
 // The Compact chip: a large Claude thread whose prompt cache expired compacts
 // before its next send, adapted from T3 Code (MIT); see LICENSE-T3. Sources at
-// 74541bab17: ChatView.tsx (resumeCompactionTokens, keepFullHistory,
+// 7c3b3b3605ef: ChatView.tsx (resumeCompactionTokens, keepFullHistory,
 // compactThreadUnavailable, compactBeforeSend), chat/ContextWindowMeter.logic.ts
 // (shouldOfferResumeCompaction, hasDismissedResumeCompaction), lib/contextWindow.ts
 // (latestProviderTurnTokenUsage) and packages/shared/src/claudeCompaction.ts.
@@ -53,11 +53,6 @@ const permanentKey = (client: T3Client) => `${client.environmentId}:${client.pro
 
 // Threads whose Compact chip is off, for the session. A send that starts its turn clears its thread's entry.
 const fullHistory = new WeakMap<object, Set<string>>();
-const dismissed = new WeakMap<object, Set<string>>();
-export function dismissResumeCompaction(client: T3Client, key: string): void {
-  const keys = dismissed.get(client) ?? new Set<string>();
-  keys.add(key); dismissed.set(client, keys);
-}
 const threadKey = (client: T3Client, threadId = client.threadId) => `${client.environmentId}:${threadId}`;
 export function keepsFullHistory(client: T3Client, threadId = client.threadId): boolean {
   return fullHistory.get(client)?.has(threadKey(client, threadId)) ?? false;
@@ -88,23 +83,13 @@ export function compactBlocked(client: T3Client): string {
  * resumeCompactionTokens: the tokens a stale Claude session would re-read on
  * its next turn, or null. While set the composer shows the Compact chip and a
  * send compacts first. Held queues and multi-model sends never compact first.
- * Only the live report carries a TTL, and only when it is the window's source.
+ * Only the live report carries a TTL; without one the cache counts as 70 minutes.
  */
 export function resumeCompactionTokens(client: T3Client, now: number, usage: { used: number; updatedAt: string; promptCacheTtlMs?: number } | null): number | null {
-  if (!usage?.promptCacheTtlMs || !client.threadId || !usage.updatedAt) return null;
+  if (!usage || !client.threadId || !usage.updatedAt) return null;
   const local = prefs(client);
   if (nativelyDismissed(client.projection)) local.resumeCompactionDismissed = { ...local.resumeCompactionDismissed, [permanentKey(client)]: true };
   if (local.resumeCompactionDismissed?.[permanentKey(client)] || compactBlocked(client) || resumeState(client.projection).heldQueue || fanoutSelections(client)) return null;
   const driver = str(arr(client.config.providers).find(entry => entry.instanceId === client.providerId)?.driver);
   return shouldOffer({ driver, usedTokens: usage.used, updatedAt: usage.updatedAt, promptCacheTtlMs: usage.promptCacheTtlMs, now }) ? usage.used : null;
-}
-
-/** Older servers have no cache TTL. Keep their opt-in 70-minute notice until they report one. */
-export function resumeCompaction(client: T3Client, now: number, usage: { used: number; updatedAt: string; promptCacheTtlMs?: number } | null): { key: string; used: number } | null {
-  if (!client.threadId || !usage?.updatedAt || usage.promptCacheTtlMs !== undefined) return null;
-  const key = `${client.threadId}:${usage.updatedAt}`, local = prefs(client);
-  if (nativelyDismissed(client.projection)) local.resumeCompactionDismissed = { ...local.resumeCompactionDismissed, [permanentKey(client)]: true };
-  if (dismissed.get(client)?.has(key) || local.resumeCompactionDismissed?.[permanentKey(client)] || pendingRequests(client.projection).inputs.length || activeRun(client.projection)) return null;
-  const driver = str(arr(client.config.providers).find(entry => entry.instanceId === client.providerId)?.driver);
-  return shouldOffer({ driver, usedTokens: usage.used, updatedAt: usage.updatedAt, now }) ? { key, used: usage.used } : null;
 }

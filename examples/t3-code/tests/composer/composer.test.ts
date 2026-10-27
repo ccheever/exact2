@@ -110,7 +110,7 @@ describe('model picker catalog', () => {
     const c = two();
     c.local.favoriteModels = [JSON.stringify(['other', 'm-b'])];
     const catalog = pickerCatalog(c, 'other', '', badge);
-    expect(catalog.models.map(row => [row.kind, row.name, row.index])).toEqual([['model', 'Beta', 0], ['model', 'Mini S', 1], ['legacy', 'Legacy models', 2], ['legacy-model', 'Old', 3]]);
+    expect(catalog.models.map(row => [row.kind, row.name, row.index])).toEqual([['model', 'Beta', 0], ['model', 'Mini', 1], ['legacy', 'Legacy models', 2], ['legacy-model', 'Old', 3]]);
     expect(catalog.models[2]!.label).toBe('1 models');
     expect(catalog).toMatchObject({ count: 4, legacyCount: 1 });
     expect(catalog.models[1]!.isNew).toBe(true);

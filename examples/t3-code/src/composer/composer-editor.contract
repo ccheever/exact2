@@ -345,6 +345,22 @@ component ImageDraftTile
           button id=`remove-snapshot-${id}` press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             StashGlyph(name="x", size=14, color="#ffffff")
 
+// An image taken into the draft whose file is still being prepared (ComposerAttachmentMediaRow's preparing image): the
+// same 64pt tile at once, its "Preview" disabled and its name for a thumbnail until the image joins the draft under
+// this id; Remove cancels it.
+component PreparingImageTile
+  props
+    id: string
+    name: string
+    command: action
+  view
+    column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff10)" background-color="light-dark(#fcfcfc, #000000)" testId=`preparing-image-${id}`
+      button disabled=true aria-label=`Preview ${name}` testId=`preview-image-${id}` position="absolute" left=0 top=0 right=0 bottom=0 padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
+        text name font-size="0.625rem" line-height="0.875rem" text-align="center" color="light-dark(#71717a, #a1a1a1)" line-clamp=3 overflow-wrap="anywhere"
+      row position="absolute" top="0.25rem" right="0.25rem"
+        button press=command("cclocal:preparing-image-cancel", id, "", 0) aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
+          StashGlyph(name="x", size=14, color="#ffffff")
+
 // The draft image's thumbnail as its "Preview <name>" button (ChatComposer's
 // `image.previewUrl` button, cursor-zoom-in): a press opens the expanded preview
 // over the draft's images, as the image's chip does.

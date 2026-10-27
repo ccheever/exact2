@@ -244,6 +244,8 @@ describe('# pull request menu', () => {
     expect(pullRequestRows(entries, 'p', 'acme/app', 'merged').map(row => row.label)).toEqual(['#7']);
     expect(pullRequestRows(entries, 'p', 'acme/app', '').map(row => row.label)).toEqual(['#12', '#120', '#7']);
     expect(repositorySelector({ owner: 'acme', name: 'app' })).toBe('acme/app');
+    // A remote spells a space as `%20`, and `az repos pr list --repository` reads that literally.
+    expect(repositorySelector({ provider: 'azure-devops', displayName: 'contoso/payments%20(eu)/_git/checkout%20(eu)', owner: 'contoso', name: 'checkout%20(eu)' })).toBe('checkout (eu)');
   });
   test('numbers match anywhere in the number, newest first after the exact one; text ranks by score', () => {
     const dated = [

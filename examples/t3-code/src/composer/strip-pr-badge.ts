@@ -1,6 +1,6 @@
 import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 // The composer context strip's pull request badge (MIT reference, see
-// LICENSE-T3, upstream 9c161462c9): BranchToolbarBranchSelector in toolbar mode renders
+// LICENSE-T3, upstream 9c161462c9; the host's terms at 7c3b3b3605ef): BranchToolbarBranchSelector in toolbar mode renders
 // ThreadPullRequestBadgeControl (ThreadStatusIndicators.tsx) as a ComposerControl size="xs"
 // just before the branch trigger. What it shows follows the selector:
 // - the thread's current linked pull request (resolveThreadCurrentPullRequestLink) and its
@@ -9,7 +9,7 @@ import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 //   status reports that branch), so a draft handed a pull request's checkout shows it too;
 // - resolveThreadPullRequestBadge folds several links into "+N" (unrelated) or a stack of N;
 // - resolveThreadPullRequestBadgePresentation: the state glyph and number in the state's tone,
-//   "PR #N, status pending" until a state is known; a single pull request is a link to it
+//   "PR #N, status pending" (in the host's term) until a state is known; a single pull request is a link to it
 //   (useOpenPrLink: the right panel's Pull request surface for a project on its host), a stack
 //   or several links open the thread's Pull requests tab;
 // - the tooltip (glass, w-80, side top) lists the visible links, or the one pull request.
@@ -38,6 +38,8 @@ function statusPr(status: Obj | null): Pr | null {
   return pr && num(pr.number) > 0 ? { number: num(pr.number), url: str(pr.url), title: str(pr.title), state: str(pr.state, 'open'), isDraft: pr.isDraft === true, provider: str(obj(status!.sourceControlProvider).kind, 'github') } : null;
 }
 const STATE_LABEL: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
+/** The host's own plural for its change requests (getChangeRequestTerminology). */
+const pluralTerm = (kind: string) => kind === 'gitlab' ? 'merge requests' : kind === '' || ['github', 'forgejo', 'azure-devops', 'bitbucket', 'gitcafe'].includes(kind) ? 'pull requests' : 'change requests';
 
 /**
  * The badge for the strip. `threadBranch` is the thread's (or draft's) branch, `branch` the strip's
@@ -60,11 +62,11 @@ export function stripPr(client: T3Client, input: { cwd: string; threadBranch: st
   const base = { prUrl: url, prTarget: target ? JSON.stringify(target) : '', prTips: tips(client, links, number, url, displayed) };
   if (badge?.stacked) {
     return { ...base, prShow: true, prText: badge.badge, prIcon: 'layers', prState: badge.badgeState, prList: true,
-      prLabel: `Stack of ${badge.badge} pull requests, ${STATE_LABEL[badge.badgeState]!.toLowerCase()}` };
+      prLabel: `Stack of ${badge.badge} ${pluralTerm(providerOfUrl(url))}, ${STATE_LABEL[badge.badgeState]!.toLowerCase()}` };
   }
   if (!number || !url) return NO_STRIP_PR;
   const key = displayed ? lifecycle(displayed.state, displayed.isDraft) : '';
-  const tooltip = displayed ? `${shortName(displayed.provider)} #${displayed.number} - ${STATE_LABEL[key]}: ${displayed.title}` : `PR #${number}, status pending`;
+  const tooltip = displayed ? `${shortName(displayed.provider)} #${displayed.number} - ${STATE_LABEL[key]}: ${displayed.title}` : `${shortName(providerOfUrl(url))} #${number}, status pending`;
   const others = badge && !badge.stacked && badge.badge.startsWith('+') ? Number(badge.badge.slice(1)) - 1 : 0;
   if (badge && others > 0) {
     return { ...base, prShow: true, prText: badge.badge, prIcon: lifecycleIcon(badge.badgeState), prState: badge.badgeState, prList: true,

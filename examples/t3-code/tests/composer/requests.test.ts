@@ -74,7 +74,7 @@ describe('approvals', () => {
     const { client, command, committed } = harness({
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'not_resumable' } }],
       turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'run ls' }] });
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ canRespond: false, detail: 'Provider process is gone — interrupt or restart the run to respond.' });
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ canRespond: false, detail: 'Provider process is gone. Interrupt or restart the run to respond.' });
     expect((await command('approval', 'a', 'accept')).message).toBe('This approval is no longer live.');
     expect(committed).toHaveLength(0);
   });

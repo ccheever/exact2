@@ -35,6 +35,19 @@ describe('workspace provider discovery', () => {
     await discovery.refresh(initial.key, request); expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({ method: 'server.refreshProviders', instanceId: 'p', cwd: '/repo' });
   });
+  test('a cwd that never scans stops after three failures until the TTL from its last request (useProviderWorkspaceSnapshotRefresh)', async () => {
+    const discovery = new WorkspaceDiscovery(), now = Date.parse('2026-10-25T00:00:00Z'), wake = { prompt: '', config: partial };
+    let calls = 0;
+    const failing = async () => { calls++; throw new Error('no such directory'); };
+    for (const attempt of [1, 2, 3]) {
+      const state = discovery.state('env', 1, partial, '/gone', wake, true, now + attempt);
+      expect(state.needed).toBe(true);
+      expect((await discovery.refresh(state.key, failing)).retry).toBe(attempt < 3);
+    }
+    expect(calls).toBe(3);
+    expect(discovery.state('env', 1, partial, '/gone', wake, true, now + 60_000).needed).toBe(false);
+    expect(discovery.state('env', 1, partial, '/gone', wake, true, now + 3 + 300_000).needed).toBe(true);
+  });
   test('retries failures and keeps delimiter-containing keys distinct', async () => {
     const discovery = new WorkspaceDiscovery();
     const first = discovery.state('a:b', 1, { instanceId: 'c' }, '/repo');

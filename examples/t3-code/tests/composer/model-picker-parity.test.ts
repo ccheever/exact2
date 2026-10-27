@@ -108,13 +108,13 @@ describe('the first nine rows a person can choose show their jump shortcut', () 
 
 describe('a rail button names its state and the provider\'s message', () => {
   test('describeUnavailableInstance and the locked-thread tooltip', () => {
-    expect(railLabel(codexError, false)).toBe('Codex — Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.');
+    expect(railLabel(codexError, false)).toBe('Codex: Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.');
     expect(railLabel(claude, false)).toBe('Claude');
-    expect(railLabel({ ...claude, status: 'warning', message: ' Rate limited. ' }, false)).toBe('Claude — Limited. Rate limited.');
-    expect(railLabel({ ...claude, status: 'checking', message: '' }, false)).toBe('Claude — Not ready.');
-    expect(railLabel({ ...claude, enabled: false }, false)).toBe('Claude — Disabled in settings.');
+    expect(railLabel({ ...claude, status: 'warning', message: ' Rate limited. ' }, false)).toBe('Claude: Limited. Rate limited.');
+    expect(railLabel({ ...claude, status: 'checking', message: '' }, false)).toBe('Claude: Not ready.');
+    expect(railLabel({ ...claude, enabled: false }, false)).toBe('Claude: Disabled in settings.');
     expect(railLabel(claude, true)).toBe('Claude is unavailable in this thread. Start a new thread to switch providers.');
-    expect(modelCatalog(client(), '', '').providers.map(rail => rail.label)).toEqual(['Codex — Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.', 'Claude']);
+    expect(modelCatalog(client(), '', '').providers.map(rail => rail.label)).toEqual(['Codex: Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.', 'Claude']);
   });
 });
 
@@ -213,9 +213,10 @@ describe('Scheduled Tasks\' Model and the writer model open the provider picker'
   test('the Model trigger: the model name, the draft\'s unknown slug, or "Choose model"', () => {
     const marks = taskModelMarks([codexError, claude], 'claudeAgent:claude-gone');
     const of = (value: string) => marks.find(entry => entry.value === value);
-    expect(of('claudeAgent:claude-opus-5-5')).toMatchObject({ name: 'Claude Opus 5.5', driver: 'claudeAgent' });
+    // A trigger says the model's spoken name (getTriggerDisplayModelName).
+    expect(of('claudeAgent:claude-opus-5-5')).toMatchObject({ name: 'Opus 5.5', driver: 'claudeAgent' });
     expect(of('claudeAgent:claude-gone')).toMatchObject({ name: 'claude-gone', driver: 'claudeAgent' });
-    expect(of('')).toMatchObject({ name: 'GPT-6-Luna', driver: 'codex' });
+    expect(of('')).toMatchObject({ name: '6 Luna', driver: 'codex' });
     expect(taskModelMarks([{ ...codexError, models: [] }, claude], '').find(entry => entry.value === '')).toMatchObject({ name: 'Choose model', driver: 'codex' });
   });
   test('the writer picker: text generation instances, the writer\'s model, provider setup and the page\'s scope', () => {
@@ -231,6 +232,6 @@ describe('Scheduled Tasks\' Model and the writer model open the provider picker'
     expect(project.models.filter(row => row.selected).map(row => row.id)).toEqual(['claude-sonnet-5-5']);
     // The row's trigger: the writer's mark and name.
     const rows = sourceControlRows(obj(c.config.settings), 'pa', 'Studio', c.config.providers as Obj[], true).text;
-    expect(rows.find(row => row.kind === 'model')).toMatchObject({ checked: true, valueLabel: 'Claude Sonnet 5.5', driver: 'claudeAgent', status: '' });
+    expect(rows.find(row => row.kind === 'model')).toMatchObject({ checked: true, valueLabel: 'Sonnet 5.5', driver: 'claudeAgent', status: '' });
   });
 });

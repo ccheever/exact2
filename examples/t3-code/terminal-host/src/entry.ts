@@ -545,7 +545,7 @@ class TerminalPage {
   private fail(message: string): void {
     this.lastError = message;
     this.mount.classList.add("failed");
-    this.mount.textContent = `${message} — close and reopen the terminal to retry.`;
+    this.mount.textContent = `${message}. Close and reopen the terminal to retry.`;
     this.send({ type: "error", message });
   }
 

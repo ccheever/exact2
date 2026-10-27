@@ -1,0 +1,170 @@
+// The end of the timeline and the queued-message edit, as T3 Code 7c3b3b3605ef (MIT; see LICENSE-T3) has them:
+// ThreadNow.tsx, QueuedRunsControl.tsx, queuedRunEdit.ts (makeQueuedRunEditStore) and useQueuedRunEdit.ts,
+// against the composer-controls fake backend.
+import { describe, expect, test } from 'bun:test';
+import { arr, obj, type Obj } from '../../src/client/domain';
+import { snapshot } from '../../src/client/presentation';
+import { toasts } from '../../src/shell/toast';
+import { endSummary, queuedTurnRows, threadNowRows } from '../../src/composer/thread-end';
+import { queuedEdit } from '../../src/composer/composer-controls-queue';
+import { opened } from '../support/composer-controls-fixture';
+
+/** A running, steerable turn on t1 with `count` queued messages, as the server holds them. */
+async function queue(count: number, steerable = true) {
+  const context = await opened();
+  const projection = obj(context.native.details.t1!.projection);
+  Object.assign(projection, {
+    runs: [{ id: 'r1', ordinal: 1, status: 'running', activeAttemptId: 'a1', providerThreadId: 'pt' },
+      ...Array.from({ length: count }, (_, i) => ({ id: `q${i + 1}`, ordinal: i + 2, status: 'queued', queuePosition: i + 1, userMessageId: `m${i + 1}` }))],
+    messages: Array.from({ length: count }, (_, i) => ({ id: `m${i + 1}`, role: 'user', text: `Follow-up ${i + 1}\nsecond line` })),
+    providerThreads: [{ id: 'pt', providerSessionId: 's' }],
+    providerSessions: [{ id: 's', capabilities: { turns: { supportsActiveSteering: steerable } } }],
+    providerTurns: [{ id: 'turn-1', runAttemptId: 'a1', status: steerable ? 'running' : 'completed' }] });
+  await go(context, 't2');
+  await go(context, 't1');
+  return context;
+}
+/** Opens a thread as the window does: the selection, then the refresh that loads it. */
+async function go(context: Awaited<ReturnType<typeof opened>>, id: string) {
+  await context.command('select-thread', id);
+  await context.client.refresh(context.native, context.disk);
+}
+const bubbles = (rows: ReturnType<typeof queuedTurnRows>) => rows.filter(row => row.kind === 'queued');
+
+describe('queued turns at the end of the timeline (QueuedRunsControl)', () => {
+  test('a long queue shows its first two bubbles and "Show all N queued"; the button shows the rest', async () => {
+    const { client, command } = await queue(4);
+    const rows = queuedTurnRows(client);
+    expect(bubbles(rows).map(row => [row.runId, row.body, row.title])).toEqual([
+      ['q1', 'Follow-up 1\nsecond line', 'Queued message 1 of 4, not sent'], ['q2', 'Follow-up 2\nsecond line', 'Queued message 2 of 4, not sent']]);
+    expect(rows.at(-1)).toMatchObject({ kind: 'queued-more', title: 'Show all 4 queued', expanded: false });
+    expect(rows.map(row => [row.continues === true, row.collapsible === true])).toEqual([[true, false], [false, true], [false, false]]);
+    expect(rows[0]!.attribution).toBe('4 queued');
+    expect(endSummary(client)).toBe('4 queued');
+    expect(snapshot(client).composer.endSummary).toBe('4 queued');
+    await command('cclocal:queued-show-all');
+    expect(bubbles(queuedTurnRows(client))).toHaveLength(4);
+    expect(queuedTurnRows(client).at(-1)).toMatchObject({ title: 'Show fewer', expanded: true });
+    await command('cclocal:queued-show-all');
+    expect(bubbles(queuedTurnRows(client))).toHaveLength(2);
+  });
+  test('Send now steers, the first naming ⇧⌘Enter; the pencil on the last names ⌥Up; nothing reorders', async () => {
+    const { client, native, command } = await queue(3);
+    const rows = bubbles(queuedTurnRows(client));
+    expect(rows.map(row => [row.actionLabel, row.intentTip, row.detail])).toEqual([
+      ['Send now', 'Send into the current turn (⇧⌘Enter)', 'Edit in the composer'],
+      ['Send now', 'Send into the current turn', 'Edit in the composer'],
+      ['Send now', 'Send into the current turn', 'Edit in the composer (⌥Up)']]);
+    await command('cc:queued-steer', 'q1');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'queued-message.promote-to-steer', queuedRunId: 'q1', targetRunId: 'r1' });
+    const before = native.committed.length;
+    expect((await command('cc:queued-reorder', 'q2', 'q1')).message).toBe('Unknown composer action: queued-reorder');
+    expect(native.committed.length).toBe(before);
+  });
+  test('a turn that cannot be steered offers no Send now', async () => {
+    const { client } = await queue(1, false);
+    expect(bubbles(queuedTurnRows(client))[0]).toMatchObject({ actionLabel: '', status: '' });
+  });
+  test('an open question disables the pencil with its reason and refuses the edit', async () => {
+    const { client, command } = await queue(2);
+    client.thread!.projection.runtimeRequests = [{ id: 'ask', kind: 'user_input', status: 'pending', createdAt: '2026-10-03T01:00:00.000Z' }];
+    client.thread!.projection.turnItems = [{ type: 'user_input_request', requestId: 'ask', questions: [{ id: 'q', header: 'Pick', question: 'Which?', options: [{ label: 'A' }] }] }];
+    expect(bubbles(queuedTurnRows(client)).map(row => [row.detail, row.failed])).toEqual([
+      ['Answer the question to edit queued messages', true], ['Answer the question to edit queued messages', true]]);
+    await command('cclocal:queued-edit', 'q2');
+    expect(queuedEdit(client)).toBeUndefined();
+  });
+  test('while one is edited its row says so and offers Cancel instead of Send now', async () => {
+    const { client, command } = await queue(2);
+    await command('cclocal:queued-edit', 'q2');
+    expect(bubbles(queuedTurnRows(client)).map(row => [row.runId, row.status, row.actionLabel])).toEqual([['q1', '', 'Send now'], ['q2', 'editing', '']]);
+  });
+});
+
+describe('the queued edit (makeQueuedRunEditStore)', () => {
+  test('one edit per thread, kept across navigation with the thread\'s own draft', async () => {
+    const context = await queue(2), { client, command } = context;
+    await command('draft', '', 'my own draft');
+    await command('cclocal:queued-edit', 'q1');
+    await command('draft', '', 'Follow-up 1, revised');
+    await go(context, 't2');
+    expect(queuedEdit(client)).toBeUndefined();
+    await go(context, 't1');
+    expect(queuedEdit(client)?.runId).toBe('q1');
+    expect(client.draft).toBe('Follow-up 1, revised');
+    await command('cclocal:queued-cancel');
+    expect(client.draft).toBe('my own draft');
+  });
+  test('a run that starts while the user is elsewhere settles its edit there, once, naming the thread', async () => {
+    const context = await queue(1), { client, command } = context;
+    await command('cclocal:queued-edit', 'q1');
+    await command('draft', '', 'changed while queued');
+    await go(context, 't2');
+    Object.assign(client.shell.threads.find(thread => thread.id === 't1')!, { activeRunId: 'q1' });
+    snapshot(client);
+    snapshot(client);
+    expect(toasts(client).filter(toast => toast.title === 'Queued message is no longer queued').map(toast => toast.description))
+      .toEqual(['Your unsaved edit in “Thread t1” was kept in the composer.']);
+    expect(client.local.drafts[`${client.environmentId}:t1`]).toBe('changed while queued');
+  });
+  test('a save keeps its claim until it finishes, and a stale save never clears a newer edit', async () => {
+    const { client, native, command } = await queue(2);
+    let release: () => void = () => {};
+    const later = native.later.bind(native);
+    native.later = async (input: unknown) => {
+      const request = obj(input);
+      if (request.op === 'request' && obj(request.payload).type === 'queued-run.edit') await new Promise<void>(resolve => { release = resolve; });
+      return later(input);
+    };
+    await command('draft', '', 'my own draft');
+    await command('cclocal:queued-edit', 'q1');
+    const saving = command('send', '', 'Follow-up 1, saved');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(snapshot(client).composer.queueEditSaving).toBe(true);
+    // The edit is begun again while its save is in flight: the save still decides nothing for the newer edit.
+    await command('cclocal:queued-cancel');
+    await command('cclocal:queued-edit', 'q2');
+    await command('send', '', 'Follow-up 2, too early');
+    expect(arr(native.committed).filter((entry: Obj) => entry.type === 'queued-run.edit')).toHaveLength(0);
+    release();
+    await saving;
+    expect(queuedEdit(client)?.runId).toBe('q2');
+    expect(client.draft).toBe('Follow-up 2\nsecond line');
+    expect(arr(native.committed).filter((entry: Obj) => entry.type === 'queued-run.edit').map(entry => entry.text)).toEqual(['Follow-up 1, saved']);
+  });
+});
+
+describe('what the thread is doing (ThreadNow)', () => {
+  test('a loading thread says so on the next snapshot, with the sync icon', async () => {
+    const context = await opened(), { client } = context;
+    await go(context, 't2');
+    client.thread = null;
+    expect(threadNowRows(client)).toEqual([]);
+    expect(threadNowRows(client)[0]).toMatchObject({ id: 'thread-sync:t2', kind: 'thread-now', icon: 'refresh-cw', status: 'status', title: 'Loading messages...' });
+  });
+  test('a cut line offers its details, measured from its probes against its laid-out width', async () => {
+    const { client } = await opened();
+    Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'a', kind: 'command', description: 'npm run dev' }] });
+    const line = threadNowRows(client)[0]!;
+    expect(line.collapsible).toBe(false);
+    client.presentation.anchors = { [`tn:${line.id}`]: [0, 60], 't:12:400:Running: npm run dev': [0, 110] };
+    expect(threadNowRows(client)[0]!.collapsible).toBe(true);
+    client.presentation.anchors = { [`tn:${line.id}`]: [0, 140], 't:12:400:Running: npm run dev': [0, 110] };
+    expect(threadNowRows(client)[0]!.collapsible).toBe(false);
+  });
+});
+
+describe('notices above the composer (ComposerBannerStack)', () => {
+  test('machine notices come first, every card after the first joins it, and an open question leaves only machine problems', async () => {
+    const { client, native, disk } = await opened();
+    client.connection = 'offline';
+    obj(obj(native.config.environment)).label = 'Studio';
+    const notices = snapshot(client).composer.notices;
+    expect(notices[0]).toMatchObject({ group: 'environment', stacked: false });
+    expect(notices.slice(1).every(notice => notice.stacked)).toBe(true);
+    client.thread!.projection.runtimeRequests = [{ id: 'ask', kind: 'user_input', status: 'pending', createdAt: '2026-10-03T01:00:00.000Z' }];
+    client.thread!.projection.turnItems = [{ type: 'user_input_request', requestId: 'ask', questions: [{ id: 'q', header: 'Pick', question: 'Which?', options: [{ label: 'A' }] }] }];
+    expect(snapshot(client).composer.notices.every(notice => notice.group === 'environment' && (notice.variant === 'error' || notice.variant === 'warning'))).toBe(true);
+    void disk;
+  });
+});

@@ -19,7 +19,7 @@ describe('provider subagent bar', () => {
     expect(formatSubagentStatus({ status: 'completed', startedAt: start, completedAt: '2026-10-03T01:00:34.000Z' }, 0)).toBe('Completed in 34s');
     expect(formatSubagentStatus({ status: 'failed', startedAt: start, completedAt: '' }, 0)).toBe('Failed');
   });
-  test('a provider-native subagent thread replaces the composer with the bar and drops its dock', async () => {
+  test('a provider-native subagent thread replaces the composer with the bar and drops its notices', async () => {
     const { client } = await opened();
     expect(snapshot(client, Date.now()).composer.subagent).toBe(false);
     const thread = obj(client.thread!.projection.thread);
@@ -28,9 +28,9 @@ describe('provider subagent bar', () => {
     client.thread!.projection.nodes = [{ id: 'n1', kind: 'root_turn', runId: null, status: 'running', startedAt: '2026-10-03T01:00:00.000Z', completedAt: null }];
     const bar = subagentBar(client, Date.parse('2026-10-03T01:00:05.000Z'));
     expect(bar).toEqual({ subagent: true, subagentModel: 'Model A', subagentEffort: 'High', subagentStatus: 'Working 5.0s',
-      subagentAnnounce: 'Model A, High subagent: Working', subagentParent: 't2' });
+      subagentAnnounce: 'Model A, High subagent: Working', subagentParent: 't2', subagentWidth: 0 });
     const view = snapshot(client, Date.parse('2026-10-03T01:00:05.000Z')).composer;
-    expect(view).toMatchObject({ subagent: true, notices: [], queued: [], activity: '' });
+    expect(view).toMatchObject({ subagent: true, notices: [] });
     Object.assign(thread, { creationSource: 'web' });
     expect(subagentBar(client, 0).subagent).toBe(false);
   });

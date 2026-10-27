@@ -12,8 +12,8 @@ import { obj, str, type Obj } from '../../src/client/domain';
 import { acceptComposerEdit, observeComposer } from '../support/composer-field-fixture';
 import { fileChipLink } from '../../src/composer/composer-editor-files';
 import { toasts } from '../../src/shell/toast';
-import { addAttachedFiles, attachIncoming } from '../../src/composer/composer-controls-attach';
-import { DRAFTS, STAGED, classifyAttachment, handleName, mimeTypeOfName } from '../../src/composer/composer-attach-stage';
+import { addAttachedFiles, attachIncoming, cancelPreparingImage, preparingImages } from '../../src/composer/composer-controls-attach';
+import { DRAFTS, STAGED, classifyAttachment, fileAttachmentMimeType, handleName, mimeTypeOfName } from '../../src/composer/composer-attach-stage';
 import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldResource } from '../../src/composer/composer-field-bridge';
 import { primary, type PrimaryTarget } from '../../src/connections/local-primary';
@@ -66,7 +66,12 @@ describe('what a dropped or pasted file is (classifyComposerAttachmentFile)', ()
     expect(classifyAttachment('photo.jpg', mimeTypeOfName('photo.jpg'))).toBe('image');
     expect(classifyAttachment('shot.heic', '')).toBe('image');
     expect(classifyAttachment('picture', 'image/png')).toBe('image');
-    expect(classifyAttachment('scan.tiff', mimeTypeOfName('scan.tiff'))).toBe('unsupported-image');
+    // An image the viewer shows but providers refuse (TIFF), a raw DNG and an SVG attach as files.
+    expect(classifyAttachment('scan.tiff', mimeTypeOfName('scan.tiff'))).toBe('file');
+    expect(classifyAttachment('raw.dng', '')).toBe('file');
+    expect(classifyAttachment('vector.svg', 'application/octet-stream')).toBe('file');
+    expect(fileAttachmentMimeType('raw.dng', '')).toBe('image/x-adobe-dng');
+    expect(classifyAttachment('layers.psd', mimeTypeOfName('layers.psd'))).toBe('unsupported-image');
     expect(classifyAttachment('notes.txt', 'text/plain')).toBe('file');
   });
 });
@@ -146,11 +151,36 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(client.error).toBe('You can attach up to 100 files per message.');
   });
 
+  test('a pasted image shows its tile at once, under the id its draft takes; removing it while it prepares lets it go', async () => {
+    const { client, native } = await opened();
+    const { fs, store } = memoryFiles({ 'doc:/1/shot.png': png(4, 3, 64), 'doc:/2/second.png': png(4, 3, 64) });
+    let release: () => void = () => {};
+    const readFile = fs.readFile;
+    fs.readFile = async (path: string) => { if (path.startsWith('doc:')) await new Promise<void>(resolve => { release = resolve; }); return readFile(path); };
+    const first = attachIncoming(client, native, 'paste', incoming(['doc:/1/shot.png']));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const [tile] = preparingImages(client);
+    expect(tile).toMatchObject({ name: 'shot.png' });
+    release();
+    await first;
+    expect(preparingImages(client)).toEqual([]);
+    expect((client.local.snapshotDrafts[client.draftKey] ?? []).map(image => image.id)).toEqual([tile!.id]);
+    const second = attachIncoming(client, native, 'paste', incoming(['doc:/2/second.png']));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const [cancelled] = preparingImages(client);
+    cancelPreparingImage(client, cancelled!.id);
+    expect(preparingImages(client)).toEqual([]);
+    release();
+    await second;
+    expect((client.local.snapshotDrafts[client.draftKey] ?? []).map(image => image.id)).toEqual([tile!.id]);
+    expect(client.local.snapshotReleases).toContain(cancelled!.id);
+    void store;
+  });
   test('what cannot be attached is named, as addComposerAttachments reports it', async () => {
     const { client, native } = await opened();
-    memoryFiles({ 'doc:/1/scan.tiff': text('II*'), 'doc:/2/broken.png': text('X'), 'doc:/3/empty.txt': new Uint8Array() });
-    await attachIncoming(client, native, 'drop', incoming(['doc:/1/scan.tiff']));
-    expect(client.error).toBe("'scan.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
+    memoryFiles({ 'doc:/1/layers.psd': text('8BPS'), 'doc:/2/broken.png': text('X'), 'doc:/3/empty.txt': new Uint8Array() });
+    await attachIncoming(client, native, 'drop', incoming(['doc:/1/layers.psd']));
+    expect(client.error).toBe("'layers.psd' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
     await attachIncoming(client, native, 'drop', incoming(['doc:/2/broken.png']));
     expect(client.error).toBe("'broken.png' could not be read as an image.");
     await attachIncoming(client, native, 'paste', incoming(['doc:/3/empty.txt']));
