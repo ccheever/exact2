@@ -1337,8 +1337,10 @@ const sources: Sources = {
     if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
     // What the card shows now is what is accepted: its own choose landed first (its choiceAt current), and another
     // client's choice meanwhile asks for another look rather than being accepted unseen.
+    const moved = { ...stacks(false, 'Another client changed what this import has chosen: review it, then accept.', ''), note: '' };
+    if (!heldChoice.inStep(proposal, picked)) return moved; // (the card not yet showing it)
     const seen = heldChoice.gen(proposal), items = chosen(proposal, picked);
-    if (!(await heldChoice.flush(proposal)) || heldChoice.gen(proposal) !== seen) return { ...stacks(false, 'Another client changed what this import has chosen while yours was being saved: review it, then accept.', ''), note: '' };
+    if (!(await heldChoice.flush(proposal)) || heldChoice.gen(proposal) !== seen) return moved;
     if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
     // (on 1.18 its items always named, all of them included: never the server's choice by default, which may be older)
     return sources.acceptHeld([client, proposal, items.length === ops.length && !byChoice ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
@@ -1360,6 +1362,7 @@ const sources: Sources = {
     const tokens = Number(r.tokens ?? 0);
     const review = { ...r, kept: false, from: proposal };
     // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step.)
+    if (byChoice && !heldChoice.inStep(proposal, picked)) return { ...stacks(false, 'Another client changed what this import has chosen: review it, then edit.', ''), note: '', carried: [] };
     if (byChoice && !(await heldChoice.send(proposal, [...was].sort((a, b) => a - b), askChoose(client, proposal)))) return { ...stacks(false, 'The choice could not be recorded on the design server, so the edit was not sent: try again.', ''), note: '', carried: [] };
     const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim() } : { method: 'propose', hold: true, client, ops, review }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget(made.used);
@@ -1373,10 +1376,11 @@ const sources: Sources = {
   },
   sendChoices: async ([client, picked]) => {
     // Each import card's choice, sent as it is ticked (1.18, choice.ts): a card the page has flipped, or sent before.
-    const flips = picked.split(';').filter(Boolean), live = flips.filter(f => !heldChoice.stale(f)), sends = byChoice ? held.filter(h => heldReview.get(h.proposal)?.importer && (live.some(f => f.startsWith(`${h.proposal}:`)) || heldChoice.touchedFor(h.proposal))) : [];
+    // (`drop` taken as it is invoked, with the picked it was given: a later answer, superseded, never clears a marker)
+    const flips = picked.split(';').filter(Boolean), drop = heldChoice.drop(flips), live = flips.filter(f => !heldChoice.stale(f)), sends = byChoice ? held.filter(h => heldReview.get(h.proposal)?.importer && (live.some(f => f.startsWith(`${h.proposal}:`)) || heldChoice.touchedFor(h.proposal))) : [];
     await Promise.all(sends.map(h => heldChoice.send(h.proposal, chosen(h.proposal, picked), askChoose(client, h.proposal))));
     // (`drop`: flips on a card another client chose on, said until dropped; `again`: a base moved, the cards built again)
-    return { ok: true, answer: heldChoice.answer(), drop: heldChoice.drop(flips), again: heldChoice.shownStale() };
+    return { ok: true, answer: heldChoice.answer(), drop, again: heldChoice.shownStale() };
   },
   loadAppAxes: async ([file]) => {
     // The running app's axes while another file is open: its own design's,

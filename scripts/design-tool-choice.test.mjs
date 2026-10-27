@@ -10,10 +10,10 @@ const later = () => { let done; const p = new Promise(ok => { done = ok; }); ret
 
 test('a base from the server, the page\'s flips over it; an override turned over whole; a rebase makes flips obsolete at once', () => {
   heldChoice.saw([{ proposal: 'p', choice: [0, 2], choiceAt: 1 }], 'e1');
-  expect(card('')).toEqual([0, 2]);
-  // (offer [2,3] began partly in: ticking it turns all of it in, as its unticked box says)
+  // (offer [2,3] partly in is off, as its box shows; ticking it turns all of it in)
+  expect(card('')).toEqual([0]);
   expect(card('p:2,3')).toEqual([0, 2, 3]);
-  expect(card('p:0')).toEqual([2]);
+  expect(card('p:0')).toEqual([]);
   // Another client chooses [1]: the base moves, and the page's flip over the old base counts no more, before any drop.
   heldChoice.saw([{ proposal: 'p', choice: [1], choiceAt: 2 }], 'e1');
   expect(card('p:0')).toEqual([1]);
@@ -103,4 +103,21 @@ test('round 2: obsolete flips said until dropped; a lost answer sends again; a p
   await Promise.resolve();
   expect(heldChoice.base('r')).toEqual([4]);
   expect(heldChoice.gen('r')).toBe(2);
+});
+
+test('round 3: a card is in step only once built from its moved base with its obsolete flips gone; a partly chosen override is off, as shown', () => {
+  heldChoice.saw([{ proposal: 's', choice: [0], choiceAt: 1 }], 'e6');
+  heldChoice.takeShown();
+  expect(heldChoice.inStep('s', 's:1')).toBe(true);
+  heldChoice.saw([{ proposal: 's', choice: [0, 1], choiceAt: 2 }], 'e6');
+  // (the cards still show the old base, and picked still has a flip over it)
+  expect(heldChoice.inStep('s', 's:1')).toBe(false);
+  heldChoice.takeShown();
+  expect(heldChoice.inStep('s', 's:1')).toBe(false);
+  expect(heldChoice.drop(['s:1'])).toEqual(['s:1']);
+  expect(heldChoice.drop([])).toEqual([]);
+  expect(heldChoice.inStep('s', '')).toBe(true);
+  // Override [2,3] with only 2 in the base: off, as its box shows it, so neither is chosen.
+  heldChoice.saw([{ proposal: 't', choice: [0, 2], choiceAt: 1 }], 'e6');
+  expect(card('', 't')).toEqual([0]);
 });

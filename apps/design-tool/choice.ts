@@ -21,6 +21,8 @@ export function chosenOf(proposal: string, picked: string, r: any, ops: unknown[
     const items = f.slice(proposal.length + 1).split(',').map(Number), was = items.every(begins);
     for (const i of items) if (was) on.delete(i); else on.add(i);
   }
+  // An override partly chosen (another client's choice can be) is off, as its box shows it: none of it is taken.
+  for (const o of (r?.offers ?? []) as { items?: number[] }[]) if ((o.items ?? []).some(i => !on.has(i))) for (const i of o.items ?? []) on.delete(i);
   return [...on].sort((a, b) => a - b);
 }
 
@@ -42,7 +44,7 @@ export function carriedChoice(fresh: string, tokens: number, offers: { items?: n
 type Base = { at: number; choice: number[] | null };
 type Record = { proposal: unknown; choice?: number[]; choiceAt?: number };
 const bases = new Map<string, Base>(), latest = new Map<string, Base>(), mine = new Map<string, number>(), sent = new Map<string, string>();
-const pending = new Map<string, Promise<boolean>>(), touched = new Set<string>(), rebased = new Set<string>(), gens = new Map<string, number>();
+const pending = new Map<string, Promise<boolean>>(), touched = new Set<string>(), rebased = new Set<string>(), gens = new Map<string, number>(), shown = new Map<string, number>();
 let answers = 0, epoch = '', run = 0, dirty = false;
 
 /** `id`'s base replaced by `b`, another client's: the page's flips on it obsolete from now, its cards to be shown again. */
@@ -76,7 +78,12 @@ export const heldChoice = {
   stale: (f: string): boolean => rebased.has(f.slice(0, f.indexOf(':'))),
   /** Whether a base moved since the cards were last built from the list: they are built again (`takeShown`). */
   shownStale: (): boolean => dirty,
-  takeShown() { dirty = false; },
+  /** The cards were built from the bases as they are now. */
+  takeShown() { dirty = false; for (const id of bases.keys()) shown.set(id, gens.get(id) ?? 0); },
+  /** Whether `id`'s card, as shown with `picked`, is what the page would accept or carry: built from its base as it is
+   * now, with none of its flips made obsolete by another client's choice still in `picked`. An accept or an edit asks
+   * for another look when not. */
+  inStep: (id: string, picked: string): boolean => (shown.get(id) ?? 0) === (gens.get(id) ?? 0) && !(rebased.has(id) && picked.split(';').some(f => f.startsWith(`${id}:`))),
   /** The flips in `picked` that no longer count, to drop from it; said again each time until `picked` has none of a
    * rebased card's, so a dropped answer loses nothing. */
   drop(picked: string[]): string[] {
@@ -112,5 +119,5 @@ export const heldChoice = {
   /** A number for each answer of the tool's `sendChoices`. */
   answer: (): number => ++answers,
   /** Nothing known (a new server run); answers still on their way are ignored. */
-  forget() { bases.clear(); latest.clear(); mine.clear(); sent.clear(); pending.clear(); touched.clear(); rebased.clear(); gens.clear(); dirty = false; run += 1; },
+  forget() { bases.clear(); latest.clear(); mine.clear(); sent.clear(); pending.clear(); touched.clear(); rebased.clear(); gens.clear(); shown.clear(); dirty = false; run += 1; },
 };
