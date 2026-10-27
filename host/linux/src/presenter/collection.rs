@@ -871,7 +871,13 @@ impl<D: DataSource> Presenter<D> {
             self.queue_collections();
             None
         } else {
-            self.queue_collections();
+            if self.collection.hold {
+                self.queue_collections();
+            } else {
+                // This turn consumes the reports; refinement wakes the host
+                // only if its budget leaves work or a scroll correction.
+                self.schedule_collections();
+            }
             self.refine_collections()
         });
         if let Some(error) = error {
