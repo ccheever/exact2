@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
-import { commandView, filterGroups, flatten, row, relativeLabel, shortcutText, commandShortcut, contentParts, type Group } from '../../src/palette/palette';
+import { commandView, filterGroups, flatten, row, relativeLabel, shortcutText, commandShortcut, messageItems, threadItems, type Group } from '../../src/palette/palette';
 import { addProjectView, browseParent, cloneDirectoryName, cloneDestination, normalizeCloneUrl, readiness, resolvePath, appendSegment, browseDirectory, flowOf } from '../../src/palette/palette-add';
 import { fileRows, lineParts, contentRows, matchIndices, filePickerView, contentSearchView, parseFlags } from '../../src/palette/palette-files';
 import { paletteCommand } from '../../src/palette/palette-commands';
@@ -62,12 +62,12 @@ describe('command palette root', () => {
     expect(view.rows.find(entry => entry.title === 'Show linked pull requests')!.kind).toBe('disabled');
     expect(view.rows.find(entry => entry.title === 'Change theme')!.shortcut).toBe('⌥⌘A');
     expect(view.rows.find(entry => entry.title === 'Change appearance')!.shortcut).toBe('⌥⇧⌘A');
+    // Recent means used last; the open thread (t2) would always lead, so it is left out.
     const recent = view.rows.filter(entry => entry.op === 'thread');
-    expect(recent.map(entry => entry.title)).toEqual(['fixture complete fork', 'fixture complete']);
+    expect(recent.map(entry => entry.title)).toEqual(['fixture complete']);
     expect(recent[0]!.header).toBe('Recent Threads');
-    expect(recent[0]!.current).toBe(true);
-    expect(recent[0]!.timestamp).toBe('10h ago');
-    expect(recent[0]!.branch).toBe('feature/x');
+    expect(recent[0]!.current).toBe(false);
+    expect(recent[0]!.timestamp).toBe('11h ago');
     expect(view.placeholder).toBe('Search commands, projects, and threads...');
     expect(view.enterLabel).toBe('Select');
   });
@@ -84,18 +84,21 @@ describe('command palette root', () => {
     const recent = view.rows.find(entry => entry.op === 'thread')!;
     expect(recent.height).toBe(50);
   });
-  test('a query searches actions, projects, settings and threads with message matches', () => {
+  test('a query searches actions, threads, projects and settings; message-only matches follow In messages', () => {
     const c = client();
-    const view = commandView(c, { page: '', query: 'fixture', now: NOW, scheme: 'dark', matches: new Map([['t1', { source: 'user', snippet: 'please run fixture complete' }]]), matchQuery: 'fixture', searching: false });
-    const headers = view.rows.filter(entry => entry.header).map(entry => entry.header);
-    expect(headers).toContain('Projects');
-    expect(headers).toContain('Threads');
+    c.shell.threads.push({ id: 't4', projectId: 'p2', title: 'Release notes', updatedAt: '2026-10-03T05:00:00.000Z' });
+    const matches = new Map([['t1', { threadId: 't1', source: 'user', snippet: 'fixture complete' }], ['t4', { threadId: 't4', source: 'assistant', snippet: 'Ran the  fixture\n twice', messageCreatedAt: '2026-10-03T11:00:00.000Z' }]]);
+    const view = commandView(c, { page: '', query: 'fixture', now: NOW, scheme: 'dark', matches, matchQuery: 'fixture', searching: false });
+    // Equal match classes keep the order commands, threads, projects; next to matching threads others show three rows.
+    expect(view.rows.filter(entry => entry.header).map(entry => entry.header)).toEqual(['Actions', 'Threads', 'Projects', 'In messages']);
     const project = view.rows.find(entry => entry.op === 'open-project')!;
     expect(project.title).toBe('Parity fixture');
     expect(project.description).toBe('/repo');
-    const thread = view.rows.find(entry => entry.arg === 't1' && entry.op === 'thread')!;
-    expect(thread.matchLabel).toBe('You:');
-    expect(thread.matchParts.filter(part => part.hit).map(part => part.text)).toEqual(['fixture']);
+    // The open thread is listed last among the threads; a thread whose title matches is no message result.
+    expect(view.rows.filter(entry => entry.key.startsWith('threads-search:')).map(entry => entry.arg)).toEqual(['t1', 't2']);
+    const message = view.rows.find(entry => entry.key.startsWith('threads-messages:'))!;
+    expect(message).toMatchObject({ arg: 't4', matchLabel: 'Agent:', context: 'Second', timestamp: '1h ago', height: 48 });
+    expect(message.matchParts.map(part => [part.text, part.hit])).toEqual([['Ran the ', false], ['fixture', true], [' twice', false]]);
     const none = commandView(c, { page: '', query: 'zzzz', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });
     expect(none.rows).toEqual([]);
     expect(none.empty).toBe('No matching commands, projects, or threads.');
@@ -131,7 +134,11 @@ describe('command palette root', () => {
     expect(relativeLabel('2026-10-03T11:59:30.000Z', NOW)).toBe('just now');
     expect(relativeLabel('2026-10-01T11:00:00.000Z', NOW)).toBe('2d ago');
     expect(commandShortcut(client(), 'usage.open')).toBe('⌘U');
-    expect(contentParts('A fixture and Fixture', 'fixture').filter(part => part.hit).length).toBe(2);
+    // ThreadSearchMatchExcerpt marks the query's words ignoring case; a three-letter one only where it starts a word.
+    const unmatched = threadItems(client(), NOW, '').filter(item => item.row.arg === 't1').map(item => ({ ...item, thread: { ...item.thread!, title: 'other', projectTitle: null } }));
+    const hits = (snippet: string, query: string) => messageItems(unmatched, new Map([['t1', { threadId: 't1', source: 'user', snippet }]]), query, NOW)[0]!.row.matchParts.filter(part => part.hit).map(part => part.text);
+    expect(hits('A fixture and Fixture', 'FIXTURE')).toEqual(['fixture', 'Fixture']);
+    expect(hits('drafts and enableFTS', 'fts')).toEqual(['FTS']);
   });
 });
 
