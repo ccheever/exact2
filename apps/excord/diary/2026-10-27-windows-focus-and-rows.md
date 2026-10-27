@@ -12,8 +12,10 @@ task: the channel list beside the chat on Windows, against the web
 - Beside the chat, "#announcements" read "announceme…" with its badge 24 px short of the
   row's end: the split left the row's chevron unpainted but kept its box. It now takes no
   room, as the web's `display: none` has it.
-- A photo shrunk to its box stair-steps on Windows where Chrome is smooth: the painter
-  samples with plain bilinear filtering. In progress.
+- A photo shrunk to its box stair-stepped on Windows where Chrome is smooth: the PNG decoder
+  kept one source pixel per output pixel and the painter shrank with plain bilinear. Both
+  now average the area they cover, and Windows's own decoders scale with WIC's high-quality
+  cubic; the photo's rounded edge is unchanged.
 - The private channel's lock overlaps its hash at 1x; Discord cuts the hash under the lock.
   Left as is: it reads at 2x.
 - On iPhone in dark mode the composer's emoji face is a filled disc, not the outline the web
