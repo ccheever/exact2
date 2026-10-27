@@ -161,6 +161,23 @@ final class PageEdgesIOSTests: XCTestCase {
         }
     }
 
+    /// A transcript in a box over a composer its author filled: the composer is no bar, so
+    /// the rows stop above it, and the top still runs under the inline bar, as a hand-built
+    /// table under its navigation bar does whatever is pinned under it (bake-off r28's chat).
+    func testAListOverAFilledComposerStillRunsUnderTheBar() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        session.presenter.press(try node(session, "pick-filled").id)
+        until("the transcript runs under the bar") { (try? self.node(session, "wrapped"))?.pageBand.top ?? 0 > 0 }
+        let list = try node(session, "wrapped"), sv = try XCTUnwrap(list.scrollView), composer = try node(session, "filled-composer")
+        XCTAssertEqual(list.pageBand.bottom, 0, "the filled composer keeps the rows above it")
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).minY, 0, accuracy: 0.5, "its scroll view runs up under the bar")
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).maxY, composer.convert(composer.bounds, to: nil).minY, accuracy: 0.5, "and stops at the composer")
+        let route = try XCTUnwrap(session.presenter.navigation.activeRoute)
+        XCTAssertTrue(route.contentScrollView(for: .top) === sv, "the bar's edge effect follows it")
+    }
+
     /// A virtualized transcript over its composer (the chat recipe), shown when its messages
     /// arrive mid-push, opens with its newest row above the composer. As the push lands its
     /// box grows under the bar and its top band goes to UIKit's inset, which leaves its port

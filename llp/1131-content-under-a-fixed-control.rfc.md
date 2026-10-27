@@ -95,6 +95,14 @@ parent and takes what they leave (`flexGrows`, sent for every growing column ite
 thread wrapped with its floating button sits over a composer; the bars of every level are
 S's on that edge.
 
+A route's top is judged apart from its foot (2026-10-27, bake-off r28's chat): a foot with
+anything but bars between S and C (a composer its author filled) keeps its place and no
+longer keeps the top from its band; and an open top under the route's cover (the inline
+bar) is banded with no bars at all. A hand-built table runs under its navigation bar
+whatever is pinned under it, and r28's thread, over a filled composer, stopped in a hard
+line under the bar. A top with more than bars keeps both edges as before, and a page's
+scroller keeps the rule above.
+
 An edge is **open** only where S reaches its parent's content edge there (nothing, no
 padding or border, between them, as `bottomScroller` requires today) and P reaches C's.
 For a page, C must itself meet the page area's edge, with nothing between S and the
