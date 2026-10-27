@@ -70,72 +70,6 @@ pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
     })
 }
 
-/// A bound `-exact-layout-transition`'s values (GitHub #809): each string its
-/// code pushes that the row holds, with the declaration the kernel's own CSS
-/// writes for it (css.rs `layout_transition_css`), `None` where it writes none
-/// (`none`, or no transition covering layout); and the strings that clear the
-/// row unjournaled, as the runner clears one (`StyleValue::text_unsets`: a
-/// blank, `unset`). A string the kernel refuses is in neither. The JS target
-/// has no transition grammar of its own: a value its code computes, not one of
-/// these, is unset (`layout_transition_map`).
-pub struct LayoutTransitions {
-    pub held: std::collections::BTreeMap<String, Option<String>>,
-    pub unsets: Vec<String>,
-}
-
-pub fn layout_transitions(plan: &Plan, code: &[u8]) -> LayoutTransitions {
-    let mut out = LayoutTransitions {
-        held: Default::default(),
-        unsets: Vec::new(),
-    };
-    let strings = instructions(code)
-        .filter_map(|i| i.ok().filter(|i| i.op == Opcode::Str))
-        .map(|i| plan.str(exact_plan::StrId(i.args[0] as u32)));
-    for v in strings {
-        if layout_unsets(v) {
-            out.unsets.push(v.to_string());
-        } else if let Some(css) = layout_transition(v) {
-            out.held.insert(v.to_string(), css);
-        }
-    }
-    out
-}
-
-/// The map of a bound `-exact-layout-transition` over `values`: the kernel's
-/// declaration for each value the code names that the row holds, none for one
-/// that clears it. Another (one it computed) is unset with a journal line for
-/// the view `view` names, in the runner's words for an invalid value
-/// (`instance.rs` `invalid`) but saying why: the kernel may take it, and this
-/// target can't tell (QUEUE.md).
-pub fn layout_transition_map(values: &LayoutTransitions, view: &str, say: &str) -> String {
-    let held = serde_json::to_string(&values.held).unwrap();
-    let unsets = serde_json::to_string(&values.unsets).unwrap();
-    format!("v=>{{if(v==null||/^\\s*(unset)?\\s*$/i.test(v)||{unsets}.includes(v))return null;const T={held};if(typeof v===\"string\"&&Object.hasOwn(T,v))return T[v];{say}(`view ${{{view}}}: invalid layout-transition value ${{JSON.stringify(v)}}; unset (the JS target writes only the values the code names)`);return null}}")
-}
-
-/// Whether the runner clears the row for `v` before parsing it, unjournaled
-/// (`instance.rs`, `bridge::unsets`).
-pub fn layout_unsets(v: &str) -> bool {
-    exact_kernel::StyleValue::text_unsets(v, StyleId::LayoutTransition)
-}
-
-/// The kernel's `--exact-layout-transition` for one bound value it parses:
-/// `None` where it refuses the value, `Some(None)` where it declares nothing.
-pub fn layout_transition(v: &str) -> Option<Option<String>> {
-    let mut p = exact_kernel::StyleProps::default();
-    p.set_dynamic(
-        StyleId::LayoutTransition,
-        &exact_kernel::StyleValue::Text(v.into()),
-    )
-    .ok()?;
-    let (text, _) = exact_web::css::css_text(&p, &[]);
-    Some(
-        text.split(';')
-            .find_map(|d| d.strip_prefix("--exact-layout-transition:"))
-            .map(str::to_string),
-    )
-}
-
 /// Props whose presence decides the element's tag: a dynamic one is given a
 /// sample value when the tag is computed (the live host fixes the tag from
 /// the value at creation; the JS target from its presence). A `progress`'s
@@ -913,6 +847,15 @@ pub static TRANSITION_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::ne
     )
 });
 
+/// A layout binding uses the same validated grammar as paint, selecting
+/// the last `all` (or omitted property) exactly as Transitions::matching.
+pub static LAYOUT_TRANSITION_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        "(v,invalid)=>{{const p=({})(v);if(p===null&&v!=null&&!/^\\p{{White_Space}}*(unset\\p{{White_Space}}*)?$/iu.test(v))typeof invalid===\"function\"&&invalid();return p?.filter(t=>t.property===null||t.property===\"all\").at(-1)?.css??null}}",
+        crate::paint::transition_parser()
+    )
+});
+
 /// `text` with each `-exact-platform-color()` in it as its CSS (its `web` colour or
 /// its fallback), as the kernel writes a literal's.
 fn platform_css(text: &str) -> String {
@@ -1108,6 +1051,7 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
             with("--exact-touch-floor", &CONTROL_SIZE_MAPS[1]),
         ],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
+        StyleId::LayoutTransition => vec![with("--exact-layout-transition", &LAYOUT_TRANSITION_MAP)],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {

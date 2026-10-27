@@ -205,8 +205,8 @@ export function commit(f, what = "commit", finished) {
   Writes = Finishes = null; unpark();
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
-    Pres?.before({ ops: gains() }, Views); // presence measures what it tracks, and what may gain the row, before the tree changes (LLP 1063)
-    try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); for (const f of finishes) f(false); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
+    Present?.before(Queue); // the actual tail's live effect metadata, never a prospective value (LLP 1063 D9)
+    try { flush(); openTabs(); } catch (e) { Present?.discard(); Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); for (const f of finishes) f(false); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     for (const f of finishes) f(ok);
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
@@ -231,7 +231,7 @@ export const After = [], Before = [], Clocked = [];
 const Scrolls = new Map(), Selects = new Set();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled(inCommit) { drain(); markDocument(); Paint?.flush(); Present?.(); for (const f of After) f(); if (!inCommit && !Booting) autofocus(); } // a list's own mounts (list.js); a commit's scan follows its commands
+export function settled(inCommit) { drain(); markDocument(); Paint?.flush(); Present?.after(); for (const f of After) f(); if (!inCommit && !Booting) autofocus(); } // a list's own mounts (list.js); a commit's scan follows its commands
 let Restoring = false, Booting = false; // `Restoring`: a refused commit's settle over what it put back, which asks nothing. The boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
@@ -816,7 +816,11 @@ export function nm(e) {
     .finally(() => setTimeout(() => inflight.n--));
 }
 export const blank = v => typeof v === "string" && !v.trim() ? null : v;
-export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
+export function S(e, prop, unit, f) {
+  let rendered = Adopt;
+  const n = effect(() => { css(e, prop, unit, f(), rendered); rendered = false; });
+  if (prop === '--exact-layout-transition') n.$layout = e;
+}
 let Scratch = null;
 const Normal = new Map(), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");
 export function normal(prop, t) {
@@ -842,6 +846,7 @@ function css(e, prop, unit, v, rendered) {
     const now = e.style.getPropertyValue(prop);
     if (t == null ? !now : same(now) === (normal(prop, t) || "unset")) return;
   }
+  Present?.style(e); // only real writes, only while the late controller is live
   if (t == null) return e.style.removeProperty(prop);
   e.style.removeProperty(prop);
   e.style.setProperty(prop, t);
@@ -957,7 +962,7 @@ export const onAtompress = (e, kind, f, l) => l(kind, ev => { if (Array.isArray(
 export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own presence-glue.js, fetched after the first
-// painted frame by a plan with either row (its node calls `pr`; a bound layout transition's, `lt`), plays both. Each commit it
+// painted frame by a plan with either row (its node calls `pr`), plays both. Each commit it
 // measures the views that declare a layout transition, or may gain one (a bound one's, as the wasm host's style op), before the
 // tree changes and plays back each that moved after; a region's removed root that declares an exit stays, out of flow at its
 // last box, until its animations end, where it was: `clear` passes over it. Until the piece is here, rows jump and leave at once.
@@ -968,30 +973,15 @@ export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native,
 /** A view leaves with the exit animation `css` names (a virtualized list's
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
-const Created = [], Bound = new Map(), LT = "--exact-layout-transition";
-export function lt(e, declaring, f) { Bound.set(e, () => { const d = node(null), [l, o] = [Listener, Owner]; Listener = Owner = d; try { return declaring.includes(f()); } catch { return false; } finally { Listener = l; Owner = o; drop(d); } }); onEnd(() => Bound.delete(e)); pr(e); } // a bound layout transition (GitHub #809): whether its binding names a value that declares it, read as its effect reads (the committed clock)
-// As wasm's ops: before the tree update a view gaining the row; after, each whose declaration changed (a create: not a restyle, as paint.js keeps a ghost parent's isolation).
-const gains = () => { const ops = []; for (const [e, will] of Bound) { e.$lt = !!e.style.getPropertyValue(LT); if (!e.$lt && e.isConnected && will()) ops.push({ op: "style", id: viewId(e), css: LT }); } return ops; };
-const restyled = () => { const ops = []; for (const e of Bound.keys()) { const now = !!e.style.getPropertyValue(LT); if (e.isConnected && e.$lt !== now) ops.push({ op: "create", id: viewId(e) }); e.$lt = now; } return ops; };
 export function pr(e) {
-  Created.push(e);
+  Present?.create(e);
   if (Presence || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
   Presence = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => { globalThis.exact ??= {}; return Promise.all([import("./presence-glue.js"), import("./shared.js").then(m => { Sh = m; })]); })
     .then(() => {
       const x = globalThis.exact;
       Pres = x.presenceLive = x.presence(document.getElementById("exact-root"));
-      Created.length = 0;
-      // After a commit's tree: which views declare the row now (the created
-      // ones), and every tracked one that moved plays back from where it was.
-      Present = () => Pres.after({ ops: [...Created.splice(0).filter(e => e.isConnected).map(e => ({ op: "create", id: viewId(e) })), ...restyled()] }, Views);
-      // A removed region node that declares an exit leaves with it (the
-      // kernel's `exit`: a destroyed root whose parent stays).
-      Leave = n => {
-        const css = n.nodeType === 1 && n.style.getPropertyValue("--exact-exit-animation").trim();
-        if (css) Pres.exit(n, css);
-        if (!exiting(n) && !sheetLeaves(n)) n.remove();
-      };
+      Present = Sh.presence(Pres, n => exiting(n) || sheetLeaves(n)); Leave = Present.leave;
     })
     .catch(err => say(`presence: unavailable; motion skipped: ${err.message}`)).finally(() => inflight.n--);
 }
