@@ -34,6 +34,7 @@ import { appGrantSet, coversPath } from "./admission.js";
 import { samples, groupOf } from "./samples.js";
 import { wakes, REFUSED } from "./wakes.js";
 import { reach } from "./reach.js";
+import { updates } from "./update.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -477,6 +478,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   });
   // ---- a send that answers nothing, and its declared substitute (LLP 1133.004 D5, §7)
   const lists = new Map(), setValues = new Map(), effects = [];
+  const up = updates({ lists, rows: () => byKey.values(), say, now, changed: state => listedChanged(state),
+    raise: (row, event, tap, fields) => raise(`${extensionOf(row)}.${event}`, entryArgs(tap, fields), "app") });
   const rc = reach({ say, announce: keys => reask(keys), preferred: key => preferred.get(key) });
   const listOf = row => [...byKey.values()].filter(r => extensionOf(r) === extensionOf(row) && r.sub.list).map(r => r.sub.list.state);
   const applyEffect = (row, args) => {
@@ -485,10 +488,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     const name = row.key.split(".")[1], sub = row.sub;
     if (sub.list) {
       // A registration's kind keys it beside its key (LLP 1133.017 §10).
+      const fields = { ...Object.fromEntries(Object.keys(row.options ?? {}).map(k => [k, null])), ...args, ...(sub.list.kind ? { kind: sub.list.kind } : {}) };
+      const refused = up.listing(sub.list, fields);
+      if (refused) { say(`${name}: refused: ${refused}`); return { error: refused }; }
       const entries = lists.get(sub.list.state) ?? [], value = args[sub.list.key] ?? null, ref = nextTicket(), kind = sub.list.kind;
       const same = e => e.fields[sub.list.key] === value && e.fields.kind === kind, replaced = value == null ? null : entries.find(same)?.ref;
       const kept = value == null ? entries : entries.filter(e => !same(e));
-      kept.push({ ref, row, fields: { ...Object.fromEntries(Object.keys(row.options ?? {}).map(k => [k, null])), ...args, ...(kind ? { kind } : {}) } });
+      kept.push({ ref, row, fields });
       lists.set(sub.list.state, kept);
       say(`${name}: listed${typeof value === "string" ? ` (${value})` : ""} @${ref}`);
       if (kind) wk.registered(ref, replaced);
@@ -500,6 +506,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       for (const state of listOf(row)) { lists.set(state, (lists.get(state) ?? []).filter(e => e.fields[unlist] !== args[unlist] || (unkind != null && e.fields.kind !== unkind))); listedChanged(state); }
       say(`${name}: unlisted`);
     }
+    if (sub.update) return up.update(name, sub.update, args);
     if (sub.set) {
       const from = sub.set.from, given = from ? args[from] : undefined;
       const value = !from ? (sub.set.value ?? null) : given == null ? (sub.set.absent ?? null) : given === 0 ? (sub.set.zero ?? null) : given;
@@ -575,12 +582,15 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     }
   };
   /** An entry's click (§7): its `navigate` field opened, else its event raised as an activation. */
+  // An entry's tap's event arguments: each a field of the entry, an object of its fields (or literals, where a value
+  // is no field's name), or a literal.
+  const entryArgs = (tap, entry) => (tap.args ?? []).map(a => typeof a === "string" ? entry[a] ?? null
+    : a && typeof a === "object" ? Object.fromEntries(Object.entries(a).map(([k, f]) => [k, typeof f === "string" ? entry[f] ?? null : f])) : a);
   const activate = (row, entry, ref) => {
     const tap = row.sub.list.tap ?? {}, location = tap.navigate ? entry[tap.navigate] : null;
     if (typeof location === "string") { navigateRoot(locationOf(location)); return { ref, navigate: location, delivery: "substituted" }; }
     if (!tap.event) return { ref, delivery: "substituted" };
-    const args = (tap.args ?? []).map(a => typeof a === "string" ? entry[a] ?? null : a && typeof a === "object" ? Object.fromEntries(Object.entries(a).map(([k, f]) => [k, entry[f] ?? null])) : a);
-    raise(`${extensionOf(row)}.${tap.event}`, args, "app");
+    raise(`${extensionOf(row)}.${tap.event}`, entryArgs(tap, entry), "app");
     return { ref, event: tap.event, delivery: "substituted" };
   };
   // The handlers a handle's work may call back (LLP 1133.016 D15 item 1): those its call's `handlers` path lists
@@ -899,8 +909,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const entry = req.op === "tap" && [...lists.values()].flat().find(e => e.ref === req.ticket);
       if (entry) {
         if (!delivered(entry)) return { error: `@${req.ticket} is not delivered yet: advance the clock past its time` };
-        // A registration's tap is a wake, and leaves it listed.
+        // A registration's tap is a wake, and leaves it listed; a call's takes the person's choice and leaves it listed.
         if (entry.row.sub.list.tap?.as === "wake") return wk.tap(entry);
+        if (req.choice != null || up.chooses(entry)) return req.choice == null ? { error: `@${req.ticket} takes a choice: tap @${req.ticket} <choice>` } : up.choose(entry, req.choice);
         const state = entry.row.sub.list.state;
         lists.set(state, lists.get(state).filter(e => e !== entry));
         say(`${state} @${req.ticket}: tapped`);

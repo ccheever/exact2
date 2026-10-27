@@ -1,3 +1,5 @@
 {
-  "purpose.notifications": "Harmony tells you when someone mentions you."
+  "purpose.notifications": "Harmony tells you when someone mentions you.",
+  "purpose.microphone": "Harmony records a few seconds in a test call and plays them back to you.",
+  "purpose.calls": "Harmony shows its test call in the system's call screen."
 }

@@ -11,7 +11,8 @@ export const appId = 'com.example.harmony';            // app.json's "app": { "i
 // The Snapback origin: `snapback4 dev --port 4400` in the directory above; `.exact/backend-origin` overrides it at bake.
 const origin = 'http://127.0.0.1:4400';
 export const grants = `net.fetch ${origin}\nsqlite.open app:/data\nfs.read app:/data\nfs.write app:/data
-device.background-sync\ndevice.periodic-background-sync\ndevice.notifications purpose.notifications`;
+device.background-sync\ndevice.periodic-background-sync\ndevice.notifications purpose.notifications
+device.microphone purpose.microphone\ndevice.calls purpose.calls\nfs.read app:/cache/test-call\nfs.write app:/cache/test-call`;
 
 const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `harmony-${persona}`, origin,
   viewer: `dev:${persona}`, headers: () => ({ 'x-snapback-persona': persona }) }));
@@ -213,6 +214,11 @@ const sources: Sources = {
   live: ([persona, _epoch]) => live(persona),
   flushOutbox: ([tag, open], _store, storage, native) => flushOutbox(tag, open, storage, native),
   catchUpMentions: ([persona], _store, storage, native) => catchUpMentions(persona, storage, native),
+  // The test call's take, deleted once it has played back or the call ended early.
+  discardTestCall: async ([path], _store, storage) => {
+    try { await storage.fs.rm(path); } catch { /* already gone */ }
+    return { path };
+  },
   snapshot: ([persona, roomId, q, now, offset, _seq], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'snapshot'>> => {
     const round = unshown.delete(persona) ? { ok: lastOnline } : await db.sync();
     lastOnline = round.ok;

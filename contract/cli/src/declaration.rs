@@ -609,6 +609,9 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
                 "`origin` is \"app\", \"person\", or {\"whenAny\": [its options], \"is\": \"app\"}",
             )?,
             "foreground" => check(value.is_boolean(), "`foreground` is true or false")?,
+            // A `foreground` name admitted while hidden when the app holds a
+            // call, on iOS and Android (LLP 1133.033 D10).
+            "inCall" => check(value.is_boolean(), "`inCall` is true or false")?,
             // A source whose answers are the person's own data, which no
             // tool's result may read (LLP 1133.026 D7, D19 item 6).
             "person" => check(value.is_boolean(), "`person` is true or false")?,

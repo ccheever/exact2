@@ -19,6 +19,10 @@
 //! - **Checks** every route holds a call to (`"checks"`, LLP 1133.030 D2):
 //!   exactly `one` of some options, an instant option `after` now, options
 //!   at least a `min`, options `nonEmpty`, each refused with its `error`.
+//! - **An entry that changes** (`update.rs`, LLP 1133.033 D21): a list's
+//!   `with`, `absent`, `stamp`, `refuse`, `ends` and `inCall`; `when`'s
+//!   alternatives, `set`'s value forms, and a choice's own `when`, `set`
+//!   and `event`, so a call is listed and its state moves.
 //! - **A value** in the agent's state: `"set": {"state", "scope", "from",
 //!   "absent", "zero"}` sets it from the option `from` (`absent` when the
 //!   call leaves it out, `zero` for 0), or to `value`. `"scope": "app"`
@@ -40,6 +44,7 @@ use std::sync::{Arc, Mutex};
 
 mod app_list;
 mod reach;
+mod update;
 mod wake_list;
 
 /// The host's app-wide state: one per app, shared by its sessions.
@@ -330,6 +335,10 @@ impl<D: DataSource> Runner<D> {
             self.apply_update(row, args)?;
         }
         if let Some(list) = sub["list"].as_object() {
+            if let Err(code) = self.listing(&extension, list, &mut fields) {
+                self.log(format!("{declared}: refused: {code}"));
+                return Err(json!({ "error": code }));
+            }
             let state = list["state"].as_str().unwrap_or("listed").to_owned();
             let key = list["key"].as_str().unwrap_or_default().to_owned();
             let value = fields.get(&key).cloned().unwrap_or(Json::Null);
@@ -781,15 +790,19 @@ impl<D: DataSource> Runner<D> {
 }
 
 /// The event's arguments a listed entry's tap declares: each a field of the
-/// entry, an object of its fields, or a literal.
-fn entry_args(tap: &Json, entry: &Json) -> Vec<Json> {
+/// entry, an object of its fields (or literals, where a value is no field's
+/// name), or a literal.
+pub(super) fn entry_args(tap: &Json, entry: &Json) -> Vec<Json> {
     (tap["args"].as_array().into_iter().flatten())
         .map(|a| match a {
             Json::String(field) => entry.get(field).cloned().unwrap_or(Json::Null),
             Json::Object(map) => Json::Object(
                 map.iter()
                     .map(|(k, f)| {
-                        let v = f.as_str().and_then(|f| entry.get(f)).cloned();
+                        let v = match f {
+                            Json::String(f) => entry.get(f).cloned(),
+                            literal => Some(literal.clone()),
+                        };
                         (k.clone(), v.unwrap_or(Json::Null))
                     })
                     .collect(),

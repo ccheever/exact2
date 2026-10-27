@@ -51,6 +51,7 @@
     "@exact/altimeter": "workspace:*",
     "@exact/barcode-detection": "workspace:*",
     "@exact/text-detection": "workspace:*",
-    "@exact/translation": "workspace:*"
+    "@exact/translation": "workspace:*",
+    "@exact/calls": "workspace:*"
   }
 }

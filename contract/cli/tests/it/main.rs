@@ -247,6 +247,7 @@ mod visible_fields;
 mod vision_translation;
 mod visual;
 mod vocab;
+mod voip_calls;
 mod vscode_grammar;
 mod wakelock;
 mod warnings;

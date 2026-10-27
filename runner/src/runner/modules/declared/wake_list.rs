@@ -54,7 +54,7 @@ pub(super) struct Meta {
 }
 
 impl<D: DataSource> Runner<D> {
-    fn epoch_now(&self) -> f64 {
+    pub(super) fn epoch_now(&self) -> f64 {
         self.time.epoch_at_zero + self.now_ms
     }
 

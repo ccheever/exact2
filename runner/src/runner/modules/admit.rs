@@ -731,7 +731,16 @@ impl<D: DataSource> Runner<D> {
         if applies && app_only && origin != CallOrigin::App && !joins {
             return Err(format!("person-required ({} origin)", origin.word()));
         }
-        if applies && sub["foreground"] == true && self.page.hidden {
+        // A call the app holds admits a capture's start while hidden on iOS
+        // and Android, whose platforms keep a call's microphone (LLP 1133.033
+        // D10); the origin rule above has refused a tool's and a wake's.
+        let calling = || {
+            sub["inCall"] == true
+                && matches!(super::ceremony::target(), "ios" | "android")
+                && origin == CallOrigin::App
+                && self.in_call()
+        };
+        if applies && sub["foreground"] == true && self.page.hidden && !calling() {
             return Err("not in the foreground".into());
         }
         Ok(())
