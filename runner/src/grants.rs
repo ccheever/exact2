@@ -136,18 +136,21 @@ pub fn refusal(errors: &[String]) -> String {
 /// D9), by the host's auth arm (`auth.*`, LLP 1069.006), by the host's
 /// kept documents (`doc.keep`, LLP 1069.010.000 D7), by the module
 /// admission of `@exact/browser-automation`'s names (`browser.automation`,
-/// LLP 1020.002 D9) and of `@exact/local-network`'s service types
-/// (`net.dns-sd <type>`, LLP 1133.036 D7), never by the I/O executor's
-/// grammar; and the desktop-process lines (`process.spawn`, `env.read
-/// login:`, `secret.hold`, LLP 1133.007 §6), which the runner and the data
-/// executor read with `exact_grants::process`, and `net.listen`, which the
-/// listener checks (LLP 1133.005 D11).
+/// LLP 1020.002 D9), of `@exact/local-network`'s service types
+/// (`net.dns-sd <type>`, LLP 1133.036 D7) and of `@exact/payments`'s
+/// (`payment.*`, LLP 1133.034 D13), never by the I/O executor's grammar;
+/// and the desktop-process lines (`process.spawn`, `env.read login:`,
+/// `secret.hold`, LLP 1133.007 §6), which the runner and the data executor
+/// read with `exact_grants::process`, and `net.listen`, which the listener
+/// checks (LLP 1133.005 D11).
 pub(crate) fn own(line: &str) -> bool {
     line == "doc.keep"
         || exact_grants::process::is_process_line(line)
         || line.starts_with("net.dns-sd ")
         || line.split_whitespace().next() == Some("net.listen")
         || line == "browser.automation"
+        || line == "payment.google-pay"
+        || line.starts_with("payment.apple-pay ")
         || line.starts_with("surface.read ")
         || line.starts_with("surface.write ")
         || crate::device::is_device_line(line)

@@ -288,6 +288,28 @@ class ExtensionContext internal constructor(val application: Context, private va
      */
     fun startActivityForResult(intent: android.content.Intent, done: (Int, android.content.Intent?) -> Unit) = Extensions.start(intent, done)
 
+    /** [startActivityForResult] for a [android.content.IntentSender]: a Play services resolution's (Google Pay's sheet). */
+    fun startIntentSenderForResult(sender: android.content.IntentSender, done: (Int, android.content.Intent?) -> Unit) = Extensions.start(sender, done)
+
+    /**
+     * The app's handler [handler] run for the work [handle] names (LLP 1133.016 D15 item 1): one the call that made
+     * the handle listed, run by the runner as a fresh answer whose origin is at most `tool`. [reply] gets
+     * `{"text": JSON}` or `{"error", "message"}`, on the main thread.
+     */
+    fun invoke(handle: String, handler: String, args: JSONObject, reply: (JSONObject) -> Unit) {
+        val body = JSONObject().put("extension", name).put("handle", handle).put("handler", handler).put("args", args)
+        val id = try { Native.invoke(body.toString()) } catch (e: UnsatisfiedLinkError) { -1 }
+        if (id < 0) return reply(JSONObject().put("error", "InvalidStateError").put("message", "no session runs"))
+        // The answer lands on the host's turn; the main thread reads it a frame at a time.
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        lateinit var poll: Runnable
+        poll = Runnable {
+            val answer = try { Native.invoked(id) } catch (e: UnsatisfiedLinkError) { "{\"error\":\"InvalidStateError\"}" }
+            if (answer != null) reply(JSONObject(answer)) else main.postDelayed(poll, 16)
+        }
+        main.post(poll)
+    }
+
     /**
      * Whether the embedder lets the app leave for [url] (LLP 1133.024 D22 item 7), [how] `browser` (a page over the
      * app) or `external` (another app): asked before a page or a hand-off by URL opens. The stock activity lets every
@@ -586,6 +608,19 @@ internal object Extensions {
         try {
             activity.startActivityForResult(intent, code)
         } catch (e: android.content.ActivityNotFoundException) {
+            results.remove(code)
+            done(Activity.RESULT_CANCELED, null)
+        }
+    }
+
+    fun start(sender: android.content.IntentSender, done: (Int, android.content.Intent?) -> Unit) {
+        val activity = Exact.reader?.get()
+        if (activity == null || !foreground) return done(Activity.RESULT_CANCELED, null)
+        val code = RESULTS + (started++ % 0x1000)
+        results[code] = done
+        try {
+            activity.startIntentSenderForResult(sender, code, null, 0, 0, 0)
+        } catch (e: android.content.IntentSender.SendIntentException) {
             results.remove(code)
             done(Activity.RESULT_CANCELED, null)
         }

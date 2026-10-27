@@ -306,6 +306,7 @@ fn call(
                     .and_then(|f| member(&name, &f.ty, &value))
                     .or_else(|| bounded(m, option, &value, surfaces))
                     .or_else(|| literal(m, option, &value))
+                    .or_else(|| handler(m, option, &value))
                 {
                     errors.push(e);
                 } else {
@@ -516,6 +517,23 @@ fn literal(m: &ModuleDecl, option: &str, value: &Expr) -> Option<CompileError> {
             "contract-module-literal",
             format!(
                 "`{}`'s `{option}` is written out, a list of literals: the permissions it asks are derived from it at bake",
+                m.declared
+            ),
+            value.span(),
+        )
+    })
+}
+
+/// A handler named by anything but a string literal (LLP 1133.034 D5): the
+/// runner admits the module's call back by the name the call wrote.
+fn handler(m: &ModuleDecl, option: &str, value: &Expr) -> Option<CompileError> {
+    let sub: serde_json::Value = serde_json::from_str(&m.substitute).unwrap_or_default();
+    let named = (sub["handlerOptions"].as_array().into_iter().flatten()).any(|o| o == option);
+    (named && !matches!(value, Expr::Str(..))).then(|| {
+        error(
+            "contract-module-literal",
+            format!(
+                "`{}`'s `{option}` names a function of the data module's `tools` by a string literal, `{option}=\"placeOrder\"`",
                 m.declared
             ),
             value.span(),

@@ -58,6 +58,7 @@ mod poll;
 mod presence;
 mod samples;
 mod services;
+mod sheet;
 mod spans;
 mod stale;
 mod values;
@@ -164,6 +165,8 @@ pub(super) struct Extensions {
     /// The handles whose work may call the app's handlers, and the handlers
     /// running (`invoke.rs`).
     invocations: invoke::Invocations,
+    /// The payment sheets the substitute holds (`sheet.rs`).
+    sheets: sheet::Sheets,
     /// The last number a forwarded send was given, and each send in flight
     /// by ticket: its `extension.send` and number, which a `cancel` names
     /// when it is let go (`bound.rs`).
@@ -488,6 +491,7 @@ impl<D: DataSource> Runner<D> {
             self.publish_sync();
         }
         self.spans_due(now_ms);
+        self.sheet_deadlines(now_ms);
         let due: Vec<(u64, u64)> = (self.extensions.held.iter())
             .filter(|h| h.waits != Waits::Span && h.deadline.is_some_and(|d| d <= now_ms))
             .map(|h| (h.token, h.hold))
@@ -817,8 +821,11 @@ impl<D: DataSource> Runner<D> {
         self.extensions.next += 1;
         let name = self.target_name(target);
         let permission = self.permission_name(&row, &args);
+        // One sheet at a time (`ceremony.rs`): behind a modal one, no ticket yet.
+        let queued = waits == Waits::Ceremony && self.ceremony_begins(&row);
         let (hold, deadline) = match waits {
             Waits::Span => (u64::MAX, Some(self.span_deadline(&row, &args))),
+            _ if queued => (u64::MAX, None),
             _ => (
                 self.device_hold(&row, name, waits, origin, &permission, &args),
                 timeout
@@ -842,9 +849,12 @@ impl<D: DataSource> Runner<D> {
             args,
             permission,
             request: None,
-            queued: false,
+            queued,
         });
         self.arrival_claimed(&row);
+        if waits == Waits::Ceremony && !queued {
+            self.sheet_opened(token);
+        }
         let verb = if row.send { "send" } else { "source" };
         let body =
             json!({ "extension": self.plan.str(row.extension), verb: self.plan.str(row.declared) });
@@ -1104,12 +1114,14 @@ impl<D: DataSource> Runner<D> {
                 if let Some(n) = v["request"].as_u64() {
                     body = numbered(&body, n);
                 }
+                let anchored = self.anchor_body(&row, &body, origin);
                 // A reply carrying handles grants them the handlers its call
                 // listed (`invoke.rs`); a watched one's `watched` grants them.
                 let work = match request {
                     Some(ticket) => self.watched(body, ticket),
                     None => self.granting(&row, &body.clone(), self.to_implementation(body)),
                 };
+                let work = self.unanchoring(anchored, work);
                 Some(match (sampled, reader) {
                     (Some(decl), samples::Reader::Data(id)) => {
                         self.cursored(work, id, decl["cursor"].as_str().unwrap_or("sequence"))
@@ -1184,6 +1196,9 @@ impl<D: DataSource> Runner<D> {
                         &held_args,
                         if queued { "queued" } else { "held" },
                     );
+                    if !queued {
+                        self.sheet_opened(token);
+                    }
                 }
                 Some(Dispatch::Run(Work::Later(Box::new(move |reply| {
                     let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
@@ -1253,7 +1268,7 @@ impl<D: DataSource> Runner<D> {
         let h = self.extensions.held.iter().find(|h| h.hold == ticket)?;
         if h.waits == Waits::Ceremony {
             let row = self.module_row(&h.source);
-            let typed = self.ceremony_typed(&row, &h.args, text);
+            let typed = self.ceremony_typed(&row, &h.args, h.token, text);
             return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
         }
         if h.waits == Waits::Choose {
@@ -1339,8 +1354,9 @@ impl<D: DataSource> Runner<D> {
         self.cancel_let_go();
         self.let_go_data_calls();
         self.prune_origins();
+        self.sheets_let_go();
         let gone: Vec<u64> = (self.extensions.held.iter())
-            .filter(|h| h.reply.is_none())
+            .filter(|h| h.reply.is_none() && !self.sheet_kept(h.token))
             .filter(|h| !self.pending.iter().any(|p| p.continuation == Some(h.token)))
             .map(|h| h.hold)
             .collect();

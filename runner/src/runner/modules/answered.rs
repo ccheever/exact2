@@ -8,7 +8,10 @@ use serde_json::json;
 impl<D: DataSource> Runner<D> {
     /// The agent answered hold `hold`, already spent: §6's transitions.
     pub(in crate::runner) fn module_answered(&mut self, hold: u64, answer: &HoldAnswer) {
-        if self.effect_answered(hold, answer) || self.each_answered(hold, answer) {
+        if self.effect_answered(hold, answer)
+            || self.each_answered(hold, answer)
+            || self.sheet_answered_hold(hold, answer)
+        {
             return;
         }
         let Some(h) = self.extensions.held.iter().find(|h| h.hold == hold) else {
@@ -109,7 +112,7 @@ impl<D: DataSource> Runner<D> {
                 self.release(token, answer);
             }
             (Waits::Ceremony, HoldAnswer::Value(text)) => {
-                if let Ok(response) = self.ceremony_typed(&row, &held_args, text) {
+                if let Ok(response) = self.ceremony_typed(&row, &held_args, token, text) {
                     self.release(token, response);
                 }
             }

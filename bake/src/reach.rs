@@ -315,6 +315,7 @@ pub(crate) fn derive(
     android.sort_unstable();
     android.dedup();
     let auth = auth(&ceiling, platform, compat)?;
+    let payments = payment_lines(&ceiling)?;
     compat.reach = json!({
         "base": base,
         "locales": strings.as_ref().map(|s| s.tables.keys().cloned().collect::<Vec<_>>()),
@@ -326,6 +327,7 @@ pub(crate) fn derive(
         "helperEntitlements": helpers,
         "tvOmits": tv_omits,
         "auth": auth,
+        "payments": payments,
     });
     if !modes.is_empty() {
         compat.reach["backgroundModes"] = json!(modes);
@@ -682,6 +684,40 @@ fn passkey_rp_ids(ceiling: &str) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
+/// The wallets `payment.*` grants (LLP 1133.034 D13): each Apple Pay
+/// merchant ID (`payment.apple-pay merchant.com.example.app`), which the
+/// Apple build lists in `com.apple.developer.in-app-payments`, and whether
+/// Google Pay is granted (`payment.google-pay`, no target), which derives
+/// Android's `wallet.api.enabled` meta-data and the callbacks service.
+fn payment_lines(ceiling: &str) -> Result<Value, String> {
+    let mut merchants: Vec<String> = Vec::new();
+    let mut google = false;
+    for line in ceiling.lines().map(str::trim) {
+        let mut words = line.split_whitespace();
+        match (words.next(), words.next(), words.next()) {
+            (Some("payment.google-pay"), None, _) => google = true,
+            (Some("payment.google-pay"), Some(_), _) => {
+                return Err(format!("grant-payment: `{line}`: `payment.google-pay` names no target (LLP 1133.034 D13)"))
+            }
+            (Some("payment.apple-pay"), Some(id), None)
+                if id.starts_with("merchant.")
+                    && id.split('.').all(|l| {
+                        !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                    }) =>
+            {
+                if !merchants.iter().any(|m| m == id) {
+                    merchants.push(id.to_owned());
+                }
+            }
+            (Some("payment.apple-pay"), _, _) => {
+                return Err(format!("grant-payment: `{line}`: `payment.apple-pay` takes one merchant ID, `merchant.` and a reverse domain, such as `merchant.com.example.app` (LLP 1133.034 D13)"))
+            }
+            _ => {}
+        }
+    }
+    Ok(json!({ "merchantIds": merchants, "googlePay": google }))
+}
+
 /// Who enforces a device line: the OS's prompt (from the key the build
 /// writes), the served web's policy, and which source declared it. No
 /// first-party device capability ships yet, so no row claims the runtime.
@@ -709,6 +745,9 @@ fn family_enforcement(line: &str) -> &'static str {
             "the runner's admission (the RP ID); the platform's association check (Apple, Android)"
         }
         "doc.keep" => "the host's kept documents (macOS; Linux and the web keep nothing yet)",
+        "payment.apple-pay" | "payment.google-pay" => {
+            "the runner's admission (the merchant ID); the wallet's own merchant check (Apple, Google)"
+        }
         _ => "runtime",
     }
 }

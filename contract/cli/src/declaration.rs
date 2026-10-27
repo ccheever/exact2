@@ -773,6 +773,14 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     if !literal.is_empty() {
         out.insert("literal".into(), Value::Array(literal));
     }
+    // The options that name a handler, each a string literal (LLP 1133.034 D5).
+    let handlers: Vec<Value> = (object(&entry["options"]).iter())
+        .filter(|(_, ty)| ty.as_str().is_some_and(|t| bare(t).0 == "handler"))
+        .map(|(option, _)| Value::String(option.clone()))
+        .collect();
+    if !handlers.is_empty() {
+        out.insert("handlerOptions".into(), Value::Array(handlers));
+    }
     if let Value::Array(permissions) = &interface["permission"] {
         permission_templates(entry, name, permissions, &mut out)?;
     }
@@ -924,6 +932,46 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
                 value.is_boolean() && entry["live"] == true && !entry["source"].is_null(),
                 "`kept` is true or false, on a live source",
             )?,
+            // The handler options a pending call may call back through
+            // `invoke`, each marked `final` when, once called, it holds the
+            // call against its cancel (LLP 1133.034 D16 item 1).
+            "callbacks" => check(
+                (value.as_object()).is_some_and(|by| {
+                    by.iter().all(|(option, spec)| {
+                        (object(&entry["options"])[option].as_str())
+                            .is_some_and(|t| bare(t).0 == "handler")
+                            && spec.is_object()
+                            && (spec["final"].is_null() || spec["final"].is_boolean())
+                    })
+                }),
+                "`callbacks` names its handler options, each `{}` or `{\"final\": true}`",
+            )?,
+            // The package view whose press the web's call adopts (D16 item 7).
+            "adopts" => check(
+                value.as_str().is_some_and(|v| !interface["views"][v].is_null()),
+                "`adopts` names one of the interface's views",
+            )?,
+            // The dictionaries of each payment method, by `supportedMethods`
+            // (D16 item 4): the keys of its `data` and of a modifier's, the
+            // grant line it needs, the targets that have it, the keys that
+            // exclude one another, and the keys refused with a code.
+            "methods" => check(
+                (value.as_object()).is_some_and(|by| {
+                    by.values().all(|m| {
+                        let names = |k: &str| {
+                            m[k].is_null()
+                                || (m[k].as_array()).is_some_and(|l| l.iter().all(Value::is_string))
+                        };
+                        names("data")
+                            && names("modifier")
+                            && names("targets")
+                            && names("exclusive")
+                            && m["grant"].is_string()
+                            && (m["refuse"].is_null() || m["refuse"].is_object())
+                    })
+                }),
+                "`methods` gives each method's `grant`, and lists its `data`, `modifier`, `targets` and `exclusive` keys",
+            )?,
             "handlersFrom" => check(
                 value.as_str().is_some_and(|o| {
                     (object(&entry["options"])[o].as_str())
@@ -947,7 +995,9 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
 /// argument is given, or a line whose target must be the argument's value
 /// (`{"line": "auth.passkey", "matches": "target"}`, LLP 1133.011 D6), with
 /// the code a refusal answers (`refuse`) and what an omitted argument stands
-/// for (`"omitted": "page"`: the page's host on the web; none elsewhere).
+/// for (`"omitted": "page"`: the page's host on the web; none elsewhere). A
+/// path through a list (`methodData[].data.merchantIdentifier`) matches each
+/// element whose fields are `when`'s (LLP 1133.034 D13).
 fn argument_grant(spec: &Value) -> bool {
     match spec {
         Value::String(_) => true,
@@ -957,8 +1007,13 @@ fn argument_grant(spec: &Value) -> bool {
                 && o.get("matches").is_none_or(|m| m == "target")
                 && o.get("refuse").is_none_or(Value::is_string)
                 && o.get("omitted").is_none_or(|m| m == "page")
-                && (o.keys())
-                    .all(|k| matches!(k.as_str(), "line" | "matches" | "refuse" | "omitted"))
+                && o.get("when").is_none_or(Value::is_object)
+                && (o.keys()).all(|k| {
+                    matches!(
+                        k.as_str(),
+                        "line" | "matches" | "refuse" | "omitted" | "when"
+                    )
+                })
         }
         _ => false,
     }
@@ -1189,8 +1244,9 @@ fn images_checked(images: &Map<String, Value>) -> Result<(), String> {
 /// the app's strings table, `handle<kind>`, the id of a native object the
 /// session holds (LLP 1133.009 D10 item 10), `surface`, a canvas's surface
 /// name (LLP 1133.013 D12 item 3), `color`, a CSS colour (LLP 1133.022 D10
-/// item 2), or `json<T>`, a WebAuthn dictionary passed whole (LLP 1133.011
-/// D10); each is a string here. `unit` answers nothing.
+/// item 2), `json<T>`, a WebAuthn dictionary passed whole (LLP 1133.011
+/// D10), or `handler`, a function of the data module's `tools` (LLP
+/// 1133.034 D5); each is a string here. `unit` answers nothing.
 fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     let ty = ty.trim();
     if let Some(inner) = ty.strip_suffix("[]") {
@@ -1212,6 +1268,11 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
     // One of the app's shapes by name, which the bake writes as its JSON
     // Schema (LLP 1133.016 D15 item 4): a string to Contract.
     if ty == "shape-name" {
+        return Ok(TypeExpr::Named("string".to_owned(), span));
+    }
+    // A function of the data module's `tools` the module calls back while
+    // its call is pending, named by a string literal (LLP 1133.034 D5).
+    if ty == "handler" {
         return Ok(TypeExpr::Named("string".to_owned(), span));
     }
     let named = match ty {

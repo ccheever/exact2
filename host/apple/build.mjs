@@ -52,7 +52,7 @@ import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
-import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, signInEntitlement } from './presence.mjs';
+import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { backgroundKeys, localNetworking, nfcKeys, transportSecurity } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
@@ -329,13 +329,11 @@ export const appClip = (app) => {
   return { id, name, executable: executableName({ id, displayName: name ?? '' }) };
 };
 
-/** Device identity comes from the profile. Simulators need an app identity too:
- * Keychain's default access group is the application-identifier. A
- * simulator's is `SIMULATORX.<id>`, with the bare id it had before kept as a
- * second Keychain group so items stored then still read and update in place
- * (D3, measured). The grants' signing entitlements (`reach.entitlements`,
- * D2) are each `true`. */
-export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false, prefix = team } = {}) => {
+/** Device identity comes from the profile. Simulators need an app identity too: Keychain's default access group
+ * is the application-identifier. A simulator's is `SIMULATORX.<id>`, with the bare id it had before kept as a
+ * second Keychain group so items stored then still read and update in place (D3, measured). The grants' signing
+ * entitlements (`reach.entitlements`, D2) are each `true`. `allows`: the signing profile's entitlements. */
+export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false, prefix = team, allows = [] } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   const prefixed = `${SIMULATOR_PREFIX}.${app.id}`;
   const dict = {
@@ -369,6 +367,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
   for (const name of reach?.entitlements ?? []) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
+  Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }));
   return plistFile({ ...dict, ...signInEntitlement(reach?.auth, simulator && !team) });
 };
 

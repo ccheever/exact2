@@ -101,3 +101,12 @@ export function macPasskeys(app, ceiling, { release = false, log = console.log }
   if (release) throw new Error(`grant-needs-profile: ${lines}: ${why}.`);
   log(`Passkeys: this build signs no associated domain, since ${why}: getClientCapabilities().available is false and create and get fail NotSupportedError.`);
 }
+
+/** @ref LLP 1133.034 D13 — the `payment.apple-pay` grants' merchant IDs, where they can be signed: on a simulator, or
+ * with a profile whose entitlements (`allows`) include Apple Pay's. Elsewhere (an ad hoc Mac build) Apple Pay is
+ * unavailable, and a profile without it would refuse the build. */
+export function merchantEntitlement(reach, { simulator = false, team = null, allows = [] } = {}) {
+  const merchants = reach?.payments?.merchantIds ?? [];
+  const signable = (simulator && !team) || allows.includes('com.apple.developer.in-app-payments');
+  return merchants.length && signable ? { 'com.apple.developer.in-app-payments': merchants } : {};
+}

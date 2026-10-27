@@ -213,6 +213,11 @@ object Native {
     @JvmStatic external fun appFile(path: String): String?
     /** Whether extension [name] is told it runs under the agent ([ExtensionContext.agent]). Any thread. */
     @JvmStatic external fun underAgent(name: String): Boolean
+    /** A package's call of the app's handler, `{"extension", "handle", "handler", "args"}` (LLP 1133.016 D15 item 1):
+     *  its number, or -1 with no session; [invoked] reads its answer. */
+    @JvmStatic external fun invoke(body: String): Int
+    /** Call [id]'s answer as JSON, once; null while it has none. */
+    @JvmStatic external fun invoked(id: Int): String?
     /** Whether the page places a canvas of surface [name], as of the host's last turn ([ExtensionSurfaces]). Any
      * thread. */
     @JvmStatic external fun surfaceHas(name: String): Boolean
