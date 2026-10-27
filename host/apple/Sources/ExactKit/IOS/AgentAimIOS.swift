@@ -150,14 +150,16 @@ extension Agent {
     /// `node`'s place (a sheet over it, the keyboard), or nil: the tap that
     /// activates either is refused as a covered node's is.
     func drawnCovered(_ node: NodeView) -> String? {
-        let target: UIView, region: CGRect
-        if let (control, segment) = presenter.segments.drawn(node) { (target, region) = (control, segment) }
-        else if case .success(let (bar, frame))? = barItem(node) { (target, region) = (bar, frame) }
+        let target: UIView, region: CGRect, inBar: Bool
+        if let (control, segment) = presenter.segments.drawn(node) { (target, region, inBar) = (control, segment, false) }
+        else if case .success(let (bar, frame))? = barItem(node) { (target, region, inBar) = (bar, frame, true) }
         else { return nil }
         guard let win = target.window else { return nil }
         let p = target.convert(CGPoint(x: region.midX, y: region.midY), to: nil)
         awaitAppOverlay(at: p, in: win)
         guard let hit = win.hitTest(p, with: nil) else { return "its middle is off the window" }
+        // Take the item's own button, which UIKit hosts in a glass view outside the bar's views (iOS 26 and later), by the identifier it carries
+        if inBar, let id = node.props["testId"], sequence(first: hit, next: { $0.superview }).contains(where: { $0.accessibilityIdentifier == id }) { return nil }
         return obscured(target, at: p, hit: hit)
     }
 
