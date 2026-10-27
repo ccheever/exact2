@@ -289,8 +289,12 @@ component Harmony
   mutation callPaused as shape MediaRecorderInfo
   mutation callStopped as shape MediaStreamTrack
   mutation callDiscarded as shape Discarded
+  // The microphone or the recorder refused (no microphone here, or its permission denied): the call ends `failed`.
+  derive callUnopened = (match failure(callOpened) { case some(f) => true, case none => false }) or (match failure(callStarted) { case some(f) => true, case none => false })
   task testCallMic when callAudio and callPhase == "" key=callId
     after(1, testCallOpen)
+  task testCallRefused when callPhase == "opening" and callUnopened key=callId
+    after(1, testCallFailed)
   task testCallTake when callPhase == "recording" and not callHeld key=callRecorder
     after(5000, testCallStop)
   action testCallStart
@@ -338,6 +342,8 @@ component Harmony
   // The echo hangs up once the take has played back.
   action testCallPlayed
     testCallEnd(false)
+  action testCallFailed
+    testCallEnd(true)
   action testCallEnd(failed: bool)
     if inTestCall
       endCall(id=callId, reason=(failed ? "failed" : "remote"))
