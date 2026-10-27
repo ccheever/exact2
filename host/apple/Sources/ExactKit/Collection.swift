@@ -207,6 +207,9 @@ package final class CollectionHost {
         /// reports again with the same facts (a rescue just reported them,
         /// building only what shows).
         var lastLimit: UInt32?
+        /// A report the runner turned away (a revision it had moved past) carried measurements its newer snapshot
+        /// doesn't acknowledge: they're owed again, whether or not the port moves (`update`).
+        var owed = false
         var port: [Double]?
         /// The offset when the batch began: where the reader is. Rows that
         /// leave above a deep offset shrink the document first, and the
@@ -219,6 +222,12 @@ package final class CollectionHost {
     }
     weak var presenter: Presenter?
     var onFeedback: ((Data) -> Void)?
+    /// Whether the runner's snapshot row has taken measurement `m`: measured at that epoch, its height within the
+    /// runner's noise of the size and on the same side of zero (runner `SizeIndex::noise_at`, `MEASURE_NOISE`).
+    static func acknowledges(_ row: CollectionSnapshot.Row, _ m: CollectionMeasurement) -> Bool {
+        guard row.measured, row.epoch == m.epoch, let height = row.size else { return false }
+        return (height == 0) == (m.size == 0) && abs(height - m.size) <= 0.01
+    }
     var entries: [UInt32: Entry] = [:]
     var interaction: UInt32?
     var contactEvent: AnyObject?
@@ -407,7 +416,17 @@ package final class CollectionHost {
             glimpses.formIntersection(live)
             for snapshot in snapshots {
                 if let entry = entries[snapshot.view] {
-                    if snapshot.revision >= entry.snapshot.revision { entry.snapshot = snapshot }
+                    if snapshot.revision >= entry.snapshot.revision {
+                        // A row the last report measured, still in the newer snapshot at that epoch and not acknowledged
+                        // there: the runner hasn't taken that measurement (a report it turned away), so it's owed.
+                        if snapshot.revision > entry.snapshot.revision, let sent = entry.lastFacts?.measurements {
+                            let rows = Dictionary(snapshot.rows.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
+                            if sent.contains(where: { m in rows[m.view].map { $0.epoch == m.epoch && !Self.acknowledges($0, m) } ?? false }) {
+                                entry.owed = true
+                            }
+                        }
+                        entry.snapshot = snapshot
+                    }
                 } else { entries[snapshot.view] = Entry(snapshot) }
                 dirty.insert(snapshot.view)
                 if entries[snapshot.view]!.snapshot.pending { fillPending.insert(snapshot.view) }
@@ -714,19 +733,17 @@ package final class CollectionHost {
                 let glimpse = glimpsing.contains(id) && retireLimit == nil && limit != nil
                 let offMain = building?.view == id && same && retireLimit == nil && !glimpse ? building : nil
                 if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence
-                    || (entry.snapshot.pending && limit != 0) || further || retireLimit != nil {
+                    || (entry.snapshot.pending && limit != 0) || further || retireLimit != nil || entry.owed {
                     var report = facts
                     // A sent report may be rejected atomically. Only the
                     // runner's measured snapshot acknowledges a height;
                     // invalidated or unacknowledged sizes are sent again.
                     if let previous = entry.lastFacts, previous.cross == facts.cross {
-                        let known = Dictionary(uniqueKeysWithValues: entry.snapshot.rows.compactMap { row -> (UInt32, CollectionMeasurement)? in
-                            guard row.measured, let size = row.size else { return nil }
-                            return (row.view, CollectionMeasurement(view: row.view, epoch: row.epoch, size: size))
-                        })
-                        report.measurements.removeAll { known[$0.view] == $0 }
+                        let known = Dictionary(entry.snapshot.rows.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
+                        report.measurements.removeAll { m in known[m.view].map { Self.acknowledges($0, m) } ?? false }
                     }
                     entry.lastFacts = facts
+                    entry.owed = false
                     entry.lastSequence = entry.cursor.sequence
                     entry.lastLimit = limit
                     reported = true

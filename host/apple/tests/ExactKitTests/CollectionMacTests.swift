@@ -200,6 +200,39 @@ final class CollectionMacTests: XCTestCase {
         wait(for: [finished], timeout: 2)
         XCTAssertEqual(reports, 7)
     }
+    /// The window a turned-away report leaves (FeedbackRaceTests): the runner moved past the report's revision, and
+    /// its newer snapshot keeps the row at the same epoch, its size unacknowledged, the port unchanged. The facts equal
+    /// what was last sent, so only the owed rule reports the measurement again; a snapshot that acknowledges it owes nothing.
+    func testAMeasurementANewerSnapshotLeavesUnacknowledgedIsReportedAgain() {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        var reports = 0
+        p.collections.onFeedback = { _ in reports += 1 }
+        p.collections.flush()
+        XCTAssertEqual(reports, 1, "the report the runner will turn away: row 2 measured at 72")
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 2)]]]))
+        p.collections.flush()
+        XCTAssertEqual(reports, 2, "revision 2 leaves row 2 at epoch 7 unmeasured: its measurement is owed again")
+        var acknowledged = snapshot(revision: 3)
+        acknowledged["rows"] = [["view": 2, "root": 3, "epoch": 7, "size": 72.0, "measured": true]]
+        // A new turn (the continuation the last flush queued), so each flush below has a pass and reaches the rule.
+        func nextTurn() {
+            let turned = expectation(description: "the queued continuation runs")
+            DispatchQueue.main.async { turned.fulfill() }
+            wait(for: [turned], timeout: 2)
+        }
+        nextTurn()
+        p.apply(batch([["op": "collections", "items": [acknowledged]]]))
+        p.collections.flush()
+        XCTAssertEqual(reports, 2, "a snapshot that measures it at that size owes nothing")
+        // Within the runner's noise (it keeps a measured height a remeasure differs from by 0.01 or less): acknowledged.
+        var denoised = snapshot(revision: 4)
+        denoised["rows"] = [["view": 2, "root": 3, "epoch": 7, "size": 72.004, "measured": true]]
+        nextTurn()
+        p.apply(batch([["op": "collections", "items": [denoised]]]))
+        p.collections.flush()
+        XCTAssertEqual(reports, 2, "a height within the runner's noise acknowledges the measurement")
+    }
     func testActivationRetriesUnchangedFactsOnce() {
         let (p, _) = fixture()
         defer { p.collections.reset() }
