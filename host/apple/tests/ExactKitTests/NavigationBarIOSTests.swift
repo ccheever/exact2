@@ -912,6 +912,16 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(state(session, "query") as? String, "abc", "programmatic text projection is not user input")
         search.searchBar.delegate?.searchBar?(search.searchBar, textDidChange: "")
         until("clearing the search field reaches its input handler") { state(session, "query") as? String == "" }
+        // The app's write shows in the field the reader is typing in, as an
+        // input's does (r25's contacts: a Clear Search button emptied the
+        // query and the field kept the text, the next keys added to it).
+        search.searchBar.text = "zzz"
+        search.searchBar.delegate?.searchBar?(search.searchBar, textDidChange: "zzz")
+        until("the typed query reaches the app") { state(session, "query") as? String == "zzz" }
+        XCTAssertTrue(field.becomeFirstResponder())
+        session.presenter.typed(input.id, "", input: true)
+        until("the app's empty query is in the field") { search.searchBar.text == "" }
+        XCTAssertTrue(field.isFirstResponder, "the reader goes on typing")
     }
 
     /// A search colour changes only the ink; clearing it restores UIKit's placeholder.

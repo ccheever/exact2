@@ -337,6 +337,8 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
     weak var host: NavigationHost?
     /// The field's placeholder is drawn in an authored colour, not UIKit's.
     var paintsPlaceholder = false
+    /// The field's `value` the bar last showed: one that differs is the app's write.
+    var value: String?
     /// The field's text is drawn in its own colour or the design's FieldText; its fill is the design's Field, not UIKit's capsule.
     var paintsInk = false, paintsGround = false
     /// The scope bar's tabs, and the segment last chosen or set (LLP 1134 D3).
@@ -981,9 +983,13 @@ extension NavigationHost {
             bar.placeholder = placeholder
         }
         search.ink()
-        // The Contract's value wins unless the reader is typing it.
-        let value = field.props["value"] ?? ""
-        if !bar.isFirstResponder, bar.text != value { bar.text = value }
+        // The Contract's value wins, as an input's does (`writeValue`): a
+        // value the app wrote since the last sync is shown even while the
+        // reader types (a Clear Search button empties the field it is typing
+        // in); between such writes, and while text is marked, the typing stands.
+        let value = field.props["value"] ?? "", composing = bar.searchTextField.markedTextRange != nil
+        if bar.text != value, !bar.isFirstResponder || (search.value != value && !composing) { bar.text = value }
+        if !composing { search.value = value }
         // UIKit hides the field as the content scrolls and keeps an active
         // search's in view. A search in effect that UIKit did not start (a
         // value the app or the agent wrote) keeps its field in view too.
