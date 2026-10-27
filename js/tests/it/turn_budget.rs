@@ -39,6 +39,14 @@ fn a_turn_that_waits_without_working_is_within_its_budget() {
     // 250 ms of wall, almost none of it the module's: a wall-clock budget refused it.
     assert_eq!(call(&mut m, &mut s, "native-direct", "waited"), "waited");
     assert_eq!(m.overruns(), 0);
+    // Placed on main, where the UI waits on its thread: the hold is said in
+    // the journal, not refused (theme2's 15:57 ruling).
+    let logs = m.take_logs();
+    assert!(
+        logs.iter()
+            .any(|l| l.starts_with("a data turn held the UI thread") && l.contains("`work`")),
+        "{logs:?}"
+    );
 }
 
 #[test]

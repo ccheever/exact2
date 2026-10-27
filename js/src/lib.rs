@@ -683,8 +683,28 @@ impl Module {
         self.engine.is_some()
     }
 
-    /// The per-call budget in milliseconds; a call over it is `Unavailable`
-    /// and the resource keeps its last value.
+    /// A turn within its budget that still held its thread past it, on the
+    /// wall clock, where the UI waits on that thread (`Main` placement: the
+    /// Linux and Windows UI thread, Apple's owner through `Owner.sync`): said
+    /// in the journal, beside the slow-load line, never refused (theme2's
+    /// 15:57 ruling: a refusal after the fact shortens no freeze).
+    fn held(
+        main_thread: bool,
+        deadline: bool,
+        source: &str,
+        took: &turn::Took,
+        budget_ms: f64,
+    ) -> Option<String> {
+        (main_thread && !deadline && took.wall_ms > budget_ms).then(|| {
+            format!(
+                "a data turn held the UI thread {:.0} ms ({:.0} ms of its own): `{source}`",
+                took.wall_ms, took.own_ms
+            )
+        })
+    }
+
+    /// The per-turn budget in milliseconds (its own time, `turn.rs`); a turn
+    /// over it is `Unavailable` and the resource keeps its last value.
     pub fn set_budget_ms(&mut self, ms: f64) {
         self.budget_ms = ms;
     }
@@ -946,9 +966,19 @@ impl Module {
             Ok(Module::step(sig, engine, source, reply, self.host.baking))
         })();
         self.host.store = None;
-        let over = clock
-            .took()
-            .over(budget_ms, self.snapshot_deadline.is_some());
+        let took = clock.took();
+        let over = took.over(budget_ms, self.snapshot_deadline.is_some());
+        if over.is_none() {
+            if let Some(line) = Module::held(
+                self.main_thread,
+                self.snapshot_deadline.is_some(),
+                source,
+                &took,
+                budget_ms,
+            ) {
+                self.logs.push(line);
+            }
+        }
         if result.is_err() || over.is_some() {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
@@ -1112,13 +1142,20 @@ impl Module {
                 [source, &args_json.to_string(), &payload.to_string()],
             )
             .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay threw: {e}")))?;
-        if let Some(why) = clock
-            .took()
-            .over(budget_ms, self.snapshot_deadline.is_some())
-        {
+        let took = clock.took();
+        if let Some(why) = took.over(budget_ms, self.snapshot_deadline.is_some()) {
             return Err(DataError::Unavailable(format!(
                 "`{source}`'s overlay {why}"
             )));
+        }
+        if let Some(line) = Module::held(
+            self.main_thread,
+            self.snapshot_deadline.is_some(),
+            source,
+            &took,
+            budget_ms,
+        ) {
+            self.logs.push(line);
         }
         let reply: Json = serde_json::from_str(&text)
             .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay: {e}")))?;
@@ -1242,9 +1279,19 @@ impl Module {
         if !answer_ops.is_empty() {
             self.stage_answer(store, source, answer_ops);
         }
-        let over = clock
-            .took()
-            .over(budget_ms, self.snapshot_deadline.is_some());
+        let took = clock.took();
+        let over = took.over(budget_ms, self.snapshot_deadline.is_some());
+        if over.is_none() {
+            if let Some(line) = Module::held(
+                self.main_thread,
+                self.snapshot_deadline.is_some(),
+                source,
+                &took,
+                budget_ms,
+            ) {
+                self.logs.push(line);
+            }
+        }
         if result.is_err() || over.is_some() {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
@@ -1367,9 +1414,19 @@ impl Module {
             self.streams.remove(at);
             self.forget_calls(vec![call]);
         }
-        let over = clock
-            .took()
-            .over(budget_ms, self.snapshot_deadline.is_some());
+        let took = clock.took();
+        let over = took.over(budget_ms, self.snapshot_deadline.is_some());
+        if over.is_none() {
+            if let Some(line) = Module::held(
+                self.main_thread,
+                self.snapshot_deadline.is_some(),
+                source,
+                &took,
+                budget_ms,
+            ) {
+                self.logs.push(line);
+            }
+        }
         if result.is_err() || over.is_some() {
             self.engine
                 .as_mut()
@@ -1464,5 +1521,38 @@ mod bootstrap_tests {
         // The week tables, built after hardening, take a name planted on the
         // frozen Object.prototype.
         assert_eq!(report["firstDay"], 7, "{report}");
+    }
+}
+
+#[cfg(test)]
+mod held_tests {
+    use super::*;
+
+    #[test]
+    fn a_turn_held_past_its_budget_is_said_only_where_the_ui_waits() {
+        let took = turn::Took {
+            own_ms: 20.0,
+            wall_ms: 180.0,
+            cpu: true,
+        };
+        let said = Module::held(true, false, "work", &took, 100.0).unwrap();
+        assert_eq!(
+            said,
+            "a data turn held the UI thread 180 ms (20 ms of its own): `work`"
+        );
+        assert!(
+            Module::held(false, false, "work", &took, 100.0).is_none(),
+            "a worker's turn holds no UI"
+        );
+        assert!(
+            Module::held(true, true, "work", &took, 100.0).is_none(),
+            "a snapshot has its deadline"
+        );
+        let quick = turn::Took {
+            own_ms: 20.0,
+            wall_ms: 60.0,
+            cpu: true,
+        };
+        assert!(Module::held(true, false, "work", &quick, 100.0).is_none());
     }
 }
