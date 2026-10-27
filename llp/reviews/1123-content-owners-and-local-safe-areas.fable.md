@@ -318,3 +318,7 @@ VERDICT: READY
 
 - **Converged:** both families are READY on revision sha256 `3f9e2221a36f0af5a50ab8110259ce349ef2440455e264497e5927000a41943b` (round 4); the codex family's record and the full round history are in `1123-content-owners-and-local-safe-areas.codex.md`. No later unreviewed revision exists.
 - **Carried to implementation (non-blocking, detail only):** this family's round-4 M1–M3.
+
+## Later revisions (2026-10-27)
+
+Loop 3 reviewed later revisions with the codex and astra families (`1123-content-owners-and-local-safe-areas.codex.md`, `1123-content-owners-and-local-safe-areas.astra.md`), and the text that the commit carrying this note lands is later still and unreviewed (the codex artifact's "Revision disclosure"). The loop 2 close-out above describes the document as it stood when loop 2 closed.

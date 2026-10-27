@@ -434,7 +434,9 @@ selected route that replaced nothing still keeps LLP 1035.001 D2's rule. **macOS
 Linux:** adopt the web's rule (`glue.js:824-836`): every route but the
 selected one, and the one beneath a modal, is hidden and inert. Without it
 the rows would paint on top of each other on the two hosts that never
-projected routes.
+projected routes. A split's list route, shown beside its detail, is live too
+(the web, D12; the Mac, LLP 1115.002 D4; iOS, LLP 1127); the modal and
+unselected-tab gates stand.
 
 ### D7 — The web mirrors the stack onto session history, keyed by entry id
 
@@ -604,8 +606,10 @@ The viewport fact for this presentation is LLP 1039’s `exactViewport`: width a
 
 The router never learns how an entry is shown. From one value:
 
-- **Phone:** each entry is a pushed screen; `ask` is a sheet
-  (`navigationPresentation="modal"` on its row).
+- **Phone (a compact width):** each entry is a pushed screen; `ask` is a sheet
+  (`navigationPresentation="modal"` on its row). On iOS a list and its detail are
+  UIKit's split view, collapsed at a compact width, so an open foldable as wide as
+  a tablet shows both (LLP 1127).
 - **Desktop rail** (the Interview ask): the rail is `button`s reading
   `nav.tab` and applying `select`; the content column renders `stack(nav)`
   exactly as a phone does. Choosing a rail over a bar is a layout decision
@@ -637,7 +641,8 @@ app's choice: a vertical or positioned tablist is its rail, a `viewport`
 branch its composition, and `navigationSplit` opts a stack out or sizes its
 column. Either way it is still one value, presented: the router never learns
 the window, and a resize changes only the projection. Built on the web
-(900 px and up); the iPad and Mac presenters are queued.
+(900 px and up) and on the Mac (LLP 1115.002 D3, D4); iOS's presenter is
+LLP 1127.
 
 ## 5. Interview, as it would read
 

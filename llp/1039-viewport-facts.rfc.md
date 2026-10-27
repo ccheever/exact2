@@ -61,8 +61,10 @@ because a box's size cannot depend on content the size affects.
 exact2 already holds the first two rules on every host. The web page sets
 the viewport meta from the root's props (LLP 1007 §4, `syncViewportFit`).
 iOS frames the session to the safe area or the whole view under
-`viewport-fit`, and under `resizes-content` to the keyboard's top
-(`host/apple/Sources/ExactKit/IOS/ExactViewIOS.swift:110-135`), then calls
+`viewport-fit`, and under `resizes-content` to the keyboard's top where no
+native navigation holds the editor; with it, the editing route's block ends
+there and the session keeps its size (LLP 1008 §9)
+(`host/apple/Sources/ExactKit/IOS/ExactViewIOS.swift`), then calls
 `exact_resize` when the size changed (`:154-157`); the Apple and Linux hosts
 keep that size as the kernel's viewport (`host/apple/src/host.rs:493`,
 `host/linux/src/host.rs:395`). The agent's `layout` reports it as
@@ -132,21 +134,28 @@ holds.
 `width` and `height` are the layout viewport's, in CSS pixels: the web's
 `innerWidth`/`innerHeight` (scrollbar included), the frame the Apple and
 Linux hosts lay out under. Under `interactive-widget="resizes-content"`,
-`height` shrinks to the keyboard's top on the web and on iOS, which already
-agree (§2); under the default policy it does not. `viewport-fit="cover"`
+`height` shrinks to the keyboard's top on the web, and on iOS where the
+focused editor is in no content owner, as the two agree (§2); under
+`resizes-visual`, the web's default, it does not. On iOS `resizes-content` is
+the default (LLP 1008 §9). On a native host an editor inside a content owner
+(a route, a sheet, a pane) shortens that owner's block instead and `height`
+stays the window's, so a screen behind a sheet keeps its branch (LLP 1123 D7,
+C29). `viewport-fit="cover"`
 makes it the whole screen, with `env(safe-area-inset-*)` carrying the insets
 as today. They are the same numbers the agent's `layout` reports as
 `viewport{w,h}`, and `state.resources.<name>` shows the app's copy, so a
 test can hold the two equal.
 
-### D5 — The viewport only; no container queries
+### D5 — Branch on the viewport; no container queries
 
 A node's own width is a layout result. A branch on it feeds layout back
 into the tree it lays out — the loop CSS fences with containment and exact1
 paid for in 0047's Taffy-derived classes. exact2 declares the deviation:
-there is no `@container`, and a component adapts to the viewport or to a
-prop its parent computed. A second consumer that cannot be written that way
-brings the design and its fixture.
+there is no `@container`, and a component branches on the viewport or on a
+prop its parent computed. A length is not a branch: a content owner's size,
+which never depends on its content, is CSS's container units (`cqw`, `cqh`
+and the rest, LLP 1123 D12), and logic that must branch on an owner's size
+reads LLP 1123 D6's fenced `container:` fact.
 
 ### D6 — What the rail needs beside the fact
 
@@ -281,8 +290,10 @@ component Interview
 
 The `data.ios` branches that choose the bar's shape go; the glass material
 is a style, not a platform. An iPad in landscape gets the rail, as Twitter's
-iPad app does; a Mac window narrowed under 900 gets the bar; a phone never
-sees the rail. The router value is the same in every branch (LLP 1038 D12).
+iPad app does; a Mac window narrowed under 900 gets the bar; a window narrower than
+900 never sees the rail, a phone's and a closed foldable's among them, and
+the iPhone Duo open upright (951 points across) does, and turned (669
+across) does not. The router value is the same in every branch (LLP 1038 D12).
 
 ## 5. Verification
 
@@ -298,8 +309,9 @@ sees the rail. The router value is the same in every branch (LLP 1038 D12).
 
 ## 6. What this deliberately does not add
 
-- Container queries (D5). A second consumer that cannot adapt to the
-  viewport or a prop.
+- Container queries (D5): `@container`. Container units (LLP 1123 D12) and
+  the fenced `container:` fact (LLP 1123 D6) are lengths and facts, not
+  queries.
 - Named size classes, `match size`, a responsive grammar. A `fn` names them
   when an app wants names.
 - Other media features — `orientation` is `width > height`; `hover` and

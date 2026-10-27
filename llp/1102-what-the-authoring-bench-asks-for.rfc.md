@@ -362,6 +362,8 @@ The general form (any mix of percentages, viewport units and `calc()` inside `mi
 
 **Recommendation.** A pitfall naming the two-box pattern now. The `max`/`min`-with-`env()` kind next, since it is what iOS authors write.
 
+**Status.** LLP 1001 §2's comparisons answer this with the general form: `min()`, `max()`, `clamp()` and `calc()` over lengths, percentages, viewport lengths and `env()`, nested, so `max(24px, env(safe-area-inset-top))` is written as on the web, with neither the two-box pattern nor the narrow kind. Inside a route the inset is the route's own, `var(--exact-safe-area-inset-top)` (LLP 1123 D9).
+
 ### 3.14 `position: fixed` — **leave it**
 
 **What builders hit.** A toast or undo bar wants `position: fixed`. LLP 1001 declares it not a row. Builders used `sticky`, or an absolute overlay in a viewport-sized root (the refusal says how).

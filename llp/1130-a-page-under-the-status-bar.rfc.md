@@ -7,7 +7,7 @@
 **Implementer:** the author, from 2026-10-18
 **Related:**
 - LLP 1116.005 D4 (stopwatch: "the page scrolled under the status bar with no backdrop"), whose third bullet this builds.
-- LLP 1075.003 §3.5 (a native container takes the whole view; its routes keep their content in the safe area through covers); LLP 1116 D2 and 1116.000 D1.2 (a route's bottom scroller runs under the home indicator and UIKit insets it); LLP 1123 D1 (the document is the session view's).
+- LLP 1075.003 §3.5 (a native container takes the whole view); LLP 1123 D3 (a route's content root keeps its clearance, and a scroller that reaches an edge runs under it); LLP 1116 D2 and 1116.000 D1.2 (a route's bottom scroller runs under the home indicator and UIKit insets it); LLP 1123 D1 (the document is the session view's).
 - Apple, [`UIScrollView.contentInsetAdjustmentBehavior`](https://developer.apple.com/documentation/uikit/uiscrollview/contentinsetadjustmentbehavior), [`adjustedContentInset`](https://developer.apple.com/documentation/uikit/uiscrollview/adjustedcontentinset), [`UIScrollEdgeEffect`](https://developer.apple.com/documentation/uikit/uiscrolledgeeffect); Human Interface Guidelines, [Layout: safe areas](https://developer.apple.com/design/human-interface-guidelines/layout#Guides-and-safe-areas).
 
 ## Summary
@@ -16,7 +16,7 @@ On iOS a page with no navigation bar is laid out inside the safe area, so its co
 in a hard line at the foot of the status bar and above the home indicator. A hand-built
 screen's scroll view fills the screen: its content starts below the status bar, scrolls
 under it (which iOS 26 and later blur with the scroll edge effect) and runs under the home
-indicator. Pages inside a native container already behave this way, through covers. This RFC
+indicator. Pages inside a native container already behave this way (LLP 1123 D3). This RFC
 gives a page with no container the same result by moving where it is drawn, not how it is
 laid out.
 
@@ -138,7 +138,7 @@ again on an unstyled node scroller in the gate (Color Gallery writes
 - The agent's default (authored) chrome is not excluded: with no container, a person and
   `agent ios` see the same page.
 - Presented sheets and dialogs: they are not the document and keep their own insets.
-- A page inside a native container: its routes' covers already do this. A route there that
+- A page inside a native container: its routes already do this (LLP 1123 D3). A route there that
   says it has no bar (`navigationBar="none"`) puts its first scroller under the status bar
   as a route with a bar puts it under the bar (`collapse`), its inset the status bar's.
 - macOS and tvOS.

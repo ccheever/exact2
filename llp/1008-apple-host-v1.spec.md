@@ -712,16 +712,18 @@ and `UIHingeInteraction`. On the inner panel the simulator reports two
 `occlusion` regions (the camera, 58×37 at (677, 21); the status strip, 84×120
 at the right edge) and one `division` region, the fold: a 40-pt band at
 x = 455.5 with 20-pt margins, active while the hinge is partially open and
-inactive when flat; the cover panel reports only occlusions. The occlusions are
-already the safe-area insets the kernel gets. The division and the hinge map
+inactive when flat; the cover panel reports only occlusions. The status
+strip's is the safe area's side inset; whether the camera's is ever inside the
+safe area is not confirmed, so occlusions reach layout only through
+`safeAreaInsets` (LLP 1078 D5, LLP 1123 C14a). The division and the hinge map
 onto the web's own vocabulary and nothing else: the `device-posture` media
 feature (`folded` while a division is active, `continuous` otherwise) and the
 viewport segments (`horizontal-viewport-segments: 2`,
 `env(viewport-segment-width 0 0)` and its siblings, the division being the gap
-between segments). When a consumer wants a layout that respects the fold, that
-is the surface: fed from the division region and `UIHingeInteraction` on
-Apple, from `navigator.devicePosture` and the viewport segments on the web.
-Nothing today needs it; no kernel row exists for it yet (QUEUE).
+between segments), fed from the division region and `UIHingeInteraction` on
+Apple and from `navigator.devicePosture` and the viewport segments on the web.
+LLP 1078 is that surface, with Duo Lab as its consumer; inside a content
+owner the segments are the owner's (LLP 1123 D9).
 
 **Router projection (LLP 1038 D6/D7/D11, 2026-09-14).** The Rust host
 emits the coalesced `router{top,url,removed}` op at boot and beside commands
@@ -734,12 +736,13 @@ interactive source is retained until `didShow`, so the agent reports `cancelled`
 and dispatches no Back. The existing agent freeze and modal conditions still apply. AppKit uses
 `NavigationRules.stack` on each navigation container's direct keyed children:
 only the selected route is visible and interactive, except its immediate
-underlay when selected presentation is `modal`, visible but inert. Other routes
+underlay when selected presentation is `modal`, visible but inert, and a split's
+list route, live in its column beside its detail (LLP 1115.002 D4). Other routes
 are hidden through `NSView.isHidden`; ancestor inert gates input, focus and
 accessibility. An unmatched selection leaves projection unchanged and journals
 once per key (1035.001 D6).
 
-LLP 1039 passes the session’s layout viewport to the runner before first settlement; `resize` re-answers `exactViewport` and merges that commit with the existing relayout batch. Under `interactive-widget="resizes-content"`, the keyboard-adjusted frame is therefore both the kernel’s viewport and the app’s `height`.
+LLP 1039 passes the session’s layout viewport to the runner before first settlement; `resize` re-answers `exactViewport` and merges that commit with the existing relayout batch. Under `interactive-widget="resizes-content"`, where no native navigation holds the editor, the keyboard-adjusted frame is therefore both the kernel’s viewport and the app’s `height`; with native navigation the editing route’s block ends at the keyboard and both keep the window’s (the keyboard, below).
 
 iOS is this host on its fourth surface, not a fifth host. **The archive is the
 same**: `cargo build --release -p caltrain-apple --target aarch64-apple-ios-sim`

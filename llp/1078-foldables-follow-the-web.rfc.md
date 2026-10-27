@@ -26,7 +26,8 @@ A fold is the one piece of iPhone Duo geometry nothing in the kernel can see (LL
 | `@media (device-posture: …)` | `exactViewport().devicePosture` | `"continuous"` \| `"folded"` |
 | `@media (horizontal-viewport-segments: n)` | `exactViewport().horizontalViewportSegments` | integer ≥ 1 |
 | `@media (vertical-viewport-segments: n)` | `exactViewport().verticalViewportSegments` | integer ≥ 1 |
-| `env(viewport-segment-width x y)` … `-height`, `-top`, `-left`, `-bottom`, `-right` | the same text in any length-valued style | points, in the layout viewport's coordinates |
+| `env(viewport-segment-width x y)` … `-height`, `-top`, `-left`, `-bottom`, `-right` | the same text in any length-valued style outside every content owner | points, in the layout viewport's coordinates |
+| — | inside a content owner (a route, a sheet, a pane): `var(--exact-viewport-segment-<field>-<x>-<y>)` (LLP 1123 D9) | points, in the owner's content root's coordinates |
 
 `folded` is the posture while the device forms an angle short of flat (the Device Posture API §5: a hinge that is partially open); `continuous` is everything else — flat, closed on a single panel, a device with no fold. Segments exist only when a divider splits the viewport (CSS-ENV-1 §2.3: "only defined when there are at least two such segments"); a viewport with one segment reports `1` and `1` and no segment lengths. The gap between segments (the fold band with its margins) belongs to no segment. Index `x` counts columns from the left edge, `y` rows from the top, both from 0.
 
@@ -52,7 +53,7 @@ Apple: `uint32_t exact_segments(ExactRuntime rt, uint32_t posture, uint32_t cols
 
 In `ExactViewIOS.fit`, on iOS 27.1 or later, after the viewport frame is known: the view's active `division` reserved regions (`reservedRegions(kind: .division)`) are intersected with the viewport's frame; each one splits the viewport along its axis into the rects on either side of the region's full frame (the band plus its margins, so the segments exclude it); `cols × rows` follows from the vertical and horizontal dividers; coordinates are the viewport's (the region's frame converted into `presenter.viewport`'s space). Posture is `folded` while the hinge is partially open (the `UIHingeInteraction`'s status, the Device Posture API's own definition) or any division is active, `continuous` otherwise; the segments come from the regions alone (amended 2026-10-02, §As built "The deaf session"). The view adds one `UIHingeInteraction` whose handler calls `setNeedsLayout`, because a hinge moving from flat to a book angle changes the regions' `isActive` without changing any bounds, and nothing else would relayout; a layout whose regions disagree with the hinge's status re-reads them on the following frames, a bounded number of times. `exact_segments` is sent when posture, counts or rects change, next to the `insets` send. Below iOS 27.1, and on macOS (AppKit has no fold API): `continuous`, 1 × 1, sent once at boot so the facts are never stale from the bake.
 
-Occlusion regions (the camera, the status strip) stay what they already are, the safe-area insets; nothing reads them.
+Occlusion regions (the camera, the status strip) reach layout only through what `safeAreaInsets` includes; whether the inner camera's region is included is to be confirmed (LLP 1123 C14a).
 
 ### D6 — The web feeds it from the browser
 
@@ -66,7 +67,7 @@ Occlusion regions (the camera, the status strip) stay what they already are, the
 
 A TypeScript-only app on the `canvas-gallery` template (`apple/`, `web/`, `linux/`; workspace members only), four screens behind `routes`:
 
-1. **Fold** — `exactViewport()` as the shape `{ width, height, devicePosture, horizontalViewportSegments, verticalViewportSegments }`. With two horizontal segments: a list pane `width="env(viewport-segment-width 0 0)"` and a detail pane positioned at `left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)"`, so the fold band is empty; with one: one pane, the list above the detail. Selection state is shared, so a fold mid-reading keeps the item. The screen prints the three fields and the viewport, so a screenshot is its own evidence.
+1. **Fold** — `exactViewport()` as the shape `{ width, height, devicePosture, horizontalViewportSegments, verticalViewportSegments }`. With two horizontal segments in the document: a list pane `width="var(--exact-viewport-segment-width-0-0, 50%)"` and a detail pane after it by `margin-left="calc(var(--exact-viewport-segment-left-1-0, 50%) - var(--exact-viewport-segment-left-0-0, 0px) - var(--exact-viewport-segment-width-0-0, 50%))"`, the route's own segments (LLP 1123 D9), so the fold band is empty under any bar and a header the page draws takes room from neither pane's place; the fallbacks lay them in halves where the route lies on one segment of the two (a split's detail column), which has no segment properties, as a one-segment viewport has none. That holds with one band, as every foldable has; a 2 × 2 grid needs the route's own counts (LLP 1123 D9). With two vertical segments the same down the route; with one: one pane, the list above the detail. Selection state is shared, so a fold mid-reading keeps the item. The screen prints the three fields and the viewport, so a screenshot is its own evidence.
 2. **Images** — a virtualized list of a few hundred image rows (`estimated-item-height`, `object-fit="cover"`) over a handful of bundled PNGs (`assets/` with `provenance.json`, as `interaction-gallery` does), the raster budget's stress: folded mid-scroll, repeatedly.
 3. **Reflow** — one long `text … markup="markdown"` document and a dense feed, the text caches' stress from 951 to 466 points and back.
 4. **Combinations** — a pushed route with an absolutely positioned sheet (the `interaction-gallery` pattern) holding a `textarea`, so keyboard + sheet + pushed screen + fold is one taps' sequence.
@@ -353,7 +354,9 @@ tree).
 ## As built (app half, 2026-10-02)
 
 Built on `lane/duo-app` from a74a8489b, before the core half (D2–D7) existed, against this
-document's names exactly; the integrator checks them against the core lane.
+document's names exactly; the integrator checks them against the core lane. The `env()`
+expressions below place a pane by the window's segments; inside a route under a bar, D8
+places it by the route's own (LLP 1123 D9).
 
 - **`apps/duo-lab`** (D8), on the `canvas-gallery` template: `app.contract`, `app.json`
   (`com.exact.duolab`, iPhone + iPad, a 951×669 macOS window), `app.ts` (every resource
