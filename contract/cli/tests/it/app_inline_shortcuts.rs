@@ -678,6 +678,10 @@ fn sample(plan: &Plan, ty: TypesId, seed: u32, filled: bool, depth: usize) -> Va
     }
 }
 
+fn tagged(name: &str, value: Json) -> Json {
+    Json::Object([(name.to_owned(), value)].into_iter().collect())
+}
+
 fn normalize(plan: &Plan, ty: TypesId, value: &Value) -> Json {
     let row = plan.type_(ty);
     match (row.kind, value) {
@@ -691,11 +695,17 @@ fn normalize(plan: &Plan, ty: TypesId, value: &Value) -> Json {
         (TypeKind::Unit, Value::Unit) => json!({"unit": true}),
         (TypeKind::Option, Value::Option(None)) => json!({"none": true}),
         (TypeKind::Option, Value::Option(Some(inner))) => {
-            json!({"some": normalize(plan, row.elem.unwrap(), inner)})
+            tagged("some", normalize(plan, row.elem.unwrap(), inner))
         }
-        (TypeKind::List, Value::List(items)) => {
-            json!({"list": items.iter().map(|v| normalize(plan, row.elem.unwrap(), v)).collect::<Vec<_>>()})
-        }
+        (TypeKind::List, Value::List(items)) => tagged(
+            "list",
+            Json::Array(
+                items
+                    .iter()
+                    .map(|v| normalize(plan, row.elem.unwrap(), v))
+                    .collect(),
+            ),
+        ),
         (TypeKind::Record, Value::Record(items)) => {
             assert_eq!(
                 items.len(),
@@ -709,7 +719,15 @@ fn normalize(plan: &Plan, ty: TypesId, value: &Value) -> Json {
                     .insert(plan.str(field.name), normalize(plan, field.ty, &items[i]))
                     .is_none());
             }
-            json!({"record": result})
+            tagged(
+                "record",
+                Json::Object(
+                    result
+                        .into_iter()
+                        .map(|(name, value)| (name.to_owned(), value))
+                        .collect(),
+                ),
+            )
         }
         _ => panic!("typed normalization mismatch: {:?}, {value:?}", row.kind),
     }
