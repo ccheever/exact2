@@ -25,6 +25,7 @@ import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { environmentView } from '../details/git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
 import { ultrathinkFrame } from './composer-ultrathink';
+import { acpInstanceIcon } from './acp-instance-icon'; // the trigger's ACP agent mark
 import { overflowMenu } from './composer-overflow';
 import { usageConfirm } from './composer-controls-usage'; // the reset credit confirm
 import { stripLabelsCompact, stripLabelTexts } from './context-strip'; // the context strip's labels or icons
@@ -191,6 +192,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
     modelTip: modelShortcut ? `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''} · ${modelShortcut}` : `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''}`,
     traitsLabel: display.label,
+    providerIcon: acpInstanceIcon(client.config, provider),
     ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
     runtimeMode: runtime.mode, runtimeLabel: runtime.label, runtimeIcon: runtime.icon, runtimeDescription: runtime.description,
     runtimeSelected: Math.max(0, runtimes.indexOf(runtime)), runtimeCount: runtimes.length,
