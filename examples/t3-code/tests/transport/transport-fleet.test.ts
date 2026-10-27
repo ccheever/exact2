@@ -93,7 +93,7 @@ describe('routes (driver.ts connectOverRoutes, supervisor.ts checkBetterRoutes)'
     const lanRequests = lan.requests.map(request => `${request.path} ${request.headers.Authorization ?? '-'}`);
     expect(lanRequests[0]).toBe('/.well-known/t3/environment -');
     expect(lanRequests).toContain('/api/auth/session Bearer token-1');
-    expect(lanRequests).toContain('/api/auth/websocket-ticket Bearer token-1');
+    expect(lanRequests).toContain('/api/auth/websocket-ticket/rpc Bearer token-1');
     expect(Object.keys(JSON.parse(drive.store.get('t3-catalog')!).tokens)).toEqual([`${A}\nenv-1`]);
   });
 

@@ -106,7 +106,7 @@ const threadEvents = new Set([
   "thread.auto-settle-set", "thread.pinned", "thread.unpinned", "thread.pin-reordered",
   "thread.active-reordered", "thread.metadata-updated", "thread.pull-request-synced",
   "thread.runtime-mode-updated", "thread.interaction-mode-updated",
-  "thread.model-selection-updated", "thread.provider-switched", "thread.visited", "thread.marked-unread",
+  "thread.model-selection-updated", "thread.provider-switched", "thread.guest-share-updated", "thread.visited", "thread.marked-unread",
 ]);
 const updateArrays: Record<string, string> = {
   "run.created": "runs", "run.updated": "runs",
@@ -402,6 +402,48 @@ export function applyThread(state: ThreadState, value: unknown, sameLink: SameLi
     if (family === "runs" || family === "attempts") projection.visibleTurnItems = activeRows(projection);
   }
   return { ...state, projection, sequence };
+}
+
+/** isOrchestrationV2WorkActive (contracts orchestrationV2.ts). */
+export const workActive = (status: unknown): boolean => status === "pending" || status === "running" || status === "waiting";
+const BACKGROUND_TURN_ITEM_TYPES = ["command_execution", "dynamic_tool", "subagent"];
+/**
+ * pendingBackgroundTurnItems (reference 7c3b3b3605ef, packages/shared/src/orchestrationV2PendingBackgroundWork.ts):
+ * the thread's active commands, tools and subagents, less a persistent tool and a rolled-back run's items.
+ */
+export function pendingBackgroundTurnItems(projection: Obj): Obj[] {
+  const rolledBack = new Set(arr(projection.runs).filter(run => run.status === "rolled_back").map(run => String(run.id)));
+  return arr(projection.turnItems).filter(item => BACKGROUND_TURN_ITEM_TYPES.includes(str(item.type)) && workActive(item.status)
+    && !(item.type === "dynamic_tool" && obj(item.input).persistent === true)
+    && (item.runId == null || !rolledBack.has(String(item.runId))));
+}
+/** A `getTurnItem` reply's item, when it is this thread's item of a type this build knows; else null. */
+export function turnItemReply(value: unknown, threadId: string, itemId: string): Obj | null {
+  const item = obj(value).item;
+  if (!isObject(item) || isUnknownTurnItem(item)) return null;
+  try { validateTurnItem(item, "getTurnItem.item"); } catch { return null; }
+  return item.id === itemId && item.threadId === threadId ? item : null;
+}
+/**
+ * settleTurnItems (reference 7c3b3b3605ef, client-runtime state/threads.ts): the server's settled items replace only
+ * local copies that are still active, so an event applied meanwhile wins; inherited rows belong to another thread.
+ */
+export function settleTurnItems(state: ThreadState, settled: ReadonlyMap<string, Obj>): ThreadState {
+  const projection = state.projection, threadId = obj(projection.thread).id;
+  let changed = false;
+  const settle = (item: Obj, id: string): Obj => {
+    const server = settled.get(id);
+    if (server === undefined || !workActive(item.status)) return item;
+    changed = true;
+    return server;
+  };
+  const turnItems = arr(projection.turnItems).map(item => settle(item, str(item.id)));
+  const visibleTurnItems = arr(projection.visibleTurnItems).map(row => {
+    if (row.sourceThreadId !== threadId) return row;
+    const item = settle(obj(row.item), str(row.sourceItemId));
+    return item === row.item ? row : { ...row, item };
+  });
+  return changed ? { ...state, projection: { ...projection, turnItems, visibleTurnItems } } : state;
 }
 
 function rowKey(row: Obj): string { return JSON.stringify([row.sourceThreadId, row.sourceItemId]); }

@@ -1,8 +1,8 @@
 // One authenticated connection to a T3 server (T3 Code 74541bab17, MIT, see LICENSE-T3:
 // packages/client-runtime/src/rpc/client.ts same-session resubscribe, rpc/session.ts, connection/supervisor.ts,
-// driver.ts, resolver.ts, authorization/remote.ts). The connect flow is `/.well-known/t3/environment`,
-// `/oauth/token` for a pairing, `/api/auth/session`, `/api/auth/websocket-ticket`, then `wsTicket` on
-// the socket's URL.
+// driver.ts, resolver.ts, authorization/remote.ts at 7c3b3b3605ef). The connect flow is
+// `/.well-known/t3/environment`, `/oauth/token` for a pairing, `/api/auth/session`, an RPC ticket from
+// `/api/auth/websocket-ticket/rpc` (the bare path on a server that predates it), then `wsTicket` on the socket's URL.
 //
 // Exact drives it, since a data module has no timers (LLP 1016.000 D7 and its amendment of 2026-10-18):
 // an answer runs the HTTP steps (`connectFlow`), a stream resource owns the socket and hands each event
@@ -24,7 +24,7 @@ import { credentialOrigins, type Catalog, type Route } from './transport-catalog
 import {
   TransportFailure, MAXIMUM_BYTES, PING_INTERVAL_MS, PONG_TIMEOUT_MS, UNRESPONSIVE_HOST_HINT, QUICK_PROBE_MS, FOREGROUND_PROBE_MS, SOCKET_OPEN_TIMEOUT_MS,
   BACKOFF_RESET_AFTER_MS, compatibility, credential as parseCredential, decode, encode, exchangeForm, exchangeScopes, failure as wireFailure, failureMessage, failureReason,
-  identifier, letGoAbort, notConnected, origin as parseOrigin, path as onOrigin, remoteRequestFailure, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
+  identifier, letGoAbort, mintTicket, notConnected, origin as parseOrigin, path as onOrigin, remoteRequestFailure, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
   type Frame,
 } from './transport-wire';
 import type { ActivityReporter } from './transport-activity';
@@ -59,7 +59,21 @@ interface Call { done: Done; joiners: Done[]; deadline: number; trace: number | 
 
 /** Ops whose `generation` must still be the session's. */
 const GENERATIONAL = new Set(['http', 'request', 'subscribe', 'unsubscribe', 'events', 'ack', 'readChunk', 'releaseChunk']);
-const TERMINAL_KINDS = ['Authentication', 'Credential', 'Protocol', 'Keychain', 'Address', 'Limit'];
+const TERMINAL_KINDS = ['Authentication', 'Credential', 'Protocol', 'Keychain', 'Address', 'Limit', 'Pairing'];
+
+/**
+ * A pairing exchange the server answered with HTTP 500 ends the attempt (reference 7c3b3b3605ef, apps/web
+ * connection/platform.ts provisionDesktopSshEnvironment): a server on another build can fail to decode the grant
+ * this client sends, and answers so on every retry. Its label and version go with the failure (`context`), for the
+ * sentence that names both versions.
+ */
+function pairingRefused(error: unknown, descriptor: Obj): unknown {
+  if (!(error instanceof TransportFailure) || error.status !== 500) return error;
+  const refused = new TransportFailure('Pairing', error.message, false, 'exchange_http_500', error.detail,
+    { label: str(descriptor.label), serverVersion: str(descriptor.serverVersion) });
+  refused.status = 500;
+  return refused;
+}
 
 export class Session {
   generation = 0;
@@ -418,7 +432,8 @@ export class Session {
       if (!this.token) throw new TransportFailure('Credential', 'Paste a pairing link or token from this T3 server.');
     } else {
       const grant = obj(await exchangeScopes(this.exchangeScope, this.legacyExchangeScope, scope =>
-        this.http('/oauth/token', { epoch, method: 'POST', body: exchangeForm(credential, scope), contentType: 'application/x-www-form-urlencoded', authorized: false })));
+        this.http('/oauth/token', { epoch, method: 'POST', body: exchangeForm(credential, scope), contentType: 'application/x-www-form-urlencoded', authorized: false }))
+        .catch(error => { throw pairingRefused(error, descriptor); }));
       if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
       this.token = str(grant.access_token); this.routes.tokenOwner = trimmed(this.origin);
       this.hooks.catalog.saveToken(this.token, this.origin, environment);
@@ -428,25 +443,30 @@ export class Session {
     }
     const auth = obj(await this.http('/api/auth/session', { epoch }));
     if (auth.authenticated !== true) throw new TransportFailure('Authentication', 'The saved session expired. Pair with the server again.');
-    const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
+    const ticket = str(obj(await mintTicket('rpc', path => this.http(path, { epoch, method: 'POST' }))).ticket);
     if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a socket ticket.');
     this.privateValues = [ticket];
     return socketURL(this.origin, ticket, true);
   }
 
-  /** One request on the connected origin; the JSON reply, or the failure the reference reports. */
-  async http(target: string, options: { epoch: number; method?: string; body?: string | Uint8Array; bodyFrom?: string; contentType?: string; authorized?: boolean; long?: boolean; large?: boolean }): Promise<unknown> {
+  /**
+   * One request on the connected origin; the JSON reply, or the failure the reference reports. A request that runs
+   * past its deadline (30 s, 60 s when long, unless it names one) fails with reason `timeout`.
+   */
+  async http(target: string, options: { epoch: number; method?: string; body?: string | Uint8Array; bodyFrom?: string; contentType?: string; authorized?: boolean; long?: boolean; large?: boolean; timeoutMs?: number }): Promise<unknown> {
     if (!this.origin) throw new TransportFailure('Disconnected', 'Connect to a server first.');
     const url = onOrigin(target, this.origin);
     const headers: Record<string, string> = { 'x-t3-orchestration-protocol': '2', Accept: 'application/json' };
     if (options.body !== undefined || options.bodyFrom) headers['Content-Type'] = options.contentType ?? 'application/json';
     if (options.authorized !== false) headers.Authorization = `Bearer ${this.token}`;
     let reply: HttpReply;
-    try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, ...(options.bodyFrom ? { bodyFrom: options.bodyFrom } : {}), timeoutMs: options.long ? 60_000 : 30_000, signal: this.abort?.signal, maxBytes: options.large ? MAXIMUM_BYTES : undefined }); }
+    const timeoutMs = options.timeoutMs ?? (options.long ? 60_000 : 30_000);
+    try { reply = await this.hooks.http(url, { method: options.method ?? 'GET', headers, body: options.body, ...(options.bodyFrom ? { bodyFrom: options.bodyFrom } : {}), timeoutMs, signal: this.abort?.signal, maxBytes: options.large ? MAXIMUM_BYTES : undefined }); }
     catch (error) {
       if (letGoAbort(error)) throw error;
       if (!this.alive || this.generation !== options.epoch) throw new TransportFailure('Replaced', 'The connection changed during the request.');
-      throw new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)));
+      const timedOut = error !== null && typeof error === 'object' && (error as { kind?: unknown }).kind === 'Timeout';
+      throw new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)), false, timedOut ? 'timeout' : '');
     }
     if (!this.alive || this.generation !== options.epoch) throw new TransportFailure('Replaced', 'The connection changed during the request.');
     if (utf8Length(reply.text) > MAXIMUM_BYTES) throw new TransportFailure('Limit', 'The server response is too large.');
@@ -455,7 +475,9 @@ export class Session {
       const trace = str(obj(decoded).traceId);
       if (trace) this.lastHTTPTrace = trace.slice(0, 200);
       const kind = reply.status === 401 || reply.status === 403 ? 'Authentication' : reply.status === 426 ? 'Protocol' : 'HTTP';
-      throw new TransportFailure(kind, this.clean(failureMessage(decoded, reply.status)), false, failureReason(decoded));
+      const refused = new TransportFailure(kind, this.clean(failureMessage(decoded, reply.status)), false, failureReason(decoded));
+      refused.status = reply.status;
+      throw refused;
     }
     if (decoded === undefined) throw new TransportFailure('Protocol', 'The server returned invalid JSON.');
     return decoded;
@@ -925,7 +947,7 @@ export class Session {
   async terminalSocketAccess(): Promise<Reply> {
     if (this.state !== 'connected') throw notConnected();
     const epoch = this.generation, origin = this.origin;
-    const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
+    const ticket = str(obj(await mintTicket('rpc', path => this.http(path, { epoch, method: 'POST' }))).ticket);
     if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a socket ticket.');
     if (epoch !== this.generation || origin !== this.origin) throw new TransportFailure('stale', 'The connection changed while preparing the terminal socket.');
     this.privateValues.push(ticket);
@@ -943,11 +965,11 @@ export class Session {
     return this.ok(await this.hubTicket('the device stream'));
   }
 
-  /** A fresh WebSocket ticket for a stream that cannot carry the bearer, with the origin it was minted for. */
+  /** A fresh media ticket for a stream that cannot carry the bearer, with the origin it was minted for. */
   private async hubTicket(what: string): Promise<{ origin: string; ticket: string }> {
     if (this.state !== 'connected') throw notConnected();
     const epoch = this.generation, origin = this.origin;
-    const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
+    const ticket = str(obj(await mintTicket('media', path => this.http(path, { epoch, method: 'POST' }))).ticket);
     if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a WebSocket ticket.');
     if (epoch !== this.generation || origin !== this.origin) throw new TransportFailure('stale', `The connection changed while preparing ${what}.`);
     this.privateValues.push(ticket);
@@ -955,11 +977,13 @@ export class Session {
     return { origin, ticket };
   }
 
+  /** A GET the client reads; `timeoutMs` (1 to 60 s) is its own deadline, for a read that asks again with a longer one. */
   private async readHTTP(request: Obj): Promise<Reply> {
     if (this.state !== 'connected') throw notConnected();
     const target = str(request.path);
     if (!target || (str(request.method) || 'GET') !== 'GET' || request.body !== undefined) throw this.argument('The client HTTP interface is read-only.');
-    return this.ok(await this.http(target, { epoch: this.generation, large: true, long: request.long === true }));
+    const timeoutMs = typeof request.timeoutMs === 'number' && request.timeoutMs >= 1_000 && request.timeoutMs <= 60_000 ? request.timeoutMs : undefined;
+    return this.ok(await this.http(target, { epoch: this.generation, large: true, long: request.long === true, ...(timeoutMs ? { timeoutMs } : {}) }));
   }
 
   private async uploadAttachment(request: Obj): Promise<Reply> {
@@ -1042,7 +1066,9 @@ export class Session {
       catch (error) { throw new TransportFailure('Network', scrub(remoteRequestFailure(url, method, error, 30_000))); }
       const decoded = json(reply);
       if (reply.status < 200 || reply.status >= 300 || typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-        throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', scrub(failureMessage(decoded, reply.status)), false, failureReason(decoded));
+        const refused = new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', scrub(failureMessage(decoded, reply.status)), false, failureReason(decoded));
+        refused.status = reply.status;
+        throw refused;
       }
       return decoded as Obj;
     };
@@ -1056,7 +1082,8 @@ export class Session {
     }
     const problem = compatibility(descriptor);
     if (problem) throw new TransportFailure('Protocol', problem.message);
-    const grant = await exchangeScopes(str(request.scope), str(request.legacyScope), scope => send('/oauth/token', exchangeForm(code, scope)));
+    const grant = await exchangeScopes(str(request.scope), str(request.legacyScope), scope => send('/oauth/token', exchangeForm(code, scope)))
+      .catch(error => { throw pairingRefused(error, descriptor); });
     if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
     // This machine's own server (the primary's environment id): the code is spent, nothing is saved (registry.ts register).
     const primaryId = str(request.primaryEnvironmentId);

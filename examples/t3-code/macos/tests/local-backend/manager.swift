@@ -237,10 +237,12 @@ final class LocalBackendManagerTests: XCTestCase {
         XCTAssertEqual(config.bootstrap.tailscaleServePort, 443)
         XCTAssertEqual(config.bootstrap.desktopBootstrapToken, first)
         XCTAssertNil(config.bootstrap.resourceMonitorPath)
+        XCTAssertEqual(config.bootstrap.shellEnvironmentPrepared, true, "The server does not ask the login shell again")
         let line = String(decoding: config.bootstrap.jsonLine(), as: UTF8.self)
         XCTAssertTrue(line.hasSuffix("}\n"))
         let decoded = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
-        XCTAssertEqual(Set(decoded?.keys.map { $0 } ?? []), ["mode", "noBrowser", "port", "t3Home", "host", "desktopBootstrapToken", "tailscaleServeEnabled", "tailscaleServePort"])
+        XCTAssertEqual(Set(decoded?.keys.map { $0 } ?? []), ["mode", "noBrowser", "port", "t3Home", "host", "desktopBootstrapToken", "shellEnvironmentPrepared", "tailscaleServeEnabled", "tailscaleServePort"])
+        XCTAssertEqual(decoded?["shellEnvironmentPrepared"] as? Bool, true)
     }
 
     /// Acceptance "Restart ladder": six exits before ready, then ready, then one kill.

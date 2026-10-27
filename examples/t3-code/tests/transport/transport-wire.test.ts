@@ -23,12 +23,35 @@ describe('Exit failures as Cause.squash reports them', () => {
     const squashed = failure({ _tag: 'Failure', cause: [{ _tag: 'Die', defect: 'boom' }, { _tag: 'Fail', error: { _tag: 'PullRequestOperationError', operation: 'getDetail', detail: 'nope', reason: 'not-found' } }] });
     expect([squashed.kind, squashed.message, squashed.reason, squashed.detail]).toEqual(['PullRequestOperationError', 'Pull request operation getDetail failed: nope', 'not-found', 'nope']);
   });
-  test('an unavailable pull request host reads its stable sentence; an untagged error its message', () => {
-    expect(failure({ _tag: 'Fail', error: { _tag: 'PullRequestUnavailableError', reason: 'cli-missing', provider: 'gitlab' } }).message).toBe(pullRequestUnavailable('cli-missing', 'gitlab'));
+  test("an unavailable pull request host reads the server's requirement, else the reason's sentence; an untagged error its message", () => {
+    const requirement = 'GitLab CLI (`glab`) is required to browse change requests on this host. Install it from https://gitlab.com/gitlab-org/cli and reload.';
+    expect(failure({ _tag: 'Fail', error: { _tag: 'PullRequestUnavailableError', reason: 'cli-missing', provider: 'gitlab', requirement } }).message).toBe(requirement);
+    expect(failure({ _tag: 'Fail', error: { _tag: 'PullRequestUnavailableError', reason: 'cli-missing', provider: 'gitlab' } }).message).toBe(pullRequestUnavailable('cli-missing'));
+    expect([pullRequestUnavailable('cli-missing'), pullRequestUnavailable('cli-unauthenticated')])
+      .toEqual(['The tool this host is read through is not installed or set up.', 'This host has no working credentials.']);
     expect(failure({ name: 'Error', message: 'plain' }).message).toBe('plain');
     expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceEasAccountError', reason: 'Expo rejected the credential (HTTP 401).' } }).message).toBe('Expo rejected the credential (HTTP 401).');
     expect(failure({ _tag: 'Interrupt' }).kind).toBe('Interrupt');
     expect(failure({ _tag: 'Fail', error: { _tag: 'Mystery' } }).message).toBe('The server refused the request (Mystery).');
+  });
+});
+
+describe('the errors a 0.1.4 server adds (contracts at 7c3b3b3605ef)', () => {
+  test('a push the remote refuses names its reason', () => {
+    const push = (reason: string) => failure({ _tag: 'Fail', error: { _tag: 'GitCommandError', operation: 'GitVcsDriver.push', command: 'git push', cwd: '/repo',
+      detail: "The remote rejected the push. Push this branch from a terminal to see the server's message.", reason } });
+    expect(push('push_rejected_by_remote').message).toBe("Git command failed in GitVcsDriver.push (/repo): The remote rejected the push. Push this branch from a terminal to see the server's message. (push_rejected_by_remote)");
+    expect([push('push_rejected_by_remote').reason, push('push_rejected_non_fast_forward').reason]).toEqual(['push_rejected_by_remote', 'push_rejected_non_fast_forward']);
+  });
+  test("an HTTP refusal from an unavailable pull request host reads the server's requirement", () => {
+    expect(failureMessage({ _tag: 'PullRequestUnavailableError', reason: 'cli-unauthenticated', requirement: 'Run `glab auth login` on the server.' }, 503)).toBe('Run `glab auth login` on the server.');
+    expect(failureMessage({ _tag: 'PullRequestUnavailableError', reason: 'cli-unauthenticated', provider: 'github' }, 503)).toBe('This host has no working credentials.');
+  });
+  test('a secret not saved for the shell and media no credential may fetch read their sentences', () => {
+    expect(failure({ _tag: 'Fail', error: { _tag: 'SecretRequestError', reason: 'not_a_file_request' } }).message)
+      .toBe('The user did not save this secret for shell use. Ask again with request_secret and delivery: "file".');
+    expect(failure({ _tag: 'Fail', error: { _tag: 'AssetGitHubMediaUrlValidationError' } }).message)
+      .toBe('Only media a source control host keeps behind a credential can be fetched with one.');
   });
 });
 

@@ -20,7 +20,7 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     const status = value(await drive.op({ op: 'status' }));
     expect([status.state, status.environmentId, status.origin]).toEqual(['connected', 'env-1', ORIGIN]);
     expect(server.requests.map(request => `${request.method} ${request.path}`)).toEqual([
-      'GET /.well-known/t3/environment', 'POST /oauth/token', 'GET /api/auth/session', 'POST /api/auth/websocket-ticket']);
+      'GET /.well-known/t3/environment', 'POST /oauth/token', 'GET /api/auth/session', 'POST /api/auth/websocket-ticket/rpc']);
     expect(server.requests[1]!.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
     expect(server.requests[2]!.headers.Authorization).toBe('Bearer token-1');
     // The catalog keeps the entry and its token in the one secret.
@@ -35,7 +35,7 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     const drive = new Drive(new FakeServer(ORIGIN));
     let release: () => void = () => {};
     // The ticket waits until the test lets it go, so the flow is still running when the slot's answer is asked.
-    drive.holds['/api/auth/websocket-ticket'] = new Promise<void>(resolve => { release = resolve; });
+    drive.holds['/api/auth/websocket-ticket/rpc'] = new Promise<void>(resolve => { release = resolve; });
     void drive.bridge.later({ op: 'connect', origin: ORIGIN, credential: 'code-1' });
     const session = drive.transport.focused;
     expect(session.flowRunning).toBe(session.attempt);
@@ -398,7 +398,7 @@ describe('HTTP through fetch', () => {
     const access = value(await drive.op({ op: 'previewStreamAccess' }));
     expect(access).toMatchObject({ httpBase: `${ORIGIN}/api/preview-stream`, wsBase: 'ws://127.0.0.1:4001/api/preview-stream' });
     expect(typeof access.ticket).toBe('string');
-    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket', headers: { Authorization: 'Bearer token-1' } });
+    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket/media', headers: { Authorization: 'Bearer token-1' } });
     expect((await drive.op({ op: 'http', path: '/api/auth/websocket-ticket', method: 'POST' })).error).toMatchObject({ kind: 'Arguments' });
     await drive.op({ op: 'disconnect' });
     expect((await drive.op({ op: 'previewStreamAccess' })).error).toMatchObject({ kind: 'Disconnected' });
@@ -409,7 +409,7 @@ describe('HTTP through fetch', () => {
     const first = value(await drive.op({ op: 'deviceHubAccess' })), second = value(await drive.op({ op: 'deviceHubAccess' }));
     expect(first.origin).toBe(ORIGIN);
     expect(server.tickets.has(String(first.ticket)) && server.tickets.has(String(second.ticket)) && first.ticket !== second.ticket).toBe(true);
-    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket', headers: { Authorization: 'Bearer token-1' } });
+    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket/media', headers: { Authorization: 'Bearer token-1' } });
     await drive.op({ op: 'disconnect' });
     expect((await drive.op({ op: 'deviceHubAccess' })).error).toMatchObject({ kind: 'Disconnected' });
   });
@@ -425,11 +425,16 @@ describe('HTTP through fetch', () => {
     expect((await drive.op({ op: 'http', path: '/x', method: 'POST' })).error).toMatchObject({ kind: 'Arguments' });
   });
 
-  test('an unavailable pull request host reads the reference sentence', async () => {
+  test("an unavailable pull request host reads the server's requirement, else the reason's sentence", async () => {
     const { drive, server } = await paired();
-    server.routes['/api/pull-requests/diff'] = () => ({ status: 503, body: { _tag: 'PullRequestUnavailableError', reason: 'cli-unauthenticated', provider: 'github' } });
+    const requirement = 'GitHub CLI is not authenticated. Run `gh auth login` on the T3 Code server, or set GH_TOKEN there, and retry.';
+    server.routes['/api/pull-requests/diff'] = () => ({ status: 503, body: { _tag: 'PullRequestUnavailableError', reason: 'cli-unauthenticated', provider: 'github', requirement } });
     const diff = await drive.op({ op: 'prDiff', payload: { projectId: 'p', repository: 'o/r', number: 3 } });
-    expect((diff.error as Obj).message).toBe('GitHub CLI is not authenticated. Run `gh auth login` and retry.');
+    expect((diff.error as Obj).message).toBe(requirement);
+    // A 0.1.2 server names no requirement.
+    server.routes['/api/pull-requests/diff'] = () => ({ status: 503, body: { _tag: 'PullRequestUnavailableError', reason: 'cli-missing', provider: 'github' } });
+    const older = await drive.op({ op: 'prDiff', payload: { projectId: 'p', repository: 'o/r', number: 4 } });
+    expect((older.error as Obj).message).toBe('The tool this host is read through is not installed or set up.');
   });
 
   test('an attachment uploads its bytes under its type, without the bearer', async () => {
@@ -450,5 +455,33 @@ describe('HTTP through fetch', () => {
       .toEqual({ stored: '<file app:/data/snapshots/drafts/x.png>', type: 'image/png' });
     expect((await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', bodyFrom: from, sizeBytes: 51 * 1024 * 1024, contentType: 'application/zip' })).error).toMatchObject({ message: 'Choose a file up to 50MB.' });
     expect((await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', bodyFrom: 'doc:/1/a.zip', sizeBytes: 9, contentType: 'application/zip' })).error).toMatchObject({ message: 'Choose a file up to 50MB.' });
+  });
+});
+
+describe('a slow host and a refused pairing (reference 7c3b3b3605ef)', () => {
+  test('a read names its own deadline, and one that runs past it fails with reason timeout', async () => {
+    const { drive, server } = await paired();
+    server.delays['/api/auth/session'] = 10_000;
+    const slow = await drive.op({ op: 'http', path: '/api/auth/session', timeoutMs: 6_000 });
+    expect(slow.error).toMatchObject({ kind: 'Network', reason: 'timeout' });
+    expect(value(await drive.op({ op: 'http', path: '/api/auth/session', timeoutMs: 12_000 }))).toMatchObject({ authenticated: true });
+    expect(server.requests.filter(request => request.path === '/api/auth/session').slice(-2).map(request => request.timeoutMs)).toEqual([6_000, 12_000]);
+    // Without one, or with one out of range, a read keeps the 30 s deadline.
+    await drive.op({ op: 'http', path: '/api/auth/session', timeoutMs: 120_000 });
+    expect(server.requests.at(-1)!.timeoutMs).toBe(30_000);
+  });
+
+  test('a pairing exchange answered with HTTP 500 ends the attempt, naming the server and its version', async () => {
+    const server = new FakeServer(ORIGIN, 'env-1', { label: 'Build box', serverVersion: '0.1.3' });
+    server.routes['/oauth/token'] = () => ({ status: 500, body: { message: 'Internal server error' } });
+    const drive = new Drive(server);
+    const reply = await drive.op(pairing());
+    expect(reply.error).toMatchObject({ kind: 'Pairing', reason: 'exchange_http_500', context: { label: 'Build box', serverVersion: '0.1.3' } });
+    expect(value(await drive.op({ op: 'status' }))).toMatchObject({ state: 'error', failureKind: 'Pairing' });
+    await drive.advance(10_000);
+    expect(server.requests.filter(request => request.path === '/oauth/token')).toHaveLength(1);
+    // Pairing another environment beside the active connection fails the same way.
+    const added = await drive.op({ op: 'pairEnvironment', origin: ORIGIN, credential: 'code-1' });
+    expect(added.error).toMatchObject({ kind: 'Pairing', reason: 'exchange_http_500', context: { label: 'Build box', serverVersion: '0.1.3' } });
   });
 });

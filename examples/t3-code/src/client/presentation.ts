@@ -22,6 +22,7 @@ import { composerSnapshot } from '../composer/composer-presentation';
 import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
 import { triggerModelName } from '../composer/composer-controls-model';
+import { resolveModelShortName } from './model-short-name';
 import { pickerCatalog, withJumpLabels } from '../composer/model-catalog';
 import { effectiveShortcut } from '../shell/shortcut-labels'; // the rows' ⌘1–⌘9
 import { ariaChord } from '../shell/keyboard-dispatch';
@@ -83,6 +84,18 @@ export function projectIdentity(name: string) {
   return { projectMark: mark, projectInk: `light-dark(${light}, ${dark})`,
     projectSurface: `light-dark(${light}24, ${dark}24)` };
 }
+/**
+ * providerInstanceInitials (reference 7c3b3b3605ef, client-runtime state/providerInstanceDisplay.ts): punctuation
+ * separates words, so "Codex (hub)" reads CH; an apostrophe inside a word stays ("Theo's Codex" is TC) and a quoting
+ * one does not ("Codex 'hub'" is CH). The reference's `[^\P{P}'’]` is written with a lookahead: Hermes matches
+ * nothing for `\P{…}` inside a negated class.
+ */
+export function providerInstanceInitials(label: string): string {
+  const words = label.replace(/(?:(?!['’])\p{P})+/gu, ' ').split(/\s+/u).map(word => word.replace(/^['’]+|['’]+$/gu, '')).filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length === 1) return Array.from(words[0]!).slice(0, 2).join('').toUpperCase();
+  return words.slice(0, 2).map(word => Array.from(word)[0]?.toUpperCase() ?? '').join('');
+}
 // Provider account marks follow the source instance-display helper (providerInstanceDisplay.ts
 // shouldShowInstanceBadge, 74541bab17).
 export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
@@ -94,10 +107,7 @@ export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
     && !(provider?.enabled === true && candidate.enabled !== true)
     && (driver !== 'acpRegistry' || candidate.acpRegistryAgentId === provider?.acpRegistryAgentId));
   if (!provider || !color && siblings.length <= 1) return {providerBadge:'',providerBadgeColor:''};
-  const words = str(provider.displayName, str(provider.instanceId)).replace(/[_-]+/g,' ').split(/\s+/u).filter(Boolean);
-  const initials = words.length === 1 ? Array.from(words[0]!).slice(0,2).join('')
-    : words.slice(0,2).map(word=>Array.from(word)[0] ?? '').join('');
-  return {providerBadge:initials.toUpperCase(),providerBadgeColor:color};
+  return {providerBadge:providerInstanceInitials(str(provider.displayName, str(provider.instanceId))),providerBadgeColor:color};
 }
 
 /** ProviderStatusBanner (provider-status-message.ts): the composer instance's banner. */
@@ -153,7 +163,8 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
     canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
-    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : selectedModel || 'Choose model',
+    // getTriggerDisplayModelName: the short name the model's own provider icon leaves (model-short-name.ts).
+    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName({ ...currentModel, shortName: resolveModelShortName(currentModel, str(selectedProvider?.driver)) ?? '' }) : selectedModel || 'Choose model',
     composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
     planModeEnabled: client.local.deviceSettings.planModeEnabled,
     composerResting: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && transcriptFacts(client).resting,

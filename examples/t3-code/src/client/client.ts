@@ -61,6 +61,7 @@ import { adoptPreviewAnnotations } from '../browser/browser-annotation'; // Anno
 import { adoptReviewComments } from '../composer/composer-editor'; // review comments and pull requests behind the drafts' chips
 import { providerSetupEvent } from '../providers/provider-setup'; // the auth and install streams
 import { composerReplyEvent, settleLostReplies, settleStaleReplies } from '../composer/composer-replies'; // detached requests' replies
+import { STOP_COMMANDS, pumpStopRepair, repairAfterStop, stopRepairDue, stopRepairEvent } from './stop-repair'; // Stop's lookups of settled rows
 import { codexHandoffEvent } from '../providers/codex-handoff-events'; // the handoff stream when this connection is the primary
 import { adoptTerminalPrefs } from '../terminal/terminal-ui-state';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
@@ -72,6 +73,7 @@ import { windowAppearanceMode } from '../appearance/settings-appearance-look'; /
 import { heldImageIds } from '../composer/composer-copied-chips'; // the latest composer copy's images keep their bytes
 
 type Selection = { projectId: string; threadId: string };
+export type AttachmentUpload = { status: 'uploading' | 'ready' | 'failed'; progress: number; reason: string; attachmentId: string };
 export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean;
   /** A draft's launch a new-thread flow left while it was in flight, with the sent images the composer gave up (draft-launch.ts). */
   detached?: { images: Obj[] } };
@@ -136,6 +138,11 @@ export class T3Client {
    * thread survives opening another thread or a new draft, until its request is no longer pending (requests.ts).
    */
   answerDrafts: Record<string, Record<string, RequestDraft>> = {};
+  /**
+   * Each draft image's upload by its id (attachmentUploadState.ts AttachmentUploadState): uploading with its progress
+   * (0 to 1), ready, or failed with the reason. Kept in memory, as the reference's upload store is.
+   */
+  attachmentUploads: Record<string, AttachmentUpload> = {};
   get answers(): Record<string, RequestDraft> { return this.answerDrafts[`${this.environmentId}\u0000${this.threadId}`] ??= {}; }
   local = preferences();
   busy = false;
@@ -218,6 +225,17 @@ export class T3Client {
   }
   async http(native: Native, path: string, expected = this.generation) {
     return this.call(native, { op: 'http', path }, expected);
+  }
+  /**
+   * The session's grants (reference 7c3b3b3605ef, client-runtime state/session.ts fetchEnvironmentSessionState): a
+   * timeout says nothing about them, and failing would show a busy host as read-only, so the read asks again with
+   * double the time, from 6 s up to 60 s.
+   */
+  async sessionState(native: Native, expected = this.generation): Promise<Obj> {
+    for (let timeoutMs = 6_000; ; timeoutMs = Math.min(timeoutMs * 2, 60_000)) {
+      try { return await this.call(native, { op: 'http', path: '/api/auth/session', timeoutMs }, expected); }
+      catch (error) { if (!(error instanceof ClientError && error.reason === 'timeout') || timeoutMs >= 60_000) throw error; }
+    }
   }
   async request(native: Native, method: string, payload: Obj, expected = this.generation, write = false) {
     return this.call(native, { op: 'request', method, payload }, expected, write);
@@ -433,7 +451,7 @@ export class T3Client {
     this.synchronizedGeneration = -1;
     this.shellLive = false; this.threadLive = false;
     delete this.subscriptions.config; delete this.subscriptions.shell; this.streamRetryDue.clear();
-    const auth = await this.http(native, '/api/auth/session', generation);
+    const auth = await this.sessionState(native, generation);
     if (auth.authenticated !== true) throw new ClientError('Pair with the T3 server again.', 'auth');
     this.scopes = sessionPermissions(auth); this.legacyPermissions = sessionHasLegacyPermissions(auth);
     const config = await this.request(native, 'server.getConfig', {}, generation);
@@ -579,7 +597,7 @@ export class T3Client {
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // device-surface.ts: the device hub state
         if (isDiscoveredServersKey(key)) { discoveredServersEvent(this, entry); continue; } // browser-targets.ts: subscribeDiscoveredLocalServers
-        if (commandOutputEvent(this, entry) || providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
+        if (commandOutputEvent(this, entry) || providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || stopRepairEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
         if (key === PREVIEW_AUTOMATION_KEY || key === PREVIEW_EVENTS_KEY) { previewStreamEvent(this, entry); continue; } // browser-automation.ts: agent requests, preview events
@@ -633,6 +651,7 @@ export class T3Client {
       const ack = through > 0 ? await this.call(native, { op: 'ack', through }, generation) : {};
       if (samples) this.telemetryRevision++;
       if (!samplesOnly) this.changed();
+      if (stopRepairDue(this)) await pumpStopRepair(this, native); // stop-repair.ts: the next lookups, or the settled rows
       if (awaitingRegistration) break;
       if (through >= Math.max(num(batch.latest), num(ack.latest))) break;
       if (arr(batch.events).length === 0 && num(ack.latest) <= through) break;
@@ -748,8 +767,12 @@ export class T3Client {
     await this.save(storage);
   }
   async dispatch(native: Native, storage: Files, payload: Obj, description: string, beforeRequest?: () => void): Promise<Obj> {
-    return this.write(native, storage, { method: 'orchestration.dispatchCommand', payload, description,
+    const written = this.write(native, storage, { method: 'orchestration.dispatchCommand', payload, description,
       threadId: str(payload.threadId), text: str(payload.text), uncertain: false }, beforeRequest);
+    if (!STOP_COMMANDS.includes(str(payload.type))) return written;
+    // Every Stop, accepted or not, reads the open thread's background rows the server may have settled (stop-repair.ts).
+    try { return await written; }
+    finally { await repairAfterStop(this, native).catch(error => { if (letGo(error)) throw error; }); }
   }
 
   async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files, providers?: ProvidersRoute): Promise<{ revision: number; message: string; relaunch: boolean; routeReorder: number }> {
@@ -1030,33 +1053,46 @@ export class T3Client {
     const attachments: Obj[] = [];
     for (const image of this.local.snapshotDrafts[key] || []) {
       if (!current()) throw new ClientError('The draft changed before upload.');
-      let attachmentId = str(image.uploadId);
-      if (!attachmentId) {
-        const png = str(image.mimeType, 'image/png') === 'image/png';
-        const body = await draftUpload(str(image.id))
-          .catch(() => { throw new ClientError(`${str(image.name, 'An image')} was not saved with this draft. Attach it again to send it.`); });
-        if (!current()) throw new ClientError('The draft changed before upload.');
-        if (body.sizeBytes > 0) image.sizeBytes = body.sizeBytes;
-        const upload = await this.request(native, 'attachments.createUploadUrl', { type: 'image', name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes });
-        attachmentId = str(upload.attachmentId);
-        if (!attachmentId || !str(upload.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');
-        try {
-          if (!current()) throw new ClientError('The draft changed before upload.');
-          await this.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, bodyFrom: body.bodyFrom, sizeBytes: body.sizeBytes, ...(png ? {} : { contentType: str(image.mimeType) }) });
-          if (!current()) throw new ClientError('The draft changed during upload.');
-          image.uploadId = attachmentId;
-          await this.persist(storage);
-        } catch (error) {
-          delete image.uploadId;
-          // Only this operation's newly minted upload is eligible for cleanup.
-          if (generation === this.generation) await this.request(native, 'attachments.delete', { attachmentId }).catch(() => {});
-          throw error;
-        }
-      }
+      const attachmentId = str(image.uploadId) || await this.uploadDraftImage(native, storage, image, current);
       attachments.push({ type: 'image', id: attachmentId, name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes, source: image.source });
     }
     if (!current()) throw new ClientError('The draft changed before sending its attachments.');
     return attachments;
+  }
+  /**
+   * Uploads one draft image now and returns its attachment id; one already uploaded returns its id. The reference
+   * starts this when the image is attached (attachmentUploadQueue.ts), so `attachmentUploads` says how it goes. exact2's
+   * fetch reports no bytes sent, so its progress is 0 until the reply.
+   */
+  async uploadDraftImage(native: Native, storage: Files, image: Obj, current: () => boolean = () => true): Promise<string> {
+    const id = str(image.id), uploaded = str(image.uploadId);
+    if (uploaded) { this.attachmentUploads[id] = { status: 'ready', progress: 1, reason: '', attachmentId: uploaded }; return uploaded; }
+    const generation = this.generation;
+    this.attachmentUploads[id] = { status: 'uploading', progress: 0, reason: '', attachmentId: '' };
+    let attachmentId = '';
+    try {
+      const png = str(image.mimeType, 'image/png') === 'image/png';
+      const body = await draftUpload(id)
+        .catch(() => { throw new ClientError(`${str(image.name, 'An image')} was not saved with this draft. Attach it again to send it.`); });
+      if (!current()) throw new ClientError('The draft changed before upload.');
+      if (body.sizeBytes > 0) image.sizeBytes = body.sizeBytes;
+      const upload = await this.request(native, 'attachments.createUploadUrl', { type: 'image', name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes });
+      attachmentId = str(upload.attachmentId);
+      if (!attachmentId || !str(upload.relativeUrl).startsWith('/api/attachments/upload/')) { attachmentId = ''; throw new ClientError('The server returned an invalid attachment upload.'); }
+      if (!current()) throw new ClientError('The draft changed before upload.');
+      await this.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, bodyFrom: body.bodyFrom, sizeBytes: body.sizeBytes, ...(png ? {} : { contentType: str(image.mimeType) }) });
+      if (!current()) throw new ClientError('The draft changed during upload.');
+      image.uploadId = attachmentId;
+      await this.persist(storage);
+    } catch (error) {
+      delete image.uploadId;
+      this.attachmentUploads[id] = { status: 'failed', progress: 0, reason: message(error), attachmentId: '' };
+      // Only this operation's newly minted upload is eligible for cleanup.
+      if (attachmentId && generation === this.generation) await this.request(native, 'attachments.delete', { attachmentId }).catch(() => {});
+      throw error;
+    }
+    this.attachmentUploads[id] = { status: 'ready', progress: 1, reason: '', attachmentId };
+    return attachmentId;
   }
   /** The platform's own availability probe for a recorded candidate (no keybinding list: checked in TS). */
   async snapshotCheck(native: Native, shortcut: string): Promise<Obj> { return this.call(native, { op: 'snapshotCheckShortcut', shortcut, bindings: [] }); }
