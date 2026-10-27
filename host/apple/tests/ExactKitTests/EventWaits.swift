@@ -29,16 +29,20 @@ extension XCTestCase {
             XCTFail("\(what): \(said)")
             return took
         }
-        if took > late {
-            // Kept twice: an attachment in a result bundle (the iOS runs'), and a line in the run's own log,
-            // which the Mac runner's swift xctest keeps where it keeps no attachment.
-            let line = "LATE-PASS \(name) \(what): \(said)" // (the same text on both hosts: one grep finds it)
-            print(line)
-            let note = XCTAttachment(string: line)
-            note.name = "LATE-PASS \(what)"
-            note.lifetime = .keepAlways
-            add(note)
-        }
+        if took > late { latePass(what, said) }
         return took
+    }
+
+    /// A LATE-PASS record: an attachment a result bundle keeps (the iOS
+    /// runs') and the same text as a line in the run's own log, which the
+    /// Mac runner's swift xctest keeps where it keeps no attachment, so one
+    /// grep finds it on both hosts.
+    func latePass(_ what: String, _ said: String) {
+        let line = "LATE-PASS \(name) \(what): \(said)"
+        print(line)
+        let note = XCTAttachment(string: line)
+        note.name = "LATE-PASS \(what)"
+        note.lifetime = .keepAlways
+        add(note)
     }
 }
