@@ -1,12 +1,15 @@
 //! Transparent rows contribute nothing to an opacity group's source-over blend.
+use std::ops::Range;
 use tiny_skia::{Pixmap, PixmapPaint, PixmapRef, Transform};
 
-pub(super) fn composite(below: &mut Pixmap, layer: &Pixmap, opacity: f32) {
+pub(super) fn composite(below: &mut Pixmap, layer: &Pixmap, opacity: f32, rows: Range<u32>) {
     let stride = layer.width() as usize * 4;
-    let mut rows = layer.data().chunks_exact(stride);
+    let start = rows.start as usize;
+    let mut rows = layer.data()[start * stride..rows.end as usize * stride].chunks_exact(stride);
     let Some(top) = rows.position(|row| !empty(row)) else {
         return;
     };
+    let top = start + top;
     let bottom = rows
         .rposition(|row| !empty(row))
         .map_or(top + 1, |n| top + 2 + n);
@@ -82,7 +85,7 @@ mod tests {
                         None,
                     );
                     let mut actual = below.clone();
-                    composite(&mut actual, &layer, opacity);
+                    composite(&mut actual, &layer, opacity, 0..layer.height());
                     assert!(
                         actual.data() == expected.data(),
                         "{width}x{height}, case={case}, alpha={alpha}"

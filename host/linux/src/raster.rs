@@ -458,9 +458,10 @@ impl Backend for Raster {
         }
         if shape.rounded() && color[3] == 255 {
             if let Some(rect) = self.covered_clip(shape, dev) {
-                if let Some(target) = self.target.pixels() {
+                let path = PathBuilder::from_rect(rect);
+                if let Some(target) = self.target.path_pixels(&path, Transform::identity()) {
                     target.fill_path(
-                        &PathBuilder::from_rect(rect),
+                        &path,
                         &solid(color),
                         FillRule::Winding,
                         Transform::identity(),
@@ -512,9 +513,12 @@ impl Backend for Raster {
                                     original[2].min(damage.right()),
                                     original[3].min(damage.bottom()),
                                 ) {
-                                    if let Some(target) = self.target.pixels() {
+                                    let path = PathBuilder::from_rect(rect);
+                                    if let Some(target) =
+                                        self.target.path_pixels(&path, Transform::identity())
+                                    {
                                         target.fill_path(
-                                            &PathBuilder::from_rect(rect),
+                                            &path,
                                             &solid(color),
                                             FillRule::Winding,
                                             Transform::identity(),
@@ -574,7 +578,12 @@ impl Backend for Raster {
         };
         let dev = self.device(ts);
         let mask = self.active_clip().cloned();
-        let Some(t) = self.target.pixels() else {
+        let target = if s.stroke.is_none() {
+            self.target.path_pixels(&path, dev)
+        } else {
+            self.target.pixels()
+        };
+        let Some(t) = target else {
             return;
         };
         // @ref LLP 1055.000 D7 — a gradient is a tiny-skia shader in the
@@ -1141,7 +1150,7 @@ impl Backend for Raster {
         let Some(fresh) = Pixmap::new(self.width, self.height) else {
             return;
         };
-        if let Some(old) = self.target.replace(fresh) {
+        if let Some(old) = self.target.replace_empty(fresh) {
             self.layers.push((old, alpha));
         }
     }
@@ -1158,8 +1167,9 @@ impl Backend for Raster {
         let Some((mut below, alpha)) = self.layers.pop() else {
             return;
         };
+        let rows = self.target.rows();
         if let Some(layer) = self.target.take() {
-            opacity::composite(&mut below, &layer, alpha);
+            opacity::composite(&mut below, &layer, alpha, rows);
         }
         self.target = Target::painted(below);
     }
