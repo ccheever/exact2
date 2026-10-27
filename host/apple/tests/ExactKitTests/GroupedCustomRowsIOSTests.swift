@@ -224,5 +224,65 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertTrue(row.superview === group, "the row read at home")
         XCTAssertTrue(try XCTUnwrap(p.views[11]).superview === b.contentView, "its neighbour still in its cell")
     }
+
+    /// A swipe row inserted while a sheet is up (r25's contacts: the
+    /// contact its form saves) offers its actions once the sheet closes.
+    /// The sheet made it inert as it was mounted, and the batches after
+    /// change nothing in it, so its row keeps what it read then: only the
+    /// row's own `inert` may take its actions away.
+    func testASwipeRowInsertedUnderASheetSwipesOnceItCloses() throws {
+        var rows = [Row(view: 30, title: "Plain")]
+        ExactGroupedLists.install()
+        let p = Presenter()
+        host(p).model = { $0 == 1 ? GroupedListModel(sections: [.init(view: 2, header: nil, footer: nil, rows: rows)]) : nil }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let screen = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        screen.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let owner = UIViewController(), background = UIViewController()
+        screen.rootViewController = owner
+        screen.makeKeyAndVisible()
+        window = screen
+        addTeardownBlock { owner.presentedViewController?.dismiss(animated: false); screen.isHidden = true }
+        p.viewport.frame = owner.view.bounds
+        owner.view.addSubview(p.viewport)
+        owner.addChild(background)
+        background.view.frame = owner.view.bounds
+        owner.view.addSubview(background.view)
+        background.didMove(toParent: owner)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
+            ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 30, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 90, "kind": "view", "props": ["navigationPresentation": "modal"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [4]], ["op": "children", "id": 4, "ids": [30]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 0.0, "w": 354.0, "h": 52.0],
+        ]))
+        background.view.addSubview(try XCTUnwrap(p.views[1]))
+        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, preceding: nil, owner: owner)
+        XCTAssertTrue(try XCTUnwrap(p.views[1]).inert, "the sheet makes the list inert")
+
+        rows.insert(Row(view: 21, custom: true), at: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "view", "props": ["swipeContent": "body", "swipeTrailing": "delete"],
+             "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": 22, "kind": "view", "props": ["id": "body"], "style": [:]],
+            ["op": "create", "id": 23, "kind": "button", "props": ["id": "delete", "accessibilityLabel": "Delete", "destructive": "true"],
+             "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 4, "ids": [21, 30]], ["op": "children", "id": 21, "ids": [22, 23]],
+            ["op": "frame", "id": 21, "x": 16.0, "y": 0.0, "w": 386.0, "h": 52.0],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 0.0, "w": 370.0, "h": 52.0],
+            ["op": "frame", "id": 23, "x": 370.0, "y": 0.0, "w": 60.0, "h": 52.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 52.0, "w": 354.0, "h": 52.0],
+        ]))
+        p.modals.closeTop(animated: false)
+        XCTAssertFalse(try XCTUnwrap(p.views[21]).inert, "the sheet closed")
+        // A batch that changes nothing in the row keeps it as it is.
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["testId": "rows"], "clear": [String]()]]))
+        let trailing = try list(p).swipeActions(at: IndexPath(item: 0, section: 0), leading: false)
+        XCTAssertEqual(trailing?.actions.count, 1, "its Delete, as the rows that were there before the sheet")
+    }
 }
 #endif

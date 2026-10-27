@@ -398,8 +398,12 @@ package final class SwipeActionsHost {
         // completes. That temporary state is not an authored input restriction.
         private var actionAncestors: [UInt32: [Ancestor]] = [:]
         private var scrollWasHidden = false
-        /// A grouped row's: its owner's inertness, read in the authored
+        /// A grouped row's: its owner's authored inertness, read in the authored
         /// hierarchy, and whether its scroll was stilled for the cell's swipe.
+        /// Not a presentation's: a row inserted under a sheet (a contact its
+        /// form saves) is mounted while the sheet makes it inert and mounted
+        /// again only by a batch that changes it, so its cell would offer no
+        /// actions once the sheet closed.
         private var ownerInert = false
         private var stilled = false
         /// A grouped row's actions are hidden and its scroll stilled for its cell (`mountGrouped`), until `restore`.
@@ -515,7 +519,7 @@ package final class SwipeActionsHost {
                 while let view = current { ancestors.append(Ancestor(view)); if view === owner { break }; current = view.superview }
                 actionAncestors[control.id] = ancestors
             }
-            ownerInert = owner.inert
+            ownerInert = owner.authoredInert
             #if os(iOS)
             if claim == nil { let made = makeClaim(); owner.addGestureRecognizer(made); claim = made }
             #endif
