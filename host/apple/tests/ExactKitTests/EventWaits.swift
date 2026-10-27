@@ -32,8 +32,9 @@ extension XCTestCase {
         if took > late {
             // Kept twice: an attachment in a result bundle (the iOS runs'), and a line in the run's own log,
             // which the Mac runner's swift xctest keeps where it keeps no attachment.
-            print("LATE-PASS \(name) \(what): \(said)")
-            let note = XCTAttachment(string: "LATE-PASS \(what): \(said)")
+            let line = "LATE-PASS \(name) \(what): \(said)" // (the same text on both hosts: one grep finds it)
+            print(line)
+            let note = XCTAttachment(string: line)
             note.name = "LATE-PASS \(what)"
             note.lifetime = .keepAlways
             add(note)
