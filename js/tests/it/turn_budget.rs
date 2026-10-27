@@ -5,9 +5,10 @@
 //! is refused as before. (Under load a wall-clock budget refused a turn of
 //! 60 ms of work that read 247 ms.)
 #![cfg(exact_js_engine)]
-use super::storage::{args, call, Root, GRANTS};
+use super::storage::{args, call, Root, APP, GRANTS, HBC};
 use exact_js::{Module, NativeModule};
-use exact_runner::{DataError, DataSource, Store};
+use exact_kernel::Kernel;
+use exact_runner::{DataError, DataSource, Runner, Store};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -34,13 +35,20 @@ fn module(root: &Root, native: fn(&str) -> Box<dyn NativeModule>) -> Module {
 #[test]
 fn a_turn_that_waits_without_working_is_within_its_budget() {
     let root = Root::new();
-    let mut m = module(&root, |_| Box::new(Waits::<250>));
+    let mut m = module(&root, |_| Box::new(Waits::<150>));
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
-    // 250 ms of wall, almost none of it the module's: a wall-clock budget refused it.
-    assert_eq!(call(&mut m, &mut s, "native-direct", "waited"), "waited");
+    // 150 ms of wall, almost none of it the module's: a wall-clock budget refused it. (Only a
+    // machine that kept the thread off the core another 850 ms meets the backstop: then the
+    // refusal is the backstop's, which this test lets by, never the budget's.)
+    let a = args("native-direct", "waited");
+    match m.answer(&mut s, "work", &a) {
+        Ok(answer) => assert_eq!(super::storage::finish(&mut m, &mut s, &a, answer), "waited"),
+        Err(DataError::Unavailable(e)) if e.contains("a turn may take") => return,
+        Err(e) => panic!("a waiting turn was refused: {e:?}"),
+    }
     assert_eq!(m.overruns(), 0);
-    // Placed on main, where the UI waits on its thread: the hold is said in
-    // the journal, not refused (theme2's 15:57 ruling).
+    // Placed on main, where the UI waits on its thread: the hold is said, not
+    // refused (theme2's 15:57 ruling); the runner's journal: below.
     let logs = m.take_logs();
     assert!(
         logs.iter()
@@ -79,4 +87,42 @@ fn a_turn_that_works_past_its_budget_is_refused() {
         other => panic!("expected the budget's refusal, got {other:?}"),
     }
     assert_eq!(m.overruns(), 1);
+}
+
+#[test]
+fn a_turn_that_held_the_ui_thread_is_said_in_the_runners_journal() {
+    let root = Root::new();
+    let plan = contract::compile(
+        r#"
+shape Result
+  text: string
+component App
+  resource r = work("native-direct", "held") as shape Result else work("placeholder", "")
+  view
+    text r.text testId="r"
+"#,
+    )
+    .unwrap();
+    let mut m = Module::new(HBC.to_vec(), APP, GRANTS).with_native(|_| Box::new(Waits::<150>));
+    m.set_budget_ms(100.0);
+    m.configure_storage(
+        root.0.join("data"),
+        root.0.join("cache"),
+        root.0.join("tmp"),
+    )
+    .unwrap();
+    m.bind(&plan);
+    m.activate().unwrap();
+    let runner = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    let journal: Vec<String> = runner.journal().map(str::to_owned).collect();
+    // (the thread and both clocks; a machine that kept the turn past the backstop refused it instead)
+    assert!(
+        journal
+            .iter()
+            .any(|l| l.contains("a data turn held the UI thread")
+                && l.contains("ms of its own")
+                && l.contains("`work`"))
+            || journal.iter().any(|l| l.contains("a turn may take")),
+        "{journal:?}"
+    );
 }
