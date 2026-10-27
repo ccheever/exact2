@@ -21,8 +21,9 @@ task: the open channel's row in the web's split, and the channel's heading at la
   (`navigation.js`, `input-glue.js`) with a Chrome test beside the others, so the fix was
   two lines each.
 - The message menu's Translate had no symbol; `translate` is now one row of the symbol table
-  (SF Symbols' `translate`, a stroked character-and-A on the web), and the card's 12 KB budget
-  took two shorter phrases to fit its name.
+  (SF Symbols' `character.bubble`, since `translate` arrived only in iOS 17.4 and macOS 14.4;
+  a stroked character beside an A elsewhere), and the card's 12 KB budget took two shorter
+  phrases to fit its name.
 
 ### Needed
 
