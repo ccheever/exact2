@@ -110,12 +110,14 @@ test("contract gallery places the cells this app does, each placed, on the app's
 // be "", which the compiler can't see (one prop required by another's
 // value): every round cell names one, and in both states, the app's swap.
 /** The placement of `id` in `app` (its line, comments set aside) writes
- * `prop` as a whole string literal with words in it: the closing quote ends
- * the argument (a `,` or the call's `)` next), so `"Follow Ada".slice(99)`,
- * a missing prop and `""` all fail. */
-function wordsWritten(app, id, prop) {
+ * `prop` as a whole string literal with words in it (or, `empty`, exactly
+ * `""`): the closing quote ends the argument (a `,` or the call's `)` next),
+ * so `"Follow Ada".slice(99)`, `"" + "Following Ada"`, a missing prop and
+ * `""` (unless `empty`) all fail. */
+function wordsWritten(app, id, prop, empty = false) {
   const line = app.split('\n').map(uncommented).find(l => l.includes(`(id="${id}",`));
-  return !!line && new RegExp(`[(,]\\s*${prop}="\\s*\\S[^"]*"\\s*(?:,|\\)\\s*$)`).test(line);
+  const value = empty ? '""' : '"\\s*\\S[^"]*"';
+  return !!line && new RegExp(`[(,]\\s*${prop}=${value}\\s*(?:,|\\)\\s*$)`).test(line);
 }
 test("every round FollowButton cell names its label, the label swapped with the state", () => {
   const app = readFileSync(APP, 'utf8');
@@ -127,6 +129,8 @@ test("every round FollowButton cell names its label, the label swapped with the 
   // The guard refuses what would leave a round button speechless.
   const cell = l => `      FollowButton(id="r", following=false, text="", ${l}tone="primary", size="small", shape="round", icon="both", press=press)\n`;
   expect(['label="Follow Ada", ', 'label="Follow Ada".slice(99), ', 'label="", ', 'label=" ", ', '', 'label=name, '].map(l => wordsWritten(cell(l), 'r', 'label'))).toEqual([true, false, false, false, false, false]);
+  // A pill's "" is the empty literal alone, not the head of an expression.
+  expect(['label="", ', 'label="" + "Following Ada", ', 'label="Follow", '].map(l => wordsWritten(cell(l), 'r', 'label', true))).toEqual([true, false, false]);
   // Each cell's words are its state's: the spoken label (the text where it's
   // "") starts "Following" following, "Follow " or is "Follow" not; every
   // label and text a whole literal (or "" for a label).
@@ -134,7 +138,7 @@ test("every round FollowButton cell names its label, the label swapped with the 
     const said = option(p.values.label) || option(p.values.text);
     const on = option(p.values.following) === 'true';
     expect([p.id, on ? said.startsWith('Following') : !said.startsWith('Following') && said.startsWith('Follow')]).toEqual([p.id, true]);
-    expect([p.id, wordsWritten(app, p.id, 'text'), wordsWritten(app, p.id, 'label') || p.values.label === '""']).toEqual([p.id, true, true]);
+    expect([p.id, wordsWritten(app, p.id, 'text'), wordsWritten(app, p.id, 'label') || wordsWritten(app, p.id, 'label', true)]).toEqual([p.id, true, true]);
   }
 });
 
