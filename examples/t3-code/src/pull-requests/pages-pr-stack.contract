@@ -55,8 +55,8 @@ shape PrStackView
 
 fn psTone(state: string): string = state == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : state == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : state == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
 fn psIcon(state: string): string = state == "draft" ? "git-pull-request-draft" : state == "closed" ? "git-pull-request-closed" : state == "merged" ? "git-merge" : "git-pull-request-arrow"
-fn psInk(): string = "light-dark(#27272a, #f5f5f5)"
-fn psMuted(): string = "light-dark(#71717b, #818181)"
+fn psInk(): string = "light-dark(#18181b, #f5f5f5)"
+fn psMuted(): string = "light-dark(#71717b, #a1a1a1)"
 fn psPrimary(): string = "light-dark(#1b4ed8, #346bf1)"
 
 // The header's stack controls, before the thread links and the primary control.
@@ -107,7 +107,7 @@ component PrdStackControls
                   PsMenuItem(keysId="pr-stack-keys", icon=psIcon(layer.state), label=layer.title, detail=layer.detail, state=layer.state, current=layer.current, disabled=(not stack.selectable), destructive=false, press=select(layer.ref), testId=`pr-stack-layer-${layer.number}`)
                 text stack.base padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=psMuted() testId="pr-stack-base"
               if stack.canMerge or stack.canRebase
-                box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+                box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
                 if stack.canMerge
                   PsMenuItem(keysId="pr-stack-keys", icon="git-merge", label=stack.mergeItemLabel, detail="", state="", current=false, disabled=stack.mergeDisabled, destructive=false, press=local("pr-ui-stack-ask", ref, "merge"), testId="pr-stack-merge")
                 if stack.canRebase
@@ -157,7 +157,7 @@ component PsMenuItem
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press popovertarget="pr-stack-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" aria-current=(current ? "true" : "") testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press popovertarget="pr-stack-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" aria-current=(current ? "true" : "") testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(lit and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       if icon != ""
         PgIcon(name=icon, size=(state != "" ? 16 : 14), color=(state != "" ? psTone(state) : psMuted()))
       column flex=1 min-width=0 align-items="flex-start"
@@ -178,7 +178,7 @@ component PrStackDialog
     act: action
     local: action
   view
-    box position="absolute" left=0 top=0 right=0 bottom=0 z-index=80 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-stack-dialog-layer"
+    box position="absolute" left=0 top=0 right=0 bottom=0 z-index=80 background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)" testId="pr-stack-dialog-layer"
       column position="absolute" left=0 top=0 right=0 bottom=0 padding="1rem" box-sizing="border-box" align-items="center" justify-content="center" press=local("pr-ui-stack-cancel", ref, "") aria-label="Close" testId="pr-stack-dialog-backdrop"
         PsDialogPopup(stack=stack, ref=ref, dark=dark, act=act, local=local)
 
@@ -209,7 +209,7 @@ component PsDialogPopup
       preventDefault()
       focus(e.shiftKey ? "pr-stack-dialog-confirm" : "pr-stack-dialog-cancel")
   view
-    column position="relative" width="100%" max-width="28rem" max-height="100%" min-height=0 box-sizing="border-box" border-radius="1.125rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" press=hold retainFocus=true role="dialog" aria-modal=dialogSeated.includes("pr-stack-dialog") aria-label=stack.dialogTitle testId="pr-stack-dialog" id="pr-stack-dialog" data-dialog-focus="open" focusin=dialogEntered("pr-stack-dialog")
+    column position="relative" width="100%" max-width="28rem" max-height="100%" min-height=0 box-sizing="border-box" border-radius="1rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #000000cc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" press=hold retainFocus=true role="dialog" aria-modal=dialogSeated.includes("pr-stack-dialog") aria-label=stack.dialogTitle testId="pr-stack-dialog" id="pr-stack-dialog" data-dialog-focus="open" focusin=dialogEntered("pr-stack-dialog")
       DialogOpenFocus(target="pr-stack-dialog-cancel")
       column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
         text stack.dialogTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color=psInk() role="heading" aria-level=2 testId="pr-stack-dialog-title"
@@ -217,13 +217,13 @@ component PsDialogPopup
       column padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
         column width="100%" max-height="12rem" overflow-y="auto" gap="0.25rem" role="list"
           for layer in stack.dialogLayers key=layer.key
-            row width="100%" gap="0.5rem" align-items="center" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.375rem" background-color="light-dark(#f4f4f580, #ffffff05)" role="listitem" testId=`pr-stack-dialog-layer-${layer.number}`
+            row width="100%" gap="0.5rem" align-items="center" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#f4f4f580, #ffffff05)" role="listitem" testId=`pr-stack-dialog-layer-${layer.number}`
               PgIcon(name=psIcon(layer.state), size=16, color=psTone(layer.state))
               column flex=1 min-width=0
                 text layer.title font-size="0.875rem" line-height="1.25rem" color=psInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
                 text layer.compact font-size="0.75rem" line-height="1rem" color=psMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-      row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
-        button id="pr-stack-dialog-cancel" press=local("pr-ui-stack-cancel", ref, "") key=fromCancel autofocus=true aria-keyshortcuts="Escape" testId="pr-stack-dialog-cancel" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
+      row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafab8, #ffffff06)"
+        button id="pr-stack-dialog-cancel" press=local("pr-ui-stack-cancel", ref, "") key=fromCancel autofocus=true aria-keyshortcuts="Escape" testId="pr-stack-dialog-cancel" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
           text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=psInk()
         button id="pr-stack-dialog-confirm" press=act("stack-run", "") key=fromConfirm testId="pr-stack-dialog-confirm" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=psPrimary() background-color=psPrimary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
           text stack.dialogConfirm font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"

@@ -37,7 +37,7 @@ test('share bars leave out empty segments, round below a cent away and caption e
   const bar = shareBar('Cost by type', costTypeSegments({ input: 2926.36, cacheRead: 15367.19, cacheWrite: 1263.49, output: 2253.61, unsplit: 0 }), formatUsd)!;
   expect(bar.ariaLabel).toBe('Cost by type: Input $2,926.36, Cache read $15,367.19, Cache write $1,263.49, Output $2,253.61');
   expect(bar.segments.map(segment => [segment.label, segment.light, segment.dark, segment.first, segment.last])).toEqual([
-    ['Input', '#747477', '#8c8c8c', true, false], ['Cache read', '#b6b6b7', '#464646', false, false], ['Cache write', '#5c5c5f', '#aaaaaa', false, false], ['Output', '#27272a', '#f5f5f5', false, true]]);
+    ['Input', '#69696c', '#7b7b7b', true, false], ['Cache read', '#b0b0b1', '#2b2b2b', false, false], ['Cache write', '#4f4f52', '#9e9e9e', false, false], ['Output', '#18181b', '#f5f5f5', false, true]]);
   expect(bar.segments[1]!.tip).toBe('Cache read · $15,367.19 · 70.5%');
   expect(shareBar('Empty', costTypeSegments({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0, unsplit: 0 }), formatUsd)).toBeNull();
   const merged = mergeUsage([{ id: 'env', label: 'Mac', summary: summary([bucket({ costUsd: 10, categoryCostUsd: { input: 2, cacheRead: 3, cacheWrite: 1, output: 4 }, fastCostUsd: 4, speedPremiumUsd: 2 })]) }]);
