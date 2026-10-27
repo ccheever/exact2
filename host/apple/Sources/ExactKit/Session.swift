@@ -748,10 +748,10 @@ public final class ExactSession {
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
-        presenter.onIntrinsic = { [unowned self] sizes in whenIdle(bound: true) { [unowned self] in apply(runtime.intrinsics(sizes)) } }
+        presenter.onIntrinsic = { [unowned self] sizes in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.intrinsics(sizes)) } }
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout as an intrinsic
         // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
-        presenter.onCovers = { [unowned self] covers in whenIdle(bound: true) { [unowned self] in apply(runtime.covers(covers)) } }
+        presenter.onCovers = { [unowned self] covers in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers(covers)) } }
         #if os(iOS) || os(tvOS)
         natives.onHatchesConnected = { [weak self] in
             self?.presenter.navigation.replayHatches()
@@ -1008,12 +1008,12 @@ public final class ExactSession {
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
 
-    /// A batch from a timer or a scroll event: one that changes nothing only
-    /// moves the clock. An app's timer that writes nothing (a poll that
-    /// finds no news) and a `scroll=` handler whose writes show nowhere
-    /// (every frame of a fling) still commit, and the presenter's whole pass
-    /// cost ~4.5 ms a batch on the simulator, which a fling paid every
-    /// frame. Fills and list feedback already skip theirs. Other events
+    /// A batch from a timer, a scroll event or a host's measurement: one that
+    /// changes nothing only moves the clock. An app's timer that writes nothing
+    /// (a poll that finds no news), a `scroll=` handler whose writes show
+    /// nowhere (every frame of a fling) and a size layout already had (a list
+    /// row's symbol, which the kernel measured) still commit, and the presenter's
+    /// whole pass cost ~4.5 ms a batch on the simulator. Other events
     /// still apply an empty batch: a native control that changed itself
     /// before its handler ran is reconciled by the pass (a refused tab), and
     /// the agent's clock seeks native animations through it. Slices published
