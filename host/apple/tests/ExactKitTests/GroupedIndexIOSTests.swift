@@ -28,8 +28,22 @@ final class GroupedIndexIOSTests: GroupedListFixture {
                        "a jump lands on the section's first row")
     }
 
+    /// Favorites above the letters (bake-off r28's contacts): the letters keep
+    /// their index, and a jump to one lands past the sections above them.
+    func testSectionsAboveTheLettersAreLeftOutOfTheIndex() throws {
+        let p = presenter {
+            var m = self.lettered(["Favorites", "A"])
+            m.sections.append(.init(view: 40, header: "B", footer: nil, rows: [Row(view: 30, title: "Ada", pressable: true)]))
+            return m
+        }
+        defer { window.isHidden = true }
+        XCTAssertEqual(try titles(p), ["A", "B"])
+        let c = try list(p).collection
+        XCTAssertEqual(c.dataSource?.collectionView?(c, indexPathForIndexTitle: "B", at: 1), IndexPath(item: 0, section: 2))
+    }
+
     func testOtherSectionsHaveNone() throws {
-        for headers in [["Account", nil], ["A", nil], ["A", "Bo"]] as [[String?]] {
+        for headers in [["Account", nil], ["A", nil], ["A", "Bo"], ["A", "Favorites"]] as [[String?]] {
             let p = presenter { self.lettered(headers) }
             XCTAssertNil(try titles(p), "\(headers)")
             window.isHidden = true

@@ -43,7 +43,6 @@ fn controls_a_conditional_box_a_side_or_no_bar_is_not_named() {
         format!("row role=\"tablist\"\n  button role=\"tab\" press=go\n    text \"A\"\n{LIST}"),
         // A banner that comes and goes, a floating button, a list's sibling across.
         format!("if shown\n  text \"Offline\"\n{LIST}\nbutton press=go position=\"absolute\" bottom=8 right=8\n  text \"Up\""),
-        "row flex=1\n  list flex=1 min-height=0\n    text \"row\"\n  text \"side\"".to_string(),
         // A list sized by its author, not taking the room.
         "text \"Recent\"\nlist height=200\n  text \"row\"".to_string(),
     ] {
@@ -55,4 +54,26 @@ fn controls_a_conditional_box_a_side_or_no_bar_is_not_named() {
         "",
     );
     assert_eq!(warnings(&bare), []);
+}
+
+/// Contacts' own section index beside its list (bake-off r28), shown or
+/// shown sometimes: the row is named with the platform's index as the repair.
+#[test]
+fn a_list_in_a_row_beside_another_box_is_named() {
+    for side in ["text \"side\"", "if shown\n    text \"A–Z\" width=24"] {
+        let body = format!(
+            "row flex=1 min-height=0\n  list flex=1 min-height=0\n    text \"row\"\n  {side}"
+        );
+        assert_eq!(warnings(&route(&body)), [(ID.into(), 16)], "{body}");
+        let (_, notes) = contract::compile_warned(&route(&body));
+        let note = notes.iter().find(|n| n.id == ID).unwrap();
+        for phrase in ["large title never collapses", "headed by one letter"] {
+            assert!(note.message.contains(phrase), "{phrase}: {}", note.message);
+        }
+    }
+    // A pane a wide window adds; a floating button over the list is in no row beside it.
+    let pane = route("row flex=1 min-height=0\n  list flex=1 min-height=0\n    text \"row\"\n  if shown\n    column width=280\n      text \"Members\"");
+    assert_eq!(warnings(&pane), []);
+    let floating = route("row flex=1 min-height=0\n  list flex=1 min-height=0\n    text \"row\"\n  button press=go position=\"absolute\" bottom=8 right=8\n    text \"Up\"");
+    assert_eq!(warnings(&floating), []);
 }

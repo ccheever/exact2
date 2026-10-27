@@ -8,10 +8,14 @@
 //!
 //! An `if`, `match`, use or slot beside the list, and a computed attribute,
 //! are given the benefit of the doubt.
+//!
+//! The list in a row beside another box (contacts' own section index, bake-off
+//! r28) is named too: the route's list is then no longer its own, so its
+//! large title stays open and its rows stop over the bottom bar.
 
 use super::{computed, has, literal};
 use crate::LowerError;
-use contract_syntax::{Attr, Node};
+use contract_syntax::{Attr, Expr, Node};
 
 /// The plain boxes the walk looks inside, down to the scroller.
 const BOXES: &[&str] = &[
@@ -31,46 +35,67 @@ pub(super) fn fixed_beside(route: (&str, &[Attr]), children: &[Node], out: &mut 
     if matches!(children.first(), Some(Node::Element { tag, .. }) if tag != "header") {
         return;
     }
-    let mut level: Vec<&Node> = children.iter().collect();
-    loop {
-        let Some(i) = level.iter().position(|n| holds_scroller(n)) else {
-            return;
-        };
-        let scroller = level[i];
-        for (j, n) in level.iter().enumerate().filter(|(j, _)| *j != i) {
-            if let Some(span) = fixed(n).filter(|s| {
-                !out.iter()
-                    .any(|e| e.id == "lower-list-beside-fixed" && e.span == *s)
-            }) {
-                let below = j > i;
+    walk(children.iter().collect(), out);
+}
+
+/// One level on the way down to the scroller: its neighbours there warned,
+/// then the box or each branch holding it.
+fn walk(level: Vec<&Node>, out: &mut Vec<LowerError>) {
+    let Some(i) = level.iter().position(|n| holds_scroller(n)) else {
+        return;
+    };
+    let scroller = level[i];
+    for (j, n) in level.iter().enumerate().filter(|(j, _)| *j != i) {
+        if let Some(span) = fixed(n).filter(|s| {
+            !out.iter()
+                .any(|e| e.id == "lower-list-beside-fixed" && e.span == *s)
+        }) {
+            let below = j > i;
+            out.push(LowerError {
+                id: "lower-list-beside-fixed",
+                message: format!(
+                    "this box stays put {} the list that scrolls this route, and holds more than controls (a text, an image or a fill), so on iOS the rows stop at it in a hard line where a hand-built screen's list scrolls under what is pinned over it, blurred by the scroll edge effect. Put what it says in the list (a section's `header` or `footer`, or the first row), or keep only buttons, fields and a tablist in it, unfilled: those the list runs under, faded and blurred where it passes as iOS does under a hand-built composer, so a field's text over it stays legible (docs/recipes/list-rows.md)",
+                    if below { "below" } else { "above" }
+                ),
+                span,
+            });
+        }
+    }
+    match scroller {
+        Node::Element {
+            tag,
+            attrs,
+            children,
+            ..
+        } if BOXES.contains(&tag.as_str()) && !scrolls(tag, attrs) && !across(tag, attrs) => {
+            walk(children.iter().collect(), out)
+        }
+        Node::Element {
+            tag,
+            attrs,
+            children,
+            span,
+            ..
+        } if BOXES.contains(&tag.as_str()) && !scrolls(tag, attrs) => {
+            if children
+                .iter()
+                .any(|n| !holds_scroller(n) && beside(n, false))
+            {
                 out.push(LowerError {
                     id: "lower-list-beside-fixed",
-                    message: format!(
-                        "this box stays put {} the list that scrolls this route, and holds more than controls (a text, an image or a fill), so on iOS the rows stop at it in a hard line where a hand-built screen's list scrolls under what is pinned over it, blurred by the scroll edge effect. Put what it says in the list (a section's `header` or `footer`, or the first row), or keep only buttons, fields and a tablist in it, unfilled: those the list runs under (docs/recipes/list-rows.md)",
-                        if below { "below" } else { "above" }
-                    ),
-                    span,
+                    message: "the list that scrolls this route sits in a row beside another box, so on iOS it is not the route's own: its large title never collapses, and its rows stop above the bottom bar (a search field there) where a hand-built screen's list collapses the title and runs under the bar. Make the list the route's child after its `header`, and leave what stands beside it to the platform: a list whose sections are each headed by one letter has UIKit's A–Z index, and sections above the letters (Favorites) are left out of it".into(),
+                    span: *span,
                 });
             }
         }
-        level = match scroller {
-            Node::Element {
-                tag,
-                attrs,
-                children,
-                ..
-            } if BOXES.contains(&tag.as_str()) && !scrolls(tag, attrs) && !across(tag, attrs) => {
-                children.iter().collect()
-            }
-            Node::Element { .. } => return,
-            // Of an `if` or a `match`, only the branch with the scroller: the others are shown instead.
-            Node::When {
-                then, otherwise, ..
-            } => branch([then, otherwise]),
-            Node::Each { body, .. } => body.iter().collect(),
-            Node::Match { some, none, .. } => branch([&some.1, none]),
-            Node::Use { .. } | Node::Children { .. } => return,
-        };
+        Node::Element { .. } | Node::Use { .. } | Node::Children { .. } => {}
+        // Of an `if` or a `match`, each branch with a scroller (an empty
+        // state's own is one): the others are shown instead.
+        Node::When {
+            then, otherwise, ..
+        } => branches([then, otherwise], out),
+        Node::Each { body, .. } => walk(body.iter().collect(), out),
+        Node::Match { some, none, .. } => branches([&some.1, none], out),
     }
 }
 
@@ -83,9 +108,45 @@ fn across(tag: &str, attrs: &[Attr]) -> bool {
     }
 }
 
-fn branch(arms: [&Vec<Node>; 2]) -> Vec<&Node> {
-    let arm = arms.into_iter().find(|a| a.iter().any(holds_scroller));
-    arm.map(|a| a.iter().collect()).unwrap_or_default()
+/// Whether a node in the row stands beside the list: an element in flow,
+/// or a use. One shown only sometimes counts when it is a strip (an index, at
+/// most 48 wide): a wide one is often a pane a wide window adds.
+fn beside(node: &Node, sometimes: bool) -> bool {
+    match node {
+        Node::Element { tag, attrs, .. } => {
+            let out_of_flow = matches!(literal(attrs, "position"), Some("absolute" | "fixed"))
+                || literal(attrs, "display") == Some("none")
+                || has(attrs, "popover")
+                || tag == "dialog";
+            let strip = || match attrs
+                .iter()
+                .rev()
+                .find(|a| a.name == "width")
+                .map(|a| &a.value)
+            {
+                Some(Expr::Number(w, _)) => *w <= 48.0,
+                Some(Expr::Str(w, _)) => w
+                    .trim_end_matches("px")
+                    .parse::<f64>()
+                    .is_ok_and(|w| w <= 48.0),
+                _ => false,
+            };
+            !out_of_flow && (!sometimes || strip())
+        }
+        Node::When {
+            then, otherwise, ..
+        } => then.iter().chain(otherwise).any(|n| beside(n, true)),
+        Node::Each { body, .. } => body.iter().any(|n| beside(n, sometimes)),
+        Node::Match { some, none, .. } => some.1.iter().chain(none).any(|n| beside(n, true)),
+        Node::Use { .. } => !sometimes,
+        Node::Children { .. } => false,
+    }
+}
+
+fn branches(arms: [&Vec<Node>; 2], out: &mut Vec<LowerError>) {
+    for arm in arms {
+        walk(arm.iter().collect(), out);
+    }
 }
 
 /// A vertical scroller that takes the room it is given (a `list`, or a

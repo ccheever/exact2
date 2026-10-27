@@ -738,8 +738,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // Sections each headed by one letter (Contacts' A to Z) have UIKit's
         // section index at the trailing edge, as a hand-built list of them
         // does (`indexTitles(for:)`); a jump lands on a section's first row.
-        let lettered = next.sections.allSatisfy { s in s.header.map { $0.count == 1 && ($0.first!.isLetter || $0 == "#") } == true }
-        source.titles = lettered ? Dictionary(next.sections.map { ($0.view, $0.header!) }, uniquingKeysWith: { a, _ in a }) : [:]
+        // Sections above the letters (Favorites) are left out of it.
+        let letter = { (s: GroupedListModel.Section) in s.header.map { $0.count == 1 && ($0.first!.isLetter || $0 == "#") } == true }
+        let letters = next.sections.drop { !letter($0) }
+        source.titles = letters.allSatisfy(letter) ? Dictionary(letters.map { ($0.view, $0.header!) }, uniquingKeysWith: { a, _ in a }) : [:]
         #endif
         // Headers and footers live in the sections' layout: one that came,
         // went or changed lays the list out again.
@@ -1478,19 +1480,24 @@ final class GroupedCollectionView: UICollectionView, GroupedScroller {
     }
 }
 
-/// The list's data, and its section index: each section's title, read
-/// against the sections UIKit has, which it asks about before and after a
-/// snapshot is applied. No index unless every section has a title and a row.
+/// The list's data, and its section index: each lettered section's title,
+/// read against the sections UIKit has, which it asks about before and after
+/// a snapshot is applied. No index unless every section from the first with
+/// a title on has one, and every section has a row.
 final class GroupedSource: UICollectionViewDiffableDataSource<UInt32, UInt32> {
     var titles: [UInt32: String] = [:]
+    /// How many sections stand above the first titled one.
+    private func lead(_ shown: NSDiffableDataSourceSnapshot<UInt32, UInt32>) -> Int {
+        shown.sectionIdentifiers.firstIndex { titles[$0] != nil } ?? shown.numberOfSections
+    }
     override func indexTitles(for collectionView: UICollectionView) -> [String]? {
-        let shown = snapshot()
-        let all = shown.sectionIdentifiers.compactMap { titles[$0] }
+        let shown = snapshot(), lead = lead(shown)
+        let all = shown.sectionIdentifiers.dropFirst(lead).compactMap { titles[$0] }
         let full = shown.sectionIdentifiers.allSatisfy { shown.numberOfItems(inSection: $0) > 0 }
-        return all.count > 1 && all.count == shown.numberOfSections && full ? all : nil
+        return all.count > 1 && all.count == shown.numberOfSections - lead && full ? all : nil
     }
     override func collectionView(_ collectionView: UICollectionView, indexPathForIndexTitle title: String, at index: Int) -> IndexPath {
-        IndexPath(item: 0, section: index)
+        IndexPath(item: 0, section: lead(snapshot()) + index)
     }
 }
 
