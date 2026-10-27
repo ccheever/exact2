@@ -2160,6 +2160,10 @@ Exact's web servers use declared routes for file-like deep links: `/profile/:han
 admits a navigation to `/profile/photos.zip`. Existing public files win; unmatched
 file paths stay 404, even with `notfound`. External static hosts need their own rewrites.
 
+A launch that no link starts opens at the manifest's `start_url` (for example
+`"/today"`), as an installed web app does; Apple builds bake it in. A launch
+that a link starts opens where the link goes.
+
 For a custom scheme, declare `protocol_handlers` in `app.json`, for example
 `[{"protocol":"web+notes","url":"/open?u=%s"}]`. The Apple hosts register
 that scheme. An incoming `web+notes://auth/callback#done` reaches `/open` with
