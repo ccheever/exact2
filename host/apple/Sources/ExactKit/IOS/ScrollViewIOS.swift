@@ -32,6 +32,25 @@ package class ScrollView: UIScrollView {
         super.layoutSubviews()
         keepPlatformViewsOver()
     }
+    /// The insets the offset was last kept under (`adjustedContentInsetDidChange`).
+    private var keptInset = UIEdgeInsets.zero
+    /// A list that opens at its end (`scroll-start: end`) or follows it, at
+    /// its end, stays there as its insets change, as SwiftUI's
+    /// `defaultScrollAnchor(.bottom)` keeps it; UIKit keeps the offset. A
+    /// tab bar's inset reaches a grid after it opened at its newest row
+    /// (r25's photos, at launch and as a viewer closes), and kept, the
+    /// offset left that row under the bar.
+    package override func adjustedContentInsetDidChange() {
+        let was = keptInset
+        keptInset = adjustedContentInset
+        super.adjustedContentInsetDidChange()
+        guard let node = superview as? NodeView, node.props["scrollStart"] == "end" || node.props["scrollFollowEnd"] == "true",
+              node.presenter?.collections.entries[node.id]?.snapshot.horizontal != true,
+              !isTracking, !isDecelerating, contentSize.height > 0 else { return }
+        let end = { (inset: UIEdgeInsets) in max(-inset.top, self.contentSize.height + inset.bottom - self.bounds.height) }
+        guard contentOffset.y >= end(was) - 1, was.bottom != keptInset.bottom else { return }
+        contentOffset = PixelGrid.offset(CGPoint(x: contentOffset.x, y: end(keptInset)), in: self)
+    }
     package override var accessibilityElements: [Any]? {
         get { super.accessibilityElements ?? NodeView.emptyBoxAccessibility(in: self) }
         set { super.accessibilityElements = newValue }

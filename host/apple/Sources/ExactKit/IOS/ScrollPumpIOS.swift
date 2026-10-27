@@ -52,7 +52,9 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// `step`: the speed of a step taken for a jump, which the next step
     /// confirms as travel when it repeats it.
     /// `crossed`: the last sampled step's length, a jump's too.
-    private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0, step = 0.0, crossed: CGFloat = 0 }
+    /// `layout`: the port, the extent and the insets along the axis that
+    /// the sample was taken under.
+    private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0, step = 0.0, crossed: CGFloat = 0, layout: [CGFloat] = [] }
     private struct FillCost {
         var perRow: TimeInterval?
         var lastRows = 1
@@ -133,22 +135,35 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         // Along the list's own axis (LLP 1070 H3): a row list travels on x.
         let horizontal = presenter?.collections.entries[node.id]?.snapshot.horizontal == true
         let top = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y
-        var t = travel[node.id] ?? Travel(top: top, time: now)
+        let inset = scroll.adjustedContentInset
+        let layout = horizontal ? [scroll.bounds.width, scroll.contentSize.width, inset.left, inset.right]
+                                : [scroll.bounds.height, scroll.contentSize.height, inset.top, inset.bottom]
+        var t = travel[node.id] ?? Travel(top: top, time: now, layout: layout)
+        // An offset that moved with the port, the extent or the insets is
+        // layout's, which keeps it in range, unless a finger or a fling
+        // moves the list: no travel. A list opening at its end moved 350
+        // points as the bars' insets reached it (r25's photos), which the
+        // runner took for the reader leaving the end (`leave_end_if_moved`),
+        // and the tab bar's inset then left its last row under the bar.
+        if t.layout != layout, !scroll.isTracking, !scroll.isDecelerating {
+            travel[node.id] = Travel(top: top, time: now, layout: layout)
+            return
+        }
         let delta = top - t.top, elapsed = now - t.time
         // A step longer than the port that the travel so far doesn't predict
         // is a jump, not travel: nothing to lead. A fast fling moves more
         // than a small port each frame (an inner strip at 96k pt/s): the
         // step after a jump that repeats it is travel, which the fill leads.
-        let port = horizontal ? scroll.bounds.width : scroll.bounds.height
+        let port = layout[0]
         let predicted = CGFloat((t.velocity != 0 ? t.velocity : t.step) * max(elapsed, 0))
         if abs(delta) > port && abs(delta - predicted) > port {
-            travel[node.id] = Travel(top: top, time: now, step: elapsed > 0 ? Double(delta) / max(elapsed, refreshInterval / 2) : 0, crossed: abs(delta))
+            travel[node.id] = Travel(top: top, time: now, step: elapsed > 0 ? Double(delta) / max(elapsed, refreshInterval / 2) : 0, crossed: abs(delta), layout: layout)
             return
         }
         if delta != 0, elapsed > 0 {
             let speed = Double(delta) / max(elapsed, refreshInterval / 2)
             t.velocity = elapsed > 0.15 || speed * t.velocity <= 0 ? speed : t.velocity * 0.5 + speed * 0.5
-            t.top = top; t.time = now; t.crossed = abs(delta)
+            t.top = top; t.time = now; t.crossed = abs(delta); t.layout = layout
         }
         travel[node.id] = t
     }
