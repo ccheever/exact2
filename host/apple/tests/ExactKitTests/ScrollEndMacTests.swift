@@ -27,11 +27,13 @@ final class ScrollEndMacTests: XCTestCase {
         let (p, _, sv) = try scroller()
         var ends: [UInt32] = []
         p.onScrollend = { ends.append($0) }
-        move(sv, to: 40); move(sv, to: 80)
+        move(sv, to: 40)
+        let last = Date() // (before the last move schedules its settle: Astra's round 1)
+        move(sv, to: 80)
         XCTAssertEqual(ends, [], "not before it has been still")
         // On its event, not a 0.2 s deadline (a loaded run's settle came later; EventWaits).
-        let took = waitFor("the end after the last move", late: ScrollEnd.quiet + 0.1) { !ends.isEmpty }
-        XCTAssertGreaterThanOrEqual(took, ScrollEnd.quiet - 0.01, "not before the offset was still for quiet")
+        waitFor("the end after the last move", late: ScrollEnd.quiet + 0.1) { !ends.isEmpty }
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(last), ScrollEnd.quiet, "not before the offset was still for quiet")
         XCTAssertEqual(ends, [1], "once, after the last move")
         spin(ScrollEnd.quiet + 0.05)
         XCTAssertEqual(ends, [1], "nothing more without another move")

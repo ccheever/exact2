@@ -39,15 +39,19 @@ final class SmoothCollectionIOSTests: XCTestCase {
         let clock = FrameClock.shared
         var first: CFTimeInterval?, last: CFTimeInterval = clock.link?.timestamp ?? 0, seen = 0, gap = 0.0, at = CACurrentMediaTime()
         let delivered = { first.map { last - $0 } ?? 0 }
-        waitFor(what, giveUp: {
-            // Each new link timestamp a frame delivered (sampled each turn, under a frame apart).
+        // Each new link timestamp a frame delivered (sampled each turn, under a frame apart, and once more for the facts).
+        let sample = {
             let now = CACurrentMediaTime()
             if let t = clock.link?.timestamp, t > last {
                 if first == nil { first = t }
                 last = t; seen += 1; gap = max(gap, now - at); at = now
             }
+        }
+        waitFor(what, giveUp: {
+            sample()
             return delivered() > budget
         }, facts: {
+            sample()
             let link = clock.link
             return "frames seen \(seen) over \(String(format: "%.3f", delivered())) s of link time, largest gap \(String(format: "%.3f", max(gap, CACurrentMediaTime() - at))) s, link \(link == nil ? "none" : link!.isPaused ? "paused" : "running"), app \(UIApplication.shared.applicationState.rawValue), scene \(window?.windowScene?.activationState.rawValue ?? -9)"
         }, done)
