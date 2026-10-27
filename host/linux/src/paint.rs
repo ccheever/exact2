@@ -74,6 +74,7 @@ mod region;
 pub mod rows;
 mod shadow;
 pub(crate) mod space;
+mod split;
 mod svg;
 pub(crate) use svg::{fitted, view_box};
 mod text_clip;
@@ -507,6 +508,7 @@ pub use frame::Frame;
 
 /// The painter: the walk over one backend.
 pub struct Painter {
+    pub(crate) split: Option<crate::presenter::split::Split>,
     pub(crate) window_canvas: Option<ViewId>,
     pub(crate) direct_canvases: std::collections::BTreeSet<ViewId>,
     pub(crate) alert: Option<alert::Picture>,
@@ -623,6 +625,7 @@ impl Painter {
     /// A painter over a backend.
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {
+            split: None,
             window_canvas: None,
             direct_canvases: Default::default(),
             text,
@@ -917,9 +920,11 @@ impl Painter {
         self.text.borrow_mut().finish_text_frame();
         let pixmap = finished?.map(Arc::new);
         self.damage.pixels = pixmap.clone().filter(|_| {
-            self.accepted_text
-                .values()
-                .any(|p| !p.fragments().is_empty())
+            self.split.is_some()
+                || self
+                    .accepted_text
+                    .values()
+                    .any(|p| !p.fragments().is_empty())
         });
         self.damage.dark = self.dark;
         self.damage.focus_ink = damage::field_focus_ink(scene.kernel, scene.focus);
@@ -929,7 +934,7 @@ impl Painter {
         })
     }
 
-    fn node(
+    fn node_at(
         &mut self,
         walk: &mut Walk<'_, '_>,
         id: ViewId,
@@ -1086,9 +1091,10 @@ impl Painter {
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow; then its states,
         // its looks and a press's background (LLP 1061 D7, LLP 1121 D8).
-        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark)
+        let mut paint = BoxPaint::capture(node, walk.scene.kernel, self.dark)
             .presented(&shown.colors)
             .states(node, &shown, self.dark);
+        self.split_row(node, &mut paint);
         self.clipped = Some((node.id, paint.background));
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.

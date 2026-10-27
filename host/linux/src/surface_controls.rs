@@ -918,6 +918,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(crate) fn dispatch_press(&mut self, target: ViewId, now_ms: f64, pointer: bool) {
+        let row = self.capture_split_row(target);
         // Capture ancestry before the handler can remove its button. Pointer
         // activation yields focus to commit autofocus; keyboard activation keeps
         // a surviving button focused. Never clear an editor or explicit focus.
@@ -943,6 +944,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }
+        self.associate_split_row(row);
         let prior_autofocus = self.autofocus_from;
         if pointer && fallback.is_some() {
             self.autofocus_from = Some(target);

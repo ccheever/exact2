@@ -503,8 +503,8 @@ pub(super) fn token_fields(
 /// `style` or `heading` that gives it (LLP 1115.000 D12.2), or `initial`
 /// ([`source::write`]) — its props, the plan site it was instantiated from with the
 /// instance path to it (D6), and the kernel's frames: `frame` relative to
-/// the parent, `absolute` in the root's space, or in its host block's for a
-/// node inside one (LLP 1115.002 D8.2), `content` when it scrolls.
+/// the parent, `absolute` in the root's space or the viewport when the host
+/// places its block (as `frame()` reports it), `content` when it scrolls.
 /// Observations of the runner's memory, tagged with the epoch and
 /// incarnation; a host adds the spaces and what it mounted. An id that is
 /// not a live node in this incarnation is refused by name.
@@ -606,6 +606,7 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
     s.push_str(",\"props\":{");
     props_json(&node, &mut s);
     let f = node.frame;
+    let absolute = runner.top_layer_open().agent_frame(kernel, node.id, f);
     let (px, py) = node
         .parent
         .and_then(|p| kernel.node(p))
@@ -617,10 +618,10 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         num((f.y - py) as f64),
         num(f.width as f64),
         num(f.height as f64),
-        num(f.x as f64),
-        num(f.y as f64),
-        num(f.width as f64),
-        num(f.height as f64)
+        num(absolute.x),
+        num(absolute.y),
+        num(absolute.width),
+        num(absolute.height)
     );
     // @ref LLP 1043.000 §3 D4, §8 — leaf-local geometry, or why auto height refused it.
     if !node.flow_shapes().is_empty() {

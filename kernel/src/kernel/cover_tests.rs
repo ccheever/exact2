@@ -495,3 +495,70 @@ fn measured_scroller_gutters_change_only_the_available_content_space() {
         .set_host_cover(1, Some(HostCover::Gutter([f32::NAN, 0.0])))
         .is_err());
 }
+
+#[test]
+fn absolute_auto_width_cover_stays_inside_the_containing_padding_box() {
+    for display in ["block", "flex"] {
+        for sizing in ["content-box", "border-box"] {
+            let mut k = Kernel::with_monospace();
+            let text = |s: &'static str| StyleValue::Text(s.into());
+            k.apply(
+                0,
+                1,
+                &[
+                    Op::CreateView {
+                        id: 1,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 2,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 3,
+                        node_type: NodeType::View,
+                    },
+                    style(
+                        1,
+                        &[
+                            (StyleId::Display, text(display)),
+                            (StyleId::Height, StyleValue::Number(800.)),
+                        ],
+                    ),
+                    style(
+                        2,
+                        &[
+                            (StyleId::Display, text("flex")),
+                            (StyleId::FlexDirection, text("column")),
+                            (StyleId::PositionType, text("absolute")),
+                            (StyleId::BoxSizing, text(sizing)),
+                            (StyleId::Left, StyleValue::Number(0.)),
+                            (StyleId::Right, StyleValue::Number(0.)),
+                            (StyleId::Top, StyleValue::Number(0.)),
+                            (StyleId::Bottom, StyleValue::Number(0.)),
+                        ],
+                    ),
+                    Op::SetChildren {
+                        id: 1,
+                        children: vec![2],
+                    },
+                    Op::SetChildren {
+                        id: 2,
+                        children: vec![3],
+                    },
+                    Op::AttachRoot { id: 1 },
+                ],
+            )
+            .unwrap();
+            for width in [1200., 1400., 1000.] {
+                for _ in 0..4 {
+                    k.set_host_cover(2, Some(HostCover::Edges([0., width - 320., 0., 0.])))
+                        .unwrap();
+                    k.compute_layout(1, Offer::definite(width, 800.)).unwrap();
+                    assert_eq!(k.node(2).unwrap().frame.width, width, "{display} {sizing}");
+                    assert_eq!(k.node(3).unwrap().frame.width, 320.);
+                }
+            }
+        }
+    }
+}

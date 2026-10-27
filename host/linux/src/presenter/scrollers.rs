@@ -161,7 +161,7 @@ impl<D: DataSource> Presenter<D> {
                 contained(node.style.overscroll_behavior_x),
                 contained(node.style.overscroll_behavior_y),
             );
-            let parent = self.display.parent(kernel, id).or_else(|| {
+            let parent = self.scroll_parent(id).or_else(|| {
                 node.node_type
                     .is_svg_element()
                     .then_some(node.parent)

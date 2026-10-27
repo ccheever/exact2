@@ -206,6 +206,7 @@ impl<D: DataSource> Presenter<D> {
         for (id, (left, top)) in &self.scroll {
             runner.scrolled(Some(*id), f64::from(*left), f64::from(*top));
         }
+        self.place_split();
     }
 }
 

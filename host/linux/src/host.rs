@@ -122,7 +122,7 @@ pub struct Host<D: DataSource> {
     /// A pending activation's executor wake, so the display loop does not poll.
     preload_wake: exact_runner::PreloadWake,
     router_op: Option<exact_runner::RouterChange>,
-    navigation: crate::navigation::Navigation,
+    pub(crate) navigation: crate::navigation::Navigation,
     presence: presence::Presence,
     presses: BTreeMap<NodeKey, press::Feedback>,
     /// The 2D canvases' bitmaps (LLP 1056 D7).
@@ -1195,7 +1195,7 @@ impl<D: DataSource> Host<D> {
         changed
     }
 
-    fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
+    pub(crate) fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
         let error = crate::traced(c"exact commit", || self.commit_effects(receipts, error).0);
         crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
         error
@@ -1210,6 +1210,9 @@ impl<D: DataSource> Host<D> {
         let mut paint = error.is_some() || self.content_region.is_some();
         for t in receipts {
             let r = &t.receipt;
+            self.navigation
+                .split
+                .renewed(self.runner.kernel(), &r.renewed);
             self.flow_damage.commit(self.runner.kernel(), r);
             self.row_dirty.commit(r, t.at_ms.min(self.now_ms));
             self.values.fields_committed(self.runner.kernel(), r);

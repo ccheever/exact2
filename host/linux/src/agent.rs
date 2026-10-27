@@ -342,6 +342,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     false => serde_json::json!({"unavailable": true}),
                 };
                 s.push_str(&format!(",\"bars\":{bars}"));
+                s.push_str(&format!(",\"split\":{}", p.split_json()));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );

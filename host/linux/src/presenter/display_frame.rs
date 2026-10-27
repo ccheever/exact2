@@ -36,6 +36,7 @@ struct Witness {
 struct Seen {
     key: NodeKey,
     parent: Option<ViewId>,
+    scroll_parent: Option<ViewId>,
     scroll: Option<ScrollBounds>,
 }
 #[cfg(any(target_os = "linux", target_os = "android", test))]
@@ -147,6 +148,12 @@ impl State {
             .and_then(|a| a.nodes.get(&id).and_then(|s| s.parent))
             .filter(|parent| self.allows(kernel, *parent))
     }
+    pub(super) fn scroll_parent(&self, kernel: &Kernel, id: ViewId) -> Option<ViewId> {
+        self.witness()
+            .filter(|_| self.allows(kernel, id))
+            .and_then(|a| a.nodes.get(&id).and_then(|s| s.scroll_parent))
+            .filter(|parent| self.allows(kernel, *parent))
+    }
     pub(super) fn document(&self) -> Option<(f32, f32)> {
         self.active
             .then(|| self.witness().map_or((0., 0.), |a| a.document))
@@ -220,6 +227,7 @@ impl<D: DataSource> Presenter<D> {
                         Seen {
                             key: n.key,
                             parent: n.parent,
+                            scroll_parent: self.geometry_parent(n.id),
                             scroll,
                         },
                     );
@@ -347,6 +355,7 @@ fn witness_svg(kernel: &Kernel, node: &exact_kernel::NodeRef<'_>, witness: &mut 
             let seen = witness.nodes.entry(id).or_insert(Seen {
                 key: child.key,
                 parent: child.parent,
+                scroll_parent: child.parent,
                 scroll: None,
             });
             seen.key = child.key;

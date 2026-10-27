@@ -101,6 +101,7 @@ pub(crate) fn stacks(
 
 #[derive(Default)]
 pub(crate) struct Navigation {
+    pub(crate) split: crate::presenter::split::State,
     routes: BTreeMap<ViewId, (bool, bool)>,
     /// The tabpanels a root last hid or showed: one it stops naming shows again.
     panels: BTreeSet<ViewId>,
@@ -302,7 +303,10 @@ impl Navigation {
         let mut at = Some(id);
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
-            let (hidden, inert) = self.routes.get(&id).copied().unwrap_or_default();
+            let (hidden, inert) = self
+                .split
+                .visibility(id)
+                .unwrap_or_else(|| self.routes.get(&id).copied().unwrap_or_default());
             // Linux has no top-layer presenter yet. Closed popovers retain
             // their logical tree but must never paint or intercept input.
             let closed = self.popovers && node.props.str(PropId::Popover).is_some();

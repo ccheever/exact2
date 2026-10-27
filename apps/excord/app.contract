@@ -193,8 +193,8 @@ component Excord
   derive here = categories.filter(g => g.channels.map(c => c.guild).includes(guild.id))
   derive channels = here.map(g => g.channels).flat()
   // From 900 points, browsers open the last or first channel beside the list and omit Back.
-  // Browser history keeps the reader's place through `leave`. The Mac's split gives the list
-  // its own column's width; Windows and Android push, showing the list first.
+  // Browser history keeps the reader's place through `leave`. On the Mac and Windows the host's
+  // split opens nothing until a channel is chosen and hides Back; Android pushes, the list first.
   derive wide = viewport.displayMode == "browser" and viewport.width >= 900
   derive listed = dmsShown ? dms : channels
   derive remembered = draftOf(lastChannels, dmsShown ? "@me" : guild.id)

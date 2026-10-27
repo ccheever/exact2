@@ -259,21 +259,47 @@ fn length(kernel: &Kernel, value: Dimension, basis: f64) -> f64 {
 
 fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
     let mut ancestors = Vec::new();
+    let mut block_width = viewport;
+    if let Some(block) = kernel.host_block(view) {
+        if let exact_kernel::BlockAxis::Is(width) = block.width {
+            return f64::from(width);
+        }
+    }
     let mut at = kernel.node(view).and_then(|n| n.parent);
     while let Some(parent) = at.and_then(|id| kernel.node(id)) {
         ancestors.push(parent);
+        if let Some(block) = kernel.host_block(parent.id) {
+            if let exact_kernel::BlockAxis::Is(width) = block.width {
+                block_width = f64::from(width);
+            }
+            break;
+        }
         at = parent.parent;
     }
-    ancestors.into_iter().rev().fold(viewport, |basis, node| {
-        let style = node.computed_style(exact_kernel::StyleMask::EMPTY);
-        let [_, right, _, left] = style.border_widths();
-        (node.frame.width as f64
-            - left as f64
-            - right as f64
-            - length(kernel, style.padding_left, basis)
-            - length(kernel, style.padding_right, basis))
-        .max(0.)
-    })
+    ancestors
+        .into_iter()
+        .rev()
+        .fold(block_width, |basis, node| {
+            let style = node.computed_style(exact_kernel::StyleMask::EMPTY);
+            let [_, right, _, left] = style.border_widths();
+            let cover = kernel
+                .arena()
+                .slot_of(node.id)
+                .and_then(|s| kernel.arena().cover(s));
+            let covered = match cover {
+                Some(exact_kernel::HostCover::Edges([_, right, _, left])) => {
+                    f64::from(left + right)
+                }
+                _ => 0.,
+            };
+            (node.frame.width as f64
+                - left as f64
+                - right as f64
+                - length(kernel, style.padding_left, basis)
+                - length(kernel, style.padding_right, basis)
+                - covered)
+                .max(0.)
+        })
 }
 
 fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Option<Geometry> {

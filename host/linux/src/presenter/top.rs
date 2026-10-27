@@ -238,6 +238,10 @@ impl<D: DataSource> Presenter<D> {
         self.top.painter.is_some() || self.top.overlay.enabled
     }
 
+    pub(super) fn separate_surface_windows(&self) -> bool {
+        self.top.painter.is_some()
+    }
+
     /// The surface that is open, if one is.
     pub fn surface(&self) -> Option<Shown<'_>> {
         self.top.open.as_ref().map(|open| Shown {

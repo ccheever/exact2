@@ -700,6 +700,17 @@ impl<D: DataSource> Presenter<D> {
         if let Some(said) = node.props.bool(PropId::AccessibilityDisabled) {
             scope.disabled = said;
         }
+        // A split's list route keeps the window's width; what shows of it is
+        // its column, the clip paint gave its box, which no scroll inside it moves.
+        if self.host.navigation.split.active.as_ref().map(|s| s.root) == Some(id) {
+            if let Some((x, y, w, h)) = b.boxes.get(&id).and_then(|p| p.clip) {
+                let column = (x + scope.shift.0, y + scope.shift.1, w, h);
+                let Some(clip) = intersect(column, scope.clip) else {
+                    return;
+                };
+                scope.clip = clip;
+            }
+        }
         let position = |prop| node.props.get(prop).and_then(|v| v.as_int());
         if let Some(at) = position(PropId::AccessibilityPosInSet) {
             let size = position(PropId::AccessibilitySetSize).unwrap_or(0);

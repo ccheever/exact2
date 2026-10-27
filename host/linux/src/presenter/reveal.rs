@@ -177,7 +177,7 @@ impl<D: DataSource> Presenter<D> {
                 .map(|d| d.at_basis(kernel.arena().env(), 0.0))
             })
             .unwrap_or([0.0; 4]);
-        let mut at = self.display.parent(kernel, id);
+        let mut at = self.scroll_parent(id);
         while let Some(a) = at {
             let Some(node) = kernel.node(a) else { break };
             let bounds = self.display.bounds(kernel, a).unwrap_or_else(|| {
@@ -208,13 +208,13 @@ impl<D: DataSource> Presenter<D> {
                     node.style.border_widths(),
                 ));
             }
-            at = self.display.parent(kernel, a);
+            at = self.scroll_parent(a);
         }
         for (a, sx, sy, max, padding, borders) in scrollers {
             let (Some(target), Some(scroller)) = (self.box_of(id), self.box_of(a)) else {
                 continue;
             };
-            let port = inset(scroller.rect, borders);
+            let port = inset(self.brush.split_port(a, scroller.rect), borders);
             let basis = [port.3, port.2, port.3, port.2];
             let padding = std::array::from_fn(|i| {
                 padding[i]

@@ -86,7 +86,7 @@ impl Painter {
             let axes = [bounds.axes.0, bounds.axes.1];
             let max = [bounds.max.0, bounds.max.1];
             let offset = b.scroll.unwrap_or_default();
-            let port = b.rect;
+            let port = self.split_port(b.id, b.rect);
             for vertical in [false, true] {
                 let i = usize::from(vertical);
                 if !matches!(axes[i], Overflow::Auto | Overflow::Scroll) || max[i] <= 0. {

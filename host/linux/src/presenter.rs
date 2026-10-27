@@ -105,6 +105,7 @@ mod scroll_anchor_tests;
 mod scroll_end;
 mod scrollbar;
 mod scrollers;
+pub(crate) mod split;
 mod wheel;
 use scroll_end::Completion;
 #[cfg(all(test, not(windows)))]
@@ -780,14 +781,13 @@ impl<D: DataSource> Presenter<D> {
         self.sync_surface();
         error.or(refined).or(geometry)
     }
-
     // Collection feedback calls this directly: never recurse through refinement.
     fn sync_commit(&mut self) -> Option<String> {
         self.dirty = true;
         self.service_commit()
     }
-
     fn service_commit(&mut self) -> Option<String> {
+        self.sync_split();
         // A resource refused, a request or a send failed (LLP 1142 D4): on
         // stderr as well as in the journal. The runner queues none unless it
         // measures, so a production binary prints none.

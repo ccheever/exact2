@@ -41,8 +41,8 @@ impl<D: DataSource> Presenter<D> {
         let target = kernel.node_by_key(binding.target)?;
         let clip = kernel.node_by_key(binding.clip)?;
         let handle = kernel.node_by_key(binding.handle)?;
-        let a = target.frame;
-        let b = clip.frame;
+        let a = self.pane_frame(target.id)?;
+        let b = self.pane_frame(clip.id)?;
         let vals = [a.x, a.y, a.width, a.height, b.x, b.y, b.width, b.height];
         if !vals.into_iter().all(f32::is_finite)
             || [a.width, a.height, b.width, b.height]
@@ -81,9 +81,9 @@ impl<D: DataSource> Presenter<D> {
             if n.key == binding.clip {
                 above_clip = true;
             }
-            at = n.parent;
+            at = self.geometry_parent(id);
         }
-        let f = handle.frame;
+        let f = self.pane_frame(handle.id)?;
         let origin = (b.x as f64 - offset.0, b.y as f64 - offset.1);
         if !origin.0.is_finite() || !origin.1.is_finite() {
             return None;

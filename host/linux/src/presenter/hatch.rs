@@ -186,9 +186,10 @@ impl<D: DataSource> Presenter<D> {
             let Some(node) = kernel.node(id) else {
                 continue;
             };
+            let placed = self.pane_frame(id).expect("live hatch");
             let frame = Rect {
-                x: node.frame.x,
-                y: node.frame.y,
+                x: placed.x,
+                y: placed.y,
                 width: node.frame.width,
                 height: node.frame.height,
             };

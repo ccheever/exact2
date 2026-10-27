@@ -917,3 +917,51 @@ fn a_top_only_inset_down_the_chain_said_or_cleared_re_derives_the_route() {
         );
     }
 }
+
+#[test]
+fn a_host_block_does_not_inherit_its_parents_covered_edges() {
+    use exact_kernel::{BlockAxis, HostBlock};
+    let mut k = route();
+    k.apply(
+        0,
+        2,
+        &[
+            Op::CreateView {
+                id: 5,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 5,
+                patch: Box::new(style(&[
+                    (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                    (StyleId::Top, StyleValue::Number(0.)),
+                    (StyleId::Right, StyleValue::Number(0.)),
+                    (StyleId::Bottom, StyleValue::Number(0.)),
+                    (StyleId::Left, StyleValue::Number(0.)),
+                ])),
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![3, 4, 5],
+            },
+        ],
+    )
+    .unwrap();
+    k.set_host_cover(2, Some(HostCover::Edges([20., 250., 0., 0.])))
+        .unwrap();
+    assert_eq!(frame(&mut k, 5), (0., 20., 140., 824.));
+    k.set_host_block(
+        5,
+        Some(HostBlock {
+            width: BlockAxis::Is(600.),
+            height: BlockAxis::Is(500.),
+        }),
+    )
+    .unwrap();
+    assert_eq!(frame(&mut k, 5), (0., 0., 600., 500.));
+    k.set_host_cover(2, Some(HostCover::Edges([30., 200., 0., 0.])))
+        .unwrap();
+    assert_eq!(frame(&mut k, 5), (0., 0., 600., 500.));
+    k.set_host_block(5, None).unwrap();
+    assert_eq!(frame(&mut k, 5), (0., 30., 190., 814.));
+}
