@@ -444,9 +444,14 @@ impl<D: DataSource> Host<D> {
             self.svg.element(self.runner.kernel(), id);
             return;
         }
-        // A select's options are its menu's, not views (LLP 1069.001 D2).
+        // A select's options are its menu's, not views (LLP 1069.001 D2). A
+        // control this batch creates is configured for its create op; saying
+        // so for it too made every list row with a checkbox a batch that
+        // configures every control and syncs the navigation chrome.
         if node_type == NodeType::Control {
-            batch.controls = true;
+            if !batch.creates(id) {
+                batch.controls = true;
+            }
             return;
         }
         let mut children = self.runner.kernel().node(id).expect("live").children();
