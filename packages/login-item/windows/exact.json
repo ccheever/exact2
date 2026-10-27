@@ -1,0 +1,18 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/login-item@^1.0",
+  "platform": "windows",
+  "targets": ["windows"],
+  "shapes": {
+    "WindowsLoginItemStatus": {
+      "startupTaskState": "option<enum<Disabled|DisabledByUser|Enabled|DisabledByPolicy|EnabledByPolicy>>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["lib.rs"] },
+  "artifacts": [],
+  "class": "LoginItem"
+}
