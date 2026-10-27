@@ -6,7 +6,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ADOPTED, APP_PLACED, KEYBOARD_UP, keyboardInset, BEFORE_USES, RENDERED, RETIRED, STAGES, appPlaced, declares, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
+import { ADOPTED, APP_PLACED, KEYBOARD_UP, keyboardInset, keyboardRedrive, BEFORE_USES, RENDERED, RETIRED, STAGES, appPlaced, declares, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
 import { READS, apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, readsOf, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
@@ -18,6 +18,9 @@ test('the command line', () => {
   expect(parse(['--bogus', 'x'])).toBe('unknown argument --bogus');
   // `--screen`: some of the stage's screens, only with --only (never a full record).
   expect(parse(['--stage', 's15b', '--screen', 'composer'])).toMatch(/^--screen reshoots some screens/);
+  // Never a baseline (it ignores --only and would write a partial baseline.json), and never an empty name.
+  expect(parse(['baseline', '--copy', '/c', '--out', '/o', '--stage', 's15b', '--only', 'consumer-pixels', '--screen', 'composer'])).toMatch(/never a baseline/);
+  expect(parse(['--stage', 's15b', '--only', 'consumer-pixels', '--screen', ''])).toMatch(/^--screen : one of /);
   expect(parse(['--stage', 's15b', '--only', 'consumer-pixels', '--screen', 'nope'])).toMatch(/^--screen nope: one of .*thread-bo/);
   expect(parse(['--stage', 's15b', '--only', 'consumer-pixels', '--screen', 'composer', '--screen', 'thread-bo']).screens).toEqual(['composer', 'thread-bo']);
   expect(parse(['--stage', 's12', '--only', 'consumer-pixels', '--screen', 'thread-bo'])).toMatch(/^--screen thread-bo/);
@@ -523,11 +526,25 @@ test('stage 15 B\'s adoption proof: the copy\'s own files place an export, and i
 });
 
 // theme2's s15b ruling (b): the composer's shot needs iOS's keyboard up on both sides, read from its field's reply.
-test("the composer's keyboard, read from its field's reply", () => {
+test("the composer's keyboard: read from its field's reply, driven again while down or failed, at most twice", () => {
   expect(KEYBOARD_UP).toEqual(['composer']);
   const out = kb => `noise\n{"x":1,"testId":"compose-text","env":${JSON.stringify(kb == null ? {} : { 'keyboard-inset-height': kb })}}\n`;
-  expect(keyboardInset('composer', out(336))).toBe(336);
-  expect(keyboardInset('composer', out(0))).toBe(0);
-  expect(keyboardInset('composer', out(null))).toBe(0);
-  expect(keyboardInset('discover', out(336))).toBe(0);
+  expect(keyboardInset('compose-text', out(336))).toBe(336);
+  expect(keyboardInset('compose-text', out(0))).toBe(0);
+  expect(keyboardInset('compose-text', out(null))).toBe(0);
+  expect(keyboardInset('compose-text', 'no reply\n')).toBe(null);
+  const up = { ok: true, out: out(336) }, down = { ok: true, out: out(0) }, failed = { ok: false, out: 'boom' };
+  const redrive = (first, ...rest) => { let n = 0; const r = keyboardRedrive('compose-text', 'FIXTURE-REFUSED', first, () => rest[n++]); return { ...r, n }; };
+  // Up at once: driven once.
+  expect(redrive(up)).toEqual({ r: up, down: false, keyboard: '', n: 0 });
+  // Down, then up: the kept drive is the second.
+  expect(redrive(down, up)).toMatchObject({ r: up, down: false, n: 1, keyboard: 'driven 2 times (keyboard down before), kept: keyboard up' });
+  // A failed re-drive is driven again too, and the cap is two re-drives.
+  expect(redrive(down, failed, up)).toMatchObject({ r: up, down: false, n: 2, keyboard: 'driven 3 times (keyboard down, drive failed before), kept: keyboard up' });
+  expect(redrive(down, down, down, up)).toMatchObject({ r: down, down: true, n: 2, keyboard: 'driven 3 times (keyboard down, keyboard down before), kept: keyboard down' });
+  expect(redrive(down, failed, failed)).toMatchObject({ r: failed, down: false, n: 2, keyboard: 'driven 3 times (keyboard down, drive failed before), kept: drive failed' });
+  // A fixture refusal is never driven again; nor is a drive with no field reply (its own failure, no layout).
+  const refused = { ok: true, out: `FIXTURE-REFUSED app.bsky.x\n${out(0)}` };
+  expect(redrive(refused, up)).toMatchObject({ r: refused, down: false, n: 0 });
+  expect(redrive({ ok: true, out: 'no reply' }, up)).toMatchObject({ down: false, n: 0 });
 });

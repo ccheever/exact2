@@ -24,6 +24,8 @@ import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from '
 import { webDist } from './app.mjs';
 import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
+import { KEYBOARD_UP, keyboardRedrive } from './stage12-keyboard.mjs';
+export { KEYBOARD_UP, keyboardInset, keyboardRedrive } from './stage12-keyboard.mjs';
 import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, EMPTY, readsOf } from './s13c-restyle.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -82,17 +84,8 @@ export function allowOf(screen, out) {
   return kb > 0 && view ? [caret, { rect: [0, Math.round(view.h), Math.round(view.w), Math.round(kb)], reason: 'the system keyboard: the OS draws its material, a few levels apart between runs, over no library component' }] : [caret];
 }
 
-/** The screens whose shot needs iOS's software keyboard up (theme2's s15b gate ruling: the keyboard state made
- * deterministic on both sides): the system keyboard comes up on the platform's own clock and its service drops under
- * load, so one that is down after the drive is driven again, up to twice more, and a shot without it fails. */
-export const KEYBOARD_UP = ['composer'];
-
-/** The software keyboard's height in a drive's output (its field's reply), or 0. */
-export function keyboardInset(screen, out) {
-  const a = ALLOW[screen];
-  const line = a && out.split('\n').findLast(l => l.startsWith('{') && l.includes(`"testId":"${a.target}"`));
-  return line ? (JSON.parse(line).env?.['keyboard-inset-height'] ?? 0) : 0;
-}
+/** The screens a `--screen` rerun shoots, said in its evidence (empty in a full run). */
+const RERUN_SCREENS = [];
 
 /** What the fixture says in the app's log for a request it refuses: a shot
  * whose drive logged it fails (nothing may reach the network). */
@@ -199,19 +192,13 @@ function driveScreens(copy, host, dir, env) {
         r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
       }
       // iOS's keyboard, where the shot needs it up: driven again while it is down.
-      let keyboard = '';
-      if (host === 'ios' && KEYBOARD_UP.includes(screen)) {
-        for (let k = 1; k <= 2 && r.ok && keyboardInset(screen, r.out) === 0; k++) {
-          keyboard = `the keyboard down, driven again (${k})`;
-          r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
-        }
-      }
-      const keyboardDown = host === 'ios' && KEYBOARD_UP.includes(screen) && r.ok && keyboardInset(screen, r.out) === 0;
+      const kb = host === 'ios' && KEYBOARD_UP.includes(screen) ? keyboardRedrive(ALLOW[screen].target, REFUSED, r, () => runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) })) : { r, down: false, keyboard: '' };
+      r = kb.r;
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !keyboardDown, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(keyboard ? { keyboard } : {}), said: keyboardDown ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -557,7 +544,7 @@ export function consumerPixels(opts) {
   const appOn = (host, id) => shots.after.shots.some(x => x.host === host && (x.appComponents ?? []).includes(id));
   const appNotShown = APP_PLACED.flatMap(id => hosts.filter(h => !appOn(h, id)).map(h => `${id.split('#')[1]} on ${h}`));
   const p = shots.after.provenance;
-  const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
+  const evidence = [...(RERUN_SCREENS.length ? [`a rerun of the screens ${RERUN_SCREENS.join(', ')} only (--screen): the counts and lists below are theirs, not the stage's`] : []), `before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
     ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.retried).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: driven again after a drive that failed before any layout (${x.retried})`)),
     ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.keyboard).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: ${x.keyboard}`)),
@@ -1468,10 +1455,10 @@ export function parse(argv) {
   const unknownHost = opts.hosts.find(h => !allowed.includes(h));
   if (unknownHost) return `--host ${unknownHost}: one of ${allowed.join(', ')}`;
   // `--screen`: a rerun of some of the stage's screens (a re-shot pair, a screen added), never a full record.
-  if (opts.screens.length && !opts.only.length) return '--screen reshoots some screens: name the lines with --only';
+  if (opts.screens.length && (opts.mode === 'baseline' || !opts.only.length)) return '--screen reshoots some screens of a gate run: name its lines with --only (never a baseline)';
   const names = STAGES[opts.stage].screens?.map(([n]) => n) ?? SCREENS.map(([n]) => n);
   const unknownScreen = opts.screens.find(n => !names.includes(n));
-  if (unknownScreen) return `--screen ${unknownScreen}: one of ${names.join(', ')}`;
+  if (unknownScreen !== undefined) return `--screen ${unknownScreen}: one of ${names.join(', ')}`;
   const ids = lines(opts).map(([id]) => id);
   // Every `--only` a line's id, the empty string too: a scratch name is built from them.
   const missing = opts.only.find(o => !ids.includes(o));
@@ -1484,6 +1471,7 @@ if (import.meta.main) {
   if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b] [--only <line> …] [--screen <name> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
   const stage = useStage(opts.stage);
   if (opts.screens.length) SCREENS.splice(0, SCREENS.length, ...SCREENS.filter(([n]) => opts.screens.includes(n)));
+  RERUN_SCREENS.push(...opts.screens);
   if (opts.mode === 'baseline') {
     const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
     const bad = r.shots.filter(s => !s.ok);
