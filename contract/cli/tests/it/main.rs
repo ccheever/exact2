@@ -173,6 +173,7 @@ mod segments;
 mod shadow_and_case;
 mod shape_cycles;
 mod share;
+mod share_target;
 mod sheet_page;
 mod sound;
 mod source_locations;

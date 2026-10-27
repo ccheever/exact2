@@ -9,7 +9,7 @@ type Status = Result<'backupNotes'>;
 type Store = Parameters<Answer>[2];
 
 export const appId = 'com.exact.fieldnotes';
-export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose';
+export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nfs.read app:/tmp/shared\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose';
 const backupPath = 'app:/data/backups/fieldnotes.json';
 // One app-owned revision survives source/language replacement with the Store.
 function nextRevision(store:Store):number {
@@ -221,8 +221,23 @@ async function walk(start: number, climbs: boolean): Promise<Result<'walk'>> {
   if (climb.status === 'fulfilled') Object.assign(out, { climb: climb.value.relativeAltitude, climbed: true });
   return out;
 }
+// The text of the files shared to Fieldnotes (LLP 1133.024 D3), each copied
+// into app:/tmp/shared/ under a name that keeps its extension; a picture or
+// another file it cannot read as text is left to its name in the list.
+const textFile = /\.(txt|text|md|markdown|csv|json)$/;
+async function sharedText(paths: string, storage: Storage): Promise<Result<'sharedText'>> {
+  const texts: string[] = [];
+  try {
+    for (const path of paths.split('\n').filter(p => textFile.test(p))) {
+      if (!path.startsWith('app:/tmp/shared/')) throw new Error('A shared file is outside the share.');
+      texts.push(decode(await storage.fs.readFile(path)).trim());
+    }
+    return { text: texts.filter(Boolean).join('\n\n'), message: '' };
+  } catch (error) { return { text: texts.join('\n\n'), message: 'Could not read a shared file: ' + message(error) }; }
+}
 const sources: Sources = {
   walk: ([start, , climbs]) => walk(start, climbs),
+  sharedText: ([paths], _store, storage) => sharedText(paths, storage),
   library: ([query], _store, storage) => serial(() => library(query, storage)),
   // Native reads own their continuation; browser executors already hold a
   // whole storage-backed turn through close. Do not await another app call.

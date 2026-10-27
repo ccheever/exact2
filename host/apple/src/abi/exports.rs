@@ -295,6 +295,18 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
         }
 
+        /// A received share, a batch. @ref LLP 1133.024 D2–D4
+        #[no_mangle]
+        pub extern "C" fn exact_share(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share(len, now_ms), |n| n)
+        }
+
+        /// The files of a share claimed before the boot, landed: a batch.
+        #[no_mangle]
+        pub extern "C" fn exact_share_land(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share_land(), |n| n)
+        }
+
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
         #[no_mangle]
         pub extern "C" fn exact_set_launch_location(rt: u32, len: usize) -> u32 {

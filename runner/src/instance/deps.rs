@@ -485,6 +485,11 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
             Opcode::Call if Stdlib::from_wire(index as u8) == Some(Stdlib::PerformanceNow) => {
                 reads.bits.set(layout.clock())
             }
+            // A share's files arrive by `set_shared`, after the location (LLP
+            // 1133.024 D3): no input the scan sees changes with them.
+            Opcode::Call if Stdlib::from_wire(index as u8) == Some(Stdlib::SharedFiles) => {
+                reads.opaque = true
+            }
             Opcode::LoadItem | Opcode::LoadBound | Opcode::LoadIndex => {
                 reads.frames |= 1 << index.min(63);
                 if index == 0 {

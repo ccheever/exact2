@@ -46,6 +46,7 @@ functions: call -> result
   round(n) -> number  (half up)
   searchParam(entry, name) -> string
   select(router, tabName) -> Router
+  sharedFiles(entry, name) -> SharedFiles
   sin(rad) -> number
   s.slice(start, end?) -> text|list
   sortBy(xs, x => key, "desc"?) -> T[]  (stable)
@@ -62,7 +63,7 @@ functions: call -> result
   text.trim() -> string
   pending(resourceOrMutationName)  failed(resourceOrMutationName)  failure(resourceOrMutationName)  path("routeName", args…)  empty(field=constant, …)  some(expr)  DeclaredShape(field=value, …)
 
-tags: attributes; on events. Every tag takes CSS's style attributes (flex gap padding font-size …) and colour roles (-exact-label); `contract vocab <name>` gives a style's values
+tags: attributes; on events. Every tag takes CSS style attributes (flex gap padding …) and colour roles (-exact-label); `contract vocab <style>` lists its values
   view box row column main nav article aside section header footer hr: id testId role title tabindex; on press hover key keyup focus blur contextmenu dblclick
   text "…": markup; on selectionchange
   image "…": alt; on load
@@ -169,7 +170,7 @@ reading and writing data: `loadItems` and `addItem` are in app.ts and answer exa
   action add
     send added = addItem("Milk")
   text items.join(", ")
-a dated record: The write reads the clock, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
+a dated record: The write reads the clock, not a ticked `now`, and stores `at`; `performanceNow()` alone is 0 each launch. `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
   shape Time
     epochAtZero: number
     utcOffset: number
@@ -178,7 +179,7 @@ a dated record: The write reads the clock, not a ticked `now`, and stores `at`, 
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert, `clock held` for an `exactHeld` reply; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for iPhone; `--shots <dir>` keeps screenshots.
+a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert, `clock held` for an `exactHeld` reply; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs them, checks each one's last screen and relaunches once; `verify ios` last; `--shots <dir>` keeps screenshots.
   test "a pick survives a relaunch"
     tap "pick"
     clock data

@@ -84,6 +84,7 @@ function flush() {
   while (FocusQueue.length) FocusQueue.shift()();
 }
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }
+export function fact() { const o = Owner; Owner = null; const n = node(null, 0); Owner = o; return { get: () => read(n), bump() { n.v++; for (const o of n.obs) stale(o, DIRTY); } }; } // a host fact a roster read depends on (`sharedFiles`' tokens, LLP 1133.024 D3): `get` tracked, `bump` in a commit re-evaluates its readers
 /** A slot: a getter, `.n` its node; `t` its declared type (writes conform); `name` a string slot's, which a write past MAX_STRING names. */
 export function sig(v, t, name) { // an initial value outside `t`: the runner refuses the boot, or the row's creation poisons (SlotType)
   if (t && !conforms(v, t)) throw new Error(`a slot's initial value does not conform to its type: ${v}`);

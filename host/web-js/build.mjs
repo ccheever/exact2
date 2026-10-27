@@ -86,7 +86,9 @@ const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contrac
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // documents-glue reads the app's web manifest lazily. The JS path exits from
 // host/web/build.mjs after this builder succeeds, so it owns the same artifact.
-const webManifest = webAppManifest(manifest, manifest.app?.name ?? manifest.name);
+const manifestNotes = [];
+const webManifest = webAppManifest(manifest, manifest.app?.name ?? manifest.name, manifestNotes);
+for (const note of manifestNotes) console.log(note);
 writeFileSync(resolve(out, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
 // Rust data: the app's own module (`rust.module`), or a module generated
 // from the DataSource its web build bakes with (host/web-js/module.mjs).

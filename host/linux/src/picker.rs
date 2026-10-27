@@ -46,10 +46,11 @@ pub fn agent() -> bool {
 /// `app:/data`, `app:/cache`, `app:/tmp`, once storage is configured.
 static ROOTS: Mutex<Option<[PathBuf; 3]>> = Mutex::new(None);
 
-/// Record the app's directories, and empty `app:/tmp/picked/`: what the
-/// last launch picked is gone (D4).
+/// Record the app's directories, and empty `app:/tmp/picked/` and
+/// `app:/tmp/shared/`: what the last launch picked or was shared is gone (D4).
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     let _ = std::fs::remove_dir_all(temporary.join("picked"));
+    let _ = std::fs::remove_dir_all(temporary.join("shared"));
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some([data, cache, temporary]);
 }
 
@@ -380,6 +381,48 @@ pub fn copy_in(source: &Path, app_path: &str, mime: &str) -> Result<exact_runner
         height,
         duration: None,
     })
+}
+
+/// A cold share's claim (LLP 1133.024 D9), whose copies the presenter makes
+/// once storage is configured after first pixel.
+pub(crate) static COLD_SHARE: Mutex<Option<exact_runner::share_in::Claimed>> = Mutex::new(None);
+
+/// The driver's cold share (`EXACT_AGENT_SHARE`: `{"target", "share"}`, as
+/// the `share` op carries them), under the agent only: claimed before the
+/// boot, which takes its location and tokens with the launch's other facts.
+/// A host never takes `share:` from outside the agent.
+pub fn cold_share(seed: f64) -> Option<(String, exact_runner::time::Launch)> {
+    use exact_runner::share_in::{Claims, Pending, ShareTarget};
+    if !agent() {
+        return None;
+    }
+    let request: serde_json::Value =
+        serde_json::from_str(&std::env::var("EXACT_AGENT_SHARE").ok()?).ok()?;
+    let (Some(target), Some(share)) = (
+        ShareTarget::from_json(&request["target"]),
+        Pending::from_json(&request["share"], None),
+    ) else {
+        eprintln!(
+            "exact: EXACT_AGENT_SHARE refused: it needs the manifest's share_target and a share"
+        );
+        return None;
+    };
+    let mut claims = Claims::new(seed);
+    let claimed = claims.claim(&target, share);
+    let launch = exact_runner::time::Launch {
+        shared: claimed.tokens.clone(),
+        claims: Some(claims),
+        ..exact_runner::time::Launch::NONE
+    };
+    let location = claimed.location.clone();
+    *COLD_SHARE.lock().unwrap_or_else(|e| e.into_inner()) = Some(claimed);
+    Some((location, launch))
+}
+
+/// `app:/tmp/shared/` on this machine, once storage is configured.
+pub(crate) fn shared_dir() -> Option<PathBuf> {
+    resolve(&format!("{}x", exact_runner::share_in::SHARED))
+        .and_then(|p| p.parent().map(Path::to_path_buf))
 }
 
 #[cfg(test)]

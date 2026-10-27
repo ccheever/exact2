@@ -9,6 +9,8 @@
 //! spaces.
 
 use super::{DataSource, Runner};
+
+pub mod shared;
 use exact_kernel::{NodeType, PropId, ViewId};
 use exact_plan::Value;
 
@@ -49,6 +51,12 @@ impl Picked {
     /// Decode a host's payload; `None` for anything malformed, or a path
     /// outside `app:/tmp/picked/`.
     pub fn payload(payload: &str) -> Option<Vec<Picked>> {
+        Self::payload_under(payload, PICKED)
+    }
+
+    /// [`Picked::payload`] for files under `dir` (`app:/tmp/shared/` for a
+    /// share's, LLP 1133.024 D3).
+    pub fn payload_under(payload: &str, dir: &str) -> Option<Vec<Picked>> {
         let number = |s: &str| {
             let n = exact_num::parse_f64(s).ok()?;
             (n.is_finite() && n >= 0.0).then_some(n)
@@ -66,7 +74,7 @@ impl Picked {
             let [path, name, mime, size, width, height, duration] = f[..] else {
                 return None;
             };
-            let rest = path.strip_prefix(PICKED)?;
+            let rest = path.strip_prefix(dir)?;
             if rest.is_empty() || rest.contains('/') || rest.contains("..") {
                 return None;
             }

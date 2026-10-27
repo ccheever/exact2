@@ -141,7 +141,8 @@ fn call_value(
         | Stdlib::Top
         | Stdlib::Depth
         | Stdlib::Params
-        | Stdlib::SearchParam => {
+        | Stdlib::SearchParam
+        | Stdlib::SharedFiles => {
             return router?.call(plan, f, args);
         }
         Stdlib::EncodeURIComponent => {

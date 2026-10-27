@@ -610,9 +610,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                         }
                     }
                 }
-                // A modifier's own key holds it while down, as a keyboard's
-                // does: Meta's keydown says `metaKey`, its keyup no longer
-                // does (#140). A held key's later down is a repeat.
+                // A modifier's own key holds it while down, as a keyboard's does: Meta's keydown
+                // says `metaKey`, its keyup no longer does (#140). A held key's later down is a repeat.
                 p.hold_modifier(code, !up);
                 let r = p.type_key(id, code, logical, !up, repeat);
                 if phase.is_none() && r.is_ok() {
@@ -634,6 +633,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             None => malformed("reveal needs an id"),
         },
         Some("clock") => clock(p, line),
+        Some("share") => p.receive_share(&q).unwrap_or_else(|e| error(&e)),
         // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
         Some("prefer") if top_level(line, "faults") => p.host().agent(line),
         // @ref LLP 1125 §4 — MIDI ports the agent names, and a message from one.

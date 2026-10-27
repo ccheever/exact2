@@ -566,6 +566,58 @@
         "additionalProperties": false
       }
     },
+    "share_target": {
+      "type": "object",
+      "description": "The Web App Manifest's share target: this app in other apps' share sheets (LLP 1133.024 D1). A share arrives as one location, `action` with the shared members under the names `params` gives them; files by a token that `sharedFiles(entry, name)` reads. The Apple bake derives a share extension, Android intent filters; the published web member is always GET with the text members only.",
+      "required": ["action", "params"],
+      "properties": {
+        "action": { "type": "string", "pattern": "^/", "description": "A path one of the app's routes matches." },
+        "method": { "enum": ["GET", "POST"] },
+        "enctype": { "enum": ["application/x-www-form-urlencoded", "multipart/form-data"] },
+        "params": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string", "minLength": 1 },
+            "text": { "type": "string", "minLength": 1 },
+            "url": { "type": "string", "minLength": 1 },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["name", "accept"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "accept": { "oneOf": [{ "type": "string" }, { "type": "array", "minItems": 1, "items": { "type": "string" } }] }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "apple": {
+          "type": "object",
+          "description": "Apple's words (D6): `NSExtensionActivationRule` beats the derived rule; `postTitle` is a strings key for the compose sheet's post button.",
+          "properties": {
+            "NSExtensionActivationRule": { "oneOf": [{ "type": "string" }, { "type": "object" }] },
+            "postTitle": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "android": {
+          "type": "object",
+          "properties": { "mimeTypes": { "type": "array", "items": { "type": "string", "pattern": "^[a-z*]+/[a-z0-9.+*-]+$" } } },
+          "additionalProperties": false
+        },
+        "windows": {
+          "type": "object",
+          "properties": { "dataFormats": { "type": "array", "items": { "enum": ["Text", "Uri", "StorageItems", "Bitmap", "Html", "Rtf"] } } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "launch_handler": {
       "type": "object",
       "description": "The W3C Web App Manifest's launch handler: where a launch or an opened document lands. `navigate-new` opens each document in its own window with its own session (LLP 1069.010 D4); `navigate-existing`, the default, delivers it to the window in front; `focus-existing` brings that window forward and delivers nothing to a window already showing a document.",

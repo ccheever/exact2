@@ -349,13 +349,18 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             crate::zone::local_offset_minutes(),
         )
     });
+    // @ref LLP 1133.024 D9 — the driver's cold share: its location and tokens.
+    let cold_share = crate::picker::cold_share(place.seed);
+    if let Some((location, _)) = &cold_share {
+        config.launch = location.clone();
+    }
     let launch_facts = exact_runner::time::Launch {
         time: Some(exact_runner::time::WallTime {
             epoch_at_zero,
             utc_offset,
         }),
         place: Some(place.clone()),
-        clock: None,
+        ..cold_share.map_or(exact_runner::time::Launch::NONE, |(_, launch)| launch)
     };
     let (dev_url, dev_said) = (config.dev_url.clone(), config.dev_said.clone());
     let hatches = config.hatches;

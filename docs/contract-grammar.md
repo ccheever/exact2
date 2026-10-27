@@ -932,6 +932,7 @@ says. Every roster function has a row and an example, and each example written
 | `depth(router)` | Number | `depth(nav)` is `1` |
 | `params(router, parameterName)` | `string[]`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
+| `sharedFiles(entry, name)` | `SharedFiles`: `{files: Picked[], dropped, pending}`, the files a received share carried, by the token in the entry's `name` parameter; `pending` counts those still being copied, and a token the host did not set this launch answers no files ([receiving shares](../llp/1133.024-share-browser-compose-print.rfc.md), D3) | `sharedFiles(top(nav), "files").files.length` is the count of shared files that have landed |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
 | `rangeFrame(id, start, end)` | `Geometry`, actions only; a textarea's UTF-16 range as `Range.getBoundingClientRect()` (on a `text markup="markdown"`, the union of the atom pills the range meets, [inline atoms](#inline-atoms-atom-atoms-atomfaces-atompress)): collapsed, the caret's rectangle; unavailable past the text, while composing, or with no host reader ([decorations](#plain-textarea-decorations), LLP 1114.007) | `rangeFrame("composer", caret, caret)`, in an action, is where a mention popover goes |
@@ -963,7 +964,7 @@ For `querySelectorAll`, a closed popover or dialog is hidden by its presenter;
 an open one is included when it matches. A wide split list is included only
 where the host presents it (on the web); native hosts hide the unselected route.
 
-The router functions (`open` through `searchParam`) and `encodeRouteSegment`
+The router functions (`open` through `sharedFiles`) and `encodeRouteSegment`
 exist only in an app with a `routes` declaration.
 
 `<`, `<=`, `>` and `>=` take two numbers or two strings. Two strings compare as

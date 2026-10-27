@@ -184,7 +184,7 @@ impl Ty {
             "number" => Ty::Number,
             "string" => Ty::String,
             "bool" => Ty::Bool,
-            "Router" | "Entry" | "Geometry" => Ty::Record(spec.into()),
+            "Router" | "Entry" | "Geometry" | "SharedFiles" => Ty::Record(spec.into()),
             "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
             "list<string>" => Ty::List(Box::new(Ty::String)),
             "list<number>" => Ty::List(Box::new(Ty::Number)),

@@ -12,6 +12,8 @@ use super::*;
 use exact_runner::picker_support as support;
 use exact_runner::ControlValue;
 
+pub(crate) mod share;
+
 impl<D: DataSource> Presenter<D> {
     /// `showPicker(id)`, from an action or a press on a visible file input.
     pub(crate) fn show_picker(&mut self, id: &str) {

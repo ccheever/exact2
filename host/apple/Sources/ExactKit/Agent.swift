@@ -306,6 +306,7 @@ public final class Agent {
             let r = completingInput(releaseCanvasKey(req) ?? type(req))
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
+        case "share": Agent.reply(tagged(completingInput(session.receiveShare(req)))) // the driver's `share:` form (LLP 1133.024 D9)
         case "reveal": Agent.reply(tagged(settling(reveal(req)))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.

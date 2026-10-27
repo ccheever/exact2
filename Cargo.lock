@@ -2199,6 +2199,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fieldnotes-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-data-host",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "fieldnotes-data",
+]
+
+[[package]]
 name = "fieldnotes-web"
 version = "0.1.0"
 dependencies = [

@@ -2,6 +2,12 @@
 use pedometerStatus, requestPedometerPermission, PedometerStatus from "@exact/pedometer"
 use altimeterStatus, requestAltimeterPermission, AltimeterStatus from "@exact/altimeter"
 
+// What another app shares to Fieldnotes arrives at `/share` (app.json's
+// share_target, LLP 1133.024): its text in the location, its files by token.
+routes nav
+  home "/"
+    share "/share"
+
 shape Note
   id: string
   title: string
@@ -33,6 +39,15 @@ shape Status
   message: string
   failed: bool
   backupText: string
+// The text of the shared files Fieldnotes can read (app.ts `sharedText`).
+shape Attached
+  text: string
+  message: string
+// A share's note as edited, for the share's entry: another share starts afresh.
+shape ShareDraft
+  entry: number
+  title: string
+  body: string
 shape Page
   visibilityState: string
   onLine: bool
@@ -132,6 +147,14 @@ component Fieldnotes
   derive stepsOff = walkDenied or (walking and steps.state == "denied")
   task walkClock when walking
     every(1000, tickWalk)
+  derive here = top(nav)
+  derive sharing = here.name == "share"
+  derive incoming = sharedFiles(here, "files")
+  resource attached = sharedText(incoming.files.map(f => f.path).join("\n")) as shape Attached
+  derive sharedBody = [searchParam(here, "text"), attached.text].filter(t => t != "").join("\n\n")
+  state shareDraft = ShareDraft(entry=-1, title="", body="")
+  derive shareFields = shareDraft.entry == here.id ? Fields(title=shareDraft.title, body=shareDraft.body, pinned=false) : Fields(title=searchParam(here, "title"), body=sharedBody, pinned=false)
+  derive arriving = incoming.pending > 0 or pending(attached)
 
   action search(value)
     query = value
@@ -231,10 +254,24 @@ component Fieldnotes
     walkStart = 0
   action tickWalk
     now = performanceNow()
+  action follow(url: string)
+    nav = go(nav, url)
+  action back
+    nav = back(nav)
+  action changeShareTitle(value)
+    shareDraft = ShareDraft(entry=here.id, title=value, body=shareFields.body)
+  action changeShareBody(value)
+    shareDraft = ShareDraft(entry=here.id, title=shareFields.title, body=value)
+  // The shared note opens in the editor as it saves, as a new note's does.
+  action saveShare
+    send saved = saveNote("", shareFields.title, shareFields.body, false, session.version + 1)
+    session = Session(noteId="", savedId="", draft=some(shareFields), original=none, version=session.version + 1, confirmDelete=false)
+    backups = false
+    nav = back(nav)
 
   // Apple keeps AccentColorText white; green controls name ink for both schemes.
   view
-    main testId="fieldnotes" accent-color="light-dark(#31554a, #a3c9b5)" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" overflow-y="scroll" background-color="-exact-grouped-background" color="-exact-label" padding=16 gap=16
+    main testId="fieldnotes" navigationKey=`${here.id}` navigationBack="back" navigate=follow accent-color="light-dark(#31554a, #a3c9b5)" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" overflow-y="scroll" background-color="-exact-grouped-background" color="-exact-label" padding=16 gap=16
       row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap" flex-shrink=0
         column gap=3
           text "Fieldnotes" font-family="serif" font-size=26 font-weight=400
@@ -278,98 +315,119 @@ component Fieldnotes
           text s.message font-size=13 color=(s.failed ? "-exact-system-red" : "AccentColor") testId="status-message" flex-shrink=0
         case none
           text "Private, local, and yours." font-size=12 color="-exact-secondary-label" flex-shrink=0
-      if backups
-        column padding=20 gap=12 background-color="-exact-secondary-grouped-background" border-radius=12 testId="backup-panel"
-          text "Keep a spare copy" font-family="serif" font-size=23
-          text "Save a backup on this device, or copy the backup text somewhere safe. Restoring replaces all current notes." font-size=14 color="-exact-secondary-label"
-          row gap=10 flex-wrap="wrap"
-            button press=backup disabled=(busy or dirty) testId="save-backup" padding=12 background-color="AccentColor" border-radius=7
-              text "Save backup" color="light-dark(#ffffff, #000000)"
-            button press=readBackup disabled=busy testId="read-backup" padding=12 background-color="-exact-fill" border-radius=7
-              text "Show saved backup" color="AccentColor"
-          input id="export-file" testId="export-file" display="none" change=exported cancel=exportCancelled
-          if backupText != ""
-            textarea appearance="none" font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="Field" color="FieldText" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=7
-            row gap=10 align-items="center" flex-wrap="wrap"
-              button appearance="none" press=exportBackup disabled=busy testId="export-backup" padding=10
-                text "Export backup file…" color="AccentColor"
-              if page.canShareFiles
-                button appearance="none" press=shareBackup disabled=busy testId="share-backup" padding=10
-                  text "Share backup file…" color="AccentColor"
-              if exportNote != ""
-                text exportNote font-size=13 color="-exact-secondary-label" testId="export-note"
-          textarea appearance="none" font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="Field" color="FieldText" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=7
-          input type="file" accept="application/json" id="import-file" testId="import-file" display="none" change=importPicked
-          if confirmRestore
-            row gap=12 align-items="center" flex-wrap="wrap"
-              text (importName == "" ? "Replace all notes with this backup?" : `Replace all notes with ${importName}?`) font-size=14 testId="restore-question"
-              button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 accent-color="-exact-system-red" background-color="AccentColor" border-radius=7
-                text "Replace notes" color="AccentColorText"
-              button appearance="none" press=cancelRestore testId="cancel-restore" padding=10
-                text "Cancel"
-          else
-            row gap=10 flex-wrap="wrap"
-              button appearance="none" press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10
-                text "Restore backup…" color="-exact-system-red"
-              button appearance="none" press=chooseImport disabled=(busy or dirty) testId="import-backup" padding=10
-                text "Import backup file…" color="AccentColor"
+      if sharing
+        column padding=20 gap=12 background-color="-exact-secondary-grouped-background" border-radius=12 testId="share-panel"
+          text "New note from a share" font-family="serif" font-size=23
+          input appearance="none" value=shareFields.title readonly=arriving input=changeShareTitle placeholder="Untitled note" aria-label="Shared note title" testId="share-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=22 border-width=0 background-color="-exact-secondary-grouped-background"
+          textarea appearance="none" font-family="sans-serif" value=shareFields.body readonly=arriving input=changeShareBody aria-label="Shared note body" testId="share-body" width="100%" height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="-exact-secondary-grouped-background"
+          for f in incoming.files key=f.path
+            text f.name font-size=13 color="-exact-secondary-label" testId="share-file"
+          if incoming.pending > 0
+            text (incoming.pending == 1 ? "Receiving 1 file…" : `Receiving ${incoming.pending} files…`) font-size=13 color="-exact-secondary-label" testId="share-pending"
+          if incoming.dropped > 0
+            text (incoming.dropped == 1 ? "1 file couldn't be added." : `${incoming.dropped} files couldn't be added.`) font-size=13 color="-exact-secondary-label" testId="share-dropped"
+          if attached.message != ""
+            text attached.message font-size=13 color="-exact-system-red" testId="share-message"
+          if dirty
+            text "Save or discard the note you're editing before saving this one." font-size=13 color="-exact-secondary-label" testId="share-dirty"
+          row gap=10 align-items="center" flex-wrap="wrap"
+            button press=saveShare disabled=(busy or dirty or arriving or (shareFields.title == "" and shareFields.body == "")) testId="save-share" padding=12 background-color="AccentColor" border-radius=7
+              text "Save note" color="light-dark(#ffffff, #000000)" font-weight=600
+            button appearance="none" press=back testId="cancel-share" padding=12
+              text "Cancel"
       else
-        row testId="workspace" flex=1 min-height=400 gap=16 flex-wrap="wrap" align-items="stretch"
-          column testId="sidebar" flex=1 min-width=220 min-height=400 gap=12
-            row gap=6 align-items="center" flex-shrink=0
-              input appearance="none" id="search" value=query input=search placeholder="Search your notes" aria-label="Search notes" testId="search" flex=1 min-width=0 box-sizing="border-box" padding=12 border-style="solid" border-width=1 border-color="-exact-separator" border-radius=9 background-color="Field" color="FieldText" font-size=14
-              button press=closeSearch testId="close-search" aria-label="Close search" aria-keyshortcuts="Escape" padding=10 border-radius=8 background-color="-exact-fill"
-                image "symbol:close" font-size=18 font-weight=400 color="AccentColor"
-            scroll testId="note-list" flex=1 min-height=160
-              column gap=10 padding=(tv ? 10 : 0)
-                if library.notes.length == 0
-                  column padding=20 gap=8
-                    text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"
-                    text (query == "" ? "Write a thought, a list, or something worth keeping." : "Try a different word.") font-size=14 color="-exact-secondary-label"
-                for note in library.notes key=note.id
-                  button press=edit(note.id) disabled=(dirty or busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-style="solid" border-width=1 border-color=(note.id == editingId ? "AccentColor" : "-exact-separator") border-radius=9 background-color=(note.id == editingId ? "-exact-fill" : "-exact-secondary-grouped-background")
-                    column gap=6 align-items="flex-start"
-                      if note.pinned
-                        text "PINNED" font-size=10 font-weight=700 letter-spacing=1 color="-exact-secondary-label"
-                      text note.title font-size=17 font-weight=600 text-align="left"
-                      text note.excerpt font-size=13 color="-exact-secondary-label" text-align="left"
-            if dirty
-              text "Save or discard your draft before opening another note." font-size=12 color="-exact-secondary-label"
-          column testId="editor" flex=3 min-width=300 min-height=400 gap=14 padding=20 box-sizing="border-box" background-color="-exact-secondary-grouped-background" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=12
-            row justify-content="space-between" align-items="center"
-              text (editingId == "" ? "A NEW PAGE" : "YOUR NOTE") font-size=11 font-weight=700 letter-spacing=2 color="-exact-secondary-label"
-              button appearance="none" press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
-                text (fields.pinned ? "Pinned" : "Pin note") font-size=13 color="-exact-secondary-label"
-            input appearance="none" id="note-title" value=(pending(opened) ? "" : fields.title) readonly=(pending(opened) or not openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="-exact-secondary-grouped-background"
-            textarea appearance="none" id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="-exact-secondary-grouped-background"
-            row gap=10 align-items="center" flex-wrap="wrap" flex-shrink=0
-              button press=save disabled=(busy or not openedReady or not dirty or (fields.title == "" and fields.body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="AccentColor" border-radius=7
-                text "Save note" color="light-dark(#ffffff, #000000)" font-weight=600
-              if dirty
-                button appearance="none" press=discard disabled=busy testId="discard" padding=12
-                  text "Discard changes" color="-exact-secondary-label"
-              if page.canShare and (fields.title != "" or fields.body != "")
-                button appearance="none" press=shareNote disabled=busy testId="share-note" aria-label="Share note" padding=12
-                  text "Share…" color="AccentColor"
-              if editingId != ""
-                button appearance="none" press=askDelete disabled=busy testId="delete-note" padding=12
-                  text "Delete…" color="-exact-system-red"
-            if session.confirmDelete
+        if backups
+          column padding=20 gap=12 background-color="-exact-secondary-grouped-background" border-radius=12 testId="backup-panel"
+            text "Keep a spare copy" font-family="serif" font-size=23
+            text "Save a backup on this device, or copy the backup text somewhere safe. Restoring replaces all current notes." font-size=14 color="-exact-secondary-label"
+            row gap=10 flex-wrap="wrap"
+              button press=backup disabled=(busy or dirty) testId="save-backup" padding=12 background-color="AccentColor" border-radius=7
+                text "Save backup" color="light-dark(#ffffff, #000000)"
+              button press=readBackup disabled=busy testId="read-backup" padding=12 background-color="-exact-fill" border-radius=7
+                text "Show saved backup" color="AccentColor"
+            input id="export-file" testId="export-file" display="none" change=exported cancel=exportCancelled
+            if backupText != ""
+              textarea appearance="none" font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="Field" color="FieldText" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=7
+              row gap=10 align-items="center" flex-wrap="wrap"
+                button appearance="none" press=exportBackup disabled=busy testId="export-backup" padding=10
+                  text "Export backup file…" color="AccentColor"
+                if page.canShareFiles
+                  button appearance="none" press=shareBackup disabled=busy testId="share-backup" padding=10
+                    text "Share backup file…" color="AccentColor"
+                if exportNote != ""
+                  text exportNote font-size=13 color="-exact-secondary-label" testId="export-note"
+            textarea appearance="none" font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="Field" color="FieldText" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=7
+            input type="file" accept="application/json" id="import-file" testId="import-file" display="none" change=importPicked
+            if confirmRestore
               row gap=12 align-items="center" flex-wrap="wrap"
-                text "Delete this note?" color="-exact-system-red" font-size=14
-                button appearance="none" press=remove disabled=busy testId="confirm-delete" padding=10
-                  text "Delete note" color="-exact-system-red" font-weight=700
-                button appearance="none" press=cancelDelete testId="cancel-delete" padding=10
-                  text "Keep it"
-            if openInterrupted
-              text "Opening this note was interrupted. Try again." font-size=13 color="-exact-system-red" testId="open-interrupted"
-              button appearance="none" press=edit(session.noteId) disabled=busy testId="retry-open" padding=10 align-self="flex-start"
-                text "Retry opening note" color="AccentColor"
-            if openedMessage != ""
-              text openedMessage font-size=13 color="-exact-system-red" testId="open-message"
-            match saved
-              case some(s)
-                if s.version == session.version
-                  text s.message font-size=13 color=(s.failed ? "-exact-system-red" : "-exact-secondary-label") testId="save-message"
-              case none
-                text "Your words stay here until you choose to back them up." font-size=12 color="-exact-secondary-label"
+                text (importName == "" ? "Replace all notes with this backup?" : `Replace all notes with ${importName}?`) font-size=14 testId="restore-question"
+                button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 accent-color="-exact-system-red" background-color="AccentColor" border-radius=7
+                  text "Replace notes" color="AccentColorText"
+                button appearance="none" press=cancelRestore testId="cancel-restore" padding=10
+                  text "Cancel"
+            else
+              row gap=10 flex-wrap="wrap"
+                button appearance="none" press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10
+                  text "Restore backup…" color="-exact-system-red"
+                button appearance="none" press=chooseImport disabled=(busy or dirty) testId="import-backup" padding=10
+                  text "Import backup file…" color="AccentColor"
+        else
+          row testId="workspace" flex=1 min-height=400 gap=16 flex-wrap="wrap" align-items="stretch"
+            column testId="sidebar" flex=1 min-width=220 min-height=400 gap=12
+              row gap=6 align-items="center" flex-shrink=0
+                input appearance="none" id="search" value=query input=search placeholder="Search your notes" aria-label="Search notes" testId="search" flex=1 min-width=0 box-sizing="border-box" padding=12 border-style="solid" border-width=1 border-color="-exact-separator" border-radius=9 background-color="Field" color="FieldText" font-size=14
+                button press=closeSearch testId="close-search" aria-label="Close search" aria-keyshortcuts="Escape" padding=10 border-radius=8 background-color="-exact-fill"
+                  image "symbol:close" font-size=18 font-weight=400 color="AccentColor"
+              scroll testId="note-list" flex=1 min-height=160
+                column gap=10 padding=(tv ? 10 : 0)
+                  if library.notes.length == 0
+                    column padding=20 gap=8
+                      text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"
+                      text (query == "" ? "Write a thought, a list, or something worth keeping." : "Try a different word.") font-size=14 color="-exact-secondary-label"
+                  for note in library.notes key=note.id
+                    button press=edit(note.id) disabled=(dirty or busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-style="solid" border-width=1 border-color=(note.id == editingId ? "AccentColor" : "-exact-separator") border-radius=9 background-color=(note.id == editingId ? "-exact-fill" : "-exact-secondary-grouped-background")
+                      column gap=6 align-items="flex-start"
+                        if note.pinned
+                          text "PINNED" font-size=10 font-weight=700 letter-spacing=1 color="-exact-secondary-label"
+                        text note.title font-size=17 font-weight=600 text-align="left"
+                        text note.excerpt font-size=13 color="-exact-secondary-label" text-align="left"
+              if dirty
+                text "Save or discard your draft before opening another note." font-size=12 color="-exact-secondary-label"
+            column testId="editor" flex=3 min-width=300 min-height=400 gap=14 padding=20 box-sizing="border-box" background-color="-exact-secondary-grouped-background" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=12
+              row justify-content="space-between" align-items="center"
+                text (editingId == "" ? "A NEW PAGE" : "YOUR NOTE") font-size=11 font-weight=700 letter-spacing=2 color="-exact-secondary-label"
+                button appearance="none" press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
+                  text (fields.pinned ? "Pinned" : "Pin note") font-size=13 color="-exact-secondary-label"
+              input appearance="none" id="note-title" value=(pending(opened) ? "" : fields.title) readonly=(pending(opened) or not openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="-exact-secondary-grouped-background"
+              textarea appearance="none" id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="-exact-secondary-grouped-background"
+              row gap=10 align-items="center" flex-wrap="wrap" flex-shrink=0
+                button press=save disabled=(busy or not openedReady or not dirty or (fields.title == "" and fields.body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="AccentColor" border-radius=7
+                  text "Save note" color="light-dark(#ffffff, #000000)" font-weight=600
+                if dirty
+                  button appearance="none" press=discard disabled=busy testId="discard" padding=12
+                    text "Discard changes" color="-exact-secondary-label"
+                if page.canShare and (fields.title != "" or fields.body != "")
+                  button appearance="none" press=shareNote disabled=busy testId="share-note" aria-label="Share note" padding=12
+                    text "Share…" color="AccentColor"
+                if editingId != ""
+                  button appearance="none" press=askDelete disabled=busy testId="delete-note" padding=12
+                    text "Delete…" color="-exact-system-red"
+              if session.confirmDelete
+                row gap=12 align-items="center" flex-wrap="wrap"
+                  text "Delete this note?" color="-exact-system-red" font-size=14
+                  button appearance="none" press=remove disabled=busy testId="confirm-delete" padding=10
+                    text "Delete note" color="-exact-system-red" font-weight=700
+                  button appearance="none" press=cancelDelete testId="cancel-delete" padding=10
+                    text "Keep it"
+              if openInterrupted
+                text "Opening this note was interrupted. Try again." font-size=13 color="-exact-system-red" testId="open-interrupted"
+                button appearance="none" press=edit(session.noteId) disabled=busy testId="retry-open" padding=10 align-self="flex-start"
+                  text "Retry opening note" color="AccentColor"
+              if openedMessage != ""
+                text openedMessage font-size=13 color="-exact-system-red" testId="open-message"
+              match saved
+                case some(s)
+                  if s.version == session.version
+                    text s.message font-size=13 color=(s.failed ? "-exact-system-red" : "-exact-secondary-label") testId="save-message"
+                case none
+                  text "Your words stay here until you choose to back them up." font-size=12 color="-exact-secondary-label"

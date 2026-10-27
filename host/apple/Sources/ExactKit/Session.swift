@@ -804,7 +804,7 @@ public final class ExactSession {
         var size = size
         let t = CACurrentMediaTime()
         primePreferences()
-        primeTime()  // `prepare` primes again; the fallback boot reads this
+        primeTime(); claimColdShare()  // `prepare` primes again; the fallback boot reads this
         if let bytes = app.lastPlan {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.

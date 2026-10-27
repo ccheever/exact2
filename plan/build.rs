@@ -473,6 +473,7 @@ fn validate(schema: &Schema) {
                             | "Router"
                             | "Entry"
                             | "Geometry"
+                            | "SharedFiles"
                             | "list<Router>"
                             | "list<Entry>"
                             | "list<string>"
