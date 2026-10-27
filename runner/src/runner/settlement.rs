@@ -540,7 +540,6 @@ impl<D: DataSource> Runner<D> {
                             {
                                 self.stale[i] = true;
                             }
-                            awaiting[i] = false;
                             adopted[i] = true;
                             origin = 0;
                             generation = 0;
@@ -549,6 +548,11 @@ impl<D: DataSource> Runner<D> {
                             {
                                 answered_for = (baked[..] != args[..]).then(|| baked.to_vec());
                             }
+                            // Shown for the bake's arguments, not these (state
+                            // a launch restored changed them), it is a stand-in
+                            // like a placeholder: pending until `data_ready`
+                            // asks the source (LLP 1048.003 D6, 2026-10-27).
+                            awaiting[i] = answered_for.is_some() && self.stale[i];
                             Held::compiled(
                                 Value::from_bytes(self.plan.bytes(row.initial))
                                     .map_err(RunnerError::Plan)?,
