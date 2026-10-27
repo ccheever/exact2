@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// Shelf's data, as much as its screens read: a library of two books, no
-/// works for a subject, and the clock. The fixture below asks for none.
+/// works for a subject, no book for an ISBN, and the clock. The fixture below asks for none.
 #[derive(Default)]
 struct Nothing;
 impl DataSource for Nothing {
@@ -28,6 +28,7 @@ impl DataSource for Nothing {
                 Value::Number(0.0),
                 text(""),
                 text(""),
+                Value::Number(0.0),
             ])
         };
         match name {
@@ -42,6 +43,13 @@ impl DataSource for Nothing {
                 Value::Bool(true),
                 Value::str(""),
                 Value::list(Vec::new()),
+            ])),
+            "bookByIsbn" => Ok(Value::record(vec![
+                Value::str(""),
+                Value::Bool(false),
+                Value::str(""),
+                Value::str(""),
+                Value::Number(0.0),
             ])),
             "exactTime" => Ok(Value::record(vec![Value::Number(0.0)])),
             _ => Err(DataError::UnknownSource(name.into())),

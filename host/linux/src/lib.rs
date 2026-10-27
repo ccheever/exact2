@@ -126,10 +126,52 @@ pub(crate) fn test_plan(source: &str) -> Vec<u8> {
         return plan.clone();
     }
     // Compiled outside the lock, so one test's compile never waits on another's
-    let plan = contract::compile(source).unwrap().encode();
+    let plan = test_compile(source);
     plans
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(source.to_owned(), plan.clone());
     plan
+}
+
+/// A source with no path can't resolve a `use`, so one that uses this checkout's
+/// packages (Shelf's `use … from "@exact/…"`) is compiled as an app of its own: a
+/// temporary directory holding just the source and a `package.json` depending on each
+/// package it names, each linked under `node_modules/@exact` as an install places it.
+#[cfg(test)]
+fn test_compile(source: &str) -> Vec<u8> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let packages: Vec<&str> = source
+        .lines()
+        .filter(|l| l.starts_with("use "))
+        .filter_map(|l| l.split("from \"@exact/").nth(1)?.split('"').next())
+        .collect();
+    if packages.is_empty() {
+        return contract::compile(source).unwrap().encode();
+    }
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("exact-linux-plan-{}-{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let scope = dir.join("node_modules/@exact");
+    std::fs::create_dir_all(&scope).unwrap();
+    let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages");
+    let dependencies: Vec<String> = packages
+        .iter()
+        .map(|n| format!("\"@exact/{n}\": \"*\""))
+        .collect();
+    let manifest = format!("{{\"dependencies\": {{{}}}}}", dependencies.join(", "));
+    std::fs::write(dir.join("package.json"), manifest).unwrap();
+    for name in packages {
+        let to = checkout.join(name).canonicalize().unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(to, scope.join(name)).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(to, scope.join(name)).unwrap();
+    }
+    let path = dir.join("app.contract");
+    std::fs::write(&path, source).unwrap();
+    let plan = contract::compile_path(&path);
+    let _ = std::fs::remove_dir_all(&dir);
+    plan.unwrap().encode()
 }

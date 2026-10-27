@@ -9,8 +9,8 @@ use crate::fields::{FieldFace, FieldMetrics};
 use crate::presenter::top::SurfacePainter;
 use exact_runner::{DataError, Value};
 
-/// Shelf's data: a library of `0` books, no works, the clock; and for the
-/// list fixture, 400 rows.
+/// Shelf's data: a library of `0` books, no works, no book for an ISBN, the
+/// clock; and for the list fixture, 400 rows.
 struct Data(usize);
 impl DataSource for Data {
     fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -28,6 +28,7 @@ impl DataSource for Data {
                 Value::Number(0.0),
                 text(""),
                 text(""),
+                Value::Number(0.0),
             ])
         };
         match name {
@@ -42,6 +43,13 @@ impl DataSource for Data {
                 Value::Bool(true),
                 Value::str(""),
                 Value::list(Vec::new()),
+            ])),
+            "bookByIsbn" => Ok(Value::record(vec![
+                Value::str(""),
+                Value::Bool(false),
+                Value::str(""),
+                Value::str(""),
+                Value::Number(0.0),
             ])),
             "exactTime" => Ok(Value::record(vec![Value::Number(0.0)])),
             "rows" => Ok(Value::list(
