@@ -14,7 +14,7 @@ import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
-import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
+import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer, TOOL_PORT } from './tamber-server.mjs';
 import { suiteBrowser } from './agent-launch.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -435,8 +435,8 @@ async function devLoop(flags = [], app = 'theme-fixture') {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-tamber-dev-'));
-  // Owned: ended with what it starts when the test ends, a timeout included (test-children.mjs).
-  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Owned, ended with the test (test-children.mjs); framed by FRAME_ANCESTORS's port, whatever another file left set.
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, EXACT_TOOL_PORT: String(TOOL_PORT) }, stdio: ['ignore', 'pipe', 'pipe'] });
   const stop = async () => {
     await dev.stop(30_000);
     rmSync(dist, { recursive: true, force: true });
