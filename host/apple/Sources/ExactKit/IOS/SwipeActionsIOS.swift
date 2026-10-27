@@ -490,7 +490,9 @@ package final class SwipeActionsHost {
             return (table, cell)
         }
         func restore() {
-            if let parent = logicalParent, let carrier {
+            // Home is where the owner keeps its content now: a scroll view
+            // released while the row was projected left its children to the owner.
+            if let carrier, let parent = logicalParent ?? (carrier.superview === cell?.contentView ? owner.scroll ?? owner : nil) {
                 parent.addSubview(carrier); carrier.frame = logicalFrame
                 if let node = carrier as? NodeView { owner.presenter?.regrid(node) } // placed from the cell while projected
             }
@@ -556,10 +558,15 @@ package final class SwipeActionsHost {
             if grouped { mountGrouped(); return }
             // A waiting scroll's children are the owner's own (`scrollDormant`).
             guard owner.scroll != nil || owner.scrollDormant else { return }
+            // Mounted again while projected (VoiceOver starting, a batch with
+            // no `prepare`): its content comes home first. Walking up from the
+            // body in the cell would find the table, and the cell would take
+            // its own table (CALayerInvalid, a layer tree cycle: r28's tasks).
+            if carrier != nil, carrier?.superview === cell?.contentView { restore() }
             let scroll: UIView = owner.scroll ?? owner
             var content: UIView = body
             while let parent = content.superview, parent !== scroll { content = parent }
-            guard content.superview === scroll else { return }
+            guard content.superview === scroll, !(table?.isDescendant(of: content) ?? false) else { return }
             actionAncestors.removeAll()
             for control in leading + trailing {
                 var ancestors: [Ancestor] = [], current: UIView? = control
