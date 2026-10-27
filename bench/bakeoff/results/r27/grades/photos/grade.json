@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "4-across square centre-cropped grid with ~2pt gaps, oldest at top, opens scrolled to the newest at the bottom with a '1,500 Photos' footer; day headings ('Yesterday', 'Sunday', 'Thursday, Feb 19'). A large 'Library' title appears when scrolled to the very top."},
+      {"n": 2, "status": "partial", "note": "Opens full screen at the photo's own aspect ratio; left/right swipes page correctly. Swipe down usually closes, but twice in about 12 tries the same downward drag left the viewer open."},
+      {"n": 3, "status": "pass", "note": "Heart button in the viewer's nav bar fills and becomes 'Unfavorite'; a white heart appears on the grid thumbnail."},
+      {"n": 4, "status": "pass", "note": "Albums tab shows a large title and a 2-column grid of the 8 albums with cover, name and count; counts update after a deletion (City 186→185). Opening an album shows its grid scrolled to the newest photo with a count footer."},
+      {"n": 5, "status": "pass", "note": "Select → tap photos (blue checkmarks), '3 Selected' title, Favorite and Delete in a bottom bar; delete asks for confirmation in an alert; both actions work and then leave select mode."},
+      {"n": 6, "status": "pass", "note": "After relaunch, favourites kept their hearts and the 2 deleted photos stayed gone (1,498 Photos)."}
+    ],
+    "bugs": [
+      "Swipe down to close the viewer sometimes does nothing: twice in about 12 tries a 350pt downward drag left the photo open, while the same gesture worked other times."
+    ],
+    "tells": [
+      "The select-mode action bar is a flat opaque grey strip with a plain white band under it, not an iOS 26/27 Liquid Glass toolbar; it looks like an older or web toolbar.",
+      "At the largest text size the select bar stacks vertically (heart, 'Select Items', trash), grows to about a third of the screen and covers the grid and day headings.",
+      "Thumbnails are exposed to accessibility as Switch elements, and the screen is wrapped in nested generic scroll views with an 'app' container, which suggests a non-native view hierarchy.",
+      "Tab icons are 'photo' and 'square.3.layers.3d' rather than the system Photos symbols (photo.on.rectangle, rectangle.stack); the selected Albums icon does not switch to a filled variant.",
+      "Delete confirmation is a centred alert instead of an action sheet or popover anchored to the trash button.",
+      "In the viewer the photo is centred in the space between the bars rather than on the screen; favourite and delete sit in the top nav bar, and there is no bottom toolbar or Share button.",
+      "Thumbnail accessibility labels give only the date, not the time."
+    ],
+    "scroll": "Smooth: slow drags track the finger, fast flings over hundreds of rows showed no blank or late-loading thumbnails, and flinging to the top lands cleanly with a large title. Scroll position is kept after opening and closing a photo.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "4-across square centre-cropped grid with thin gaps, oldest first, opens at the newest with a grey '1,500 Photos' footer; day headings ('Sat, Oct 24', 'Yesterday'). Real collection view cells."},
+      {"n": 2, "status": "pass", "note": "Opens full screen at the photo's aspect ratio, centred on the screen; swipes left and right page correctly; swipe down closed the viewer every time I tried."},
+      {"n": 3, "status": "pass", "note": "Heart button in a bottom glass toolbar (Share, Favorite, Delete) fills and becomes 'Unfavorite'; the grid shows a heart.fill badge."},
+      {"n": 4, "status": "pass", "note": "Albums tab has a large title, a 'My Albums' section header, and a 2-column grid of the 8 albums with cover, name and count; counts update after deletion. Albums open to a grid scrolled to the newest photo with a '175 Photos · 9 Favorites' footer."},
+      {"n": 5, "status": "pass", "note": "Select mode: '2 Photos Selected' title, checkmarks, and Liquid Glass Favorite and Delete buttons. The favourite button becomes 'unfavorite' (heart.slash) when the selection is already favourited. Delete asks for confirmation in a popover anchored to the trash button."},
+      {"n": 6, "status": "pass", "note": "Favourites and the 2 deletions survived relaunch (1,498 Photos)."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The album grid uses 8pt side insets while the large title and section header sit at 16pt, so the covers look slightly wider than the title margin.",
+      "Album grids repeat a day heading for almost every photo, so sparse albums become a single column of one photo per day with large white gaps; Photos albums do not do this.",
+      "Entering select mode shifts the grid down by about 49pt as the tab bar hides, so a planned tap can land on a different cell."
+    ],
+    "scroll": "Feels like a native collection view: smooth tracking, fast flings with no blank cells or pop-in, and a clean stop at the top. Position is kept across opening and closing a photo, with only a small adjustment to keep the photo visible.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet the whole spec and look almost the same at first glance. B's swipe down closed the viewer every time, its select-mode and viewer controls are system Liquid Glass toolbars, its delete confirmation is anchored to the trash button, and it holds up at the largest text size. A's select bar is a flat custom strip that breaks badly at large text, and its swipe-down dismiss sometimes doesn't work."
+}

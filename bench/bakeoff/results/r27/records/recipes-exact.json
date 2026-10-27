@@ -1,0 +1,26 @@
+{
+  "spec": "recipes",
+  "arm": "exact",
+  "model": "claude",
+  "appId": "dev.bakeoff.recipes.b50a521",
+  "assignedId": "dev.bakeoff.recipes.b50a521",
+  "appName": "Recipes",
+  "sim": "C2188CC6-FBE9-409A-92A8-ABD89AC2C432",
+  "pin": "ae7a466aab",
+  "minutes": 22.76,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 5043829,
+    "fresh": 104057,
+    "input": 5007316,
+    "cached": 4903259,
+    "output": 36513,
+    "cost": 2.5428718,
+    "calls": 127,
+    "toolCalls": 68
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r27/built/recipes-exact.app",
+  "notes": true,
+  "finished": "2026-10-27T13:31:10.272Z"
+}

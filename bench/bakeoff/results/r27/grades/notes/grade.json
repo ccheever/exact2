@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections. Newest first. Bold title, then a date (time today, Yesterday, weekday, or M/D/YY) and a one-line preview."},
+      {"n": 2, "status": "pass", "note": "Search field at the bottom filters title and body live, with a No Results empty state."},
+      {"n": 3, "status": "pass", "note": "Title and body edit in place with no Save button. Going back shows the note at the top of Notes with today's time."},
+      {"n": 4, "status": "pass", "note": "Compose opens a blank note with the keyboard up. Leaving it empty discards it (count unchanged); a note with text is kept."},
+      {"n": 5, "status": "pass", "note": "Swipe left shows Delete. Long-press menu has Pin/Unpin Note and Delete. Swipe right has no pin action and opens the note instead."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' subtitle under the large title; it collapses into the inline title on scroll and updates on delete and create."},
+      {"n": 7, "status": "pass", "note": "Edits, deletes, new notes and pins all survived a relaunch."}
+    ],
+    "bugs": [
+      "A rightward (leading) swipe on a row opens the note, as if it were a tap, instead of doing nothing or showing a leading action."
+    ],
+    "tells": [
+      "The body placeholder 'Note' in an empty new note is tiny and oddly letter-spaced, unlike the Title placeholder above it.",
+      "Previews truncate early at a word boundary with space left ('Ask about podcast…' ends about two-thirds across) in some rows, character by character in others.",
+      "At the largest text size titles stay on one line and truncate ('Podcast…', 'Meeting…') instead of wrapping.",
+      "The 'No Results' empty-state title is regular weight rather than the system's bold.",
+      "Pin is only in the long-press menu and the editor, not among the swipe actions."
+    ],
+    "scroll": "Smooth through the 90 rows: no blank rows, pop-in or jumps. Large title collapses properly, it bounces at both ends, and the scroll position is kept when returning from a note.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Laid out like Apple Notes: large title, search under it, inset-grouped Pinned and Notes sections. Newest first. Title wraps, then a relative or short date and a one-line preview."},
+      {"n": 2, "status": "pass", "note": "Search filters title and body live. Bottom toolbar shows 'N Results'; the empty state is the standard bold No Results."},
+      {"n": 3, "status": "pass", "note": "Title and body edit with no Save button (a Done checkmark only closes the keyboard). The edited note moves to the top of Notes."},
+      {"n": 4, "status": "pass", "note": "Compose button in the bottom toolbar. An empty new note is discarded on Back; a note with text is kept."},
+      {"n": 5, "status": "pass", "note": "Swipe left shows Pin and Delete, and a full swipe deletes. Long-press menu has Pin/Unpin and Delete. The editor's ••• menu has the same."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' centred in the bottom toolbar, as in Apple Notes. It updates on delete and create, and shows a result count while searching."},
+      {"n": 7, "status": "pass", "note": "Edits, deletes, new notes and pins all survived a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The note count in the bottom toolbar stays small at the largest text size while everything else scales (minor).",
+      "Dates use a full four-digit year (9/27/2026) where Notes uses a short date; it costs preview width but is not wrong."
+    ],
+    "scroll": "Smooth throughout: steady drag, flings that decelerate naturally, no blank or popping rows. The search field docks under the inline title on scroll, and the scroll position is kept on returning from a note.",
+    "scores": {"features": 9, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and persist correctly. B is closer to a native Notes app: pin and delete in the swipe actions with full-swipe delete, a toolbar count and compose button, titles that wrap at the largest text size, and a standard No Results view. A has a few small tells (a tiny, odd body placeholder, uneven preview truncation, titles truncating at large text) and a leading swipe that opens the note by mistake."
+}

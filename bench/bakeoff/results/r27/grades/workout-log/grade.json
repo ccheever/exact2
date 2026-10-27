@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History grouped by month and sorted newest first. Each row shows name, date, exercise count and volume (e.g. 6,767.5 lb). Large title, + button in the nav bar."},
+      {"n": 2, "status": "pass", "note": "Detail shows a summary (date, exercises, sets, total volume) and a section per exercise listing its sets, with per-exercise volume in the footer. Exercise headers link to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Naming sheet offers suggestions. The picker has a native search field, muscle filter chips and multi-select. The Add Set sheet uses a number pad, steppers and inline validation. Tapping a set edits it (with Delete Set), swipe-to-delete works, and Finish shows a confirmation summary. Exercises with no sets are dropped and the workout appears at the top of History."},
+      {"n": 4, "status": "pass", "note": "Library tab is a list sectioned by muscle, with equipment as the subtitle. It has no search, which the spec doesn't require."},
+      {"n": 5, "status": "pass", "note": "Exercise screen shows muscle, equipment and times logged, a Best Set card (heaviest weight, links to its workout), and every workout it appears in with that workout's sets."},
+      {"n": 6, "status": "pass", "note": "An in-progress workout (name, exercises, sets) survived a relaunch, and the finished workout stayed in History after a relaunch."}
+    ],
+    "bugs": [
+      "The Add Set sheet sits at a medium/large detent and jumps from expanded to half height when you start typing. Taps aimed at the weight field can then land on the dimmed area and dismiss the sheet, discarding the entry (happened twice)."
+    ],
+    "tells": [
+      "The medium-detent Add Set sheet leaves a large empty band between the form and the keyboard",
+      "Workout tab with the 'figure.strengthtraining.traditional' glyph next to 'books.vertical' feels slightly busy, but it is still a standard tab bar"
+    ],
+    "scroll": "History and Library scroll like a native collection view: smooth fling, rubber-band at the top, large title collapses into an inline title, and scroll position is kept after push/pop.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History grouped by month and sorted newest first. Name and date on the left, volume and exercise count on the right. Start Workout row plus a + button in the nav bar."},
+      {"n": 2, "status": "pass", "note": "Detail shows a summary (date, exercises, sets, volume) and a section per exercise with its sets. Inline title, not a large one."},
+      {"n": 3, "status": "partial", "note": "Naming, picker (bottom search bar, Muscle pop-up menu, checkmarks), set entry, editing via a sheet with Delete Set, and Finish all work. But after any set sheet closes (Save or Cancel), the workout screen freezes until relaunch: set rows render greyed, nothing responds to taps, and the rows vanish from the accessibility tree. The Workout in Progress card and the newly finished History rows went dead the same way. No swipe-to-delete on sets."},
+      {"n": 4, "status": "pass", "note": "Library tab is sectioned by muscle and shows each exercise's best weight."},
+      {"n": 5, "status": "pass", "note": "Exercise screen has a Best Set card (95 lb × 11, linked to its workout), muscle and equipment, and Workouts (n) with each workout's best set and set count."},
+      {"n": 6, "status": "pass", "note": "In-progress workout and finished history both survived relaunches. Relaunching was in fact the only way to unfreeze the editor."}
+    ],
+    "bugs": [
+      "After saving or cancelling the Add/Edit Set sheet, the active workout screen stops responding: the set row shows greyed out, and Add Set, set rows and the History resume card do nothing until the app is relaunched. Reproduced 3 times.",
+      "After Finish, the new top rows in History (the new workout and the next one) don't respond to taps until relaunch.",
+      "Closing a brand-new, empty workout with X leaves an empty 'New Workout' in progress instead of discarding it or asking."
+    ],
+    "tells": [
+      "The Set sheet's header is not a real navigation bar: a bare blue X glyph on the left, a large regular-weight 'Set 1' title, and a checkmark capsule. Other sheets use the system glass Close/Finish buttons.",
+      "No swipe-to-delete on set rows; deleting needs a sheet",
+      "Saved set rows render in faded grey, so they look disabled",
+      "Workout detail rows are labelled oddly: the exercise name is the section header and the row title is just the muscle ('Glutes / Barbell')",
+      "Picker rows are exposed to accessibility as switches",
+      "Finish has no confirmation and no summary"
+    ],
+    "scroll": "History and Library scroll smoothly with native deceleration, rubber-band at the top and a collapsing large title. Scroll position is kept on back navigation, and no rows pop in or go blank.",
+    "scores": {"features": 6, "platform": 7, "polish": 4, "overall": 5}
+  },
+  "better": "A",
+  "why": "Both apps cover the spec and look close to native in light, dark and at the largest text size. B's workout editor freezes after every set-sheet dismissal, and newly finished History rows go dead too, until the app is relaunched, so logging a real workout is close to impossible. A's only real flaw is a set sheet that jumps between heights while you type, and it adds swipe-to-delete, a finish confirmation and a more consistent sheet design."
+}

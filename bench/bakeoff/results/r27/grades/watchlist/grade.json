@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers in an inset-grouped list: star, symbol, name, price and % change since open, green when up and red when down, with a chevron."},
+      {"n": 2, "status": "pass", "note": "Prices and percentages change every second in place. With the list sorted by change, rows re-sort live while the scroll position holds steady (stayed at 4% over several seconds)."},
+      {"n": 3, "status": "pass", "note": "A native pull-down menu offers Symbol, Price and Change plus a Sort Descending toggle, and a header names the order ('Biggest gain'). The native bottom search field matches symbol or name ('cedar' gives 16) and has a proper No Matching Tickers state."},
+      {"n": 4, "status": "pass", "note": "Stars toggle on the row and in the detail screen's navigation bar; a segmented All/My List control filters. Empty My List has a good empty state with a 'Browse All Tickers' button. Unstarring inside My List removes the row."},
+      {"n": 5, "status": "pass", "note": "Detail shows name, a large price, change since open, a live line chart of the last 60 samples with low and high, and Open and Volume rows; everything updates live."},
+      {"n": 6, "status": "pass", "note": "After relaunch, My List (3 starred) and the sort ('Biggest gain') were both kept."}
+    ],
+    "bugs": [
+      "In the empty My List state the segmented control loses its inset and runs edge to edge, touching both screen edges.",
+      "At the largest text size the detail's big price is clipped at the right edge ('$122.9…' cut off)."
+    ],
+    "tells": [
+      "The detail's large price is drawn in secondary grey rather than the primary label colour, so the most important number looks disabled.",
+      "The segmented control sits inside its own white rounded card, like a list cell, rather than in the header or under the navigation bar.",
+      "No swipe actions on rows: a left swipe just opens the detail, with no swipe-to-star or swipe-to-remove.",
+      "The segmented control's labels don't grow at the largest text size, while the rest of the screen grows a lot."
+    ],
+    "scroll": "Smooth like a real iPhone list: slow drags, flings and the fling back to the top had no blank rows or jumps. Live updates don't move the scroll position, even while sorted by change.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers: star, symbol, name, price, and change % in a green or red tinted pill."},
+      {"n": 2, "status": "partial", "note": "Prices update in place every second. But with a value-based sort, the scroll position follows a moving row rather than staying put: mid-list it crept from 2% to 4% unaided, and after changing sort it ran to the bottom of the list (92% then 100%) within seconds."},
+      {"n": 3, "status": "partial", "note": "A native menu offers Symbol A–Z, Price High–Low and Change High–Low, with no way to reverse the order. Picking a new sort while at the top throws the list to the middle (39%) instead of showing the first rows. Search matches symbol or name and has a no-results state."},
+      {"n": 4, "status": "pass", "note": "Stars toggle on rows and in the detail navigation bar; a segmented All/My List control filters correctly."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, a change pill, a live area chart of the last 60 seconds with low and high and a '32s ago … Now' axis, and Open and Volume."},
+      {"n": 6, "status": "pass", "note": "My List (2 starred) and the Price sort were kept after relaunch."}
+    ],
+    "bugs": [
+      "Changing the sort does not return the list to the top: it lands mid-list (scroll bar at 39%) on unrelated rows.",
+      "With a price or change sort, the list scrolls by itself as rows move: it drifted to the very bottom within a few seconds after a sort change.",
+      "The large 'Watchlist' title sometimes disappears and leaves an empty band (seen while the sort menu was open, and once after switching segments in dark mode).",
+      "The accessibility tree lists star buttons for off-screen rows, all stacked at one point, and duplicate segmented-control buttons, so VoiceOver and automation see ghost and duplicate controls."
+    ],
+    "tells": [
+      "A custom navy 'MARKET PULSE' banner card, a pill-shaped search field inside the scrolling content, and tinted percentage pills give it a web-dashboard look.",
+      "Rows are 84 pt tall with no chevrons and full-width white rows below a grey header, unlike a standard plain or inset-grouped list.",
+      "The segmented control is 45 pt tall, not the standard 31–32 pt.",
+      "Search lives in the content area, so with the keyboard up only one result is visible, and the header doesn't collapse.",
+      "At the largest text size the search placeholder and the row stars stay tiny while everything else grows; the search field becomes a huge empty capsule.",
+      "Detail uses web-style eyebrow labels ('LIVE QUOTE / USD', 'PRICE HISTORY ● LIVE').",
+      "No swipe actions on rows: a left swipe opens the detail."
+    ],
+    "scroll": "Flings and drags are smooth with no blank rows. But with a value-based sort the list scrolls by itself as rows re-sort, and changing the sort lands mid-list instead of at the top, which feels broken.",
+    "scores": {"features": 7, "platform": 6, "polish": 5, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps cover the whole spec. A's list stays put while prices move and re-sort, while B jumps mid-list on a sort change and then drifts on its own. A also looks much more like a stock iOS app (inset-grouped list, native bottom search, sort menu with a direction toggle), whereas B's banner, in-content search and oversized rows look web-like. A's flaws are smaller: a grey detail price, a clipped price at the largest text size, and a segmented control that goes edge to edge in the empty state."
+}

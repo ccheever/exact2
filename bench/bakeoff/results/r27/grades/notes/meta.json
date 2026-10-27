@@ -1,0 +1,11 @@
+{
+  "spec": "notes",
+  "key": {
+    "A": "exact",
+    "B": "uikit"
+  },
+  "exit": 0,
+  "minutes": 12.6,
+  "shots": 50,
+  "graded": true
+}

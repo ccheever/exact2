@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Shows the whole day in time order, grouped by hour with pinned headings. Each row has the time, a coloured line badge, the platform and the destination, plus 'Cancelled' in red or 'Delayed N min' in grey. The pinned heading has no opaque background, so the row scrolling under it shows through its text."},
+      {"n": 2, "status": "pass", "note": "A capsule button in the nav bar shows the station and pushes a large-title 'Stations' list with a working system search field and a checkmark on the current station. Choosing one goes back and scrolls to now. Stations are not sorted alphabetically."},
+      {"n": 3, "status": "pass", "note": "Opened on the next departure (12:27 at 12:19) every time. Now, changing station and changing filter all scroll to the next departure."},
+      {"n": 4, "status": "pass", "note": "A pop-up menu offers All lines or one of the five lines, with a checkmark. Filtering works."},
+      {"n": 5, "status": "pass", "note": "Past departures are dimmed (grey time and destination). The badge and star stay at full strength."},
+      {"n": 6, "status": "pass", "note": "The star toggles and the Saved tab lists saved departures with their station. Saved items and the chosen station both survived relaunch."}
+    ],
+    "bugs": [
+      "The pinned hour heading is transparent: the row under it bleeds through, e.g. 'Market St' or '13:45' overlaps '12:00'/'13:00'. Obvious in dark mode and at the largest text size."
+    ],
+    "tells": [
+      "The sticky section header has no material or background, so content overlaps the heading text. A UIKit or SwiftUI plain-list header would be opaque or blurred.",
+      "'Delayed N min' is plain secondary grey, with no warning colour.",
+      "The Saved list has no swipe-to-delete; the only way to remove an item is the star.",
+      "At the largest text size the star glyph grows to about 70pt and the rows get very tall, out of proportion.",
+      "There are large empty gaps between hour sections (an inset-grouped look on a plain list).",
+      "The station list follows data order rather than alphabetical order."
+    ],
+    "scroll": "It feels like a native list: smooth drags, flings with momentum, rubber-band past the top, and no blank or popping rows. The only flaw is the see-through pinned header.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Shows the whole day grouped by hour, with pinned opaque hour headings and departure counts. Rows have a large time, a coloured badge, the destination, the platform, and 'Cancelled' in red or 'Delayed N min' in amber with icons."},
+      {"n": 2, "status": "pass", "note": "A large 'Departing from' card opens a sheet listing all 20 stations alphabetically with departure counts and a bottom search field. Search and selection work, and the list scrolls to now afterwards."},
+      {"n": 3, "status": "partial", "note": "Now works and highlights the 'NEXT DEPARTURE' row. But on every launch or relaunch the list opens about 1–1.5 hours late (at 12:19 it showed 13:53; at Glen Park it opened at 13:22 when the next train was 12:24), so 'the list opens there' fails."},
+      {"n": 4, "status": "pass", "note": "A horizontal row of chips (All lines plus the five lines, each with a colour dot) filters correctly."},
+      {"n": 5, "status": "pass", "note": "Past rows are dimmed, including a faded badge."},
+      {"n": 6, "status": "pass", "note": "The star toggles and the Saved tab shows a badge count and the saved list, with its own filter and swipe-to-delete. Saved items and the station survived relaunch."}
+    ],
+    "bugs": [
+      "On launch the list scrolls to roughly an hour past the next departure instead of the next departure. Only tapping Now fixes it.",
+      "The Saved tab marks a cancelled departure (14:17 Harbor, Cancelled) as 'next departure'."
+    ],
+    "tells": [
+      "It has a fully custom branded look: an off-white and teal palette, a custom header card, pill chips, and a custom title with an icon instead of a standard large-title nav bar.",
+      "The station card, chips and date line do not scroll away. They take about 300pt, leaving the list only half the screen, and even less at the largest text size.",
+      "A horizontal scroll of filter chips stands in for a system menu or segmented control.",
+      "The Saved screen repeats a marketing-style headline ('Your daily connections.').",
+      "The sheet's Done is a filled teal circle with a checkmark, not the system tint."
+    ],
+    "scroll": "Drags and flings are smooth, with no blank rows or stutter. Pinned headers are opaque and clean, and scroll position is kept across tabs. Because the scrolling region is only the lower half, a mid-screen swipe often lands on the static header and does nothing.",
+    "scores": {"features": 8, "platform": 5, "polish": 7, "overall": 6}
+  },
+  "better": "A",
+  "why": "A meets every requirement, including opening on the next departure, and looks and behaves like a stock iOS list. Its main flaw is a see-through pinned hour header. B is more designed and has nicer touches (amber delays, swipe-to-delete, badge counts), but it opens an hour past the next departure on every launch, flags a cancelled train as 'next', and gives half the screen to a header that never scrolls."
+}

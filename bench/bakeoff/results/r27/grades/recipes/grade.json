@@ -1,0 +1,42 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of all 160 recipes; each row shows title, category, time, and a star rating with a chevron. A header row reads '160 Recipes · by Name'."},
+      {"n": 2, "status": "pass", "note": "A Category pull-down menu in the nav bar lists All plus the nine categories, with a checkmark on the current one. Search matches titles and ingredients and combines with the category (Desserts+'miso' gives 2, Desserts+'egg' gives 9). Has a helpful 'No Results' state. The active category shows only in the header text, never on the screen itself."},
+      {"n": 3, "status": "pass", "note": "A Sort menu offers Name, Time (quickest first) and Rating (highest first). Each works, the choice is shown in the header, and it is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "The recipe screen has a Time/Serves/Rating card, Ingredients with a real UIStepper and a Reset button, and numbered Steps. Scaling is correct and uses unicode fractions (4⅔, 1⅙), with a 'Scaled from 1 serving to 4' footnote. The amount sits in its own column apart from the unit, so a row reads '1   g parsley'."},
+      {"n": 5, "status": "pass", "note": "A heart button in the nav bar toggles the favorite and its accessibility label changes. The Favorites tab lists saved recipes, swipe left gives Delete, and a hint footer explains this. The empty state has a heart, 'No Favorites Yet', a helpful line and a Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "A favorite was still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "In the Favorites empty state, the 'Browse Recipes' button sits at the very bottom, right on top of the tab bar, far from the centred message.",
+      "The swipe action in Favorites is labelled 'Delete', which sounds stronger than un-favoriting.",
+      "On the recipe screen the ingredient amount sits in a fixed column, split from its unit ('2   tsp spinach'), which looks like a table rather than an iOS ingredient line.",
+      "The main list has no swipe action for adding a favorite; a horizontal drag opens the recipe instead.",
+      "The current category filter shows only in the small header text, with no visible chip or segmented control."
+    ],
+    "scroll": "Scrolling is smooth with no blank or popping rows, and pulling past the top bounces normally. The large title collapses properly, and the scroll position is kept when coming back from a recipe.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list of all 160 recipes; rows show the title in bold and 'Category · clock time · star rating' underneath. A subtitle under the large title reads '160 recipes'. Rows have good combined accessibility labels."},
+      {"n": 2, "status": "pass", "note": "A horizontal row of chips (All plus nine categories) stays visible while searching. Search matches titles and ingredients and combines with the category (Desserts+'egg' gives the right set). Rows matched by an ingredient show a 'Contains eggs' line, which is a nice touch. The subtitle updates to '28 Desserts recipes'."},
+      {"n": 3, "status": "pass", "note": "A Sort menu offers Name (A to Z), Time (quickest first) and Rating (highest first). All work and the choice is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "The recipe screen has a category eyebrow, a large title, Time/Servings/Rating tiles, a servings card with a UIStepper, bulleted ingredients and numbered-circle steps. Scaling is excellent: unicode fractions and singular units (8→3 gives '¾ clove rice', '1½ tsp eggs'), plus a 'scaled for 3 servings (original serves 8)' footnote."},
+      {"n": 5, "status": "pass", "note": "A heart button in the nav bar toggles the favorite, and the main list also has a swipe action to favorite. The Favorites tab has its own search and sort, a swipe-to-Remove action, and an empty state with a heart, a helpful message and a centred Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "A favorite was still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The horizontal category chips work, but they read more like a web or Android filter bar than a standard iOS control.",
+      "At the largest text size the ingredient bullet dots stay tiny and the meta line wraps, leaving a dangling '·' on its own line.",
+      "The unselected tab icons are filled black glyphs, slightly heavier than the usual look."
+    ],
+    "scroll": "Scrolling is smooth with no blank or popping rows, and flinging and pulling past the top behave natively. The scroll position is kept exactly when coming back from a recipe.",
+    "scores": {"features": 10, "platform": 8, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and feel native, with real menus, steppers, large titles, swipe actions and a good dark mode. B goes further in the details: proper fractions with singular units, a 'Contains eggs' hint on ingredient matches, a category filter that stays visible, swipe-to-favorite in the main list, and a better-laid-out empty state. A's amount column and its Browse button pinned against the tab bar feel less finished."
+}

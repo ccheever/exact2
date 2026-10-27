@@ -1,0 +1,26 @@
+{
+  "spec": "tasks",
+  "arm": "exact",
+  "model": "claude",
+  "appId": "dev.bakeoff.tasks.b4c7602",
+  "assignedId": "dev.bakeoff.tasks.b4c7602",
+  "appName": "Tasks",
+  "sim": "498D6D1F-C21C-4B31-90F4-5D857216E256",
+  "pin": "ae7a466aab",
+  "minutes": 21.35,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 10903363,
+    "fresh": 147810,
+    "input": 10844451,
+    "cached": 10696641,
+    "output": 58912,
+    "cost": 4.4992722,
+    "calls": 190,
+    "toolCalls": 103
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r27/built/tasks-exact.app",
+  "notes": true,
+  "finished": "2026-10-27T14:26:01.429Z"
+}

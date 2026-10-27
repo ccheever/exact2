@@ -1,0 +1,26 @@
+{
+  "spec": "photos",
+  "arm": "uikit",
+  "model": "claude",
+  "appId": "dev.bakeoff.photos.b649bd8",
+  "assignedId": "dev.bakeoff.photos.b649bd8",
+  "appName": "Photos",
+  "sim": "CEDFB9C9-FF04-4617-B156-94C56B83CA86",
+  "pin": "ae7a466aab",
+  "minutes": 10.91,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1443490,
+    "fresh": 70273,
+    "input": 1396477,
+    "cached": 1326204,
+    "output": 47013,
+    "cost": 1.7674847999999996,
+    "calls": 56,
+    "toolCalls": 31
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r27/built/photos-uikit.app",
+  "notes": true,
+  "finished": "2026-10-27T14:35:15.051Z"
+}

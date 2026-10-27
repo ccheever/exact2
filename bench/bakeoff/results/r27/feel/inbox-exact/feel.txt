@@ -1,0 +1,30 @@
+dev.bakeoff.inbox.b78dcb2: ExactGroupedLists.GroupedCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 23.22 s of motion
+  tell  hitch ratio (ms/s)                     6.4
+  bad   longest frame (ms)                     78.6
+  ok    main thread p95 (ms/frame)             6.75
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       504
+  ok    momentum hand-off (content/asked)      1.06
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.67
+  ok    rubber band (overscroll/finger)        0.65
+  ok    rubber band settle (s)                 0.56
+  ok    status-bar scroll to top (s)           0.98
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              10.7
+  tell  scrub: longest frame (ms)              35.6
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  16 ok, 2 tell, 2 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 6.4):
+    pull-top: 2 late frames (0 on a timer's tick), 82 ms late; Exact host 130 ms (in UIKit 60) · Exact runtime (main waits on exact.owner) 16 ms; in the main queue 111 ms, events 22 ms, display links and ports 10 ms
+    fling-partway: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 23 ms (in UIKit 10); in the main queue 18 ms, display links and ports 5 ms
+    find-carousel-4: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 21 ms (in UIKit 5); in the main queue 13 ms, display links and ports 8 ms
+    find-carousel-7: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 19 ms (in UIKit 11); in the main queue 16 ms, display links and ports 3 ms
+    find-carousel-8: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 19 ms (in UIKit 11); in the main queue 16 ms, display links and ports 3 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 2 late frames (0 on a timer's tick), 36 ms late; Exact host 63 ms (in UIKit 30) · Exact runtime 3 ms; in the main queue 43 ms, display links and ports 20 ms, events 3 ms

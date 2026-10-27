@@ -1,0 +1,29 @@
+dev.bakeoff.podcasts.b2b184b: SwiftUI.UpdateCoalescingCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 23.43 s of motion
+  tell  hitch ratio (ms/s)                     7.1
+  bad   longest frame (ms)                     115.5
+  ok    main thread p95 (ms/frame)             7.3
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       505
+  ok    momentum hand-off (content/asked)      0.95
+  tell  flings that drop a frame at the lift   1/4
+  tell  offset jumps while decelerating        1
+  ok    edge bounce settle (s)                 0.72
+  n/a   rubber band (overscroll/finger)        –
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.51
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              465.2
+  bad   scrub: longest frame (ms)              125
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  13 ok, 3 tell, 3 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 7.1):
+    slow-drag: 2 late frames (0 on a timer's tick), 33 ms late; app code 49 ms (in UIKit 28); in display links and ports 43 ms, run-loop observers (the commit) 3 ms
+    fling-6000: 1 late frame (0 on a timer's tick), 17 ms late; app code 20 ms (in UIKit 7) · SwiftUI 5 ms; in display links and ports 15 ms, the main queue 5 ms
+    status-bar: 1 late frame (0 on a timer's tick), 17 ms late; app code 18 ms (in UIKit 10) · SwiftUI 8 ms; in display links and ports 18 ms, the main queue 5 ms
+    scrub-top: 1 late frame (0 on a timer's tick), 99 ms late; app code 88 ms (in SwiftUI 45) · SwiftUI 27 ms · UIKit 3 ms; in display links and ports 83 ms, the main queue 3 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 28 late frames (0 on a timer's tick), 1497 ms late; app code 1462 ms (in SwiftUI 694) · SwiftUI 457 ms · text & drawing 26 ms; in events 1291 ms, display links and ports 205 ms, the main queue 21 ms
