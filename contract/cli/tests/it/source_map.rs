@@ -1102,9 +1102,9 @@ fn each_source_says_its_home() {
     assert_eq!(sources[0]["home"], "app.contract", "{sources:?}");
 }
 
-/// A node's `steps` (stage 15 D3): its chain as the page's walk up its own tree takes it, where that differs
+/// A node's `walk` into the map's `walks` (stage 15 D3): its chain as the page's walk up its own tree takes it, where that differs
 /// from the call-site chain. A slot's host is a step (`slot: true`, named by its own call); a component that
-/// renders only another is none; a node with no fill or element-less component on its way has no `steps`.
+/// renders only another is none; a node with no fill or element-less component on its way has no `walk`.
 #[test]
 fn steps_follow_the_pages_walk_a_slots_host_one_a_render_only_component_none() {
     let app = App::new("steps");
@@ -1168,10 +1168,13 @@ component Plain
     let (plan, map) = app.compile();
     let runner = boot(plan);
     let steps = |id: &str| -> Vec<(String, bool, u64)> {
-        at(&runner, &map, id)["steps"]
-            .as_array()
+        let node = at(&runner, &map, id);
+        node.get("walk")
+            .map(|w| &map["walks"][w.as_u64().unwrap() as usize])
+            .and_then(|w| w.as_array())
             .map(|s| {
                 s.iter()
+                    .map(|i| &map["walk_steps"][i.as_u64().unwrap() as usize])
                     .map(|e| {
                         let slot = e["slot"] == true;
                         assert!(e.get("slot").is_none() || slot, "{e}");
@@ -1226,7 +1229,7 @@ component Plain
             .collect::<Vec<_>>(),
         [("Card", true), ("Outer", true)]
     );
-    // No fill and no element-less component on the way: the chain is the walk, and no `steps` is written.
+    // No fill and no element-less component on the way: the chain is the walk, and no `walk` is written.
     for id in ["leaf", "plain", "post", "outer", "root"] {
         assert!(
             at(&runner, &map, id).get("steps").is_none(),

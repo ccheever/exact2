@@ -273,6 +273,9 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) row_depth: u8,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
+    /// The element whose children are being lowered, through any region arms between (an arm's root has no plan
+    /// parent): the node a site is placed under, as a page's tree has it (`NodeSite::parent`, stage 15 D3).
+    site_parent: Option<u32>,
     parent_bounded_column: bool,
     parent_horizontal_flex: Option<bool>,
     /// Where a native button may not be, from the nearest ancestor that says.
@@ -414,6 +417,7 @@ fn lower_with_sites(
         element_children: false,
         row_depth: 0,
         parent_positioned: true,
+        site_parent: None,
         parent_bounded_column: false,
         parent_horizontal_flex: Some(false),
         button_context: None,
@@ -1005,6 +1009,7 @@ impl<'a> Lowerer<'a> {
                     n => n,
                 };
                 let row_depth = std::mem::replace(&mut self.row_depth, below);
+                let site_parent = std::mem::replace(&mut self.site_parent, Some(step.id.0));
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -1013,6 +1018,7 @@ impl<'a> Lowerer<'a> {
                     locals,
                     Some(step.tag),
                 );
+                self.site_parent = site_parent;
                 self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
                 self.row_depth = row_depth;
