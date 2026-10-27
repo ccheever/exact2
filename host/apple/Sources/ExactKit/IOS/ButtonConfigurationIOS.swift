@@ -173,6 +173,12 @@ enum ButtonConfigurationIOS {
         if let n = sides[3] { if rtl { insets.trailing = n } else { insets.leading = n } }
         if let n = sides[1] { if rtl { insets.leading = n } else { insets.trailing = n } }
         if sides.contains(where: { $0 != nil }) { config.contentInsets = insets }
+        // A symbol alone on a fill is a circle, as SwiftUI's `.buttonBorderShape(.circle)` and Messages' Send
+        // draw one; UIKit's insets are wider across than down, which drew a pill. Authored padding and
+        // corners still win. The sides are set below, once UIKit has sized the symbol.
+        let circle = !sides.contains(where: { $0 != nil }) && face.title?.isEmpty ?? true && face.subtitle?.isEmpty ?? true
+            && config.image != nil && !["plain", "borderless"].contains(drawn)
+        if circle, rows.button["control_corner_style"] == nil, uniformRadius(face) == nil { config.cornerStyle = .capsule }
         let foreground = color(rows.title["text_color"], traits: traits, accent: accent)
         if let foreground { config.baseForegroundColor = foreground }
         // Unsaid on a fill of the accent, the ink is UIKit's white on every accent, teal and yellow too, as a
@@ -278,6 +284,17 @@ enum ButtonConfigurationIOS {
             }
         }
         button.configuration = config
+        // Only the sides change, so the button keeps UIKit's height; a symbol too wide for its height to
+        // hold stays a capsule.
+        if circle {
+            let fit = button.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+            let grow = (fit.height - fit.width) / 2
+            if abs(grow) > 0.01 {
+                config.contentInsets.leading = max(0, config.contentInsets.leading + grow)
+                config.contentInsets.trailing = max(0, config.contentInsets.trailing + grow)
+                button.configuration = config
+            }
+        }
         // Only an authored clamp changes UIKit's line count. Configuration owns
         // wrapping and nowrap; replacing it restores the factory's default.
         if clamp > 0 && !nowrap {
