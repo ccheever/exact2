@@ -377,9 +377,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The root whose tablist last decided the bar, and whether Exact hid the
     /// bar for a root's hidden tablist (LLP 1075.003 §3.7, amended).
     weak var tablistRoot: RouteController?
-    /// A root whose tablist changed while the bar could not follow it
-    /// (`followTablistAtRoot`): the bar follows at the next chance.
-    weak var tablistOwed: RouteController?
     var tablistHidBar = false
     var tabItems: [String] = []
     /// The tabs and stacks the items were last made from, made again when
