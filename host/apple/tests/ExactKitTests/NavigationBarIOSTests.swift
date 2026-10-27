@@ -727,6 +727,53 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(aim["hit"] as? Int, TouchLog.landing(hit)["node"] as? Int, "the dispatch log must see it land where the bar is: \(aim)")
     }
 
+    /// A glass item's button that UIKit hosts outside the bar's views (Lexy's
+    /// "Record Trace" on iOS 27.1, a `_UIButtonBarButton` under a
+    /// `UIPlatformGlassInteractionView` in the session's root node): a hit in
+    /// the view carrying the item's identifier, among the views the session
+    /// shows, does not cover the item for the agent's activation or a real
+    /// touch's aim. Any other view there still covers it, one with the
+    /// identifier in another session's view, or outside the session, included.
+    func testABarItemsOwnButtonOutsideTheBarDoesNotCoverIt() throws {
+        let session = try fixture("bar-glass", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let compose = try node(session, "compose-home")
+        let item = try XCTUnwrap(nav.topViewController?.navigationItem.rightBarButtonItems?.first)
+        let frame = try XCTUnwrap(item.frame(in: nav.navigationBar))
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.drawnCovered(compose), "the item's button in the bar")
+        // Over the item's middle, in the session's view and outside the bar, as UIKit's glass host is
+        let view = try XCTUnwrap(session.view)
+        let button = UIView(frame: nav.navigationBar.convert(frame, to: view))
+        view.addSubview(button)
+        defer { button.removeFromSuperview() }
+        let covered = agent.drawnCovered(compose)
+        XCTAssertTrue(covered?.hasPrefix("UIView covers its middle") == true, "a view that is not the item's covers it: \(covered ?? "nil")")
+        button.accessibilityIdentifier = "compose-home"
+        XCTAssertNil(agent.drawnCovered(compose), "the item's own button, outside the bar")
+        let reply = agent.aim(["id": Int(compose.id), "aim": ["press": true]])
+        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
+        XCTAssertNotNil(reply["aim"], "a real touch aims at the item's own button: \(reply)")
+        // The identifier in another session's view, mounted in this one's over the item
+        let nestedSession = ExactApp.shared.makeSession(label: "bar-glass-nested")
+        sessions.append(nestedSession)
+        let nested = ExactView(session: nestedSession), theirs = UIView(frame: button.bounds)
+        nested.frame = button.frame
+        theirs.accessibilityIdentifier = "compose-home"
+        nested.addSubview(theirs)
+        view.addSubview(nested)
+        let inNested = agent.drawnCovered(compose)
+        XCTAssertTrue(inNested?.hasPrefix("UIView covers its middle") == true, "another session's view covers it: \(inNested ?? "nil")")
+        nested.removeFromSuperview()
+        // The identifier on a view the session does not show, as another session's would be
+        let foreign = UIView(frame: nav.navigationBar.convert(frame, to: nil))
+        foreign.accessibilityIdentifier = "compose-home"
+        try XCTUnwrap(view.window).addSubview(foreign)
+        defer { foreign.removeFromSuperview() }
+        let other = agent.drawnCovered(compose)
+        XCTAssertTrue(other?.hasPrefix("UIView covers its middle") == true, "a view outside the session covers it: \(other ?? "nil")")
+    }
+
     /// A bar item takes the colour its author wrote on its button, or the
     /// tint written on its symbol (LLP 1115.000 D2): a header's Cancel in the
     /// app's accent, a Delete in the platform's red. A colour the button

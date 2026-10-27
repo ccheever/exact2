@@ -150,15 +150,29 @@ extension Agent {
     /// `node`'s place (a sheet over it, the keyboard), or nil: the tap that
     /// activates either is refused as a covered node's is.
     func drawnCovered(_ node: NodeView) -> String? {
-        let target: UIView, region: CGRect
-        if let (control, segment) = presenter.segments.drawn(node) { (target, region) = (control, segment) }
-        else if case .success(let (bar, frame))? = barItem(node) { (target, region) = (bar, frame) }
+        let target: UIView, region: CGRect, inBar: Bool
+        if let (control, segment) = presenter.segments.drawn(node) { (target, region, inBar) = (control, segment, false) }
+        else if case .success(let (bar, frame))? = barItem(node) { (target, region, inBar) = (bar, frame, true) }
         else { return nil }
         guard let win = target.window else { return nil }
         let p = target.convert(CGPoint(x: region.midX, y: region.midY), to: nil)
         awaitAppOverlay(at: p, in: win)
         guard let hit = win.hitTest(p, with: nil) else { return "its middle is off the window" }
-        return obscured(target, at: p, hit: hit)
+        return obscured(inBar ? barItemTarget(node, bar: target, hit: hit) : target, at: p, hit: hit)
+    }
+
+    /// What a hit at a bar item's middle must land in: the item's own button
+    /// when the hit is in it, found by the identifier Exact gives the item
+    /// (its test id) among the views this session shows, since UIKit can host
+    /// a glass item's button outside the bar's views; otherwise the bar. An
+    /// item without a test id has no identifier to find its button by, so
+    /// only the bar counts for it.
+    func barItemTarget(_ node: NodeView, bar: UIView, hit: UIView) -> UIView {
+        guard let id = node.props["testId"] else { return bar }
+        let chain = sequence(first: hit, next: { $0.superview })
+        // Fall back to the bar in a nested session's view, which `Agent.shows` counts through this session's view
+        if let nearest = chain.lazy.compactMap({ $0 as? ExactView }).first, nearest.session !== session { return bar }
+        return chain.first { $0.accessibilityIdentifier == id && Agent.shows(session, $0) } ?? bar
     }
 
     /// Whether `view` is in what `session` shows: its viewport, its view, or
