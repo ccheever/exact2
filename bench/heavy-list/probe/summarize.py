@@ -3,7 +3,7 @@
 
 From each app's JSONs (<app>-<kind>-<round>.json, the probe's): fling-t whole-run fps, late frames
 (dt > 1.5 × the display period) per second, worst frame, busy ms/frame, process CPU and main-thread
-CPU ms/s, peak / end footprint; fling-b blank frames (summed); ladder breaking point (first speed
+CPU ms/s, peak / end footprint, hitch time ratio; fling-b blank frames (summed); ladder breaking point (first speed
 with fps < 110 or a blank); jump p50; cold start; rest CPU and main CPU. Per-speed fps is agg.py's."""
 import json, os, statistics, sys, glob, re, collections
 
@@ -25,7 +25,9 @@ def fling_stats(r):
     period = med(per) if per else 1 / 120
     late = sum(1 for x in dts if x > 1.5 * period)
     run = r['run']
-    return dict(fps=run['frames'] / run['sec'], late=late / run['sec'], worst=max(dts) * 1000,
+    # Apple's hitch time ratio: ms by which frames were late, per s (segment markers are -1 and skipped).
+    hitch = sum(max(0.0, a - e) for a, e in zip(r['dts'][1:], exp[1:]) if a and a > 0 and e and e > 0)
+    return dict(fps=run['frames'] / run['sec'], late=late / run['sec'], hitch=1000 * hitch / run['sec'], worst=max(dts) * 1000,
                 busy=run['busyMsPerFrame'], cpu=run['cpuMsPerSec'], main=run['mainCpuMsPerSec'],
                 peak=r['mem']['peak'] / 2**20, end=r['mem']['end'] / 2**20)
 
@@ -73,10 +75,10 @@ for app in apps:
     row['speeds'] = {v: med(f) for v, f in sp.items()}
     rows[app] = row
 
-cols = [('fps', '%.1f'), ('live fps', '%.1f'), ('late', '%.1f'), ('worst', '%.0f'), ('busy', '%.2f'), ('cpu', '%.0f'),
+cols = [('fps', '%.1f'), ('live fps', '%.1f'), ('late', '%.1f'), ('hitch', '%.1f'), ('worst', '%.0f'), ('busy', '%.2f'), ('cpu', '%.0f'),
         ('main', '%.0f'), ('peak', '%.0f'), ('end', '%.0f'), ('blank', '%d'), ('ladder', '%s'), ('jump p50', '%.0f'),
         ('cold', '%.0f'), ('rest cpu', '%.0f'), ('rest main', '%.0f')]
-names = {'fps': 'fps', 'live fps': 'live fps', 'late': 'late/s', 'worst': 'worst ms', 'busy': 'busy/f', 'cpu': 'cpu ms/s',
+names = {'fps': 'fps', 'live fps': 'live fps', 'late': 'late/s', 'hitch': 'hitch ms/s', 'worst': 'worst ms', 'busy': 'busy/f', 'cpu': 'cpu ms/s',
          'main': 'main ms/s', 'peak': 'peak MB', 'end': 'end MB', 'blank': 'blanks', 'ladder': 'ladder <110',
          'jump p50': 'jump p50', 'cold': 'cold ms', 'rest cpu': 'rest cpu', 'rest main': 'rest main'}
 print('| app | ' + ' | '.join(names[c] for c, _ in cols) + ' |')

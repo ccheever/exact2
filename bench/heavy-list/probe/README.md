@@ -33,6 +33,8 @@ Another benchmark uses it by path: `bench/heavy-list/probe/build.sh`, then
   and back, and records `keep`; its primary result is `keptAnchor` (same content at the same place in the box,
   ±1 pt; see probe.m's header), with raw `kept`/`err` secondary. Every step is a segment; unmeasured ones are
   `warm`, and segments may carry `dur`.
+- `BENCH_BOUNCE=1` turns a fling segment back at either end of the list at the same speed, so a list shorter than
+  a segment's travel keeps moving; `BENCH_MINHEIGHT` lowers the least list height the probe drives (20,000 pt).
 - `still` (the features benchmark): no scroll view; a 3 s warm-up then one 10 s measured segment.
 
 ## What a result holds

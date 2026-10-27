@@ -33,6 +33,9 @@
 //                 drawViewHierarchyInRect
 // BENCH_DELAY:    seconds after launch before starting (default 5; coldstart ignores it)
 // BENCH_LIVE:     not implemented here (the apps read it); recorded in the JSON as "live"
+// BENCH_MINHEIGHT: the least content height of the list to drive (default 20000 pt)
+// BENCH_BOUNCE:   1 = a fling segment that meets either end of the list turns back at the same speed, so a list
+//                 shorter than the segment's travel keeps moving (recorded as "bounce")
 //
 // Added metrics (per segment, in "segStats"; whole run in "run"):
 //   busy  main run loop awake time: AfterWaiting -> BeforeWaiting, CFRunLoopObserver
@@ -173,6 +176,7 @@ static Snap snapNow(void) { return (Snap){CACurrentMediaTime(), busyNow(), procC
 @property (nonatomic) CFTimeInterval last, segStart, jumpAt, lastCleanAt;
 @property (nonatomic) NSInteger seg, jumpIndex, cleanRun, segFrames, ticks;
 @property (nonatomic) double firstContentMs, sampleCost, segTravel, lastBusy, lastLeading;
+@property (nonatomic) double bounceDir; // BENCH_BOUNCE: -1 after the list's end turned the motion back
 @property (nonatomic) NSInteger sampleCount;
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *setCost;
 @property (nonatomic) BOOL useLayer, live, done, forceHierarchy, firstDumped;
@@ -404,6 +408,11 @@ static void markMetal(CGContextRef ctx, UIWindow *w) {
   }
 }
 
+static double minHeight(void) {
+  double h = [NSProcessInfo.processInfo.environment[@"BENCH_MINHEIGHT"] doubleValue];
+  return h > 0 ? h : 20000;
+}
+
 static void collect(UIView *v, NSMutableArray *out) {
   if ([v isKindOfClass:UIScrollView.class]) [out addObject:v];
   for (UIView *c in v.subviews) collect(c, out);
@@ -419,7 +428,7 @@ static void collect(UIView *v, NSMutableArray *out) {
     if (s.bounds.size.height < 300) continue;
     if (!best || s.contentSize.height > best.contentSize.height) best = s;
   }
-  return best.contentSize.height > 20000 ? best : nil;
+  return best.contentSize.height > minHeight() ? best : nil;
 }
 
 // Sum of ink-free horizontal bands at least 60 pt tall inside the list's
@@ -794,7 +803,7 @@ static int anchorShift(NSData *before0, NSData *after0, size_t W, size_t H, BOOL
     return;
   }
   self.scroll = [self findScroll];
-  if (!self.scroll) { [self finish:@"no scroll view with contentSize > 20000 found"]; return; }
+  if (!self.scroll) { [self finish:[NSString stringWithFormat:@"no scroll view with contentSize > %.0f found", minHeight()]]; return; }
   if ([self.scenario isEqualToString:@"rest"]) {
     // One 10 s segment, no scrolling, measured from the next display-link tick.
     [self.segments removeAllObjects];
@@ -990,7 +999,10 @@ static NSDictionary *delta(Snap a, Snap b, NSInteger frames) {
   }
   CGPoint o = s.contentOffset;
   CGFloat y0 = o.y;
-  o.y = MAX(0, MIN(maxY, o.y + [seg[@"dir"] doubleValue] * [seg[@"v"] doubleValue] * dt));
+  if (self.bounceDir == 0) self.bounceDir = 1;
+  double step = self.bounceDir * [seg[@"dir"] doubleValue] * [seg[@"v"] doubleValue] * dt;
+  if (envOn("BENCH_BOUNCE") && (o.y + step < 0 || o.y + step > maxY)) { self.bounceDir = -self.bounceDir; step = -step; }
+  o.y = MAX(0, MIN(maxY, o.y + step));
   CFTimeInterval set0 = CACurrentMediaTime();
   s.contentOffset = o;
   [self.setCost addObject:@((CACurrentMediaTime() - set0) * 1000)];
@@ -1026,6 +1038,10 @@ static NSDictionary *delta(Snap a, Snap b, NSInteger frames) {
   out[@"build"] = [NSBundle.mainBundle objectForInfoDictionaryKey:@"BenchBuild"] ?: @"";
   out[@"exeUUID"] = exeUUID();
   out[@"maxFps"] = @(UIScreen.mainScreen.maximumFramesPerSecond);
+  out[@"bounce"] = @(envOn("BENCH_BOUNCE"));
+  // An iPhone-only app on an iPad runs in compatibility mode: idiom 0 (phone) in a phone-sized window.
+  out[@"idiom"] = @(UIDevice.currentDevice.userInterfaceIdiom);
+  out[@"listPt"] = @[@(self.scroll.bounds.size.width), @(self.scroll.bounds.size.height)];
   out[@"live"] = @(self.live);
   if (error) out[@"error"] = error;
   out[@"scrollClass"] = NSStringFromClass(self.scroll.class) ?: @"";
