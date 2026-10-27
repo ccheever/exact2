@@ -16,6 +16,7 @@ pub use geometry::rounded_rect;
 mod geometry_tests;
 mod mask;
 use mask::intersect_mask;
+mod opacity;
 mod reach;
 #[cfg(target_arch = "x86_64")]
 mod solid_rect;
@@ -1150,11 +1151,7 @@ impl Backend for Raster {
             return;
         };
         if let Some(layer) = self.target.take() {
-            let paint = PixmapPaint {
-                opacity: alpha,
-                ..PixmapPaint::default()
-            };
-            below.draw_pixmap(0, 0, layer.as_ref(), &paint, Transform::identity(), None);
+            opacity::composite(&mut below, &layer, alpha);
         }
         self.target = Target::painted(below);
     }
