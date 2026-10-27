@@ -63,6 +63,11 @@ impl WindowLayer {
 pub trait Backend {
     /// `"gpu"` or `"cpu"`.
     fn name(&self) -> &'static str;
+    /// Whether geometry queries must draw through this backend to keep its
+    /// recordings or native state current. Stateless raster backends may opt out.
+    fn needs_geometry_paint(&self) -> bool {
+        true
+    }
     /// The page's own colour, told before each frame begins: what a frame
     /// is cleared to, so an unset background is the platform's surface for
     /// the scheme and never white under a dark one (LLP 1115 D2; LLP

@@ -304,6 +304,9 @@ fn tiny_path(ops: &[PathOp]) -> Option<Path> {
 pub(crate) const MAX_FRAME_SIDE: u32 = 16384;
 
 impl Backend for Raster {
+    fn needs_geometry_paint(&self) -> bool {
+        false
+    }
     fn name(&self) -> &'static str {
         "cpu"
     }

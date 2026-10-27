@@ -36,6 +36,12 @@ impl Painter {
         viewport: (f32, f32),
         target: FrameTarget,
     ) -> Result<Frame<Option<Arc<Pixmap>>>, String> {
+        if target == FrameTarget::Geometry && !self.backend.needs_geometry_paint() {
+            let backend = std::mem::replace(&mut self.backend, Box::new(layer::Unpainted));
+            let frame = self.paint_selected_for(scene, viewport, None, None, target);
+            self.backend = backend;
+            return frame;
+        }
         self.paint_selected_for(scene, viewport, None, None, target)
     }
 }

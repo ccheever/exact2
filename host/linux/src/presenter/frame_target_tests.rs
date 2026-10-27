@@ -144,7 +144,104 @@ fn cpu_windows_still_return_complete_pixels() {
         PainterChoice::Cpu,
     )
     .unwrap();
+    assert!(p.frame_for(FrameTarget::Geometry).is_none());
+    assert!(p.last_frame_succeeded());
     let frame = p.frame_for(FrameTarget::Window).unwrap();
     assert_eq!((frame.width(), frame.height()), (320, 240));
     assert!(p.last_frame_succeeded());
+}
+
+#[test]
+fn geometry_without_pixels_preserves_hits_fields_and_the_next_image() {
+    let source = r##"component App
+  view
+    column width="100%" height="100%" background-color="#f2f2f2"
+      box testId="list" width="100%" height=120 flex-shrink=0 overflow-y="auto" border-radius=12
+        column height=600 opacity=0.65 background-color="#773399"
+          text "Scrollable content" font-size=18
+          box height=200 background-color="#22aa88"
+          text "Further down" font-size=22
+      textarea testId="field" value="Draft text" width=260 height=60 appearance="none"
+"##;
+    for scale in [1., 1.25, 1.5, 2.] {
+        let boot = || {
+            let (mut p, error) = Presenter::boot_with(
+                &crate::test_plan(source),
+                (),
+                (320., 240.),
+                scale,
+                PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            p.brush.scrollbars.enabled = true;
+            p
+        };
+        let mut geometry = boot();
+        let mut painted = boot();
+        for phase in 0..4 {
+            for p in [&mut geometry, &mut painted] {
+                let kernel = p.host.kernel();
+                let id = |name| {
+                    kernel
+                        .node_by_key(kernel.find_by_test_id(name)[0])
+                        .unwrap()
+                        .id
+                };
+                let (list, field) = (id("list"), id("field"));
+                match phase {
+                    1 => {
+                        p.scroll.insert(list, (0., 175.));
+                        p.set_focus(Some(field), 0.);
+                    }
+                    2 => {
+                        assert!(p.ime_begin(p.ime_target().unwrap()));
+                        p.ime_preedit("日本", Some((6, 6)));
+                    }
+                    3 => {
+                        p.ime_commit("日本");
+                        assert!(p.resize_scaled(360., 280., scale).is_none());
+                    }
+                    _ => {}
+                }
+                p.repaint();
+            }
+            assert!(geometry.frame_for(FrameTarget::Geometry).is_none());
+            assert!(geometry.last_frame_succeeded());
+            let expected = painted.frame();
+            let boxes = |p: &Presenter<()>| {
+                p.boxes
+                    .iter()
+                    .map(|b| (b.id, b.rect, b.clip, b.scroll, b.pointer_hit))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(boxes(&geometry), boxes(&painted));
+            assert!(!geometry.brush.scrollbars.bars.is_empty());
+            let bars = |p: &Presenter<()>| {
+                p.brush
+                    .scrollbars
+                    .bars
+                    .iter()
+                    .map(|b| (b.id, b.track, b.thumb, b.offset, b.max))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(bars(&geometry), bars(&painted));
+            assert_eq!(geometry.caret_frame(), painted.caret_frame());
+            assert_eq!(geometry.ime_cursor_area(), painted.ime_cursor_area());
+            if phase > 0 {
+                assert!(geometry.caret_frame().is_some());
+            }
+            for (x, y) in [(20., 20.), (150., 80.), (100., 140.), (310., 210.)] {
+                assert_eq!(geometry.hit(x, y), painted.hit(x, y));
+            }
+            let actual = geometry.frame_for(FrameTarget::Window).unwrap();
+            assert_eq!(
+                actual.data(),
+                expected.data(),
+                "scale {scale}, phase {phase}"
+            );
+            assert_eq!(geometry.frame().data(), expected.data());
+        }
+    }
 }
