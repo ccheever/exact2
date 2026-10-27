@@ -85,7 +85,7 @@ final class ReorderGroupIOSTests: XCTestCase {
         // A grid offset UIKit reads back off the grid (the precondition, shown here), made the last one.
         var last: CGFloat?
         for k in 1...600 {
-            let y = 100 + CGFloat(k) / 3
+            let y = CGFloat(k) / 3 // (100 + k/3 is handed back exactly on this simulator; 5/3 is not)
             inner.contentSize.height = inner.bounds.height + y
             inner.contentOffset.y = PixelGrid.offset(CGPoint(x: 0, y: y), in: inner).y
             if inner.contentOffset.y != PixelGrid.offset(CGPoint(x: 0, y: y), in: inner).y { last = y; break }
