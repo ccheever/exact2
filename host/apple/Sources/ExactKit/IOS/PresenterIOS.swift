@@ -1028,6 +1028,8 @@ package final class Presenter {
         let ariaProps = batch.ops.filter { $0.op == .props && ($0.props["accessibilityDisabled"] != nil || $0.clear.contains("accessibilityDisabled")) }.map(\.id)
         let disabledRoots = Set(ariaProps).union(ariaMoved)
         placedAnew.removeSubrange(anewFrom...)
+        // What a node's name, state and focus read: not its box (an autofocus waiting for one is indexed).
+        let named = touchedAndAbove(batch.ops.compactMap { [.create, .props, .style, .children, .paragraph, .flow].contains($0.op) ? $0.id : nil })
         // Finish controls and frames before UIKit synchronously lays out the destination.
         afterBatch { [weak self] in
             guard let self else { return }
@@ -1044,7 +1046,7 @@ package final class Presenter {
                 if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
             }
             pendingScrolls = pendingScrolls.filter { self.views[$0]?.pendingScrollTop != nil || self.views[$0]?.pendingScrollLeft != nil }
-            syncAccessibility(changed: changed.union(ariaMoved), disabledRoots: disabledRoots)
+            syncAccessibility(changed: named.union(ariaMoved), disabledRoots: disabledRoots)
         }
         #if os(iOS)
         syncScrollsToTop()
