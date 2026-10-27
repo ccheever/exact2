@@ -466,6 +466,8 @@ fn fixture(context: &Context) -> String {
 
 struct Compiled {
     plan: Plan,
+    strings: vm::Strings,
+    initial_slots: Vec<Value>,
     ui: TypesId,
     start: TypesId,
     metrics: Json,
@@ -491,11 +493,23 @@ impl Compiled {
             assert!(context.inventory.contains_key(relative.to_str().unwrap()));
         }
         let started = Instant::now();
+        eprintln!(
+            "INLINE_STAGE {}",
+            json!({"stage":"public_compile_begin", "context":context.root.display().to_string()})
+        );
         let (plan, _) = contract::compile_path_source_all(&path, &source, false)
             .unwrap_or_else(|errors| panic!("{}: {errors:#?}", context.root.display()));
+        eprintln!(
+            "INLINE_STAGE {}",
+            json!({"stage":"public_compile_returned", "context":context.root.display().to_string(), "seconds":started.elapsed().as_secs_f64(), "codePoolBytes":plan.code.len()})
+        );
         plan.validate().unwrap();
         let plan = Plan::decode(&plan.encode()).expect("unchanged decoder accepts plan");
         plan.validate().unwrap();
+        eprintln!(
+            "INLINE_STAGE {}",
+            json!({"stage":"roundtrip_validated", "context":context.root.display().to_string(), "seconds":started.elapsed().as_secs_f64()})
+        );
         let duration = started.elapsed().as_secs_f64();
         let action = plan
             .actions
@@ -519,8 +533,17 @@ impl Compiled {
         metrics["contextVerificationSeconds"] = json!(context.verification_seconds);
         metrics["contextThroughRoundtripSeconds"] =
             json!(context.verification_seconds + context_started.elapsed().as_secs_f64());
+        let strings = vm::intern(&plan);
+        let initial_slots = plan
+            .slots
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| sample(&plan, slot.ty, index as u32 + 1, false, 0))
+            .collect();
         Self {
             plan,
+            strings,
+            initial_slots,
             ui,
             start,
             metrics,
@@ -530,12 +553,7 @@ impl Compiled {
     }
 
     fn slots(&self) -> Vec<Value> {
-        self.plan
-            .slots
-            .iter()
-            .enumerate()
-            .map(|(index, slot)| sample(&self.plan, slot.ty, index as u32 + 1, false, 0))
-            .collect()
+        self.initial_slots.clone()
     }
 
     fn evaluate(&self, name: &str, args: &[Value], slots: &[Value], now: f64) -> Outcome {
@@ -551,12 +569,11 @@ impl Compiled {
             .iter()
             .map(|id| plan.write(id).slot.0)
             .collect();
-        let strings = vm::intern(plan);
         let outcome = vm::eval(
             plan.code(action.body),
             &Env {
                 plan,
-                strings: &strings,
+                strings: &self.strings,
                 router: None,
                 lists: None,
                 format: None,
@@ -1135,6 +1152,7 @@ fn actual_inline_shortcut_records_private_effects_and_size() {
         normalize(&b.plan, b.ui, &defaults[1].1)
     );
     let cases = cases();
+    let evaluation_started = Instant::now();
     let mut comparisons = 0usize;
     for (index, c) in cases.iter().enumerate() {
         for pending in [false, true] {
@@ -1258,6 +1276,12 @@ fn actual_inline_shortcut_records_private_effects_and_size() {
                     }
                 }
             }
+        }
+        if index == 0 || (index + 1) % 16 == 0 || index + 1 == cases.len() {
+            eprintln!(
+                "INLINE_PROGRESS {}",
+                json!({"completedCases":index+1, "pairedComparisons":comparisons, "baselineVM":a.evaluations.get(), "candidateVM":b.evaluations.get(), "seconds":evaluation_started.elapsed().as_secs_f64()})
+            );
         }
     }
     eprintln!(
