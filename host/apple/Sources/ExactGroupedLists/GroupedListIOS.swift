@@ -666,10 +666,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
                 item.pinToVisibleBounds = false
             }
             // A plain list's header and footer ignore the section's insets
-            // unless told; the padding is the list's, so they stay inside it
-            // as its rows do. (An item inset on them moves the cell's text
-            // margin by it too, and the label has no width left.)
-            if self.horizontalPadding.left > 0 || self.horizontalPadding.right > 0 { section.supplementariesFollowContentInsets = true }
+            // unless told; the fold's band and the padding are the list's, so
+            // they stay inside them as its rows do. (An item inset on them
+            // moves the cell's text margin by it too, and the label has no
+            // width left.)
+            if [self.foldReach.left, self.foldReach.right, self.horizontalPadding.left, self.horizontalPadding.right].contains(where: { $0 > 0 }) {
+                section.supplementariesFollowContentInsets = true
+            }
             return section
         }
     }
