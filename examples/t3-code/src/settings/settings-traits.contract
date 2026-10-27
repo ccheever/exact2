@@ -25,7 +25,7 @@ component TraitsMenu
   view
     // TraitsPicker: MenuPopup align="start", 4 pt below the trigger's start, flipping near an edge.
     column id=menuId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="11rem"
-      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=testId id=testId data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=testId id=testId data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
         KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
           for option in options key=option.id
             if option.icon == "section" or option.icon == "section-rule"

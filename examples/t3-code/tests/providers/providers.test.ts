@@ -359,7 +359,7 @@ test('the list row and the editor read the same status, each one text the host r
   const source = await Bun.file(appPath('providers.contract')).text();
   expect(source).not.toContain('key=status');
   expect(source).toContain('                            text row.status font-size="0.75rem" line-height="1.125rem"');
-  expect(source).toContain('            row width="100%" min-width=0 padding-top="0.125rem" gap="0.375rem" flex-wrap="wrap" align-items="baseline" testId="provider-editor-status"');
+  expect(source).toContain('        row width="100%" min-width=0 padding-top="0.125rem" gap="0.375rem" flex-wrap="wrap" align-items="baseline" testId="provider-editor-status"');
 });
 
 test('new settings use instance mutations for enablement and reset without the removed providers map', async () => {

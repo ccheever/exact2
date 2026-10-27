@@ -121,14 +121,15 @@ describe('general rows', () => {
     const client = as(fake({ snoozeLimitedThreads: true }));
     const sections = generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()));
     expect(sections.map(section => section.title)).toEqual(['New threads', 'Organization', 'Behavior', 'Projects & threads', 'Confirmations', 'Text generation', 'About', 'Diagnostics', 'Legacy features']);
-    expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Model', 'Permissions', 'Workspace', 'Submodules', 'Project grouping', 'Project order', 'Auto-resume limited threads',
-      'Snooze limited threads', 'Working section (beta)', 'Compact idle Claude threads (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle', 'Thread notifications',
+    expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Model', 'Permissions', 'Workspace', 'Submodules', 'Project grouping', 'Project order', 'Resume after usage limits',
+      'Snooze until limits reset', 'Working section (beta)', 'Compact idle Claude threads (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle', 'Thread notifications',
       'In-app notifications', 'Time format', 'Response streaming', 'Hide whitespace changes', 'Default diff file state', 'Diff layout', 'Proactive panels', 'Show skills in slash menu',
       'Rich text composer', 'Collapse composer on scroll', 'Send shortcut', 'Follow-up behavior', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
       'Start from remote', 'Add project starts in', 'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Text generation model', 'Version', 'Update track', 'Mobile app', 'Diagnostics',
       'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
     const row = (id: string) => sections.flatMap(section => section.rows).find(entry => entry.id === id)!;
-    expect([row('default-model').label, row('default-model').label2, row('default-model').status]).toEqual(['GPT-5.6-Luna', 'Medium', 'Automatic']);
+    expect([row('default-model').label, row('default-model').label2, row('default-model').status, row('default-model').description])
+      .toEqual(['GPT-5.6-Luna', 'Medium', '', 'Default model for new threads, selected automatically. Projects can override it.']);
     expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
@@ -236,7 +237,7 @@ describe('writes through the command', () => {
     expect(toasts(as(offline)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'Connect an environment to save this setting.' });
     const client = fake({ snoozeLimitedThreads: true, responseStreamingMode: 'turn' });
     applyDeviceSetting(client.local as never, 'chatWidth', 'full');
-    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Chat width', 'Snooze limited threads', 'Response streaming']);
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Chat width', 'Snooze until limits reset', 'Response streaming']);
     expect(restoreLabels(fake({ backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } }).local as never,
       { backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } })).toEqual([]);
     await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
@@ -265,7 +266,7 @@ describe('writes through the command', () => {
     const client = fake({ enableAgentBrowserAccess: false, snoozeLimitedThreads: true });
     applyBrowserDefault(client, 'zoom', '1.25');
     // The reference's order: the environment rows, getChangedBrowserSettingLabels, then "Agent browser access".
-    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Snooze limited threads', 'Browser zoom', 'Agent browser access']);
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Snooze until limits reset', 'Browser zoom', 'Agent browser access']);
     expect(restoreLabels(client.local as never, null)).toEqual(['Browser zoom']);
     expect(restoreLabels(client.local as never, { enableAgentBrowserAccess: true })).toEqual(['Browser zoom']);
     await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
@@ -299,18 +300,18 @@ describe('writes through the command', () => {
     // Auto-settle merged threads off and waits for the full response. Each scope lists what its representative target resolves to.
     const client = fake({ snoozeLimitedThreads: true, projectSettingsOverrides: { p1: { sidebarAutoSettleOnMerge: false, responseStreamingMode: 'turn' } } });
     const list = async (projectKey: string, checkout: string, route = 'general') => (await settingsCore(as(client), native, '', projectKey, checkout, '', route, '', true)).restoreText;
-    expect(await list('', '')).toBe('This will reset: Snooze limited threads.');
+    expect(await list('', '')).toBe('This will reset: Snooze until limits reset.');
     // p1's overrides over its environment, and New thread mode: the t3.json tier resolves the unset key to its built-in "local",
     // which is not the default's null (the reference lists it in every project scope once the file is read).
-    const p1 = 'This will reset: Auto-settle merged threads, Snooze limited threads, Response streaming, New thread mode.';
+    const p1 = 'This will reset: Auto-settle merged threads, Snooze until limits reset, Response streaming, New thread mode.';
     expect(await list('repo', 'p1')).toBe(p1);
     // Every route reads the scope (Restore defaults is the settings header's), and the project scope's target is its first member.
     expect([await list('repo', 'p1', 'source-control'), await list('repo', '')]).toEqual([p1, p1]);
-    expect(await list('repo', 'p2')).toBe('This will reset: Snooze limited threads, New thread mode.');
+    expect(await list('repo', 'p2')).toBe('This will reset: Snooze until limits reset, New thread mode.');
     // Device values take their places among the environment's; a font counts its family and its size; Visible threads is listed.
     for (const [key, value] of [['confirmThreadDelete', 'false'], ['wordWrap', 'false'], ['fontSizeCode', '14'], ['sidebarThreadPreviewCount', '8'], ['chatWidth', 'wide']] as const)
       applyDeviceSetting(client.local as never, key, value);
-    expect(await list('', '')).toBe('This will reset: Chat width, Visible threads, Snooze limited threads, Word wrap, Code font, Delete confirmation.');
+    expect(await list('', '')).toBe('This will reset: Chat width, Visible threads, Snooze until limits reset, Word wrap, Code font, Delete confirmation.');
     // No connected target lists the device values alone (DEFAULT_SERVER_SETTINGS).
     expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Visible threads', 'Word wrap', 'Code font', 'Delete confirmation']);
   });
@@ -348,7 +349,7 @@ describe('writes through the command', () => {
     const client = fake();
     const project = await settingsCore(as(client), native, '', 'repo', '', '', 'projects', '', true);
     expect(project.projectModel.map(row => [row.id, row.kind, row.description, row.label, row.label2, row.status, row.divider]))
-      .toEqual([['default-model', 'model', 'Model for new threads in this project.', 'GPT-5.6-Luna', 'Medium', 'Automatic', false]]);
+      .toEqual([['default-model', 'model', 'Model for new threads in this project.', 'GPT-5.6-Luna', 'Medium', '', false]]);
     expect(project.scopeKey).toBe('|repo|');
     // acf7043b72: an environment or checkout the project is not on offers "Show all environments", which keeps the project.
     const stale = async (machine: string, projectKey: string, checkout: string, route = 'projects') => {
