@@ -7,4 +7,4 @@
 // Settings palette or a file's own ink function write a computed part beside them instead.
 style FieldPlaceholder
   ::placeholder
-    color="light-dark(#71717b, #818181)"
+    color="light-dark(#71717b, #a1a1a1)"

@@ -184,7 +184,7 @@ describe('the dialog (AddProjectToMachineDialog)', () => {
 
   test('paths truncate in the middle, keeping the last folder (MiddleTruncate)', () => {
     expect(splitForMiddleTruncate('/Users/Shared/fixtures/envs/second/repos/empty-project')).toEqual({ head: '/Users/Shared/fixtures/envs/second/repos/', tail: 'empty-project' });
-    expect(splitForMiddleTruncate('/repo/a-very-long-folder-name-indeed')).toEqual({ head: '/repo/a-very-long-folder-n', tail: 'ame-indeed' });
+    expect(splitForMiddleTruncate('/repo/a-very-long-folder-name-indeed')).toEqual({ head: '/repo/a-very-long-folder-name-', tail: 'indeed' });
     expect(splitForMiddleTruncate('~/widgets')).toBeNull();
   });
 

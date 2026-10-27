@@ -22,7 +22,7 @@ component FontCodePreview
     size: number
     pal: CorePalette
   view
-    column width="100%" margin-top="0.25rem" margin-bottom="0.5rem" background-color="light-dark(#fcfcfc, #0a0a0a)" aria-label="Code font preview" testId="code-font-preview"
+    column width="100%" margin-top="0.25rem" margin-bottom="0.5rem" background-color="light-dark(#fcfcfc, #000000)" aria-label="Code font preview" testId="code-font-preview"
       row width="100%" min-height="44px" padding-left="16px" padding-right="16px" gap="8px" box-sizing="border-box" align-items="center" justify-content="space-between" testId="code-font-preview-header"
         row gap="8px" align-items="center" min-width=0
           DiffGlyph(name=preview.status, size=16, color=(preview.status == "deleted" ? diffInk(preview.scheme, "del") : preview.status == "added" ? diffInk(preview.scheme, "add") : "#009fff"))
@@ -41,7 +41,7 @@ component FontDiffRow
     scheme: string
     size: number
   view
-    row width="100%" align-items="stretch" background-color=(line.tone == "deletion" ? diffInk(scheme, "del-row") : line.tone == "addition" ? diffInk(scheme, "add-row") : "light-dark(#fcfcfc, #0a0a0a)") testId=`code-font-preview-${line.tone}-${line.number}`
+    row width="100%" align-items="stretch" background-color=(line.tone == "deletion" ? diffInk(scheme, "del-row") : line.tone == "addition" ? diffInk(scheme, "add-row") : "light-dark(#fcfcfc, #000000)") testId=`code-font-preview-${line.tone}-${line.number}`
       box width=(4 * 7.83 * size / 13 + 2) flex-shrink=0 position="relative" padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" background-color=(line.tone == "deletion" ? diffInk(scheme, "del-gutter") : line.tone == "addition" ? diffInk(scheme, "add-gutter") : "#00000000")
         // Additions carry a solid bar; deletions a 1pt-striped one (@pierre/diffs bars).
         if line.tone == "addition"
