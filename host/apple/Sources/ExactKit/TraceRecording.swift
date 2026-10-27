@@ -71,15 +71,19 @@ extension ExactSession {
         }
         let copied = maxBytes.map { FrameSampler.compact(report, file: url?.lastPathComponent, bytes: data.count, maxBytes: $0) } ?? data
         let text = String(decoding: copied, as: UTF8.self)
+        let saved = url.map { ", saved to \($0.path)" } ?? ", not saved"
         #if os(tvOS)
-        log("stopTrace_EXPERIMENTAL: tvOS has no clipboard; the trace is only in the file")
-        #elseif canImport(UIKit)
+        // tvOS has no clipboard: the file is the only copy
+        log("trace recorded: \(data.count) bytes, \(recording.records.count) frames\(saved)")
+        #else
+        #if canImport(UIKit)
         UIPasteboard.general.string = text
         #else
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         #endif
-        log("trace copied: \(copied.count) bytes of \(data.count), \(recording.records.count) frames\(url.map { ", saved to \($0.path)" } ?? "")")
+        log("trace copied: \(copied.count) bytes of \(data.count), \(recording.records.count) frames\(saved)")
+        #endif
         return text
     }
 
