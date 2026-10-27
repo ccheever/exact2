@@ -12,7 +12,7 @@
 // scripts/library-gate.test.mjs holds the cells to the compiler's IR. No
 // `if`, `for` or `match` in this view: every cell renders.
 use PostCard, AtCard, ProfileHeader, ProfileAlert, Avatar, VerifiedBadge from "@exact/cards"
-use ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton from "@exact/actions"
+use ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton, FollowButton from "@exact/actions"
 use ListRow, SwitchRow from "@exact/lists"
 
 component App
@@ -168,6 +168,31 @@ component App
           HeaderButton(id="hb-base", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=false, lead=false, press=press)
           HeaderButton(id="hb-small", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=true, lead=false, press=press)
           HeaderButton(id="hb-lead", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=false, lead=true, press=press)
+        // A person's Follow button: each variant value, one at a time (the
+        // label "", so it says its text). As samples: each icon pattern
+        // (structure, no recipe), and each tone and size following, a round
+        // one following and a tiny round one, and the one-icon forms
+        // following. A round cell names its label (it shows no text),
+        // "Follow Ada" or "Following Ada", the app's swap.
+        row testId="gate-follow" gap=8 flex-wrap="wrap" align-items="center"
+          FollowButton(id="fb-base", following=false, text="Follow", label="", tone="primary", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-inverted", following=false, text="Follow", label="", tone="inverted", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-subtle", following=false, text="Follow", label="", tone="subtle", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-overlay", following=false, text="Follow", label="", tone="overlay", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-tiny", following=false, text="Follow", label="", tone="primary", size="tiny", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-round", following=false, text="Follow", label="Follow Ada", tone="primary", size="small", shape="round", icon="both", press=press)
+          FollowButton(id="sample-fb-icon-follow", following=false, text="Follow", label="", tone="primary", size="small", shape="pill", icon="follow", press=press)
+          FollowButton(id="sample-fb-icon-following", following=false, text="Follow", label="", tone="primary", size="small", shape="pill", icon="following", press=press)
+          FollowButton(id="sample-fb-icon-none", following=false, text="Follow", label="", tone="primary", size="small", shape="pill", icon="none", press=press)
+          FollowButton(id="sample-fb-inverted-following", following=true, text="Following", label="", tone="inverted", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="sample-fb-subtle-following", following=true, text="Following", label="", tone="subtle", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="sample-fb-overlay-following", following=true, text="Following", label="", tone="overlay", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="sample-fb-tiny-following", following=true, text="Following", label="", tone="primary", size="tiny", shape="pill", icon="both", press=press)
+          FollowButton(id="sample-fb-round-following", following=true, text="Following", label="Following Ada", tone="primary", size="small", shape="round", icon="both", press=press)
+          FollowButton(id="sample-fb-round-tiny", following=false, text="Follow", label="Follow Ada", tone="primary", size="tiny", shape="round", icon="both", press=press)
+          FollowButton(id="sample-fb-icon-follow-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="follow", press=press)
+          FollowButton(id="sample-fb-icon-following-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="following", press=press)
         // The lists' rows sit in a grouped list's section, as the platform's
         // list cells do (LLP 1084): each accessory and a destructive row are
         // samples (structure and an attribute, no recipe).

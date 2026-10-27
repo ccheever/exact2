@@ -43,7 +43,7 @@ function ir() {
 test('every exported component, once per variant value, every cell rendered, every slot marked', () => {
   const library = ir();
   const names = library.map(c => c.name);
-  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'Avatar', 'BarItem', 'ComposeFrame', 'HeaderButton', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow', 'VerifiedBadge']);
+  expect(names.sort()).toEqual(['ActionRow', 'AtCard', 'Avatar', 'BarItem', 'ComposeFrame', 'FollowButton', 'HeaderButton', 'ListRow', 'PostButton', 'PostCard', 'ProfileHeader', 'SwitchRow', 'VerifiedBadge']);
   // The gate's slot-rendered line reads every component with a slot (one at
   // its view's root, as ComposeFrame's, is in no part).
   const slotted = slottedIn(['actions', 'cards', 'lists']).filter(n => names.includes(n));
@@ -84,7 +84,7 @@ test("contract gallery places the cells this app does, each placed, on the app's
   const out = mkdtempSync(join(ROOT, 'target', 'library-gate-gallery-'));
   const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
   expect([r.status, r.stderr]).toEqual([0, '']);
-  expect(r.stdout).toContain('gallery: 12 components, 29 cells (0 refused)');
+  expect(r.stdout).toContain('gallery: 13 components, 36 cells (0 refused)');
   const gallery = readFileSync(join(out, 'app.contract'), 'utf8');
   expect(gallery).not.toContain("can't place");
   const placed = placements(gallery, library.map(c => c.name)), own = placements(readFileSync(APP, 'utf8'), library.map(c => c.name));
@@ -103,6 +103,27 @@ test("contract gallery places the cells this app does, each placed, on the app's
   expect(JSON.parse(readFileSync(join(out, 'app.json'), 'utf8')).tamber).toBe(relative(out, join(ROOT, 'apps/library-gate/app.tamber')));
   rmSync(out, { recursive: true, force: true });
 }, 600_000);
+
+// FollowButton says following by its label alone (theme2's 14:15 ruling, no
+// aria-pressed; contract/cli/tests/it/actions_exports.rs asserts the label in
+// both states, round too). A round one shows no text, so its label must not
+// be "", which the compiler can't see (one prop required by another's
+// value): every round cell names one, and in both states, the app's swap.
+test("every round FollowButton cell names its label, the label swapped with the state", () => {
+  const app = readFileSync(APP, 'utf8');
+  const placed = placements(app, ['FollowButton']);
+  const round = placed.filter(p => option(p.values.shape) === 'round');
+  expect(round.length).toBeGreaterThanOrEqual(3);
+  for (const p of round) expect([p.id, option(p.values.label) !== '']).toEqual([p.id, true]);
+  expect(new Set(round.map(p => option(p.values.following))).size).toBe(2);
+  // Each cell's words are its state's: the spoken label (the text where it's
+  // "") starts "Following" following, "Follow " or is "Follow" not.
+  for (const p of placed) {
+    const said = option(p.values.label) || option(p.values.text);
+    const on = option(p.values.following) === 'true';
+    expect([p.id, on ? said.startsWith('Following') : !said.startsWith('Following') && said.startsWith('Follow')]).toEqual([p.id, true]);
+  }
+});
 
 test('the cells rule, and the parse refuses what could hide a cell', () => {
   expect(cellsFor([{ prop: 'a', options: ['false', 'true'] }, { prop: 'k', options: ['x', 'y', 'z'] }])).toEqual([

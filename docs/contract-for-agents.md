@@ -4023,6 +4023,22 @@ selection as the bar's current item (`aria-current="page"`, iOS's selected
 trait) and takes no long press itself: an item held for more puts
 `contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
 on the fill rather than the whole column.
+`@exact/actions` also exports `FollowButton` `(id, following, text, label,
+tone, size, shape, icon, press)`, a person's Follow button (Bluesky's
+FollowButtonInner), an authored pressable under D9's exception as
+`PostButton` is. Its variants are Bluesky's own: `tone` `"primary"`,
+`"inverted"`, `"subtle"` or `"overlay"`; `size` `"small"` or `"tiny"`;
+`shape` `"pill"` or `"round"` (icon only); `icon` `"both"` (plus, then a
+check once following), `"follow"`, `"following"` or `"none"`. Its words are
+yours: `text` is the visible label (Follow, Follow back, Following) and
+`label` the spoken one (`""` speaks `text`). It says following by its label
+alone, with no `aria-pressed`, so swap both with the state; a round one shows
+no text, so give it a `label` in both states (`"Follow Ada"`, `"Following
+Ada"`), which the compiler can't check. Each tone's fill and text, not
+following and following, are params (`fill`, `ink`, `followingFill`, …,
+`overlayFollowingInk`) over `actions.follow-*` tokens, its sizes are tokens,
+and its press scales are params, one for a small pill, a tiny one and a
+round one.
 The in-repo `@exact/cards` exports PostCard, AtCard, ProfileHeader (and its
 ProfileAlert shape), Avatar `(src, size)` and VerifiedBadge `(badge, size,
 ink, mark)`; `badge` is `"verified"`, `"verifier"`, or `""` for none, which
@@ -4038,9 +4054,11 @@ name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
 `cards.verifier`, `cards.verifier-check` (VerifiedBadge), and `@exact/actions`'
 `actions.reply`, `actions.repost`, `actions.heart`, `actions.heart-filled`,
 `actions.bookmark`, `actions.bookmark-filled`, `actions.share`, `actions.dots`
-(ActionRow) and `actions.gallery`, `actions.camera`, `actions.gif`
-(ComposeFrame's toolbar). Each has no `sf`, so Apple draws the same path as the
-web. The Attie mark, the toolbar's three and the badges' paths were inline
+(ActionRow), `actions.gallery`, `actions.camera`, `actions.gif`
+(ComposeFrame's toolbar) and `actions.follow-add`, `actions.follow-check`
+(FollowButton). Each but FollowButton's two has no `sf`, so Apple draws the
+same path as the web; those two name SF Symbols' `plus` and `checkmark`, as
+the copies they replace drew them on Apple, beside Bluesky's paths. The Attie mark, the toolbar's three and the badges' paths were inline
 `svg` with `fill-rule="evenodd"`; each one's holes wind against its outline, so
 it fills the same nonzero, and its SVG has no `fill-rule` (an even-odd icon
 gives its app a new compat id). A badge is two one-colour templates stacked,

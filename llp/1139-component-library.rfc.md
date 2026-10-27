@@ -516,12 +516,23 @@ Owners as they free up (the lead's order).
    account writes.
    **The exports (as of LLP 1121 stage 15 B, 2026-10-26):** `@exact/cards` exports PostCard, AtCard, ProfileHeader
    (with its ProfileAlert shape), **Avatar** `(src, size)` and **VerifiedBadge** `(badge, size, ink, mark)`;
-   `@exact/actions` ActionRow, PostButton, ComposeFrame, BarItem and HeaderButton; `@exact/lists` ListRow and
-   SwitchRow. Avatar and VerifiedBadge were the cards' shared pieces until stage 15 B exported them with their params
+   `@exact/actions` ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton and (batch 2, 2026-10-27)
+   **FollowButton**; `@exact/lists` ListRow and SwitchRow. Avatar and VerifiedBadge were the cards' shared pieces until stage 15 B exported them with their params
    unchanged and no defaults: a consumer passes `size`, and VerifiedBadge's `ink` and `mark`, as token or role names
    (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or its own), not literal colours, as
    PostCard does, so an app's design restyles them by the tokens' full names. `apps/library-gate` holds each in a
    box named for its cell (neither has an `id` prop), VerifiedBadge's `""` an empty box.
+   **FollowButton** `(id, following, text, label, tone, size, shape, icon, press)` is a person's Follow button, an
+   authored pressable under D9's exception as PostButton is, with Bluesky's variants only (FollowButtonInner's
+   Button): `tone` primary, inverted, subtle or overlay; `size` small or tiny; `shape` pill or round (icon only);
+   `icon` both, follow, following or none. A copy's drift from its nearest variant is a named pixel change in its
+   gate, never a param. Its words are the app's (`text` shown, `label` spoken, `""` speaking `text`); it says
+   following by its label alone, with no `aria-pressed` (theme2's 2026-10-27 ruling), and a round one's `label`,
+   which the compiler can't require, is checked non-empty on every round library-gate cell and by the adopting
+   copy's script. Its tone-by-state colours and three press scales are params over `actions.follow-*` tokens, its
+   sizes tokens; its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
+   beside Bluesky's paths. Library-gate places it once per compiler-marked variant value (following, tone, size,
+   shape) with each icon pattern and each tone and size following as samples.
 
 **The gate** (`~/x2theme/stage12-gate-run.txt`), each line with its oracle. **The required hosts**, for every line
 that runs per host: the web (the JS target and wasm), iOS, macOS, Linux, Android's reader and the terminal. A

@@ -33,6 +33,18 @@ export const STAGE12_TOKENS = new Set(`
   actions.row-liked actions.row-max actions.row-reposted actions.row-saved actions.row-tint actions.row-top actions.row-trail
   actions.row-trail-big`.trim().split(/\s+/));
 
+/** library-gate's FollowButtons by what they hold: a small pill's icon box
+ * (0, its image 0/0) and label (1); a small pill with no icon, its label
+ * (0); a tiny pill's; a small round one's icon box only; a tiny round
+ * one's. */
+const FB = {
+  pill: ['fb-base', 'fb-following', 'fb-inverted', 'fb-subtle', 'fb-overlay', 'sample-fb-icon-follow', 'sample-fb-inverted-following', 'sample-fb-subtle-following', 'sample-fb-overlay-following', 'sample-fb-icon-following-following'],
+  bare: ['sample-fb-icon-following', 'sample-fb-icon-none', 'sample-fb-icon-follow-following'],
+  tiny: ['fb-tiny', 'sample-fb-tiny-following'],
+  round: ['fb-round', 'sample-fb-round-following'],
+  roundTiny: ['sample-fb-round-tiny'],
+};
+
 /** Stage 13 C's components: each one's source, its instances in
  * library-gate (by id), and the testId of an instance's first node. */
 export const COMPONENTS = {
@@ -46,6 +58,8 @@ export const COMPONENTS = {
   // box library-gate holds it in, and a read's path starts at that box.
   Avatar: { source: '@exact/cards/common.contract', root: id => id, ids: ['av-base', 'sample-av-src'] },
   VerifiedBadge: { source: '@exact/cards/common.contract', root: id => id, ids: ['vb-base', 'sample-vb-verifier'] },
+  // Stage 15 B batch 2 (2a): its button is its testId.
+  FollowButton: { source: '@exact/actions/follow-button.contract', root: id => id, ids: [...FB.pill, ...FB.bare, ...FB.tiny, ...FB.round, ...FB.roundTiny] },
 };
 
 /** library-gate's instances that draw nothing: VerifiedBadge's "" (no
@@ -69,6 +83,8 @@ export const BATCHES = [
   // as library-gate passes them, a consumer's token names), so setting one
   // by its full name is shown to restyle the exported use.
   { name: 'Avatar and VerifiedBadge', names: EXPORTED_TOKENS, components: ['Avatar', 'VerifiedBadge'] },
+  // Stage 15 B batch 2 (2a): FollowButton's own tokens, new, and its params.
+  { name: 'FollowButton', prefix: /^actions\.follow-/, components: ['FollowButton'] },
 ];
 
 /** A token whose value is an expression of others: read, never set; its
@@ -91,6 +107,46 @@ export const DERIVED = {
  * answered `currentcolor` (LLP 1116.019 D6), so a symbol's tint moved to
  * `color` keeps its read. */
 export const READS = {
+  // Stage 15 B batch 2's FollowButton, from its button (.): its shape,
+  // padding, gap and press scale there; its icon's box (0) and image (0/0,
+  // read by the colour it draws in); its label (1, or 0 with no icon). Its
+  // colours are its params' reads, each tone's cell and each tone following.
+  'actions.follow-corner': ['. border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right *'],
+  'actions.follow-pad-block': ['. padding_bottom,padding_top fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'actions.follow-pad-inline': ['. padding_left,padding_right fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'actions.follow-gap': ['. column_gap,row_gap fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following,fb-round,sample-fb-round-following'],
+  'actions.follow-size': ['1 font_size fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following', '0 font_size sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'actions.follow-icon': ['0/0 height,width fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,fb-round,sample-fb-round-following'],
+  'actions.follow-icon-box': ['0 height,width fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,fb-round,sample-fb-round-following'],
+  'actions.follow-icon-pull': ['0 margin_left,margin_right fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following'],
+  'actions.follow-round': ['. height,width fb-round,sample-fb-round-following'],
+  'actions.follow-tiny-pad-block': ['. padding_bottom,padding_top fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-pad-inline': ['. padding_left,padding_right fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-gap': ['. column_gap,row_gap fb-tiny,sample-fb-tiny-following,sample-fb-round-tiny'],
+  'actions.follow-tiny-size': ['1 font_size fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-icon': ['0/0 height,width fb-tiny,sample-fb-tiny-following,sample-fb-round-tiny'],
+  'actions.follow-tiny-icon-box': ['0 height,width fb-tiny,sample-fb-tiny-following,sample-fb-round-tiny'],
+  'actions.follow-tiny-icon-pull': ['0 margin_left,margin_right fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-round': ['. height,width sample-fb-round-tiny'],
+  'FollowButton.fill': ['. background_color fb-base,fb-tiny,fb-round,sample-fb-icon-follow,sample-fb-icon-following,sample-fb-icon-none,sample-fb-round-tiny'],
+  'FollowButton.ink': ['0/0 text_color fb-base,fb-tiny,fb-round,sample-fb-icon-follow,sample-fb-round-tiny', '1 text_color fb-base,fb-tiny,sample-fb-icon-follow', '0 text_color sample-fb-icon-following,sample-fb-icon-none'],
+  'FollowButton.followingFill': ['. background_color fb-following,sample-fb-tiny-following,sample-fb-round-following,sample-fb-icon-follow-following,sample-fb-icon-following-following'],
+  'FollowButton.followingInk': ['0/0 text_color fb-following,sample-fb-tiny-following,sample-fb-round-following,sample-fb-icon-following-following', '1 text_color fb-following,sample-fb-tiny-following,sample-fb-icon-following-following', '0 text_color sample-fb-icon-follow-following'],
+  'FollowButton.invertedFill': ['. background_color fb-inverted'],
+  'FollowButton.invertedInk': ['0/0 text_color fb-inverted', '1 text_color fb-inverted'],
+  'FollowButton.invertedFollowingFill': ['. background_color sample-fb-inverted-following'],
+  'FollowButton.invertedFollowingInk': ['0/0 text_color sample-fb-inverted-following', '1 text_color sample-fb-inverted-following'],
+  'FollowButton.subtleFill': ['. background_color fb-subtle'],
+  'FollowButton.subtleInk': ['0/0 text_color fb-subtle', '1 text_color fb-subtle'],
+  'FollowButton.subtleFollowingFill': ['. background_color sample-fb-subtle-following'],
+  'FollowButton.subtleFollowingInk': ['0/0 text_color sample-fb-subtle-following', '1 text_color sample-fb-subtle-following'],
+  'FollowButton.overlayFill': ['. background_color fb-overlay'],
+  'FollowButton.overlayInk': ['0/0 text_color fb-overlay', '1 text_color fb-overlay'],
+  'FollowButton.overlayFollowingFill': ['. background_color sample-fb-overlay-following'],
+  'FollowButton.overlayFollowingInk': ['0/0 text_color sample-fb-overlay-following', '1 text_color sample-fb-overlay-following'],
+  'FollowButton.pressScale': ['. press_scale fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'FollowButton.pressScaleTiny': ['. press_scale fb-tiny,sample-fb-tiny-following'],
+  'FollowButton.pressScaleRound': ['. press_scale fb-round,sample-fb-round-following,sample-fb-round-tiny'],
   // Stage 15 B's exports, from the box library-gate holds each in: Avatar's
   // column (0), its picture or figure (0/0, the figure's circles and path
   // 0/0/n) and its ring (0/1); VerifiedBadge's column (0) and its two
@@ -225,6 +281,15 @@ export const PARAM_TOKENS = {
   'ComposeFrame.track': 'actions.compose-track', 'ComposeFrame.arc': 'actions.compose-arc',
   'BarItem.tint': 'actions.bar-tint', 'BarItem.badgeFill': 'actions.bar-badge', 'BarItem.badgeInk': 'actions.bar-badge-ink',
   'HeaderButton.tint': 'actions.header-tint', 'HeaderButton.tintSmall': 'actions.header-tint-small',
+  'FollowButton.fill': 'actions.follow-fill', 'FollowButton.ink': 'actions.follow-ink',
+  'FollowButton.followingFill': 'actions.follow-following-fill', 'FollowButton.followingInk': 'actions.follow-following-ink',
+  'FollowButton.invertedFill': 'actions.follow-inverted-fill', 'FollowButton.invertedInk': 'actions.follow-inverted-ink',
+  'FollowButton.invertedFollowingFill': 'actions.follow-following-fill', 'FollowButton.invertedFollowingInk': 'actions.follow-following-ink',
+  'FollowButton.subtleFill': 'actions.follow-subtle-fill', 'FollowButton.subtleInk': 'actions.follow-subtle-ink',
+  'FollowButton.subtleFollowingFill': 'actions.follow-subtle-following-fill', 'FollowButton.subtleFollowingInk': 'actions.follow-subtle-following-ink',
+  'FollowButton.overlayFill': 'actions.follow-overlay-fill', 'FollowButton.overlayInk': 'actions.follow-overlay-ink',
+  'FollowButton.overlayFollowingFill': 'actions.follow-overlay-fill', 'FollowButton.overlayFollowingInk': 'actions.follow-overlay-ink',
+  'FollowButton.pressScale': 'actions.follow-press', 'FollowButton.pressScaleTiny': 'actions.follow-press-tiny', 'FollowButton.pressScaleRound': 'actions.follow-press-round',
 };
 
 /** A read's entries, parsed: [{ component, path, rows, ids }]. */
@@ -286,7 +351,7 @@ export function valueFor(kind, k) {
   return `#${ch(40, 32)}${ch(72, 40)}${ch(104, 48)}`;
 }
 
-/** The eleven cases (stage 13 C's ten and stage 15 B's exports' one): each batch's tokens (the derived ones read, not set) and
+/** The thirteen cases (stage 13 C's ten, stage 15 B's exports' one and FollowButton's two): each batch's tokens (the derived ones read, not set) and
  * its components' params, each name its own value. */
 export function cases(root = ROOT) {
   const tokens = newTokens(root), params = packageParams(root);
