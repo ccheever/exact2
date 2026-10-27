@@ -1,3 +1,11 @@
 {
-  "scanPurpose": "Reads the barcode on a book to fill in its title and author."
+  "scanPurpose": "Reads the barcode on a book to fill in its title and author.",
+  "nfcPurpose": "Reads and writes the NFC stickers you keep in your books.",
+  "nfc.holdBook": "Hold your iPhone near the sticker in the book.",
+  "nfc.tagged": "Tagged",
+  "nfc.locked": "This tag is locked.",
+  "nfc.tooSmall": "This tag is too small.",
+  "nfc.holdStill": "Hold the phone still until it's done.",
+  "nfc.noLink": "This tag can't store a link.",
+  "nfc.failed": "This tag couldn't be written."
 }
