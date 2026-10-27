@@ -1100,10 +1100,15 @@ package final class Presenter {
         let contained = NodeView.keepingGhosts(want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }, in: container)
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
+            // One already here is past `i` (those before it are in place):
+            // moved as UIKit moves it, without asking for every subview again
+            // (a pooled row comes back from past the rows, each a move).
             let wasHere = child.superview === container
+            let was = wasHere && i < current.count ? current[i...].firstIndex { $0 === child } : nil
             container.insertSubview(child, at: i)
-            if wasHere { current = container.subviews }
-            else { current.insert(child, at: i); regrid(child) }
+            if wasHere {
+                if let was { current.remove(at: was); current.insert(child, at: i) } else { current = container.subviews }
+            } else { current.insert(child, at: i); regrid(child) }
         }
         flats.mounted(parent.id)
         if parent === navigation.container { navigation.placeOwner() }

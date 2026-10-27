@@ -937,7 +937,9 @@ tiles ("maps in a list are the point", SPEC), so it does not use one.
 
 Trial values, to be replaced by the iPad's numbers.
 
-- **Trees:** 32, at most 8 per shape, least-recently-parked eviction across
+- **Trees:** 64, at most 32 per shape (a dragged scroll indicator retires a
+  port of rows and its lead in one report, about 20 chat bubbles; 8 evicted
+  most of them), least-recently-parked eviction across
   shapes (§4.0). The cost of a parked tree is its views' retained graphs
   and layers, not the ~720-byte `NodeView` allocation `QUEUE.md` counted;
   `recycle` already drops their bitmaps.

@@ -27,6 +27,7 @@ final class TextUpdateIOSTests: XCTestCase {
         let ink = try XCTUnwrap(node.textRasterLayer)
         XCTAssertNil(ink.sublayers, "one-colour ink is one layer, as a label is")
         XCTAssertNil(ink.delegate, "standalone raster ink has no UIKit backing view")
+        XCTAssertTrue(node.subviews.isEmpty, "ink is a layer: no subview to take input or keep a row from parking")
         context.clear(node.bounds)
         ink.render(in: context)
         let bytes = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)

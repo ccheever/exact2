@@ -226,6 +226,41 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertNotNil(p.inlineText(22))
     }
 
+    /// A row whose text shows one-colour ink (`TintInk`) parks, and the ink
+    /// does not come back with it: a chat's bubbles, every one tinted ink.
+    func testARowWhoseTextShowsTintedInkParks() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        func row(_ base: Int, _ text: String) -> [[String: Any]] {
+            [["op": "create", "id": base, "kind": "view"],
+             ["op": "create", "id": base + 1, "kind": "text", "props": ["text": text], "style": ["font_size": 16.0]],
+             ["op": "children", "id": base, "ids": [base + 1]],
+             ["op": "frame", "id": base, "x": 0.0, "y": 0.0, "w": 300.0, "h": 44.0],
+             ["op": "frame", "id": base + 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 20.0]]
+        }
+        p.apply(wireBatch([collections([(10, 10)]),
+            ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
+            + row(10, "Hello")
+            + [["op": "children", "id": 1, "ids": [10]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+               ["op": "content", "id": 1, "w": 300.0, "h": 2000.0]]))
+        let text = try XCTUnwrap(p.views[11])
+        let context = try XCTUnwrap(CGContext(data: nil, width: 300, height: 20, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let key = TextRasterKey(spec: text.paragraphSpec(), size: text.bounds.size, box: text.paragraphBox(), scale: 1)
+        var ink = TextRasterImage(try XCTUnwrap(context.makeImage()), frame: text.bounds, covered: text.bounds, headroom: 0)
+        ink.tint = UIColor.red.cgColor
+        text.textRasterKey = key; text.textRasterReady = false
+        text.showTextRaster(ink, for: key)
+        XCTAssertTrue(text.textRasterLayer is TintInk)
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11]) + row(20, "Bye")
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertTrue(p.views[21] === text, "the text's view came back")
+        XCTAssertFalse(text.textRasterLayer is TintInk, "without the last row's ink")
+        XCTAssertFalse(text.layer.sublayers?.contains { $0 is TintInk } ?? false)
+    }
+
     func testARowWhoseNodeMovesAwayIsDestroyedAsBefore() throws {
         let p = fixture()
         let old = try XCTUnwrap(p.views[10]), button = try XCTUnwrap(p.views[12])
@@ -555,8 +590,8 @@ final class NodePoolIOSTests: XCTestCase {
     }
 
     func testAFullShapeEvictsItsOldestTreeAndItsRootLeavesTheList() throws {
-        // Nine rows of one shape, retired together; a row of another shape is built.
-        let bases = (1...9).map { $0 * 10 }
+        // One row more than a shape keeps, retired together; a row of another shape is built.
+        let bases = (1...(NodePool.perShape + 1)).map { $0 * 10 }
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()

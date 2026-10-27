@@ -79,8 +79,10 @@ final class NodePool {
     private var roots = Set<ObjectIdentifier>()
     private(set) var count = 0
     private var generation: UInt64 = 0
-    /// Enough for the rows one fill slice retires before the next builds.
-    static let perShape = 8, capacity = 32
+    /// Enough for the rows one report retires before the next builds: a
+    /// dragged scroll indicator passes a port of rows and its lead in a
+    /// frame, about 20 of a chat's bubbles (8 evicted most of them).
+    static let perShape = 32, capacity = 64
     /// Cards parked under inner lists (LLP 1068 §4.2.1): per list and in all.
     static let perList = 12, innerCapacity = 96
     private(set) var innerCount = 0
