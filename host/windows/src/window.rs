@@ -631,6 +631,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         match app::boot_presenter::<D>(&mut self.config, viewport) {
             Ok((mut p, warning)) => {
+                p.host_mut().runner_mut().set_row_reuse(true);
                 if let Some(scale) = self.appearance.text_scale() {
                     if let Some(error) = p.set_text_scale(scale) {
                         eprintln!("exact-windows: text size: {error}");
