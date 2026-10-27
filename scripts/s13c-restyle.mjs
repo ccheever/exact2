@@ -111,12 +111,12 @@ export const DERIVED = {
  * answered `currentcolor` (LLP 1116.019 D6), so a symbol's tint moved to
  * `color` keeps its read. */
 export const READS = {
-  // Stage 15 B batch 2's PersonRow, from its row (.): its padding, gap,
-  // opacity and dividers there; the header (0) with its link (0/0: the
+  // Stage 15 B batch 2's PersonRow, from its row (.): its padding, gap and
+  // dividers there; the header (0) with its link (0/0: the
   // avatar's box 0/0/0, Avatar's column 0/0/0/0 and picture 0/0/0/0/0; the
   // names 0/0/1: the name 0/0/1/0/0, the badge's column 0/0/1/0/1 and
   // VerifiedBadge 0/0/1/0/1/0 with its ground /0 and check /1; the handle
-  // 0/0/1/1) and the slot's control (0/1); the pill's row (1, its text 1/0);
+  // 0/0/1/1; a disabled row's opacity) and the slot's control (0/1); the pill's row (1, its text 1/0);
   // the description's column (1, or 2 after a pill; its text /0).
   'cards.person-pad-block': ['. padding_bottom,padding_top *'],
   'cards.person-pad-inline': ['. padding_left,padding_right *'],
@@ -138,7 +138,7 @@ export const READS = {
   'cards.person-description-top': ['1 padding_top sample-pr-description,sample-pr-description-one', '2 padding_top sample-pr-all'],
   'cards.person-description-size': ['1/0 font_size sample-pr-description,sample-pr-description-one', '2/0 font_size sample-pr-all'],
   'cards.person-description-line': ['1/0 line_height sample-pr-description,sample-pr-description-one', '2/0 line_height sample-pr-all'],
-  'cards.person-dim': ['. opacity pr-disabled'],
+  'cards.person-dim': ['0/0 opacity pr-disabled'],
   'PersonRow.divider': ['. border_color_bottom,border_color_top *'],
   'PersonRow.meta': ['0/0/1/1 text_color *'],
   'PersonRow.pill': ['1/0 background_color sample-pr-pill,sample-pr-all'],

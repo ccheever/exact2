@@ -221,7 +221,7 @@ test("the restyle cases name every stage 13 C token and param and every exported
     expect([n, reads.length > 0 && reads.every(r => ['Avatar', 'VerifiedBadge'].includes(r.component))]).toEqual([n, true]);
     expect([n, [...new Set(reads.map(r => r.component))].sort()]).toEqual([n, drawnBy(n).sort()]);
   }
-  // The "" badge's cell is library-gate's.
+  // The "none" badge's cell is library-gate's.
   expect(EMPTY.every(id => placements(app, ['VerifiedBadge']).some(p => p.id === id && option(p.values.badge) === 'none'))).toBe(true);
   // The cases' components and instances are library-gate's.
   // (The empty cell has nothing to read, so it is held apart, in EMPTY.)

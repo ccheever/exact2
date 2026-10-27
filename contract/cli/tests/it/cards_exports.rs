@@ -129,7 +129,9 @@ fn verified_badges_badge_is_an_enum_so_the_old_empty_string_is_refused() {
 const PERSON: &str = r#"use PersonRow from "@exact/cards"
 
 component App
+  state opened = 0
   action open
+    opened = opened + 1
   view
     column
       PersonRow(id="ada", label="View Ada's profile", avatar="", name="Ada", handle="@ada.example", badge="verified", pill="Follows you", description="Maps.", descriptionLines=3, divider="bottom", disabled=false, press=open)
@@ -156,7 +158,7 @@ fn a_consumer_uses_person_row_from_the_package_with_its_trailing_slot() {
         .collect();
     let identity = "@exact/cards/person-row.contract#PersonRow";
     assert!(libs.contains(&identity), "no {identity} in {libs:?}");
-    let r = exact_runner::Runner::boot(
+    let mut r = exact_runner::Runner::boot(
         plan,
         NoData,
         Kernel::with_monospace(),
@@ -199,11 +201,28 @@ fn a_consumer_uses_person_row_from_the_package_with_its_trailing_slot() {
     let under = |outer: &str, inner: &str| holds(k, node(outer).id, node(inner).id);
     assert!(under("ada", "trailing") && !under("ada-link", "trailing"));
     assert!(under("ada-link", "verified-badge"));
-    assert!(
-        !k.find_by_test_id("trailing").is_empty(),
-        "the slot's trailing control"
+    // One press target, the link: the row takes no press (so no Tab stop or
+    // control of its own on any host), and the trailing control and the
+    // row's text stay outside it; the slot's control is not dimmed.
+    let opacity = |t: &str| format!("{:?}", node(t).computed(exact_kernel::StyleId::Opacity));
+    assert_eq!(
+        opacity("fen"),
+        opacity("ada"),
+        "the row itself is not dimmed"
     );
-    assert!(!k.find_by_test_id("verified-badge").is_empty(), "the badge");
+    assert_ne!(
+        opacity("fen-link"),
+        opacity("ada-link"),
+        "the disabled link is"
+    );
+    let id = |t: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    let (link, row) = (id("ada-link"), id("ada"));
+    assert!(r.handlers_of(row).is_empty(), "the row takes no press");
+    r.dispatch(link, exact_runner::Event::Press).unwrap();
+    assert_eq!(r.slot("opened"), Some(&exact_runner::Value::Number(1.0)));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
