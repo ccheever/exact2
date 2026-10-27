@@ -70,6 +70,21 @@ pub struct HostBlock {
     pub height: BlockAxis,
 }
 
+/// How a host shows a block's route against the route its stack has on top
+/// (LLP 1127 D8), which the runner's liveness reads and layout does not.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BlockShown {
+    /// As its stack shows it: live when it is the top.
+    #[default]
+    InStack,
+    /// Beside the top, live: a split's list column, the detail beside an
+    /// inspector.
+    Beside,
+    /// Under a pane shown over it, not live though shown: a split's detail
+    /// under the list that overlays it, and a split's columns under a sheet.
+    Under,
+}
+
 /// The blocks: a few routes and open popovers at most, so a list by slot,
 /// as the covers are.
 #[derive(Clone, Debug, Default)]
@@ -89,6 +104,8 @@ pub(crate) struct Held {
     /// Whether a box above it was replaced whole when it was last styled
     /// (`apply` makes it `display: none` then).
     buried: bool,
+    /// How its host shows it against its stack's top.
+    shown: BlockShown,
 }
 
 impl Blocks {
@@ -141,6 +158,23 @@ impl Blocks {
         implied.map(|b| b.slot).collect()
     }
 
+    /// How `slot`'s host shows it against its stack's top (`Held::shown`).
+    pub(crate) fn shown(&self, slot: u32) -> BlockShown {
+        self.held(slot).map_or(BlockShown::InStack, |b| b.shown)
+    }
+
+    /// Say how `slot`'s block is shown against its stack's top; whether that
+    /// changed. A slot with no block is shown in the page, and keeps none.
+    pub(crate) fn set_shown(&mut self, slot: u32, shown: BlockShown) -> bool {
+        match self.held_mut(slot) {
+            Some(held) if held.shown != shown => {
+                held.shown = shown;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// `slot` gone: neither block stands.
     pub(crate) fn remove(&mut self, slot: u32) {
         self.0.retain(|b| b.slot != slot);
@@ -168,6 +202,7 @@ impl Blocks {
                 given,
                 implied,
                 buried: false,
+                shown: BlockShown::InStack,
             }),
             (None, None) => {}
         }
@@ -435,6 +470,24 @@ impl Kernel {
     /// top-layer box the viewport, as of the last layout.
     pub fn host_block(&self, view: ViewId) -> Option<HostBlock> {
         self.arena.blocks.get(self.arena.slot_of(view)?)
+    }
+
+    /// How `view`'s host shows its block against the route its stack has on
+    /// top (LLP 1127): beside it as a split's list column, under it as a
+    /// split's detail under the list that overlays it, or in its stack.
+    pub fn host_block_shown(&self, view: ViewId) -> BlockShown {
+        self.arena
+            .slot_of(view)
+            .map_or(BlockShown::InStack, |slot| self.arena.blocks.shown(slot))
+    }
+
+    /// Say how `view`'s block is shown against its stack's top; whether that
+    /// changed. Layout does not read it: the runner's liveness does.
+    pub fn set_host_block_shown(&mut self, view: ViewId, shown: BlockShown) -> bool {
+        match self.arena.slot_of(view) {
+            Some(slot) => self.arena.blocks.set_shown(slot, shown),
+            None => false,
+        }
     }
 
     /// Where a top-layer box laid out in the viewport's block sits in a

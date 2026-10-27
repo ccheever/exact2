@@ -37,7 +37,7 @@ mod trim;
 mod wide;
 
 pub(crate) use block::{apply as apply_block, publication_start, Blocks};
-pub use block::{BlockAxis, BlockMeasure, HostBlock};
+pub use block::{BlockAxis, BlockMeasure, BlockShown, HostBlock};
 pub use cover::HostCover;
 pub(crate) use cover::{
     applied_padding as cover_padding, apply as apply_cover, chain_changed as cover_chain_changed,

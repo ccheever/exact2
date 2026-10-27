@@ -1,11 +1,12 @@
 // Starter: a list that pushes a detail, a sheet to add, an alert to delete, kept in a file.
-// The items are app.ts's (app:/data/items.json). A phone pushes the detail; a wide window
-// shows the list beside it by itself, because a row draws the disclosure chevron
-// (`contract vocab navigationSplit`). A row deletes by swipe and opens a menu on a long press
-// (`contract vocab swipe`, `menu`): a swipe or the menu's Delete deletes at once, as Mail and
-// Notes do, and the detail's Delete asks first. A smaller app deletes what it doesn't need: the
-// delete (`askRemove`, `remove`, the dialog, the row's `delete=`, the menu's Delete), the
-// notes (the shape's field, the sheet's and the detail's sections), or the lock (the shape's `locked`, `setLock`, `flipLock`, the badge, the switch,
+// The items are app.ts's (app:/data/items.json). A narrow window pushes the detail; a wide
+// one shows the list beside it by itself (on iOS as UIKit's split view decides), because a
+// row draws the disclosure chevron (`contract vocab navigationSplit`). A row deletes by swipe
+// and opens a menu on a long press (`contract vocab swipe`, `menu`): a swipe or the menu's
+// Delete deletes at once, as Mail and Notes do, and the detail's Delete asks first. A smaller
+// app deletes what it doesn't need: the delete (`askRemove`, `remove`, the dialog, the row's
+// `delete=`, the menu's Delete), the notes (the shape's field, the sheet's and the detail's
+// sections), or the lock (the shape's `locked`, `setLock`, `flipLock`, the badge, the switch,
 // the menu's Lock and Delete's reason).
 // Compose as the platform does: a row pushes its detail, create and edit are sheets (an edit
 // sheet fills from its item: `edit-sheet`), a phone gets one column and a wide window two

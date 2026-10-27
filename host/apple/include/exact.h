@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 17
+#define EXACT_ABI_VERSION 18
 
 #ifdef __cplusplus
 extern "C" {
@@ -852,7 +852,11 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
  * is a content owner's values (LLP 1123 D9), 188 bytes: float safe-area top, right, bottom, left, the
  * content root's width and height, uint32 columns and rows, four float rects
  * x y w h (the segments, row-major), uint32 1 when twenty float region
- * insets follow (else 0, the regions the safe area's); 17 takes them back. */
+ * insets follow (else 0, the regions the safe area's); 17 takes them back.
+ * Kind 18 says how a block is shown against its stack's top (LLP 1127):
+ * float 1 beside it, live (a split's list column, the detail beside an
+ * inspector), 2 under a pane over it, not live (a split's detail under the
+ * list that overlays it), 0 in its stack; then three unused. */
 uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* What a block's root would measure in another block (a popover's
  * position-area option, LLP 1021 D2): each axis a length and a policy as

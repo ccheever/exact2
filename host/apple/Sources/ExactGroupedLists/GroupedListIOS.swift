@@ -483,6 +483,16 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// 1115 §2), as it replaces the sheet's grouped ground on the other hosts (LLP 1084 D7): the list's own layer paints
     /// it in its box and UIKit's grounds are clear, so `transparent` shows what is behind the list around its cards.
     private var writesGround = false
+    /// In a split's list column beside its detail: UIKit's sidebar list
+    /// (LLP 1127), as SwiftUI's automatic style is there; the authored style
+    /// once the split collapses.
+    private(set) var sidebar = false
+    /// The sidebar row whose press opened the detail. UIKit's sidebar list
+    /// starts with no row selected, and a detail the app opened itself (its
+    /// `start_url`) selects none, as in a SwiftUI sidebar of links.
+    var pressedSidebarRow: UInt32?
+    /// In a split's sidebar or inspector, on UIKit's column ground.
+    private var onColumn = false
     /// The theme's roles this list last drew with (LLP 1095 D4): a new table
     /// (an update, a dev reload) configures every row and the layout again.
     private var theme = ThemeRoles.generation
@@ -598,21 +608,27 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     }
     #if os(iOS)
     /// The ground where none is written: the theme's, else UIKit's for the list's appearance.
-    private var platformGround: UIColor { themeGround ?? (model.appearance == .plain ? .systemBackground : .systemGroupedBackground) }
+    private var platformGround: UIColor { onColumn ? .clear : themeGround ?? (model.appearance == .plain ? .systemBackground : .systemGroupedBackground) }
     #endif
 
     /// Each section's header and footer exist only where it has the text.
     private func layout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] index, environment in
             guard let self else { return nil }
+            #if os(iOS)
+            var c = UICollectionLayoutListConfiguration(appearance: sidebar ? .sidebar : model.appearance)
+            #else
             var c = UICollectionLayoutListConfiguration(appearance: model.appearance)
-            // Clear where the author wrote one (`writesGround`), else the theme's; nil leaves UIKit's.
-            if let ground = writesGround ? .clear : themeGround { c.backgroundColor = ground }
+            #endif
+            // Clear where the author wrote one (`writesGround`) or the inspector's column shows, else the theme's; nil
+            // leaves UIKit's, a sidebar's included.
+            if !sidebar, let ground = writesGround || onColumn ? .clear : themeGround { c.backgroundColor = ground }
             let s = section(at: index)
             c.headerMode = s?.header == nil ? .none : .supplementary
             c.footerMode = s?.footer == nil ? .none : .supplementary
             #if !os(tvOS)
-            c.showsSeparators = s?.card ?? true
+            // A sidebar's rows have none, as UIKit's sidebar list draws them.
+            c.showsSeparators = !sidebar && (s?.card ?? true)
             // Where a row's author wrote the edge under it, a carried row
             // shows that edge instead of UIKit's line (LLP 1084 D7), as a
             // hand-built cell hides its separator. A standard cell draws no
@@ -691,7 +707,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let rethemed = theme != ThemeRoles.generation
         theme = ThemeRoles.generation
         let writes = owner.wrote("background_color")
-        let restyled = next.style != previous.style || rethemed || writes != writesGround
+        let beside = host.presenter.showsAsSidebar(owner), flipped = beside != sidebar
+        let column = host.presenter.onColumnGround(owner)
+        let restyled = next.style != previous.style || rethemed || writes != writesGround || flipped || column != onColumn
+        sidebar = beside; onColumn = column
         writesGround = writes
         model = next; followDirection()
         rows = Dictionary(next.sections.flatMap { $0.rows }.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
@@ -715,7 +734,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // row moved between sections) is configured again.
         let wasCarded = Dictionary(previous.sections.flatMap { s in s.rows.map { ($0.view, s.card) } }, uniquingKeysWith: { a, _ in a })
         let recarded = Set(next.sections.flatMap { s in s.rows.compactMap { r in wasCarded[r.view].flatMap { $0 != s.card ? r.view : nil } } })
-        let changed = snapshot.itemIdentifiers.filter { id in rethemed || old[id].map { $0 != rows[id] || looking[id] != looks[id] || recarded.contains(id) } ?? false }
+        let changed = snapshot.itemIdentifiers.filter { id in rethemed || flipped || old[id].map { $0 != rows[id] || looking[id] != looks[id] || recarded.contains(id) } ?? false }
         looks = looking
         // A row whose switch is firing is reconfigured once its action has
         // returned: rebuilding its accessories would take the switch out of
@@ -747,7 +766,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #if os(iOS)
         // The collection view's own background shows through a clear section ground and below a short list, and UIKit
         // gives it the appearance's ground only for a layout with none of its own, so it is set here.
-        let ground = writesGround ? .clear : platformGround
+        let ground: UIColor? = sidebar ? nil : writesGround ? .clear : platformGround
         if collection.backgroundColor != ground { collection.backgroundColor = ground }
         #endif
         // An unchanged snapshot can reset UIKit's estimated geometry and
@@ -763,6 +782,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             }
             collection.collectionViewLayout.invalidateLayout()
         } else if regapped { collection.collectionViewLayout.invalidateLayout() }
+        #if os(iOS)
+        if sidebar { selectDetailRow() } else if flipped { for path in collection.indexPathsForSelectedItems ?? [] { collection.deselectItem(at: path, animated: false) } }
+        #endif
         mount()
     }
 
@@ -1150,7 +1172,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     private func accessories(_ row: GroupedListModel.Row, cell: GroupedCell) -> [UICellAccessory] {
         switch row.accessory {
-        case "disclosure": return [.disclosureIndicator()]
+        // A sidebar's rows select, with no chevron.
+        case "disclosure": return sidebar ? [] : [.disclosureIndicator()]
         case "checkmark": return [.checkmark()]
         // A radio is the chosen row's checkmark, as a list of choices in
         // Settings has it (LLP 1115.000 D13.2); UIKit has no radio.

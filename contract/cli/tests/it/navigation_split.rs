@@ -6,6 +6,9 @@
 //!
 //! LLP 1115.002 D4/stage 6d: chevrons are paint. The host reads the shared
 //! list/press rule; the compiler must not invent an author opt-out.
+//!
+//! LLP 1127 D14: `navigationInspector` is said on a sheet route, which an
+//! expanded split shows as its inspector column; anywhere else it is refused.
 
 use exact_kernel::{Display, Kernel, PropId};
 use exact_plan::Value;
@@ -81,6 +84,50 @@ fn on_a_route_the_placeholder_is_refused() {
         error.message.contains("\"placeholder\" on a box in it"),
         "{error}"
     );
+}
+
+#[test]
+fn an_inspector_is_a_sheet_route() {
+    // A literal sheet, and a bound presentation that may be one.
+    for route in [
+        "navigationPresentation=\"modal\" navigationInspector=true",
+        "navigationPresentation=(e.name == \"item\" ? \"modal\" : \"\") navigationInspector=(e.name == \"item\")",
+    ] {
+        let plan = contract::bake(
+            contract::compile(&stack(route, "")).unwrap_or_else(|e| panic!("{route}: {e}")),
+            NoData,
+        )
+        .unwrap();
+        let r = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/item",
+        )
+        .unwrap();
+        let k = r.kernel();
+        let item = k.node_by_key(k.find_by_test_id("route-item")[0]).unwrap();
+        assert_eq!(item.props.bool(PropId::NavigationInspector), Some(true), "{route}");
+    }
+    // A route that is no sheet, one whose literal presentation is another, and a box in a route.
+    for (route, inner) in [
+        ("navigationInspector=true", ""),
+        ("navigationPresentation=\"\" navigationInspector=true", ""),
+        (
+            "navigationPresentation=\"modal\"",
+            "navigationInspector=true",
+        ),
+    ] {
+        let error = contract::compile(&stack(route, inner)).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{route} {inner}: {error}");
+        assert!(
+            error
+                .message
+                .contains("`navigationInspector` belongs on a sheet route"),
+            "{route} {inner}: {error}"
+        );
+    }
 }
 
 #[test]

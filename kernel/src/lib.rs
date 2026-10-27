@@ -86,7 +86,7 @@ pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use invocation::Invocation;
 pub use kernel::{
-    BlockAxis, BlockMeasure, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight,
+    BlockAxis, BlockMeasure, BlockShown, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight,
     StickyConstraint,
 };
 pub use layout::LayoutReceipt;

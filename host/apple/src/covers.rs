@@ -10,7 +10,9 @@
 //! owner's values (LLP 1123 D9).
 
 use super::Host;
-use exact_kernel::{BlockMeasure, GroupedMargins, HostBlock, HostCover, OwnerValues, ViewId};
+use exact_kernel::{
+    BlockMeasure, BlockShown, GroupedMargins, HostBlock, HostCover, OwnerValues, ViewId,
+};
 use exact_runner::DataSource;
 
 /// What a host claims of boxes in one report, each `None` taking one back.
@@ -30,6 +32,8 @@ pub struct Claims<'a> {
     pub shows: &'a [(ViewId, bool)],
     /// A content owner's safe area, regions, segments and size.
     pub owners: &'a [(ViewId, Option<OwnerValues>)],
+    /// How a block is shown against its stack's top (a split's columns).
+    pub shown: &'a [(ViewId, BlockShown)],
 }
 
 impl<D: DataSource> Host<D> {
@@ -103,6 +107,7 @@ impl<D: DataSource> Host<D> {
             list_margins,
             shows,
             owners,
+            shown,
         } = *claims;
         let (mut error, mut read) = (None, false);
         let mut batch = crate::batch::Batch::new();
@@ -162,6 +167,10 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.runner.place_blocks(placements);
+        // Liveness alone: the runner reads it, layout does not.
+        for &(view, how) in shown {
+            self.runner.kernel_mut().set_host_block_shown(view, how);
+        }
         for &(view, list) in margins {
             if let Err(e) = self.runner.kernel_mut().set_grouped_margins(view, list) {
                 error.get_or_insert(format!("grouped margins: {e:?}"));

@@ -1,5 +1,6 @@
-// @ref LLP 1115.000 D11.3 — which rows of a grouped list are selected: a
-// tapped row while its press runs and under the screen it pushed.
+// @ref LLP 1115.000 D11.3, LLP 1127 — which rows of a grouped list are
+// selected: a tapped row while its press runs and under the screen it
+// pushed, and in a split's sidebar the row whose detail shows.
 #if os(iOS) || os(tvOS)
 import ExactKit
 import UIKit
@@ -24,10 +25,29 @@ extension GroupedListView {
         // the bound `checked` (LLP 1115.000 D13.2).
         if let row = rows[id], let target = radio(row) { host.presenter.checkRadio(target) }
         guard rows[id]?.pressable == true else { return letGo() }
+        // Before the press, which can push the detail at once
+        if sidebar { pressedSidebarRow = id }
         host.presenter.press(id)
         if let screen, let stack = screen.navigationController, stack.viewControllers.contains(screen), stack.topViewController !== screen { return }
+        #if os(iOS)
+        // UIKit has selected it: the list's next update checks it against the detail
+        if sidebar { return }
+        #endif
         letGo()
     }
+
+    #if os(iOS)
+    /// A sidebar's pressed row stays selected while its detail shows, as
+    /// UIKit's sidebar keeps it (LLP 1127); none other is.
+    func selectDetailRow() {
+        guard sidebar else { return }
+        let shown = host.presenter.sidebarSelection(owner)
+        let wanted = shown == pressedSidebarRow ? shown.flatMap { source.indexPath(for: $0) } : nil
+        let current = collection.indexPathsForSelectedItems ?? []
+        for path in current where path != wanted { collection.deselectItem(at: path, animated: false) }
+        if let wanted, !current.contains(wanted) { collection.selectItem(at: wanted, animated: false, scrollPosition: []) }
+    }
+    #endif
 
     /// The list's screen is coming back into view: its selected rows fade
     /// with the transition, so the fade follows a back swipe's finger, and a

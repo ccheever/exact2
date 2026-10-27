@@ -1534,6 +1534,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a pushed route with no such `header` | a bar holding the system Back button alone (LLP 1115.000 D5.2) |
 | a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
 | a route with `navigationPresentation="modal"` | a sheet |
+| a sheet route with `navigationInspector=true` | an expanded split's inspector column beside the detail, iOS 26 (LLP 1127 D14); a sheet at a compact width and on other hosts |
 
 On an iOS or tvOS route's root, `-exact-safe-area` turns off the route's own
 clearance on the edges it names (LLP 1123 D4). `"top"` lets the content and

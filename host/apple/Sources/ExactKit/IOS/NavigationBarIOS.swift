@@ -743,7 +743,7 @@ extension NavigationHost {
     /// the stack out (LLP 1075.003 §3.2, §3.5 "projected defaults"). A held
     /// stack (HeldStackIOS) is projected as a navigation controller that
     /// hides its bar would be; no `navigation` hatch has met it.
-    func prepareRoutes(_ routes: [RouteController], in stack: UIViewController) {
+    func prepareRoutes(_ routes: [RouteController], in stack: UIViewController, firstPushed: Bool = false) {
         let nav = stack as? UINavigationController
         if let nav {
             hatchNavigation(nav)
@@ -760,12 +760,14 @@ extension NavigationHost {
             // the system Back alone on a pushed route with none of its own
             // (no header, a hidden one, one that is not a bar's), or no bar
             // where the route says so or has nothing to go back to.
-            c.pushed = index > 0
+            // A split's detail counts as pushed, its first route included (LLP 1127 D7).
+            let pushed = index > 0 || firstPushed
+            c.pushed = pushed
             let transparent = Self.transparentBar(c.node)
-            let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) : nil
-            let bar = stackShows ? self.bar(of: c.node, pushed: index > 0) : .hidden
+            let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: pushed) : nil
+            let bar = stackShows ? self.bar(of: c.node, pushed: pushed) : .hidden
             let shows = bar != .hidden
-            let canGoBack = index > 0 && canInvokeBack && shape?.authoredBack != true
+            let canGoBack = pushed && canInvokeBack && shape?.authoredBack != true
             let scroller = contentScroller(of: c), scroll = scroller?.scrollView
             let dataset = c.node.props["dataset"]
             func barSource(_ key: (HeaderShape.Item) -> String) -> BarSource {
@@ -973,6 +975,8 @@ extension NavigationHost {
             c.search = search
             c.navigationItem.searchController = search.controller
             c.definesPresentationContext = true
+            // A split may place the field beyond its column, as SwiftUI's `searchable` lets it.
+            if #available(iOS 26.0, *) { c.navigationItem.searchBarPlacementAllowsExternalIntegration = true }
         }
         search.field = field
         search.scope(c.scoped)

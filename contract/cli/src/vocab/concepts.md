@@ -188,12 +188,13 @@ component App
             text "Two eggs, a cup of flour, a cup of milk." padding=16 testId="recipe-body"
 ```
 
-- A window 900 px wide or more on the web shows the list beside its detail, as a split view
-  does, with nothing to write: the first route's rows push (a `link`, or a `press` that writes the
-  router) and draw the `forward-chevron`; a chevron on a row that only selects is decoration. A
-  phone pushes. A row pressed while a detail shows pushes another; to swap the detail instead,
-  `open` replaces when one shows: `nav = top(nav).name == "recipe" ? replace(nav,
-  path("recipe", name)) : push(nav, path("recipe", name))`.
+- A wide window shows the list beside its detail, as a split view does, with nothing to write:
+  900 px and up on the web, and on iOS UIKit's split view where UIKit shows both columns (the
+  iPhone Duo open upright), outside a tab (LLP 1127). The first route's rows push (a `link`, or a
+  `press` that writes the router) and draw the `forward-chevron`; a chevron on a row that only
+  selects is decoration. A narrow window pushes. A row pressed while a detail shows pushes
+  another; to swap the detail instead, `open` replaces when one shows: `nav = top(nav).name ==
+  "recipe" ? replace(nav, path("recipe", name)) : push(nav, path("recipe", name))`.
 - The chevron is the row's last child with no colour or size of yours: UIKit's grey
   disclosure. A row that wraps (`flex-wrap`) at large text sizes wraps its parts in a `row
   flex=1 min-width=0 flex-wrap="wrap"` and leaves the chevron after it, at the trailing edge.

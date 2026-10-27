@@ -358,6 +358,28 @@ impl NavPlace {
                 }
             }
         }
+        // @ref LLP 1127 — an inspector is a sheet a wide split shows beside its
+        // detail, so it is said on a sheet route.
+        if let Some(a) = attrs.iter().rev().find(|a| a.name == "navigationInspector") {
+            // A bound presentation may be a sheet; a literal one must be.
+            let sheet = match attrs
+                .iter()
+                .rev()
+                .find(|a| a.name == "navigationPresentation")
+                .map(|a| &a.value)
+            {
+                Some(Expr::Str(word, _)) => word == "modal",
+                Some(_) => true,
+                None => false,
+            };
+            if !self.is_route(attrs) || !sheet {
+                return err(
+                    "lower-attr-value",
+                    "`navigationInspector` belongs on a sheet route (a route with `navigationPresentation=\"modal\"`): an expanded split on iOS shows that sheet as its inspector column",
+                    a.span,
+                );
+            }
+        }
         // @ref LLP 1115.000 D5.2 — the bar is each route's, so `navigationBar`
         // is a route's word: on the root or on a box inside a screen no host
         // reads it, and the screen would keep the bar it meant to drop.

@@ -174,13 +174,20 @@ extension NavigationHost {
         if #available(iOS 18.0, tvOS 18.0, *) { container.setTabBarHidden(true, animated: false) } else { container.tabBar.isHidden = true }
     }
 
-    /// Before installing: a root that gains, loses or changes its tabs gets
-    /// its containers again (the router's stacks are untouched).
-    func reshape(_ p: Projection) {
+    /// Before installing: a root that gains, loses or changes its tabs, or a
+    /// stack that starts or stops splitting (its list's rows came later, or
+    /// its root says `navigationSplit="none"` now; LLP 1127), gets its
+    /// containers again; the router's stacks are untouched. Whether they
+    /// were built again.
+    @discardableResult
+    func reshape(_ p: Projection) -> Bool {
         let panels = p.tabs?.panels.map(\.id) ?? []
-        guard primaryOwner != nil, panels != tabPanels else { return }
-        presenter.session?.log("navigation: the tabs changed; the containers are built again")
-        if tabOwner != nil { retireTabs() } else if let nav = primaryNavigation {
+        guard primaryOwner != nil else { return false }
+        let tabsChanged = panels != tabPanels
+        guard tabsChanged || (p.tabs == nil && wantsSplit(p.chosen.first) != (split != nil)) else { return false }
+        presenter.session?.log(tabsChanged ? "navigation: the tabs changed; the containers are built again"
+            : "navigation: the stack \(split == nil ? "splits" : "no longer splits"); its containers are built again")
+        if tabOwner != nil { retireTabs() } else if split != nil { retireSplit(releasing: true) } else if let nav = primaryNavigation {
             retireStack(nav)
             nav.delegate = nil
             // Its routes go into the new containers: they leave this one first.
@@ -190,6 +197,7 @@ extension NavigationHost {
             nav.removeFromParent()
         }
         primaryNavigation = nil
+        return true
     }
 
     /// Each batch: every other tab's stack, the selected tab, its items.

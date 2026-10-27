@@ -37,9 +37,9 @@ On a fold ([HIG](https://developer.apple.com/design/human-interface-guidelines/d
   other controls off it.
 - **A pane of controls moves** (scrolling only where it does not fit) and keeps its width:
   centred (full width when narrow); the trailing segment on a book fold, as an alert.
-- **A list and its detail** is a split view (`pattern list-detail`; iOS pushes until
-  LLP 1127). **Two peer panes** are an arrangement: place them by segment (duo-lab's
-  Fold tab). Keep the route's `header`: the bar is the platform's.
+- **A list and its detail** is a split view (`pattern list-detail`; UIKit's on iOS,
+  except in a tab, LLP 1127). **Two peer panes** are an arrangement: place them by
+  segment (duo-lab's Fold tab). Keep the route's `header`: the bar is the platform's.
 - Two panes go in reading order, the first on the leading segment: segment 1 in
   right-to-left text, as segments count from the left.
 - Folded like a laptop, controls you place yourself go on the bottom segment, as the talk

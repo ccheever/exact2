@@ -77,7 +77,7 @@ extension NavigationHost {
 
     /// The stacks under the root, in tab order (or the one).
     var primaryStacks: [UIViewController] {
-        tabPanels.isEmpty ? [primaryNavigation].compactMap { $0 } : tabPanels.compactMap(tabStack)
+        tabPanels.isEmpty ? [primaryNavigation, split?.detail, split?.inspector].compactMap { $0 } : tabPanels.compactMap(tabStack)
     }
 
     /// The selected tab's stack, while it is held.

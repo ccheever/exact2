@@ -39,6 +39,13 @@ extension NavigationHost {
         origin > 0 && sv.contentOffset.y < -origin - 0.5
     }
 
+    /// The navigation controller a pop is taking `c` from, while UIKit's
+    /// transition runs.
+    private func leavingNavigation(of c: RouteController) -> UINavigationController? {
+        (primaryStacks.compactMap { $0 as? UINavigationController } + presenter.modals.navigations).lazy
+            .first { $0.transitionCoordinator?.viewController(forKey: .from) === c }
+    }
+
     /// What Exact's containers cover of each route — its controller's safe
     /// area: a shown bar's top, and every edge while the containers take the
     /// whole view — and the header a bar replaces, reported when they change,
@@ -50,8 +57,10 @@ extension NavigationHost {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in (c.lifted.map({ [$0] }) ?? c.barNodes) + [c.scoped].compactMap({ $0 }) { wanted[node.id] = .whole }
-            // Include the departing route until UIKit finishes its transition
-            let nav = c.navigationController
+            // Include the departing route until UIKit finishes its transition:
+            // a pop has taken it from its controller (`navigationController`
+            // is nil), and a swipe back still shows it beside the one beneath.
+            let nav = c.navigationController ?? leavingNavigation(of: c)
             let held = nav.map {
                 $0.viewControllers.contains(c) || $0.transitionCoordinator?.viewController(forKey: .from) === c
             } ?? (c.parent is HeldStack)
@@ -72,7 +81,9 @@ extension NavigationHost {
             // UIKit's own does, but a title's insets are not sampled.
             c.safeArea.sync(c)
             let search = searching(c)
-            let settled = search || (nav?.isNavigationBarHidden ?? true) != routeShowsBar(c, in: nav)
+            // Nested in the list's, the detail's routes are under the list's bar.
+            let barNav = split.flatMap { $0.nested && nav === $0.detail ? $0.list : nil } ?? nav
+            let settled = search || (barNav?.isNavigationBarHidden ?? true) != routeShowsBar(c, in: nav)
             // A route showing no bar has no title: its inset is the status bar's, none in landscape (LLP 1130 D3).
             let barless = !routeShowsBar(c, in: nav)
             if !c.ignoresSafeArea("top"), settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 || barless {
@@ -221,7 +232,8 @@ extension NavigationHost {
         for id in deliveredOwners.keys where ownerValues[id] == nil && presenter.views[id] != nil { owners.append((id, nil)) }
         deliveredOwners = ownerValues
         guard !changes.isEmpty || !owners.isEmpty else { return }
-        presenter.onCovers?(changes, owners)
+        // An inspector's column coming in: its route's are told first, still (`tellStill`).
+        tellStill(changes, owners) { if !$0.isEmpty || !$1.isEmpty { presenter.onCovers?($0, $1) } }
     }
 
     /// Whether the kernel pads `c`'s top by its cover (`reportCovers`): a

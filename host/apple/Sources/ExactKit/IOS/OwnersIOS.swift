@@ -203,6 +203,8 @@ final class OwnerBlocks {
     /// What the runtime was last told, by route: its block, and its
     /// placement unless it is presented.
     private(set) var told: [UInt32: (block: HostBlock, placement: BlockPlacement?)] = [:]
+    /// How the routes were told they show against their stack's top (a split's columns).
+    private var toldShown: [UInt32: BlockShown] = [:]
     private var resetting = false, revealOwed = false
     /// Each block's rectangle in its root's coordinates (`BatchOp.blockRect`),
     /// as the last layout sent it: what an open popover is reported by.
@@ -331,9 +333,24 @@ final class OwnerBlocks {
         }
         // A block taken back forgets its placement with it
         blocks += told.keys.filter { now[$0] == nil && presenter.views[$0] != nil }.map { ($0, nil) }
+        // A block given again starts in its stack in the kernel: how it is shown is told again.
+        let given = Set(now.keys.filter { told[$0] == nil })
         told = now
-        if !blocks.isEmpty || !placements.isEmpty {
-            session.applyUnlessEmpty(session.runtime.blocks(blocks, placements: placements), scrolled: true)
+        // A split's list shows beside its detail, live (LLP 1127 D8), as does the detail beside its
+        // inspector; the detail under the list that overlays it, and the columns under a sheet, show, not live.
+        let split = presenter.navigation.splitShown
+        var shown: [UInt32: BlockShown] = [:]
+        for route in split.beside { shown[route.node.id] = .beside }
+        for route in split.under { shown[route.node.id] = .under }
+        let changes = Set(toldShown.keys).union(shown.keys).filter { (toldShown[$0] != shown[$0] || given.contains($0)) && (now[$0] != nil || shown[$0] != nil) }.map { ($0, shown[$0] ?? .inStack) }
+        toldShown = shown
+        // An inspector's column coming in: its route's block is told first, still (`tellStill`).
+        var untold = changes
+        presenter.navigation.tellStill(blocks, placements) { blocks, placements in
+            if !blocks.isEmpty || !placements.isEmpty || !untold.isEmpty {
+                session.applyUnlessEmpty(session.runtime.blocks(blocks, placements: placements, shown: untold), scrolled: true)
+            }
+            untold = []
         }
         // Reveal against the blocks just told, after their pending fill
         if revealOwed {
@@ -370,7 +387,7 @@ final class OwnerBlocks {
         resetting = true
         teardown()
         resetting = false
-        told = [:]
+        told = [:]; toldShown = [:]
         blockRects = [:]
         revealOwed = false
     }

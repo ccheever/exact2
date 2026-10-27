@@ -193,7 +193,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (Chat2 and Workout DIARY, Gallery's `height`; reproduced on the web, 2026-10-04.)
   **Diagnosed:** the compiler warns (`lower-width-padding`) for a content-box
   container with `width="100%"` and horizontal padding or a border, and `check`
-  names the box that runs past its parent by its padding (LLP 1116.009 D5).
+  names the box that runs past its parent by its padding (LLP 1116.009 D5). On iOS
+  the host pads a route's root too, clear of the iPhone Duo's side strip and of a
+  split's list beside its detail (LLP 1123 D3, LLP 1127 Q3), so a route's root with
+  `width="100%"` runs past the screen by that much: place it with
+  `position="absolute" inset=0`, as the patterns' routes are.
 
 - **A one-edge border draws a frame, and a drawer closed to `height=0` stays open
   a few pixels.** `border-top-width=1 border-style="solid"` on a 60 × 20 box drew a

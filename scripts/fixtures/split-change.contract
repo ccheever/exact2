@@ -1,0 +1,37 @@
+// LLP 1127: whether a stack splits is read again with each batch
+// (SplitIOSTests). The list's rows come with Fill, so the stack starts as
+// a plain stack and then splits; Stop makes the root say
+// `navigationSplit="none"`, and the stack pushes again.
+routes nav
+  library "/"
+    book "/book/:id"
+
+component App
+  state ids: string[] = []
+  state off = false
+  action follow(url: string)
+    nav = go(nav, url)
+  action back
+    nav = back(nav)
+  action fill
+    ids = ["a", "b"]
+  action stop
+    off = true
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        if e.name == "library"
+          column navigationKey=`${e.id}` navigationSplit=(off ? "none" : "") position="absolute" inset=0 display="flex" flex-direction="column" testId="library"
+            header
+              text "Library" role="heading" aria-level=1
+            button press=fill testId="fill"
+              text "Fill"
+            button press=stop testId="stop"
+              text "Stop splitting"
+            list testId="books" flex=1 min-height=0
+              for id in ids key=id
+                link href=path("book", id) testId=`row-${id}`
+                  text `Book ${id}`
+        if e.name == "book"
+          column navigationKey=`${e.id}` position="absolute" inset=0
+            text `Book ${e.params.id}` testId="book"
