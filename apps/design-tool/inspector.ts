@@ -33,8 +33,9 @@ const CSS: Record<string, string> = {
 const LOWERED: Record<string, string> = { tint_color: 'currentcolor' };
 // (Only a row with no source place: the join's own words for one, scripts/tamber-inspect.mjs `editableOf`; an authored
 // row of the same value, a package's read-only one among them, has a place and another reason.)
-const UNPLACED = "a value the map gives no place for: the source's to edit";
-const lowered = (r: any) => !r.editable?.rung && r.editable?.reason === UNPLACED && typeof r.value === 'string' && LOWERED[String(r.name)] === r.value.trim().toLowerCase();
+// A class's `color` lowers to the tint too, in its class: "a style's row (Name) the map gives no place for".
+const UNPLACED = /^(a value|a style's row \([^)]*\)) the map gives no place for: the source's to edit$/;
+const lowered = (r: any) => !r.editable?.rung && UNPLACED.test(String(r.editable?.reason ?? '')) && typeof r.value === 'string' && LOWERED[String(r.name)] === r.value.trim().toLowerCase();
 
 /** A row's author-facing name, as its source spells it: a border side's
  * longhand puts the side first (`border-top-left-radius`). */

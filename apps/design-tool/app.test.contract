@@ -401,6 +401,14 @@ test "a held proposal's title names what it edits, then what reads it, a param b
   clock data
   expect text "held-title-p10" == "agent:d4 proposes surface.card, surface.panel (and 1 that read them: ink.on-card)"
   expect text "held-title-p11" == "agent:d4 proposes Card.fill"
+  // An operation naming no file edits the app's design, so a same-named reader elsewhere is still a reader; a declaring
+  // path is matched whole, so another component's param of the same short name is one too.
+  request POST "/__stub/hold" {"proposal": "p12", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "brand.tamber", "token": "surface.card"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "surface.card", "value": "#eeeeee"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p13", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "@a/a.contract#Card.fill"}, {"file": "app.tamber", "token": "@b/b.contract#Card.fill"}], "ops": [{"index": 0, "op": {"op": "set-param", "name": "@a/a.contract#Card.fill", "value": "surface.card"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p12" == "agent:d4 proposes surface.card (and 1 that read it: surface.card)"
+  expect text "held-title-p13" == "agent:d4 proposes Card.fill (and 1 that read it: Card.fill)"
   request POST "/__stub/restart" {} as ada
 
 test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"

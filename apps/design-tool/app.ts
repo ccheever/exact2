@@ -423,7 +423,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review]));
     held = heldRaw.map(p => ({
       proposal: String(p.proposal), client: String(p.client ?? ''), editedBy: String(p.editedBy ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
-      tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], title: heldTitle((p.ops ?? []).map((o: { op: unknown }) => o.op), (p.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file ?? ''), token: String(c.token) }))), replaces: String(p.replaces ?? ''),
+      tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], title: heldTitle((p.ops ?? []).map((o: { op: unknown }) => o.op), (p.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file ?? ''), token: String(c.token) })), designFile), replaces: String(p.replaces ?? ''),
       items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
       ...reviewOf(p),
     }));
