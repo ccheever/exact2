@@ -228,4 +228,4 @@ component StorageDirectory
       input value=draft input=edit change=restInput("storage", `scope=${encodeURIComponent(scope)}&key=worktreesDirectory&value=`) placeholder=(mixed ? "Mixed" : "Default") aria-label="Worktree location" disabled=busy testId="storage-worktrees-directory" width="15rem" height="1.75rem" padding-left="0.5rem" border-radius="0.5rem" font-size="0.875rem" autocorrect="off" id="field-storage-worktrees-directory" data-editable="yes"
       if value != "" or mixed
         button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=worktreesDirectory&value=`) disabled=busy aria-label="Reset worktree location" testId="storage-reset-directory"
-          text "Reset" font-size="0.75rem"
+          text "Reset"

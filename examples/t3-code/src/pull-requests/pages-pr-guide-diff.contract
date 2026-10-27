@@ -88,7 +88,7 @@ component GuideDiffs
                 button press=press("file-toggle", card.path) aria-expanded=card.open aria-label=`${card.open ? "Collapse" : "Expand"} ${card.path}` title="" testId=`guide-file-toggle-${card.id}` padding=0 border-width=0 background-color="#00000000"
                   PgIcon(name=(card.open ? "chevron-down" : "chevron-right"), size=14, color="light-dark(#71717b, #a1a1aa)")
                 text card.path flex=1 min-width=0 font-family=env.codeFont font-size="0.75rem" line-height="1.125rem" text-overflow="ellipsis" white-space="nowrap"
-                button press=reveal(card.path) aria-label=`Open ${card.path} in Code` testId=`guide-open-code-${card.id}` font-size="0.75rem"
+                button press=reveal(card.path) aria-label=`Open ${card.path} in Code` testId=`guide-open-code-${card.id}`
                   text "Open in Code"
               else
                 if not card.missing

@@ -60,9 +60,9 @@ component WebhookDeliveriesDialog
                 text data.missing font-size="0.875rem" color="light-dark(#71717b, #818181)"
         row padding="1.5rem" gap="0.5rem" justify-content="flex-end"
           button data-focus-stop="enabled" id="webhook-deliveries-back" press=back testId="webhook-deliveries-back"
-            text (data.selected != "" ? "Back" : "Refresh") font-size="0.875rem"
+            text (data.selected != "" ? "Back" : "Refresh")
           button data-focus-stop="enabled" id="webhook-deliveries-done" press=close aria-keyshortcuts="Escape" testId="webhook-deliveries-done"
-            text "Done" font-size="0.875rem"
+            text "Done"
         FocusGuard(guardId="webhook-deliveries-guard-end", targets=targets, popup="webhook-deliveries-dialog")
 
 // Badge (variant success, warning, error or outline): the delivery's outcome.
