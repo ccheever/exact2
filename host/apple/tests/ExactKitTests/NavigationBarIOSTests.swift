@@ -1331,6 +1331,29 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertFalse(search.searchBar.searchTextField.isFirstResponder)
     }
 
+    /// iOS 26 lifts a bottom search field above the keyboard only with no
+    /// scroll view above its navigation controller: a presented search finds
+    /// the stack in the document's mount (`hostDocument`), where it was.
+    func testAPresentedSearchHoldsTheStackOutsideTheViewport() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("iOS 26's floating search field") }
+        guard hostedWindowScene() != nil else { throw missing("scene", "a search controller presents only in a scene's window") }
+        let session = try fixture("bar-search", module: false)
+        let presenter = session.presenter
+        let nav = try XCTUnwrap(presenter.navigation.primaryNavigation)
+        let owner = try XCTUnwrap(presenter.navigation.primaryOwner?.view)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let search = try XCTUnwrap(route.navigationItem.searchController)
+        let frame = owner.convert(owner.bounds, to: nil)
+        search.isActive = true
+        until("the search is presented") { search.isActive && search.transitionCoordinator == nil }
+        XCTAssertFalse(sequence(first: nav.view, next: \.superview).dropFirst().contains { $0 is UIScrollView }, "no scroll view holds the stack")
+        XCTAssertEqual(owner.convert(owner.bounds, to: nil), frame, "where it was")
+        XCTAssertTrue(presenter.mounts(route.node), "its routes are still the session's")
+        search.isActive = false
+        until("the search is dismissed") { !search.isActive && search.transitionCoordinator == nil }
+        XCTAssertEqual(owner.convert(owner.bounds, to: nil), frame)
+    }
+
 }
 
 /// The block-based UIKit animator remains supported alongside interruptible animators.
