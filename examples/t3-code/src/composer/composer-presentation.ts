@@ -73,7 +73,7 @@ export function threadPhase(projection: Obj): string {
   return 'ready';
 }
 
-/** ChatComposer.tsx placeholder chain (74541bab17). */
+/** ChatComposer.tsx placeholder chain (74541bab17; one default line since 3816296021, composerPlaceholder.ts). */
 export function composerPlaceholder(input: { connected: boolean; approval: boolean; question: boolean; choiceOnly: boolean;
   projectRequired: boolean; providerUnavailable: boolean; phase: string; planReady?: boolean }): string {
   if (input.approval) return 'Send a message to decline and redirect the agent';
@@ -82,8 +82,7 @@ export function composerPlaceholder(input: { connected: boolean; approval: boole
   if (!input.connected) return 'Connect to your T3 server to send a message';
   if (input.projectRequired) return 'Choose a project above to start a thread';
   if (input.providerUnavailable) return 'Enable a provider in Settings to send a message';
-  return input.phase === 'disconnected' ? 'Ask for changes, send follow-ups, or attach images'
-    : 'Ask anything, @tag files/folders, $use skills, or / for commands';
+  return 'Ask anything. @ files, $ skills, / commands';
 }
 
 /** getProviderOptionDescriptors + TraitsMenuContent: one flat menu of headers, dividers and radio rows. */

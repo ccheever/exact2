@@ -21,7 +21,7 @@ component TimelineIcon
     if not ["t3-code", "computer", "browser"].includes(name) and geometry == ""
       Icon(name=(name == "pull-request" ? "pull-requests" : name), size=size, color=color)
     if not ["t3-code", "computer", "browser"].includes(name) and geometry != ""
-      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
         path d=geometry
 
 // T3 Code ToolActivityImageIcon (TimelineToolActivityIcon.tsx, 74541bab17; MIT, LICENSE-T3): the

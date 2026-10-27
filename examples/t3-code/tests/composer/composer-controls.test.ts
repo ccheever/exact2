@@ -245,7 +245,8 @@ describe('plan follow-up', () => {
 describe('docked banners, activity and the provider control', () => {
   test('snoozed and woke notices, with Wake now and dismissal', async () => {
     const { client, native, command } = await opened();
-    const now = Date.now();
+    // On the minute: the label reads the clock's minute, as the sidebar's snoozed shelf does.
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
     Object.assign(client.shell.threads[0]!, { snoozedUntil: new Date(now + 3_600_000).toISOString(), snoozedAt: new Date(now - 1000).toISOString() });
     expect(threadStatusLine(client, now)).toMatchObject({ title: 'Snoozed, 1h left', actionLabel: 'Wake now', detail: 'cc:unsnooze' });
     expect(snapshot(client, now).composer.notices).toEqual([]);
@@ -364,7 +365,7 @@ describe('docked banners, activity and the provider control', () => {
     const base = { model: 'GPT-5.6-Luna', traits: 'Medium', traitsIcon: false, runtime: 'Full access', plan: '' };
     expect(footerLayout({ ...base, host: 420 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
     expect(footerLayout({ ...base, host: 340 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 290 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
+    expect(footerLayout({ ...base, host: 250 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
     expect(footerLayout({ ...base, host: 0 })).toMatchObject({ runtimeIconOnly: false });
   });
 });

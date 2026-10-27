@@ -290,6 +290,8 @@ shape PickerRow
   name: string
   label: string
   driver: string
+  // The provider line shows (a search, Favorites, a sub-provider; the Legacy header): a 48pt row, else 32pt.
+  twoLine: bool
   favorite: bool
   selected: bool
   isNew: bool
@@ -334,6 +336,12 @@ shape PickerCatalog
   legacyCount: number
   restCount: number
   restLegacyCount: number
+  twoLineCount: number
+  legacyTwoLineCount: number
+  restTwoLineCount: number
+  restLegacyTwoLineCount: number
+  // The tallest tab's list, in points (rows and their gaps): the popup is never shorter.
+  tallest: number
   highlight: number
   highlightKind: string
   highlightId: string

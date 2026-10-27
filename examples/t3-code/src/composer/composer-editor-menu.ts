@@ -208,7 +208,7 @@ const EXTENSIONS: Record<string, string> = { md: 'markdown', mdx: 'markdown', ma
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image', txt: 'text', log: 'text', py: 'python', rs: 'rust',
   swift: 'swift', yml: 'yml', yaml: 'yml', sh: 'bash', bash: 'bash', zsh: 'bash', go: 'go' };
 export function entryIcon(path: string, kind: string): { icon: string; light: string; dark: string } {
-  if (kind === 'directory') return { icon: 'folder', light: '#71717a', dark: '#818181' };
+  if (kind === 'directory') return { icon: 'folder', light: '#71717a', dark: '#a1a1a1' };
   const name = basename(path).toLowerCase();
   const token = EXTENSIONS[name.includes('.') ? name.split('.').pop()! : ''] ?? 'default';
   const [light, dark] = PIERRE[token]!;
@@ -233,7 +233,7 @@ export function threadRows(threads: Obj[], excludeThreadId: string, query: strin
     .sort((a, b) => str(b.updatedAt).localeCompare(str(a.updatedAt)))
     .slice(0, 5)
     .map(thread => row({ id: `thread:${str(thread.id)}`, type: 'thread', label: str(thread.title), description: 'Thread', icon: 'messages-square',
-      iconLight: '#71717a', iconDark: '#818181' }));
+      iconLight: '#71717a', iconDark: '#a1a1a1' }));
 }
 
 // ── Context references (composerContextReferences.ts) ──────────────────────

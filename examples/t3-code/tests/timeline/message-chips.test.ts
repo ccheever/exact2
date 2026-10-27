@@ -124,12 +124,12 @@ describe('image chip accent (averageImageColor)', () => {
     const inks = imageChipInks('129 140 168')!;
     expect(inks.fill).toBe('#818ca81c');
     expect(inks.hover).toBe('#818ca82b');
-    // Chrome: border oklab(0.825 0.0003 -0.0175) = #c1c5d2, text oklab(0.355 0.001 -0.0142) = #393b43 (light).
+    // Chrome: border oklab(0.825 0.0003 -0.0175) = #c1c5d2; the text mixes with zinc-900 since 3816296021 (#2d2f36, light).
     const channel = (hex: string, at: number) => parseInt(hex.slice(at, at + 2), 16);
     const near = (hex: string, want: string) => [1, 3, 5].every(at => Math.abs(channel(hex, at) - channel(want, at)) <= 2);
     const light = (value: string) => /light-dark\((#[0-9a-f]{6})/.exec(value)![1]!;
     expect(near(light(inks.border), '#c1c5d2')).toBe(true);
-    expect(near(light(inks.ink), '#393b43')).toBe(true);
+    expect(near(light(inks.ink), '#2d2f36')).toBe(true);
     expect(imageChipInks('')).toBeNull();
   });
 });

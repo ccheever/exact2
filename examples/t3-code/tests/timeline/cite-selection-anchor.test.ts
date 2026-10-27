@@ -227,7 +227,7 @@ describe('a plain Tab focuses Cite (AssistantSelectionToolbar.tsx:87-107)', () =
     button.call('focusChanged', state, {}, [false]);
     expect(state.focused).toBe(false);
     expect(source('diff-cite.contract')).toContain('focus=focusChanged(true) blur=focusChanged(false) disabled=tooLong');
-    expect(source('diff-cite.contract')).toContain('box-shadow=(focused ? "0 0 0 1px light-dark(#fcfcfc, #0a0a0a), 0 0 0 3px light-dark(#1b4ed8, #346bf1), 0 8px 24px -12px #00000059" : "0 8px 24px -12px #00000059")');
+    expect(source('diff-cite.contract')).toContain('box-shadow=(focused ? "0 0 0 1px light-dark(#fcfcfc, #000000), 0 0 0 3px light-dark(#1b4ed8, #346bf1), 0 8px 24px -12px #00000059" : "0 8px 24px -12px #00000059")');
   });
 });
 
