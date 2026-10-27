@@ -57,8 +57,8 @@ open class ExactActivity : Activity() {
     protected open fun drive(scroll: (Float) -> Unit): Drive? = null
     private var driver: Drive? = null
     private lateinit var view: ExactView
-    /** Gamepads ([Pads]): every key and motion event is offered to them first. */
-    private val pads by lazy { Pads(this) }
+    /** The process's gamepads ([Pads]): every key and motion event is offered to them first. */
+    private val pads: Pads get() = Pads.attach(this)
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean = pads.key(event) || super.dispatchKeyEvent(event)
     override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean =
@@ -468,7 +468,7 @@ open class ExactActivity : Activity() {
     override fun onStop() {
         stopped = true
         Exact.hidden(true)
-        pads.blur()
+        if (reads()) pads.background()
         view.running(false, reads())
         contentResolver.unregisterContentObserver(settings)
         super.onStop()
@@ -501,7 +501,6 @@ open class ExactActivity : Activity() {
     }
 
     override fun onDestroy() {
-        pads.release()
         accessibility.removeAccessibilityStateChangeListener(accessWatch)
         requests.destroy()
         release()

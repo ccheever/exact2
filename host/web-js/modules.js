@@ -35,6 +35,7 @@ import { samples, groupOf } from "./samples.js";
 import { wakes, REFUSED } from "./wakes.js";
 import { reach } from "./reach.js";
 import { updates } from "./update.js";
+import { spans, fillAll } from "./spans.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -89,9 +90,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const now = () => reportTime(clock.now)[0] + clock.now; // the agent clock's date, as `exactTime` reads it
   const filled = (row, v) => {
     if (errorCode(v)) return v;
-    const out = structuredClone(v);
-    for (const [path, filler] of Object.entries(row.sub.fill ?? {})) fill(out, path, filler === "now" ? now() : filler);
-    return out;
+    return fillAll(row.sub, structuredClone(v), now);
   };
   const prefers = row => preferred.has(row.key) ? filled(row, preferred.get(row.key)) : undefined;
   // The web's own facts over a source's (`web`: local authentication's `later` cell, LLP 1133.010 D15). A default has
@@ -131,6 +130,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (row.sub.unsupported?.includes("web")) return { now: { error: "NotSupportedError" } };
     const p = decidePermission(row, send);
     if (p) return p;
+    const s = sp.decide(row, send, args);
+    if (s) return s;
     if (send && row.sub.ceremony) return ceremonies.decide(row, args);
     if (send && row.sub.records) return { now: null }; // a signal the substitute records (LLP 1133.011 §9)
     if (send && row.sub.shortcuts === "pin") return { now: rc.pin(row, args) };
@@ -193,6 +194,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const listed = [];
   const ceremonies = {
     grants(row, args) {
+      // A computed colour that is none fails the call (LLP 1133.022 D10 item 2).
+      for (const o of row.sub.colorOptions ?? []) if (typeof args?.[o] === "string" && !isColor(args[o])) return { error: "TypeError", message: `${o} is no CSS colour` };
       const lines = (data.grants ?? "").split("\n").map(l => l.trim().split(/\s+/));
       for (const [path, spec] of Object.entries(row.sub.nameGrants ?? {})) {
         if (!spec?.line) continue;
@@ -424,6 +427,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     return loaded.get(extension);
   };
   const implementation = row => route(row) === "substitute" ? null : instance(extensionOf(row));
+  // `of`, spans, `played` and `changes` (spans.js).
+  const sp = spans({ sibling, valueOf, route, extensionOf, say, raise: (key, args, from) => raise(key, args, from) });
+  Clocked.push(sp.due);
   // A send made inside the press (`"gesture": true`, LLP 1133.013 D12 item 5): its implementation is loaded once
   // the page is up, so the send's handler runs in the input event's dispatch, where a browser's gesture holds.
   const gestures = new Set([...byKey.values()].filter(r => r.send && r.sub.gesture && route(r) === "real").map(extensionOf));
@@ -568,6 +574,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (why) { say(`${row.key}: refused, ${why}`); return Promise.resolve(why.startsWith("person-required") ? { error: "NotAllowedError", message: "person-required" } : { error: "NotAllowedError" }); }
     const real = route(row) === "real" ? viaImplementation(row, args, null, { origin: from }) : null;
     if (real) return real.then(r => { if (errorCode(r)) say(`${name}: refused: ${errorCode(r)}`); return errorCode(r) ? r : null; });
+    sp.resolveOf(row, args);
+    const refused = sp.refusal(row, args);
+    if (refused) { say(`${name}: refused: ${refused.error}`); return Promise.resolve(refused); }
     const p = row.sub.permission, state = p && row.sub.admission !== "none" ? stateOf(p.name) : null;
     if (state === "denied") { say(`${name}: refused: ${p.denied}`); return Promise.resolve({ error: p.denied }); }
     if (state === "prompt" && asks(row, true)) {
@@ -575,7 +584,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (from !== "app") { say(`${row.key}: refused, person-required (${from} origin)`); return Promise.resolve({ error: p.denied }); }
       return new Promise(resolve => { const h = { ticket: nextTicket(), row, args, resolve }; effects.push(h); say(`device permission ${h.ticket} held (agent)`); });
     }
-    return Promise.resolve(applyEffect(row, args));
+    const done = applyEffect(row, args);
+    if (done === null) sp.effected(row, args, from);
+    return Promise.resolve(done);
   };
   const settleEffects = (name, state) => {
     for (const h of effects.filter(h => h.row.sub.permission?.name === name)) {
@@ -788,9 +799,12 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     reserved[row.source] = (_, args, name) => {
       supersede(row, name);
       const given = sampled.clamp(row, args?.[0] !== undefined ? object(args[0], row.options) : {}, say);
+      sp.resolveOf(row, given);
       const timeout = row.send ? timeoutOf(row, args) : null, reader = row.send ? null : name;
       const origin = originNow();
       let d = admitted(row, given, origin, row.send, timeout);
+      const spanned = sp.admitted(row, given, origin, d);
+      if (spanned) return spanned.then(json => answer(row, json));
       const n = (asked.get(name) ?? 0) + 1;
       asked.set(name, n);
       if (reader && sampled.sampled(row)) d = sampledAnswer(row, d, given, reader);
@@ -864,6 +878,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   (globalThis.exact ??= {}).extensions = {
     // A polled source's ask in flight: what a jump waits for (agent.js).
     polling: () => asking.size > 0,
+    // Sends answered after a span (spans.js): no request a settle waits on, and when the soonest ends.
+    spans: () => sp.count(),
+    spanDue: () => sp.next(),
     // `state.extensions` (LLP 1133.002 §6), as the runner's `extensions_json` writes it.
     state() {
       const out = {};
@@ -887,6 +904,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       // What a loaded implementation discloses of its own (`state()`: a language model's sessions, LLP 1133.016 §9).
       for (const [extension, e] of Object.entries(out)) {
         Object.assign(e, sampled.state(extension));
+        sp.state(extension, e);
         rc.state([...byKey.values()].filter(r => extensionOf(r) === extension), e);
         const own = ready.get(extension)?.state?.();
         if (own) e.implementation = own;
@@ -930,10 +948,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const row = byKey.get(`${body.extension}.${body.source ?? body.send}`);
       if (!row || row.send !== !!body.send) return Promise.resolve({ error: "NotSupportedError" });
       const args = sampled.clamp(row, { ...(body.args ?? {}) }, say);
+      sp.resolveOf(row, args);
       const timeout = row.send ? timeoutOf(row, args) : null, reader = !row.send && sampled.sampled(row) ? `data ${groupOf(args)}` : null;
       const origin = body.origin === "tool" ? "tool" : originNow();
       if (row.sub.effect) return effect(row, args, origin);
       let d = admitted(row, args, origin, row.send, timeout);
+      const spanned = sp.admitted(row, args, origin, d);
+      if (spanned) return spanned.then(json => complete(json, row.type));
       if (reader) d = sampledAnswer(row, d, args, reader);
       if (d.forward) return viaImplementation(row, args, null, { origin }).then(json => { if (reader) sampled.answered(row, reader, json); return complete(kept() ? json : ceremonies.dropped(row, json), row.type); });
       if (d.hold) return hold(row, d.hold, row.key, true, timeout, route(row) === "agent" ? sheet => viaImplementation(row, args, null, { origin, sheet }) : null, args, kept);
@@ -1076,9 +1097,11 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       }
       for (const [name, state] of Object.entries(req.permission ?? {})) setPermission(name, state);
       for (const [key, v] of Object.entries(group)) {
+        const row = byKey.get(key), before = row?.sub.changes ? valueOf(row) : undefined;
         if (v === "clear") preferred.delete(key); else preferred.set(key, v);
-        if (byKey.has(key)) sampled.prefer(byKey.get(key), v);
+        if (row) sampled.prefer(row, v);
         say(`prefer extension ${key}`);
+        if (row?.sub.changes) sp.changed(row, before, valueOf(row));
       }
       // An implementation bound under the agent is told its names' preferred values (LLP 1133.008 D8 item 9).
       for (const extension of new Set(Object.keys(group).map(k => byKey.get(k) ?? rowOf(k)).filter(r => r && route(r) === "agent").map(extensionOf))) {
@@ -1091,6 +1114,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     },
   };
 }
+
+/** Whether `c` is a CSS colour: the browser's own parse, else its common forms. */
+const isColor = c => globalThis.CSS?.supports ? CSS.supports("color", c) : /^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|(rgb|hsl)a?\(.*\)|[a-z]+)$/i.test(c.trim());
 
 /** Whether a call gave option `arg`: set and not `false`; the grant key `"*"` is every call's. */
 const given = (args, arg) => arg === "*" || (args?.[arg] != null && args[arg] !== false);

@@ -400,8 +400,24 @@ extension ExactExtensions {
                 box["package"] = name
                 NotificationCenter.default.post(name: Notification.Name("exact.transfers"), object: box)
                 return box["reply"]
+            },
+            pads: ExactPads(driven: module.agent, injected: injectedPads),
+            after: { [weak module] ms, body in
+                // A host without the session clock's timer: the wall's.
+                guard let module, module.afterFn != nil else {
+                    let work = DispatchWorkItem(block: body)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: work)
+                    return work.cancel
+                }
+                return module.after(ms, body).stop
             })
     }
+
+    /// `EXACT_AGENT_PADS`: a drive's test pads (ExactPads), a JSON list.
+    private static let injectedPads: [[String: Any]] = {
+        guard let text = ProcessInfo.processInfo.environment["EXACT_AGENT_PADS"] else { return [] }
+        return (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [[String: Any]] ?? []
+    }()
 }
 #endif
 extension ExactModuleContext {

@@ -13,6 +13,9 @@ use getGamepads, playEffect, setLight, GamepadList, Gamepad, GamepadHapticsResul
 // The pad in use's west face button, by its label (Square, X); "" with none.
 fn west(p: Gamepad): string = match p.labels.at(2) { case some(l) => l, case none => "" }
 fn inUse(l: GamepadList): string = l.gamepads.filter(p => l.current == some(p.index)).map(p => west(p)).join("")
+// On Apple, the SF Symbol of that button, which the HIG prefers to text; "" elsewhere.
+fn westSymbol(p: Gamepad): string = match p.apple { case some(a) => match a.symbols.at(2) { case some(s) => s, case none => "" }, case none => "" }
+fn symbolInUse(l: GamepadList): string = l.gamepads.filter(p => l.current == some(p.index)).map(p => westSymbol(p)).join("")
 
 shape Hud
   lit: number
@@ -37,6 +40,7 @@ component Beacons
   resource pads = getGamepads() as shape GamepadList
   mutation felt as shape GamepadHapticsResult
   derive padWord = inUse(pads)
+  derive padSymbol = symbolInUse(pads)
 
   action play
     playing = true
@@ -89,7 +93,10 @@ component Beacons
           if paused and motion.available
             TiltPanel(tilt=tilt, state=motion.state, x=g.x - levelX, y=g.y - levelY, gx=g.x, gy=g.y, gz=g.z, angles=angles, setTilt=setTilt, setLevel=setLevel)
           if hud.near != "" and padWord != ""
-            text `Press ${padWord} to light this beacon` testId="near-prompt" position="absolute" top=76 left=24 padding=12 background-color="#202731"
+            row position="absolute" top=76 left=24 padding=12 gap=8 align-items="center" background-color="#202731"
+              if padSymbol != ""
+                image ("symbol:sf/" + padSymbol) aria-hidden=true testId="near-symbol" width=20 height=20 object-fit="contain"
+              text `Press ${padWord} to light this beacon` testId="near-prompt"
           if hud.near != "" and padWord == ""
             text "Press E or Light to light this beacon" testId="near-prompt" position="absolute" top=76 left=24 padding=12 background-color="#202731"
           // The touch controls step aside while a pad plays.
