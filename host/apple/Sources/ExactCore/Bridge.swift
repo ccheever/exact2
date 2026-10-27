@@ -679,6 +679,17 @@ package final class Runtime {
     package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
     package func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
+    /// Those `then`s only when one is the earliest work due (LLP 1072.000 §4 B).
+    package func landThenFirst() -> Batch { on { read(exact_advance(rt, 0, 3)) } }
+    /// A timer advance on the owner, not waited for (LLP 1072.000): what is
+    /// due by `now`, or with `frame` that display frame's (`frame(now:wall:)`).
+    package func advanceAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            done(read(frame.map { exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0)))
+        }
+    }
     package func frame(now: Double, wall: Double? = nil) -> Batch { on { read(wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }
     /// Whether motion a commit begins waits for the first presented frame
     /// (LLP 1003.001 D7); off, what waits starts at `at`.

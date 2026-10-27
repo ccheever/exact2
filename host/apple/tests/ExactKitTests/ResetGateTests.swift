@@ -258,6 +258,7 @@ final class ResetGateTests: XCTestCase {
             _ = session.runtime.covers([])
         }
         XCTAssertTrue(held.contains { ResetGate.replayed[$0]?.0 == .advance }, "the due timer's advance was held: \(held)")
+        session.drainFill() // the replay posts the timer's advance (LLP 1072.000)
         XCTAssertGreaterThan(try ticks(session), before, "the tick due while held ran in the replay")
         XCTAssertTrue(held.contains("collectionFeedback(_:now:)") && held.contains("covers(_:)"), "\(held)")
         // (Boot's own work may come due in the hold too, a fit or the data source's activation: owed, then replayed.)
