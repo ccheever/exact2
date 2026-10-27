@@ -131,8 +131,8 @@ component ScratchLink
       if over
         box position="absolute" left=0 right=0 top="1.0625rem" height=1 background-color="light-dark(#18181b, #f5f5f5)"
 
-// InlineButton tone="picker" as a ComboboxTrigger: the project title with a dotted underline
-// (decoration-foreground/30, 4pt offset) that turns solid on hover, and the combobox centred under it, 4pt below
+// InlineButton tone="picker" as a ComboboxTrigger: the project title, underlined (4pt offset) only on hover and while
+// the popup is open (hover:underline, data-popup-open:underline), and the combobox centred under it, 4pt below
 // (ComboboxPopup align="center", w-72). The search field takes the focus as the popup opens; the project in use is
 // lit, typing lights the first match (autoHighlight), ↓/↑ walk the rows (past either end back to none) and Return
 // picks the lit one. A pick gives the focus back to the trigger.
@@ -147,6 +147,7 @@ component HeroPicker
   derive small = size < 30
   derive lineHeight = size == 30 ? 36 : (size == 16 ? 24 : 20)
   state over = false
+  state open = false
   state query = ""
   // The row the keys or the pointer lit since the last edit ("-" for none); "" leaves it to the query.
   state cursor = ""
@@ -159,7 +160,8 @@ component HeroPicker
   action hover(value: bool)
     over = value
   action toggled(e: ToggleEvent)
-    if e.newState == "open"
+    open = e.newState == "open"
+    if open
       query = ""
       cursor = current
   action search(next: string)
@@ -187,9 +189,8 @@ component HeroPicker
       button id="empty-choose-project" popovertarget="hero-project-menu" hover=hover role="combobox" testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" min-width=0 max-width="100%" position="relative"
         for name in home.projectNames key=name.id
           text name.id font-size=size line-height=`${lineHeight}px` letter-spacing=(small ? "0px" : "-0.75px") font-weight=500 color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" max-width="100%"
-        box position="absolute" left=0 right=0 top=(size == 30 ? "2.0625rem" : (size == 16 ? "1.3125rem" : "1.125rem")) height=(small ? "1px" : "2px") overflow="hidden"
-          svg width="125rem" height=(small ? "1px" : "2px") viewBox=(small ? "0 0 2000 1" : "0 0 2000 2") aria-hidden=true
-            path d=(small ? "M0 .5H2000" : "M0 1H2000") stroke=(scheme == "dark" ? (over ? "#f5f5f5" : "#f5f5f54d") : (over ? "#18181b" : "#18181b4d")) stroke-width=(small ? 1 : 2) stroke-dasharray=(over ? "none" : (small ? "1 1" : "2 2"))
+        if over or open
+          box position="absolute" left=0 right=0 top=(size == 30 ? "2.0625rem" : (size == 16 ? "1.3125rem" : "1.125rem")) height=(small ? "1px" : "2px") background-color="light-dark(#18181b, #f5f5f5)"
       // Centred 4 pt below the project name, above it when the bottom does not fit. Escape closes it (light dismiss).
       column id="hero-project-menu" toggle=toggled popover="auto" position-area="bottom" position-try-fallbacks="flip-block" aria-modal=true position="absolute" margin-top="0.25rem" testId="hero-project-menu-layer"
         column width="18rem" max-height="23rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") overflow="hidden" aria-label="Choose project" testId="hero-project-menu"
@@ -285,5 +286,7 @@ component LandingButton
     over = value
   view
     button press=press hover=hover disabled=busy testId=testId height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") background-color=(primary ? (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") : (over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff06)")) box-shadow=(primary ? (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") : "0 1px 2px #0000000d") opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
-      PgIcon(name=icon, size=16, color=(primary ? "#ffffff" : "light-dark(#71717b, #a1a1a1)"))
+      // Button's [&_svg]:-mx-0.5: the icon overhangs its 6pt gap by 2pt on each side.
+      box margin-left=-2 margin-right=-2 flex-shrink=0
+        PgIcon(name=icon, size=16, color=(primary ? "#ffffff" : "light-dark(#71717b, #a1a1a1)"))
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(primary ? "#ffffff" : "light-dark(#18181b, #f5f5f5)")
