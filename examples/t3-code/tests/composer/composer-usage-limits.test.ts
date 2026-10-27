@@ -56,7 +56,7 @@ describe('/usage-limits banner', () => {
     expect(notice).toMatchObject({ description: 'Codex · ChatGPT Pro', redact: '', lines: [], dismissLabel: 'Dismiss usage limits', variant: 'info', icon: 'gauge' });
     const [account] = notice.usage;
     expect(account).toMatchObject({ key: 'codex', showLabel: false, notice: '', manage: true, showCredits: true, canRedeem: true, busy: false, status: '',
-      credits: '2 reset credits banked · next expires in 27d 23h', light: '#27272a', dark: '#f5f5f5' });
+      credits: '2 reset credits banked · next expires in 27d 23h', light: '#18181b', dark: '#f5f5f5' });
     expect(account!.windows).toEqual([
       { id: 'primary', label: '5h limit', remaining: 60, timeLeft: 40, pace: 'under', paceLabel: 'Under pace: headroom left for the rest of the window', resetsIn: 'resets in 2h 0m',
         summary: '5h limit: 60% left, 40% of the window left, resets in 2h 0m', tipFigures: '60% left · 40% of the window left', tipResets: expect.stringMatching(/^Resets .+ · resets in 2h 0m$/) },

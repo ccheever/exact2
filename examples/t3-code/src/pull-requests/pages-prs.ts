@@ -226,7 +226,7 @@ function mix(label: string, base: string, share: number): string {
 }
 /** PullRequestLabelChip: a wash of the label's color with its name in a mix of it and the foreground. */
 export function labelChip(name: string, color: string) {
-  if (!color) return { key: name.toLowerCase(), name, background: 'light-dark(#f4f4f5, #ffffff0f)', ink: 'light-dark(#27272a, #f5f5f5)' };
+  if (!color) return { key: name.toLowerCase(), name, background: 'light-dark(#f4f4f5, #ffffff0f)', ink: 'light-dark(#18181b, #f5f5f5)' };
   return { key: name.toLowerCase(), name, background: `light-dark(${color}14, ${color}1f)`, ink: `light-dark(${mix(color, '#262626', 0.3)}, ${mix(color, '#f5f5f5', 0.45)})` };
 }
 

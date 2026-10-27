@@ -262,6 +262,6 @@ describe('barColor (UsageLimits.tsx, no reference test)', () => {
     expect(barColor('cursor')).toEqual(['#8b8b8b', '#8b8b8b']);
     expect(barColor('pi')).toEqual(['#4d9f8a', '#4d9f8a']);
     expect(barColor('claudeAgent')).toEqual(['#d97757', '#d97757']);
-    expect(barColor('acpRegistry')).toEqual(['#27272a', '#f5f5f5']);
+    expect(barColor('acpRegistry')).toEqual(['#18181b', '#f5f5f5']);
   });
 });
