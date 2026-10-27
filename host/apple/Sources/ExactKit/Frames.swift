@@ -67,8 +67,12 @@ package final class Frames: NSObject {
                 // A frame task or a timer whose commit shows nothing (a
                 // playhead that moves eight times a second, sampled sixty;
                 // a `sent` reader off screen) skips the presenter's pass.
-                if tasks { s.applyUnlessEmpty(s.runtime.frame(now: frameNow, wall: now)) }
-                else if s.timerDue.map({ now >= $0 }) ?? true { s.applyUnlessEmpty(s.runtime.advance(now: now), timer: true) }
+                // Posted where fills are (LLP 1072.000), one at a time: a
+                // frame with one in flight skips its own, never caught up.
+                let due = tasks || s.timerDue.map({ now >= $0 }) ?? true
+                if ExactSession.asyncFills { if due, !s.advanceInFlight { s.sendAdvance(now: now, frame: tasks ? frameNow : nil) } }
+                else if tasks { s.applyUnlessEmpty(s.runtime.frame(now: frameNow, wall: now)) }
+                else if due { s.applyUnlessEmpty(s.runtime.advance(now: now), timer: true) }
             }
             // Motion samples at the frame's target, and starts there what
             // waits for it (LLP 1003.001 D5); the agent's clock has no frames.

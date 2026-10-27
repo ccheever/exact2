@@ -424,12 +424,14 @@ public final class ExactSession {
     private var viewsEpoch = 0
     private let published = NSLock()
     /// What the owner committed without main waiting.
-    enum Published { case fill(UInt32), tick, canvas, notice, reply, cancelledReply }
+    enum Published { case fill(UInt32), tick, advance, canvas, notice, reply, cancelledReply }
     /// Batches the owner committed without main waiting, in its order: a
     /// slice's (with its list), a frame's tick's and a canvas draw's.
     private var publishedQueue: [(kind: Published, batch: Batch, generation: Int)] = []
     /// A frame's tick is on the owner (LLP 1072 §7.1): the next one waits.
-    private(set) var tickInFlight = false
+    var tickInFlight = false
+    /// A timer advance is on the owner (LLP 1072.000): the next one waits.
+    var advanceInFlight = false
     /// Canvas draws run in a turn of their own on the owner (LLP 1072 §8.5):
     /// the last batch applied says whether one is owed, one is in flight
     /// at a time, and one is asked for once per main-queue turn.
@@ -439,7 +441,7 @@ public final class ExactSession {
     var repliesInFlight = 0
     var replySubmissions: [Double] = []
     /// Owner work main did not wait for, whose batches land before any made later (T4).
-    var ownerInFlight: Bool { fillInFlight || tickInFlight || canvasInFlight || noticesInFlight > 0 || repliesInFlight > 0 }
+    var ownerInFlight: Bool { fillInFlight || tickInFlight || advanceInFlight || canvasInFlight || noticesInFlight > 0 || repliesInFlight > 0 }
     /// Whether this generation's plan reads `onLine`, learned by a synchronous `tellPage`.
     var readsOnLineKnown: (generation: Int, value: Bool)?
     private var canvasOwed = false
@@ -591,14 +593,6 @@ public final class ExactSession {
         }
     }
 
-    /// A frame's tick on the owner, not waited for: motion sampled at this
-    /// frame lands with the next main-queue turn (LLP 1072 §7.1).
-    func sendTick(now: Double, frame: Double? = nil) {
-        tickInFlight = true
-        let captured = generation
-        runtime.tickAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.tick, batch, captured) }
-    }
-
     /// The owed canvas draws, after this main-queue turn's calls and not
     /// waited for (LLP 1072 §8.5): main is not awake for a draw. A tick in
     /// flight draws in its own turn, so none is asked for meanwhile; its
@@ -649,6 +643,7 @@ public final class ExactSession {
             switch next.kind {
             case .fill: fillInFlight = false
             case .tick: tickInFlight = false
+            case .advance: advanceInFlight = false
             case .canvas: canvasInFlight = false
             case .notice: noticesInFlight -= 1
             case .reply, .cancelledReply: submitted = retireReply()
@@ -660,7 +655,7 @@ public final class ExactSession {
                 continue
             }
             let batch = next.batch
-            if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
+            if case .advance = next.kind { applyUnlessEmpty(batch, timer: true) } else if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
                 apply(batch)
             }
             if case .reply = next.kind {
@@ -1027,7 +1022,7 @@ public final class ExactSession {
             holdingReports = true; landFill(); holdingReports = false
             guard state != .destroyed else { return }
         }
-        guard !fillInFlight, !tickInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch); return }
+        guard !fillInFlight, !tickInFlight, !advanceInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0); logAlerts(batch.alerts); logJournal(batch.journal)
         if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
