@@ -1295,7 +1295,7 @@ export const STAGES = {
       'consumer-pixels': 'The clone\'s settings rows, profile header, composer frame, bottom bar items and header buttons come from @exact/lists, @exact/cards and @exact/actions (ListRow, SwitchRow, ProfileHeader, ComposeFrame, BarItem, HeaderButton; stage 12\'s four kept) with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)',
     },
     // Release identity over the four pieces as they landed on main.
-    release: { label: 'stage 13 C', runs: [['21a1a836b3', '21a1a836b3'], ['b821a5f4d0', '9aa14743f2'], ['f926a60524', '304de7b893'], ['ba2d017788', '4f29a65443']] },
+    release: { label: 'stage 13 C', runs: [['21a1a836b3', '21a1a836b3'], ['4841b08acf', '42c2b03a35'], ['0091eae8d0', 'a3c7cd25cd'], ['d9feffb3c0', 'ba581775cb']] },
   },
 };
 
