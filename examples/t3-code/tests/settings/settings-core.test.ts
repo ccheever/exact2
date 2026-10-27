@@ -123,7 +123,7 @@ describe('general rows', () => {
     // Every page split from General by 9db433f4ba #25651, in nav order (SettingsPanels.tsx at 96fc7b9551).
     expect(sections.map(section => section.title)).toEqual(['Notifications', 'Sidebar', 'Confirmations', 'Display', 'Composer', 'Follow-ups', 'Diffs', 'Pull requests', 'New projects', 'New threads',
       'Usage limits', 'Auto-settle', 'Text generation', 'Creation', 'Updates', 'Background activity', 'Diagnostics', 'App', 'Legal', 'Legacy']);
-    expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Thread notifications', 'In-app notifications', 'Project grouping', 'Project order', 'Working section (beta)',
+    expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Thread notifications', 'In-app notifications', 'Project grouping', 'Project order', 'Working section',
       'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Time format', 'Rich text composer', 'Send shortcut', 'Collapse composer on scroll', 'Show skills in slash menu',
       'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Proactive panels', 'Add project starts in', 'Model', 'Permissions', 'Workspace',
       'Resume after usage limits', 'Snooze until limits reset', 'Compact idle Claude threads (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
@@ -422,7 +422,7 @@ describe('navigation and search', () => {
     expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Compact idle Claude threads (beta) / Threads', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
       'GitCafe credentials / Source control', 'Bitbucket credentials / Source control']);
     expect(titles('mcp')).toEqual([]);
-    expect(titles('sidebar')).toEqual(['Sidebar (legacy) / Labs', 'Project grouping / General', 'Project order / General', 'Working section (beta) / General', 'Auto-settle inactive threads / Threads',
+    expect(titles('sidebar')).toEqual(['Sidebar (legacy) / Labs', 'Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
       'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads', 'Environment icon / Environments']);
     expect(titles('settle')).toEqual(['Auto-settle inactive threads / Threads', 'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads']);
   });

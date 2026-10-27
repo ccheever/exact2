@@ -34,7 +34,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["project-order", "Project order", "general", "", "sort projects sidebar manual created recent", "", ""],
   ["snooze-limited-threads", "Snooze until limits reset", "threads", "", "usage quota rate limit reset wake recover continue", "", ""],
   ["auto-resume-limited-threads", "Resume after usage limits", "threads", "", "usage quota rate limit reset recover continue", "", ""],
-  ["working-shelf", "Working section (beta)", "general", "", "hide fold running monitoring threads inbox sidebar shelf", "", ""],
+  ["working-shelf", "Working section", "general", "", "hide fold running monitoring threads inbox sidebar shelf", "", ""],
   ["auto-settle-inactive-threads", "Auto-settle inactive threads", "threads", "", "sidebar inactivity days no activity automatically", "project-defaults", "autoSettle"],
   ["compact-idle-threads", "Compact idle Claude threads (beta)", "threads", "", "context compaction idle cache tokens usage summary beta experimental", "environment-defaults", ""],
   ["auto-settle-merged-threads", "Auto-settle merged threads", "threads", "", "pull request merge closed automatically sidebar", "project-defaults", "autoSettle"],
