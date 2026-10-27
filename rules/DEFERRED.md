@@ -1264,6 +1264,25 @@ reading. Nothing that isn't HTML is added by it.
   type or an unlisted one, subtypes, wide-area DNS-SD and raw TXT bytes;
   a client socket for raw TCP or UDP, SSDP and UPnP; systemd-resolved's
   browse on Linux; and a browse in a wake or the background.
+- USB, HID and serial devices were never on the doing list.
+  **Expanded (Charlie, 2026-10-27, "Accept 037, hold 032 (Recommended)",
+  waived; LLP 1133.037 §17 question 8):** Web Serial, WebHID and WebUSB
+  (`@exact/serial`, `@exact/hid`, `@exact/usb`) on the web, macOS,
+  Android (serial and USB), Windows and Linux: a chooser where the target
+  draws one, the attached list where nothing asks (D3), each web
+  blocklist on every target, one device per process leased to each
+  session, serial input that loses no byte, and HID input reports as a
+  batch. With the seam additions of LLP 1133.037 D19. Consumers: Excord's
+  mention light (a blink(1)) and Bench, a serial monitor and DFU firmware
+  updater. Unblocks a desk light, a board's log and a firmware update
+  without app Swift or Kotlin. Take: none named; the ruling is its own
+  waiver. Still out, each until a consumer asks (LLP 1133.037 §15):
+  isochronous transfers; Bluetooth RFCOMM serial ports; vendor
+  USB-serial bridges on Android below API 37, and launching an app when
+  a device is plugged in; a background serial logger on Android; a
+  chooser on Linux and a presenter-drawn one on Windows; HID report
+  descriptor parsing beyond `collections`; a terminal host's cells; and
+  iOS, iPadOS and tvOS, which have no device API for apps.
 - **Expanded (Charlie, 2026-10-25, "Waive both (Recommended)", on LLP
   1133.027 §13 question 9):** barcodes and QR codes read in a still image
   and live in a camera track a viewfinder shows (`getSupportedFormats`,
