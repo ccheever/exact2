@@ -55,14 +55,14 @@ export type ShellSurface = { id: string; label: string; icon: string; shortcut: 
 export const TOAST_LIMIT = 3;
 const KIND_ICON: Record<ToastKind, [string, string]> = {
   success: ['circle-check', '#00bc7d'], error: ['circle-alert', 'light-dark(#fb2c36, #fb414a)'],
-  warning: ['triangle-alert', '#fe9a00'], info: ['info', '#2b7fff'], loading: ['loader', 'light-dark(#27272a, #f5f5f5)'],
+  warning: ['triangle-alert', '#fe9a00'], info: ['info', '#2b7fff'], loading: ['loader', 'light-dark(#18181b, #f5f5f5)'],
 };
 /** Leading glyphs callers name (ThreadToastData.leadingIcon): `<glyph>:<tone>`. */
 const TONES: Record<string, string> = {
   'success-foreground': 'light-dark(#007a55, #00d492)', 'warning-foreground': 'light-dark(#bb4d00, #ffb900)',
   'destructive-foreground': 'light-dark(#c10007, #ff6467)', 'info-foreground': 'light-dark(#1447e6, #51a2ff)',
   success: '#00bc7d', warning: '#fe9a00', info: '#2b7fff', destructive: 'light-dark(#fb2c36, #fb414a)',
-  foreground: 'light-dark(#27272a, #f5f5f5)',
+  foreground: 'light-dark(#18181b, #f5f5f5)',
 };
 
 type Clock = { remaining: number; last: number; timeout?: number };

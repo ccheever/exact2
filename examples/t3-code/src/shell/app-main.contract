@@ -313,16 +313,16 @@ component ChatColumn
         // loads the pane stays blank (hideEmptyPlaceholder: threadDetailLoading).
         column flex=1 min-height=0 width="100%" padding-right=laneInset padding-bottom=(overlaid ? data.composerReserved : 0) box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
           if not data.threadLoading and not data.running
-            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)" testId="empty-timeline-hint"
+            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #a1a1a14d)" testId="empty-timeline-hint"
       if data.messages.length > 0
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
           list appearance="none" virtualized=true scrollFollowEnd=(not foldHold and not threadFind.open) reachend=releaseFold scroll=transcriptScrolled scrollend=citeSettled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=listTop id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
-              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
+              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#18181b, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
-            TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas))
+            TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas))
           TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown, wheel=minimapWheel, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 6 * rem)) / 2), windowHeight=viewport.height, jump=turnJump)
           for owner in [composerOwner] key=owner
             box intersect=transcriptOpened(owner) position="absolute" top=0 left=0 width=0 height=0 pointer-events="none"
@@ -386,10 +386,10 @@ component ChatColumn
       // (z-40), border-2 border-dashed border-primary/60 bg-primary/[0.035], its pill bg-background/95 with border-primary/25.
       if fileDrag and not overHeader
         column position="absolute" top=60 left=8 right=8 bottom=8 z-index=40 pointer-events="none" border-radius="1rem" border-width=2 border-style="dashed" border-color="light-dark(#1b4ed899, #346bf199)" background-color="light-dark(#1b4ed809, #346bf109)" align-items="center" justify-content="center" box-sizing="border-box" testId="chat-drop-overlay"
-          row role="status" gap="0.5rem" align-items="center" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-radius="9999px" border-width=1 border-style="solid" border-color="light-dark(#1b4ed840, #346bf140)" background-color="light-dark(#fcfcfcf2, #0a0a0af2)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a"
+          row role="status" gap="0.5rem" align-items="center" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-radius="9999px" border-width=1 border-style="solid" border-color="light-dark(#1b4ed840, #346bf140)" background-color="light-dark(#fcfcfcf2, #000000f2)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a"
             svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#1b4ed8, #346bf1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
               path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
-            text "Drop files to attach" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text "Drop files to attach" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels
@@ -529,10 +529,10 @@ component PagesCover
             if prSelected != "" and prPanelOpen
               PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=scheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), back=pageBack, local=chatLocal)
             if prSelected != "" and prPanelOpen
-              button press=maximizePr(not prMaximized) position="absolute" right="3rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color="#00000000" aria-label=(prMaximized ? "Restore panel" : "Maximize panel") title="" testId="pull-requests-maximize-panel"
-                PgIcon(name=(prMaximized ? "minimize-2" : "maximize-2"), size=16, color="light-dark(#71717b, #818181)")
-            button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel" title=""
-              PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
+              button press=maximizePr(not prMaximized) position="absolute" right="3rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" aria-label=(prMaximized ? "Restore panel" : "Maximize panel") title="" testId="pull-requests-maximize-panel"
+                PgIcon(name=(prMaximized ? "minimize-2" : "maximize-2"), size=16, color="light-dark(#71717b, #a1a1a1)")
+            button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel" title=""
+              PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #a1a1a1)")
         if utilityPage == ""
           PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // The main sidebar trigger is drawn here, whatever the page: after the chat and the page in paint and Tab order,

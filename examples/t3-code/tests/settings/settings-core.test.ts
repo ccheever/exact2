@@ -417,7 +417,7 @@ describe('navigation and search', () => {
 describe('appearance', () => {
   test('palette follows each half of the theme pair and contrast', () => {
     const stock = palette(decodeClientPrefs({}));
-    expect(stock.canvas).toBe('light-dark(#fcfcfc, #0a0a0a)');
+    expect(stock.canvas).toBe('light-dark(#fcfcfc, #000000)');
     expect(stock.accent).toBe('light-dark(#1b4ed8, #346bf1)');
     const mixed = palette(decodeClientPrefs({ themeLight: 'grove', themeDark: 'ocean' }));
     expect(mixed.canvas).toBe(`light-dark(${themeRoles('grove', 'light').canvas}, ${themeRoles('ocean', 'dark').canvas})`);

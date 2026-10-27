@@ -14,9 +14,9 @@ component MediaUnavailableLabel
     video: bool
     detail: string
   view
-    row gap="0.375rem" align-items="center" align-self="flex-start" max-width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert" testId="markdown-media-unavailable"
-      ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #818181)")
-      text [video ? "Video unavailable" : "Image unavailable", alt, detail].filter((part) => part != "").join(" · ") font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#71717b, #818181)"
+    row gap="0.375rem" align-items="center" align-self="flex-start" max-width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert" testId="markdown-media-unavailable"
+      ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
+      text [video ? "Video unavailable" : "Image unavailable", alt, detail].filter((part) => part != "").join(" · ") font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#71717b, #a1a1a1)"
 
 // ChatMarkdownImage's standalone failure: the 16:9 frame the image
 // held while it loaded (CHAT_MARKDOWN_IMAGE_FRAME_CLASS_NAME), the label centred in it, where an image in a line of text
@@ -26,9 +26,9 @@ component MediaFailedFrame
     alt: string
     detail: string
   view
-    row width="100%" max-width="30rem" aspect-ratio="16 / 9" padding="0.5rem" box-sizing="border-box" gap="0.375rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f599, #ffffff0a)" role="alert" testId="markdown-media-failed"
-      ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #818181)")
-      text ["Image unavailable", alt, detail].filter((part) => part != "").join(" · ") font-size="0.75rem" line-height="1rem" line-clamp=2 text-align="center" color="light-dark(#71717b, #818181)"
+    row width="100%" max-width="30rem" aspect-ratio="16 / 9" padding="0.5rem" box-sizing="border-box" gap="0.375rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" background-color="light-dark(#f4f4f599, #ffffff0a)" role="alert" testId="markdown-media-failed"
+      ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
+      text ["Image unavailable", alt, detail].filter((part) => part != "").join(" · ") font-size="0.75rem" line-height="1rem" line-clamp=2 text-align="center" color="light-dark(#71717b, #a1a1a1)"
 
 // A Markdown image (ChatMarkdown's `img` renderer): its chip (media-views.ts markdownMediaChips: `size` the kind, `icon`
 // the access, `target` the URL or the signed URL's key, `detail` the actions' source) and the signed URLs (`media:<path>`,
@@ -69,10 +69,10 @@ component MarkdownMedia
     if access != "blocked" and refused
       MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
         if kind == "video"
-          column width="100%" max-width="40rem" aspect-ratio="16 / 9" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert"
+          column width="100%" max-width="40rem" aspect-ratio="16 / 9" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert"
             row gap="0.375rem" align-items="center"
-              ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #818181)")
-              text (alt != "" ? `Video unavailable · ${alt}` : "Video unavailable") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+              ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
+              text (alt != "" ? `Video unavailable · ${alt}` : "Video unavailable") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
         if kind != "video" and standalone
           MediaFailedFrame(alt=alt, detail=unavailableDetail)
         if kind != "video" and not standalone
@@ -123,15 +123,15 @@ component MarkdownMediaBody
     if kind == "video" or (brokenUrl != "" and brokenUrl == url)
       MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
         if kind == "video" and failed
-          column role="alert" width="100%" max-width="40rem" aspect-ratio="16 / 9" min-height="7rem" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f566, #ffffff06)" testId="markdown-video-failed"
+          column role="alert" width="100%" max-width="40rem" aspect-ratio="16 / 9" min-height="7rem" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" background-color="light-dark(#f4f4f566, #ffffff06)" testId="markdown-video-failed"
             row gap="0.375rem" align-items="center" max-width="100%"
-              ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #818181)")
-              text (alt != "" ? `Video unavailable · ${alt}` : "Video unavailable") font-size="0.875rem" line-height="1.25rem" line-clamp=2 text-align="center" color="light-dark(#71717b, #818181)"
+              ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
+              text (alt != "" ? `Video unavailable · ${alt}` : "Video unavailable") font-size="0.875rem" line-height="1.25rem" line-clamp=2 text-align="center" color="light-dark(#71717b, #a1a1a1)"
             row flex-wrap="wrap" gap="0.5rem" align-items="center" justify-content="center"
-              button press=retry aria-label="Retry video" testId="markdown-video-retry" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#f4f4f5, #ffffff0f)" display="flex" flex-direction="row" align-items="center"
-                svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" stroke="light-dark(#27272a, #f5f5f5)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+              button press=retry aria-label="Retry video" testId="markdown-video-retry" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#f4f4f5, #ffffff0f)" display="flex" flex-direction="row" align-items="center"
+                svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" stroke="light-dark(#18181b, #f5f5f5)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
                   path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5"
-                text "Retry video" font-size="0.8125rem" line-height="1.125rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+                text "Retry video" font-size="0.8125rem" line-height="1.125rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
               MediaOpenLink(url=(url.startsWith("http:") or url.startsWith("https:") or url.startsWith("blob:") ? url : ""), label=(original ? "Open original" : url.startsWith("blob:") ? "Download video" : "Open in browser"), icon=(url.startsWith("blob:") ? "download" : "external-link"), dark=false, testId="markdown-video-open")
         if kind == "video" and not failed
           video url controls=true playsinline=true preload="metadata" aria-label=(alt != "" ? alt : "Video preview") error=broke width="100%" max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="#000000" object-fit="contain" testId="markdown-media-video"

@@ -43,10 +43,11 @@ function projectOf(client: T3Client, state: DialogState) {
 }
 const canListFiles = (client: T3Client) => obj(obj(client.config.environment).capabilities).ignoredFileListing === true;
 
-const DEFAULT_TAIL = 10, MAX_SEGMENT_TAIL = 16;
+const DEFAULT_TAIL = 10, MAX_SEGMENT_TAIL = 16, MIN_WORD_TAIL = 4;
+const WORD_BREAK = /[-_./]/;
 /**
  * ui/middle-truncate.tsx splitForMiddleTruncate: the tail that always shows (the last path segment up to 16 characters,
- * else 10), and the head that ellipsizes; null when the value is short enough to show whole.
+ * else 10, moved to start on a word), and the head that ellipsizes; null when the value is short enough to show whole.
  */
 export function splitForMiddleTruncate(value: string, tail?: number): { head: string; tail: string } | null {
   const chars = Array.from(value);
@@ -59,7 +60,15 @@ export function splitForMiddleTruncate(value: string, tail?: number): { head: st
     }
   }
   if (keep <= 0 || chars.length <= keep + 4) return null;
-  const cut = chars.length - keep;
+  let cut = chars.length - keep;
+  // An automatic tail starts on a word ("machine", not "er-machine"): a shorter tail first, so the head stays readable.
+  if (tail === undefined && !WORD_BREAK.test(chars[cut - 1]!)) {
+    const startsWord = (index: number) => WORD_BREAK.test(chars[index - 1]!);
+    let snapped = -1;
+    for (let index = cut + 1; index <= chars.length - MIN_WORD_TAIL; index++) if (startsWord(index)) { snapped = index; break; }
+    for (let index = cut - 1; snapped < 0 && index >= chars.length - MAX_SEGMENT_TAIL && index > 4; index--) if (startsWord(index)) snapped = index;
+    if (snapped > 0) cut = snapped;
+  }
   return { head: chars.slice(0, cut).join(''), tail: chars.slice(cut).join('') };
 }
 const middle = (value: string) => { const split = splitForMiddleTruncate(value); return split ?? { head: value, tail: '' }; };

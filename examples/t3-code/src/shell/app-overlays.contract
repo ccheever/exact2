@@ -81,7 +81,7 @@ component ProjectPicker
                 row gap="0.25rem" align-items="center"
                   button press=manageProject(project.id, project.name, project.path) disabled=commandPending testId=`manage-project-${project.id}` class=Control aria-label=`Settings for ${project.name}` title=""
                     Icon(name="settings", size=16, color="light-dark(#71717a, #858585)")
-                  button id=`project-dialog-pick-${i}` press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding="0.75rem" border-radius="0.5625rem" border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap="0.25rem" width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000") data-focus-stop=(commandPending ? "" : "enabled")
+                  button id=`project-dialog-pick-${i}` press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding="0.75rem" border-radius="0.4375rem" border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap="0.25rem" width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000") data-focus-stop=(commandPending ? "" : "enabled")
                     text project.name font-size="0.875rem" font-weight=500 class=Ink
                     text project.path font-size="0.6875rem" class=Muted line-clamp=2
               if data.projects.length == 0

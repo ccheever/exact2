@@ -86,21 +86,21 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
   const target = dark ? '#ffffff' : '#000000';
   const ink = (fg: string, bg: string) => mix(mix(fg, base, bg), 1 - boost, target);
   const edge = (border: string, fg: string) => mix(alpha(border, base), 1 - borderBoost, fg);
-  const text = stock ? (dark ? '#f5f5f5' : '#27272a') : r.text;
-  const canvas = stock ? (dark ? '#0a0a0a' : '#fcfcfc') : r.canvas;
+  const text = stock ? (dark ? '#f5f5f5' : '#18181b') : r.text;
+  const canvas = stock ? (dark ? '#000000' : '#fcfcfc') : r.canvas;
   const sidebar = stock ? (dark ? '#000000' : '#fafafa') : r.sidebar;
-  const sidebarText = stock ? (dark ? '#f1f3f7' : '#27272a') : r.sidebarForeground;
+  const sidebarText = stock ? (dark ? '#f1f3f7' : '#18181b') : r.sidebarForeground;
   const sidebarMuted = stock ? (dark ? '#a3a3a3' : '#71717b') : r.sidebarMutedForeground;
-  const mutedText = stock ? (dark ? '#818181' : '#71717b') : r.textMuted;
-  const border = stock ? (dark ? '#ffffff0f' : '#e4e4e7') : r.border;
-  const input = stock ? (dark ? '#ffffff14' : '#d4d4d8') : r.input;
+  const mutedText = stock ? (dark ? '#a1a1a1' : '#71717b') : r.textMuted;
+  const border = stock ? (dark ? '#ffffff14' : '#e4e4e7') : r.border;
+  const input = stock ? (dark ? '#ffffff1c' : '#d4d4d8') : r.input;
   const card = stock ? (dark ? '#111111' : '#ffffff') : r.surface;
   return {
     canvas, sidebar, text: ink(text, canvas), muted: ink(mutedText, canvas), heading: alpha(ink(text, canvas), 0.7), description: alpha(ink(mutedText, canvas), 0.8),
     sidebarBorder: edge(stock ? (dark ? '#ffffff14' : '#e4e4e7') : r.sidebarBorder, sidebarText), rowActive: stock ? (dark ? '#f1f1f112' : '#ffffff') : r.sidebarRowActive,
-    sidebarText: ink(sidebarText, sidebar), sidebarMuted: alpha(ink(sidebarMuted, sidebar), 0.8), sidebarIcon: mix(ink(sidebarMuted, sidebar), 0.6, sidebar),
+    sidebarText: ink(sidebarText, sidebar), sidebarMuted: alpha(ink(sidebarMuted, sidebar), 0.8), sidebarIcon: mix(ink(sidebarMuted, sidebar), 0.85, sidebar),
     card: alpha(card, 0.4), cardBorder: edge(alpha(border, 0.6), text), divider: edge(alpha(border, 0.5), text), input: edge(input, text),
-    field: stock ? (dark ? '#ffffff07' : '#fcfcfc') : canvas, accent: stock ? (dark ? '#346bf1' : '#1b4ed8') : r.accent, accentText: r.accentForeground,
+    field: stock ? (dark ? '#ffffff09' : '#fcfcfc') : canvas, accent: stock ? (dark ? '#346bf1' : '#1b4ed8') : r.accent, accentText: r.accentForeground,
     // ui/switch: a switched-off thumb is muted-foreground in dark mode, so it stays visible on the dark track.
     thumbOff: dark ? ink(mutedText, canvas) : canvas,
     switchOff: edge(input, text), thumb: canvas, // The reference blurs what is behind a glass surface; the native top layer has no backdrop
