@@ -151,6 +151,36 @@ for (const engine of engines) {
     feeding = false;
     await feeder;
     await context.close();
+    if (engine === 'chromium') {
+      const mobile = await browser.newContext();
+      await mobile.addInitScript(() => {
+        for (const name of ['Accelerometer', 'LinearAccelerationSensor', 'GravitySensor', 'Gyroscope']) {
+          Object.defineProperty(globalThis, name, { value: undefined, configurable: true });
+        }
+        globalThis.DeviceMotionEvent = class extends Event {
+          constructor(type, fields) { super(type); Object.assign(this, fields); }
+          static requestPermission() { return Promise.resolve('granted'); }
+        };
+        globalThis.DeviceOrientationEvent = class extends Event {
+          static requestPermission() { return Promise.resolve('granted'); }
+        };
+        DeviceOrientationEvent.prototype.webkitCompassHeading = 0;
+      });
+      await mobile.addInitScript(synthesized);
+      const phone = await mobile.newPage();
+      await phone.goto(origin);
+      const denied = await until(phone, 'gravity-error', t => t === 'NotAllowedError');
+      check(engine, 'a sensor read before the mobile permission fails', denied === 'NotAllowedError', denied);
+      await phone.evaluate(() => __motion({ withGravity: { x: 0, y: 0, z: -9.8 },
+        acceleration: { x: 0, y: 0, z: 0 }, rotationRate: { alpha: 0, beta: 0, gamma: 0 } }));
+      await phone.getByTestId('ask').click();
+      const resumed = await until(phone, 'gravity', t => near(t, [0, 0, 9.8]));
+      check(engine, 'granting mobile permission restarts a failed sensor reader', near(resumed, [0, 0, 9.8]), resumed);
+      const counted = await until(phone, 'counted', t => !t.startsWith('error') && Number(t.split(' ')[0]) > 0);
+      check(engine, 'granting mobile permission restarts a data-code sensor reader',
+        !counted.startsWith('error') && Number(counted.split(' ')[0]) > 0, counted);
+      await mobile.close();
+    }
   } finally {
     await browser.close();
   }

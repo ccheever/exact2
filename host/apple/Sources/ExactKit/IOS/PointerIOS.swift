@@ -620,7 +620,7 @@ extension NodeView {
         guard !presenter.contextRetainsFocus(self) else { return handoff }
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
         var at: UIView? = self
-        while let view = at, view !== presenter.viewport {
+        while let view = at, view !== presenter.viewport, view !== presenter.documentMount {
             if let node = view as? NodeView {
                 if node.disabled { return handoff }
                 if node.focusesOnPress {

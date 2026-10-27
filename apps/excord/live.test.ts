@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test';
 import type { Answer, Args, Result, Source, Storage, Store, StreamEvent, StreamSocket } from './app.contract.d.ts';
 import * as S from './discord/store.ts';
 import { snowflakeFromMs } from './discord/ids.ts';
@@ -7,6 +7,13 @@ import { constants as zlibConstants, createDeflate } from 'node:zlib';
 import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, recordIdentify, signIn, signOut } from './live.ts';
 import { unlockSession } from './lock.ts';
 import { createRenderer, windowOf, type Stored } from './render.ts';
+
+// The gateway fixture has no device language detector.
+mock.module('@exact/translation', () => ({
+  languageDetectorAvailability: async () => ({ availability: 'unavailable' }),
+  createLanguageDetector: async () => { throw new Error('Language detection is unavailable in the gateway fixture'); },
+  detectLanguage: async () => { throw new Error('Language detection is unavailable in the gateway fixture'); },
+}));
 
 const EPOCH = Date.UTC(2026, 9, 22, 12);
 const INTERVAL = 41250;

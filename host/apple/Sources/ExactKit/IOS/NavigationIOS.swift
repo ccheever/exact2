@@ -121,7 +121,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     }
 
     override func loadView() {
-        view = UIView()
+        view = PresentationMount()
         paintBackdrop()
         view.addSubview(node)
         host?.presenter.session?.natives.routeLoaded(node)
@@ -210,8 +210,23 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         if node.superview !== contentMount { contentMount.addSubview(node) }
         host?.presenter.regrid(node) // from the controller's view, a grid origin of its own
     }
-    /// Scroll the document inside the native container; the navigation and tab bars stay in their viewport.
+    /// The route's room for the keys, and under `resizes-visual` its
+    /// viewport's frame, extent and inset.
     func fitContentViewport(in block: CGRect? = nil) {
+        #if os(iOS)
+        // Under a search in the bar the route keeps its layout (`block(in:)`)
+        // and takes the keys as safe area, as SwiftUI's keyboard region is:
+        // UIKit insets its edge scroller so the last rows reach above them.
+        // A visual viewport takes them as its inset instead, without reflow.
+        if let presenter = host?.presenter {
+            var keys: CGFloat = 0
+            if contentViewport == nil, presenter.editsInBar(of: view), let top = presenter.keyboardTop, let window = view.window {
+                let edge = view.convert(CGPoint(x: 0, y: top), from: window).y
+                keys = max(0, view.bounds.maxY - edge - (view.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom))
+            }
+            if additionalSafeAreaInsets.bottom != keys { additionalSafeAreaInsets.bottom = keys }
+        }
+        #endif
         guard let scroll = contentViewport, let presenter = host?.presenter else { return }
         let oldSize = scroll.bounds.size, oldContent = scroll.contentSize, oldInset = scroll.contentInset
         let allocation = block ?? presenter.owners.block(in: view)
@@ -368,16 +383,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var coversPending = false
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
-    private var primaryAllocation: [NSLayoutConstraint] = []
-    var pinsPrimaryViewport: Bool { !primaryAllocation.isEmpty }
-    private var keyboardRangePinned = false
-
-    private func refreshKeyboardRange() {
-        let pinned = pinsPrimaryViewport
-        guard pinned != keyboardRangePinned else { return }
-        keyboardRangePinned = pinned
-        presenter.setKeyboardInset(presenter.keyboardInset)
-    }
     private var pendingSync = false
     /// The press whose commit a deferred sync still owes (PressHandoffIOS).
     private weak var pendingPress: PressHandoff?
@@ -527,7 +532,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             return (index == at ? Array(routes[range]) : routes).map { node -> RouteController in
                 presented = presented || ["modal", "fullscreen"].contains(node.props["navigationPresentation"] ?? "")
                 let c = controllers[node.id] ?? RouteController(node)
-                c.usesPageViewport = !presented && !ExactEnv.authoredChrome
+                // A separate visual viewport accommodates the keyboard without reflowing the route
+                c.usesPageViewport = !presented && !ExactEnv.authoredChrome && presenter.keyboardPolicy == "resizes-visual"
                 c.host = self
                 controllers[node.id] = c
                 c.mount()
@@ -537,43 +543,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         return Projection(root: root, tabs: tabs, stacks: stacks, at: at, selected: range.upperBound - 1, wanted: wanted)
     }
 
-    /// Keep the native container in the viewport while CSS page content scrolls.
-    /// UIKit's frame guide owns the position; no scroll-offset correction is needed.
+    /// The native container fills the page's area. It owns the screen, so
+    /// the document is in its mount, where no scroll view holds it (`hostDocument`).
     func fitOwner() {
+        presenter.hostDocument(fixed: wantsWholeView)
         guard let owner = primaryOwner, let view = owner.viewIfLoaded, let root = view.superview else { return }
-        defer { refreshKeyboardRange() }
-        let viewport = presenter.viewport
-        let margins = presenter.pageMargins
         let frame = ownerFrame(owner, in: root)
-        guard !ExactEnv.authoredChrome, root.isDescendant(of: viewport) else {
-            clearOwnerAllocation()
-            if view.frame != frame { view.frame = frame }
-            return
-        }
-        if primaryAllocation.first?.firstItem as? UIView !== view {
-            clearOwnerAllocation()
-            view.translatesAutoresizingMaskIntoConstraints = false
-            let guide = viewport.frameLayoutGuide
-            primaryAllocation = [view.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
-                                 view.topAnchor.constraint(equalTo: guide.topAnchor),
-                                 view.widthAnchor.constraint(equalTo: guide.widthAnchor),
-                                 view.heightAnchor.constraint(equalTo: guide.heightAnchor, constant: ownerKeyboardExtension(owner))]
-            NSLayoutConstraint.activate(primaryAllocation)
-        }
-        let constants = [margins.left, margins.top, -margins.left - margins.right,
-                         ownerKeyboardExtension(owner) - margins.top - margins.bottom]
-        for (constraint, constant) in zip(primaryAllocation, constants) where constraint.constant != constant {
-            constraint.constant = constant
-        }
-        if view.frame != frame { viewport.layoutIfNeeded() }
-    }
-
-    func clearOwnerAllocation() {
-        let view = primaryAllocation.first?.firstItem as? UIView
-        NSLayoutConstraint.deactivate(primaryAllocation)
-        primaryAllocation = []
-        view?.translatesAutoresizingMaskIntoConstraints = true
-        refreshKeyboardRange()
+        if view.frame != frame { view.frame = frame }
     }
 
     private func installPrimary(_ p: Projection, first: [RouteController]) {
@@ -669,6 +645,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func refitForBars() {
         guard wantsWholeView != tookWholeView else { return }
         tookWholeView = wantsWholeView
+        // Now, not at the layout: under `cover` or the agent's own size the
+        // view's area does not change, and `fit` refits the owner only when it does.
+        presenter.hostDocument(fixed: wantsWholeView)
         presenter.session?.view?.setNeedsLayout()
     }
 
@@ -1340,7 +1319,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func reset(clearFocus: Bool = true) {
-        clearOwnerAllocation()
         syncAfterTransitionArmed = false
         unanimated = false
         presenter.modals.reset()

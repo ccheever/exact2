@@ -1871,8 +1871,8 @@ refuses `ENOENT`). The comparison and the write are queued together but are
 not one atomic step; what they close is the time an editor spends editing.
 Read the new file and let the person choose.
 
-**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS, and
-Linux in a desktop session). An
+**Documents kept across launches** (LLP 1069.010.000 stage 2; macOS, the
+web, and Linux in a desktop session). An
 app granted `doc.keep` keeps exactly what the person chose — a file or folder
 from a picker, Finder, ⌘O, Open Recent, the command line or a drop; never a
 typed path, a followed link, or a route's folder — and its `doc:/<n>/<name>`
@@ -1905,7 +1905,32 @@ path is the handle: a kept document moved, or replaced at its path, is
 forgotten rather than followed. Only a desktop session keeps anything; a
 headless run, a drive and the DRM kiosk keep and list nothing. The Linux
 host has no file chooser of its own yet, so today nothing there is chosen
-to keep. iOS keeps nothing; the web has neither call yet.
+to keep. iOS keeps nothing.
+
+On the web a kept document is the `FileSystemHandle` the browser gave,
+kept in the page's IndexedDB, at most 20 of them; clearing the site's data
+revokes them. The browser owns the permission: after a reload it may
+withhold it, and a read or write then refuses `EACCES` (an entry no
+longer kept refuses `ENOENT`). Ask again from a press with the command
+`requestPermission(id, path, mode)`, `mode` `"read"` or `"readwrite"`;
+`change` at `id` hears `granted` or `denied`. A native host answers
+`granted` for a document that resolves. A drop keeps a file of a type the
+manifest declares; a paste, a dropped folder and the agent's files are the
+session's only.
+
+```contract
+component Reopen
+  state permission = "unknown"
+  action ask(path: string)
+    requestPermission("permission", path, "read")
+  action answered(value)
+    permission = value
+  view
+    column
+      input id="permission" display="none" change=answered
+      button press=ask("doc:/12/notes.md")
+        text "Allow access"
+```
 
 ### Files dropped or pasted
 
@@ -2584,7 +2609,7 @@ after resize callbacks and authored scrolling. `intersect-margin="200px 0px"`
 is a literal rootMargin (one to four case-insensitive px/% lengths, default 0px).
 Numbers follow CSS syntax: `.5px` and `1e2px` are valid; `1.px` is refused at compile time.
 Percentages use the corresponding root dimension.
-A native route's scrollport can be the root, including at offset zero.
+On iOS, a `resizes-visual` route's viewport can be the root, including at offset zero.
 `overflow: clip` clips descendants without becoming a root. The margin expands
 only the root; clips between the target and root keep their original bounds.
 Ancestors above an explicit root only map its coordinates.

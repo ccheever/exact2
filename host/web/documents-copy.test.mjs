@@ -56,7 +56,7 @@ test('a chosen file is handed to the app store as its File, under both grants', 
     expect(await Promise.all([
       code(copyFile(`${doc}/absent`, 'app:/data/x', both, app)), code(copyFile(`${doc}/sub`, 'app:/data/x', both, app)),
       code(copyFile(doc.replace(/\/chosen$/, ''), 'app:/data/x', both, app)), code(copyFile('doc:/999999/a.png', 'app:/data/x', both, app)),
-    ])).toEqual(['Unavailable ENOENT', 'Unavailable EISDIR', 'Unavailable failed', 'Unavailable failed']);
+    ])).toEqual(['Unavailable ENOENT', 'Unavailable EISDIR', 'Unavailable failed', 'Unavailable ENOENT']);
     // Between documents, either way, and `rename`, still refused.
     const fs = files(both);
     expect(await Promise.all([code(fs.copyFile(`${doc}/a.png`, `${doc}/copy.png`)), code(fs.copyFile('app:/data/a.png', `${doc}/copy.png`)), code(fs.rename(`${doc}/a.png`, 'app:/data/a.png'))]))

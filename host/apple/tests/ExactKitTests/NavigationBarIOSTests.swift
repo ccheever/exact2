@@ -133,7 +133,7 @@ final class NavigationBarIOSTests: XCTestCase {
         let nav = try XCTUnwrap(p.navigation.primaryNavigation)
         let returning = try XCTUnwrap(nav.topViewController as? RouteController)
         let returningSize = returning.node.bounds.size
-        let full = p.viewport.frame
+        let full = p.documentHost.frame
         p.press(try node(session, "open-focused-plain").id)
         let field = try XCTUnwrap(try node(session, "plain-first").field)
         until("the pushed field has the system keyboard") {
@@ -141,17 +141,17 @@ final class NavigationBarIOSTests: XCTestCase {
         }
         XCTAssertLessThan(try XCTUnwrap(nav.topViewController as? RouteController).node.bounds.height, full.height)
         XCTAssertEqual(p.viewportSize, full.size, "avoiding one route's keyboard must not resize its application root")
-        XCTAssertEqual(p.viewport.frame, full, "native navigation retains its physical area while the document avoids the keyboard")
+        XCTAssertEqual(p.documentHost.frame, full, "native navigation retains its physical area while the document avoids the keyboard")
         nav.popViewController(animated: true)
         until("both routes are in the transition") { returning.view.window != nil && nav.transitionCoordinator != nil }
         XCTAssertTrue(field.isFirstResponder, "UIKit keeps the outgoing editor focused while its keyboard travels")
-        XCTAssertEqual(p.viewport.frame, view.bounds, "the viewport must not clip the returning route below the moving keyboard")
+        XCTAssertEqual(p.documentHost.frame, view.bounds, "the viewport must not clip the returning route below the moving keyboard")
         XCTAssertEqual(returning.node.bounds.size, returningSize, "the returning route fills the area exposed beside the moving keyboard")
         until("the pop and keyboard hide finish") {
             nav.viewControllers.count == 1 && nav.transitionCoordinator == nil &&
                 !p.hasKeyboardEditor && p.keyboardGuideTop(in: view) == nil && p.keyboardInset == 0
         }
-        XCTAssertEqual(p.viewport.frame, full, "the returning route takes back the area the keyboard covered")
+        XCTAssertEqual(p.documentHost.frame, full, "the returning route takes back the area the keyboard covered")
         XCTAssertEqual(p.viewportSize, full.size)
         XCTAssertNil(p.keyboardTop)
     }
@@ -178,6 +178,8 @@ final class NavigationBarIOSTests: XCTestCase {
         }
         let session = try fixture("keyboard-inset-contributions", module: false)
         let p = session.presenter
+        let root = try XCTUnwrap(p.root.subviews.first as? NodeView)
+        p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": "resizes-visual"]]]))
         let nav = try XCTUnwrap(p.navigation.primaryNavigation)
         let shown = expectation(forNotification: UIResponder.keyboardDidShowNotification, object: nil)
         p.press(try node(session, "open-focused-plain").id)
@@ -187,6 +189,7 @@ final class NavigationBarIOSTests: XCTestCase {
         let route = try XCTUnwrap(nav.topViewController as? RouteController)
         let scroll = try XCTUnwrap(route.contentViewport)
         let keyboard = scroll.contentInset.bottom
+        XCTAssertGreaterThan(keyboard, 0, "the visual viewport contributes keyboard room without reflow")
         p.pinnedRoom.grow(scroll, by: 24)
         route.view.setNeedsLayout()
         route.view.layoutIfNeeded()
@@ -274,6 +277,7 @@ final class NavigationBarIOSTests: XCTestCase {
             until("the source's focus claim wins after cancellation") { outgoing.isFirstResponder && p.keyboardInset > 0 }
             app.interactive = false
             app.usesAnimator = false
+            let popHidden = decision == "handoff" ? nil : expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil)
             nav.popViewController(animated: true)
             until("the native pop finishes") { nav.transitionCoordinator == nil && nav.viewControllers.count == 2 }
             if decision == "handoff" {
@@ -281,7 +285,12 @@ final class NavigationBarIOSTests: XCTestCase {
             } else {
                 until("the returning screen has no keyboard") { !p.hasKeyboardEditor && p.keyboardInset == 0 && returning.node.bounds.size == full }
             }
+            // A zero inset can precede DidHide. Finish dismissal before the
+            // next fixture replaces this window and claims keyboard focus.
+            if let popHidden { wait(for: [popHidden], timeout: 5) }
+            let finalHidden = decision == "handoff" ? expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil) : nil
             window?.endEditing(true)
+            if let finalHidden { wait(for: [finalHidden], timeout: 5) }
             window?.isHidden = true
             session.destroy()
         }
@@ -1033,13 +1042,29 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(phase(), "completed")
     }
 
-    func testHatchOwnershipAcceptsTheContentViewportAndDetectsARemovedRoute() throws {
-        let session = try fixture("hatch-content-mount", module: true)
-        let navigation = session.presenter.navigation
+    func testHatchOwnershipAcceptsTheContentMountAndDetectsARemovedRoute() throws {
+        try assertHatchContentOwnership(policy: "resizes-content")
+    }
+
+    func testHatchOwnershipAcceptsTheVisualViewportAndDetectsARemovedRoute() throws {
+        try assertHatchContentOwnership(policy: "resizes-visual")
+    }
+
+    private func assertHatchContentOwnership(policy: String) throws {
+        let session = try fixture("hatch-content-mount-\(policy)", module: true)
+        let p = session.presenter, root = try XCTUnwrap(p.root.subviews.first as? NodeView)
+        p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": policy]]]))
+        let navigation = p.navigation
         until("the route hatch is connected") { journal(session).contains("hatch route 0: built") }
         _ = Agent(session: session).clock(["settle": true])
         let route = try XCTUnwrap(navigation.primaryNavigation?.topViewController as? RouteController)
-        let mount = try XCTUnwrap(route.contentViewport)
+        let mount: UIView
+        if policy == "resizes-visual" {
+            mount = try XCTUnwrap(route.contentViewport)
+        } else {
+            XCTAssertNil(route.contentViewport)
+            mount = route.view
+        }
         XCTAssertTrue(route.node.superview === mount)
         let violation = "route 0: view changed outside Exact, which owns it"
         navigation.checkOwned()

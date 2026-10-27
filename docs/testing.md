@@ -125,6 +125,14 @@ its time counts too.
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.
 
+A real drag with `during` ops fails when the touch runner finishes before a
+dispatch-log read sees the touch begin. The failure carries the aim, the injection
+result and the log, and says whether the touch began and lifted. The log's `t` and
+`dispatched` are seconds on the mach clock of `UITouch.timestamp`; the injection's
+`end` is wall-clock milliseconds, so do not subtract one from the other. A dispatch-log
+read, operation or clock step still pending a second after the runner finishes stops
+the app's carrier, and the failure names it.
+
 With an iOS session using `touch: 'platform'`, `await session.back({ native: true })`
 locates UIKit's Back button through XCTest inside the active navigation container
 and taps it. Embedded sessions target their own container. The driver refuses missing
@@ -138,9 +146,14 @@ minute for SpringBoard to idle before tapping, so the native call has a 150-seco
 check multi-entry Back in primary and presented stacks. It asserts the retained
 controllers and the router's chosen visit, including return to the sheet root
 without changing the background stack. It also checks that header search commits
-and blurs once before dispatch, newer app navigation wins during a pop (including
-navigation from blur), and an unmapped destination restores the declared stack.
-A test sends UIKit's registered search-cancellation action and checks the live query and native bar state.
+and blurs once before dispatch and keeps the typed query, newer app navigation
+wins during a pop (including navigation from blur), and an unmapped destination
+restores the declared stack.
+A test exercises UIKit's registered search-cancellation action and the controller
+dismissal used by Duo's inner-display Close, including dismissal in a presented stack.
+It checks that cancellation clears the live and committed query, commits once and
+keeps the route. It repeats cancellation after the Search key dismisses the keyboard
+and checks that no second blur is sent.
 The runner tests distinguish visits with the same URL and reject stale or
 cross-tab jumps. These tests use UIKit's public stack API; they do not establish
 activation of its Back-history menu.
@@ -159,6 +172,11 @@ It covers native Back taps, completed and cancelled edge and content swipes,
 the secondary editor's focus and draft, destination scroll restoration, and
 horizontal clearance during the gesture. The sheet's root refuses a native
 Back tap rather than targeting the stack behind it.
+
+The runtime refuses a host call made from a callback it waits on
+(`Owner.shared.callMain` inside `Owner.shared.sync`). To test a report made there,
+change the native state inside that pair, then wait for the runner to apply it
+(`testACoverFromAServedCallbackReachesTheRunner`, `testAReportWaitsForTheServedCallbackToReturn`).
 
 ## Browsers
 

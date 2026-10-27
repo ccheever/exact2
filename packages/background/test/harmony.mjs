@@ -188,9 +188,25 @@ async function inBrowser() {
 try {
   if (engine) await inBrowser();
   else {
-    // 1. Outbox
     await fresh();
     let s = await session();
+    try {
+      await settle(s);
+      await s.prefer({ 'visibility-state': 'hidden' });
+      await settle(s);
+      const before = (await state(s)).slots.sampledAt;
+      await s.clock('+10000');
+      await settle(s);
+      check('0 visibility', 'the hidden page stops its UI clock', (await state(s)).slots.sampledAt === before, (await state(s)).slots.sampledAt);
+      await s.prefer({ 'visibility-state': 'visible' });
+      await s.clock('+1');
+      await settle(s);
+      check('0 visibility', 'returning to the page refreshes its screen data', (await state(s)).slots.sampledAt > before, (await state(s)).slots.sampledAt);
+    } finally { await s.close(); }
+
+    // 1. Outbox
+    await fresh();
+    s = await session();
     try {
       const st = await writeOffline(s, 'Sent from the outbox');
       const e = entry(st, 'sync', 'outbox:ada');

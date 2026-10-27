@@ -860,6 +860,17 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Sound
 
+- **A local speech recognizer may still need a language download.**
+  `speechRecognitionStatus.local` describes the engine, not its installed
+  languages. Gate recognition on `speechRecognitionAvailability` and offer
+  `installSpeechRecognition` when it answers `downloadable`. Recorder hid
+  Download behind `not speech.local` on an iPhone whose `en_KR` model was
+  missing. Refresh availability after installation. (LLP 1133.020.)
+- **An audio player is silent in iPhone Silent mode.** The default audio
+  session is `ambient`. An app whose purpose includes media playback should
+  set `"audio_session": "playback"` in `app.json`, as Recorder does; raising
+  the media volume alone does not override Silent mode. (LLP 1096 D8.)
+
 - **A scheduled sound plays after Stop.** A sequencer that schedules each step
   ahead (`playSounds(…)` with a future `at=`) keeps sounding the hits already
   scheduled for a beat after the Stop press. Cause: a voice is the runner's once
@@ -1883,3 +1894,16 @@ its valid bindings disappear and return. Read it with
   JavaScript module. Load a fresh module instance and its matching wasm together; verify a
   declaration added during the dev session without another JSON edit. The table watcher
   uses a unique data URL for each primary build.
+
+- **Declare a system framework used only through an Objective-C category.** An
+  import can compile without leaving a symbol reference that links its framework.
+  For example, the [limited-library picker](https://developer.apple.com/documentation/photos/phphotolibrary/presentlimitedlibrarypicker%28from%3Acompletionhandler%3A%29) is supplied by PhotosUI;
+  without it, Manage crashes with an unrecognized selector. The Apple implementation
+  manifest declares `"frameworks": {"PhotosUI": {"ios": "14.0"}}`. Check the built
+  module’s load commands and exercise the picker on a device.
+
+- **A selected file does not grant directory enumeration.** On Apple, retain a
+  selected file’s parent with `O_SEARCH` for relative lookup. Opening it with
+  `O_RDONLY` can fail under the file’s security scope even though the file itself
+  is readable. Verify with a file selected from another app’s Documents folder;
+  a simulator fixture in the app’s own container does not exercise this boundary.

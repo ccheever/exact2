@@ -85,14 +85,20 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Whether the host hid this view, whatever CSS's `display` says: what a
     /// projection or a placement saves and restores, since `isHidden` also
     /// reads `display: none` (review B1: restoring that wrote CSS's bit into
-    /// the host's and kept the view hidden once it was displayed).
-    package var hiddenByHost: Bool { hostHidden }
+    /// the host's and kept the view hidden once it was displayed). Setting it
+    /// is the host's word even while `display: none` hides the view, where the
+    /// `isHidden` setter reads a hide as a restored save and drops it.
+    package var hiddenByHost: Bool {
+        get { hostHidden }
+        set { hostHidden = newValue; isHidden = newValue }
+    }
     package override var isHidden: Bool {
         get { super.isHidden }
         set {
             // Writing back "hidden" that only CSS's `display: none` made is not
             // the host's word (a save of `isHidden` restored; review B1): a
-            // projection that means it hides again on its next pass.
+            // projection that means it hides again on its next pass, or sets
+            // `hiddenByHost` once.
             let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             let hidden = hostHidden || css

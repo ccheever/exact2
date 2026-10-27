@@ -138,6 +138,8 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
                 }
+                // @ref LLP 1069.010.000 D7 — answered here, as every native host does.
+                "requestPermission" => self.request_permission(&c.args),
                 // The top layer, where a shell presents one (LLP 1115 D6;
                 // LLP 1115.001 D10): a confirmation by its `id`, and its
                 // close. With no windows, the journal names the refusal.

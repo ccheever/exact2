@@ -15,6 +15,8 @@ use ibex2::host::{Bindings, Kv, Secrets};
 pub const RECORDS: &str = "exact.presence";
 /// The kv scope of the agent's locked items, `<name>#<generation>`.
 pub const LOCKED: &str = "exact.presence.agent";
+/// Candidate keychain accounts, with empty values: never secret bytes.
+const INDEX: &str = "exact.presence.items";
 
 /// The agent's vault over a drive's bindings.
 pub struct AgentVault {
@@ -107,7 +109,7 @@ pub fn agent_backend(bindings: Option<&Bindings>, grants: &str, agent: bool) -> 
 
 /// The kv scopes the backend keeps, granted beside the app's own.
 pub fn scopes() -> String {
-    format!("storage.kv {RECORDS}\nstorage.kv {LOCKED}")
+    format!("storage.kv {RECORDS}\nstorage.kv {LOCKED}\nstorage.kv {INDEX}")
 }
 
 /// The platform's keychain for locked items (LLP 1133.010 D6), reached
@@ -149,7 +151,7 @@ extern "C" fn answered(reply: *mut std::ffi::c_void, status: i32, bytes: *const 
 }
 
 /// One keychain call: its status (0 done, 1 not found, below 0 failed) and
-/// the bytes it answered (an account list's JSON, or a failure's message).
+/// the bytes it answered (a failure's message).
 fn call(op: u32, request: serde_json::Value, value: &[u8]) -> Result<(i32, Vec<u8>), String> {
     let Some(f) = *KEYCHAIN.lock().unwrap_or_else(|e| e.into_inner()) else {
         return Err("this build's host installed no keychain for locked secrets".into());
@@ -215,12 +217,28 @@ impl Vault for KeychainVault {
         .map_err(|e| format!("{e:?}"))
     }
     fn generations(&self, name: &str) -> Result<Vec<u64>, String> {
-        let (_, bytes) = call(3, serde_json::json!({ "service": self.service }), &[])?;
-        let accounts: Vec<String> = serde_json::from_slice(&bytes).unwrap_or_default();
-        Ok(accounts
-            .iter()
-            .filter_map(|a| a.strip_prefix(name)?.strip_prefix('#')?.parse().ok())
-            .collect())
+        let accounts = self.kv.keys(INDEX).map_err(|e| format!("{e:?}"))?;
+        let mut generations = Vec::new();
+        for account in accounts {
+            let Some(generation) = account
+                .strip_prefix(name)
+                .and_then(|a| a.strip_prefix('#'))
+                .and_then(|g| g.parse().ok())
+            else {
+                continue;
+            };
+            let request = serde_json::json!({ "service": self.service, "account": account });
+            // A failed probe leaves the candidate indexed, but cannot
+            // establish which generation may replace the last durable one.
+            match call(3, request, &[])? {
+                (0, _) => generations.push(generation),
+                (1, _) => {
+                    let _ = self.kv.delete(INDEX, &account);
+                }
+                _ => return Err("the keychain returned an unknown probe status".into()),
+            }
+        }
+        Ok(generations)
     }
     fn add_locked(
         &mut self,
@@ -229,13 +247,40 @@ impl Vault for KeychainVault {
         presence: &exact_runner::presence::Presence,
         value: &[u8],
     ) -> Result<(), String> {
+        let account = Self::account(name, generation);
+        // Index first: a crash after the add leaves a discoverable item;
+        // before it, the next probe removes the empty candidate.
+        self.kv
+            .set(INDEX, &account, &[])
+            .map_err(|e| format!("{e:?}"))?;
         let request = serde_json::json!({ "service": self.service,
-            "account": Self::account(name, generation), "policy": presence.line_words() });
-        call(1, request, value).map(|_| ())
+            "account": account, "policy": presence.line_words() });
+        if let Err(error) = call(1, request, value) {
+            let _ = self.kv.delete(INDEX, &account);
+            return Err(error);
+        }
+        Ok(())
     }
     fn delete_locked(&mut self, name: &str, generation: u64) -> Result<(), String> {
-        let request = serde_json::json!({ "service": self.service, "account": Self::account(name, generation) });
-        call(2, request, &[]).map(|_| ())
+        let account = Self::account(name, generation);
+        let request = serde_json::json!({ "service": self.service, "account": account });
+        call(2, request, &[])?;
+        self.kv
+            .delete(INDEX, &account)
+            .map_err(|e| format!("{e:?}"))
+    }
+    fn delete_all_locked(&mut self, name: &str) -> Result<(), String> {
+        let accounts = self.kv.keys(INDEX).map_err(|e| format!("{e:?}"))?;
+        for account in accounts {
+            if let Some(generation) = account
+                .strip_prefix(name)
+                .and_then(|a| a.strip_prefix('#'))
+                .and_then(|g| g.parse().ok())
+            {
+                self.delete_locked(name, generation)?;
+            }
+        }
+        Ok(())
     }
     fn read_locked(&mut self, _: &str, _: u64) -> Result<Option<Vec<u8>>, String> {
         // The host reads with the context the sheet evaluated (`Checked::Read`).

@@ -39,10 +39,11 @@ public final class BackgroundModule: NSObject, ExactPackage {
     private static let key = "exact.background"
 
     private let context: ExactPackageContext
+    private let epochAtZero: Double
     /// By kind (`sync`, `periodicsync`), then tag.
     private var tags: [String: [String: Registration]] = [:]
-    /// Invocations raised and not ended, as `kind tag`.
-    private var raised: Set<String> = []
+    /// Platform tasks waiting for each invocation, by `kind tag`.
+    private var raised: [String: [(Bool) -> Void]] = [:]
     /// Tags registered again during their own invocation, as `kind tag`.
     private var again: Set<String> = []
     private var satisfied = false
@@ -51,6 +52,7 @@ public final class BackgroundModule: NSObject, ExactPackage {
 
     public required init(context: ExactPackageContext) {
         self.context = context
+        epochAtZero = Date().timeIntervalSince1970 * 1000 - context.now()
         super.init()
         if let data = UserDefaults.standard.data(forKey: Self.key),
            let kept = try? JSONDecoder().decode([String: [String: Registration]].self, from: data) {
@@ -93,6 +95,10 @@ public final class BackgroundModule: NSObject, ExactPackage {
         }
     }
 
+    public func foreground(_ shown: Bool) {
+        if shown { context.changed("background.backgroundSyncStatus") }
+    }
+
     // MARK: the fact
 
     private var denied: Bool { status()["state"] as? String == "denied" }
@@ -117,8 +123,8 @@ public final class BackgroundModule: NSObject, ExactPackage {
     // MARK: registrations
 
     private func register(_ kind: String, _ tag: String, interval: Double?, task: String?, power: Bool?) {
-        if raised.contains(kind + " " + tag) { again.insert(kind + " " + tag) }
-        var r = tags[kind]?[tag] ?? Registration(registered: context.now())
+        if raised[kind + " " + tag] != nil { again.insert(kind + " " + tag) }
+        var r = tags[kind]?[tag] ?? Registration(registered: now())
         r.minInterval = interval
         r.task = task
         r.power = power
@@ -138,9 +144,9 @@ public final class BackgroundModule: NSObject, ExactPackage {
         guard !context.agent else { return }
         let wakes = context.wakes
         #if os(iOS)
-        let waiting = (tags["sync"] ?? [:]).filter { !raised.contains("sync " + $0.key) }
+        let waiting = (tags["sync"] ?? [:]).filter { raised["sync " + $0.key] == nil }
         if let soonest = waiting.values.map({ $0.notBefore ?? 0 }).min() {
-            let at = max(soonest, context.now())
+            let at = max(soonest, now()) - epochAtZero
             wakes.request(kind: "refresh", at: at, key: "sync")
             wakes.request(kind: "processing", at: at, key: "sync processing", power: waiting.values.contains { $0.power == true })
         } else {
@@ -149,9 +155,12 @@ public final class BackgroundModule: NSObject, ExactPackage {
         }
         #endif
         for (tag, r) in tags["periodicsync"] ?? [:] {
-            wakes.request(kind: r.task == "processing" ? "processing" : "refresh", at: due(r), key: "periodicsync " + tag, power: r.power == true)
+            wakes.request(kind: r.task == "processing" ? "processing" : "refresh", at: due(r) - epochAtZero, key: "periodicsync " + tag, power: r.power == true)
         }
     }
+
+    // Persist epoch times: the session clock starts over on each launch.
+    private func now() -> Double { epochAtZero + context.now() }
 
     private func due(_ r: Registration) -> Double { (r.lastRun ?? r.registered) + (r.minInterval ?? 900_000) }
 
@@ -165,9 +174,9 @@ public final class BackgroundModule: NSObject, ExactPackage {
     private func fire() {
         guard satisfied, !context.agent else { return }
         timer?.invalidate()
-        let now = context.now()
+        let now = now()
         var soonest = Double.infinity
-        for (tag, r) in tags["sync"] ?? [:] where !raised.contains("sync " + tag) {
+        for (tag, r) in tags["sync"] ?? [:] where raised["sync " + tag] == nil {
             if let at = r.notBefore, at > now { soonest = min(soonest, at); continue }
             raise("sync", tag) { event, args, ended in self.context.wake(event, args, id: "sync \(tag) \(now)", ended: ended) }
         }
@@ -179,17 +188,22 @@ public final class BackgroundModule: NSObject, ExactPackage {
     /// Raise `tag`'s event through `via`; `done` hears whether it completed.
     private func raise(_ kind: String, _ tag: String, done: ((Bool) -> Void)? = nil,
                        via: (String, [Any], @escaping (String) -> Void) -> Void) {
+        let key = kind + " " + tag
+        if raised[key] != nil {
+            if let done { raised[key]?.append(done) }
+            return
+        }
         let r = tags[kind]?[tag]
         let args: [Any] = kind == "sync" ? [tag, ["tag": tag, "lastChance": (r?.attempts ?? 0) + 1 >= Self.attempts]] : [tag]
-        raised.insert(kind + " " + tag)
+        raised[key] = done.map { [$0] } ?? []
         again.remove(kind + " " + tag)
         via(kind, args) { [weak self] outcome in
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.raised.remove(kind + " " + tag)
+                let waiting = self.raised.removeValue(forKey: key) ?? []
                 let registered = self.again.remove(kind + " " + tag) != nil
                 self.ended(kind, tag, outcome, registered: registered)
-                done?(outcome == "completed")
+                waiting.forEach { $0(outcome == "completed") }
                 self.fire()
             }
         }
@@ -198,11 +212,11 @@ public final class BackgroundModule: NSObject, ExactPackage {
     /// The host ran the app for due requests: each tag they cover, then done.
     public func woke(_ wake: ExactWake) {
         DispatchQueue.main.async { [self] in
-            let now = context.now()
+            let now = now()
             var due: [(String, String)] = []
             for key in wake.keys {
                 if key.hasPrefix("sync") {
-                    due += (tags["sync"] ?? [:]).filter { !raised.contains("sync " + $0.key) && ($0.value.notBefore ?? 0) <= now }.keys.map { ("sync", $0) }
+                    due += (tags["sync"] ?? [:]).filter { ($0.value.notBefore ?? 0) <= now }.keys.map { ("sync", $0) }
                 } else if key.hasPrefix("periodicsync "), let tag = Optional(String(key.dropFirst(13))), tags["periodicsync"]?[tag] != nil {
                     due.append(("periodicsync", tag))
                 }
@@ -226,7 +240,7 @@ public final class BackgroundModule: NSObject, ExactPackage {
     private func ended(_ kind: String, _ tag: String, _ outcome: String, registered: Bool) {
         guard var r = tags[kind]?[tag] else { return }
         if kind == "periodicsync" {
-            if outcome == "completed" { r.lastRun = context.now(); r.attempts = 0 }
+            if outcome == "completed" { r.lastRun = now(); r.attempts = 0 }
             tags[kind]?[tag] = r
             return keep(kind)
         }
@@ -239,9 +253,9 @@ public final class BackgroundModule: NSObject, ExactPackage {
         if r.attempts >= Self.attempts {
             guard registered else { tags[kind]?[tag] = nil; return keep(kind) }
             r.attempts = 0
-            r.notBefore = context.now() + Self.longest
+            r.notBefore = now() + Self.longest
         } else {
-            r.notBefore = context.now() + min(Self.backoff * pow(2, Double(r.attempts - 1)), Self.longest)
+            r.notBefore = now() + min(Self.backoff * pow(2, Double(r.attempts - 1)), Self.longest)
         }
         tags[kind]?[tag] = r
         keep(kind)

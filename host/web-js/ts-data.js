@@ -261,7 +261,11 @@ function storageOf(grants) {
   // handle, not app storage: no store key, so a drive without a scratch
   // store reaches it too, as a Rust source's storage request does.
   let docs;
-  const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.files(grants));
+  // What the app keeps across launches is read back first (LLP 1069.010.000 D4).
+  const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.keeping(source.appId, grants)).then(() => globalThis.exact.documents.files(grants));
+  // In the storage queue, as every storage call is (an overlay refuses it).
+  const keptDocuments = (what, f) => ordinary(() => queued(what, () => documents().then(() => f(globalThis.exact.documents))).catch(refused));
+  let listWatched = false;
   const isDocument = args => args.slice(0, 2).some(p => typeof p === 'string' && p.startsWith('doc:/'));
   // A document copied into an app file needs both (documents-glue.js `copyFile`).
   const copiesIn = (m, args) => m === 'copyFile' && typeof args[0] === 'string' && args[0].startsWith('doc:/') && typeof args[1] === 'string' && args[1].startsWith('app:/');
@@ -325,12 +329,15 @@ function storageOf(grants) {
     if (typeof path !== 'string' || !path.startsWith('doc:/')) throw new TypeError(`${api}: path must be a doc:/ path`);
     const recursive = !!options?.recursive, topic = `${recursive ? 'doc-watch-recursive:' : 'doc-watch:'}${path}`;
     watch(topic);
+    // `doc:/` itself is the kept list (LLP 1069.010.000 D5).
+    if (path === 'doc:/') return void (listWatched || documents().then(() => { if (!listWatched) globalThis.exact.documents.onList(() => announce(topic, 'changed')); listWatched = true; }).catch(() => {}));
     documents().then(() => globalThis.exact.documents.observe(path, recursive, grants, () => announce(topic, 'changed'))).catch(() => {});
   };
   const expecting = (m, args) => ['writeFile', 'atomicWriteFile', 'appendFile'].includes(m) && args[2]?.expect;
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
       compressImage: (...a) => ordinary(() => compressImage(...a)), watch: watchDocument,
+      recentDocuments: () => keptDocuments('fs.recentDocuments', d => d.recent(grants)), forgetDocument: path => keptDocuments(`fs.forgetDocument ${path}`, d => d.forget(path, grants)),
       transformImage: (from, to, options) => ordinary(() => image('transformImage', from, to, options, {})),
       ...Object.fromEntries(methods.map(m => [m, (...args) => ordinary(() => {
         // A write's `expect` (LLP 1069.010.000 D2a) is the glue's, documents only.
