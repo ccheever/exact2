@@ -21,6 +21,7 @@ export function keyboardRedrive(target, refused, r, again) {
     redone.push(r.ok ? 'keyboard down' : 'drive failed');
     r = again();
   }
-  const kept = down(r) ? 'keyboard down' : r.ok ? 'keyboard up' : 'drive failed';
+  const inset = r.ok ? keyboardInset(target, r.out) : null;
+  const kept = !r.ok ? 'drive failed' : r.out.includes(refused) ? 'fixture refused' : inset === null ? 'no field reply' : inset > 0 ? 'keyboard up' : 'keyboard down';
   return { r, down: down(r), keyboard: redone.length ? `driven ${redone.length + 1} times (${redone.join(', ')} before), kept: ${kept}` : '' };
 }

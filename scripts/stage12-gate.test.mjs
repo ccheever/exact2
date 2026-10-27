@@ -547,4 +547,7 @@ test("the composer's keyboard: read from its field's reply, driven again while d
   const refused = { ok: true, out: `FIXTURE-REFUSED app.bsky.x\n${out(0)}` };
   expect(redrive(refused, up)).toMatchObject({ r: refused, down: false, n: 0 });
   expect(redrive({ ok: true, out: 'no reply' }, up)).toMatchObject({ down: false, n: 0 });
+  // The kept drive's state is what it is: a refusal or a missing reply after a re-drive is said so, never 'keyboard up'.
+  expect(redrive(down, refused)).toMatchObject({ r: refused, down: false, n: 1, keyboard: 'driven 2 times (keyboard down before), kept: fixture refused' });
+  expect(redrive(down, { ok: true, out: 'no reply' })).toMatchObject({ down: false, n: 1, keyboard: 'driven 2 times (keyboard down before), kept: no field reply' });
 });
