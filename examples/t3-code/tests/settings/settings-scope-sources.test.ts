@@ -199,7 +199,7 @@ describe('the primary represents a scope that includes it', () => {
     const scope = resolveScope(as(client), '', '', '');
     expect(scope.environmentChoices.map(choice => choice.label)).toEqual(['All environments', "Daehyeon's MacBook Pro", 'Lane Second', 'Lane Third']);
     const model = generalSections(as(client), serverContext(as(client), scope, new Map())).flatMap(section => section.rows).find(row => row.id === 'default-model')!;
-    expect([model.status, model.kind, model.label]).toEqual(['Automatic', 'text-only', 'No providers available']);
+    expect([model.status, model.kind, model.label, model.description]).toEqual(['', 'text-only', 'No providers available', 'Default model for new threads, selected automatically. Projects can override it.']);
     // Without a primary the focused environment represents the scope, as before.
     resetPrimary();
     const focusedModel = generalSections(as(client), serverContext(as(client), resolveScope(as(client), '', '', ''), new Map())).flatMap(section => section.rows).find(row => row.id === 'default-model')!;

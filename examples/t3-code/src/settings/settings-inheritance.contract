@@ -61,7 +61,7 @@ component InheritanceGroupView
         if group.sameEverywhere
           text "Same on all machines" padding-left="0.5rem" font-size="0.75rem" line-height="1rem" color=muted
       if group.overrides.length > 0
-        column width="100%" gap="0.25rem" padding-top="0.5rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)"
+        column width="100%" gap="0.25rem" padding-top="0.5rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e780, #ffffff0a)"
           row width="100%" align-items="center" justify-content="space-between"
             if (group.folded or group.sameEverywhere) and group.overrides.length > 3
               button press=toggleOverrides aria-expanded=overridesOpen testId=`inheritance-overrides-${rowId}-${group.id}` padding="0.25rem" border-width=0 background-color="#00000000"
