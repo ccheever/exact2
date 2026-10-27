@@ -12,6 +12,17 @@ final class AgentScrollRangeIOSTests: XCTestCase {
     private var session: ExactSession?
     override func tearDown() { session?.destroy(); session = nil; window?.isHidden = true; window = nil; super.tearDown() }
 
+    /// What a person sees of a port past the bars over it: a bar across the
+    /// top or the foot shortens it, and one down a whole side (the iPhone
+    /// Duo's strip of bar items) narrows it and keeps its height.
+    func testBarsShortenThePortAndASideStripNarrowsIt() {
+        let port = CGRect(x: 0, y: 0, width: 400, height: 800)
+        XCTAssertEqual(Agent.port(port, clearOf: [CGRect(x: 0, y: -20, width: 400, height: 120)]), CGRect(x: 0, y: 100, width: 400, height: 700))
+        XCTAssertEqual(Agent.port(port, clearOf: [CGRect(x: 0, y: 700, width: 400, height: 120)]), CGRect(x: 0, y: 0, width: 400, height: 700))
+        XCTAssertEqual(Agent.port(port, clearOf: [CGRect(x: 316, y: -10, width: 84, height: 820)]), CGRect(x: 0, y: 0, width: 316, height: 800), "the right side")
+        XCTAssertEqual(Agent.port(port, clearOf: [CGRect(x: -10, y: 0, width: 94, height: 800)]), CGRect(x: 84, y: 0, width: 316, height: 800), "the left side")
+    }
+
     private func mounted(_ ops: [[String: Any]]) -> (Agent, Presenter) {
         let session = ExactApp.shared.makeSession(label: "agent-scroll-range")
         self.session = session
