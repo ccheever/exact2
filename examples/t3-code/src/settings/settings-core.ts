@@ -429,8 +429,12 @@ export function traitsControl(context: { providers: Obj[] }, provider: Obj, mode
   };
 }
 
-/** Every General row of the served reference, in order, with its live value. */
-export function generalSections(client: T3Client, context: ServerContext): CoreSection[] {
+/**
+ * The rows the reference's General page held before 9db433f4ba #25651 split it, with their live values, as the
+ * sections of `route`: General, Chat, Diffs & pull requests, Threads, Worktrees, Maintenance, About or Labs
+ * (SettingsPanels.tsx and WorktreesSettings.tsx at 96fc7b9551); every page's, in nav order, without one.
+ */
+export function generalSections(client: T3Client, context: ServerContext, route = ''): CoreSection[] {
   const { scope, settings, capabilities } = context;
   const local = client.local as unknown as LocalPrefs;
   const prefs = local.clientSettings || decodeClientPrefs({});
@@ -482,7 +486,7 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
       { ...select(prefs.sidebarProjectSortOrder, [['updated_at', 'Last user message'], ['created_at', 'Created at'], ['manual', 'Manual']]), width: 176, resetLabel: 'project order' }),
     serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Resume after usage limits', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
     serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze until limits reset', 'Snooze usage-limit stops until reset. Pair with resume to continue on wake.', 'switch', {}, false),
-    deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section (beta)', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
+    deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
     serverRow(context, 'compactIdleThreads', 'compact-idle-threads', 'Compact idle Claude threads (beta)', 'Compact long idle Claude threads just before their prompt cache expires, so coming back costs less.', 'switch', { resetLabel: 'compact idle Claude threads' }, false),
     ...(autoSettle ? [
       serverRow(context, 'sidebarAutoSettleOnMerge', 'auto-settle-merged-threads', 'Auto-settle merged threads', 'Settle a thread when its pull request merges. Closed pull requests still settle automatically.', 'switch', { resetLabel: 'auto-settle on merge' }),
@@ -547,9 +551,26 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
     deviceRow('legacySidebarEnabled', 'legacy-sidebar', 'Sidebar (legacy)', 'Restore per-project thread trees instead of the default flat sidebar.', 'switch', { resettable: false }),
   ];
   const section = (id: string, title: string, rows: CoreRow[], collapsible = false): CoreSection => ({ id, title, collapsible, rows, toggle: false });
-  return [section('project-defaults', 'New threads', newThreads), section('organization', 'Organization', organization), section('behavior', 'Behavior', behavior),
-    section('projects-and-threads', 'Projects & threads', projects), section('confirmations', 'Confirmations', confirmations), section('text-generation', 'Text generation', textGeneration),
-    section('about', 'About', about), section('diagnostics-section', 'Diagnostics', diagnostics), section('legacy-features', 'Legacy features', legacy, true)];
+  const rows = new Map([...newThreads, ...organization, ...behavior, ...projects, ...confirmations, ...textGeneration, ...about, ...diagnostics, ...legacy].map(row => [row.id, row]));
+  const pick = (id: string, title: string, ids: string[]) => section(id, title, ids.flatMap(rowId => rows.get(rowId) ?? []));
+  // Not where the reference puts them: Compact idle Claude threads is on its Providers page, and the Advanced folds
+  // (Show skills in slash menu, Response streaming, Submodules) are drawn open.
+  const pages: Record<string, CoreSection[]> = {
+    general: [pick('notifications', 'Notifications', ['thread-notifications', 'in-app-notifications']), pick('sidebar', 'Sidebar', ['project-grouping', 'project-order', 'working-shelf']),
+      pick('confirmations', 'Confirmations', ['unpin-confirmation', 'archive-confirmation', 'delete-confirmation', 'quit-confirmation']), pick('display', 'Display', ['time-format'])],
+    chat: [pick('composer', 'Composer', ['composer-rich-text', 'send-shortcut', 'composer-collapse', 'skills-in-slash-menu']), pick('follow-ups', 'Follow-ups', ['follow-up-behavior'])],
+    diffs: [pick('diffs', 'Diffs', ['diff-layout', 'hide-whitespace-changes', 'default-diff-file-state']), pick('pull-requests', 'Pull requests', ['proactive-panels'])],
+    threads: [pick('new-projects', 'New projects', ['add-project-starts-in']), pick('project-defaults', 'New threads', ['default-model', 'default-permissions', 'new-threads']),
+      pick('usage-limits', 'Usage limits', ['auto-resume-limited-threads', 'snooze-limited-threads', 'compact-idle-threads']),
+      pick('auto-settle', 'Auto-settle', ['auto-settle-merged-threads', 'auto-settle-inactive-threads', 'days-before-auto-settle', 'keep-threads-with-pr']),
+      pick('text-generation', 'Text generation', ['text-generation-model', 'response-streaming'])],
+    worktrees: [pick('worktree-creation', 'Creation', ['start-from-origin', 'worktree-submodules'])],
+    maintenance: [pick('updates', 'Updates', ['provider-update-checks', 'continue-threads-after-server-update']), pick('background', 'Background activity', ['background-activity']),
+      pick('diagnostics-section', 'Diagnostics', ['diagnostics'])],
+    about: [pick('about', 'App', about.map(row => row.id)), pick('legal', 'Legal', ['open-source-licenses'])],
+    labs: [pick('legacy-features', 'Legacy', ['legacy-plan-mode', 'legacy-context-window-indicator', 'legacy-sidebar'])],
+  };
+  return (route ? pages[route] ?? [] : Object.values(pages).flat()).filter(entry => entry.rows.length > 0);
 }
 
 // ── Reading and writing ───────────────────────────────────────────────────

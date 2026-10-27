@@ -69,6 +69,11 @@ describe('a Settings page owns its scroller', () => {
     expect(scope().settingsPageScrollTop).toBe(0);
     run('settingsPageForget');
     expect(state.settingsScrollPage).toBe('');
+    // Every page split from General (9db433f4ba) waits for its own sections the same way, Chat's here.
+    run('corePick', ['chat', 'setting-send-shortcut', '', '']);
+    expect(scope().settingsJumpReady).toBe(false);
+    core = { ready: true, route: 'chat', sections: [{}] };
+    expect(scope().settingsJumpReady).toBe(true);
   });
 
   test('a jump to a legacy row opens Legacy features first, by Return as by a press on the result', () => {

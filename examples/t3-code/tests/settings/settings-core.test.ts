@@ -120,13 +120,16 @@ describe('general rows', () => {
   test('every reference row in order, with live values and inheritance', () => {
     const client = as(fake({ snoozeLimitedThreads: true }));
     const sections = generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()));
-    expect(sections.map(section => section.title)).toEqual(['New threads', 'Organization', 'Behavior', 'Projects & threads', 'Confirmations', 'Text generation', 'About', 'Diagnostics', 'Legacy features']);
-    expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Model', 'Permissions', 'Workspace', 'Submodules', 'Project grouping', 'Project order', 'Resume after usage limits',
-      'Snooze until limits reset', 'Working section (beta)', 'Compact idle Claude threads (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle', 'Thread notifications',
-      'In-app notifications', 'Time format', 'Response streaming', 'Hide whitespace changes', 'Default diff file state', 'Diff layout', 'Proactive panels', 'Show skills in slash menu',
-      'Rich text composer', 'Collapse composer on scroll', 'Send shortcut', 'Follow-up behavior', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
-      'Start from remote', 'Add project starts in', 'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Text generation model', 'Version', 'Update track', 'Mobile app', 'Diagnostics',
-      'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
+    // Every page split from General by 9db433f4ba #25651, in nav order (SettingsPanels.tsx at 96fc7b9551).
+    expect(sections.map(section => section.title)).toEqual(['Notifications', 'Sidebar', 'Confirmations', 'Display', 'Composer', 'Follow-ups', 'Diffs', 'Pull requests', 'New projects', 'New threads',
+      'Usage limits', 'Auto-settle', 'Text generation', 'Creation', 'Updates', 'Background activity', 'Diagnostics', 'App', 'Legal', 'Legacy']);
+    expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Thread notifications', 'In-app notifications', 'Project grouping', 'Project order', 'Working section',
+      'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Time format', 'Rich text composer', 'Send shortcut', 'Collapse composer on scroll', 'Show skills in slash menu',
+      'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Proactive panels', 'Add project starts in', 'Model', 'Permissions', 'Workspace',
+      'Resume after usage limits', 'Snooze until limits reset', 'Compact idle Claude threads (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
+      'Text generation model', 'Response streaming', 'Start from remote', 'Submodules', 'Provider update checks', 'Continue threads after restarts', 'Background activity', 'Diagnostics',
+      'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
+    expect(generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()), 'general').map(section => section.title)).toEqual(['Notifications', 'Sidebar', 'Confirmations', 'Display']);
     const row = (id: string) => sections.flatMap(section => section.rows).find(entry => entry.id === id)!;
     expect([row('default-model').label, row('default-model').label2, row('default-model').status, row('default-model').description])
       .toEqual(['GPT-5.6-Luna', 'Medium', '', 'Default model for new threads, selected automatically. Projects can override it.']);
@@ -336,7 +339,7 @@ describe('writes through the command', () => {
   test('t3.json is read for each member of a project scope', async () => {
     const client = fake();
     client.files['/a'] = '{"worktreeSubmodules":"none"}';
-    const core = await settingsCore(as(client), native, '', 'repo', 'p1', '', 'general', '', true);
+    const core = await settingsCore(as(client), native, '', 'repo', 'p1', '', 'worktrees', '', true);
     const row = core.sections.flatMap(section => section.rows).find(entry => entry.id === 'worktree-submodules')!;
     expect([row.label, row.inheritance, core.kind, core.scopeKey]).toEqual(['Skip', 'inherited', 'checkout', '|repo|p1']);
     // A bare project id (Project settings' target) is its project on every environment: /projects/$projectKey
@@ -360,6 +363,13 @@ describe('writes through the command', () => {
     expect(await stale('', 'repo', 'gone')).toEqual(['unavailable', 'This checkout is no longer available in the selected project and environment.', true, 'repo', 'p1']);
     expect((await stale('', 'gone', ''))[2]).toBe(false);
     expect((await stale('env9', 'repo', '', 'general'))[2]).toBe(false);
+    // SettingsScopeBoundary: a device-only page (General, Chat, Diffs, About) keeps its rows on any scope, and no message.
+    for (const route of ['general', 'chat', 'about']) {
+      const core = await settingsCore(as(client), native, 'env9', 'repo', '', '', route, '', true);
+      expect([route, core.kind, core.message, core.showScope, core.sections.length > 0]).toEqual([route, 'unavailable', '', false, true]);
+    }
+    const offline = await settingsCore(as(fake({}, false)), native, '', '', '', '', 'diffs', '', true);
+    expect([offline.message, offline.sections.map(section => section.title)]).toEqual(['', ['Diffs', 'Pull requests']]);
     expect((await settingsCore(as(client), native, '', '', '', '', 'projects', '', true)).projectModel).toEqual([]);
     expect((await settingsCore(as(client), native, '', 'repo', '', '', 'general', '', true)).projectModel).toEqual([]);
     // TraitsPicker's trigger names every trait (buildTraitsTriggerDisplay), as the composer's does: "Medium · 1M".
@@ -374,9 +384,12 @@ describe('writes through the command', () => {
 
 describe('navigation and search', () => {
   const context = { connected: true, autoSettle: true, scopeKind: 'all', keybindings: [{ command: 'sidebar.toggle', key: 'mod+b' }] };
-  test('sidebar lists the reference sections; Project only for a project scope', () => {
-    expect(settingsNavigation('', context).items.map(item => item.title)).toEqual(['General', 'Appearance', 'Keybindings', 'SnapShots', 'Providers', 'Integrations', 'Scheduled Tasks', 'Source Control', 'Storage', 'Connections', 'Archive']);
-    expect(settingsNavigation('', { ...context, scopeKind: 'project' }).items[0]!.title).toBe('Project');
+  test('sidebar lists the reference pages by concern (SETTINGS_NAV_GROUPS, 96fc7b9551)', () => {
+    const items = settingsNavigation('', context).items;
+    expect(items.map(item => item.title)).toEqual(['General', 'Appearance', 'Chat', 'Diffs & pull requests', 'Keybindings', 'SnapShots', 'Providers', 'Threads', 'Browser', 'Devices',
+      'Scheduled tasks', 'Projects', 'Source control', 'Worktrees', 'Environments', 'Maintenance', 'Labs', 'About', 'Archive']);
+    expect(items.filter(item => item.groupStart).map(item => [item.title, item.heading])).toEqual([['Providers', 'Agents'], ['Projects', 'Code'], ['Environments', 'Connections'], ['Maintenance', '']]);
+    expect(settingsNavigation('', { ...context, scopeKind: 'project' }).items.map(item => item.title)).toEqual(items.map(item => item.title));
     expect(breadcrumbLabel('open-source-licenses')).toBe('Open source licenses');
   });
   test('search ranks like the reference and keybinding commands sort last', () => {
@@ -385,12 +398,12 @@ describe('navigation and search', () => {
     expect(searchSettings('wrap', context)[0]!.id).toBe('word-wrap');
     expect(searchSettings('auto settle', { ...context, autoSettle: false }).map(item => item.id)).not.toContain('auto-settle-inactive-threads');
     expect(searchSettings('tailscale', context)).toEqual([]);
-    // The About rows (472ea7ec5f): Version by its update words, and Update track, both on General.
+    // The About rows (472ea7ec5f): Version by its update words, and Update track, both on About.
     expect(searchSettings('check for updates', context).map(item => item.id)).toContain('app-version');
-    expect(searchSettings('update track', context)).toEqual([expect.objectContaining({ id: 'update-track', title: 'Update track', route: 'general' })]);
+    expect(searchSettings('update track', context)).toEqual([expect.objectContaining({ id: 'update-track', title: 'Update track', route: 'about' })]);
     expect(searchSettings('nightly', context).map(item => [item.id, item.target])).toContainEqual(['update-track', 'update-track']);
     const result = settingsNavigation('send shortcut', context);
-    expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['general', 'setting-send-shortcut', 'General']);
+    expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['chat', 'setting-send-shortcut', 'Chat']);
     expect(scopeAvailable('environment-defaults', 'project')).toBe(false);
     expect(commandLabel('composer.sendAlternate')).toBe('Composer: Opposite Queue or Steer Action');
   });
@@ -398,20 +411,20 @@ describe('navigation and search', () => {
     // The desktop app's results for ten queries, keybinding commands left out (they follow the server's bindings).
     const desktop = { ...context, localBackend: true, localEnvironment: true };
     const titles = (query: string) => searchSettings(query, desktop).filter(item => item.route !== 'keybindings').map(item => `${item.title} / ${breadcrumbLabel(item.route)}`);
-    expect(titles('update')).toEqual(['Update track / General', 'Provider update checks / General', 'Continue threads after restarts / General', 'Version / General']);
-    expect(titles('credits')).toEqual(['Remove agent credits when merging / Source Control']);
-    expect(titles('clients')).toEqual(['This machine / Connections']);
-    expect(titles('worktree')).toEqual(['Worktree cleanup / Storage', 'Worktree location / Storage', 'Worktree branch naming / Source Control', 'Keep worktrees with local changes / Storage',
-      'New threads / General', 'Submodules / General', 'Start from remote / General', 'Actions / Project']);
+    expect(titles('update')).toEqual(['Update track / About', 'Provider update checks / Maintenance', 'Continue threads after restarts / Maintenance', 'Version / About']);
+    expect(titles('credits')).toEqual(['Remove agent credits when merging / Source control']);
+    expect(titles('clients')).toEqual(['This machine / Environments']);
+    expect(titles('worktree')).toEqual(['Worktree cleanup / Worktrees', 'Worktree location / Worktrees', 'Worktree branch naming / Source control', 'Keep worktrees with local changes / Worktrees',
+      'New threads / Threads', 'Submodules / Worktrees', 'Start from remote / Worktrees', 'Actions / Projects']);
     expect(titles('theme')).toEqual(['Themes / Appearance']);
-    expect(titles('model')).toEqual(['Default model / General', 'Text generation model / General', 'Source control writer model / Source Control', 'Review guide model / Source Control',
-      'Project defaults and overrides / General', 'Providers / Providers', 'Health check interval / Providers']);
-    expect(titles('token')).toEqual(['GitHub accounts and token / Source Control', 'Compact idle Claude threads (beta) / General', 'Response streaming / General', 'Context window indicator (legacy) / General', 'Cursor account usage / Providers',
-      'GitCafe credentials / Source Control', 'Bitbucket credentials / Source Control']);
+    expect(titles('model')).toEqual(['Default model / Threads', 'Text generation model / Threads', 'Source control writer model / Source control', 'Review guide model / Source control',
+      'Project defaults and overrides / Threads', 'Providers / Providers', 'Health check interval / Providers']);
+    expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Compact idle Claude threads (beta) / Threads', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
+      'GitCafe credentials / Source control', 'Bitbucket credentials / Source control']);
     expect(titles('mcp')).toEqual([]);
-    expect(titles('sidebar')).toEqual(['Sidebar (legacy) / General', 'Project grouping / General', 'Project order / General', 'Working section (beta) / General', 'Auto-settle inactive threads / General',
-      'Auto-settle merged threads / General', 'Days of inactivity before auto-settle / General', 'Environment icon / Connections']);
-    expect(titles('settle')).toEqual(['Auto-settle inactive threads / General', 'Auto-settle merged threads / General', 'Days of inactivity before auto-settle / General']);
+    expect(titles('sidebar')).toEqual(['Sidebar (legacy) / Labs', 'Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
+      'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads', 'Environment icon / Environments']);
+    expect(titles('settle')).toEqual(['Auto-settle inactive threads / Threads', 'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads']);
   });
 });
 

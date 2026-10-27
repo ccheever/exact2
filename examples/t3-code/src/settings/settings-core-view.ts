@@ -5,7 +5,7 @@ import type { Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { decodeClientPrefs, generalSections, memberFiles, resolveScope, restoreLabels, scopeTarget, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
 import { appearanceSections, fontStack, modeTiles, palette } from '../appearance/settings-appearance';
-import { breadcrumbLabel, scopeAvailable, searchTargetScope } from './settings-search';
+import { breadcrumbLabel, CORE_ROUTES, scopeAvailable, searchTargetScope } from './settings-search';
 import { scopeNoticeGroups } from './settings-scope-notice';
 import type { CustomTheme } from '../appearance/settings-themes';
 import { scopeMachine, singleEnvironmentRoute } from '../providers/settings-b-scope';
@@ -31,7 +31,7 @@ import { quitMode } from './palette-native';
 const keyedLabel = (label: string) => ({ id: `label:${label}`, label, secondary: '', mark: '', ink: '', surface: '', member: '', selected: true, offline: false });
 
 // Pages whose every row is saved on this client; they have no scope sentence (SETTINGS_DEVICE_ONLY_PATHS).
-const DEVICE_ONLY = new Set(['appearance', 'snap-shot', 'connections']);
+const DEVICE_ONLY = new Set(['general', 'appearance', 'chat', 'diffs', 'snap-shot', 'connections', 'about']);
 const EDITOR_KINDS = new Set(['create', 'edit', 'duplicate']);
 
 /**
@@ -90,12 +90,16 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   await wearMode(client, native, paint.mode);
   if (dialogKind !== 'import') resetImport(client);
   let sections: CoreSection[] = [];
-  if (active && route === 'general' && scope.kind !== 'unavailable') sections = generalSections(client, context);
+  // SettingsScopeBoundary renders a device-only page whatever the scope: its rows are this client's.
+  const deviceOnly = DEVICE_ONLY.has(route);
+  if (active && CORE_ROUTES.has(route) && route !== 'appearance' && (scope.kind !== 'unavailable' || deviceOnly)) sections = generalSections(client, context, route);
   if (active && route === 'appearance') sections = appearanceSections(prefs, true, await installedFonts(client, native));
-  const cli = active && route === 'general' ? await readCliCommand(client, native) : null;
+  const cli = active && route === 'about' ? await readCliCommand(client, native) : null;
   if (cli) sections = sections.length ? sections.map(section => section.id === 'about' ? { ...section, rows: [...section.rows, cli] } : section)
     : [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }];
-  sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
+  // Worktrees' Creation rows follow the storage panel's Worktree location, which it draws outside a project scope.
+  const lead = route === 'worktrees' && !project;
+  sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 || lead })) }));
   // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
   const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];
   // useSettingsRestore over useScopedSettings: the scope's representative target, not the focused environment.
@@ -110,7 +114,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     // Providers shows the chosen environment's own connection (providers-scope.ts); the other routes read the focused one.
     : scope.kind === 'environment' && !(singleEnvironmentRoute(route) ? scope.connected : client.ready) ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
   return {
-    ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !DEVICE_ONLY.has(route), kind: scope.kind, message: unavailableMessage, notice, noticeGroups,
+    ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !deviceOnly, kind: scope.kind, message: deviceOnly ? '' : unavailableMessage, notice, noticeGroups,
     environmentLabel: scope.environmentLabel, projectLabel: scope.projectLabel, projectMark: scope.projectMark, projectInk: scope.projectInk, projectSurface: scope.projectSurface,
     connective: scope.connective, // Every known environment, each with its own machine icon; a single-environment route drops "All environments".
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,

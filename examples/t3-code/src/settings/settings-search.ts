@@ -1,20 +1,30 @@
-// Settings navigation and search. Reference: SettingsSidebarNav.tsx and
-// settingsSearch.ts — the sidebar lists SETTINGS_SECTION_LABELS in order (Project only for a
-// project/checkout scope); a query replaces the list with ranked catalog results whose
-// availability and owning scope match this client.
+// Settings navigation and search. Reference: SettingsSidebarNav.tsx and settingsSearch.ts (96fc7b9551, the pages
+// grouped by concern in 9db433f4ba #25651) — the nav lists SETTINGS_NAV_GROUPS in order; a query replaces the list
+// with ranked catalog results whose availability and owning scope match this client.
 import { CATALOG } from './settings-catalog';
 import { commandLabel } from './keybinding-view'; // settingsSearch.ts imports KeybindingsSettings.logic's
 import { arr, obj, str, type Obj } from '../client/domain';
 import { canManageLocalBackend, primary } from '../connections/local-primary';
 
-export const SECTION_LABELS: readonly (readonly [string, string, string])[] = [
-  ['projects', 'Project', 'panels-top-left'], ['general', 'General', 'settings-2'], ['appearance', 'Appearance', 'palette'], ['keybindings', 'Keybindings', 'keyboard'],
-  ['snap-shot', 'SnapShots', 'snap-shot'], ['providers', 'Providers', 'bot'], ['integrations', 'Integrations', 'blocks'], ['scheduled-tasks', 'Scheduled Tasks', 'calendar-clock'],
-  ['source-control', 'Source Control', 'git-branch'], ['storage', 'Storage', 'hard-drive'], ['connections', 'Connections', 'link-2'], ['archived', 'Archive', 'archive'],
+type Page = readonly [route: string, label: string, icon: string];
+/** SETTINGS_NAV_GROUPS: a group without a heading is set apart by space alone. Sharing & access is left out: the
+ *  clone's Connections page has no access view of its own (connections.contract). */
+export const NAV_GROUPS: readonly { heading: string; pages: readonly Page[] }[] = [
+  { heading: '', pages: [['general', 'General', 'settings-2'], ['appearance', 'Appearance', 'palette'], ['chat', 'Chat', 'message-square-text'],
+    ['diffs', 'Diffs & pull requests', 'file-diff'], ['keybindings', 'Keybindings', 'keyboard'], ['snap-shot', 'SnapShots', 'snap-shot']] },
+  { heading: 'Agents', pages: [['providers', 'Providers', 'bot'], ['threads', 'Threads', 'messages-square'], ['browser', 'Browser', 'globe'],
+    ['devices', 'Devices', 'smartphone'], ['scheduled-tasks', 'Scheduled tasks', 'calendar-clock']] },
+  { heading: 'Code', pages: [['projects', 'Projects', 'panels-top-left'], ['source-control', 'Source control', 'git-branch'], ['worktrees', 'Worktrees', 'folder-tree']] },
+  { heading: 'Connections', pages: [['connections', 'Environments', 'server']] },
+  { heading: '', pages: [['maintenance', 'Maintenance', 'wrench'], ['labs', 'Labs', 'flask-conical'], ['about', 'About', 'info'], ['archived', 'Archive', 'archive']] },
 ];
+export const SECTION_LABELS: readonly Page[] = NAV_GROUPS.flatMap(group => group.pages);
+/** The pages drawn from settings-core's sections (General's rows before the split, and Appearance); on Worktrees and
+ *  Maintenance the storage panel's rows (`storage-…`) are its own, with no `setting-` target. */
+export const CORE_ROUTES: ReadonlySet<string> = new Set(['general', 'appearance', 'chat', 'diffs', 'threads', 'worktrees', 'maintenance', 'about', 'labs']);
 const BREADCRUMB: Record<string, string> = { ...Object.fromEntries(SECTION_LABELS.map(([route, label]) => [route, label])), diagnostics: 'Diagnostics', 'open-source-licenses': 'Open source licenses' };
 export const breadcrumbLabel = (route: string) => BREADCRUMB[route] ?? 'Settings';
-const CATEGORY_SCOPE: Record<string, string> = { projects: 'project', 'source-control': 'environment-defaults', storage: 'project-defaults', connections: 'connections', archived: 'project-defaults' };
+const CATEGORY_SCOPE: Record<string, string> = { diagnostics: 'environment', projects: 'project', 'source-control': 'environment-defaults', worktrees: 'project-defaults', connections: 'connections', archived: 'project-defaults' };
 // Rows in other lanes' routes that a result can focus; everything else lands on its route.
 const NATIVE_TARGETS: Record<string, string> = {
   archive: 'refresh-archive', 'storage-worktrees': 'storage-toggle-worktreeOnDelete', 'storage-artifacts': 'storage-toggle-browserArtifactsAfterDays',
@@ -76,10 +86,11 @@ export function settingsNavigation(query: string, context: SearchContext, active
   const results = searchSettings(query, context);
   const active = results.length ? ((activeIndex % results.length) + results.length) % results.length : 0;
   const items = searching
-    ? results.map((item, index) => ({ id: `search-result-${item.id}`, route: item.route, target: NATIVE_TARGETS[item.id] ?? (item.route === 'general' || item.route === 'appearance' ? `setting-${item.target}` : ''),
-        title: item.title, section: BREADCRUMB[item.route] ?? '', icon: SECTION_LABELS.find(([route]) => route === item.route)?.[2] ?? 'settings-2', scope: item.scope || CATEGORY_SCOPE[item.route] || '', active: index === active }))
-    : SECTION_LABELS.filter(([route]) => route !== 'projects' || context.scopeKind === 'project' || context.scopeKind === 'checkout')
-        .map(([route, label, icon]) => ({ id: route, route, target: '', title: label, section: '', icon, scope: '', active: false }));
+    ? results.map((item, index) => ({ id: `search-result-${item.id}`, route: item.route, target: NATIVE_TARGETS[item.id] ?? (CORE_ROUTES.has(item.route) && !item.id.startsWith('storage-') ? `setting-${item.target}` : ''),
+        title: item.title, section: BREADCRUMB[item.route] ?? '', icon: SECTION_LABELS.find(([route]) => route === item.route)?.[2] ?? 'settings-2', scope: item.scope || CATEGORY_SCOPE[item.route] || '', active: index === active,
+        heading: '', groupStart: false }))
+    : NAV_GROUPS.flatMap((group, at) => group.pages.map(([route, label, icon], index) => ({ id: route, route, target: '', title: label, section: '', icon, scope: '', active: false,
+        heading: index === 0 ? group.heading : '', groupStart: index === 0 && at > 0 })));
   const chosen = searching ? items[active] : undefined;
   return { items, searching, count: items.length, firstRoute: chosen?.route || '', firstTarget: chosen?.target || '', firstId: chosen ? chosen.id : '' };
 }

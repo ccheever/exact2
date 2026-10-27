@@ -9,6 +9,7 @@ use TextProbes from "../composer/composer-label-probes.contract"
 use ProviderMark from "../shared/icons.contract"
 use DriverMark from "../providers/provider-icons-kit.contract"
 use PgIcon from "../shared/pages-icons.contract"
+use AppRouteModalClose from "../shell/app-route-modal.contract"
 use UsageChart from "./pages-usage-shapes.contract"
 use UsageShare from "./pages-usage-shapes.contract"
 use UsageModelDetail from "./pages-usage-shapes.contract"
@@ -168,8 +169,6 @@ component UsagePage
     hoverTip: HoverTip
     hoverShown: bool
   props
-    // --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
-    controlsLeft: number
     page: UsageView
     keys: UsageKey[]
     scheme: string
@@ -177,7 +176,6 @@ component UsagePage
     lg: bool
     md: bool
     sm: bool
-    sidebarOpen: bool
     op: action
     setMetric: action
     setWindow: action
@@ -289,7 +287,7 @@ component UsagePage
     column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #000000)" inert=(page.detail.open or page.prices.open or confirmOpen) pointerdown=pressDown pointerup=pressUp testId="usage-page"
       UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or confirmOpen), setMetric=setMetric, setWindow=setWindow, back=escape)
       if wide
-        row width="100%" height=52 flex-shrink=0 padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="1.25rem" box-sizing="border-box" align-items="center" gap="0.75rem" position="relative"
+        row width="100%" height="3rem" flex-shrink=0 padding-left="1.25rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" gap="0.75rem" position="relative" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
           UsageBreadcrumb(page=page, scheme=scheme, op=op)
           row margin-left="auto" align-items="center" gap="0.5rem" flex-shrink=0
             // Limits are always current, so they have no period; it sits before the metric tabs so dropping it never moves them.
@@ -304,9 +302,11 @@ component UsagePage
               Segment(label="Tokens", title=usageTitle(keys, "usage.tokens", "Tokens"), pressed=(page.metric == "tokens"), disabled=false, press=setMetric("tokens"), testId="usage-metric-tokens")
               Segment(label="Limits", title=usageTitle(keys, "usage.limits", "Limits"), pressed=(page.metric == "limits"), disabled=false, press=setMetric("limits"), testId="usage-metric-limits")
             UsageRefresh(limits=(page.metric == "limits"), busy=page.refreshing, reduced=reduced, reload=reload)
+          // AppRouteModalClose; UsageKeys holds Escape (a showing popover closes first).
+          AppRouteModalClose(closeId="close-usage", escape=false, color="light-dark(#18181b, #f5f5f5)", hoverFill="light-dark(#f4f4f5, #ffffff0a)", dismiss=back)
       else
         // Below xl the breadcrumb and the selects share the one top-bar row (WorkspacePageHeader's fixed height).
-        row width="100%" height=52 flex-shrink=0 padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="1.25rem" box-sizing="border-box" align-items="center" gap="0.75rem" position="relative"
+        row width="100%" height="3rem" flex-shrink=0 padding-left="1.25rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" gap="0.75rem" position="relative" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
           UsageBreadcrumb(page=page, scheme=scheme, op=op)
           row margin-left="auto" flex-shrink=0 justify-content="flex-end" align-items="center" gap="0.25rem"
             if page.metric != "limits"
@@ -320,6 +320,8 @@ component UsagePage
               UsageOption(menuId="usage-metric-select", label="Tokens", title=usageTitle(keys, "usage.tokens", "Tokens"), selected=(page.metric == "tokens"), press=setMetric("tokens"))
               UsageOption(menuId="usage-metric-select", label="Limits", title=usageTitle(keys, "usage.limits", "Limits"), selected=(page.metric == "limits"), press=setMetric("limits"))
             UsageRefresh(limits=(page.metric == "limits"), busy=page.refreshing, reduced=reduced, reload=reload)
+          // AppRouteModalClose; UsageKeys holds Escape (a showing popover closes first).
+          AppRouteModalClose(closeId="close-usage", escape=false, color="light-dark(#18181b, #f5f5f5)", hoverFill="light-dark(#f4f4f5, #ffffff0a)", dismiss=back)
       scroll flex=1 min-height=0 width="100%" testId="usage-scroll"
         // A press on the port's empty ground (below or beside the content) reaches the page's pointerdown and pointerup:
         // main 3998e650e passes an empty scroll port's press on to the scroll node and its ancestors (issues/closed/20261009-macos-empty-scroll-pointer.md).
@@ -366,7 +368,7 @@ component UsageBreadcrumb
       text "/" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" flex-shrink=0
       column position="relative" min-width="2.5rem" flex-shrink=1
         TextProbes(probes=page.menuProbes)
-        button id="usage-environment" popovertarget="usage-environment-menu" key=triggerKey hover=hover testId="usage-environment" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.125rem" min-width=0
+        button id="usage-environment" popovertarget="usage-environment-menu" key=triggerKey hover=hover testId="usage-environment" data-focus-stop="enabled" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.125rem" min-width=0
           text page.environmentLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" text-decoration-line=(over ? "underline" : "none") line-clamp=1
           // An alert when a selected environment failed, else the chevron (60% at rest); scan progress is in the menu.
           box width="0.875rem" height="0.875rem" flex-shrink=0 opacity=(over or page.environmentIcon != "" ? 1 : 0.6) display="flex" role=(page.environmentIcon != "" ? "img" : "none") aria-label=(page.environmentIcon == "issue" ? "Some environments could not report usage" : "") testId="usage-environment-glyph"

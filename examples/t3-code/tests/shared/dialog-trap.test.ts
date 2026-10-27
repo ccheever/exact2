@@ -54,6 +54,7 @@ const GUARDED: Record<string, string> = {
   'pr-row.contract "pr-merge-dialog"': 'pr-merge',
   'pr-checkout.contract "pr-checkout-dialog"': 'pr-checkout',
   'add-project-machine.contract "add-machine-dialog"': 'add-machine',
+  'app-route-modal.contract modalId': 'route-modal',
   'settings-a-collections.contract "theme-remove-collection"': 'theme-remove-collection',
   'settings-a-dialogs.contract dialogId': 'sa-dialog',
   'settings-a-hosts.contract "device-host-dialog"': 'device-host',
@@ -532,6 +533,8 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'usage-bars.contract "reset-credit-dialog"': ['app-overlays.contract', ['reset-credit-dialog']],
   };
   const own: Record<string, [string, string]> = {
+    // AppRouteModal's finalFocus={false}: closing leaves the focus where it is, blurred first (the close button's leave).
+    'app-route-modal.contract modalId': ['app-route-modal.contract', 'action leave\n    blur()\n    dismiss()'],
     'browser-profiles.contract "browser-profile-remove-dialog"': ['app.contract', 'focus(`browser-profile-options-${removalAt}`)'],
     'palette.contract view.testId': ['app.contract', 'focus("pull-request-more")'],
     'palette.contract "pull-request-thread-picker"': ['app.contract', 'focus("pull-request-more")'],

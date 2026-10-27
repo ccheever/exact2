@@ -581,7 +581,7 @@ component T3Code
   state diagnosticPeriod = "15m"
   resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp, shell.panel.kind, prTab == "code", undoClaimed, shell.panel.open and shell.panel.kind == "file", shell.panel.files.editorShow and shell.panel.files.editorUnavailable == "" and shell.panel.files.editorId != "" ? shell.panel.files.absolutePath : "") as shape KeyDispatch[]
   resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape SourceControlPage
-  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape IntegrationsPage
+  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and (settingsRoute == "browser" or settingsRoute == "devices"), settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape IntegrationsPage
   state removalAt = ""
   task removalFocus when integrations.browserProfiles.removalId != removalAt
     after(1, removalFlip)
@@ -593,7 +593,7 @@ component T3Code
     else
       focus("browser-profiles-add")
     removalAt = integrations.browserProfiles.removalId
-  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, wallTime.epochAtZero + elapsed) as shape StoragePage
+  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and (settingsRoute == "maintenance" or settingsRoute == "worktrees"), settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, wallTime.epochAtZero + elapsed) as shape StoragePage
   resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape ArchivePage
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
   resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, data.telemetry) as shape DiagnosticsPage // a telemetry sample asks only this page again (data.telemetry); its reads are shared, so one asked again before a reply joins it (diagnostics-view.ts)

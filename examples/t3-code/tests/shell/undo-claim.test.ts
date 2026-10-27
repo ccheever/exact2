@@ -149,18 +149,18 @@ describe('a collapsing sidebar hands its focus to its toggle (ui/sidebar.tsx)', 
     return calls;
   }
   test('the thread sidebar\'s focus goes to the window\'s trigger; none, nothing moves', () => {
-    expect(toggle({ sidebarFocused: true, settingsNavFocused: false }, false)).toEqual(['release', 'focus sidebar-trigger', 'command closed']);
-    expect(toggle({ sidebarFocused: false, settingsNavFocused: false }, false)).toEqual(['release', 'command closed']);
+    expect(toggle({ sidebarFocused: true }, false)).toEqual(['release', 'focus sidebar-trigger', 'command closed']);
+    expect(toggle({ sidebarFocused: false }, false)).toEqual(['release', 'command closed']);
   });
-  test('Settings\' navigation hands its focus to its own toggle, and a flag the thread sidebar left set moves nothing', () => {
-    expect(toggle({ sidebarFocused: false, settingsNavFocused: true }, true)).toEqual(['release', 'focus settings-sidebar-trigger', 'command closed']);
-    expect(toggle({ sidebarFocused: true, settingsNavFocused: false }, true)).toEqual(['release', 'command closed']);
+  // Settings is a modal over the window with a nav of its own (3faeb9e6f9): the thread sidebar's flag moves nothing.
+  test('a flag the thread sidebar left set moves nothing while Settings is open', () => {
+    expect(toggle({ sidebarFocused: true }, true)).toEqual(['release', 'command closed']);
   });
-  test('each navigation reports the focus inside it', () => {
-    const state: Env = { sidebarFocused: false, settingsNavFocused: false };
-    window.call('settingsNavFocusWithin', state, {}, [true]);
+  test('the thread sidebar reports the focus inside it', () => {
+    const state: Env = { sidebarFocused: false };
     window.call('sidebarFocusWithin', state, {}, [true]);
+    expect(state).toEqual({ sidebarFocused: true });
     window.call('sidebarFocusWithin', state, {}, [false]);
-    expect(state).toEqual({ sidebarFocused: false, settingsNavFocused: true });
+    expect(state).toEqual({ sidebarFocused: false });
   });
 });
