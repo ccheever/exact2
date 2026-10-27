@@ -6,7 +6,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ADOPTED, APP_PLACED, BEFORE_USES, RENDERED, RETIRED, STAGES, appPlaced, declares, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
+import { ADOPTED, APP_PLACED, KEYBOARD_UP, keyboardInset, BEFORE_USES, RENDERED, RETIRED, STAGES, appPlaced, declares, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
 import { READS, apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, readsOf, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
@@ -16,6 +16,11 @@ test('the command line', () => {
   expect(parse(['--host', 'terminal']).hosts).toEqual(['terminal']);
   expect(parse(['--only', 'nope'])).toMatch(/^--only nope/);
   expect(parse(['--bogus', 'x'])).toBe('unknown argument --bogus');
+  // `--screen`: some of the stage's screens, only with --only (never a full record).
+  expect(parse(['--stage', 's15b', '--screen', 'composer'])).toMatch(/^--screen reshoots some screens/);
+  expect(parse(['--stage', 's15b', '--only', 'consumer-pixels', '--screen', 'nope'])).toMatch(/^--screen nope: one of .*thread-bo/);
+  expect(parse(['--stage', 's15b', '--only', 'consumer-pixels', '--screen', 'composer', '--screen', 'thread-bo']).screens).toEqual(['composer', 'thread-bo']);
+  expect(parse(['--stage', 's12', '--only', 'consumer-pixels', '--screen', 'thread-bo'])).toMatch(/^--screen thread-bo/);
   const b = parse(['baseline', '--copy', '/c', '--out', '/o', '--host', 'web']);
   expect([b.mode, b.copy, b.out, b.hosts]).toEqual(['baseline', '/c', '/o', ['web']]);
 });
@@ -48,7 +53,9 @@ test('a stage\'s profile: stage 12 the default, s13c its own tag, adoption, scre
     expect(RETIRED).toContain('component Avatar');
     expect(RETIRED).toContain('style ChatHeaderButton');
     expect(APP_PLACED.map(i => i.split('#')[1])).toEqual(['Avatar', 'VerifiedBadge']);
-    expect(SCREENS.map(([n]) => n).slice(-2)).toEqual(['chat', 'notifications']);
+    expect(SCREENS.map(([n]) => n).slice(-3)).toEqual(['chat', 'notifications', 'thread-bo']);
+    // The Bo thread: his reply (fx4, Bo verified) is the anchor, whose header is the copy's own.
+    expect(SCREENS.find(([n]) => n === 'thread-bo')[1]).toEqual(['tap post-1:at://did:plc:fixture1/app.bsky.feed.post/fx4']);
     expect(SCREENS.find(([n]) => n === 'chat')[1]).toContain('tap bottomBarMessagesBtn');
   } finally {
     useStage('s12');
@@ -513,4 +520,14 @@ test('stage 15 B\'s adoption proof: the copy\'s own files place an export, and i
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// theme2's s15b ruling (b): the composer's shot needs iOS's keyboard up on both sides, read from its field's reply.
+test("the composer's keyboard, read from its field's reply", () => {
+  expect(KEYBOARD_UP).toEqual(['composer']);
+  const out = kb => `noise\n{"x":1,"testId":"compose-text","env":${JSON.stringify(kb == null ? {} : { 'keyboard-inset-height': kb })}}\n`;
+  expect(keyboardInset('composer', out(336))).toBe(336);
+  expect(keyboardInset('composer', out(0))).toBe(0);
+  expect(keyboardInset('composer', out(null))).toBe(0);
+  expect(keyboardInset('discover', out(336))).toBe(0);
 });

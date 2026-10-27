@@ -4,7 +4,7 @@
 // with its evidence. A line whose parts aren't built yet says WAITS-ON; none
 // is passed over.
 //
-//   bun scripts/stage12-gate.mjs [--only <line> …] [--out <file>] [--copy <clone copy>] [--before <its tag's worktree>] [--baseline <dir>] [--host <h> …] [--app <android reader app>] [--release <release identity JSON>]
+//   bun scripts/stage12-gate.mjs [--only <line> …] [--screen <name> …] [--out <file>] [--copy <clone copy>] [--before <its tag's worktree>] [--baseline <dir>] [--host <h> …] [--app <android reader app>] [--release <release identity JSON>]
 //   bun scripts/stage12-gate.mjs baseline --copy <clone copy> --out <dir> [--host <h> …]
 //
 // `baseline` takes the consumer's "before" (LLP 1139 §5: baselines taken
@@ -80,6 +80,18 @@ export function allowOf(screen, out) {
   const view = reply.viewport;
   // The layout's viewport ends where the keyboard begins (iOS: 546 of 874).
   return kb > 0 && view ? [caret, { rect: [0, Math.round(view.h), Math.round(view.w), Math.round(kb)], reason: 'the system keyboard: the OS draws its material, a few levels apart between runs, over no library component' }] : [caret];
+}
+
+/** The screens whose shot needs iOS's software keyboard up (theme2's s15b gate ruling: the keyboard state made
+ * deterministic on both sides): the system keyboard comes up on the platform's own clock and its service drops under
+ * load, so one that is down after the drive is driven again, up to twice more, and a shot without it fails. */
+export const KEYBOARD_UP = ['composer'];
+
+/** The software keyboard's height in a drive's output (its field's reply), or 0. */
+export function keyboardInset(screen, out) {
+  const a = ALLOW[screen];
+  const line = a && out.split('\n').findLast(l => l.startsWith('{') && l.includes(`"testId":"${a.target}"`));
+  return line ? (JSON.parse(line).env?.['keyboard-inset-height'] ?? 0) : 0;
 }
 
 /** What the fixture says in the app's log for a request it refuses: a shot
@@ -186,11 +198,20 @@ function driveScreens(copy, host, dir, env) {
         retried = r.out.trim().split('\n').filter(l => /rror/.test(l)).slice(0, 1).join('').slice(0, 160) || 'no layout';
         r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
       }
+      // iOS's keyboard, where the shot needs it up: driven again while it is down.
+      let keyboard = '';
+      if (host === 'ios' && KEYBOARD_UP.includes(screen)) {
+        for (let k = 1; k <= 2 && r.ok && keyboardInset(screen, r.out) === 0; k++) {
+          keyboard = `the keyboard down, driven again (${k})`;
+          r = runToFile(process.execPath, args, png.replace(/\.png$/, '.out'), { cwd: copy, env: cloneWebEnv(env, wasm) });
+        }
+      }
+      const keyboardDown = host === 'ios' && KEYBOARD_UP.includes(screen) && r.ok && keyboardInset(screen, r.out) === 0;
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !keyboardDown, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(keyboard ? { keyboard } : {}), said: keyboardDown ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -539,6 +560,7 @@ export function consumerPixels(opts) {
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
     ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.retried).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: driven again after a drive that failed before any layout (${x.retried})`)),
+    ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.keyboard).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: ${x.keyboard}`)),
     'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
     `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
     ...(TITLES['consumer-pixels'] && !unseen.length && !own.length && !shownEarly.length ? [] : [`rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`]),
@@ -1358,6 +1380,9 @@ export const STAGES = {
       // Signed in: the chat list (its header buttons, its avatars) and the notifications (avatars and badges).
       ['chat', [...SIGN_IN, 'clock +1500 real', 'tap bottomBarMessagesBtn', 'clock +1500 real']],
       ['notifications', [...SIGN_IN, 'clock +1500 real', 'tap bottomBarNotificationsBtn', 'clock +1500 real']],
+      // A thread anchored on Bo's reply (Bo is verified): the anchor's header is the copy's own (screens.contract),
+      // so its badge is a VerifiedBadge the copy instantiates, which no other screen shows (theme2's s15b ruling (b)).
+      ['thread-bo', ['tap post-1:at://did:plc:fixture1/app.bsky.feed.post/fx4']],
     ],
     rendered: [...S13C_RENDERED],
     restyle: [...RESTYLE],
@@ -1419,14 +1444,14 @@ export function lines(opts) {
 const withTitles = list => list.map(([name, title, fn]) => [name, TITLES[name] ?? title, fn]);
 
 export function parse(argv) {
-  const opts = { mode: 'gate', stage: 's12', only: [], hosts: [], app: 'unsaid', out: null, copy: null, before: null, baseline: null, release: null, conformBase: null };
+  const opts = { mode: 'gate', stage: 's12', only: [], hosts: [], screens: [], app: 'unsaid', out: null, copy: null, before: null, baseline: null, release: null, conformBase: null };
   const args = [...argv];
   if (args[0] === 'baseline') { opts.mode = 'baseline'; opts.out = null; args.shift(); }
   for (let i = 0; i < args.length; i += 2) {
     const [flag, v] = [args[i], args[i + 1]];
-    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--app', '--release', '--conform-base', '--stage'].includes(flag)) return `unknown argument ${flag}`;
+    if (!['--only', '--out', '--copy', '--before', '--baseline', '--host', '--screen', '--app', '--release', '--conform-base', '--stage'].includes(flag)) return `unknown argument ${flag}`;
     if (v === undefined || v.startsWith('--')) return `${flag} needs a value`;
-    if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else if (flag === '--conform-base') opts.conformBase = v; else opts[flag.slice(2)] = v;
+    if (flag === '--only') opts.only.push(v); else if (flag === '--host') opts.hosts.push(v); else if (flag === '--screen') opts.screens.push(v); else if (flag === '--conform-base') opts.conformBase = v; else opts[flag.slice(2)] = v;
   }
   if (!STAGES[opts.stage]) return `--stage ${opts.stage}: one of ${Object.keys(STAGES).join(', ')}`;
   if (opts.mode === 'baseline' && (!opts.copy || !opts.out)) return 'baseline needs --copy and --out';
@@ -1442,6 +1467,11 @@ export function parse(argv) {
   const allowed = opts.mode === 'baseline' ? CLONE_HOSTS : SLOT_HOSTS;
   const unknownHost = opts.hosts.find(h => !allowed.includes(h));
   if (unknownHost) return `--host ${unknownHost}: one of ${allowed.join(', ')}`;
+  // `--screen`: a rerun of some of the stage's screens (a re-shot pair, a screen added), never a full record.
+  if (opts.screens.length && !opts.only.length) return '--screen reshoots some screens: name the lines with --only';
+  const names = STAGES[opts.stage].screens?.map(([n]) => n) ?? SCREENS.map(([n]) => n);
+  const unknownScreen = opts.screens.find(n => !names.includes(n));
+  if (unknownScreen) return `--screen ${unknownScreen}: one of ${names.join(', ')}`;
   const ids = lines(opts).map(([id]) => id);
   // Every `--only` a line's id, the empty string too: a scratch name is built from them.
   const missing = opts.only.find(o => !ids.includes(o));
@@ -1451,8 +1481,9 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b] [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b] [--only <line> …] [--screen <name> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
   const stage = useStage(opts.stage);
+  if (opts.screens.length) SCREENS.splice(0, SCREENS.length, ...SCREENS.filter(([n]) => opts.screens.includes(n)));
   if (opts.mode === 'baseline') {
     const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
     const bad = r.shots.filter(s => !s.ok);
@@ -1461,7 +1492,7 @@ if (import.meta.main) {
     process.exit(bad.length || !r.plan.sha ? 1 : 0);
   }
   const head = run('git', ['rev-parse', '--short', 'HEAD']).out.trim();
-  const text = [`# ${stage.name} gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}`, ''];
+  const text = [`# ${stage.name} gate run (LLP 1139 §5), ${new Date().toISOString()}, ${head}; ${opts.only.length ? `lines ${opts.only.join(', ')}` : 'every line'}${opts.screens.length ? `, screens ${opts.screens.join(', ')} only` : ''}`, ''];
   for (const [id, title, check] of lines(opts)) {
     let r;
     try { r = !opts.only.length || opts.only.includes(id) ? await check() : notRun('not selected'); } catch (e) { r = fail(`the line stopped: ${String(e?.stack ?? e).split('\n').slice(0, 3).join(' / ').slice(0, 400)}`); }
