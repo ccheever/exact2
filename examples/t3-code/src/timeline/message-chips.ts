@@ -9,6 +9,10 @@ import { workspaceFileIcon } from '../shared/file-metadata';
 import { isWindowsAbsolutePath } from '../media/media-reference';
 import { inlineCodeFilePathCandidate } from './inline-code-files';
 import { workspaceLookupPath } from './workspace-file-lookup';
+import { chatFileLink } from './markdown-file-links';
+import { isSentAudio } from './timeline-attachments';
+import { workspaceValues } from '../composer/composer-workspace-snapshots';
+import { selectedProvider, workspaceCwd } from '../composer/composer-editor';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { fileIconToken } from '../shared/timeline-files';
 import type { T3Client } from '../client/client';
@@ -157,18 +161,25 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   const attachments = new Map(arr(item.attachments).map(attachment => [str(attachment.id), attachment]));
   const seen = new Set<string>();
   const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] }); };
+  // The thread's provider skills for its workspace, as the composer's `$` menu reads them (a sketch of a client has none).
+  const skills = client?.config && client.projection ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [];
   if (text.includes('](t3-context:')) for (const match of text.matchAll(CONTEXT_LINK)) {
     const href = match[3]!, kind = match[4]!.toLowerCase(), label = match[2]!.trim() || kind;
     const record = records.get(match[5]!);
-    add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads));
+    add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads, skills));
+  }
+  // A known `$skill` in the prose is its skill's chip (markdown.rs skill_runs): its details popover (SkillChipPopover).
+  if (skills.length && text.includes('$')) for (const match of text.matchAll(SKILL_TOKEN_REGEX)) {
+    const skill = skills.find(candidate => str(candidate.name) === match[2]);
+    if (skill) add({ href: `t3-skill:$${match[2]}`, kind: 'skill', ...skillDetails(skill, formatProviderSkillDisplayName({ name: str(skill.name), displayName: str(skill.displayName) || undefined })) });
   }
   // A citation by its destination, whatever its label reads, as the composer sends it (COMPOSER_CITATION).
   if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) if (parseAssistantCitationHref(match[1]!)) add(citationChip(match[1]!));
   if (text.includes('](')) for (const link of markdownLinks(text)) {
     // A thread link is its thread's chip (MarkdownThreadLink → ThreadContextChip, T3 Code 74541bab17).
     if (!link.image && link.href.startsWith('t3-thread://v1/')) { const chip = threadLinkChip(link.href, link.label, threads, client); if (chip) add(chip); continue; }
-    // Exactly the destinations markdown.rs draws as file chips.
-    if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:')) continue;
+    // Exactly the destinations markdown.rs draws as file chips: kept by the URL transform, and file-shaped.
+    if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:') || !chatFileLink(link.href)) continue;
     // A link chip's `target` is what the link wrote from the workspace root, which the workspace search can resolve.
     add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: workspaceLookupPath(link.href, root, media.cwd || root) });
   }
@@ -213,14 +224,18 @@ function threadLinkChip(href: string, label: string, threads: Obj[], client?: T3
   return { href, kind: 'thread', label: str(target?.thread.title).trim() || label.trim() || written, size: '', tip: target ? 'Open thread' : 'Thread no longer available',
     detail: 'link', icon: '', target: target?.id ?? written };
 }
+/** skillPopoverDescription and skillInstructionsOpener's path: a skill chip's `detail` and `target`. */
+function skillDetails(skill: Obj | undefined, label: string): Pick<ChipView, 'label' | 'size' | 'tip' | 'detail' | 'icon' | 'target'> {
+  return { label, size: '', tip: `$${str(skill?.name)}`, detail: str(skill?.description).trim() || str(skill?.shortDescription).trim(), icon: '', target: str(skill?.path) };
+}
 const UNAVAILABLE = 'This context is no longer available.';
-function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner' | 'menu'> {
+function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[], skills: Obj[] = []): Omit<ChipView, 'id' | 'owner' | 'menu'> {
   const base = { href, label, size: '', tip: '', detail: '', icon: '', target: '' };
   const unresolved = { ...base, kind: 'unresolved', tip: UNAVAILABLE };
   if (!record) return unresolved;
   switch (kind) {
     case 'mention': return { ...base, kind: 'mention', label: str(record.label, label), tip: str(record.path), icon: fileIconToken(str(record.path)) };
-    case 'skill': return { ...base, kind: 'skill', label: str(record.label) || str(record.name, label), tip: `$${str(record.name)}` };
+    case 'skill': return { ...base, kind: 'skill', ...skillDetails(skills.find(skill => str(skill.name) === str(record.name)), str(record.label) || str(record.name, label)), tip: `$${str(record.name)}` };
     case 'thread': {
       const threadId = str(record.threadId), shell = threads.find(thread => str(thread.id) === threadId);
       return { ...base, kind: 'thread', label: str(shell?.title).trim() || str(record.title, label), tip: shell ? 'Open thread' : 'Thread no longer available', target: shell ? threadId : '' };
@@ -230,6 +245,8 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       if (!attachment || (kind === 'image' ? attachment.type !== 'image' : attachment.type !== 'file')) return unresolved;
       const name = str(record.name, str(attachment.name)), size = attachmentSize(Number(record.sizeBytes) || 0);
       if (kind === 'image') return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `Image attachment, ${name}, ${size}`, target: str(attachment.id) };
+      // A sent sound plays in its audio chip above the text, so its reference draws nothing here.
+      if (isSentAudio(attachment)) return { ...base, kind: 'audio', label: middleTruncate(name), target: str(attachment.id) };
       const video = isVideo(attachment);
       return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target: str(attachment.id) };
     }

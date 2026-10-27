@@ -413,3 +413,21 @@ describe('the pencil\'s comment above its chip (no change: the clone already pla
     expect(clone.ay - 4 - 114).toBe(536.5);
   });
 });
+
+// AssistantCitationChip's popupAnchor (#22149): a quote ending in a code block's hidden overflow anchors its comment
+// at the answer's edge, so the comment stays on screen.
+describe('the cited line is held to the answer\'s width', () => {
+  const answer = geometry(300, 100, 700, 400);
+  const offer = (lx: number, lw: number) => ({ source: 'm', ranges: '0-4', stream: 'text', size: 4, x: 0, y: 0, end: 'cite-m-0-code', lx, ly: 10, lw, lh: 16 });
+  const held = (lx: number, lw: number, box = geometry(320, 200, 2000, 300)) => cite.citeHeldOffer!(offer(lx, lw) as never, box as never, answer as never) as { lx: number; ly: number; lw: number; lh: number };
+  test('a line past the answer\'s right edge collapses onto it', () => {
+    expect(held(1500, 80)).toMatchObject({ lx: 680, lw: 0, ly: 10, lh: 16 });
+  });
+  test('a line crossing it is cut there; one inside is kept', () => {
+    expect(held(600, 200)).toMatchObject({ lx: 600, lw: 80 });
+    expect(held(10, 40)).toMatchObject({ lx: 10, lw: 40 });
+  });
+  test('the end text\'s own frame (no line reported) is held the same way', () => {
+    expect(held(0, -1)).toMatchObject({ lx: 0, ly: 0, lw: 680, lh: 300 });
+  });
+});

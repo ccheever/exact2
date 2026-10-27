@@ -77,14 +77,39 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
             }
         }
         let block_image = !paragraph && !tables[index] && sole_image_line(trimmed);
+        // remarkBreakAroundImageLines: an image alone on its source line inside a paragraph keeps that line (a label
+        // such as `**Palette**` above a screenshot), with line breaks before and after it.
+        let owns_line = paragraph && !tables[index] && (sole_image_line(trimmed) || sole_linked_image_line(trimmed));
+        if owns_line && !out.ends_with(&format!("{LINE_BREAK}\n")) {
+            out.pop();
+            out.push_str(LINE_BREAK);
+            out.push('\n');
+        }
         if block_image || !line.contains("![") {
             out.push_str(line);
         } else {
             image_links_in_line(line, &mut out);
         }
+        if owns_line && lines.get(index + 1).is_some_and(|next| prose_line(next)) && !trimmed.ends_with(LINE_BREAK) {
+            out.push_str(LINE_BREAK);
+        }
         paragraph = !block_image && prose_line(line);
     }
     std::borrow::Cow::Owned(out)
+}
+
+/// `[![alt](src)](link)` alone on a line: a link whose only content is one image, which isImageNode counts as an image.
+fn sole_linked_image_line(trimmed: &str) -> bool {
+    let Some(image) = trimmed.strip_prefix('[').filter(|rest| rest.starts_with("![")) else {
+        return false;
+    };
+    let Some((_, end)) = image_span(image, 0) else {
+        return false;
+    };
+    image[end + 1..]
+        .strip_prefix("](")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .is_some_and(|link| !link.is_empty() && !link.contains(')'))
 }
 
 /// `![alt](inside)` at `at`: the `]` and the `)` that close it (the destination's parentheses balanced).
@@ -239,7 +264,8 @@ fn image_links_in_line(line: &str, out: &mut String) {
 fn image_link(link: &dyn Fn(&str) -> String, href: &str) -> String {
     match href.strip_prefix(IMAGE_MARK) {
         Some(source) => {
-            let resolved = link(source);
+            // An image's source resolves as its media chip does, not as a link.
+            let resolved = media_href(source);
             let resolved = if resolved == NO_HREF || resolved.starts_with('#') {
                 ""
             } else {
@@ -465,8 +491,8 @@ mod media_tests {
             "a block image stays"
         );
         assert!(
-            rewritten.contains("Text\n[\u{e001}Joined](t3-image:j.png)"),
-            "a line that continues a paragraph is inline"
+            rewritten.contains("Text\u{e000}\n[\u{e001}Joined](t3-image:j.png)"),
+            "a line that continues a paragraph is inline, on a line of its own: {rewritten}"
         );
         assert!(
             rewritten.contains(&format!(
@@ -486,6 +512,38 @@ mod media_tests {
             text.lines().count(),
             "line structure kept for task offsets"
         );
+    }
+
+    // remarkBreakAroundImageLines (#22787): an image alone on its source line sits under its label.
+    #[test]
+    fn an_image_on_its_own_line_keeps_that_line() {
+        let lines = |text: &str| {
+            let Value::Record(fields) = document_with_tasks(Value::str("m"), text, None, true) else {
+                unreachable!()
+            };
+            let Value::List(blocks) = &fields[1] else { unreachable!() };
+            blocks
+                .iter()
+                .map(|block| {
+                    let Value::Record(block) = block else { unreachable!() };
+                    let Value::List(runs) = &block[7] else { return String::new() };
+                    runs.iter()
+                        .map(|run| match run {
+                            Value::Record(run) if run[6].as_str() == Some("media") => "<img>".to_string(),
+                            Value::Record(run) => run[1].as_str().unwrap_or("").to_string(),
+                            _ => String::new(),
+                        })
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            lines("**Palette**\n![Palette](/tmp/palette.png)\n**Hero** (dark)\n![Hero](/tmp/hero.png)"),
+            ["Palette", "<img>", "Hero (dark)", "<img>"]
+        );
+        assert_eq!(lines("Shot\n[![CI](/ci.svg)](/ci)\nafter").len(), 3, "a linked image alone on its line too");
+        assert_eq!(lines("Built [![CI](/ci.svg)](/ci)\nand wrapped").len(), 1, "an inline badge still wraps");
+        assert_eq!(lines("Hard-wrapped\nprose"), ["Hard-wrapped prose"]);
     }
 
     #[test]

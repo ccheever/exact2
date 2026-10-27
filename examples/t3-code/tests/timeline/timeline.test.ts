@@ -100,6 +100,35 @@ describe('settled turns', () => {
     expect(rows(cut).find(row => row.kind === 'attempt')).toMatchObject({ detail: 'Cut off by a steer' });
   });
 
+  test('a steer splits the settled turn: the total time above it, "Continued for" over each segment after (#22783)', async () => {
+    const value = client([user('u', 0, 'go'), command('a', 4, 'ls'), user('s', 10, 'steer', { inputIntent: 'steer' }), command('b', 15, 'pwd'), answer('x', 30, 'Done')],
+      { runs: [{ id: 'r1', status: 'completed', startedAt: at(0), completedAt: at(30) }] });
+    const segment = `r1:steer:${key('s')}`;
+    let result = rows(value);
+    expect(kinds(result)).toEqual(['user', 'work', 'user', 'work', 'assistant']);
+    expect(result[1]).toMatchObject({ title: 'Worked for 30s', groupId: 'r1' });
+    expect(result[3]).toMatchObject({ title: 'Continued for 20s', groupId: segment, createdAt: at(10) });
+    await toggle(value, 'fold', segment);
+    result = rows(value);
+    expect(kinds(result)).toEqual(['user', 'work', 'user', 'work', 'entry', 'assistant']);
+    expect(result[4]!.activities![0]).toMatchObject({ label: 'pwd' });
+    // Back-to-back steers split once, after the last of them.
+    const twice = rows(client([user('u', 0, 'go'), command('a', 4, 'ls'), user('s', 10, 'one', { inputIntent: 'steer' }),
+      user('t', 11, 'two', { inputIntent: 'promoted_queued_to_steer' }), command('b', 15, 'pwd'), answer('x', 30, 'Done')]));
+    expect(kinds(twice)).toEqual(['user', 'work', 'user', 'user', 'work', 'assistant']);
+    expect(twice[4]).toMatchObject({ title: 'Continued for 19s', groupId: `r1:steer:${key('t')}` });
+  });
+
+  test('a todo update is a quiet row where the agent wrote it, opening to every step (#25401)', async () => {
+    const todo = item('todo', 'todo_list', 2, { steps: [{ text: 'Read', status: 'completed' }, { text: 'Write tests', status: 'running' }, { text: 'Ship', status: 'pending' }] });
+    const value = client([user('u', 0, 'go'), todo, answer('x', 3, 'Done')]);
+    await toggle(value, 'fold', 'r1');
+    const group = rows(value).find(row => row.kind === 'group')!;
+    expect(group).toMatchObject({ title: 'Tasks 1/3 · Write tests' });
+    await toggle(value, 'group', group.groupId!);
+    expect(rows(value).find(row => row.kind === 'details')!.activities![0]).toMatchObject({ label: 'Tasks 1/3 · Write tests', icon: 'list-todo', body: '✓ Read\n◉ Write tests\n○ Ship' });
+  });
+
   test('a running subagent card stays out of its settled turn\'s fold (#16878)', async () => {
     const agent = (id: string, status: string) => item(id, 'subagent', 1, { status, providerTurnId: 'pt1', childThreadId: `c-${id}`, title: id });
     const value = client([user('u', 0, 'go'), command('a', 1, 'ls'), agent('s1', 'running'), agent('s2', 'completed'), answer('x', 2, 'Done')]);
@@ -278,7 +307,7 @@ describe('events and messages', () => {
       item('f', 'fork', 2, { runId: null, source: { type: 'run', threadId: 'source' }, targetThreadId: 't1' }),
       item('e', 'error', 3, { status: 'failed', failure: { message: 'Intentional fixture failure.', class: 'provider_error' } })],
       { runs: [{ id: 'r1', status: 'failed', startedAt: at(0), completedAt: at(3) }] }));
-    expect(result.find(row => row.kind === 'event')).toMatchObject({ title: 'Run interrupted', detail: 'Stopped by user', tone: 'danger', icon: 'x' });
+    expect(result.find(row => row.kind === 'event')).toMatchObject({ title: 'Run interrupted', detail: 'Stopped by user', tone: 'neutral', icon: 'circle-stop' });
     expect(result.find(row => row.kind === 'fork')).toMatchObject({ body: 'Forked from conversation', actionLabel: 'Open source conversation', targetId: 'source' });
     expect(result.find(row => row.kind === 'entry')!.activities![0]).toMatchObject({ label: 'Provider error', tone: 'provider-error', detail: 'Intentional fixture failure.' });
   });
@@ -303,6 +332,17 @@ describe('events and messages', () => {
       user('p', 2, 'hi', { createdBy: 'agent', creationSource: 'mcp' })]));
     expect(result.filter(row => row.kind === 'user').map(row => [row.attribution, row.body, row.detail])).toEqual([
       ['t3code', 'Continue.', ''], ['automation', 'Run it', 'task-1'], ['agent', 'hi', '']]);
+  });
+
+  test('automation and other agents\' messages fold to one line under their author (#22638, #23135)', () => {
+    const value = client([user('s', 0, `Nightly digest\n\nRead yesterday's commits.\n${'Summarize them.\n'.repeat(12)}`, { scheduledTaskId: 'task-9' }),
+      user('a', 1, '\n\n  Please review [notes.md](t3-context://v1/file/file_1)  \nThey need a second read.', { createdBy: 'agent', creationSource: 'mcp', senderThreadId: 'sender' }),
+      user('b', 2, 'hello', { createdBy: 'agent', creationSource: 'mcp', senderThreadId: 'gone' }), user('u', 3, 'mine')]);
+    value.shell.threads = [{ id: 'sender', title: '  Release prep  ' }] as typeof value.shell.threads;
+    const users = rows(value).filter(row => row.kind === 'user');
+    expect(users.map(row => [row.attribution, row.title, row.summary, row.collapsible])).toEqual([
+      ['automation', 'Automation', 'Nightly digest', false], ['agent', 'Release prep', 'Please review notes.md', false],
+      ['agent', 'Agent', 'hello', false], ['', 'You', '', false]]);
   });
 
   test('short messages with links or quotes do not collapse; the visible text counts (#16624)', () => {

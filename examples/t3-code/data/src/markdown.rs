@@ -133,8 +133,10 @@ impl DataSource for Markdown {
             return Ok(Value::record(vec![Value::list(Vec::new())]));
         };
         // Render math (Settings › Appearance): renderMarkdown's seventh argument, renderFileMarkdown's second.
-        let math = matches!(args.get(if source == "renderMarkdown" { 6 } else { 1 }), Some(Value::Bool(true)))
-            && (source == "renderMarkdown" || source == "renderFileMarkdown");
+        let math = matches!(
+            args.get(if source == "renderMarkdown" { 6 } else { 1 }),
+            Some(Value::Bool(true))
+        ) && (source == "renderMarkdown" || source == "renderFileMarkdown");
         let mut documents = Vec::new();
         for message in messages.iter() {
             let Value::Record(fields) = message else {
@@ -157,7 +159,11 @@ impl DataSource for Markdown {
                 continue;
             }
             let text = fields.get(3).and_then(Value::as_str).unwrap_or("");
-            let fenced = if math { display_math_fences(text) } else { String::new() };
+            let fenced = if math {
+                display_math_fences(text)
+            } else {
+                String::new()
+            };
             let text = if math { fenced.as_str() } else { text };
             // FileMarkdownPreview: task checkboxes write the editable file.
             if kind == "file" {
@@ -204,6 +210,7 @@ include!("markdown_links.rs");
 include!("markdown_media.rs");
 include!("markdown_headings.rs");
 include!("markdown_runs.rs");
+include!("markdown_direction.rs");
 include!("markdown_math.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
@@ -643,6 +650,15 @@ fn document_with_links(
     let text = strike_marks(&inline_image_links(&text)).into_owned();
     let mut doc = markdown_parse::parse(&text, &|href| image_link(&link_href, href));
     linked_images(&mut doc.blocks, &|href| image_link(&link_href, href));
+    // An image alone on its line is a block the parser resolved as a link: its source resolves as media.
+    for block in &mut doc.blocks {
+        if matches!(block.kind, markdown_parse::Kind::Image)
+            && block.href != NO_HREF
+            && !block.href.starts_with(FILE_LINK)
+        {
+            block.href = media_href(&block.href);
+        }
+    }
     if !cwd {
         links_without_cwd(&mut doc.blocks);
     }
@@ -651,6 +667,7 @@ fn document_with_links(
     heading_ids(&mut doc.blocks);
     fragment_links(&mut doc.blocks);
     let gutters = list_gutters(&doc.blocks);
+    let directions = block_directions(&doc.blocks);
     let mut tasks = task_items(&mut doc.blocks, source);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
@@ -690,12 +707,18 @@ fn document_with_links(
                 end += 1;
             }
             let rows: Vec<&markdown_parse::Block> = doc.blocks[index..end].iter().collect();
-            blocks.push(table_block(
+            let mut table = table_block(
                 index,
                 gap,
                 &rows,
                 aligns.get(table_count).map(Vec::as_slice).unwrap_or(&[]),
-            ));
+            );
+            if let Value::Record(fields) = &table {
+                let mut fields = fields.to_vec();
+                fields.push(Value::str(directions[index]));
+                table = Value::record(fields);
+            }
+            blocks.push(table);
             table_count += 1;
             skip = end;
             continue;
@@ -728,6 +751,7 @@ fn document_with_links(
                     no_table(&mut line_fields);
                     line_fields.extend(task_fields(tasks[index]));
                     line_fields.push(Value::Number(gutters[index]));
+                    line_fields.push(Value::str(directions[index]));
                     blocks.push(Value::record(line_fields));
                 }
                 continue;
@@ -771,6 +795,7 @@ fn document_with_links(
         }
         fields.extend(task_fields(tasks[index]));
         fields.push(Value::Number(gutters[index]));
+        fields.push(Value::str(directions[index]));
         blocks.push(Value::record(fields));
     }
     Value::record(vec![id, Value::list(blocks)])
@@ -1349,7 +1374,7 @@ mod tests {
                 let Value::Record(fields) = block else {
                     panic!("block")
                 };
-                assert_eq!(fields.len(), 19);
+                assert_eq!(fields.len(), 20);
                 fields[1].as_str().unwrap_or("").to_string()
             })
             .collect();

@@ -182,7 +182,7 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
             Value::Bool(capped),
             Value::Bool(header),
             Value::Number(width.min(CELL_CAP)),
-            Value::str(align.get(column).copied().unwrap_or("left")),
+            Value::str(align.get(column).copied().unwrap_or("start")),
         ]));
     }
     let row_values = rows

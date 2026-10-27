@@ -65,3 +65,18 @@ describe('sent attachments', () => {
     expect(() => imagePreviewAction(c, 'image-open', 'zz', id)).toThrow('no longer available');
   });
 });
+
+describe('a sent sound is an audio chip (#21363)', () => {
+  test('an audio file plays in its chip; one the server will not serve stays a file row', async () => {
+    const { messageAttachments, isSentAudio } = await import('../../src/timeline/timeline-attachments');
+    const attached = messageAttachments({ attachments: [
+      { type: 'file', id: 'a', name: 'memo.mp3', mimeType: 'audio/mpeg' },
+      { type: 'file', id: 'b', name: 'take.m4a', mimeType: 'application/octet-stream' },
+      { type: 'file', id: 'c', name: 'locked.wav', mimeType: 'audio/wav', downloadable: false },
+      { type: 'file', id: 'd', name: 'notes.md', mimeType: 'text/markdown' },
+    ] });
+    expect(attached.audio.map(file => file.id)).toEqual(['a', 'b']);
+    expect(attached.attachFiles.map(file => file.id)).toEqual(['c', 'd']);
+    expect(isSentAudio({ name: 'clip.mp4', mimeType: 'video/mp4' })).toBe(false);
+  });
+});

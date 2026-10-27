@@ -94,7 +94,7 @@ export function timelineEntries(input: Pick<RowInput, 'rows' | 'attempts' | 'nod
   const entries: Entry[] = [];
   for (const row of input.rows) {
     const item = obj(row.item), type = str(item.type), id = rowKey(row);
-    if (turnItemIsWorkspacePreparation(item) || type === 'todo_list') continue; // a retried preparation's cancelled failure hides too
+    if (turnItemIsWorkspacePreparation(item)) continue; // a retried preparation's cancelled failure hides too
     if (type === 'user_message' && answered.has(str(item.messageId))) continue;
     const createdAt = str(item.startedAt ?? item.updatedAt), attempt = resolveAttempt(item);
     const base = { id, createdAt, row, ...(attempt ? { attempt } : {}) };
@@ -111,15 +111,19 @@ export function timelineEntries(input: Pick<RowInput, 'rows' | 'attempts' | 'nod
 
 const runOf = (entry: Entry): string => entry.kind === 'message' ? entry.role === 'assistant' ? str(entry.item.runId) : ''
   : entry.kind === 'plan' || entry.kind === 'document' ? str(entry.item.runId) : entry.kind === 'work' ? entry.entry.runId : '';
-const startsResponse = (entry: Entry) => entry.kind === 'message' && entry.role === 'user' && entry.item.inputIntent !== 'steer'
-  && entry.item.inputIntent !== 'promoted_queued_to_steer' || entry.kind === 'work' && entry.entry.itemType === 'notification';
+const isSteer = (entry: Entry) => entry.kind === 'message' && entry.role === 'user'
+  && (entry.item.inputIntent === 'steer' || entry.item.inputIntent === 'promoted_queued_to_steer');
+const startsResponse = (entry: Entry) => entry.kind === 'message' && entry.role === 'user' && !isSteer(entry)
+  || entry.kind === 'work' && entry.entry.itemType === 'notification';
+const isCompaction = (entry: Entry) => entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction';
 const persistentResource = (entry: Entry) => entry.kind === 'event' && PERSISTENT.has(str(entry.item.type));
 const failedItem = (entry: Entry): Obj | null => {
   const item = entry.kind === 'event' ? entry.item : entry.kind === 'work' ? entry.entry.item : null;
   return item?.type === 'error' && item.status === 'failed' && (item.parentItemId === null || item.parentItemId === undefined) ? item : null;
 };
 const messageEnd = (entry: Entry) => entry.kind === 'message' ? str(entry.item.updatedAt, entry.createdAt) : entry.createdAt;
-const latestIso = (a: string | null, b: string | null) => !a ? b : !b ? a : Date.parse(b) > Date.parse(a) ? b : a;
+const latestIso = (a: string | null, b: string | null) => !a ? b : !b ? a : !Number.isFinite(Date.parse(a)) ? b : !Number.isFinite(Date.parse(b)) ? a
+  : Date.parse(b) > Date.parse(a) ? b : a;
 
 /** The turn folds over `input`'s rows (deriveTimelineTurnFolds) and what deriveRows reads beside them. */
 function foldState(input: RowInput) {
@@ -416,13 +420,15 @@ interface Fold { runId: string; createdAt: string; hidden: Set<string>; label: s
  * deriveTurnFolds. A prompt without a run (a provider-native subagent, or a
  * turn imported from V1) lends its response a key of its own, decided per
  * prompt so a V1 thread's first V2 run does not unfold every imported turn.
+ * A steer after the turn has produced output splits it: the work after each
+ * steer folds under "Continued for …" below that steer, keyed `<run>:steer:<steer>`.
  */
 function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | null, unfolded: Set<string>, runlessWorkActive: boolean, kept: Set<string>): Map<string, Fold> {
   const interrupted = new Set(entries.flatMap(entry => entry.kind === 'event' && entry.item.runId
     && (entry.item.type === 'run_interrupt_request' || entry.item.type === 'run_interrupt_result') ? [str(entry.item.runId)] : []));
   const promptIndex = new Map<string, number>();
   entries.forEach((entry, index) => { const run = startsResponse(entry) ? boundaryRunOf(entry) : ''; if (run && !promptIndex.has(run)) promptIndex.set(run, index); });
-  interface Group { entries: Entry[]; terminal: Entry | null; streaming: boolean; start: string | null; anchor: string }
+  interface Group { entries: Entry[]; terminal: Entry | null; streaming: boolean; start: string | null; anchor: string; steers: { startIndex: number; steer: Entry }[] }
   const groups = new Map<string, Group>(), runlessFailed = new Set<string>();
   let runless: string | null = null, response: string | null = null, pending: { createdAt: string; anchor: string } | null = null;
   entries.forEach((entry, index) => {
@@ -432,6 +438,16 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
       const boundaryRun = boundaryRunOf(entry);
       runless = boundaryRun ? null : `runless:${entry.id}`;
       response = boundaryRun || runless;
+      return;
+    }
+    if (entry.kind === 'message' && isSteer(entry)) {
+      const steerRun = str(entry.item.runId) || response;
+      const group = steerRun ? groups.get(steerRun) : undefined;
+      if (group?.entries.length) {
+        // Back-to-back steers split once, after the last of them.
+        if (last(group.steers)?.startIndex === group.entries.length) group.steers.pop();
+        group.steers.push({ startIndex: group.entries.length, steer: entry });
+      }
       return;
     }
     let own: string | null = null;
@@ -447,7 +463,7 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
     let group = groups.get(runId);
     if (!group) {
       const start: { createdAt: string; anchor: string } | null = pending;
-      group = { entries: [], terminal: null, streaming: false, start: start?.createdAt ?? null, anchor: start?.anchor ?? entry.id };
+      group = { entries: [], terminal: null, streaming: false, start: start?.createdAt ?? null, anchor: start?.anchor ?? entry.id, steers: [] };
       pending = null; groups.set(runId, group);
     }
     group.entries.push(entry);
@@ -463,7 +479,7 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
     const hidden = new Set<string>();
     group.entries.forEach((entry, index) => {
       if (entry === group.terminal) return;
-      const compaction = entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction';
+      const compaction = isCompaction(entry);
       const trailing = entry.kind === 'work' && entry.entry.status !== 'inProgress' && !displayFailed(entry.entry);
       if (!compaction && index > terminalIndex && !trailing) return;
       // Linked resources, still-working children and finished replies a steer superseded outlive the fold.
@@ -471,7 +487,8 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
       if (persistentResource(entry) || kept.has(entry.id) || entry.kind === 'work' && (entry.entry.itemType === 'notification' || entry.entry.questionAnswer !== undefined)) return;
       hidden.add(entry.id);
     });
-    if (!hidden.size || !group.entries.some(entry => hidden.has(entry.id) && !(entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction'))) continue;
+    const hidesWork = (segment: Entry[]) => segment.some(entry => hidden.has(entry.id) && !isCompaction(entry));
+    if (!hidden.size || !hidesWork(group.entries)) continue;
     const first = group.entries[0]!, final = last(group.entries)!;
     const interruptedLatest = latestRun?.id === runId && latestRun.status === 'interrupted';
     const lastEnd = messageEnd(final);
@@ -482,7 +499,17 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
     const duration = Number.isFinite(elapsed) ? formatDuration(Math.max(0, elapsed)) : null;
     const label = interruptedLatest ? duration ? `You stopped after ${duration}` : 'You stopped this response'
       : duration ? `Worked for ${duration}` : 'Worked';
-    result.set(group.anchor, { runId, createdAt: group.start ?? first.createdAt, hidden, label });
+    // The top row keeps the whole turn's time, steers included; each segment after a steer opens on its own.
+    const segmentHidden = (segment: Entry[]) => new Set(segment.flatMap(entry => hidden.has(entry.id) ? [entry.id] : []));
+    result.set(group.anchor, { runId, createdAt: group.start ?? first.createdAt, hidden: segmentHidden(group.entries.slice(0, group.steers[0]?.startIndex)), label });
+    group.steers.forEach(({ startIndex, steer }, index) => {
+      const segment = group.entries.slice(startIndex, group.steers[index + 1]?.startIndex), anchor = segment[0];
+      if (!anchor || !hidesWork(segment)) return;
+      const segmentEnd = segment.map(messageEnd).reduce<string | null>(latestIso, null) ?? steer.createdAt;
+      const span = Date.parse(segmentEnd) - Date.parse(steer.createdAt);
+      result.set(anchor.id, { runId: `${runId}:steer:${steer.id}`, createdAt: steer.createdAt, hidden: segmentHidden(segment),
+        label: Number.isFinite(span) ? `Continued for ${formatDuration(Math.max(0, span))}` : 'Continued' });
+    });
   }
   return result;
 }

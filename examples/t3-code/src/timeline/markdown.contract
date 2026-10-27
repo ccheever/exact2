@@ -7,7 +7,7 @@ use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./code-tips.contract"
 use Icon from "../shared/icons.contract"
 use MorphMaximize, MorphCopyCheck from "../shell/shell-morph.contract"
-use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor, citeNear from "./diff-cite.contract"
+use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor, citeNear, citeHeldOffer from "./diff-cite.contract"
 use MarkdownMedia from "../media/media-markdown.contract"
 use MathBlock from "./markdown-math.contract"
 use MermaidDiagram, MermaidFrameView from "./mermaid-frame.contract"
@@ -18,6 +18,8 @@ use kmArrow from "../shared/menu-keys.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
 use LinkMenuRow, FileLinkButton from "./link-menus.contract"
 use EditorMenuIcon from "../composer/composer-editor.contract" // a pull request chip's state glyph
+use SkillChip from "./skill-chip.contract"
+use chipAccent, chipBorder, chipInk, chipIcon, chipFamily, prChipColour, docType, docInk, docBorder, docFill from "./markdown-chip-inks.contract"
 shape ChatRun
   id: string
   text: string
@@ -78,6 +80,8 @@ shape ChatBlock
   // An ordered list item's marker gutter in `ch` when the list's widest marker has several digits
   // (markdown_headings.rs list_gutters), 0 for the default 1.25rem.
   gutter: number
+  // The block's own words' direction (markdown_direction.rs): "rtl", "ltr", or "" without letters.
+  dir: string
   findParts: FindPart[]
 shape ChatDocument
   id: string
@@ -179,6 +183,9 @@ fn headingNode(scope: string, block: ChatBlock): string = `md-${scope}-${block.h
 fn headingTarget(document: ChatDocument, href: string): bool = href.startsWith("#") and document.blocks.filter((b) => b.kind == "heading" and b.href != "" and b.href == href.slice(1)).length > 0
 
 fn inlineFile(run: ChatRun, chips: ChipView[]): bool = run.mono and run.href.startsWith("t3-inline-code:") and chips.filter((chip) => chip.href == run.href).length > 0
+// A file attachment's document type, which gives its chip that type's accent (docInk).
+fn chipDoc(chip: ChipView): string = chip.kind == "file" ? docType(chip.label) : ""
+fn chipFaceInk(chip: ChipView): string = chipDoc(chip) != "" ? docInk(chipDoc(chip)) : chipInk(chipFamily(chip.kind))
 
 component ChatMarkdown
   props
@@ -187,7 +194,7 @@ component ChatMarkdown
     code: CodeHighlight[]
     env: MarkdownEnv
   view
-    EnvBlocks(document=document, local=local, code=code, prose="light-dark(#18181bcc, #f5f5f5cc)", fit=false, env=env)
+    EnvBlocks(document=document, local=local, code=code, prose="light-dark(#18181be6, #f5f5f5e6)", fit=false, env=env)
 
 // An answer or plan in the transcript: its settled Mermaid fences draw as
 // diagrams, painted for the colour scheme.
@@ -243,7 +250,7 @@ component AnswerMarkdown
     else if source != "" and next.length == 0
       citeWithdraw(source)
     else if source != "" and next.length > 0
-      citeOfferSet(citeOfferFor(source, next, citeStream(document.blocks, code), citeAxis(citeLineRight(next, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(citeLineBottom(next, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)))
+      citeOfferSet(citeHeldOffer(citeOfferFor(source, next, citeStream(document.blocks, code), citeAxis(citeLineRight(next, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(citeLineBottom(next, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)), endBox, frame(`cite-${source}`)))
   // A press in the answer; the window's `main` hears it too, and hides Cite there as for any press but Cite's own (the
   // reference's "interaction" dismissal).
   action down(e: PointerEvent)
@@ -258,7 +265,7 @@ component AnswerMarkdown
     held = false
     moved = false
     if held and moved and source != "" and parts.length > 0
-      citeOfferSet(citeOfferFor(source, parts, citeStream(document.blocks, code), citeAxis(near ? e.clientX : citeLineRight(parts, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(near ? e.clientY : citeLineBottom(parts, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)))
+      citeOfferSet(citeHeldOffer(citeOfferFor(source, parts, citeStream(document.blocks, code), citeAxis(near ? e.clientX : citeLineRight(parts, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(near ? e.clientY : citeLineBottom(parts, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)), endBox, frame(`cite-${source}`)))
       if citeHolding
         citeHold()
   // A double-click (after its release, which offered Cite): Cite shows once the wait is over.
@@ -282,7 +289,7 @@ component AnswerMarkdown
   derive markStart = citeMarked ? (citeAt >= 0 ? citeAt : citeStream(document.blocks, code).indexOf(citeQuote)) : -1
   view
     column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys
-      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#18181bcc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected, markStart=markStart, markEnd=(markStart < 0 ? -1 : markStart + citeQuote.length))
+      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#18181be6, #f5f5f5e6)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected, markStart=markStart, markEnd=(markStart < 0 ? -1 : markStart + citeQuote.length))
 
 // UserMessageBody: the same Markdown in the message's own ink, single
 // newlines kept as line breaks and context references drawn as chips.
@@ -331,7 +338,7 @@ component MarkdownBlocks
     // A sent message's bubble fits its text (fit); an answer fills the lane.
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       for block in document.blocks key=block.id
-        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16)
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16) direction=(block.dir == "rtl" ? "rtl" : "ltr")
           if block.kind == "code"
             CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="ui-monospace", codeSize=13, wrapDefault=true, canRun=false, source="", cite=noCite, ms=-1, me=-1)
           else
@@ -364,7 +371,7 @@ component EnvBlocks
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       for block in document.blocks key=block.id
-        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16)
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16) direction=(block.dir == "rtl" ? "rtl" : "ltr")
           if block.kind == "code"
             CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and env.runCommands.includes(`${block.href}:${block.text}`)), source="", cite=noCite, ms=-1, me=-1)
           else
@@ -406,7 +413,7 @@ component DiagramBlocks
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       for block in document.blocks key=block.id
-        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16)
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16) direction=(block.dir == "rtl" ? "rtl" : "ltr")
           if block.kind == "code"
             if renderMath and block.href == "math"
               MathBlock(id=`${document.id}-${block.id}`, tex=block.text, scheme=scheme, prose=prose, local=local)
@@ -450,14 +457,14 @@ component BlockBody
           text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 overflow-wrap="anywhere" color=(block.depth == 6 ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
             ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, ms=ms, me=me)
     if block.kind == "item"
-      row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
+      row width="100%" padding-left=(block.dir == "rtl" ? 0 : block.depth * 1.25 * rem) padding-right=(block.dir == "rtl" ? block.depth * 1.25 * rem : 0) box-sizing="border-box"
         if block.task != ""
           TaskCheckbox(block=block, local=local)
         if block.task == "" and block.marker == "•"
           box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
-            box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#18181bcc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#18181bcc, #f5f5f5cc)")
+            box position="absolute" left=(block.dir == "rtl" ? "0.6875rem" : "0.25rem") top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color=prose background-color=(block.depth == 1 ? "#00000000" : prose)
         if block.task == "" and block.marker != "•"
-          text block.marker width=(block.gutter > 0 ? `${block.gutter}ch` : "1.25rem") flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#18181bcc, #f5f5f5cc)"
+          text block.marker width=(block.gutter > 0 ? `${block.gutter}ch` : "1.25rem") flex-shrink=0 padding-left=(block.dir == "rtl" ? "0.25rem" : "0px") padding-right=(block.dir == "rtl" ? "0px" : "0.25rem") box-sizing="border-box" text-align="end" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color=prose
         if block.flow
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
         else
@@ -479,13 +486,15 @@ component BlockBody
           MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
+    // A quote reads in the prose's own ink beside a 2px bar of it at 35% (border-inline-start), on its start side.
     if block.kind == "quote"
-      if block.flow
-        box width="100%" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
-          FlowRuns(runs=block.runs, color="light-dark(#71717b, #a1a1a1)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
-      else
-        text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" line-height="1.421875rem" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
-          ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
+      row width="100%" gap="0.8rem"
+        box width=2 flex-shrink=0 background-color=prose opacity=0.35
+        if block.flow
+          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
+        else
+          text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" overflow-wrap="anywhere" color=prose
+            ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
     if not ["heading", "item", "rule", "table-row", "table", "image", "quote"].includes(block.kind) and block.flow
       FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
     if not ["heading", "item", "rule", "table-row", "table", "image", "quote"].includes(block.kind) and not block.flow
@@ -768,15 +777,6 @@ component PrLinkRun
         text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
           FindParts(parts=run.findParts)
 
-// ContextChip's per-kind accent (oklch(0.62 C H)): a fill of the accent at
-// 11%, a border mixing it 34% into the border colour and text mixing it 22%
-// into the foreground; "" for runs that are not context chips.
-fn chipAccent(kind: string): string = ["context-file", "context-video", "context-thread", "context-review-comment"].includes(kind) ? (kind == "context-file" ? "#0090cd" : kind == "context-video" ? "#d06217" : kind == "context-thread" ? "#009c96" : "#8a70dd") : ["context-terminal", "context-element", "context-image", "context-skill"].includes(kind) ? (kind == "context-terminal" ? "#009f6e" : kind == "context-element" ? "#b87501" : kind == "context-image" ? "#d55665" : "#b261be") : ["context-citation", "context-other"].includes(kind) ? (kind == "context-citation" ? "#4684e5" : "#71717b") : ""
-fn chipBorder(kind: string): string = ["context-file", "context-video", "context-thread"].includes(kind) ? (kind == "context-file" ? "light-dark(#a8c8e0, #0090cd61)" : kind == "context-video" ? "light-dark(#e2b9a7, #d0621761)" : "light-dark(#a6cccb, #009c9661)") : ["context-review-comment", "context-terminal", "context-element"].includes(kind) ? (kind == "context-review-comment" ? "light-dark(#c3bde6, #8a70dd61)" : kind == "context-terminal" ? "light-dark(#a9cdbd, #009f6e61)" : "light-dark(#d7bfa6, #b8750161)") : ["context-image", "context-skill", "context-citation"].includes(kind) ? (kind == "context-image" ? "light-dark(#e4b6b9, #d5566561)" : kind == "context-skill" ? "light-dark(#d4b8da, #b261be61)" : "light-dark(#aec5e9, #4684e561)") : "light-dark(#e4e4e7b3, #ffffff14)"
-fn chipInk(kind: string): string = ["context-file", "context-video", "context-thread"].includes(kind) ? (kind == "context-file" ? "light-dark(#2b3d4a, #cadfed)" : kind == "context-video" ? "light-dark(#4a352d, #f0d5c8)" : "light-dark(#2a3f40, #c9e2df)") : ["context-review-comment", "context-terminal", "context-element"].includes(kind) ? (kind == "context-review-comment" ? "light-dark(#3b374e, #dcd8f2)" : kind == "context-terminal" ? "light-dark(#2c3f38, #cbe2d6)" : "light-dark(#44382c, #e9d9c7)") : ["context-image", "context-skill", "context-citation"].includes(kind) ? (kind == "context-image" ? "light-dark(#4b3337, #f2d3d4)" : kind == "context-skill" ? "light-dark(#433448, #e7d5ea)" : "light-dark(#2f3b4f, #ceddf4)") : "light-dark(#18181b, #f5f5f5)"
-fn chipIcon(kind: string): string = ["context-thread", "context-review-comment", "context-terminal"].includes(kind) ? (kind == "context-thread" ? "messages-square" : kind == "context-review-comment" ? "message-circle" : "square-terminal") : ["context-element", "context-image", "context-video"].includes(kind) ? (kind == "context-element" ? "mouse-pointer-click" : kind == "context-image" ? "image" : "film") : ["context-skill", "context-citation"].includes(kind) ? (kind == "context-skill" ? "skill" : "quote") : "circle-dashed"
-// A resolved chip's accent family (ContextChip `kind`).
-fn chipFamily(kind: string): string = ["citation", "file", "video"].includes(kind) ? (kind == "citation" ? "context-citation" : kind == "file" ? "context-file" : "context-video") : ["image", "skill", "thread"].includes(kind) ? (kind == "image" ? "context-image" : kind == "skill" ? "context-skill" : "context-thread") : ["terminal", "element", "review"].includes(kind) ? (kind == "terminal" ? "context-terminal" : kind == "element" ? "context-element" : "context-review-comment") : "context-other"
 
 // A composer context reference in a sent message (ContextChip) the message
 // carries no record view for: its kind's glyph (a file's Pierre icon) and label.
@@ -808,12 +808,13 @@ component FileChipFace
     label: string
     icon: string
   view
-    row height="1.0625rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#a9cad4, #39a1b861)" background-color="#0096af1c" testId=`file-chip-${run.id}`
+    // A file link reads left to right in a right-to-left paragraph (MarkdownFileLink's dir="ltr").
+    row direction="ltr" height="1.0625rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(docType(label) != "" ? docBorder(docType(label)) : "light-dark(#a9cad4, #39a1b861)") background-color=(docType(label) != "" ? docFill(docType(label), false) : "#0096af1c") testId=`file-chip-${run.id}`
       if icon == "folder"
         TimelineIcon(name="folder", size=14, color="light-dark(#71717a, #a1a1a1)")
       else
         FileTypeIcon(token=icon, size=14)
-      text font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color="light-dark(#2c3e45, #cbe0e6)" text-decoration-line=(run.strike ? "line-through" : "none")
+      text font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=(docType(label) != "" ? docInk(docType(label)) : "light-dark(#2c3e45, #cbe0e6)") text-decoration-line=(run.strike ? "line-through" : "none")
         if run.findParts.map((part) => part.text).join("") == label
           FindParts(parts=run.findParts)
         else
@@ -869,22 +870,20 @@ component ResolvedChip
         PrContextChip(run=run, chip=chip, local=local)
       if chip.kind == "citation"
         CitationContextChip(run=run, chip=chip, local=local)
+      if chip.kind == "skill"
+        SkillChip(label=chip.label, description=chip.detail, path=chip.target, id=`${chip.owner}-${run.id}`, local=local)
       if chip.kind == "element" or chip.kind == "review"
         button press=toggle aria-label=`${chip.label}. Show details` aria-expanded=open testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c` id=`context-chip-${run.id}`
           TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
           text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
         if open
           ChipDetails(chip=chip, close=toggle)
-      if not ["link", "mention", "unresolved", "terminal", "element", "review", "pr", "citation"].includes(chip.kind)
+      if not ["link", "mention", "unresolved", "terminal", "element", "review", "pr", "citation", "skill"].includes(chip.kind)
         Tip(label=(chip.kind == "image" ? "" : chip.tip), side="top", align="center", offset=21)
           AttachmentChip(run=run, chip=chip, urls=urls, local=local)
 // PullRequestChip (contextChipParts.tsx): "#N" with its state's glyph and ContextChip kind (pr-open, pr-draft, pr-merged,
 // pr-closed; pull-request when the state is unknown), a button that opens the pull request (useOpenPrLink, pr-chip-open.ts).
 // The reference's hover card (PullRequestLinkPreview, or PullRequestContextDetails in a tooltip) is not drawn here.
-fn prChipColour(state: string, part: number): string = part == 0 ? prChipInk(state) : part == 3 ? prChipBorder(state) : `${prChipAccent(state)}${part == 2 ? "2b" : "1c"}`
-fn prChipInk(state: string): string = state == "open" ? "light-dark(#2c3f39, #cbe2d6)" : state == "draft" ? "light-dark(#393a3f, #dadcdf)" : state == "merged" ? "light-dark(#3a374e, #dcd8f2)" : state == "closed" ? "light-dark(#4b3337, #f2d3d4)" : "light-dark(#35394f, #d5daf4)"
-fn prChipAccent(state: string): string = state == "open" ? "#009f6e" : state == "draft" ? "#7f8793" : state == "merged" ? "#8a70dd" : state == "closed" ? "#d55665" : "#7079e4"
-fn prChipBorder(state: string): string = state == "open" ? "light-dark(#a9cdbd, #3ba97d61)" : state == "draft" ? "light-dark(#c1c3ca, #8c939d61)" : state == "merged" ? "light-dark(#c3bde6, #9580e261)" : state == "closed" ? "light-dark(#e4b6b9, #db697461)" : "light-dark(#bac1e9, #7d88e861)"
 component PrContextChip
   props
     run: ChatRun
@@ -981,10 +980,10 @@ component AttachmentChipBody
     // A sent file attachment opens its preview beside the thread (ChatView openFileAttachment).
     // A sent video's chip opens it in the media dialog (onExpandVideo).
     if chip.kind == "image" or (chip.kind == "thread" or chip.kind == "file" or chip.kind == "video") and chip.target != ""
-      button press=local((chip.kind == "image" or chip.kind == "video" ? "image-open" : chip.kind == "file" ? "surface-linked-attachment" : "chip-thread"), chip.target, (chip.kind == "image" or chip.kind == "file" or chip.kind == "video" ? chip.owner : chip.detail)) hover=hover aria-label=(chip.kind == "image" ? chip.tip : chip.kind == "file" or chip.kind == "video" ? `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}` : `Thread, ${chip.label}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}` title=""
+      button press=local((chip.kind == "image" or chip.kind == "video" ? "image-open" : chip.kind == "file" ? "surface-linked-attachment" : "chip-thread"), chip.target, (chip.kind == "image" or chip.kind == "file" or chip.kind == "video" ? chip.owner : chip.detail)) hover=hover aria-label=(chip.kind == "image" ? chip.tip : chip.kind == "file" or chip.kind == "video" ? `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}` : `Thread, ${chip.label}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(chipDoc(chip) != "" ? docBorder(chipDoc(chip)) : chipBorder(chipFamily(chip.kind))) background-color=(chipDoc(chip) != "" ? docFill(chipDoc(chip), hovered) : `${chipAccent(chipFamily(chip.kind))}${hovered ? "2b" : "1c"}`) id=`context-chip-${run.id}` title=""
         ChipFace(run=run, chip=chip, urls=urls)
     else
-      row aria-label=(chip.kind == "skill" ? `Skill, ${chip.label}` : chip.kind == "thread" ? `Thread, ${chip.label}` : `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c`
+      row aria-label=(chip.kind == "skill" ? `Skill, ${chip.label}` : chip.kind == "thread" ? `Thread, ${chip.label}` : `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(chipDoc(chip) != "" ? docBorder(chipDoc(chip)) : chipBorder(chipFamily(chip.kind))) background-color=(chipDoc(chip) != "" ? docFill(chipDoc(chip), false) : `${chipAccent(chipFamily(chip.kind))}1c`)
         ChipFace(run=run, chip=chip, urls=urls)
 
 component ChipFace
@@ -1006,13 +1005,13 @@ component ChipFace
         SidebarProjectGlyph(g=entry.glyph, size=14, dim=false)
     if chip.kind != "file" and not (chip.kind == "image" and urls.filter((entry) => entry.id == chip.target).length > 0) and not (chip.kind == "thread" and threadGlyphs.filter((entry) => entry.href == chip.href).length > 0)
       TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
-    text min-width=0 max-width="18rem" line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind)) text-decoration-line=(run.strike ? "line-through" : "none")
+    text min-width=0 max-width="18rem" line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipFaceInk(chip) text-decoration-line=(run.strike ? "line-through" : "none")
       if run.findParts.map((part) => part.text).join("") == chip.label
         FindParts(parts=run.findParts)
       else
         text chip.label
     if chip.size != ""
-      text chip.size flex-shrink=0 font-size="0.625rem" font-weight=500 line-height="0.875rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
+      text chip.size flex-shrink=0 font-size="0.625rem" font-weight=500 line-height="0.875rem" white-space="pre" color=chipFaceInk(chip)
 
 // ImageChipButton with its accent from the picture's average colour (averageImageColor).
 component TintedImageChip

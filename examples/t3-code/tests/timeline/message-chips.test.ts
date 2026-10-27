@@ -194,3 +194,28 @@ describe('thread links are thread chips', () => {
       ['t3-thread://v1/thread-1', 'Clone', 'emoji', '🧪'], ['t3-context://v1/thread/thread_t', 'Clone', 'emoji', '🧪']]);
   });
 });
+
+describe('skill chips open their details (#25432)', () => {
+  const client = (skills: object[]) => ({ providerId: 'codex', config: { providers: [{ instanceId: 'codex', skills }] }, projection: { thread: {} },
+    shell: { projects: [], threads: [] }, projectId: '' }) as unknown as T3Client;
+  const skills = [{ name: 'review-code', displayName: 'Review code', description: ' Reads the diff. ', path: '/skills/review-code/SKILL.md' }, { name: 'deploy', shortDescription: 'Ships it' }];
+  test('a `$skill` in the prose and a skill record carry the description and the instructions path', () => {
+    const chips = messageChips(item('Use $review-code then [Deploy](t3-context://v1/skill/skill_d), not $5', [{ version: 1, kind: 'skill', contextId: 'skill_d', label: 'Deploy', name: 'deploy' }]),
+      '', [], 'm', {}, client(skills));
+    expect(chips.map(chip => [chip.href, chip.kind, chip.label, chip.detail, chip.target])).toEqual([
+      ['t3-context://v1/skill/skill_d', 'skill', 'Deploy', 'Ships it', ''],
+      ['t3-skill:$review-code', 'skill', 'Review code', 'Reads the diff.', '/skills/review-code/SKILL.md']]);
+  });
+  test('an unknown skill has no chip of its own', () => {
+    expect(messageChips(item('Use $unknown'), '', [], 'm', {}, client(skills))).toEqual([]);
+  });
+});
+
+describe('document chips take their type\'s accent (#21469)', () => {
+  test('a PDF, Word, spreadsheet, slides or EPUB name gives its accent; any other file keeps the file chip\'s', async () => {
+    const { contractFns } = await import('../support/contract-fn-fixture');
+    const inks = contractFns('src/timeline/markdown-chip-inks.contract') as unknown as Record<string, (...args: unknown[]) => string>;
+    expect(['a.PDF', 'b.docx', 'c.rtf', 'd.xlsx', 'e.csv', 'f.pptx', 'g.epub', 'h.ts', 'report.pdf · L3'].map(name => inks.docType!(name))).toEqual(['pdf', 'word', 'word', 'sheet', 'sheet', 'slides', 'epub', '', 'pdf']);
+    expect([inks.docInk!('word'), inks.docFill!('word', false), inks.docFill!('word', true), inks.docBorder!('word')]).toEqual(['light-dark(#2b3b4c, #d7e7f9)', 'light-dark(#1a85d41c, #69b1ff1c)', 'light-dark(#1a85d42b, #69b1ff2b)', 'light-dark(#a8c5e3, #69b1ff61)']);
+  });
+});

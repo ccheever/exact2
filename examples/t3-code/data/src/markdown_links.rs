@@ -49,9 +49,10 @@ fn kept_by_transform(href: &str) -> bool {
             .is_none_or(|scheme| SAFE_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()))
 }
 
-/// A destination T3 draws as a file chip: a `file:` URL, a Windows drive path, or
-/// one with no scheme that is not a fragment or a protocol-relative URL.
-fn is_file_link(href: &str) -> bool {
+/// An image's source a media chip resolves: a `file:` URL, a Windows drive path, or
+/// one with no scheme that is not a fragment or a protocol-relative URL (media-views.ts
+/// `markdownImageHref`, whose chips match these hrefs).
+fn is_media_file(href: &str) -> bool {
     href.to_ascii_lowercase().starts_with("file:")
         || windows_drive(href)
         || !href.is_empty()
@@ -60,20 +61,277 @@ fn is_file_link(href: &str) -> bool {
             && url_scheme(href).is_none()
 }
 
-/// The parser's link resolver: what each destination becomes in a run's `href`.
-/// media-views.ts `markdownLinkHref` is the same rule for the chips' side.
+/// The parser's link resolver: what each destination becomes in a run's `href`; a file
+/// link only where parseMarkdownFileLink sees a file (`chat_file_link`). message-chips.ts
+/// `chatFileLink` is the same rule for the chips' side.
 fn link_href(href: &str) -> String {
     let lower = href.to_ascii_lowercase();
     if lower.starts_with("t3-context://") || lower.starts_with("t3-citation://") {
         href.to_string()
     } else if !kept_by_transform(href) {
         NO_HREF.to_string()
-    } else if is_file_link(href) {
+    } else if chat_file_link(href) {
         format!("{FILE_LINK}{href}")
     } else {
-        // A fragment (`#notes`) stays the anchor's href, a link like a mailto one.
+        // A fragment (`#notes`), a bare name (`notes`) or a web URL stays the anchor's href.
         href.to_string()
     }
+}
+
+/// An image source as media-views.ts resolves it: the transform's verdict, then a file
+/// source wherever `is_media_file` sees one.
+fn media_href(href: &str) -> String {
+    let lower = href.to_ascii_lowercase();
+    if lower.starts_with("t3-context://") || lower.starts_with("t3-citation://") {
+        href.to_string()
+    } else if !kept_by_transform(href) {
+        NO_HREF.to_string()
+    } else if is_media_file(href) {
+        format!("{FILE_LINK}{href}")
+    } else {
+        href.to_string()
+    }
+}
+
+// shared/markdownLinks.ts parseMarkdownFileLink at T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3), with its
+// fileLinks.ts and path.ts helpers: a destination is a file link when it is file-shaped. A network path
+// (two leading separators: `\\h`, `/\h`, `file://h/`) is one only inside the project's own share
+// (resolveMarkdownFileLinkTarget), which this parse does not know, so it stays an ordinary link.
+
+/// The `\p{L}\p{M}\p{N}` of the reference's name patterns.
+fn name_letter(c: char) -> bool {
+    matches!(
+        unicode_general_category::get_general_category(c).abbreviation(),
+        "Lu" | "Ll" | "Lt" | "Lm" | "Lo" | "Mn" | "Mc" | "Me" | "Nd" | "Nl" | "No"
+    )
+}
+/// `[\p{L}\p{M}\p{N}._-]+(?: +[\p{L}\p{M}\p{N}._-]+)*`: words of name characters, single spaces or runs of them between.
+fn spaced_name(value: &str) -> bool {
+    !value.is_empty()
+        && !value.starts_with(' ')
+        && !value.ends_with(' ')
+        && value
+            .chars()
+            .all(|c| c == ' ' || c == '.' || c == '_' || c == '-' || name_letter(c))
+}
+/// `value` less up to `limit` trailing `:<digits>` groups.
+fn without_positions(value: &str, limit: usize) -> &str {
+    let mut rest = value;
+    for _ in 0..limit {
+        match rest.rsplit_once(':') {
+            Some((head, digits))
+                if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                rest = head
+            }
+            _ => break,
+        }
+    }
+    rest
+}
+/// RELATIVE_FILE_PATH_PATTERN: folders then, optionally, a name with its position (`patches/`, `線性代數/考試.pdf:3`).
+fn relative_file_path(value: &str) -> bool {
+    let Some((folders, name)) = value.rsplit_once('/') else {
+        return false;
+    };
+    folders.split('/').all(spaced_name)
+        && (name.is_empty() || spaced_name(without_positions(name, 2)))
+}
+/// RELATIVE_FILE_NAME_PATTERN: a name with an extension and its position (`notes.md`, `資料.備份`).
+fn relative_file_name(value: &str) -> bool {
+    let value = without_positions(value, 2);
+    value.rsplit_once('.').is_some_and(|(stem, extension)| {
+        spaced_name(stem)
+            && !extension.is_empty()
+            && extension
+                .chars()
+                .all(|c| c == '_' || c == '-' || name_letter(c))
+    })
+}
+const EXTENSIONLESS_FILE_NAMES: [&str; 27] = [
+    "Makefile",
+    "makefile",
+    "GNUmakefile",
+    "Dockerfile",
+    "Containerfile",
+    "Justfile",
+    "justfile",
+    "Rakefile",
+    "Gemfile",
+    "Procfile",
+    "Brewfile",
+    "Caddyfile",
+    "Vagrantfile",
+    "Jenkinsfile",
+    "Podfile",
+    "Fastfile",
+    "BUILD",
+    "WORKSPACE",
+    "LICENSE",
+    "LICENCE",
+    "COPYING",
+    "NOTICE",
+    "AUTHORS",
+    "CONTRIBUTORS",
+    "CHANGELOG",
+    "README",
+    "CODEOWNERS",
+];
+const POSIX_FILE_ROOT_PREFIXES: [&str; 24] = [
+    "/Users/",
+    "/home/",
+    "/tmp/",
+    "/var/",
+    "/etc/",
+    "/opt/",
+    "/mnt/",
+    "/Volumes/",
+    "/private/",
+    "/root/",
+    "/usr/",
+    "/bin/",
+    "/sbin/",
+    "/lib/",
+    "/lib64/",
+    "/srv/",
+    "/dev/",
+    "/proc/",
+    "/sys/",
+    "/run/",
+    "/boot/",
+    "/media/",
+    "/workspace/",
+    "/workspaces/",
+];
+/// FILE_EXTENSION_PATTERN `\.[A-Za-z0-9_-]+$`.
+fn ascii_extension(name: &str) -> bool {
+    name.rsplit_once('.').is_some_and(|(_, extension)| {
+        !extension.is_empty()
+            && extension
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    })
+}
+/// isWindowsAbsolutePath: a UNC path or a drive (`C:`, `C:\`, `C:/`).
+fn windows_absolute(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    path.starts_with("\\\\")
+        || bytes.first().is_some_and(u8::is_ascii_alphabetic)
+            && bytes.get(1) == Some(&b':')
+            && bytes.get(2).is_none_or(|b| *b == b'/' || *b == b'\\')
+}
+/// looksLikeFilePath: `path` without its position, `authored` as written.
+fn looks_like_file_path(path: &str, authored: &str) -> bool {
+    if windows_absolute(path)
+        || path.starts_with("~/")
+        || path.starts_with("./")
+        || path.starts_with("../")
+    {
+        return true;
+    }
+    if path.starts_with('/') {
+        // looksLikePosixFilesystemPath reads the authored path.
+        let basename = authored.rsplit('/').next().unwrap_or(authored);
+        return POSIX_FILE_ROOT_PREFIXES
+            .iter()
+            .any(|prefix| authored.starts_with(prefix))
+            || without_positions(authored, 2) != authored
+            || EXTENSIONLESS_FILE_NAMES.contains(&basename)
+            || ascii_extension(basename);
+    }
+    EXTENSIONLESS_FILE_NAMES.contains(&path)
+        || relative_file_path(authored)
+        || relative_file_name(path)
+}
+/// hasExternalScheme: `scheme:` before anything but a position, `scheme://` always.
+fn external_scheme(path: &str) -> bool {
+    if windows_absolute(path) {
+        return false;
+    }
+    let scheme = path
+        .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-')))
+        .unwrap_or(path.len());
+    if scheme == 0 || !path.as_bytes()[0].is_ascii_alphabetic() || !path[scheme..].starts_with(':')
+    {
+        return false;
+    }
+    let rest = &path[scheme + 1..];
+    rest.starts_with("//") || !without_positions(&format!(":{rest}"), 2).is_empty()
+}
+/// stripSlashPrefixedWindowsDrive: `/C:/repo` is `C:/repo`.
+fn strip_slash_drive(path: &str) -> &str {
+    let bytes = path.as_bytes();
+    if bytes.first() == Some(&b'/')
+        && bytes.get(1).is_some_and(u8::is_ascii_alphabetic)
+        && bytes.get(2) == Some(&b':')
+        && matches!(bytes.get(3), Some(b'/' | b'\\'))
+    {
+        &path[1..]
+    } else {
+        path
+    }
+}
+/// splitMarkdownLinkSearchAndHash's path: what comes before any `#` and `?`.
+fn search_free(value: &str) -> &str {
+    value
+        .split('#')
+        .next()
+        .unwrap_or(value)
+        .split('?')
+        .next()
+        .unwrap_or(value)
+}
+/// parseFileUrlHref's path (a non-localhost authority as a UNC share), still encoded.
+fn file_url_path(href: &str) -> String {
+    let rest = search_free(&href[5..]);
+    let (host, path) = match rest.strip_prefix("//") {
+        Some(authority) => match authority.find('/') {
+            Some(at) => (&authority[..at], &authority[at..]),
+            None => (authority, "/"),
+        },
+        None => ("", rest),
+    };
+    let path = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    let host = if host.eq_ignore_ascii_case("localhost") {
+        ""
+    } else {
+        host
+    };
+    let path = if host.is_empty() {
+        path
+    } else {
+        format!("\\\\{host}{}", path.replace('/', "\\"))
+    };
+    strip_slash_drive(&path).to_string()
+}
+/// parseMarkdownFileLink(href) !== null, network paths left out. A position (`:3`, `#L3`) is not the file's
+/// (splitFilePathPosition), and an `#L3` never changes the path.
+fn chat_file_link(href: &str) -> bool {
+    let trimmed = href.trim();
+    let normalized = trimmed
+        .strip_prefix('<')
+        .and_then(|inner| inner.strip_suffix('>'))
+        .unwrap_or(trimmed);
+    if normalized.is_empty() || normalized.starts_with('#') || normalized.starts_with("//") {
+        return false;
+    }
+    let path = if normalized.to_ascii_lowercase().starts_with("file:") {
+        file_url_path(normalized)
+    } else {
+        search_free(normalized).to_string()
+    };
+    let decoded = decode_fragment(path.trim());
+    let path = strip_slash_drive(&decoded);
+    if path.is_empty() || external_scheme(path) {
+        return false;
+    }
+    let file = without_positions(path, 2);
+    let network = file.starts_with(['/', '\\']) && file[1..].starts_with(['/', '\\']);
+    !network && looks_like_file_path(file, path)
 }
 
 /// `- [ ] `, `1. [x] `: the `[` of a list item's task marker (GFM wants whitespace and
@@ -239,7 +497,10 @@ fn link_labels(runs: Vec<Value>) -> Vec<Value> {
         } else if !link.as_ref().is_some_and(|(open, _)| within(run, open)) {
             link = None;
         }
-        labels.push(link.as_ref().map_or_else(String::new, |(_, label)| label.clone()));
+        labels.push(
+            link.as_ref()
+                .map_or_else(String::new, |(_, label)| label.clone()),
+        );
     }
     runs.into_iter()
         .zip(labels)
@@ -247,7 +508,11 @@ fn link_labels(runs: Vec<Value>) -> Vec<Value> {
             Value::Record(fields) => {
                 let mut fields = fields.to_vec();
                 // An image inside a link's text keeps its own href and names the link around it (`link`).
-                let href = fields.get(5).and_then(Value::as_str).unwrap_or("").to_string();
+                let href = fields
+                    .get(5)
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let (image, link) = media_link(&href);
                 if !link.is_empty() {
                     fields[5] = Value::str(image);
@@ -330,6 +595,40 @@ mod link_tests {
         ] {
             assert_eq!(link_href(href), expected, "{href}");
         }
+    }
+
+    // parseMarkdownFileLink (#22188, #25802, a12d6ed942): only a file-shaped destination is a file chip.
+    #[test]
+    fn only_file_shaped_destinations_are_file_links() {
+        for href in [
+            "patches/",
+            "docs/My%20Folder/",
+            "pastexam/線性代數/exam_易志偉.pdf",
+            "線性代數/考試.pdf",
+            "Résumé%20final.pdf",
+            "資料.備份",
+            "Makefile",
+            "~/notes.md",
+            "../o/a.md",
+            "/Users/me/notes",
+            "/repo/README",
+            "C:\\repo\\notes",
+        ] {
+            assert_eq!(link_href(href), format!("{FILE_LINK}{href}"), "{href}");
+        }
+        for href in [
+            "patches",
+            "notes",
+            "/chat/settings#L3",
+            "/api/v1",
+            "\\\\attacker.test\\s\\x.ts",
+            "/\\attacker.test\\s\\x.ts",
+            "file://attacker.test/s/x.ts",
+        ] {
+            assert_eq!(link_href(href), href, "{href}");
+        }
+        // An image's source still resolves as its media chip does.
+        assert_eq!(media_href("image"), format!("{FILE_LINK}image"));
     }
 
     #[test]
@@ -589,7 +888,10 @@ mod link_tests {
             };
             runs.iter()
                 .filter_map(|run| match run {
-                    Value::Record(fields) => fields[5].as_str().filter(|h| !h.is_empty()).map(str::to_string),
+                    Value::Record(fields) => fields[5]
+                        .as_str()
+                        .filter(|h| !h.is_empty())
+                        .map(str::to_string),
                     _ => None,
                 })
                 .collect()

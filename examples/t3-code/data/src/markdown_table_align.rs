@@ -4,7 +4,8 @@
 // read from the source in order, so the n-th table block takes the n-th rule;
 // lines inside a fenced code block are skipped like the parser skips them.
 
-/// Each table's column alignments ("left", "right" or "center"), in source order.
+/// Each table's column alignments ("left", "right" or "center"; "start", index.css's `text-align: start`, without a
+/// colon), in source order.
 fn table_aligns(text: &str) -> Vec<Vec<&'static str>> {
     let lines: Vec<&str> = text.split('\n').collect();
     let rule = |line: &str| {
@@ -29,7 +30,8 @@ fn table_aligns(text: &str) -> Vec<Vec<&'static str>> {
                 match (cell.starts_with(':'), cell.ends_with(':')) {
                     (true, true) => "center",
                     (false, true) => "right",
-                    _ => "left",
+                    (true, false) => "left",
+                    _ => "start",
                 }
             }).collect());
             index += 2;
@@ -48,6 +50,6 @@ mod table_align_tests {
     #[test]
     fn rules_give_each_table_its_column_alignment() {
         let text = "| a | b | c |\n|:-|-:|:-:|\n| 1 | 2 | 3 |\n\n```\n| x | y |\n|--:|---|\n```\n\n| d | e |\n|---|--:|\n| 4 | 5 |";
-        assert_eq!(table_aligns(text), vec![vec!["left", "right", "center"], vec!["left", "right"]]);
+        assert_eq!(table_aligns(text), vec![vec!["left", "right", "center"], vec!["start", "right"]]);
     }
 }
