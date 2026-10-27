@@ -25,7 +25,13 @@ extension Presenter {
     /// What holds the focus in `window`, as a host line names it: a node by
     /// its id and testId, else the responder's class.
     static func focusHolder(in window: UIWindow) -> String {
-        func first(_ view: UIView) -> UIView? { view.isFirstResponder ? view : view.subviews.lazy.compactMap(first).first }
+        // Not `subviews.lazy.compactMap(first).first`: it evaluates the matching
+        // child twice, which doubles the search at each level of depth.
+        func first(_ view: UIView) -> UIView? {
+            if view.isFirstResponder { return view }
+            for child in view.subviews { if let found = first(child) { return found } }
+            return nil
+        }
         guard let held = first(window) else { return "nothing" }
         var up: UIView? = held
         while let view = up {

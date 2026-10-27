@@ -10,6 +10,32 @@ import XCTest
 /// simulator runs it (the command in `FieldCompositionIOSTests`).
 final class KeyboardFocusIOSTests: XCTestCase {
     private var window: UIWindow!
+
+    /// The journal's focus holder is found in one pass over the views,
+    /// counted by the responder queries it makes rather than timed.
+    func testTheFocusHolderIsFoundInOnePassOverTheViews() {
+        final class Counted: UIView {
+            static var asked = 0
+            var held = false
+            override var isFirstResponder: Bool { Counted.asked += 1; return held }
+        }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        var parent: UIView = window, views = 0
+        for _ in 0..<8 {
+            let child = Counted()
+            parent.addSubview(Counted())
+            parent.addSubview(child)
+            parent = child
+            views += 2
+        }
+        let held = Counted()
+        held.held = true
+        parent.addSubview(held)
+        Counted.asked = 0
+        XCTAssertEqual(Presenter.focusHolder(in: window), "Counted")
+        XCTAssertEqual(Counted.asked, views + 1, "each view asked once")
+    }
+
     func testPassiveAncestorHearsFocusMoveBetweenChildren() {
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))

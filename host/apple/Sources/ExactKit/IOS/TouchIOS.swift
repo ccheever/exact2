@@ -447,7 +447,8 @@ extension Agent {
         func find(_ view: UIView) -> UIView? {
             if NSStringFromClass(Swift.type(of: view)).hasPrefix("_UIAlertControllerActionView"), view.responds(to: NSSelectorFromString("action")),
                view.value(forKey: "action") as AnyObject? === action { return view }
-            return view.subviews.lazy.compactMap(find).first
+            for child in view.subviews { if let found = find(child) { return found } }
+            return nil
         }
         guard alert.view.window === window, let button = find(alert.view) else {
             return .failure(AimRefusal(why: "the alert shows no button for it"))
