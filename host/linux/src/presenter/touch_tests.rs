@@ -120,15 +120,22 @@ fn middle(p: &Presenter<()>, name: &str) -> (f32, f32) {
 const RING: [u8; 4] = [255, 0, 0, 255];
 
 #[test]
-fn a_fingers_press_leaves_no_focus_ring_and_a_mouses_does() {
+fn a_press_leaves_no_focus_ring_and_a_key_shows_it() {
     for name in ["native", "bare"] {
         let other = if name == "native" { "bare" } else { "native" };
-        // A mouse: the pressed button holds the focus and shows its ring.
+        // A mouse: the pressed button holds the focus without its ring, as
+        // Chrome's `:focus-visible` has it, until a key.
         let mut p = boot(BUTTONS);
         let (x, y) = middle(&p, name);
         tap(&mut p, x, y, 1.);
         assert_eq!(p.focus, Some(id(&p, name)));
-        assert_eq!(edge(&mut p, name), RING, "{name}: a mouse's press rings");
+        assert_ne!(
+            edge(&mut p, name),
+            RING,
+            "{name}: a mouse's press rings nothing"
+        );
+        p.key_down("ArrowDown", 2.);
+        assert_eq!(edge(&mut p, name), RING, "{name}: a key shows the ring");
         // A finger: the focus, and no ring.
         let mut p = boot(BUTTONS);
         p.set_pointer_kind(PointerKind::Touch);
@@ -142,6 +149,7 @@ fn a_fingers_press_leaves_no_focus_ring_and_a_mouses_does() {
         );
         // A focus a key moves shows its ring, in touch mode too.
         let next = id(&p, other);
+        p.key_down("ArrowDown", 3.);
         assert!(p.set_focus(Some(next), 3.).is_none());
         assert_eq!(edge(&mut p, other), RING, "{other}: a key's focus rings");
         assert_ne!(edge(&mut p, name), RING);
@@ -409,7 +417,7 @@ fn a_pan_does_not_focus_its_inner_button_even_with_the_default_mouse_kind() {
 }
 
 #[test]
-fn agent_contacts_use_the_mouse_flag_for_focus_timing_and_the_ring() {
+fn agent_contacts_use_the_mouse_flag_for_focus_timing() {
     for mouse in [false, true] {
         let mut p = boot(PRESS_FOCUS);
         let scale = id(&p, "scale");
@@ -425,7 +433,7 @@ fn agent_contacts_use_the_mouse_flag_for_focus_timing_and_the_ring() {
         );
         assert!(!up.contains("error"), "{up}");
         assert_eq!(p.focus, Some(scale));
-        assert_eq!(p.brush.ringless, (!mouse).then_some(scale));
+        assert_eq!(p.brush.ringless, Some(scale));
         assert_eq!(log(&p), "1 0");
     }
 }
@@ -647,4 +655,39 @@ fn direct_control_contacts_keep_their_original_activation_policy() {
         }
     }
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn a_pressed_field_keeps_its_ring_and_script_focus_follows_the_one_it_leaves() {
+    let source = r##"component App
+  action next
+    focus("other")
+  view
+    column width=400 height=300
+      input testId="field" width=200 height=30
+      button "Next" press=next width=120 height=40 testId="next"
+      button "Other" id="other" width=120 height=40 testId="other"
+"##;
+    for kind in [PointerKind::Mouse, PointerKind::Touch] {
+        let mut p = boot(source);
+        p.set_pointer_kind(kind);
+        let (x, y) = middle(&p, "field");
+        tap(&mut p, x, y, 1.);
+        assert_eq!(p.focus, Some(id(&p, "field")), "{kind:?}");
+        assert_eq!(
+            p.brush.ringless, None,
+            "{kind:?}: a field stays focus-visible"
+        );
+        // A press whose action moves the focus: the button it leaves showed
+        // no ring, so neither does the one it reaches.
+        let (x, y) = middle(&p, "next");
+        tap(&mut p, x, y, 2.);
+        p.run_commands(<()>::default);
+        let other = id(&p, "other");
+        assert_eq!(p.focus, Some(other), "{kind:?}");
+        assert_eq!(p.brush.ringless, Some(other), "{kind:?}");
+        // Shift alone is keyboard input, as Chrome counts it.
+        p.key_down("Shift", 3.);
+        assert_eq!(p.brush.ringless, None, "{kind:?}: Shift shows the ring");
+    }
 }

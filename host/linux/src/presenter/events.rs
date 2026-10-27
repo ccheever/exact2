@@ -308,6 +308,18 @@ impl<D: DataSource> Presenter<D> {
         if previous == next {
             return None;
         }
+        // A focus the app or a route moves shows a ring only where the one it
+        // leaves did, as Chrome's `:focus-visible` has it for `focus()`: after
+        // a press, none. A press or a key says so itself, before or after.
+        // A text field matches `:focus-visible` however it was focused.
+        let ringless = self.brush.ringless;
+        if ringless.is_some() && (ringless == previous || previous.is_none()) {
+            if let Some(next) = next {
+                let field = (self.host.kernel().node(next))
+                    .is_some_and(|n| n.node_type == NodeType::TextInput);
+                self.brush.ringless = (!field).then_some(next);
+            }
+        }
         let out = previous
             .map(|id| self.host.runner().focus_bubble(id, next, false))
             .unwrap_or_default();

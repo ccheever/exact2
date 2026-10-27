@@ -253,12 +253,29 @@ fn native_and_bare_buttons_ring_on_focus_without_a_handler() {
         let c = shot.pixel(f.x as u32 + 60, f.y as u32).unwrap();
         [c.red(), c.green(), c.blue(), c.alpha()]
     };
+    // A focus a press's action moves shows no ring, as Chrome's
+    // `:focus-visible` has it for `focus()` after a click; a key then shows it.
     let focus = |p: &mut Presenter<()>, action: &str| {
         let k = p.host().kernel();
         let id = k.node_by_key(k.find_by_test_id(action)[0]).unwrap().id;
         p.tap(id).unwrap();
         p.run_commands(<()>::default);
+        let focused = p.focus().unwrap();
+        p.type_key(focused, "KeyX", "x", true, false).unwrap();
+        p.type_key(focused, "KeyX", "x", false, false).unwrap();
     };
+    let k = p.host().kernel();
+    let native = k
+        .node_by_key(k.find_by_test_id("focusNative")[0])
+        .unwrap()
+        .id;
+    p.tap(native).unwrap();
+    p.run_commands(<()>::default);
+    assert_ne!(
+        sample(&mut p, "native"),
+        [255, 0, 0, 255],
+        "no ring after a press"
+    );
     for dark in [false, true] {
         p.set_system_scheme(dark);
         focus(&mut p, "focusNative");

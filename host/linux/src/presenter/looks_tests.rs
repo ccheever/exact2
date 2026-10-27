@@ -180,8 +180,8 @@ fn a_looks_clear_is_the_initial_value() {
     assert_eq!(pixel(&mut p, at.0, at.1), [255, 255, 255]);
 }
 
-/// A `:focus-visible` look shows where the focus's ring would: after a
-/// mouse's press, not a finger's.
+/// A `:focus-visible` look shows where the focus's ring would: not after a
+/// press, and once a key is pressed.
 #[test]
 fn a_focus_look_shows_with_the_ring() {
     let mut p = boot();
@@ -191,9 +191,13 @@ fn a_focus_look_shows_with_the_ring() {
     p.pointer_up(at.0, at.1, 10.).unwrap();
     p.pointer_move(390., 390., 20.).unwrap();
     p.clock(200.);
+    let pressed = pixel(&mut p, at.0, at.1);
+    assert_ne!(pressed, [255, 0, 255], "a press's focus shows neither");
+    p.key_down("ArrowDown", 210.);
+    p.clock(400.);
     assert_eq!(
         pixel(&mut p, at.0, at.1),
         [255, 0, 255],
-        "a mouse's focus shows its ring, and the look"
+        "a key shows the ring, and the look"
     );
 }

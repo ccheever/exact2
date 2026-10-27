@@ -1472,7 +1472,7 @@ fn mouse_canvas_action_focus_emits_events_unless_an_editor_keeps_focus() {
                         } else {
                             "focus in "
                         },
-                        None,
+                        Some(find(&p, "button")),
                     )
                 };
                 let seen = Some(exact_runner::Value::str(events));

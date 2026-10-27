@@ -382,6 +382,9 @@ impl<D: DataSource> Presenter<D> {
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
         self.hold_modifier(code, down);
+        if down {
+            self.key_shows_ring(key);
+        }
         // A hardware release returns before `type_key`, which is what forgets
         // a shortcut's code. Left set, an agent key of that code after the
         // button is gone delivers the down and swallows the up.
@@ -855,10 +858,14 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// A press moves focus to the nearest focusable node at or above `hit`,
-    /// except that a canvas press leaves an editor focused. A finger's press
-    /// gives the focus without its ring (LLP 1115.001 D7.6: no focus ring in
-    /// touch mode, as the web's `:focus-visible`); a mouse's shows it, as it
-    /// did, and so does a focus a key or the app moves there after.
+    /// except that a canvas press leaves an editor focused. The focus a press
+    /// gives shows no ring, as the web's `:focus-visible` has it (LLP 1115.004
+    /// D9.2: Fluent's focus visual follows keyboard input only); a focus a key
+    /// moves there after shows it, and one the app moves shows it only where
+    /// the focus it leaves did (`set_focus`). A mouse pressing the focus it
+    /// does not move leaves its ring as it was, as Chrome's does; a finger
+    /// takes it away (LLP 1115.001 D7.6: no focus ring in touch mode). A text
+    /// field keeps its ring and `:focus-visible` look, as in Chrome.
     pub(crate) fn focus_for_press(
         &mut self,
         hit: ViewId,
@@ -873,15 +880,24 @@ impl<D: DataSource> Presenter<D> {
             }
             focus = self.host.kernel().node(id).and_then(|n| n.parent);
         }
-        let ringless = focus.filter(|_| direct);
-        self.dirty |= self.brush.ringless != ringless;
-        self.brush.ringless = ringless;
         let editing = self.surfaces.wants_input(hit)
             && self
                 .focus
                 .and_then(|id| self.host.kernel().node(id))
                 .is_some_and(|node| node.node_type == NodeType::TextInput);
-        if self.focus != focus && !editing {
+        let moves = self.focus != focus && !editing;
+        if direct || moves {
+            // A text field matches `:focus-visible` however it was focused.
+            let ringless = focus.filter(|id| {
+                self.host
+                    .kernel()
+                    .node(*id)
+                    .is_none_or(|n| n.node_type != NodeType::TextInput)
+            });
+            self.dirty |= self.brush.ringless != ringless;
+            self.brush.ringless = ringless;
+        }
+        if moves {
             if let Some(e) = self.set_focus(focus, now_ms) {
                 eprintln!("exact: {e}");
             }

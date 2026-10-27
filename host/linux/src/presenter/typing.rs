@@ -306,6 +306,9 @@ impl<D: DataSource> Presenter<D> {
         if down && !self.alert_allows(id) {
             return Err(format!("view {id} is inert under the open surface"));
         }
+        if down {
+            self.key_shows_ring(key);
+        }
         self.restore_controls();
         // A release's `keyup` handlers at the focus first (#140), whatever
         // took its down; then the release goes where its press went.
@@ -579,6 +582,20 @@ impl<D: DataSource> Presenter<D> {
         self.key_down_with(name, "", false, now_ms);
     }
 
+    /// A key shows the ring a press left off, as Chrome's `:focus-visible`
+    /// starts to match on a keydown that holds none of Ctrl, Alt or Meta
+    /// (Shift alone counts), before any handler or shortcut hears it.
+    pub(crate) fn key_shows_ring(&mut self, name: &str) {
+        let held = self.modifiers();
+        if self.brush.ringless.is_some()
+            && !(held.ctrl || held.alt || held.meta)
+            && !matches!(name, "Control" | "Alt" | "Meta" | "AltGraph")
+        {
+            self.brush.ringless = None;
+            self.dirty = true;
+        }
+    }
+
     /// [`Self::key_down`] with the key's physical position (`code`) and
     /// whether it is an auto-repeat, which its `KeyboardEvent` carries.
     pub(crate) fn key_down_with(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
@@ -587,6 +604,7 @@ impl<D: DataSource> Presenter<D> {
         let mark = self.hatch_key_mark();
         // A key on a held node (the focus there) lets its hold go (LLP 1122 D8).
         self.hold_input(self.focus);
+        self.key_shows_ring(name);
         self.key_pressed(name, code, repeat, now_ms);
         self.hatch_key(mark, name, code, true, repeat);
     }
