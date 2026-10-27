@@ -97,7 +97,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const cli = active && route === 'about' ? await readCliCommand(client, native) : null;
   if (cli) sections = sections.length ? sections.map(section => section.id === 'about' ? { ...section, rows: [...section.rows, cli] } : section)
     : [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }];
-  sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
+  // Worktrees' Creation rows follow the storage panel's Worktree location, which it draws outside a project scope.
+  const lead = route === 'worktrees' && !project;
+  sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 || lead })) }));
   // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
   const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];
   // useSettingsRestore over useScopedSettings: the scope's representative target, not the focused environment.
