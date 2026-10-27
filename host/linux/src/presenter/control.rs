@@ -430,6 +430,9 @@ impl<D: DataSource> Presenter<D> {
     /// do (LLP 1069.001 D3). Fixed painted widgets use the geometry their
     /// painter was designed for; fields measure the text they paint.
     pub(crate) fn size_controls(&mut self) {
+        if !self.host.kernel().has_type(NodeType::Control) {
+            return;
+        }
         let mut sizes = Vec::new();
         // What the kernel sizes forgets what was reported for it (a switch
         // that became a checkbox).
@@ -437,13 +440,11 @@ impl<D: DataSource> Presenter<D> {
         {
             let kernel = self.host.kernel();
             let mut text = self.text.borrow_mut();
-            for id in self.host.preorder() {
+            for id in kernel.preorder_where(&self.host.roots(), |kind, _| kind == NodeType::Control)
+            {
                 let Some(node) = kernel.node(id) else {
                     continue;
                 };
-                if node.node_type != NodeType::Control {
-                    continue;
-                }
                 let Some(kind) = exact_kernel::ControlKind::of(node.node_type, node.props) else {
                     continue;
                 };
