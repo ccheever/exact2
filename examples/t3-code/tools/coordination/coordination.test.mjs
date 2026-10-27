@@ -527,7 +527,7 @@ test('confirmed same-host restart retires only the audited execution and preserv
   });
   const baseline = await c.status();
   const accepted = { ...audit(f.ta, operation, [guard, child], 'coordinator'), noUnrecordedDescendants: false,
-    newBootBoundary: { fromBootId: guard.bootId, toBootId: current.bootId, host: current.host,
+    newBootBoundary: { fromBootId: guard.bootId, toBootId: current.bootId, fromHost: guard.host, host: current.host,
       sameHostRestartConfirmed: true, confirmationReference: 'fixture human confirmation' } };
   const refusals = [
     ['same boot', (s, a) => { s.leases['native-build'].guard.bootId = current.bootId; a.newBootBoundary.fromBootId = current.bootId; }],
@@ -540,6 +540,8 @@ test('confirmed same-host restart retires only the audited execution and preserv
     ['empty confirmation reference', (s, a) => { a.newBootBoundary.confirmationReference = ' '; }],
     ['wrong current host', (s, a) => { a.newBootBoundary.host = 'another-host'; }],
     ['wrong prior host', s => { s.leases['native-build'].guard.host = 'another-host'; }],
+    ['missing prior hostname', (s, a) => { delete a.newBootBoundary.fromHost; }],
+    ['wrong prior hostname', (s, a) => { a.newBootBoundary.fromHost = 'another-host'; }],
     ['running launcher', s => { s.leases['native-build'].phase = 'running'; }],
     ['pending launch', s => { s.tasks[f.ta.id].pending.push('pending-operation'); }],
     ['mixed boot process', s => { s.tasks[f.ta.id].processes[1].bootId = current.bootId; }],
@@ -600,6 +602,20 @@ test('confirmed same-host restart retires only the audited execution and preserv
   processExpected.tasks[f.ta.id].processes = processExpected.tasks[f.ta.id].processes.filter(p => p.operation !== operation);
   processExpected.events.push(processReleased);
   expect(await c.status()).toEqual(processExpected);
+
+  const renamed = structuredClone(baseline), renamedAudit = structuredClone(accepted);
+  renamed.leases['native-build'].guard.host = 'before-restart-rename';
+  for (const p of renamed.tasks[f.ta.id].processes) if (p.operation === operation) p.host = 'before-restart-rename';
+  for (const p of renamedAudit.processes) p.host = 'before-restart-rename';
+  renamedAudit.newBootBoundary.fromHost = 'before-restart-rename';
+  writeFileSync(stateFile, JSON.stringify(renamed));
+  const renamedReleased = await c.auditRun(f.ta.id, 'coordinator', renamedAudit);
+  expect(renamedReleased).toMatchObject({ held: false, historicalLifetime: 'unknown', audit: renamedAudit });
+  const renamedExpected = structuredClone(renamed);
+  delete renamedExpected.leases['native-build'];
+  renamedExpected.tasks[f.ta.id].processes = renamedExpected.tasks[f.ta.id].processes.filter(p => p.operation !== operation);
+  renamedExpected.events.push(renamedReleased);
+  expect(await c.status()).toEqual(renamedExpected);
 });
 
 test('port and storage receipts collide across processes and release for reuse', async () => {

@@ -323,13 +323,13 @@ export class Coordination {
           (key === `process:${audit.operation}` && lease.kind === 'process');
         if (!matchingLease || lease.phase !== 'awaiting-audit' || task.pending.length ||
             !bootId || !previousBoot || previousBoot === bootId || boundary.fromBootId !== previousBoot || boundary.toBootId !== bootId ||
-            boundary.host !== hostname() || lease.guard.host !== boundary.host || boundary.sameHostRestartConfirmed !== true ||
+            boundary.host !== hostname() || !boundary.fromHost || lease.guard.host !== boundary.fromHost || boundary.sameHostRestartConfirmed !== true ||
             typeof boundary.confirmationReference !== 'string' || !boundary.confirmationReference.trim() || audit.noUnrecordedDescendants !== false) {
           fail('confirmed same-host restart boundary required');
         }
         const retired = task.processes.filter(p => p.operation === audit.operation);
         const members = [lease.guard, ...retired, ...audit.processes];
-        if (!retired.length || members.some(p => !Number.isSafeInteger(p.pid) || p.pid <= 0 || !p.started || p.bootId !== previousBoot || p.host !== boundary.host) ||
+        if (!retired.length || members.some(p => !Number.isSafeInteger(p.pid) || p.pid <= 0 || !p.started || p.bootId !== previousBoot || p.host !== boundary.fromHost) ||
             [...retired, lease.guard].some(p => !audit.processes.some(a => a.pid === p.pid && a.started === p.started && a.bootId === p.bootId && a.host === p.host)) ||
             audit.processes.some(a => ![...retired, lease.guard].some(p => a.pid === p.pid && a.started === p.started))) {
           fail('matching recorded prior-boot identities required');
