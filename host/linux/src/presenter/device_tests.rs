@@ -384,3 +384,62 @@ fn a_phones_locale_is_its_format_locale_too() {
         ("ko-KR", "")
     );
 }
+
+/// A page symbol is drawn in its `color`, inherited here from a custom button
+/// or a box, as Apple and the web draw one (LLP 1081 §4), not in the accent.
+#[test]
+fn a_page_symbol_takes_its_color() {
+    let source = "component App\n  view\n    column\n      button appearance=\"none\" color=\"#ff0000\" testId=\"b\"\n        image \"symbol:emoji\" width=48 height=48\n      view color=\"#ff0000\" testId=\"v\"\n        image \"symbol:emoji\" width=48 height=48\n";
+    let mut p = boot(source);
+    for id in ["b", "v"] {
+        let frame = {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(id)[0]).unwrap().frame
+        };
+        let shot = p.frame();
+        let (mut red, mut other) = (0, 0);
+        for y in 0..frame.height as u32 {
+            for x in 0..frame.width as u32 {
+                let c = shot.pixel(frame.x as u32 + x, frame.y as u32 + y).unwrap();
+                if c.red() > 150 && c.green() < 100 && c.blue() < 100 {
+                    red += 1;
+                } else if c.blue() > 150 && c.red() < 100 {
+                    other += 1;
+                }
+            }
+        }
+        assert!(red > 100 && other == 0, "{id}: {red} red, {other} accent");
+    }
+}
+
+/// A grouped row's leading symbol and chevron keep the tints the platform's
+/// sheet gives them (the accent, a tertiary grey), as UIKit tints a list
+/// cell's image; only an author's `color` is the symbol's own.
+#[test]
+fn a_grouped_rows_symbols_keep_the_platforms_tints() {
+    let source = "component App\n  view\n    list appearance=\"auto\" listStyle=\"inset-grouped\" width=300 height=200 color=\"#000000\"\n      section\n        row\n          image \"symbol:star\" testId=\"lead\"\n          text \"Starred\"\n          image \"symbol:forward-chevron\" testId=\"tail\"\n";
+    let mut p = boot(source);
+    let shot = p.frame();
+    let k = p.host().kernel();
+    let ink = |id: &str| {
+        let f = k.node_by_key(k.find_by_test_id(id)[0]).unwrap().frame;
+        (0..f.height as u32)
+            .flat_map(|y| (0..f.width as u32).map(move |x| (x, y)))
+            .filter_map(|(x, y)| shot.pixel(f.x as u32 + x, f.y as u32 + y))
+            .map(|c| {
+                let c = c.demultiply();
+                [c.red(), c.green(), c.blue()]
+            })
+            .min_by_key(|c| u16::from(c[0]) + u16::from(c[1]) + u16::from(c[2]))
+            .unwrap()
+    };
+    let (lead, tail) = (ink("lead"), ink("tail"));
+    assert!(
+        lead[2] > 150 && lead[0] < 100,
+        "the star is the accent: {lead:?}"
+    );
+    assert!(
+        tail[0] > 100 && tail[0].abs_diff(tail[2]) < 30,
+        "the chevron is a grey: {tail:?}"
+    );
+}

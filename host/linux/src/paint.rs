@@ -1139,7 +1139,17 @@ impl Painter {
                     .str(exact_kernel::PropId::ImageSource)
                     .is_some_and(|s| s.starts_with("symbol:"))
                 {
-                    self.symbol(node, content, image_tint(node, &shown, self.dark), ts);
+                    // Its `color` as presented, through a transition or a press (LLP 1081
+                    // stage 2), unless the platform's sheet tinted it: a grouped row's leading
+                    // symbol and its chevron, as UIKit tints a list cell's image.
+                    let sheet = node.style.mask.has(StyleId::TintColor)
+                        && !node.style.written.has(StyleId::TintColor);
+                    let ink = if sheet {
+                        image_tint(node, &shown, self.dark)
+                    } else {
+                        presented_color(walk, node, self.dark)
+                    };
+                    self.symbol(node, content, ink, ts);
                 } else {
                     self.row_slot(node.id, content, outer, ts);
                     self.backend.slot_begin(node.id);
