@@ -803,7 +803,7 @@ package final class Presenter {
                 #endif
             }
         }
-        var beganGeometry = false, touchedIDs: [UInt32] = []
+        var beganGeometry = false, touchedIDs: [UInt32] = [], reshapedIDs: [UInt32] = []
         if outermost { placedAnew.removeAll(keepingCapacity: true) } // a flat leaf promoted between batches
         let anewFrom = placedAnew.count
         let rowsOnly = onlyListRows(batch)
@@ -811,7 +811,8 @@ package final class Presenter {
         for op in batch.ops {
             let kind = op.op
             switch kind {
-            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id); controls.faceChanged(op.id)
+            case .create, .props, .style, .children, .paragraph, .flow: touchedIDs.append(op.id); reshapedIDs.append(op.id); controls.faceChanged(op.id)
+            case .frame: touchedIDs.append(op.id); controls.faceChanged(op.id)
             default: break
             }
             if kind == .create || kind == .frame || kind == .content { moved = true }
@@ -1003,7 +1004,7 @@ package final class Presenter {
         let changed = touchedAndAbove(touchedIDs + geometryApplied)
         let touchedHere = Set(touchedIDs + geometryApplied)
         geometryApplied = []
-        swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
+        swipeActions.sync(changed: changed, reshaped: touchedAndAbove(reshapedIDs)); rowCells.sync(changed: changed)
         groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)

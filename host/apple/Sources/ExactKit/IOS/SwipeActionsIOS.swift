@@ -123,8 +123,11 @@ package final class SwipeActionsHost {
 
     /// `changed`: the views the batch touched and their ancestors. An owner
     /// with a row, outside it and none of whose names changed carriers,
-    /// keeps its row as it was; nil revisits every owner.
-    func sync(changed: Set<UInt32>? = nil) {
+    /// keeps its row as it was; nil revisits every owner. `reshaped`: those
+    /// of them an op other than a frame touched. An owner the batch only
+    /// moved (two rows inserted above it) keeps its row while its content
+    /// still fills it: its names resolve to the same nodes.
+    func sync(changed: Set<UInt32>? = nil, reshaped: Set<UInt32>? = nil) {
         let renamed = presenter.takeChangedNames()
         // The views whose name is read from an element renamed now, found once, not once a row.
         let relabelled = renamed.isEmpty ? [] : Set(presenter.carrying("accessibilityLabelledBy").filter {
@@ -146,8 +149,8 @@ package final class SwipeActionsHost {
                 wanted.insert(owner.id)
                 continue
             }
-            if let changed, !changed.contains(owner.id), !renamed.contains(content),
-               let row = rows[owner.id], row.owner === owner, !row.names.contains(where: renamed.contains) {
+            if let changed, !renamed.contains(content), let row = rows[owner.id], row.owner === owner, !row.names.contains(where: renamed.contains),
+               !changed.contains(owner.id) || (reshaped?.contains(owner.id) == false && (row.grouped || fills(row.body, owner))) {
                 claimed.insert(row.body.id)
                 if row.projected || row.grouped || assistive { row.mount() }
                 wanted.insert(owner.id)
@@ -189,7 +192,7 @@ package final class SwipeActionsHost {
                     if control === body || control.isDescendant(of: body) { return "\"\(name)\" is inside swipeContent \"\(content)\"" }
                     if label(control).isEmpty { return "\"\(name)\" has no accessible name (aria-label or text)" }
                 }
-                if !grouped, abs(body.layoutBounds.width - owner.layoutBounds.width) >= 0.5 || abs(body.layoutBounds.height - owner.layoutBounds.height) >= 0.5 {
+                if !grouped, !fills(body, owner) {
                     return "swipeContent \"\(content)\" is \(size(body)), not the row's \(size(owner)) border box (a border or padding on the row shrinks it)"
                 }
                 if claimed.contains(body.id) { return "swipeContent \"\(content)\" is another row's too" }
@@ -231,6 +234,11 @@ package final class SwipeActionsHost {
         #endif
         refusals = refusals.filter { presenter.views[$0.key] != nil }
         kept = []
+    }
+
+    /// The row's content is its owner's border box, as a row's must be.
+    private func fills(_ body: NodeView, _ owner: NodeView) -> Bool {
+        abs(body.layoutBounds.width - owner.layoutBounds.width) < 0.5 && abs(body.layoutBounds.height - owner.layoutBounds.height) < 0.5
     }
 
     /// An action's name; a native button's is its label, else its title
