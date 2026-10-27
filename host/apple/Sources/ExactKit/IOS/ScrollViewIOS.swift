@@ -451,8 +451,13 @@ extension NodeView {
                 let control = PaddedRefreshControl()
                 control.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
                 sv.refreshControl = control
+                sv.panGestureRecognizer.addTarget(self, action: #selector(refreshPullChanged(_:)))
             }
-            if props["refreshing"] != "true", let control = sv.refreshControl, control.isRefreshing {
+            // One pull, one refresh: a control ended while the finger still
+            // holds the list past its threshold fires again in the same pull
+            // (an app that refreshes in a frame or two fired seven times in
+            // one). It ends when the finger lifts (`refreshPullChanged`).
+            if props["refreshing"] != "true", let control = sv.refreshControl, control.isRefreshing, !sv.isTracking {
                 control.endRefreshing()
             }
         } else if sv.refreshControl != nil {
@@ -465,6 +470,11 @@ extension NodeView {
         presenter?.refresh(id)
         // An app that starts nothing leaves `refreshing` false: end promptly.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, token = incarnation] in if self?.incarnation == token { self?.updateRefresh() } }
+    }
+    @objc func refreshPullChanged(_ pan: UIPanGestureRecognizer) {
+        guard pan.state == .ended || pan.state == .cancelled || pan.state == .failed,
+              props["refreshing"] != "true", let control = scrollView?.refreshControl, control.isRefreshing else { return }
+        control.endRefreshing()
     }
     #endif
 }
