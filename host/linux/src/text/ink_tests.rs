@@ -706,8 +706,8 @@ mod clip_masks {
         assert!(first.ptr_eq(&again));
         assert_eq!(
             raster.clip_allocations.get(),
-            3,
-            "one root, its child intersection, and one later root"
+            2,
+            "the later root reuses the released child's storage"
         );
     }
 

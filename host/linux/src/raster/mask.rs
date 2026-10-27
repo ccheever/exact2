@@ -5,6 +5,18 @@ use crate::paint::{Backend, GradientPaint, Shape};
 use tiny_skia::{FillRule, Mask, MaskType, Path, Pixmap, PixmapPaint, Transform};
 
 impl Raster {
+    pub(super) fn recycle_clip_mask(&self, mask: Option<std::rc::Rc<Mask>>) {
+        let Some(mask) = mask else { return };
+        if mask.data().len() > super::CLIP_CACHE_BYTES || self.spare_clip.borrow().is_some() {
+            return;
+        }
+        // Only released coverage is reusable. Active and cached masks keep
+        // their own Rc owners and must remain immutable.
+        if let Ok(mask) = std::rc::Rc::try_unwrap(mask) {
+            *self.spare_clip.borrow_mut() = Some(mask);
+        }
+    }
+
     pub(super) fn pop_masked(
         &mut self,
         shape: &Shape,
@@ -204,6 +216,47 @@ fn intersect(mask: &mut Mask, parent: &Mask, path: &Path, dev: Transform, round:
 mod tests {
     use super::*;
     use tiny_skia::FillRule;
+
+    #[test]
+    fn released_mask_storage_is_cleared_reused_and_bounded() {
+        for scale in [1., 1.25, 1.5, 2.] {
+            let mut r = Raster::new();
+            r.begin(64., 56., scale);
+            let identity = Transform::identity();
+            let parent_shape = Shape::new((2.25, 4.5, 58., 48.), [5.; 4]);
+            r.push_clip(&parent_shape, identity);
+            let parent = r.active_clip().unwrap().clone();
+            for shape in [
+                Shape::new((4.25, 5.75, 28., 36.), [6.; 4]),
+                Shape::rect((40., 8., 12., 12.)),
+                Shape::new((10.125, 15.25, 35., 28.), [9.; 4]),
+            ] {
+                let mut expected = (*parent).clone();
+                expected.intersect_path(
+                    &rounded_rect(&shape).unwrap(),
+                    FillRule::Winding,
+                    true,
+                    r.device(identity),
+                );
+                r.push_clip(&shape, identity);
+                assert_eq!(r.active_clip().unwrap().data(), expected.data());
+                assert_eq!(r.clip_allocations.get(), 2);
+                r.pop_clip();
+                assert!(r.spare_clip.borrow().is_some());
+                assert_eq!(r.active_clip().unwrap().data(), parent.data());
+            }
+            r.pop_clip();
+            assert_eq!(parent.data(), r.cached_clip.as_ref().unwrap().1.data());
+            let blank = r.new_clip_mask().unwrap();
+            assert!(blank.data().iter().all(|byte| *byte == 0));
+            r.recycle_clip_mask(Some(std::rc::Rc::new(blank)));
+            r.begin(65., 56., scale);
+            assert!(r.spare_clip.borrow().is_none());
+            let oversize = Mask::new(1025, 1024).unwrap();
+            r.recycle_clip_mask(Some(std::rc::Rc::new(oversize)));
+            assert!(r.spare_clip.borrow().is_none());
+        }
+    }
 
     #[test]
     fn integer_pane_clips_keep_fills_exact_across_nested_clips_and_pop() {

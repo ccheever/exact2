@@ -68,6 +68,7 @@ pub struct Raster {
     layers: Vec<(Pixmap, f32)>,
     first_clip_used: bool,
     cached_clip: Option<(ClipKey, Rc<Mask>)>,
+    spare_clip: std::cell::RefCell<Option<Mask>>,
     #[cfg(target_arch = "x86_64")]
     image_samples: Vec<image_sample::Sample>,
     #[cfg(test)]
@@ -104,6 +105,14 @@ impl Raster {
         self.scale = scale;
         self.width = ((width * scale).round() as u32).max(1);
         self.height = ((height * scale).round() as u32).max(1);
+        if self
+            .spare_clip
+            .get_mut()
+            .as_ref()
+            .is_some_and(|mask| mask.width() != self.width || mask.height() != self.height)
+        {
+            *self.spare_clip.get_mut() = None;
+        }
         self.clips.clear();
         self.text_clips.clear();
         self.rectangular_clip = None;
@@ -213,6 +222,10 @@ impl Raster {
     }
 
     fn new_clip_mask(&self) -> Option<Mask> {
+        if let Some(mut mask) = self.spare_clip.borrow_mut().take() {
+            mask.data_mut().fill(0);
+            return Some(mask);
+        }
         // Count this backend's actual Mask::new calls, not tiny-skia's
         // internal intersection scratch or parent-mask clones.
         #[cfg(test)]
@@ -873,6 +886,7 @@ impl Backend for Raster {
         if tint.is_some() {
             self.pop_opacity();
         }
+        self.recycle_clip_mask(mask);
     }
 
     // @ref LLP 1055.000 D14 — an island in its element's user space.
@@ -1142,7 +1156,8 @@ impl Backend for Raster {
         {
             self.rectangular_clip = None;
         }
-        self.clips.pop();
+        let mask = self.clips.pop().flatten();
+        self.recycle_clip_mask(mask);
         self.text_clips.pop();
     }
 
