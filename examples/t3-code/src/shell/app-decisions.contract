@@ -1,0 +1,902 @@
+use ComposerIntentState, initialComposerIntentState from "./app-protocols.contract"
+use ComposerFieldProtocol, initialComposerFieldProtocol from "./app-protocols.contract"
+use ComposerSelectionState, initialComposerSelectionState from "./app-protocols.contract"
+use PromptPreviewState, initialPromptPreviewState from "./app-protocols.contract"
+use PaletteSessionState, initialPaletteSessionState from "./app-protocols.contract"
+use ProviderWizardState, initialProviderWizardState from "./app-protocols.contract"
+use ConfirmationState, initialConfirmationState from "./app-protocols.contract"
+use CitationPlacementState, initialCitationPlacementState from "./app-protocols.contract"
+use FindPlacementState, initialFindPlacementState from "./app-protocols.contract"
+use HoverState, initialHoverState from "./app-protocols.contract"
+use WorkspaceRetryState, initialWorkspaceRetryState from "./app-protocols.contract"
+use StreamGeometryState, initialStreamGeometryState from "./app-protocols.contract"
+use ModifierOwnershipState, initialModifierOwnershipState from "./app-protocols.contract"
+use SshResponseState, initialSshResponseState from "./app-protocols.contract"
+use NoticeExitState, initialNoticeExitState from "./app-protocols.contract"
+use TranscriptViewportState, initialTranscriptViewportState from "./app-protocols.contract"
+use KeybindingEditorState, initialKeybindingEditorState from "./app-protocols.contract"
+use ComposerMenuState, initialComposerMenuState from "./app-protocols.contract"
+use ComposerDraftState, initialComposerDraftState from "./app-protocols.contract"
+use SettingsPageState, initialSettingsPageState from "./app-protocols.contract"
+use TransportTable, TransportSlot, TransportUpdateSlot from "../transport/transport.contract"
+use RouteKeyboard, routeKeyboardIdle from "../connections/connections-routes.contract"
+use ComposerFieldObservation from "../composer/composer-rich.contract"
+use ComposerChipRequest from "../composer/composer-chip-controls.contract"
+use MarkdownSkill from "../shared/shapes.contract"
+
+shape CommandArgs
+  p0: string
+  p1: string
+  p2: string
+  p3: number
+
+fn initialCommandArgs(): CommandArgs = CommandArgs(
+  p0="",
+  p1="",
+  p2="",
+  p3=0
+)
+
+shape ChatLocalResult
+  writeFoldHold: bool
+  foldHold: bool
+  writeRightPanelAt: bool
+  rightPanelAt: string
+  sendKind: string
+  args: CommandArgs
+
+shape ProviderChangeArgs
+  p0: string
+  p1: string
+  p2: string
+  p3: string
+  p4: string
+  p5: string
+
+fn initialProviderChangeArgs(): ProviderChangeArgs = ProviderChangeArgs(
+  p0="",
+  p1="",
+  p2="",
+  p3="",
+  p4="",
+  p5=""
+)
+
+shape ProviderAddArgs
+  p0: string
+  p1: string
+  p2: string
+  p3: string
+  p4: string[]
+  p5: string
+  p6: string[]
+
+fn initialProviderAddArgs(): ProviderAddArgs = ProviderAddArgs(
+  p0="",
+  p1="",
+  p2="",
+  p3="",
+  p4=[],
+  p5="",
+  p6=[]
+)
+
+shape ComposerIntentArgs
+  p0: string
+  p1: string
+  p2: string
+  p3: number
+  p4: number
+  p5: number
+  p6: string
+  p7: string
+  p8: string
+  p9: bool
+  p10: bool
+  p11: bool
+  p12: string
+
+fn initialComposerIntentArgs(): ComposerIntentArgs = ComposerIntentArgs(
+  p0="",
+  p1="",
+  p2="",
+  p3=0,
+  p4=0,
+  p5=0,
+  p6="",
+  p7="",
+  p8="",
+  p9=false,
+  p10=false,
+  p11=false,
+  p12=""
+)
+
+shape ComposerFieldArgs
+  p0: ComposerFieldObservation
+  p1: bool
+
+fn initialComposerFieldArgs(): ComposerFieldArgs = ComposerFieldArgs(
+  p0=ComposerFieldObservation(
+    generation=-1,
+    snapshotOwner="",
+    owner="",
+    value="",
+    start=0,
+    end=0,
+    composing=false,
+    live=false,
+    focused=false,
+    inputSerial=0
+  ),
+  p1=false
+)
+
+shape NumberArgs
+  p0: number
+
+fn initialNumberArgs(): NumberArgs = NumberArgs(
+  p0=0
+)
+
+shape ThreeTextArgs
+  p0: string
+  p1: string
+  p2: string
+
+fn initialThreeTextArgs(): ThreeTextArgs = ThreeTextArgs(
+  p0="",
+  p1="",
+  p2=""
+)
+
+shape ServerStatusArgs
+  p0: string
+  p1: number
+
+fn initialServerStatusArgs(): ServerStatusArgs = ServerStatusArgs(
+  p0="",
+  p1=0
+)
+
+shape TwoTextArgs
+  p0: string
+  p1: string
+
+fn initialTwoTextArgs(): TwoTextArgs = TwoTextArgs(
+  p0="",
+  p1=""
+)
+
+shape ThreadFindArgs
+  p0: number
+  p1: number
+  p2: MarkdownSkill[]
+  p3: string
+
+fn initialThreadFindArgs(): ThreadFindArgs = ThreadFindArgs(
+  p0=0,
+  p1=0,
+  p2=[],
+  p3=""
+)
+
+shape TransportArgs
+  p0: number
+  p1: string
+
+fn initialTransportArgs(): TransportArgs = TransportArgs(
+  p0=0,
+  p1=""
+)
+
+shape TextArgs
+  p0: string
+
+fn initialTextArgs(): TextArgs = TextArgs(
+  p0=""
+)
+
+shape SelectionArgs
+  p0: string
+  p1: number
+  p2: number
+
+fn initialSelectionArgs(): SelectionArgs = SelectionArgs(
+  p0="",
+  p1=0,
+  p2=0
+)
+
+shape SelectionDirectionArgs
+  p0: string
+  p1: number
+  p2: number
+  p3: string
+
+fn initialSelectionDirectionArgs(): SelectionDirectionArgs = SelectionDirectionArgs(
+  p0="",
+  p1=0,
+  p2=0,
+  p3=""
+)
+
+shape RangeTextArgs
+  p0: string
+  p1: string
+  p2: number
+  p3: number
+  p4: string
+
+fn initialRangeTextArgs(): RangeTextArgs = RangeTextArgs(
+  p0="",
+  p1="",
+  p2=0,
+  p3=0,
+  p4="preserve"
+)
+
+fn initialPreviewObservation(): ComposerFieldObservation = ComposerFieldObservation(
+  generation=-1,
+  snapshotOwner="",
+  owner="",
+  value="",
+  start=0,
+  end=0,
+  composing=false,
+  live=false,
+  focused=false,
+  inputSerial=0
+)
+
+shape AppDecision
+  writeAnnotationSendHandled: bool
+  writeAutomationRecordingHandled: bool
+  writeBranchQuery: bool
+  writeCanvasGestureValue: bool
+  writeChipActed: bool
+  writeCitationPlacement: bool
+  writeCodeRevealHandled: bool
+  writeCommandPending: bool
+  writeComposerDraft: bool
+  writeComposerMenu: bool
+  writeComposerSelection: bool
+  writeConfirmationState: bool
+  writeConnecting: bool
+  writeConnectionMenu: bool
+  writeConnectionRemove: bool
+  writeDetailsEpoch: bool
+  writeDetailsOpen: bool
+  writeDraggedWidth: bool
+  writeWindowClock: bool
+  writeFieldProtocol: bool
+  writeFindPlacement: bool
+  writeFoldHold: bool
+  writeGuideFinishHandled: bool
+  writeHoverState: bool
+  writeImportWizardAt: bool
+  writeImportWizardFocused: bool
+  writeImportWizardShown: bool
+  writeIntentState: bool
+  writeJumpRequest: bool
+  writeKeybindingEditor: bool
+  writeKeybindingWhen: bool
+  writeLineagePhases: bool
+  writeLineageStopping: bool
+  writeLineageWorkflows: bool
+  writeLiveNow: bool
+  writeModalError: bool
+  writeModifierOwnership: bool
+  writeNoticeExitState: bool
+  writeOrigin: bool
+  writeOriginEdited: bool
+  writePageTrail: bool
+  writePaletteSession: bool
+  writePendingModal: bool
+  writePrApplied: bool
+  writePrPanelOpen: bool
+  writePrSearch: bool
+  writePrSelected: bool
+  writePrTab: bool
+  writePreviewState: bool
+  writeProjectsOpen: bool
+  writeProviderLinkTarget: bool
+  writeProviderNow: bool
+  writeProviderSelected: bool
+  writeProviderWizardState: bool
+  writeRemovalAt: bool
+  writeRenameAfterId: bool
+  writeRenameAfterOp: bool
+  writeRestEditor: bool
+  writeRestSubject: bool
+  writeRightPanelAt: bool
+  writeRouteKeyboard: bool
+  writeSaveNonce: bool
+  writeSbEmoji: bool
+  writeSbLetters: bool
+  writeSbLettersEdited: bool
+  writeSbQuery: bool
+  writeSbSshHost: bool
+  writeSettingsWorkspace: bool
+  writeSettingsEnvironmentId: bool
+  writeSettingsPageState: bool
+  writeSettingsMachine: bool
+  writeSettingsMenu: bool
+  writeSettingsProjectId: bool
+  writeSettingsThemeDialog: bool
+  writeSettingsThemeSubject: bool
+  writeShellClock: bool
+  writeShellOpenHandled: bool
+  writeSidebarHoverId: bool
+  writeSshResponse: bool
+  writeStreamGeometry: bool
+  writeTaskBase: bool
+  writeTerminalCloseHandled: bool
+  writeThemeReveal: bool
+  writeTitleDialog: bool
+  writeToastDismissed: bool
+  writeTranscriptViewport: bool
+  writeTransportOnline: bool
+  writeTransportTable: bool
+  writeUsageDays: bool
+  writeUsageMetric: bool
+  writeUtilityPage: bool
+  writeWelcomeLink: bool
+  writeWelcomePairFold: bool
+  writeWelcomePaired: bool
+  writeWelcomeStep: bool
+  writeWorkspaceNow: bool
+  writeWorkspaceRetry: bool
+  annotationSendHandled: number
+  automationRecordingHandled: number
+  branchQuery: string
+  canvasGestureValue: string
+  chipActed: number
+  citationPlacement: CitationPlacementState
+  codeRevealHandled: string
+  commandPending: bool
+  composerDraft: ComposerDraftState
+  composerMenu: ComposerMenuState
+  composerSelection: ComposerSelectionState
+  confirmationState: ConfirmationState
+  connecting: bool
+  connectionMenu: string
+  connectionRemove: string
+  detailsEpoch: number
+  detailsOpen: bool
+  draggedWidth: number
+  elapsed: number
+  windowReturns: number
+  fieldProtocol: ComposerFieldProtocol
+  findPlacement: FindPlacementState
+  foldHold: bool
+  guideFinishHandled: string
+  hoverState: HoverState
+  importWizardAt: number
+  importWizardFocused: string
+  importWizardShown: bool
+  intentState: ComposerIntentState
+  jumpRequest: number
+  keybindingEditor: KeybindingEditorState
+  keybindingWhen: string
+  lineagePhasesClosed: string[]
+  lineagePhasesOpen: string[]
+  lineageStopping: string
+  lineageWorkflows: string[]
+  liveNow: number
+  modalError: string
+  modifierOwnership: ModifierOwnershipState
+  noticeExitState: NoticeExitState
+  origin: string
+  originEdited: bool
+  pageTrail: string[]
+  paletteSession: PaletteSessionState
+  pendingModal: string
+  prApplied: string
+  prPanelOpen: bool
+  prQuery: string
+  prTyped: bool
+  prSelected: string
+  prTab: string
+  previewState: PromptPreviewState
+  projectsOpen: bool
+  providerLinkTarget: string
+  providerNow: number
+  providerSelected: string
+  providerWizardState: ProviderWizardState
+  removalAt: string
+  renameAfterId: string
+  renameAfterOp: string
+  restEditor: string
+  restSubject: string
+  rightPanelAt: string
+  routeKeyboard: RouteKeyboard
+  saveNonce: number
+  sbEmoji: string
+  sbLetters: string
+  sbLettersEdited: bool
+  sbQuery: string
+  sbSshHost: string
+  settingsCheckout: string
+  settingsProjectKey: string
+  settingsEnvironmentId: string
+  settingsPageState: SettingsPageState
+  settingsMachine: string
+  settingsMenu: string
+  settingsProjectId: string
+  settingsThemeDialog: string
+  settingsThemeSubject: string
+  shellClock: number
+  shellOpenHandled: string
+  sidebarHoverId: string
+  sshResponse: SshResponseState
+  streamGeometry: StreamGeometryState
+  taskBase: string
+  terminalCloseHandled: number
+  themeReveal: string
+  titleDialog: bool
+  toastDismissed: string
+  transcriptViewport: TranscriptViewportState
+  transportOnline: bool
+  transportTable: TransportTable
+  usageDays: number
+  usageMetric: string
+  utilityPage: string
+  welcomeLink: string
+  welcomePairFold: string
+  welcomePaired: number
+  welcomeStep: string
+  workspaceNow: number
+  workspaceRetry: WorkspaceRetryState
+  sendAutomationRecordingServed0: bool
+  record0: CommandArgs
+  sendAutomationRecordingServed1: bool
+  record1: CommandArgs
+  sendAutomationRecordingServed2: bool
+  record2: CommandArgs
+  sendAutomationRecordingServed3: bool
+  record3: CommandArgs
+  chip: option<ComposerChipRequest>
+  sendChipObserved: bool
+  previewObservation: ComposerFieldObservation
+  sendComposerEdited: bool
+  intent: ComposerIntentArgs
+  sendComposerFieldChanged: bool
+  field: ComposerFieldArgs
+  sendDraftLeft: bool
+  draftLeave: CommandArgs
+  sendFileCommentChanged: bool
+  fileComment: CommandArgs
+  sendFragmentChanged: bool
+  fragment: CommandArgs
+  sendHighlightSliced: bool
+  highlight: NumberArgs
+  sendInlineDocumentChanged: bool
+  inlineDocument: CommandArgs
+  sendLineDragChanged: bool
+  lineDrag: CommandArgs
+  sendPaletteChanged: bool
+  palette: ThreeTextArgs
+  sendPrQuickChanged: bool
+  prQuick: CommandArgs
+  sendPrTabSaved: bool
+  tabSave: CommandArgs
+  changedKind: string
+  command: CommandArgs
+  providerChange: ProviderChangeArgs
+  providerAdd: ProviderAddArgs
+  sendPrHandoffChanged: bool
+  prHandoff: CommandArgs
+  sendLocalChanged: bool
+  local: CommandArgs
+  sendProviderAuthChanged: bool
+  auth: ProviderChangeArgs
+  sendProviderUpdateRun: bool
+  providerUpdate: ProviderChangeArgs
+  sendSecretAnswered: bool
+  secret: CommandArgs
+  sendServerBrowserMaintained: bool
+  browser: ServerStatusArgs
+  sendServerBrowserMiniMaintained: bool
+  miniBrowser: ServerStatusArgs
+  sendSshAnswered: bool
+  ssh: TwoTextArgs
+  sendTerminalChanged: bool
+  terminal: CommandArgs
+  sendTerminalFocusChanged: bool
+  terminalFocus: CommandArgs
+  sendThreadFindMaintained: bool
+  find: ThreadFindArgs
+  sendTimelineDisclosureChanged: bool
+  disclosure: CommandArgs
+  sendTimelineReadsRefreshed: bool
+  timeline: NumberArgs
+  sendTimelineReadsRefreshedNext: bool
+  timelineNext: NumberArgs
+  sendTransportPumped: bool
+  transport: TransportArgs
+  sendWorkspaceRefreshed: bool
+  workspace: TextArgs
+  hostRelaunch: bool
+  hostShowPopoverSource: bool
+  showPopoverSource: TwoTextArgs
+  hostPreventDefault: bool
+  hostStopPropagation: bool
+  hostFormat: bool
+  format: TwoTextArgs
+  hostFocus: bool
+  focus: TextArgs
+  hostSelectText: bool
+  selectText: TextArgs
+  hostRangeText: bool
+  rangeText: RangeTextArgs
+  hostSelection: bool
+  selection: SelectionArgs
+  hostSelectionDirection: bool
+  selectionDirection: SelectionDirectionArgs
+  scrollKind: string
+  scrollTarget: string
+  scrollRow: string
+  scrollOffset: number
+  hostSaveFile: bool
+  saveFile: ThreeTextArgs
+  hostBlur: bool
+  hostShowPopover: bool
+  showPopover: TextArgs
+  refreshData: bool
+  refreshShell: bool
+
+fn initialAppDecision(): AppDecision = AppDecision(
+  writeAnnotationSendHandled=false,
+  writeAutomationRecordingHandled=false,
+  writeBranchQuery=false,
+  writeCanvasGestureValue=false,
+  writeChipActed=false,
+  writeCitationPlacement=false,
+  writeCodeRevealHandled=false,
+  writeCommandPending=false,
+  writeComposerDraft=false,
+  writeComposerMenu=false,
+  writeComposerSelection=false,
+  writeConfirmationState=false,
+  writeConnecting=false,
+  writeConnectionMenu=false,
+  writeConnectionRemove=false,
+  writeDetailsEpoch=false,
+  writeDetailsOpen=false,
+  writeDraggedWidth=false,
+  writeWindowClock=false,
+  writeFieldProtocol=false,
+  writeFindPlacement=false,
+  writeFoldHold=false,
+  writeGuideFinishHandled=false,
+  writeHoverState=false,
+  writeImportWizardAt=false,
+  writeImportWizardFocused=false,
+  writeImportWizardShown=false,
+  writeIntentState=false,
+  writeJumpRequest=false,
+  writeKeybindingEditor=false,
+  writeKeybindingWhen=false,
+  writeLineagePhases=false,
+  writeLineageStopping=false,
+  writeLineageWorkflows=false,
+  writeLiveNow=false,
+  writeModalError=false,
+  writeModifierOwnership=false,
+  writeNoticeExitState=false,
+  writeOrigin=false,
+  writeOriginEdited=false,
+  writePageTrail=false,
+  writePaletteSession=false,
+  writePendingModal=false,
+  writePrApplied=false,
+  writePrPanelOpen=false,
+  writePrSearch=false,
+  writePrSelected=false,
+  writePrTab=false,
+  writePreviewState=false,
+  writeProjectsOpen=false,
+  writeProviderLinkTarget=false,
+  writeProviderNow=false,
+  writeProviderSelected=false,
+  writeProviderWizardState=false,
+  writeRemovalAt=false,
+  writeRenameAfterId=false,
+  writeRenameAfterOp=false,
+  writeRestEditor=false,
+  writeRestSubject=false,
+  writeRightPanelAt=false,
+  writeRouteKeyboard=false,
+  writeSaveNonce=false,
+  writeSbEmoji=false,
+  writeSbLetters=false,
+  writeSbLettersEdited=false,
+  writeSbQuery=false,
+  writeSbSshHost=false,
+  writeSettingsWorkspace=false,
+  writeSettingsEnvironmentId=false,
+  writeSettingsPageState=false,
+  writeSettingsMachine=false,
+  writeSettingsMenu=false,
+  writeSettingsProjectId=false,
+  writeSettingsThemeDialog=false,
+  writeSettingsThemeSubject=false,
+  writeShellClock=false,
+  writeShellOpenHandled=false,
+  writeSidebarHoverId=false,
+  writeSshResponse=false,
+  writeStreamGeometry=false,
+  writeTaskBase=false,
+  writeTerminalCloseHandled=false,
+  writeThemeReveal=false,
+  writeTitleDialog=false,
+  writeToastDismissed=false,
+  writeTranscriptViewport=false,
+  writeTransportOnline=false,
+  writeTransportTable=false,
+  writeUsageDays=false,
+  writeUsageMetric=false,
+  writeUtilityPage=false,
+  writeWelcomeLink=false,
+  writeWelcomePairFold=false,
+  writeWelcomePaired=false,
+  writeWelcomeStep=false,
+  writeWorkspaceNow=false,
+  writeWorkspaceRetry=false,
+  annotationSendHandled=0,
+  automationRecordingHandled=0,
+  branchQuery="",
+  canvasGestureValue="",
+  chipActed=0,
+  citationPlacement=initialCitationPlacementState(),
+  codeRevealHandled="",
+  commandPending=false,
+  composerDraft=initialComposerDraftState(),
+  composerMenu=initialComposerMenuState(),
+  composerSelection=initialComposerSelectionState(),
+  confirmationState=initialConfirmationState(),
+  connecting=false,
+  connectionMenu="",
+  connectionRemove="",
+  detailsEpoch=0,
+  detailsOpen=false,
+  draggedWidth=0,
+  elapsed=0,
+  windowReturns=0,
+  fieldProtocol=initialComposerFieldProtocol(),
+  findPlacement=initialFindPlacementState(),
+  foldHold=false,
+  guideFinishHandled="",
+  hoverState=initialHoverState(),
+  importWizardAt=-1,
+  importWizardFocused="",
+  importWizardShown=false,
+  intentState=initialComposerIntentState(),
+  jumpRequest=0,
+  keybindingEditor=initialKeybindingEditorState(),
+  keybindingWhen="",
+  lineagePhasesClosed=[],
+  lineagePhasesOpen=[],
+  lineageStopping="",
+  lineageWorkflows=[],
+  liveNow=0,
+  modalError="",
+  modifierOwnership=initialModifierOwnershipState(),
+  noticeExitState=initialNoticeExitState(),
+  origin="",
+  originEdited=false,
+  pageTrail=[],
+  paletteSession=initialPaletteSessionState(),
+  pendingModal="",
+  prApplied="",
+  prPanelOpen=true,
+  prQuery="",
+  prTyped=false,
+  prSelected="",
+  prTab="summary",
+  previewState=initialPromptPreviewState(),
+  projectsOpen=false,
+  providerLinkTarget="",
+  providerNow=0,
+  providerSelected="",
+  providerWizardState=initialProviderWizardState(),
+  removalAt="",
+  renameAfterId="",
+  renameAfterOp="",
+  restEditor="",
+  restSubject="",
+  rightPanelAt="",
+  routeKeyboard=routeKeyboardIdle(),
+  saveNonce=0,
+  sbEmoji="",
+  sbLetters="",
+  sbLettersEdited=false,
+  sbQuery="",
+  sbSshHost="",
+  settingsCheckout="",
+  settingsProjectKey="",
+  settingsEnvironmentId="",
+  settingsPageState=initialSettingsPageState(),
+  settingsMachine="",
+  settingsMenu="",
+  settingsProjectId="",
+  settingsThemeDialog="",
+  settingsThemeSubject="",
+  shellClock=0,
+  shellOpenHandled="",
+  sidebarHoverId="",
+  sshResponse=initialSshResponseState(),
+  streamGeometry=initialStreamGeometryState(),
+  taskBase="",
+  terminalCloseHandled=0,
+  themeReveal="",
+  titleDialog=false,
+  toastDismissed="",
+  transcriptViewport=initialTranscriptViewportState(),
+  transportOnline=true,
+  transportTable=TransportTable(
+    deliver=0,
+    rev=0,
+    soon=false,
+    live=false,
+    s0=TransportSlot(key="", attempt=0, check=0, url=""),
+    s1=TransportSlot(key="", attempt=0, check=0, url=""),
+    s2=TransportSlot(key="", attempt=0, check=0, url=""),
+    s3=TransportSlot(key="", attempt=0, check=0, url=""),
+    s4=TransportSlot(key="", attempt=0, check=0, url=""),
+    s5=TransportSlot(key="", attempt=0, check=0, url=""),
+    s6=TransportSlot(key="", attempt=0, check=0, url=""),
+    s7=TransportSlot(key="", attempt=0, check=0, url=""),
+    s8=TransportSlot(key="", attempt=0, check=0, url=""),
+    u0=TransportUpdateSlot(key="", step=0),
+    u1=TransportUpdateSlot(key="", step=0),
+    u2=TransportUpdateSlot(key="", step=0),
+    u3=TransportUpdateSlot(key="", step=0)
+  ),
+  usageDays=0,
+  usageMetric="",
+  utilityPage="",
+  welcomeLink="",
+  welcomePairFold="",
+  welcomePaired=0,
+  welcomeStep="connect",
+  workspaceNow=0,
+  workspaceRetry=initialWorkspaceRetryState(),
+  sendAutomationRecordingServed0=false,
+  record0=initialCommandArgs(),
+  sendAutomationRecordingServed1=false,
+  record1=initialCommandArgs(),
+  sendAutomationRecordingServed2=false,
+  record2=initialCommandArgs(),
+  sendAutomationRecordingServed3=false,
+  record3=initialCommandArgs(),
+  chip=none,
+  sendChipObserved=false,
+  previewObservation=initialPreviewObservation(),
+  sendComposerEdited=false,
+  intent=initialComposerIntentArgs(),
+  sendComposerFieldChanged=false,
+  field=initialComposerFieldArgs(),
+  sendDraftLeft=false,
+  draftLeave=initialCommandArgs(),
+  sendFileCommentChanged=false,
+  fileComment=initialCommandArgs(),
+  sendFragmentChanged=false,
+  fragment=initialCommandArgs(),
+  sendHighlightSliced=false,
+  highlight=initialNumberArgs(),
+  sendInlineDocumentChanged=false,
+  inlineDocument=initialCommandArgs(),
+  sendLineDragChanged=false,
+  lineDrag=initialCommandArgs(),
+  sendPaletteChanged=false,
+  palette=initialThreeTextArgs(),
+  sendPrQuickChanged=false,
+  prQuick=initialCommandArgs(),
+  sendPrTabSaved=false,
+  tabSave=initialCommandArgs(),
+  changedKind="",
+  command=initialCommandArgs(),
+  providerChange=initialProviderChangeArgs(),
+  providerAdd=initialProviderAddArgs(),
+  sendPrHandoffChanged=false,
+  prHandoff=initialCommandArgs(),
+  sendLocalChanged=false,
+  local=initialCommandArgs(),
+  sendProviderAuthChanged=false,
+  auth=initialProviderChangeArgs(),
+  sendProviderUpdateRun=false,
+  providerUpdate=initialProviderChangeArgs(),
+  sendSecretAnswered=false,
+  secret=initialCommandArgs(),
+  sendServerBrowserMaintained=false,
+  browser=initialServerStatusArgs(),
+  sendServerBrowserMiniMaintained=false,
+  miniBrowser=initialServerStatusArgs(),
+  sendSshAnswered=false,
+  ssh=initialTwoTextArgs(),
+  sendTerminalChanged=false,
+  terminal=initialCommandArgs(),
+  sendTerminalFocusChanged=false,
+  terminalFocus=initialCommandArgs(),
+  sendThreadFindMaintained=false,
+  find=initialThreadFindArgs(),
+  sendTimelineDisclosureChanged=false,
+  disclosure=initialCommandArgs(),
+  sendTimelineReadsRefreshed=false,
+  timeline=initialNumberArgs(),
+  sendTimelineReadsRefreshedNext=false,
+  timelineNext=initialNumberArgs(),
+  sendTransportPumped=false,
+  transport=initialTransportArgs(),
+  sendWorkspaceRefreshed=false,
+  workspace=initialTextArgs(),
+  hostRelaunch=false,
+  hostShowPopoverSource=false,
+  showPopoverSource=initialTwoTextArgs(),
+  hostPreventDefault=false,
+  hostStopPropagation=false,
+  hostFormat=false,
+  format=initialTwoTextArgs(),
+  hostFocus=false,
+  focus=initialTextArgs(),
+  hostSelectText=false,
+  selectText=initialTextArgs(),
+  hostRangeText=false,
+  rangeText=initialRangeTextArgs(),
+  hostSelection=false,
+  selection=initialSelectionArgs(),
+  hostSelectionDirection=false,
+  selectionDirection=initialSelectionDirectionArgs(),
+  scrollKind="",
+  scrollTarget="",
+  scrollRow="",
+  scrollOffset=0,
+  hostSaveFile=false,
+  saveFile=initialThreeTextArgs(),
+  hostBlur=false,
+  hostShowPopover=false,
+  showPopover=initialTextArgs(),
+  refreshData=false,
+  refreshShell=false
+)
+
+shape ChatSends
+  sendFileCommentChanged: bool
+  fileComment: CommandArgs
+  sendFragmentChanged: bool
+  fragment: CommandArgs
+  sendInlineDocumentChanged: bool
+  inlineDocument: CommandArgs
+  sendLineDragChanged: bool
+  lineDrag: CommandArgs
+  sendPrQuickChanged: bool
+  prQuick: CommandArgs
+
+// Wide decisions may carry several sends and distinct inactive arguments.
+fn projectAppChatSends(d: AppDecision): ChatSends = ChatSends(
+  sendFileCommentChanged=d.sendFileCommentChanged,
+  fileComment=d.fileComment,
+  sendFragmentChanged=d.sendFragmentChanged,
+  fragment=d.fragment,
+  sendInlineDocumentChanged=d.sendInlineDocumentChanged,
+  inlineDocument=d.inlineDocument,
+  sendLineDragChanged=d.sendLineDragChanged,
+  lineDrag=d.lineDrag,
+  sendPrQuickChanged=d.sendPrQuickChanged,
+  prQuick=d.prQuick
+)
+
+fn projectChatLocalSends(d: ChatLocalResult): ChatSends = ChatSends(
+  sendFileCommentChanged=d.sendKind == "fileComment",
+  fileComment=d.args,
+  sendFragmentChanged=d.sendKind == "fragment",
+  fragment=d.args,
+  sendInlineDocumentChanged=d.sendKind == "inlineDocument",
+  inlineDocument=d.args,
+  sendLineDragChanged=d.sendKind == "lineDrag",
+  lineDrag=d.args,
+  sendPrQuickChanged=d.sendKind == "prQuick",
+  prQuick=d.args
+)

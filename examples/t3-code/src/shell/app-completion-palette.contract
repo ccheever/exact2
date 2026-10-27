@@ -1,0 +1,178 @@
+use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
+use PaletteSessionState, ComposerDraftState from "./app-protocols.contract"
+use PaletteResult from "../palette/palette.contract"
+
+fn paletteCompletionBusyClear(d: AppDecision): AppDecision = (
+  AppDecision(
+    d,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(d.paletteSession, busy=false)
+  )
+)
+
+fn paletteCompletionClosed(d: AppDecision, result: PaletteResult): AppDecision = (
+  result.close ? AppDecision(
+    d,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(d.paletteSession, open=false)
+  ) : d
+)
+
+fn paletteCompletionGoAt(
+  d: AppDecision,
+  start: PaletteSessionState,
+  page: string,
+  query: string,
+  back: bool,
+  at: number
+): AppDecision = (
+  at >= 0 ? AppDecision(
+    d,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.paletteSession,
+      trailPages=start.trailPages.slice(0, at),
+      trailQueries=start.trailQueries.slice(0, at),
+      query=match start.trailQueries.at(at) {
+        case some(text) => text,
+        case none => ""
+      },
+      page=page
+    )
+  ) : back ? AppDecision(
+    d,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.paletteSession,
+      trailPages=[],
+      trailQueries=[],
+      query="",
+      page=page
+    )
+  ) : page != start.page ? AppDecision(
+    d,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.paletteSession,
+      trailPages=start.trailPages.concat([start.page]),
+      trailQueries=start.trailQueries.concat([start.query]),
+      query=query,
+      page=page
+    )
+  ) : AppDecision(
+    d,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.paletteSession,
+      query=query,
+      page=page
+    )
+  )
+)
+
+fn paletteCompletionGo(
+  d: AppDecision,
+  start: PaletteSessionState,
+  page: string,
+  query: string,
+  back: bool
+): AppDecision = (
+  paletteCompletionGoAt(d, start, page, query, back, start.trailPages.indexOf(page))
+)
+
+fn paletteCompletionCursor(d: AppDecision): AppDecision = (
+  AppDecision(
+    d,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(d.paletteSession, cursor=-2, scroll=0)
+  )
+)
+
+fn paletteCompletionPage(
+  d: AppDecision,
+  start: PaletteSessionState,
+  result: PaletteResult
+): AppDecision = (
+  result.page != "-" ? paletteCompletionCursor(
+    paletteCompletionGo(d, start, result.page, result.query, false)
+  ) : d
+)
+
+fn paletteCompletionThread(
+  d: AppDecision,
+  commandPending: bool,
+  jumpRequest: number,
+  result: PaletteResult
+): AppDecision = (
+  (result.thread != "" or result.project != "") and not commandPending ? AppDecision(
+    d,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.composerDraft,
+      owner="__unset__"
+    ),
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=result.thread != "" ? "select-thread" : "new-thread",
+      p1=result.thread != "" ? result.thread : result.project,
+      p2="",
+      p3=0
+    ),
+    writeJumpRequest=true,
+    jumpRequest=jumpRequest + 1,
+    writeUtilityPage=true,
+    utilityPage="",
+    hostFocus=true,
+    focus=TextArgs(p0="composer")
+  ) : d
+)
+
+fn paletteCompletionResult(
+  d: AppDecision,
+  commandPending: bool,
+  jumpRequest: number,
+  start: PaletteSessionState,
+  result: PaletteResult
+): AppDecision = (
+  paletteCompletionThread(
+    paletteCompletionPage(
+      paletteCompletionClosed(d, result),
+      start,
+      result
+    ),
+    commandPending,
+    jumpRequest,
+    result
+  )
+)
+
+fn paletteCompletionReply(
+  d: AppDecision,
+  commandPending: bool,
+  jumpRequest: number,
+  paletteChanged: option<PaletteResult>,
+  start: PaletteSessionState
+): AppDecision = (
+  match paletteChanged {
+    case some(result) => paletteCompletionResult(d, commandPending, jumpRequest, start, result),
+    case none => d
+  }
+)
+
+fn completePaletteDone(
+  d: AppDecision,
+  commandPending: bool,
+  jumpRequest: number,
+  paletteChanged: option<PaletteResult>,
+  paletteSession: PaletteSessionState
+): AppDecision = (
+  paletteCompletionReply(
+    paletteCompletionBusyClear(d),
+    commandPending,
+    jumpRequest,
+    paletteChanged,
+    paletteSession
+  )
+)

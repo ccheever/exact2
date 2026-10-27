@@ -1,0 +1,349 @@
+use AppDecision, CommandArgs, ProviderChangeArgs from "./app-decisions.contract"
+use ComposerDraftState, SettingsPageState from "./app-protocols.contract"
+use stepPrOpenGuide from "./app-ui-composer-keyboard-transitions.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use stepOpenSettings from "./app-ui-navigation-transitions.contract"
+use UiStart from "./app-ui-start.contract"
+
+// a screenshot's Copy and Reveal keep their toast
+// retainSettingsScope: from outside Settings the scope starts over; inside, the category link keeps it
+// a toast's update: the launch prompt's own environments, never the page's
+fn stepToastAct(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = transitionToastActGuard13(
+  transitionToastActGuard9(
+    transitionToastActGuard7(
+      transitionToastActGuard5(
+        transitionToastActGuard4(
+          transitionToastActGuard2(
+            transitionToastActWrites1(
+              d,
+              s,
+              id,
+              op,
+              target,
+              value
+            ),
+            s,
+            id,
+            op,
+            target,
+            value
+          ),
+          s,
+          id,
+          op,
+          target,
+          value
+        ),
+        s,
+        id,
+        op,
+        target,
+        value
+      ),
+      s,
+      id,
+      op,
+      target,
+      value
+    ),
+    s,
+    id,
+    op,
+    target,
+    value
+  ),
+  s,
+  id,
+  op,
+  target,
+  value
+)
+
+fn transitionToastActWrites1(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeToastDismissed=true,
+    toastDismissed=op == "copy" or op.startsWith("shelllocal:surface-browser-artifact-")
+      ? s.toastDismissed : `${s.toastDismissed} ${op == "dismiss" ? "x" : "a"}${id}`
+  )
+)
+
+fn transitionToastActWrites3(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="shelllocal:copy-error",
+      p1=`${id}`,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionToastActGuard2(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "copy"
+  ? transitionToastActWrites3(
+    d,
+    s,
+    id,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionToastActGuard4(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "ui:settings" and not s.settingsPageState.open
+  ? stepOpenSettings(
+    d,
+    s
+  )
+  : d
+)
+
+fn transitionToastActWrites6(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeProviderLinkTarget=true,
+    providerLinkTarget="",
+    writeSettingsMenu=true,
+    settingsMenu="",
+    writeModalError=true,
+    modalError="",
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route=target,
+      query="",
+      focusTarget=value
+    )
+  )
+)
+
+fn transitionToastActGuard5(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "ui:settings"
+  ? transitionToastActWrites6(
+    d,
+    s,
+    id,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionToastActWrites8(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendProviderUpdateRun=true,
+    providerUpdate=ProviderChangeArgs(
+      p0=op,
+      p1=target,
+      p2="",
+      p3=value,
+      p4="",
+      p5=""
+    )
+  )
+)
+
+fn transitionToastActGuard7(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op.startsWith("upkeep:")
+  ? transitionToastActWrites8(
+    d,
+    s,
+    id,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionToastActWrites10(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=op,
+      p1=target,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionToastActWrites12(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsThemeDialog=true,
+    settingsThemeDialog="",
+    writeUtilityPage=true,
+    utilityPage="",
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      open=false
+    ),
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionToastActGuard11(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "select-thread" or op == "new-thread"
+  ? transitionToastActWrites12(
+    d,
+    s,
+    id,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionToastActGuard9(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op != "guide-open" and op != "copy" and op != "dismiss" and op != "ui:settings"
+    and not op.startsWith("upkeep:") and not s.commandPending
+  ? transitionToastActGuard11(
+    transitionToastActWrites10(
+      d,
+      s,
+      id,
+      op,
+      target,
+      value
+    ),
+    s,
+    id,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionToastActGuard13(
+  d: UiDecision,
+  s: UiStart,
+  id: number,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "guide-open"
+  ? stepPrOpenGuide(
+    d,
+    s,
+    target
+  )
+  : d
+)

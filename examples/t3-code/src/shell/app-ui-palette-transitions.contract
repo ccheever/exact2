@@ -1,0 +1,1052 @@
+use AppDecision, CommandArgs, ProviderAddArgs, ProviderChangeArgs from "./app-decisions.contract"
+use TextArgs from "./app-decisions.contract"
+use ComposerDraftState, ComposerMenuState, PaletteSessionState from "./app-protocols.contract"
+use ProviderWizardState, StreamGeometryState from "./app-protocols.contract"
+use UiDecision, PaletteResult from "./app-ui-decisions.contract"
+use projectPaletteResult, applyPaletteResult from "./app-ui-decisions.contract"
+use paletteFrameVisible from "./app-ui-queries.contract"
+use UiStart from "./app-ui-start.contract"
+
+fn stepScrollToEnd(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionScrollToEndWrites1(
+  d,
+  s
+)
+
+fn transitionScrollToEndWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    writeFoldHold=true,
+    foldHold=false
+  )
+)
+
+fn stepSearchBranches(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionSearchBranchesWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionSearchBranchesWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeBranchQuery=true,
+    branchQuery=value
+  )
+)
+
+fn stepSearchModels(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionSearchModelsWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionSearchModelsWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelQuery=value
+    )
+  )
+)
+
+fn stepSelectProject(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = transitionSelectProjectGuard1(
+  d,
+  s,
+  id
+)
+
+fn transitionSelectProjectWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="select-project",
+      p1=id,
+      p2="",
+      p3=0
+    ),
+    writeProjectsOpen=true,
+    projectsOpen=false,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionSelectProjectGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionSelectProjectWrites2(
+    d,
+    s,
+    id
+  )
+  : d
+)
+
+fn stepSelectProvider(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = transitionSelectProviderWrites1(
+  d,
+  s,
+  id
+)
+
+fn transitionSelectProviderWrites1(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="model-search"
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      browseProvider=id,
+      modelQuery=""
+    )
+  )
+)
+
+fn stepSelectThread(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = transitionSelectThreadGuard1(
+  d,
+  s,
+  id
+)
+
+fn transitionSelectThreadWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="select-thread",
+      p1=id,
+      p2="",
+      p3=0
+    ),
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    writeUtilityPage=true,
+    utilityPage="",
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionSelectThreadGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionSelectThreadWrites2(
+    d,
+    s,
+    id
+  )
+  : d
+)
+
+fn stepStreamMeasured(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  width: number,
+  height: number,
+  follow: bool
+): UiDecision = transitionStreamMeasuredGuard1(
+  d,
+  s,
+  id,
+  width,
+  height,
+  follow
+)
+
+fn transitionStreamMeasuredWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  width: number,
+  height: number,
+  follow: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeStreamGeometry=true,
+    streamGeometry=StreamGeometryState(
+      d.root.streamGeometry,
+      width=width,
+      height=height,
+      followSize=follow
+    )
+  )
+)
+
+fn transitionStreamMeasuredGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  width: number,
+  height: number,
+  follow: bool
+): UiDecision = (
+  id == s.shell.panel.browser.runtimeId
+  ? transitionStreamMeasuredWrites2(
+    d,
+    s,
+    id,
+    width,
+    height,
+    follow
+  )
+  : d
+)
+
+fn stepThemeRevealRequest(
+  d: UiDecision,
+  s: UiStart,
+  role: string
+): UiDecision = transitionThemeRevealRequestWrites1(
+  d,
+  s,
+  role
+)
+
+fn transitionThemeRevealRequestWrites1(
+  d: UiDecision,
+  s: UiStart,
+  role: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeThemeReveal=true,
+    themeReveal=role
+  )
+)
+
+fn stepUsageMetricSet(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionUsageMetricSetWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionUsageMetricSetWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeUsageMetric=true,
+    usageMetric=value,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="pageslocal:usage-metric",
+      p1="",
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn stepUsageWindowSet(
+  d: UiDecision,
+  s: UiStart,
+  days: number
+): UiDecision = transitionUsageWindowSetWrites1(
+  d,
+  s,
+  days
+)
+
+fn transitionUsageWindowSetWrites1(
+  d: UiDecision,
+  s: UiStart,
+  days: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeUsageDays=true,
+    usageDays=days,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="pageslocal:usage-window",
+      p1="",
+      p2=`${days}`,
+      p3=0
+    )
+  )
+)
+
+fn stepPaletteFlag(
+  d: UiDecision,
+  s: UiStart,
+  name: string
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteFlag(
+    projectPaletteResult(d.root),
+    s,
+    name
+  )
+)
+
+fn decidePaletteFlag(
+  d: PaletteResult,
+  s: UiStart,
+  name: string
+): PaletteResult = transitionPaletteFlagWrites1(
+  d,
+  s,
+  name
+)
+
+fn transitionPaletteFlagWrites1(
+  d: PaletteResult,
+  s: UiStart,
+  name: string
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=-1,
+    scroll=0,
+    caseSensitive=name == "case" ? not s.paletteSession.caseSensitive
+      : s.paletteSession.caseSensitive,
+    wholeWord=name == "word" ? not s.paletteSession.wholeWord : s.paletteSession.wholeWord,
+    regex=name == "regex" ? not s.paletteSession.regex : s.paletteSession.regex
+  )
+)
+
+// finalFocus: back to the pull request control that opened the page, else the composer when one is shown, else
+// the focus the palette took (PaletteFinalFocus).
+fn stepPaletteFocusBack(
+  d: UiDecision,
+  s: UiStart,
+  page: string
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteFocusBack(
+    projectPaletteResult(d.root),
+    s,
+    page
+  )
+)
+
+fn decidePaletteFocusBack(
+  d: PaletteResult,
+  s: UiStart,
+  page: string
+): PaletteResult = transitionPaletteFocusBackGuard2(
+  transitionPaletteFocusBackWrites1(
+    d,
+    s,
+    page
+  ),
+  s,
+  page
+)
+
+fn transitionPaletteFocusBackWrites1(
+  d: PaletteResult,
+  s: UiStart,
+  page: string
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    restore=page != "pr-link-thread" and not page.startsWith("pr-linked|")
+      and not (not s.settingsPageState.open and not s.pageCover and not s.promptLinkPage.show
+      and paletteFrameVisible(s.paletteFrame))
+  )
+)
+
+fn transitionPaletteFocusBackWrites3(
+  d: PaletteResult,
+  s: UiStart,
+  page: string
+): PaletteResult = PaletteResult(
+  d,
+  hostFocus=true,
+  focus=TextArgs(
+    p0="pull-request-more"
+  )
+)
+
+fn transitionPaletteFocusBackWrites4(
+  d: PaletteResult,
+  s: UiStart,
+  page: string
+): PaletteResult = PaletteResult(
+  d,
+  hostFocus=true,
+  focus=TextArgs(
+    p0="pull-request-linked-threads"
+  )
+)
+
+fn transitionPaletteFocusBackWrites5(
+  d: PaletteResult,
+  s: UiStart,
+  page: string
+): PaletteResult = PaletteResult(
+  d,
+  hostFocus=true,
+  focus=TextArgs(
+    p0="composer"
+  )
+)
+
+fn transitionPaletteFocusBackGuard2(
+  d: PaletteResult,
+  s: UiStart,
+  page: string
+): PaletteResult = (
+  page == "pr-link-thread"
+  ? transitionPaletteFocusBackWrites3(
+    d,
+    s,
+    page
+  )
+  : page.startsWith("pr-linked|")
+  ? transitionPaletteFocusBackWrites4(
+    d,
+    s,
+    page
+  )
+  : (not s.settingsPageState.open and not s.pageCover and not s.promptLinkPage.show
+    and paletteFrameVisible(s.paletteFrame))
+  ? transitionPaletteFocusBackWrites5(
+    d,
+    s,
+    page
+  )
+  : d
+)
+
+// A page in the trail is an ancestor: going to it pops the deeper pages and restores its query. Back with no
+// trail (a page opened directly) leaves the query empty; any other page is pushed, keeping this one's query.
+fn stepPaletteGo(
+  d: UiDecision,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteGo(
+    projectPaletteResult(d.root),
+    s,
+    page,
+    query,
+    back
+  )
+)
+
+fn decidePaletteGo(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = transitionPaletteGoWrites9(
+  transitionPaletteGoGuard1(
+    d,
+    s,
+    page,
+    query,
+    back
+  ),
+  s,
+  page,
+  query,
+  back
+)
+
+fn transitionPaletteGoWrites2(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    trailPages=s.paletteSession.trailPages.slice(0, (s.paletteSession.trailPages.indexOf(page))),
+    trailQueries=s.paletteSession.trailQueries.slice(0,
+      (s.paletteSession.trailPages.indexOf(page)))
+  )
+)
+
+fn transitionPaletteGoWrites4(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool,
+  text: string
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=text
+  )
+)
+
+fn transitionPaletteGoWrites5(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=""
+  )
+)
+
+fn transitionPaletteGoMatch3(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = match (s.paletteSession.trailQueries.at((s.paletteSession.trailPages.indexOf(page)))) {
+  case some(text) => transitionPaletteGoWrites4(
+    d,
+    s,
+    page,
+    query,
+    back,
+    text
+  ),
+  case none => transitionPaletteGoWrites5(
+    d,
+    s,
+    page,
+    query,
+    back
+  )
+}
+
+fn transitionPaletteGoWrites6(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    trailPages=[],
+    trailQueries=[],
+    query=""
+  )
+)
+
+fn transitionPaletteGoWrites7(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    trailPages=(s.paletteSession.trailPages.concat([s.paletteSession.page])),
+    trailQueries=(s.paletteSession.trailQueries.concat([s.paletteSession.query])),
+    query=query
+  )
+)
+
+fn transitionPaletteGoWrites8(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=query
+  )
+)
+
+fn transitionPaletteGoGuard1(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = (
+  (s.paletteSession.trailPages.indexOf(page)) >= 0
+  ? transitionPaletteGoMatch3(
+    transitionPaletteGoWrites2(
+      d,
+      s,
+      page,
+      query,
+      back
+    ),
+    s,
+    page,
+    query,
+    back
+  )
+  : back
+  ? transitionPaletteGoWrites6(
+    d,
+    s,
+    page,
+    query,
+    back
+  )
+  : (page != s.paletteSession.page)
+  ? transitionPaletteGoWrites7(
+    d,
+    s,
+    page,
+    query,
+    back
+  )
+  : transitionPaletteGoWrites8(
+  d,
+  s,
+  page,
+  query,
+  back
+)
+)
+
+fn transitionPaletteGoWrites9(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    page=page
+  )
+)
+
+fn stepPaletteHover(
+  d: UiDecision,
+  s: UiStart,
+  index: number,
+  over: bool
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteHover(
+    projectPaletteResult(d.root),
+    s,
+    index,
+    over
+  )
+)
+
+fn decidePaletteHover(
+  d: PaletteResult,
+  s: UiStart,
+  index: number,
+  over: bool
+): PaletteResult = transitionPaletteHoverWrites1(
+  d,
+  s,
+  index,
+  over
+)
+
+fn transitionPaletteHoverWrites1(
+  d: PaletteResult,
+  s: UiStart,
+  index: number,
+  over: bool
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=over and index >= 0 ? index : s.paletteSession.cursor
+  )
+)
+
+fn stepProviderAccent(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  hex: string,
+  vx: number,
+  vy: number
+): UiDecision = transitionProviderAccentGuard1(
+  d,
+  s,
+  id,
+  hex,
+  vx,
+  vy
+)
+
+fn transitionProviderAccentWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  hex: string,
+  vx: number,
+  vy: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal="provider",
+    writeModalError=true,
+    modalError="",
+    changedKind="providerChange",
+    providerChange=ProviderChangeArgs(
+      p0="provider-accent",
+      p1=id,
+      p2="",
+      p3=hex,
+      p4=s.providerPage.environment,
+      p5=""
+    )
+  )
+)
+
+fn transitionProviderAccentGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string,
+  hex: string,
+  vx: number,
+  vy: number
+): UiDecision = (
+  not s.commandPending
+  ? transitionProviderAccentWrites2(
+    d,
+    s,
+    id,
+    hex,
+    vx,
+    vy
+  )
+  : d
+)
+
+// the window's half marks the attempt
+fn stepProviderAdd(
+  d: UiDecision,
+  s: UiStart,
+  driver: string,
+  label: string,
+  id: string,
+  accent: string,
+  fields: string[],
+  commandArgs: string[]
+): UiDecision = transitionProviderAddGuard1(
+  d,
+  s,
+  driver,
+  label,
+  id,
+  accent,
+  fields,
+  commandArgs
+)
+
+fn transitionProviderAddWrites2(
+  d: UiDecision,
+  s: UiStart,
+  driver: string,
+  label: string,
+  id: string,
+  accent: string,
+  fields: string[],
+  commandArgs: string[]
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal=driver == "acpRegistry" and fields.slice(0, 1).join("") == "local"
+      ? "provider-add-local" : "provider-add",
+    writeModalError=true,
+    modalError="",
+    changedKind="providerAdd",
+    providerAdd=ProviderAddArgs(
+      p0=driver,
+      p1=label,
+      p2=id,
+      p3=accent,
+      p4=fields,
+      p5=s.providerPage.environment,
+      p6=commandArgs
+    ),
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      created=id
+    )
+  )
+)
+
+fn transitionProviderAddGuard1(
+  d: UiDecision,
+  s: UiStart,
+  driver: string,
+  label: string,
+  id: string,
+  accent: string,
+  fields: string[],
+  commandArgs: string[]
+): UiDecision = (
+  not s.commandPending
+  ? transitionProviderAddWrites2(
+    d,
+    s,
+    driver,
+    label,
+    id,
+    accent,
+    fields,
+    commandArgs
+  )
+  : d
+)
+
+fn stepProviderOp(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  field: string,
+  value: string,
+  apply: bool
+): UiDecision = transitionProviderOpGuard1(
+  d,
+  s,
+  op,
+  id,
+  field,
+  value,
+  apply
+)
+
+fn transitionProviderOpWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  field: string,
+  value: string,
+  apply: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendProviderUpdateRun=true,
+    providerUpdate=ProviderChangeArgs(
+      p0=op,
+      p1=id,
+      p2=field,
+      p3=value,
+      p4=s.providerPage.environment,
+      p5=s.providerPage.projectIds
+    )
+  )
+)
+
+fn transitionProviderOpWrites3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  field: string,
+  value: string,
+  apply: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendProviderAuthChanged=true,
+    auth=ProviderChangeArgs(
+      p0=op,
+      p1=id,
+      p2=field,
+      p3=value,
+      p4=s.providerPage.environment,
+      p5=s.providerPage.projectIds
+    )
+  )
+)
+
+fn transitionProviderOpWrites4(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  field: string,
+  value: string,
+  apply: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal=op == "acp-prepare" ? "provider-acp" : (op == "provider-hub-add"
+      or op == "provider-hub-remove" or (op == "provider-chatgpt" and s.welcome.show)
+      ? "provider-close" : "provider"),
+    writeModalError=true,
+    modalError="",
+    changedKind="providerChange",
+    providerChange=ProviderChangeArgs(
+      p0=op,
+      p1=id,
+      p2=field,
+      p3=value,
+      p4=s.providerPage.environment,
+      p5=s.providerPage.projectIds
+    )
+  )
+)
+
+fn transitionProviderOpGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  field: string,
+  value: string,
+  apply: bool
+): UiDecision = (
+  op.startsWith("upkeep:update") and apply
+  ? transitionProviderOpWrites2(
+    d,
+    s,
+    op,
+    id,
+    field,
+    value,
+    apply
+  )
+  : (op.startsWith("setup:") or op.startsWith("upkeep:")) and apply
+  ? transitionProviderOpWrites3(
+    d,
+    s,
+    op,
+    id,
+    field,
+    value,
+    apply
+  )
+  : apply and not s.commandPending
+  ? transitionProviderOpWrites4(
+    d,
+    s,
+    op,
+    id,
+    field,
+    value,
+    apply
+  )
+  : d
+)

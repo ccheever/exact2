@@ -1,0 +1,1060 @@
+use ComposerFieldObservation, ComposerIntentMetadata from "../composer/composer-rich.contract"
+use composerChipEdge, composerChipInside from "../composer/composer-rich.contract"
+use AppDecision, CommandArgs, SelectionDirectionArgs, TextArgs from "./app-decisions.contract"
+use ComposerDraftState, ComposerIntentState, KeybindingEditorState from "./app-protocols.contract"
+use SettingsPageState from "./app-protocols.contract"
+use stepComposerIntentClear from "./app-ui-composer-edit-transitions.contract"
+use stepComposerSelectionObserved from "./app-ui-composer-edit-transitions.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use stepEditKeybinding from "./app-ui-dispatch-transitions.contract"
+use stepOpenSettings from "./app-ui-navigation-transitions.contract"
+use stepRestRaw from "./app-ui-providers-transitions.contract"
+use UiStart from "./app-ui-start.contract"
+
+fn stepSidebarRun(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionSidebarRunGuard3(
+  transitionSidebarRunGuard1(
+    d,
+    s,
+    op,
+    id,
+    value
+  ),
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionSidebarRunWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostBlur=true
+  )
+)
+
+fn transitionSidebarRunGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  s.composerDraft.focused and (op == "menu-choice" or op == "draft-choice"
+    or op == "legacy-thread-menu")
+  ? transitionSidebarRunWrites2(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : d
+)
+
+fn transitionSidebarRunWrites4(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=`sidebar:${op}`,
+      p1=id,
+      p2=value,
+      p3=s.wallTime.epochAtZero + performanceNow()
+    )
+  )
+)
+
+fn transitionSidebarRunGuard3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionSidebarRunWrites4(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : d
+)
+
+// the title's rename commit or New thread (T3Window titleUi)
+fn stepTitleSend(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  text: string
+): UiDecision = transitionTitleSendGuard1(
+  d,
+  s,
+  what,
+  text
+)
+
+fn transitionTitleSendWrites2(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  text: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=what == "commit" ? "shell:rename" : "new-thread",
+      p1=what == "commit" ? s.data.threadId : s.data.projectId,
+      p2=text,
+      p3=0
+    )
+  )
+)
+
+fn transitionTitleSendWrites4(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  text: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="composer"
+    ),
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionTitleSendGuard3(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  text: string
+): UiDecision = (
+  what == "new-thread"
+  ? transitionTitleSendWrites4(
+    d,
+    s,
+    what,
+    text
+  )
+  : d
+)
+
+fn transitionTitleSendGuard1(
+  d: UiDecision,
+  s: UiStart,
+  what: string,
+  text: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionTitleSendGuard3(
+    transitionTitleSendWrites2(
+      d,
+      s,
+      what,
+      text
+    ),
+    s,
+    what,
+    text
+  )
+  : d
+)
+
+fn stepWelcomeEditLink(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionWelcomeEditLinkWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionWelcomeEditLinkWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeWelcomeLink=true,
+    welcomeLink=value
+  )
+)
+
+fn stepWelcomeFinish(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionWelcomeFinishGuard1(
+  d,
+  s
+)
+
+fn transitionWelcomeFinishWrites2(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="pageslocal:welcome-finish",
+      p1="",
+      p2=`${s.wallTime.epochAtZero + performanceNow()}`,
+      p3=0
+    )
+  )
+)
+
+fn transitionWelcomeFinishGuard1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  not s.commandPending
+  ? transitionWelcomeFinishWrites2(
+    d,
+    s
+  )
+  : d
+)
+
+fn stepWelcomeGo(
+  d: UiDecision,
+  s: UiStart,
+  step: string
+): UiDecision = transitionWelcomeGoGuard2(
+  transitionWelcomeGoWrites1(
+    d,
+    s,
+    step
+  ),
+  s,
+  step
+)
+
+fn transitionWelcomeGoWrites1(
+  d: UiDecision,
+  s: UiStart,
+  step: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeWelcomeStep=true,
+    welcomeStep=step
+  )
+)
+
+fn transitionWelcomeGoWrites3(
+  d: UiDecision,
+  s: UiStart,
+  step: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeWelcomePairFold=true,
+    welcomePairFold=""
+  )
+)
+
+fn transitionWelcomeGoGuard2(
+  d: UiDecision,
+  s: UiStart,
+  step: string
+): UiDecision = (
+  step == "connect"
+  ? transitionWelcomeGoWrites3(
+    d,
+    s,
+    step
+  )
+  : d
+)
+
+// also the Usage page's pages:usage-* ops
+fn stepWelcomeImport(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionWelcomeImportGuard1(
+  d,
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionWelcomeImportWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0=op.startsWith("usage-") ? `pageslocal:${op}` : `pageslocal:welcome-${op}`,
+      p1=id,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionWelcomeImportWrites3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save",
+      p1="",
+      p2=`${s.wallTime.epochAtZero + performanceNow()}`,
+      p3=0
+    )
+  )
+)
+
+fn transitionWelcomeImportGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  op != "import" and op != "usage-prices-save"
+  ? transitionWelcomeImportWrites2(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : not s.commandPending
+  ? transitionWelcomeImportWrites3(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : d
+)
+
+fn stepWelcomePair(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionWelcomePairGuard1(
+  d,
+  s
+)
+
+fn transitionWelcomePairWrites2(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal="welcome-pair",
+    writeModalError=true,
+    modalError="",
+    changedKind="command",
+    command=CommandArgs(
+      p0="welcome-pair",
+      p1="",
+      p2=s.welcomeLink,
+      p3=0
+    ),
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionWelcomePairGuard1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  not s.commandPending and s.welcomeLink.trim() != ""
+  ? transitionWelcomePairWrites2(
+    d,
+    s
+  )
+  : d
+)
+
+fn stepWelcomeSetup(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionWelcomeSetupWrites1(
+  d,
+  s
+)
+
+fn transitionWelcomeSetupWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeWelcomeStep=true,
+    welcomeStep="agents",
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="pageslocal:welcome-setup",
+      p1="",
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn stepWelcomeTogglePair(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionWelcomeTogglePairWrites1(
+  d,
+  s
+)
+
+fn transitionWelcomeTogglePairWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeWelcomePairFold=true,
+    welcomePairFold=s.welcomePairOpen ? "closed" : "open"
+  )
+)
+
+fn stepComposerIntentInput(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = transitionComposerIntentInputGuard1(
+  d,
+  s,
+  value,
+  e
+)
+
+fn transitionComposerIntentInputWrites3(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.root.intentState,
+      phase="projection",
+      inputStart=e.selectionStart,
+      inputEnd=e.selectionEnd,
+      caretSeen=s.intentState.preserves or (e.selectionStart == s.intentState.start
+        and e.selectionEnd == s.intentState.end)
+    )
+  )
+)
+
+fn transitionComposerIntentInputWrites5(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.root.intentState,
+      start=e.selectionStart,
+      end=e.selectionEnd
+    )
+  )
+)
+
+fn transitionComposerIntentInputGuard4(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = (
+  s.intentState.preserves
+  ? transitionComposerIntentInputWrites5(
+    d,
+    s,
+    value,
+    e
+  )
+  : d
+)
+
+fn transitionComposerIntentInputWrites6(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.root.intentState,
+      phase="projection",
+      expected=value,
+      start=e.selectionStart,
+      end=e.selectionEnd,
+      inputStart=e.selectionStart,
+      inputEnd=e.selectionEnd,
+      caretSeen=true
+    )
+  )
+)
+
+fn transitionComposerIntentInputGuard2(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = (
+  s.intentState.phase == "input" and s.composerIntentContextCurrent and not e.isComposing
+    and value == s.intentState.expected
+    and s.fieldProtocol.inputSerial == s.intentState.observed.inputSerial
+  ? transitionComposerIntentInputGuard4(
+    transitionComposerIntentInputWrites3(
+      d,
+      s,
+      value,
+      e
+    ),
+    s,
+    value,
+    e
+  )
+  : s.intentState.phase == "format" and s.composerIntentContextCurrent and not e.isComposing
+    and s.fieldProtocol.inputSerial == s.intentState.observed.inputSerial
+  ? transitionComposerIntentInputWrites6(
+    d,
+    s,
+    value,
+    e
+  )
+  : stepComposerIntentClear(
+  d,
+  s,
+  "The prompt changed. Please try that edit again."
+)
+)
+
+fn transitionComposerIntentInputGuard1(
+  d: UiDecision,
+  s: UiStart,
+  value: string,
+  e: InputEvent
+): UiDecision = (
+  s.intentState.queue.length > 0
+  ? transitionComposerIntentInputGuard2(
+    d,
+    s,
+    value,
+    e
+  )
+  : d
+)
+
+// A format command reads no projection, so one pressed while the last edit projects still waits its turn.
+fn stepComposerIntentRequest(
+  d: UiDecision,
+  s: UiStart,
+  kind: string,
+  text: string,
+  key: string,
+  shift: bool,
+  command: bool,
+  start: number,
+  end: number,
+  composing: bool
+): UiDecision = transitionComposerIntentRequestGuard1(
+  d,
+  s,
+  kind,
+  text,
+  key,
+  shift,
+  command,
+  start,
+  end,
+  composing
+)
+
+fn transitionComposerIntentRequestWrites2(
+  d: UiDecision,
+  s: UiStart,
+  kind: string,
+  text: string,
+  key: string,
+  shift: bool,
+  command: bool,
+  start: number,
+  end: number,
+  composing: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.root.intentState,
+      notice="Too many edits are waiting. Please try that edit again."
+    )
+  )
+)
+
+fn transitionComposerIntentRequestWrites3(
+  d: UiDecision,
+  s: UiStart,
+  kind: string,
+  text: string,
+  key: string,
+  shift: bool,
+  command: bool,
+  start: number,
+  end: number,
+  composing: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.root.intentState,
+      serial=(s.intentState.serial + 1),
+      notice="",
+      queue=s.intentState.queue.concat([ComposerIntentMetadata(serial=(s.intentState.serial + 1),
+        kind=kind, text=text, key=key, shift=shift, command=command, start=start, end=end,
+        inputSerial=s.fieldProtocol.inputSerial)])
+    )
+  )
+)
+
+fn transitionComposerIntentRequestWrites5(
+  d: UiDecision,
+  s: UiStart,
+  kind: string,
+  text: string,
+  key: string,
+  shift: bool,
+  command: bool,
+  start: number,
+  end: number,
+  composing: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.root.intentState,
+      mode=s.richComposer.mode,
+      observed=ComposerFieldObservation(generation=s.richComposer.generation,
+        snapshotOwner=s.data.snapshotOwner, owner=s.richComposerOwner, value=s.composerText,
+        start=((kind == "language") ? s.composerSelection.start : start),
+        end=((kind == "language") ? s.composerSelection.end : end), composing=false,
+        live=s.composerFieldLive, focused=s.composerDraft.focused,
+        inputSerial=s.fieldProtocol.inputSerial)
+    )
+  )
+)
+
+fn transitionComposerIntentRequestGuard4(
+  d: UiDecision,
+  s: UiStart,
+  kind: string,
+  text: string,
+  key: string,
+  shift: bool,
+  command: bool,
+  start: number,
+  end: number,
+  composing: bool
+): UiDecision = (
+  (s.intentState.queue.length == 0)
+  ? transitionComposerIntentRequestWrites5(
+    d,
+    s,
+    kind,
+    text,
+    key,
+    shift,
+    command,
+    start,
+    end,
+    composing
+  )
+  : d
+)
+
+fn transitionComposerIntentRequestGuard1(
+  d: UiDecision,
+  s: UiStart,
+  kind: string,
+  text: string,
+  key: string,
+  shift: bool,
+  command: bool,
+  start: number,
+  end: number,
+  composing: bool
+): UiDecision = (
+  (kind != "format" and not s.composerRichCurrent) or not s.composerFieldLive or composing
+    or (s.intentState.queue.length > 0 and (not (s.intentState.phase == "projection"
+    ? s.composerIntentReceiptCurrent : s.composerIntentBaseCurrent) or (not (kind == "language")
+    and (start != s.composerSelection.start or end != s.composerSelection.end))))
+  ? stepComposerIntentClear(
+    d,
+    s,
+    "The prompt changed. Please try that edit again."
+  )
+  : s.intentState.queue.length >= 32
+  ? transitionComposerIntentRequestWrites2(
+    d,
+    s,
+    kind,
+    text,
+    key,
+    shift,
+    command,
+    start,
+    end,
+    composing
+  )
+  : transitionComposerIntentRequestGuard4(
+  transitionComposerIntentRequestWrites3(
+    d,
+    s,
+    kind,
+    text,
+    key,
+    shift,
+    command,
+    start,
+    end,
+    composing
+  ),
+  s,
+  kind,
+  text,
+  key,
+  shift,
+  command,
+  start,
+  end,
+  composing
+)
+)
+
+// The selection never ends inside a reference, as at the reference's atom chip (composerChipEdge); so a cut or
+// copy takes a reference whole.
+fn stepComposerMoved(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = stepComposerSelectionObserved(
+  transitionComposerMovedGuard1(
+    d,
+    s,
+    e
+  ),
+  s,
+  e,
+  s.composerDraft.composing
+)
+
+fn transitionComposerMovedWrites4(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.root.intentState,
+      caretSeen=true
+    )
+  )
+)
+
+fn transitionComposerMovedGuard3(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = (
+  e.value != s.intentState.expected or ((e.selectionStart != s.intentState.start
+    or e.selectionEnd != s.intentState.end) and (s.intentState.caretSeen
+    or e.selectionStart != s.intentState.inputStart or e.selectionEnd != s.intentState.inputEnd))
+  ? stepComposerIntentClear(
+    d,
+    s,
+    "The prompt changed. Please try that edit again."
+  )
+  : e.selectionStart == s.intentState.start and e.selectionEnd == s.intentState.end
+  ? transitionComposerMovedWrites4(
+    d,
+    s,
+    e
+  )
+  : d
+)
+
+fn transitionComposerMovedGuard2(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = (
+  e.isComposing or not s.composerIntentContextCurrent
+  ? stepComposerIntentClear(
+    d,
+    s,
+    "The prompt changed. Please try that edit again."
+  )
+  : s.intentState.phase == "projection"
+  ? transitionComposerMovedGuard3(
+    d,
+    s,
+    e
+  )
+  : e.value == s.composerText and (e.selectionStart != s.intentState.observed.start
+    or e.selectionEnd != s.intentState.observed.end)
+  ? stepComposerIntentClear(
+    d,
+    s,
+    "The prompt changed. Please try that edit again."
+  )
+  : d
+)
+
+fn transitionComposerMovedWrites5(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostSelectionDirection=true,
+    selectionDirection=SelectionDirectionArgs(
+      p0="composer",
+      p1=(composerChipEdge(s.richComposer.chips, e.selectionStart,
+        (e.selectionStart == e.selectionEnd) ? 0 : -1)),
+      p2=(e.selectionStart == e.selectionEnd) ? (composerChipEdge(s.richComposer.chips,
+        e.selectionStart, (e.selectionStart == e.selectionEnd) ? 0 : -1))
+        : composerChipEdge(s.richComposer.chips, e.selectionEnd, 1),
+      p3=e.selectionDirection
+    )
+  )
+)
+
+fn transitionComposerMovedGuard1(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent
+): UiDecision = (
+  s.intentState.queue.length > 0
+  ? transitionComposerMovedGuard2(
+    d,
+    s,
+    e
+  )
+  : not e.isComposing and s.composerRichCurrent and e.value == s.composerText
+    and composerChipInside(s.richComposer.chips, e.selectionStart, e.selectionEnd)
+  ? transitionComposerMovedWrites5(
+    d,
+    s,
+    e
+  )
+  : d
+)
+
+// retainSettingsScope: a link from outside Settings starts with no scope
+fn stepOpenConnectionsPage(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionOpenConnectionsPageWrites1(
+  stepOpenSettings(
+    d,
+    s
+  ),
+  s
+)
+
+fn transitionOpenConnectionsPageWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route="connections"
+    )
+  )
+)
+
+fn stepChooseKeybindingCommand(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionChooseKeybindingCommandWrites1(
+  stepEditKeybinding(
+    d,
+    s,
+    "new",
+    value,
+    (s.keybindingEditor.drafts.filter((d) => d.row == "new")).map((d) => d.key).join(""),
+    (s.keybindingEditor.drafts.filter((d) => d.row == "new")).map((d) => d.when).join("")
+  ),
+  s,
+  value
+)
+
+fn transitionChooseKeybindingCommandWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      command=value
+    )
+  )
+)
+
+fn stepKeybindingRest(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  value: string
+): UiDecision = transitionKeybindingRestGuard1(
+  stepRestRaw(
+    d,
+    s,
+    "rest:keybinding",
+    `${s.settingsEnvironmentId}:${s.settingsProjectId}`,
+    value
+  ),
+  s,
+  row,
+  value
+)
+
+fn transitionKeybindingRestWrites2(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      saving=row
+    )
+  )
+)
+
+fn transitionKeybindingRestGuard1(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  value: string
+): UiDecision = (
+  (not s.commandPending)
+  ? transitionKeybindingRestWrites2(
+    d,
+    s,
+    row,
+    value
+  )
+  : d
+)

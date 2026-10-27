@@ -1,0 +1,4 @@
+shape PickerAnchor
+  top: number
+  bottom: number
+  left: number

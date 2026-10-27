@@ -1,0 +1,136 @@
+use UiStart from "./app-ui-start.contract"
+use ComposerRichView, composerChipDeletes from "../composer/composer-rich.contract"
+use composerChipStep, composerChipWordDeletes from "../composer/composer-rich.contract"
+
+fn paletteFrameVisible(bounds: option<Geometry>): bool = match bounds {
+  case some(frame) => frame.width > 0,
+  case none => false
+}
+
+fn paletteCanQueryComposer(s: UiStart): bool = (
+  not s.settingsPageState.open and not s.pageCover and not s.promptLinkPage.show
+)
+
+fn needsPaletteCloseFrame(s: UiStart): bool = (
+  s.paletteSession.mode == "command" and paletteCanQueryComposer(s)
+)
+
+fn needsPaletteShowFrame(s: UiStart, mode: string, page: string): bool = (
+  page == "" and s.paletteSession.open and s.paletteSession.mode == mode and
+    paletteCanQueryComposer(s)
+)
+
+fn needsInlinePaletteFrame(s: UiStart, name: string): bool = (
+  not s.inlineDocumentKeysBlocked and name != "sidebar.toggle"
+    ? match s.shortcuts.filter((item) => item.command == name).at(0) {
+      case some(item) => (
+        item.command == "commandPalette.toggle" or item.command == "filePicker.toggle" or
+          item.command == "projectSearch.toggle" or item.command == "chat.find"
+      ) and needsPaletteShowFrame(s, item.target, item.extra),
+      case none => false
+    }
+    : false
+)
+
+fn needsComposerChipFrame(
+  s: UiStart,
+  surface: string,
+  owner: string,
+  value: string,
+  serial: number,
+  start: number,
+  end: number,
+  source: string
+): bool = composerChipContextMatches(
+  s,
+  surface,
+  owner,
+  value,
+  serial,
+  start,
+  end,
+  source,
+  surface == "preview" ? s.richPromptPreview : s.richComposer
+)
+
+fn composerChipContextMatches(
+  s: UiStart,
+  surface: string,
+  owner: string,
+  value: string,
+  serial: number,
+  start: number,
+  end: number,
+  source: string,
+  current: ComposerRichView
+): bool = (
+  (
+    surface == "preview"
+      ? s.promptPreviewVisible and serial == s.previewState.serial and
+          owner == s.promptPreviewOwner and value == s.previewState.text
+      : s.composerFieldLive and serial == s.fieldProtocol.inputSerial and
+          owner == s.richComposerOwner and value == s.composerText and not s.composerDraft.composing
+  ) and current.owner == owner and current.value == value and
+    current.chips.filter((chip) => (
+      chip.start == start and chip.end == end and chip.source == source
+    )).length == 1
+)
+
+fn eventComposition(s: UiStart, k: string): bool = (
+  s.composerDraft.composing and (
+    k == "Shift" or k == "Control" or k == "Alt" or k == "Meta" or k == "CapsLock"
+  )
+)
+
+fn eventUsesGrammar(s: UiStart, k: string, e: KeyboardEvent): bool = (
+  not (
+    not eventComposition(s, k) and s.richComposer.mode == "rich" and e.metaKey and
+      not e.ctrlKey and not e.shiftKey and not e.altKey and (
+        k == "b" or k == "B" or e.code == "KeyB" or
+          k == "i" or k == "I" or e.code == "KeyI"
+      )
+  ) and not (
+    not eventComposition(s, k) and k == "Tab" and e.shiftKey and
+      s.data.composer.planVisible and not s.composerInCode
+  )
+)
+
+fn grammarRichContext(s: UiStart, composing: bool): bool = (
+  s.composerRichCurrent and s.composerSelectionCurrent and not composing and
+    not s.editor.menu.open and not s.editor.stash.menuOpen
+)
+
+fn grammarDeletesChip(s: UiStart, k: string, e: KeyboardEvent, composing: bool): bool = (
+  (k == "Backspace" or k == "Delete") and grammarRichContext(s, composing) and
+    not e.metaKey and not e.ctrlKey and (
+      e.altKey
+        ? composerChipWordDeletes(
+          s.richComposer.chips, s.composerText, s.composerSelection.start,
+          s.composerSelection.end, k == "Backspace"
+        )
+        : composerChipDeletes(
+          s.richComposer.chips, s.composerSelection.start, s.composerSelection.end,
+          k == "Backspace"
+        )
+    )
+)
+
+fn grammarStepsChip(s: UiStart, k: string, e: KeyboardEvent, composing: bool): bool = (
+  (k == "ArrowLeft" or k == "ArrowRight") and grammarRichContext(s, composing) and
+    not e.metaKey and not e.ctrlKey and s.intentState.queue.length == 0 and
+    not e.shiftKey and not e.altKey and
+    s.composerSelection.start == s.composerSelection.end and
+    composerChipStep(s.richComposer.chips, s.composerSelection.start, k == "ArrowLeft") >= 0
+)
+
+fn needsComposerHistoryFrames(s: UiStart, k: string, e: KeyboardEvent): bool = (
+  eventUsesGrammar(s, k, e) and
+    not grammarDeletesChip(s, k, e, eventComposition(s, k)) and
+    not grammarStepsChip(s, k, e, eventComposition(s, k)) and
+    grammarRichContext(s, eventComposition(s, k)) and not e.altKey and
+    not e.metaKey and not e.ctrlKey and not e.shiftKey and
+    s.composerSelection.start == s.composerSelection.end and (
+      (k == "ArrowUp" and s.richComposer.historyPrevious) or
+        (k == "ArrowDown" and s.richComposer.historyNext)
+    )
+)

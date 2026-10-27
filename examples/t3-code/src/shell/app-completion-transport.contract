@@ -1,0 +1,118 @@
+use AppDecision, ServerStatusArgs, TextArgs, TransportArgs from "./app-decisions.contract"
+use SshResponseState from "./app-protocols.contract"
+use Time, Page from "./app-shapes.contract"
+use ShellView from "./shell-shapes.contract"
+use SshPromptView from "../connections/ssh-prompt.contract"
+use TransportTable from "../transport/transport.contract"
+
+fn completeSshTick(
+  d: AppDecision,
+  commandPending: bool,
+  connecting: bool,
+  sshPrompt: SshPromptView,
+  sshResponse: SshResponseState
+): AppDecision = sshTickReturn(
+  sshTickNow(d, sshPrompt),
+  commandPending,
+  connecting,
+  sshPrompt,
+  sshResponse
+)
+
+fn sshTickNow(d: AppDecision, sshPrompt: SshPromptView): AppDecision = (
+  sshPrompt.open
+    ? AppDecision(
+      d,
+      writeSshResponse=true,
+      sshResponse=SshResponseState(d.sshResponse, now=performanceNow())
+    )
+    : d
+)
+
+fn sshTickReturn(
+  d: AppDecision,
+  commandPending: bool,
+  connecting: bool,
+  sshPrompt: SshPromptView,
+  sshResponse: SshResponseState
+): AppDecision = (
+  sshResponse.returnToConnect and not sshPrompt.open and not commandPending
+    ? AppDecision(
+      d,
+      writeSshResponse=true,
+      sshResponse=SshResponseState(d.sshResponse, returnToConnect=false),
+      hostFocus=connecting ? true : d.hostFocus,
+      focus=connecting ? TextArgs(p0="ssh-connect") : d.focus
+    )
+    : d
+)
+
+fn completeStreamMaintain(
+  d: AppDecision,
+  shell: ShellView,
+  wallTime: Time
+): AppDecision = AppDecision(
+  d,
+  writeShellClock=true,
+  shellClock=performanceNow(),
+  sendServerBrowserMaintained=true,
+  browser=ServerStatusArgs(
+    p0=shell.panel.browser.runtimeId,
+    p1=wallTime.epochAtZero + performanceNow()
+  ),
+  sendServerBrowserMiniMaintained=true,
+  miniBrowser=ServerStatusArgs(
+    p0=shell.panel.browserMini.runtimeId,
+    p1=wallTime.epochAtZero + performanceNow()
+  ),
+  refreshShell=true
+)
+
+// The reachability signals (wakeups.ts): offline questions a live socket, back online wakes a waiting retry; the first
+// reading is the baseline, not a change. Returning to the app is windowReturned's.
+fn completeTransportNetworkChanged(
+  d: AppDecision,
+  page: Page,
+  transportOnline: bool,
+  wallTime: Time
+): AppDecision = (
+  page.onLine != transportOnline
+    ? AppDecision(
+      d,
+      writeTransportOnline=true,
+      transportOnline=page.onLine,
+      sendTransportPumped=true,
+      transport=TransportArgs(
+        p0=wallTime.epochAtZero + performanceNow(),
+        p1=page.onLine ? "online" : "offline"
+      )
+    )
+    : d
+)
+
+fn completeTransportPump(
+  d: AppDecision,
+  transportPumpedPending: bool,
+  wallTime: Time
+): AppDecision = (
+  not transportPumpedPending
+    ? AppDecision(
+      d,
+      sendTransportPumped=true,
+      transport=TransportArgs(p0=wallTime.epochAtZero + performanceNow(), p1="")
+    )
+    : d
+)
+
+fn completeTransportPumpDone(
+  d: AppDecision,
+  transportPumped: option<TransportTable>,
+  transportTable: TransportTable
+): AppDecision = AppDecision(
+  d,
+  writeTransportTable=true,
+  transportTable=match transportPumped {
+    case some(table) => table,
+    case none => transportTable
+  }
+)

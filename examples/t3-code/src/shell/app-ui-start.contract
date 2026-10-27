@@ -1,0 +1,303 @@
+use WindowInputs from "./app-window-inputs.contract"
+use KeybindingPage from "../settings/settings-keybindings.contract"
+use ChatCanvasView from "./chat-canvas.contract"
+use PickerCatalog from "../composer/composer-shapes.contract"
+use ChipPopover from "../composer/composer-chip-popover.contract"
+use ComposerSelectionState from "./app-protocols.contract"
+use ConfirmationState, ComposerFieldProtocol, HoverState from "./app-protocols.contract"
+use ComposerIntentState, ModifierOwnershipState, NoticeExitState from "./app-protocols.contract"
+use PaletteSessionState, PromptPreviewState, ProviderWizardState from "./app-protocols.contract"
+use SshResponseState, StreamGeometryState, TranscriptViewportState from "./app-protocols.contract"
+use ConnectionsPage from "../connections/connections.contract"
+use Snapshot, Settings, Viewport from "../shared/shapes.contract"
+use ShellDetails, ShellView from "./shell-shapes.contract"
+use ComposerEditorView from "../composer/composer-editor.contract"
+use PairFields from "../connections/pairing-shapes.contract"
+use PaletteView from "../palette/palette.contract"
+use PrDetailView from "../pull-requests/pages-pr-detail.contract"
+use PromptLinkView from "../prompt-links/prompt-links.contract"
+use ProviderPage from "../providers/providers.contract"
+use ProviderWizard from "../providers/providers-wizard.contract"
+use ComposerRichView from "../composer/composer-rich.contract"
+use RouteKeyboard from "../connections/connections-routes.contract"
+use ScheduledPage from "../settings/settings-scheduled.contract"
+use SettingsCore, CoreNav from "../settings/settings-core.contract"
+use KeyDispatch from "../settings/settings-shortcuts.contract"
+use SshPromptView from "../connections/ssh-prompt.contract"
+use UsageView from "../usage/pages-usage.contract"
+use Time from "./app-shapes.contract"
+use WelcomeView from "../pages/pages-welcome.contract"
+
+use KeybindingEditorState, ComposerMenuState from "./app-protocols.contract"
+use ComposerDraftState, SettingsPageState from "./app-protocols.contract"
+use PickerAnchor from "./app-ui-query-inputs.contract"
+
+shape UiStart
+  bindings: KeybindingPage
+  canRest: bool
+  canvas: ChatCanvasView
+  catalog: PickerCatalog
+  chip: ChipPopover
+  chipFrame: option<Geometry>
+  commandPending: bool
+  composerCodeStart: bool
+  composerCommand: bool
+  composerDraft: ComposerDraftState
+  composerFieldLive: bool
+  composerInCode: bool
+  composerInList: bool
+  composerIntentBaseCurrent: bool
+  composerIntentContextCurrent: bool
+  composerIntentReceiptCurrent: bool
+  composerMenu: ComposerMenuState
+  composerOwner: string
+  composerRequiresModifier: bool
+  composerRichCurrent: bool
+  composerSelection: ComposerSelectionState
+  composerSelectionCurrent: bool
+  composerShift: bool
+  composerText: string
+  confirmationState: ConfirmationState
+  connectionMenu: string
+  connectionsPage: ConnectionsPage
+  data: Snapshot
+  details: ShellDetails
+  detailsEpoch: number
+  detailsOpen: bool
+  detailsPopover: bool
+  detailsShown: bool
+  editor: ComposerEditorView
+  fieldProtocol: ComposerFieldProtocol
+  foldHold: bool
+  historyCaret: option<Geometry>
+  historyEdge: option<Geometry>
+  hoverShown: bool
+  hoverState: HoverState
+  importWizardFocused: string
+  inlineDocumentKeysBlocked: bool
+  intentState: ComposerIntentState
+  jumpRequest: number
+  keybindingEditor: KeybindingEditorState
+  keybindingWhen: string
+  lineagePhasesClosed: string[]
+  lineagePhasesOpen: string[]
+  lineageWorkflows: string[]
+  modal: bool
+  modifierOwnership: ModifierOwnershipState
+  noticeExitState: NoticeExitState
+  origin: string
+  pageCover: bool
+  pageTrail: string[]
+  pairFields: PairFields
+  palette: PaletteView
+  paletteFrame: option<Geometry>
+  paletteHighlight: number
+  paletteListHeight: number
+  paletteSession: PaletteSessionState
+  pickerAnchor: option<PickerAnchor>
+  prDetail: PrDetailView
+  prPanelOpen: bool
+  prSelected: string
+  previewFrame: option<Geometry>
+  previewState: PromptPreviewState
+  promptLinkPage: PromptLinkView
+  promptPreviewOwner: string
+  promptPreviewVisible: bool
+  providerLinkTarget: string
+  providerPage: ProviderPage
+  providerSelected: string
+  providerVisit: number
+  providerWizard: ProviderWizard
+  providerWizardState: ProviderWizardState
+  restContent: number
+  restGestureUntil: number
+  restHeight: number
+  restLastPull: number
+  restMovement: number
+  restTop: number
+  restWidth: number
+  richComposer: ComposerRichView
+  richComposerOwner: string
+  richPromptPreview: ComposerRichView
+  rightPanel: bool
+  rightPanelAt: string
+  routeKeyboard: RouteKeyboard
+  routeKeyboardReady: bool
+  scheduled: ScheduledPage
+  settings: Settings
+  settingsCheckout: string
+  settingsCore: SettingsCore
+  settingsEnvironmentId: string
+  settingsMachine: string
+  settingsMenu: string
+  settingsNavigation: CoreNav
+  settingsPageState: SettingsPageState
+  settingsProjectId: string
+  settingsProjectKey: string
+  settingsThemeDialog: string
+  settingsThemeRequest: number
+  settingsThemeSubject: string
+  shell: ShellView
+  shortcuts: KeyDispatch[]
+  sidebarHoverId: string
+  sidebarWidth: number
+  sshPrompt: SshPromptView
+  sshResponse: SshResponseState
+  streamGeometry: StreamGeometryState
+  toastDismissed: string
+  transcriptViewport: TranscriptViewportState
+  usage: UsageView
+  utilityPage: string
+  viewport: Viewport
+  wallTime: Time
+  welcome: WelcomeView
+  welcomeLink: string
+  welcomePairOpen: bool
+
+fn assembleWindowUiStart(
+  w: WindowInputs,
+  composerCodeStart: bool,
+  composerCommand: bool,
+  composerInCode: bool,
+  composerInList: bool,
+  composerRequiresModifier: bool,
+  composerShift: bool,
+  inlineDocumentKeysBlocked: bool,
+  paletteHighlight: number,
+  paletteListHeight: number,
+  promptPreviewOwner: string,
+  providerVisit: number,
+  restContent: number,
+  restGestureUntil: number,
+  restHeight: number,
+  restLastPull: number,
+  restMovement: number,
+  restTop: number,
+  restWidth: number,
+  richComposer: ComposerRichView,
+  richComposerOwner: string,
+  richPromptPreview: ComposerRichView,
+  routeKeyboard: RouteKeyboard,
+  settingsThemeRequest: number
+): UiStart = UiStart(
+  bindings=w.bindings,
+  canRest=w.canRest,
+  canvas=w.canvas,
+  catalog=w.catalog,
+  chip=w.chip,
+  chipFrame=none,
+  commandPending=w.commandPending,
+  composerCodeStart=composerCodeStart,
+  composerCommand=composerCommand,
+  composerDraft=w.rootUi.composerDraft,
+  composerFieldLive=w.rootUi.composerFieldLive,
+  composerInCode=composerInCode,
+  composerInList=composerInList,
+  composerIntentBaseCurrent=w.rootUi.composerIntentBaseCurrent,
+  composerIntentContextCurrent=w.rootUi.composerIntentContextCurrent,
+  composerIntentReceiptCurrent=w.rootUi.composerIntentReceiptCurrent,
+  composerMenu=w.rootUi.composerMenu,
+  composerOwner=w.composerOwner,
+  composerRequiresModifier=composerRequiresModifier,
+  composerRichCurrent=w.rootUi.composerRichCurrent,
+  composerSelection=w.rootUi.composerSelection,
+  composerSelectionCurrent=w.rootUi.composerSelectionCurrent,
+  composerShift=composerShift,
+  composerText=w.composerText,
+  confirmationState=w.rootUi.confirmationState,
+  connectionMenu=w.connectionMenu,
+  connectionsPage=w.connectionsPage,
+  data=w.data,
+  details=w.details,
+  detailsEpoch=w.rootUi.detailsEpoch,
+  detailsOpen=w.rootUi.detailsOpen,
+  detailsPopover=w.rootUi.detailsPopover,
+  detailsShown=w.detailsOpen,
+  editor=w.editor,
+  fieldProtocol=w.rootUi.fieldProtocol,
+  foldHold=w.foldHold,
+  historyCaret=none,
+  historyEdge=none,
+  hoverShown=w.hoverShown,
+  hoverState=w.rootUi.hoverState,
+  importWizardFocused=w.rootUi.importWizardFocused,
+  inlineDocumentKeysBlocked=inlineDocumentKeysBlocked,
+  intentState=w.rootUi.intentState,
+  jumpRequest=w.jumpRequest,
+  keybindingEditor=w.rootUi.keybindingEditor,
+  keybindingWhen=w.keybindingWhen,
+  lineagePhasesClosed=w.rootUi.lineagePhasesClosed,
+  lineagePhasesOpen=w.rootUi.lineagePhasesOpen,
+  lineageWorkflows=w.rootUi.lineageWorkflows,
+  modal=w.modal,
+  modifierOwnership=w.rootUi.modifierOwnership,
+  noticeExitState=w.rootUi.noticeExitState,
+  origin=w.origin,
+  pageCover=w.pageCover,
+  pageTrail=w.rootUi.pageTrail,
+  pairFields=w.pairFields,
+  palette=w.palette,
+  paletteFrame=none,
+  paletteHighlight=paletteHighlight,
+  paletteListHeight=paletteListHeight,
+  paletteSession=w.rootUi.paletteSession,
+  pickerAnchor=none,
+  prDetail=w.prDetail,
+  prPanelOpen=w.prPanelOpen,
+  prSelected=w.prSelected,
+  previewFrame=none,
+  previewState=w.rootUi.previewState,
+  promptLinkPage=w.promptLinkPage,
+  promptPreviewOwner=promptPreviewOwner,
+  promptPreviewVisible=w.rootUi.promptPreviewVisible,
+  providerLinkTarget=w.rootUi.providerLinkTarget,
+  providerPage=w.providerPage,
+  providerSelected=w.rootUi.providerSelected,
+  providerVisit=providerVisit,
+  providerWizard=w.providerWizard,
+  providerWizardState=w.rootUi.providerWizardState,
+  restContent=restContent,
+  restGestureUntil=restGestureUntil,
+  restHeight=restHeight,
+  restLastPull=restLastPull,
+  restMovement=restMovement,
+  restTop=restTop,
+  restWidth=restWidth,
+  richComposer=richComposer,
+  richComposerOwner=richComposerOwner,
+  richPromptPreview=richPromptPreview,
+  rightPanel=w.rightPanel,
+  rightPanelAt=w.rootUi.rightPanelAt,
+  routeKeyboard=routeKeyboard,
+  routeKeyboardReady=w.rootUi.routeKeyboardReady,
+  scheduled=w.scheduled,
+  settings=w.settings,
+  settingsCheckout=w.rootUi.settingsCheckout,
+  settingsCore=w.settingsCore,
+  settingsEnvironmentId=w.settingsEnvironmentId,
+  settingsMachine=w.rootUi.settingsMachine,
+  settingsMenu=w.settingsMenu,
+  settingsNavigation=w.settingsNavigation,
+  settingsPageState=w.rootUi.settingsPageState,
+  settingsProjectId=w.settingsProjectId,
+  settingsProjectKey=w.rootUi.settingsProjectKey,
+  settingsThemeDialog=w.settingsThemeDialog,
+  settingsThemeRequest=settingsThemeRequest,
+  settingsThemeSubject=w.settingsThemeSubject,
+  shell=w.shell,
+  shortcuts=w.shortcuts,
+  sidebarHoverId=w.sidebarHoverId,
+  sidebarWidth=w.sidebarWidth,
+  sshPrompt=w.sshPrompt,
+  sshResponse=w.rootUi.sshResponse,
+  streamGeometry=w.rootUi.streamGeometry,
+  toastDismissed=w.rootUi.toastDismissed,
+  transcriptViewport=w.rootUi.transcriptViewport,
+  usage=w.usage,
+  utilityPage=w.utilityPage,
+  viewport=w.viewport,
+  wallTime=w.wallTime,
+  welcome=w.welcome,
+  welcomeLink=w.welcomeLink,
+  welcomePairOpen=w.welcomePairOpen
+)

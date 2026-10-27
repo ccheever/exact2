@@ -1,0 +1,1069 @@
+use composerChipDeletes, composerChipStep from "../composer/composer-rich.contract"
+use composerChipWordDeletes from "../composer/composer-rich.contract"
+use AppDecision, CommandArgs, SelectionArgs, TextArgs from "./app-decisions.contract"
+use ComposerDraftState, ConfirmationState, SettingsPageState from "./app-protocols.contract"
+use stepComposerIntentRequest, stepSidebarRun from "./app-ui-composer-edit-transitions-2.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use stepEditorOp from "./app-ui-dispatch-transitions.contract"
+use stepDraftBeside, stepOpenSettings from "./app-ui-navigation-transitions.contract"
+use UiStart from "./app-ui-start.contract"
+
+// the window's half: the editors list, the title menu
+// inline: toggle remembers the thread's docked card
+// a project link replaces the whole scope (retainSettingsScope)
+// ProjectScriptsControl's Add project script: the Add Action dialog in place, for this project
+// ThreadAutomationsPanel: Manage scheduled tasks, or Edit as the page's taskId deep link (scheduled-view.ts)
+fn stepDetailsAct(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = transitionDetailsActGuard14(
+  transitionDetailsActGuard12(
+    transitionDetailsActGuard10(
+      transitionDetailsActGuard8(
+        transitionDetailsActWrites7(
+          transitionDetailsActGuard5(
+            transitionDetailsActGuard3(
+              transitionDetailsActGuard1(
+                d,
+                s,
+                op,
+                target,
+                value
+              ),
+              s,
+              op,
+              target,
+              value
+            ),
+            s,
+            op,
+            target,
+            value
+          ),
+          s,
+          op,
+          target,
+          value
+        ),
+        s,
+        op,
+        target,
+        value
+      ),
+      s,
+      op,
+      target,
+      value
+    ),
+    s,
+    op,
+    target,
+    value
+  ),
+  s,
+  op,
+  target,
+  value
+)
+
+fn transitionDetailsActWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeLineageWorkflows=true,
+    lineageWorkflows=s.lineageWorkflows.includes(target)
+      ? s.lineageWorkflows.filter((id) => id != target) : s.lineageWorkflows.concat([target])
+  )
+)
+
+fn transitionDetailsActGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "ui:workflow-toggle"
+  ? transitionDetailsActWrites2(
+    d,
+    s,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionDetailsActWrites4(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeLineagePhases=true,
+    lineagePhasesOpen=value == "open" ? s.lineagePhasesOpen.concat([target])
+      : s.lineagePhasesOpen.filter((id) => id != target),
+    lineagePhasesClosed=value == "open" ? s.lineagePhasesClosed.filter((id) => id != target)
+      : s.lineagePhasesClosed.concat([target])
+  )
+)
+
+fn transitionDetailsActGuard3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "ui:workflow-phase"
+  ? transitionDetailsActWrites4(
+    d,
+    s,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionDetailsActWrites6(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeLineageStopping=true,
+    lineageStopping=target
+  )
+)
+
+fn transitionDetailsActGuard5(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  (op == "shell:stop-subagent" or op == "shell:stop-workflow") and not s.commandPending
+  ? transitionDetailsActWrites6(
+    d,
+    s,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionDetailsActWrites7(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeDetailsOpen=true,
+    detailsOpen=op == "toggle" ? (not s.detailsShown and s.detailsPopover) : (s.detailsOpen
+      and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread"
+      and op != "ui:changes" and op != "dismiss"),
+    writeDetailsEpoch=true,
+    detailsEpoch=op == "toggle" ? s.canvas.popoverEpoch : s.detailsEpoch
+  )
+)
+
+fn transitionDetailsActWrites9(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsProjectId=true,
+    settingsProjectId=target == "" ? s.data.projectId : target,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route="projects"
+    )
+  )
+)
+
+fn transitionDetailsActGuard8(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "ui:project-settings"
+  ? transitionDetailsActWrites9(
+    stepOpenSettings(
+      d,
+      s
+    ),
+    s,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionDetailsActWrites11(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeRestEditor=true,
+    restEditor="card-action",
+    writeRestSubject=true,
+    restSubject=target == "" ? s.data.projectId : target,
+    writeModalError=true,
+    modalError=""
+  )
+)
+
+fn transitionDetailsActGuard10(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "ui:add-script"
+  ? transitionDetailsActWrites11(
+    d,
+    s,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionDetailsActWrites13(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsEnvironmentId=true,
+    settingsEnvironmentId=s.settings.environmentId,
+    writeSettingsMachine=true,
+    settingsMachine="",
+    writeSettingsWorkspace=true,
+    settingsProjectKey="",
+    settingsCheckout="",
+    writeSettingsProjectId=true,
+    settingsProjectId="",
+    writeRestEditor=true,
+    restEditor=target == "" ? "" : "task",
+    writeRestSubject=true,
+    restSubject=target == "" ? "" : `link|${value}|${target}`,
+    writeModalError=true,
+    modalError="",
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route="scheduled-tasks",
+      open=true
+    )
+  ),
+  writeTaskModelPick=true,
+  taskModelPick=""
+)
+
+fn transitionDetailsActGuard12(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "ui:scheduled-tasks"
+  ? transitionDetailsActWrites13(
+    d,
+    s,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionDetailsActWrites15(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff"
+        : op == "ui:editor" ? "shell:select-editor" : op,
+      p1=target,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionDetailsActWrites17(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionDetailsActGuard16(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  op == "select-thread" or op == "shell:merge-back"
+  ? transitionDetailsActWrites17(
+    d,
+    s,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+fn transitionDetailsActGuard14(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string
+): UiDecision = (
+  (op != "toggle" or not s.detailsPopover) and op != "dismiss" and op != "ui:project-settings"
+    and op != "ui:add-script" and op != "ui:scheduled-tasks" and op != "ui:workflow-toggle"
+    and op != "ui:workflow-phase" and not s.commandPending
+  ? transitionDetailsActGuard16(
+    transitionDetailsActWrites15(
+      d,
+      s,
+      op,
+      target,
+      value
+    ),
+    s,
+    op,
+    target,
+    value
+  )
+  : d
+)
+
+// ⇧-click creates at once (the press's own modifiers; a chord's press has none)
+fn stepSidebarNewThread(
+  d: UiDecision,
+  s: UiStart,
+  e: MouseEvent
+): UiDecision = transitionSidebarNewThreadGuard1(
+  d,
+  s,
+  e
+)
+
+fn transitionSidebarNewThreadWrites3(
+  d: UiDecision,
+  s: UiStart,
+  e: MouseEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="sidebar:new-thread-click",
+      p1="",
+      p2=e.shiftKey ? "shift" : "",
+      p3=0
+    )
+  )
+)
+
+fn transitionSidebarNewThreadWrites5(
+  d: UiDecision,
+  s: UiStart,
+  e: MouseEvent
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0="new-thread",
+      p1="",
+      p2="",
+      p3=0
+    ),
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    hostFocus=true,
+    focus=TextArgs(
+      p0="composer"
+    ),
+    writeUtilityPage=true,
+    utilityPage="",
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionSidebarNewThreadGuard4(
+  d: UiDecision,
+  s: UiStart,
+  e: MouseEvent
+): UiDecision = (
+  s.data.projectId != ""
+  ? transitionSidebarNewThreadWrites5(
+    d,
+    s,
+    e
+  )
+  : d
+)
+
+fn transitionSidebarNewThreadGuard2(
+  d: UiDecision,
+  s: UiStart,
+  e: MouseEvent
+): UiDecision = (
+  s.data.sidebar.projectGroupCount > 1
+  ? transitionSidebarNewThreadWrites3(
+    d,
+    s,
+    e
+  )
+  : transitionSidebarNewThreadGuard4(
+  d,
+  s,
+  e
+)
+)
+
+fn transitionSidebarNewThreadGuard1(
+  d: UiDecision,
+  s: UiStart,
+  e: MouseEvent
+): UiDecision = (
+  s.commandPending and s.data.draftLaunching and (s.data.sidebar.projectGroupCount <= 1
+    or e.shiftKey)
+  ? stepDraftBeside(
+    d,
+    s
+  )
+  : not s.commandPending
+  ? transitionSidebarNewThreadGuard2(
+    d,
+    s,
+    e
+  )
+  : d
+)
+
+// the window's half: the menu, Rename
+// a project link replaces the whole scope (retainSettingsScope)
+// `ui:confirm:<id>`: Cancel gives the focus back to element <id>
+// a focused Remove's next element, focused once the removal lands (`focus:`)
+// Snooze › Custom… opens the sidebar's Custom snooze for this thread (useThreadActionMenu's requestCustomSnooze)
+fn stepTitleMenuPick(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = transitionTitleMenuPickGuard7(
+  transitionTitleMenuPickGuard5(
+    transitionTitleMenuPickGuard3(
+      transitionTitleMenuPickGuard1(
+        d,
+        s,
+        op,
+        target,
+        value,
+        askTitle,
+        askBody,
+        destructive
+      ),
+      s,
+      op,
+      target,
+      value,
+      askTitle,
+      askBody,
+      destructive
+    ),
+    s,
+    op,
+    target,
+    value,
+    askTitle,
+    askBody,
+    destructive
+  ),
+  s,
+  op,
+  target,
+  value,
+  askTitle,
+  askBody,
+  destructive
+)
+
+fn transitionTitleMenuPickWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsProjectId=true,
+    settingsProjectId=target,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route="projects"
+    )
+  )
+)
+
+fn transitionTitleMenuPickGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = (
+  op == "ui:project-settings"
+  ? transitionTitleMenuPickWrites2(
+    stepOpenSettings(
+      d,
+      s
+    ),
+    s,
+    op,
+    target,
+    value,
+    askTitle,
+    askBody,
+    destructive
+  )
+  : d
+)
+
+fn transitionTitleMenuPickWrites4(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeConfirmationState=true,
+    confirmationState=ConfirmationState(
+      d.root.confirmationState,
+      returnTo=op == "ui:confirm" ? "" : op.slice(11),
+      title=askTitle,
+      body=askBody,
+      destructive=destructive,
+      op=value,
+      target=target,
+      value=value == "remove-snapshot" ? op.slice(11) : ""
+    )
+  )
+)
+
+fn transitionTitleMenuPickGuard3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = (
+  op == "ui:confirm" or op.startsWith("ui:confirm:")
+  ? transitionTitleMenuPickWrites4(
+    d,
+    s,
+    op,
+    target,
+    value,
+    askTitle,
+    askBody,
+    destructive
+  )
+  : d
+)
+
+fn transitionTitleMenuPickWrites6(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0=op,
+      p1=target,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionTitleMenuPickGuard5(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = (
+  op.startsWith("shelllocal:")
+  ? transitionTitleMenuPickWrites6(
+    d,
+    s,
+    op,
+    target,
+    value,
+    askTitle,
+    askBody,
+    destructive
+  )
+  : d
+)
+
+fn transitionTitleMenuPickWrites8(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=op == "ui:new-thread" ? "new-thread" : op,
+      p1=target,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionTitleMenuPickGuard7(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  target: string,
+  value: string,
+  askTitle: string,
+  askBody: string,
+  destructive: bool
+): UiDecision = (
+  (op == "ui:new-thread" or not op.startsWith("ui:")) and not op.startsWith("shelllocal:")
+    and not s.commandPending
+  ? transitionTitleMenuPickWrites8(
+    d,
+    s,
+    op,
+    target,
+    value,
+    askTitle,
+    askBody,
+    destructive
+  )
+  : op == "ui:custom-snooze"
+  ? stepSidebarRun(
+    d,
+    s,
+    "snooze:custom",
+    target,
+    "title"
+  )
+  : d
+)
+
+// ⌫ or ⌦ at a reference removes all of its source in one undo step, as at the reference's atom chip; ⌥ also
+// takes the spaces between, as word deletion does.
+// An unmodified ← or → at a reference's edge steps over it (ComposerPromptEditorTiptap handleKeyDown).
+// Tab indents a list item; ⇧Tab outdents only code (listIndentForTab runs without Shift).
+fn stepComposerGrammarKey(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = transitionComposerGrammarKeyGuard1(
+  d,
+  s,
+  k,
+  e,
+  composing
+)
+
+fn transitionComposerGrammarKeyWrites2(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true,
+    hostStopPropagation=true
+  )
+)
+
+fn transitionComposerGrammarKeyWrites3(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true,
+    hostStopPropagation=true,
+    hostSelection=true,
+    selection=SelectionArgs(
+      p0="composer",
+      p1=composerChipStep(s.richComposer.chips, s.composerSelection.start, k == "ArrowLeft"),
+      p2=composerChipStep(s.richComposer.chips, s.composerSelection.start, k == "ArrowLeft")
+    )
+  )
+)
+
+fn transitionComposerGrammarKeyWrites8(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool,
+  caret: Geometry,
+  edge: Geometry
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true,
+    hostStopPropagation=true
+  )
+)
+
+fn transitionComposerGrammarKeyGuard7(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool,
+  caret: Geometry,
+  edge: Geometry
+): UiDecision = (
+  not caret.unavailable and not edge.unavailable and caret.height > 0 and edge.height > 0
+    and max(caret.y - edge.y, edge.y - caret.y) < 1
+  ? stepEditorOp(
+    transitionComposerGrammarKeyWrites8(
+      d,
+      s,
+      k,
+      e,
+      composing,
+      caret,
+      edge
+    ),
+    s,
+    "history",
+    k == "ArrowUp" ? "previous" : "next",
+    ""
+  )
+  : d
+)
+
+fn transitionComposerGrammarKeyMatch6(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool,
+  caret: Geometry
+): UiDecision = match s.historyEdge {
+  case some(edge) => transitionComposerGrammarKeyGuard7(
+    d,
+    s,
+    k,
+    e,
+    composing,
+    caret,
+    edge
+  ),
+  case none => d
+}
+
+fn transitionComposerGrammarKeyMatch5(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = match s.historyCaret {
+  case some(caret) => transitionComposerGrammarKeyMatch6(
+    d,
+    s,
+    k,
+    e,
+    composing,
+    caret
+  ),
+  case none => d
+}
+
+fn transitionComposerGrammarKeyGuard4(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = (
+  not (e.metaKey or e.ctrlKey) and not e.shiftKey
+    and s.composerSelection.start == s.composerSelection.end and ((k == "ArrowUp"
+    and s.richComposer.historyPrevious) or (k == "ArrowDown" and s.richComposer.historyNext))
+  ? transitionComposerGrammarKeyMatch5(
+    d,
+    s,
+    k,
+    e,
+    composing
+  )
+  : d
+)
+
+fn transitionComposerGrammarKeyWrites10(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    hostPreventDefault=true,
+    hostStopPropagation=true
+  )
+)
+
+fn transitionComposerGrammarKeyGuard11(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = (
+  k != "Enter" or not e.repeat
+  ? stepComposerIntentRequest(
+    d,
+    s,
+    "key",
+    "",
+    k,
+    e.shiftKey or (k == "Enter" and s.composerRequiresModifier and not (e.metaKey or e.ctrlKey)),
+    (e.metaKey or e.ctrlKey),
+    s.composerSelection.start,
+    s.composerSelection.end,
+    composing
+  )
+  : d
+)
+
+fn transitionComposerGrammarKeyGuard9(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = (
+  k == "Enter" or (k == "Tab" and not (e.metaKey or e.ctrlKey) and (s.composerInCode
+    or (s.composerInList and not e.shiftKey))) or (k == "Backspace" and not (e.metaKey
+    or e.ctrlKey) and s.composerCodeStart)
+  ? transitionComposerGrammarKeyGuard11(
+    transitionComposerGrammarKeyWrites10(
+      d,
+      s,
+      k,
+      e,
+      composing
+    ),
+    s,
+    k,
+    e,
+    composing
+  )
+  : d
+)
+
+fn transitionComposerGrammarKeyGuard1(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent,
+  composing: bool
+): UiDecision = (
+  (k == "Backspace" or k == "Delete") and (s.composerRichCurrent and s.composerSelectionCurrent
+    and not composing and not s.editor.menu.open and not s.editor.stash.menuOpen
+    and not (e.metaKey or e.ctrlKey)) and (e.altKey
+    ? composerChipWordDeletes(s.richComposer.chips, s.composerText, s.composerSelection.start,
+    s.composerSelection.end, k == "Backspace") : composerChipDeletes(s.richComposer.chips,
+    s.composerSelection.start, s.composerSelection.end, k == "Backspace"))
+  ? stepComposerIntentRequest(
+    transitionComposerGrammarKeyWrites2(
+      d,
+      s,
+      k,
+      e,
+      composing
+    ),
+    s,
+    "key",
+    "",
+    e.altKey ? `Word${k}` : k,
+    e.shiftKey,
+    false,
+    s.composerSelection.start,
+    s.composerSelection.end,
+    composing
+  )
+  : (k == "ArrowLeft" or k == "ArrowRight") and (s.composerRichCurrent
+    and s.composerSelectionCurrent and not composing and not s.editor.menu.open
+    and not s.editor.stash.menuOpen and not (e.metaKey or e.ctrlKey))
+    and s.intentState.queue.length == 0 and not e.shiftKey and not e.altKey
+    and s.composerSelection.start == s.composerSelection.end
+    and composerChipStep(s.richComposer.chips, s.composerSelection.start, k == "ArrowLeft") >= 0
+  ? transitionComposerGrammarKeyWrites3(
+    d,
+    s,
+    k,
+    e,
+    composing
+  )
+  : s.composerRichCurrent and s.composerSelectionCurrent and not composing
+    and not s.editor.menu.open and not s.editor.stash.menuOpen and not e.altKey
+  ? transitionComposerGrammarKeyGuard9(
+    transitionComposerGrammarKeyGuard4(
+      d,
+      s,
+      k,
+      e,
+      composing
+    ),
+    s,
+    k,
+    e,
+    composing
+  )
+  : d
+)

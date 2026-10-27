@@ -1,0 +1,619 @@
+use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
+use ProviderWizardState, PaletteSessionState from "./app-protocols.contract"
+use ConfirmationState, NoticeExitState from "./app-protocols.contract"
+use ComposerDraftState, KeybindingEditorState from "./app-protocols.contract"
+use ComposerMenuState, SettingsPageState from "./app-protocols.contract"
+use Change, Snapshot, Settings from "../shared/shapes.contract"
+use KeybindingPage, KeybindingDraft from "../settings/settings-keybindings.contract"
+use RouteKeyboard, routeKeyboardComplete from "../connections/connections-routes.contract"
+use pageTrailNext from "../pages/pages-hero.contract"
+
+// Starting values stay immutable; record copies preserve the fields changed by earlier stages.
+shape CommandCompletionStart
+  bindings: KeybindingPage
+  data: Snapshot
+  jumpRequest: number
+  keybindingDrafts: KeybindingDraft[]
+  keybindingOpen: bool
+  keybindingPrevious: string
+  keybindingRecording: bool
+  keybindingSaving: string
+  pageTrail: string[]
+  pendingModal: string
+  providerWizardState: ProviderWizardState
+  renameAfterId: string
+  renameAfterOp: string
+  restEditor: string
+  restSubject: string
+  routeKeyboard: RouteKeyboard
+  routeKeyboardOwned: bool
+  settings: Settings
+  settingsRefresh: number
+  utilityPage: string
+  welcomePaired: number
+
+fn commandClearNotice(d: AppDecision): AppDecision = (
+  AppDecision(
+    d,
+    writeNoticeExitState=true,
+    noticeExitState=NoticeExitState(
+      d.noticeExitState,
+      notice=""
+    )
+  )
+)
+
+fn commandFocus(d: AppDecision, target: string): AppDecision = (
+  AppDecision(
+    d,
+    hostFocus=true,
+    focus=TextArgs(p0=target)
+  )
+)
+
+// ProjectDetail removeMembers: removing a whole project returns to the Projects overview, on the same machine.
+fn commandProjectRemoved(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.restEditor == "project-remove" and s.restSubject == "" ? AppDecision(
+    d,
+    writeSettingsWorkspace=true,
+    settingsProjectKey="",
+    settingsCheckout="",
+    writeSettingsProjectId=true,
+    settingsProjectId=""
+  ) : d
+)
+
+fn commandOpenPage(d: AppDecision, s: CommandCompletionStart, name: string): AppDecision = (
+  AppDecision(
+    d,
+    writePageTrail=true,
+    pageTrail=pageTrailNext(s.pageTrail, s.utilityPage, name),
+    writeUtilityPage=true,
+    utilityPage=name,
+    writeSidebarHoverId=true,
+    sidebarHoverId=""
+  )
+)
+
+fn commandSelectPr(d: AppDecision, ref: string): AppDecision = (
+  AppDecision(
+    d,
+    writePrSelected=true,
+    prSelected=ref,
+    writePrPanelOpen=true,
+    prPanelOpen=true,
+    writePrTab=true,
+    prTab="summary"
+  )
+)
+
+fn commandOpenSettings(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  AppDecision(
+    d,
+    writeSidebarHoverId=true,
+    sidebarHoverId="",
+    writeSettingsEnvironmentId=true,
+    settingsEnvironmentId=s.settings.environmentId,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.settingsPageState,
+      open=true,
+      route="general"
+    ),
+    writeSettingsMenu=true,
+    settingsMenu="",
+    writeSettingsMachine=true,
+    settingsMachine="",
+    writeSettingsWorkspace=true,
+    settingsProjectKey="",
+    settingsCheckout="",
+    writeSettingsProjectId=true,
+    settingsProjectId="",
+    writeModalError=true,
+    modalError=""
+  )
+)
+
+fn commandResetThread(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  AppDecision(
+    d,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.composerDraft,
+      owner="__unset__"
+    ),
+    writeJumpRequest=true,
+    jumpRequest=s.jumpRequest + 1,
+    writeUtilityPage=true,
+    utilityPage=""
+  )
+)
+
+fn commandRouteResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  AppDecision(
+    d,
+    writeRouteKeyboard=true,
+    routeKeyboard=routeKeyboardComplete(s.routeKeyboard, r.routeReorder, r.message,
+      s.routeKeyboardOwned),
+    hostRelaunch=d.hostRelaunch or r.relaunch
+  )
+)
+
+fn commandModalResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  s.pendingModal != "" ? AppDecision(
+    d,
+    writeModalError=true,
+    modalError=r.message == "task-webhook-keep" or r.message.startsWith("toasted:") ? "" : r.message
+  ) : d
+)
+
+fn commandConnectSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.pendingModal == "connect-first" or s.pendingModal == "connect" ? AppDecision(
+    d,
+    writeConnecting=true,
+    connecting=false,
+    writeOrigin=true,
+    origin="",
+    writeOriginEdited=true,
+    originEdited=false
+  ) : d
+)
+
+fn commandWelcomeSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.pendingModal == "welcome-pair" ? AppDecision(
+    d,
+    writeWelcomeLink=true,
+    welcomeLink="",
+    writeWelcomePairFold=true,
+    welcomePairFold="closed",
+    writeWelcomePaired=true,
+    welcomePaired=s.welcomePaired + 1
+  ) : d
+)
+
+fn commandProviderAddSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.pendingModal == "provider-add" or s.pendingModal == "provider-add-local" ? AppDecision(
+    d,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.providerWizardState,
+      dialog=s.pendingModal == "provider-add-local" ? "" : s.providerWizardState.manual or
+      s.providerWizardState.driver == "acpRegistry" ? s.providerWizardState.dialog : ""
+    ),
+    writeProviderSelected=true,
+    providerSelected=s.providerWizardState.created
+  ) : d
+)
+
+fn commandProviderCloseSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.pendingModal == "provider-close" ? AppDecision(
+    d,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.providerWizardState,
+      dialog=""
+    )
+  ) : d
+)
+
+fn commandProviderAcpSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.pendingModal == "provider-acp" ? AppDecision(
+    d,
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.providerWizardState,
+      manual=false,
+      driver="acpRegistry",
+      step=1
+    )
+  ) : d
+)
+
+fn commandKeybindingSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.pendingModal == "rest" and s.keybindingSaving != "" ? AppDecision(
+    d,
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.keybindingEditor,
+      drafts=s.keybindingDrafts.filter((row) => row.row != s.keybindingSaving and (row.row == "new"
+        or s.bindings.ids.includes(row.row))),
+      previous=s.keybindingPrevious == s.keybindingSaving ? "" : s.keybindingPrevious,
+      open=s.keybindingOpen and s.keybindingSaving != "new",
+      recording=s.keybindingRecording and s.keybindingPrevious != s.keybindingSaving
+    )
+  ) : d
+)
+
+fn commandClearRestEditor(d: AppDecision, r: Change): AppDecision = (
+  r.message != "task-webhook-keep" ? AppDecision(
+    d,
+    writeRestEditor=true,
+    restEditor=""
+  ) : d
+)
+
+fn commandRestRefresh(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  AppDecision(
+    d,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.settingsPageState,
+      refresh=s.settingsRefresh + 1
+    )
+  )
+)
+
+fn commandRestSuccess(
+  d: AppDecision,
+  s: CommandCompletionStart,
+  r: Change
+): AppDecision = (
+  s.pendingModal == "rest" ? commandRestRefresh(
+    commandClearRestEditor(commandProjectRemoved(d, s), r),
+    s
+  ) : d
+)
+
+fn commandSettingsSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.pendingModal == "settings" ? AppDecision(
+    d,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.settingsPageState,
+      refresh=s.settingsRefresh + 1
+    )
+  ) : d
+)
+
+fn commandThemeSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.pendingModal == "theme-dialog" ? AppDecision(
+    d,
+    writeSettingsThemeDialog=true,
+    settingsThemeDialog=""
+  ) : d
+)
+
+fn commandConnectionSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  commandWelcomeSuccess(
+    commandConnectSuccess(d, s),
+    s
+  )
+)
+
+fn commandProviderSuccess(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  commandProviderAcpSuccess(
+    commandProviderCloseSuccess(
+      commandProviderAddSuccess(d, s),
+      s
+    ),
+    s
+  )
+)
+
+fn commandRestSettingsSuccess(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  commandThemeSuccess(
+    commandSettingsSuccess(
+      commandRestSuccess(
+        commandKeybindingSuccess(d, s),
+        s,
+        r
+      ),
+      s
+    ),
+    s
+  )
+)
+
+fn commandSuccessfulResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  r.message == "" or r.message == "task-webhook-keep" ? commandRestSettingsSuccess(
+    commandProviderSuccess(
+      commandConnectionSuccess(d, s),
+      s
+    ),
+    s,
+    r
+  ) : d
+)
+
+fn commandBranchConfirmation(d: AppDecision, r: Change): AppDecision = (
+  r.message.startsWith("branch-restore-confirm:") ? commandFocus(
+    AppDecision(
+      d,
+      writeConfirmationState=true,
+      confirmationState=ConfirmationState(
+        d.confirmationState,
+        title=`Switch to ${r.message.slice(23)}?`,
+        body="You have uncommitted changes. They'll carry over to the other branch, or block the switch if they conflict.",
+        destructive=false,
+        op="cc:branch-restore-confirmed",
+        target="",
+        value=""
+      )
+    ),
+    "app-confirm-cancel"
+  ) : d
+)
+
+fn commandTerminalFocus(d: AppDecision, r: Change): AppDecision = (
+  r.message == "terminal:focus-composer" ? commandFocus(d, "composer") : d
+)
+
+fn commandReturnedFocus(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  r.message.startsWith("focus:") and (r.message != "focus:composer" or (s.data.sidebar.renameId ==
+      "" and s.renameAfterOp == "" and not s.data.sidebar.renameHeld)) ? commandFocus(d,
+    r.message.slice(6)) : d
+)
+
+fn commandPrPageResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  r.message.startsWith("sidebar:pr-page:") ? commandSelectPr(
+    commandOpenPage(d, s, "pull-requests"),
+    r.message.slice(16)
+  ) : d
+)
+
+fn commandGuideResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  r.message == "pr-guide:asked" ? commandFocus(
+    commandResetThread(
+      AppDecision(
+        d,
+        writePrTab=true,
+        prTab="guide"
+      ),
+      s
+    ),
+    "composer"
+  ) : d
+)
+
+fn commandNewThreadResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  r.message == "sidebar:new-thread" or r.message == "pr-handoff-next" ? commandFocus(
+    commandResetThread(d, s),
+    "composer"
+  ) : d
+)
+
+fn commandOpenedFocus(d: AppDecision, r: Change): AppDecision = (
+  r.message == "sidebar:opened:focus" ? commandFocus(d, "composer") : d
+)
+
+fn commandOpenedResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  r.message.startsWith("sidebar:opened") ? commandOpenedFocus(
+    commandResetThread(d, s),
+    r
+  ) : d
+)
+
+fn commandHandoffResult(d: AppDecision, r: Change): AppDecision = (
+  r.message == "pr-handoff-next" ? AppDecision(
+    d,
+    sendPrHandoffChanged=true,
+    prHandoff=CommandArgs(p0="pageslocal:pr-act-handoff-run", p1="", p2="", p3=0)
+  ) : d
+)
+
+fn commandPaletteResult(d: AppDecision, r: Change): AppDecision = (
+  r.message == "sidebar:palette-new-thread" or r.message.startsWith("palette:") ? commandFocus(
+    AppDecision(
+      d,
+      writePaletteSession=true,
+      paletteSession=PaletteSessionState(
+        d.paletteSession,
+        open=true,
+        mode="command",
+        page=r.message == "sidebar:palette-new-thread" ? "new-thread-in" : r.message.slice(8),
+        query=r.message.startsWith("palette:pr-linked|") ? r.message.slice(18) : "",
+        trailPages=[],
+        trailQueries=[],
+        returnQuery="",
+        restore=false,
+        cursor=-1,
+        scroll=0
+      ),
+      writeComposerMenu=true,
+      composerMenu=ComposerMenuState(
+        d.composerMenu,
+        modelsOpen=false,
+        optionsOpen=""
+      )
+    ),
+    "palette-input"
+  ) : d
+)
+
+fn commandPrSelectResult(d: AppDecision, r: Change): AppDecision = (
+  r.message.startsWith("pr-select:") ? commandSelectPr(d, r.message.slice(10)) : d
+)
+
+fn commandProjectSettingsTarget(d: AppDecision, r: Change): AppDecision = (
+  AppDecision(
+    d,
+    writeSettingsProjectId=true,
+    settingsProjectId=r.message.slice(25),
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.settingsPageState,
+      route="projects"
+    )
+  )
+)
+
+fn commandProjectSettingsResult(
+  d: AppDecision,
+  s: CommandCompletionStart,
+  r: Change
+): AppDecision = (
+  r.message.startsWith("sidebar:project-settings:") ? commandProjectSettingsTarget(
+    commandOpenSettings(d, s),
+    r
+  ) : d
+)
+
+fn commandMetadata(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  commandModalResult(
+    commandRouteResult(d, s, r),
+    s,
+    r
+  )
+)
+
+fn commandFocusResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  commandReturnedFocus(
+    commandTerminalFocus(
+      commandBranchConfirmation(d, r),
+      r
+    ),
+    s,
+    r
+  )
+)
+
+fn commandThreadResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  commandOpenedResult(
+    commandNewThreadResult(
+      commandGuideResult(
+        commandPrPageResult(d, s, r),
+        s,
+        r
+      ),
+      s,
+      r
+    ),
+    s,
+    r
+  )
+)
+
+fn commandNavigationResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  commandProjectSettingsResult(
+    commandPrSelectResult(
+      commandPaletteResult(
+        commandHandoffResult(d, r),
+        r
+      ),
+      r
+    ),
+    s,
+    r
+  )
+)
+
+fn commandResult(d: AppDecision, s: CommandCompletionStart, r: Change): AppDecision = (
+  commandNavigationResult(
+    commandThreadResult(
+      commandFocusResult(
+        commandSuccessfulResult(
+          commandMetadata(d, s, r),
+          s,
+          r
+        ),
+        s,
+        r
+      ),
+      s,
+      r
+    ),
+    s,
+    r
+  )
+)
+
+fn commandReply(d: AppDecision, changed: option<Change>, s: CommandCompletionStart): AppDecision = (
+  match changed {
+    case some(result) => commandResult(d, s, result),
+    case none => d
+  }
+)
+
+fn commandRenameAfter(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  s.renameAfterOp != "" ? AppDecision(
+    d,
+    sendLocalChanged=true,
+    local=CommandArgs(p0=`sidebarlocal:${s.renameAfterOp}`, p1=s.renameAfterId, p2="", p3=0),
+    writeRenameAfterOp=true,
+    renameAfterOp=""
+  ) : d
+)
+
+fn commandFinish(d: AppDecision, s: CommandCompletionStart): AppDecision = (
+  commandRenameAfter(
+    AppDecision(
+      d,
+      writePendingModal=true,
+      pendingModal="",
+      writeCommandPending=true,
+      commandPending=false,
+      writeLineageStopping=true,
+      lineageStopping=""
+    ),
+    s
+  )
+)
+
+fn commandFromStart(
+  d: AppDecision,
+  changed: option<Change>,
+  s: CommandCompletionStart
+): AppDecision = (
+  commandFinish(
+    commandReply(
+      commandClearNotice(d),
+      changed,
+      s
+    ),
+    s
+  )
+)
+
+fn completeCommandCompleted(
+  d: AppDecision,
+  bindings: KeybindingPage,
+  changed: option<Change>,
+  data: Snapshot,
+  jumpRequest: number,
+  keybindingDrafts: KeybindingDraft[],
+  keybindingOpen: bool,
+  keybindingPrevious: string,
+  keybindingRecording: bool,
+  keybindingSaving: string,
+  pageTrail: string[],
+  pendingModal: string,
+  providerWizardState: ProviderWizardState,
+  renameAfterId: string,
+  renameAfterOp: string,
+  restEditor: string,
+  restSubject: string,
+  routeKeyboard: RouteKeyboard,
+  routeKeyboardOwned: bool,
+  settings: Settings,
+  settingsRefresh: number,
+  utilityPage: string,
+  welcomePaired: number
+): AppDecision = (
+  commandFromStart(
+    d,
+    changed,
+    CommandCompletionStart(
+      bindings=bindings,
+      data=data,
+      jumpRequest=jumpRequest,
+      keybindingDrafts=keybindingDrafts,
+      keybindingOpen=keybindingOpen,
+      keybindingPrevious=keybindingPrevious,
+      keybindingRecording=keybindingRecording,
+      keybindingSaving=keybindingSaving,
+      pageTrail=pageTrail,
+      pendingModal=pendingModal,
+      providerWizardState=providerWizardState,
+      renameAfterId=renameAfterId,
+      renameAfterOp=renameAfterOp,
+      restEditor=restEditor,
+      restSubject=restSubject,
+      routeKeyboard=routeKeyboard,
+      routeKeyboardOwned=routeKeyboardOwned,
+      settings=settings,
+      settingsRefresh=settingsRefresh,
+      utilityPage=utilityPage,
+      welcomePaired=welcomePaired
+    )
+  )
+)

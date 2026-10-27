@@ -1,0 +1,962 @@
+use PickerTarget from "../composer/composer-shapes.contract"
+use AppDecision, CommandArgs, TextArgs, ThreeTextArgs from "./app-decisions.contract"
+use ComposerMenuState, PaletteSessionState, SettingsPageState from "./app-protocols.contract"
+use providerLinkVisit from "./app-settings.contract"
+use UiDecision, PaletteResult from "./app-ui-decisions.contract"
+use projectPaletteResult, applyPaletteResult from "./app-ui-decisions.contract"
+use stepOpenModels, stepOpenSettings from "./app-ui-navigation-transitions.contract"
+use decidePalettePageTrailNote from "./app-ui-decisions.contract"
+use decidePaletteFocusBack, decidePaletteGo from "./app-ui-palette-transitions.contract"
+use stepPrSelect, stepPrSetTab from "./app-ui-providers-transitions.contract"
+use PickerAnchor from "./app-ui-query-inputs.contract"
+use UiStart from "./app-ui-start.contract"
+use stepSettingsCommand from "./app-ui-surfaces-transitions.contract"
+
+// a clicked row takes the focus on its mouse down (NSWindow), so the field takes it back
+// ⌘U from Settings leaves it, as the /usage route does
+fn stepPaletteRun(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteRun(
+    projectPaletteResult(d.root),
+    s,
+    op,
+    arg,
+    arg2
+  )
+)
+
+fn decidePaletteRun(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = transitionPaletteRunGuard20(
+  transitionPaletteRunGuard16(
+    transitionPaletteRunGuard14(
+      transitionPaletteRunGuard12(
+        transitionPaletteRunGuard10(
+          transitionPaletteRunGuard8(
+            transitionPaletteRunGuard6(
+              transitionPaletteRunGuard4(
+                transitionPaletteRunGuard2(
+                  transitionPaletteRunGuard1(
+                    d,
+                    s,
+                    op,
+                    arg,
+                    arg2
+                  ),
+                  s,
+                  op,
+                  arg,
+                  arg2
+                ),
+                s,
+                op,
+                arg,
+                arg2
+              ),
+              s,
+              op,
+              arg,
+              arg2
+            ),
+            s,
+            op,
+            arg,
+            arg2
+          ),
+          s,
+          op,
+          arg,
+          arg2
+        ),
+        s,
+        op,
+        arg,
+        arg2
+      ),
+      s,
+      op,
+      arg,
+      arg2
+    ),
+    s,
+    op,
+    arg,
+    arg2
+  ),
+  s,
+  op,
+  arg,
+  arg2
+)
+
+fn transitionPaletteRunGuard1(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "page" or op == "browse"
+  ? decidePaletteGo(
+    d,
+    s,
+    arg,
+    op == "browse" ? arg2 : "",
+    false
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites3(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=arg
+  )
+)
+
+fn transitionPaletteRunGuard2(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "browse-to"
+  ? transitionPaletteRunWrites3(
+    d,
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites5(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    returnQuery=s.paletteSession.mode == "command" ? s.paletteSession.query : "",
+    page="",
+    mode=arg,
+    query="",
+    trailPages=[],
+    trailQueries=[]
+  )
+)
+
+fn transitionPaletteRunGuard4(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "mode"
+  ? transitionPaletteRunWrites5(
+    d,
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites7(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  hostFocus=true,
+  focus=TextArgs(
+    p0="palette-input"
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=op == "mode" and arg == "content" ? -1 : -2,
+    scroll=0
+  )
+)
+
+fn transitionPaletteRunGuard6(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "page" or op == "browse" or op == "browse-to" or op == "mode"
+  ? transitionPaletteRunWrites7(
+    d,
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites9(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  sendLocalChanged=true,
+  local=CommandArgs(
+    p0="device-setting",
+    p1=arg,
+    p2=arg2,
+    p3=0
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
+  )
+)
+
+fn transitionPaletteRunGuard8(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "device"
+  ? transitionPaletteRunWrites9(
+    d,
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites11(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  sendLocalChanged=true,
+  local=CommandArgs(
+    p0="restlocal:copy-thread",
+    p1=":",
+    p2="",
+    p3=0
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
+  )
+)
+
+fn transitionPaletteRunGuard10(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "copy-thread"
+  ? transitionPaletteRunWrites11(
+    d,
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites13(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  writeSettingsThemeDialog=true,
+  settingsThemeDialog=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
+    or s.settingsThemeDialog == "duplicate") ? "" : "create",
+  writeSettingsThemeSubject=true,
+  settingsThemeSubject="",
+  writeModalError=true,
+  modalError="",
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
+  )
+)
+
+fn transitionPaletteRunGuard12(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "theme-editor"
+  ? transitionPaletteRunWrites13(
+    d,
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites15(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  writeProviderLinkTarget=true,
+  providerLinkTarget="",
+  writeSettingsEnvironmentId=true,
+  settingsEnvironmentId=s.settings.environmentId,
+  writeSettingsThemeDialog=true,
+  settingsThemeDialog=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
+    or s.settingsThemeDialog == "duplicate") ? s.settingsThemeDialog : "",
+  writeSettingsThemeSubject=true,
+  settingsThemeSubject=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
+    or s.settingsThemeDialog == "duplicate") ? s.settingsThemeSubject : "",
+  writeSettingsMenu=true,
+  settingsMenu="",
+  writeSettingsMachine=true,
+  settingsMachine="",
+  writeSettingsWorkspace=true,
+  settingsProjectKey="",
+  settingsCheckout="",
+  writeSettingsProjectId=true,
+  settingsProjectId=op == "project-settings" ? arg : "",
+  writeModalError=true,
+  modalError="",
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
+  ),
+  writeSettingsPageState=true,
+  settingsPageState=SettingsPageState(
+    d.settingsPageState,
+    open=true,
+    route=op == "project-settings" ? "projects" : arg,
+    focusTarget=op == "settings" ? arg2 : "",
+    query=""
+  )
+)
+
+fn transitionPaletteRunGuard14(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "settings" or op == "project-settings"
+  ? transitionPaletteRunWrites15(
+    d,
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites17(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
+  ),
+  writeSettingsPageState=true,
+  settingsPageState=SettingsPageState(
+    d.settingsPageState,
+    open=op == "thread-pull-requests" and s.settingsPageState.open
+  )
+)
+
+fn transitionPaletteRunGuard18(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op != "thread-pull-requests"
+  ? decidePalettePageTrailNote(
+    d,
+    s,
+    op
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites19(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  writeUtilityPage=true,
+  utilityPage=op == "thread-pull-requests" ? s.utilityPage : op,
+  writeRightPanelAt=true,
+  rightPanelAt=op == "thread-pull-requests" ? s.shell.panel.key : s.rightPanelAt
+)
+
+fn transitionPaletteRunGuard16(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  op == "usage" or op == "pull-requests" or op == "thread-pull-requests"
+  ? transitionPaletteRunWrites19(
+    transitionPaletteRunGuard18(
+      transitionPaletteRunWrites17(
+        d,
+        s,
+        op,
+        arg,
+        arg2
+      ),
+      s,
+      op,
+      arg,
+      arg2
+    ),
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn transitionPaletteRunWrites21(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = PaletteResult(
+  d,
+  sendPaletteChanged=true,
+  palette=ThreeTextArgs(
+    p0=op == "flow" ? arg : (op == "finder" ? "pick-folder" : op),
+    p1=op == "flow" ? arg2 : arg,
+    p2=op == "open-file" ? arg2 : s.paletteSession.page
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    busy=true
+  )
+)
+
+fn transitionPaletteRunGuard20(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = (
+  (op == "flow" or op == "open-project" or op == "finder" or op == "open-file" or op == "thread"
+    or op == "new-thread" or op == "thread-pull-requests") and not s.paletteSession.busy
+  ? transitionPaletteRunWrites21(
+    d,
+    s,
+    op,
+    arg,
+    arg2
+  )
+  : d
+)
+
+fn stepPaletteShow(
+  d: UiDecision,
+  s: UiStart,
+  mode: string,
+  page: string
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteShow(
+    projectPaletteResult(d.root),
+    s,
+    mode,
+    page
+  )
+)
+
+fn decidePaletteShow(
+  d: PaletteResult,
+  s: UiStart,
+  mode: string,
+  page: string
+): PaletteResult = transitionPaletteShowGuard2(
+  transitionPaletteShowWrites1(
+    d,
+    s,
+    mode,
+    page
+  ),
+  s,
+  mode,
+  page
+)
+
+fn transitionPaletteShowWrites1(
+  d: PaletteResult,
+  s: UiStart,
+  mode: string,
+  page: string
+): PaletteResult = PaletteResult(
+  d,
+  writeProjectsOpen=true,
+  projectsOpen=false,
+  writeModalError=true,
+  modalError="",
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=(page != "" or not (s.paletteSession.open and s.paletteSession.mode == mode)),
+    mode=mode,
+    page=page,
+    query="",
+    cursor=mode == "files" or page != "" ? -2 : -1,
+    scroll=0,
+    trailPages=[],
+    trailQueries=[],
+    returnQuery=""
+  ),
+  writeComposerMenu=true,
+  composerMenu=ComposerMenuState(
+    d.composerMenu,
+    modelsOpen=false,
+    optionsOpen=""
+  )
+)
+
+fn transitionPaletteShowWrites3(
+  d: PaletteResult,
+  s: UiStart,
+  mode: string,
+  page: string
+): PaletteResult = PaletteResult(
+  d,
+  hostFocus=true,
+  focus=TextArgs(
+    p0="palette-input"
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    restore=false
+  )
+)
+
+fn transitionPaletteShowGuard2(
+  d: PaletteResult,
+  s: UiStart,
+  mode: string,
+  page: string
+): PaletteResult = (
+  (page != "" or not (s.paletteSession.open and s.paletteSession.mode == mode))
+  ? transitionPaletteShowWrites3(
+    d,
+    s,
+    mode,
+    page
+  )
+  : decidePaletteFocusBack(
+  d,
+  s,
+  (s.paletteSession.page)
+)
+)
+
+// a setup link names its environment: Settings' own the scope's representative (ProjectDefaultsSettings.tsx:168-173), none without one; the chat's its thread's (ChatView.tsx:5217-5223)
+// retainSettingsScope: a link from outside Settings starts with no scope
+fn stepOpenProviderSettings(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = transitionOpenProviderSettingsGuard1(
+  d,
+  s,
+  id
+)
+
+fn transitionOpenProviderSettingsWrites2(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  writeProviderVisit=true,
+  providerVisit=providerLinkVisit(s.providerVisit, s.settingsPageState.open
+    and s.settingsPageState.route == "providers", s.settingsMachine, s.providerLinkTarget,
+    id == "" ? "" : (s.settingsPageState.open ? s.settingsCore.scopeEnvironment
+    : s.settings.environmentId), id == "" ? "" : `target:${id}`)
+)
+
+fn transitionOpenProviderSettingsWrites3(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsMachine=true,
+    settingsMachine=id == "" ? "" : (s.settingsPageState.open ? s.settingsCore.scopeEnvironment
+      : s.settings.environmentId),
+    writeProviderSelected=true,
+    providerSelected=id == "" ? "" : `target:${id}`,
+    writeProviderLinkTarget=true,
+    providerLinkTarget=id == "" ? "" : `target:${id}`,
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      route="providers"
+    )
+  )
+)
+
+fn transitionOpenProviderSettingsGuard1(
+  d: UiDecision,
+  s: UiStart,
+  id: string
+): UiDecision = (
+  not s.settingsPageState.open or (s.settingsPageState.open ? s.settingsCore.scopeEnvironment
+    : s.settings.environmentId) != ""
+  ? transitionOpenProviderSettingsWrites3(
+    stepOpenSettings(
+      transitionOpenProviderSettingsWrites2(
+        d,
+        s,
+        id
+      ),
+      s
+    ),
+    s,
+    id
+  )
+  : d
+)
+
+fn stepPrAct(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = transitionPrActGuard2(
+  transitionPrActGuard1(
+    d,
+    s,
+    op,
+    value
+  ),
+  s,
+  op,
+  value
+)
+
+fn transitionPrActGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = (
+  op == "guide-write" and not s.prDetail.guide.hasGuide
+  ? stepPrSetTab(
+    d,
+    s,
+    "guide"
+  )
+  : d
+)
+
+fn transitionPrActWrites3(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendPrQuickChanged=true,
+    prQuick=CommandArgs(
+      p0=`pageslocal:pr-act-${op == "quick" ? "queue" : op}`,
+      p1="",
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionPrActWrites4(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=`pageslocal:pr-act-${op}`,
+      p1=s.utilityPage == "pull-requests" ? s.prSelected : s.shell.panel.pr.selected,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionPrActGuard2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  value: string
+): UiDecision = (
+  op == "quick" or op == "close-batch"
+  ? transitionPrActWrites3(
+    d,
+    s,
+    op,
+    value
+  )
+  : not s.commandPending
+  ? transitionPrActWrites4(
+    d,
+    s,
+    op,
+    value
+  )
+  : d
+)
+
+fn stepPrClose(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = stepPrSelect(
+  transitionPrCloseGuard1(
+    d,
+    s
+  ),
+  s,
+  ""
+)
+
+fn transitionPrCloseWrites2(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendLocalChanged=true,
+    local=CommandArgs(
+      p0="shelllocal:surface-remember-pr",
+      p1=s.prSelected,
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionPrCloseGuard1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = (
+  s.prSelected != ""
+  ? transitionPrCloseWrites2(
+    d,
+    s
+  )
+  : d
+)
+
+fn stepCoreChange(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = transitionCoreChangeGuard2(
+  transitionCoreChangeWrites1(
+    d,
+    s,
+    row,
+    part,
+    value
+  ),
+  s,
+  row,
+  part,
+  value
+)
+
+fn transitionCoreChangeWrites1(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsMenu=true,
+    settingsMenu=""
+  )
+)
+
+fn transitionCoreChangeWrites4(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string,
+  anchor: PickerAnchor
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelTarget=PickerTarget(id=`${row}:|${s.settingsCore.scopeKey}`, top=anchor.top,
+        bottom=anchor.bottom, left=anchor.left)
+    )
+  )
+)
+
+fn transitionCoreChangeMatch3(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = match s.pickerAnchor {
+  case some(anchor) => transitionCoreChangeWrites4(
+    d,
+    s,
+    row,
+    part,
+    value,
+    anchor
+  ),
+  case none => d
+}
+
+fn transitionCoreChangeWrites5(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeSettingsThemeDialog=true,
+    settingsThemeDialog="background-activity",
+    writeModalError=true,
+    modalError=""
+  )
+)
+
+fn transitionCoreChangeGuard2(
+  d: UiDecision,
+  s: UiStart,
+  row: string,
+  part: string,
+  value: string
+): UiDecision = (
+  part == "picker"
+  ? transitionCoreChangeMatch3(
+    stepOpenModels(
+      d,
+      s
+    ),
+    s,
+    row,
+    part,
+    value
+  )
+  : row == "background-activity" and value == "advanced"
+  ? transitionCoreChangeWrites5(
+    d,
+    s,
+    row,
+    part,
+    value
+  )
+  : stepSettingsCommand(
+  d,
+  s,
+  "settings-core",
+  `${row}:${part}|${s.settingsCore.scopeKey}`,
+  value
+)
+)

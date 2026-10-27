@@ -1,0 +1,178 @@
+use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
+use HoverState, ModifierOwnershipState, NoticeExitState, ProviderWizardState from "./app-protocols.contract"
+use noHoverTip, HoverTip, hoverOpenDelay from "./hover-layer.contract"
+use emptyShortcutModifierState from "./shortcut-modifiers.contract"
+use IntegrationsPage from "../settings/settings-source-control.contract"
+use ConnectionsPage from "../connections/connections.contract"
+use ProviderPage from "../providers/providers.contract"
+use ProviderWizard from "../providers/providers-wizard.contract"
+
+fn completeHoverTicked(
+  d: AppDecision,
+  hoverOwnerValid: bool,
+  hoverShown: bool,
+  hoverState: HoverState
+): AppDecision = (
+  hoverOwnerValid
+    ? AppDecision(
+      d,
+      writeHoverState=true,
+      hoverState=HoverState(d.hoverState, wait=hoverState.wait + 10)
+    )
+    : clearExpiredHover(d, hoverShown, hoverState, noHoverTip())
+)
+
+fn clearExpiredHover(
+  d: AppDecision,
+  hoverShown: bool,
+  start: HoverState,
+  tip: HoverTip
+): AppDecision = clearExpiredHoverAt(
+  d,
+  start,
+  tip,
+  tip.key == start.tip.key and hoverShown ? start.wait : start.wait + hoverOpenDelay(tip.kind)
+)
+
+fn clearExpiredHoverAt(
+  d: AppDecision,
+  start: HoverState,
+  tip: HoverTip,
+  at: number
+): AppDecision = AppDecision(
+  d,
+  writeHoverState=true,
+  hoverState=HoverState(d.hoverState, tip=tip, on="", open=at, end=at, wait=start.wait + 10)
+)
+
+fn completeImportWizardFlip(
+  d: AppDecision,
+  importWizardShown: bool,
+  integrations: IntegrationsPage
+): AppDecision = AppDecision(
+  d,
+  writeImportWizardShown=true,
+  importWizardShown=integrations.browserProfiles.wizard.open,
+  hostFocus=importWizardShown and not integrations.browserProfiles.wizard.open ? true : d.hostFocus,
+  focus=importWizardShown and not integrations.browserProfiles.wizard.open
+    ? TextArgs(p0="browser-profiles-add") : d.focus
+)
+
+fn completeImportWizardStep(
+  d: AppDecision,
+  importWizardAt: number,
+  importWizardFocused: string,
+  integrations: IntegrationsPage
+): AppDecision = importWizardFocus(
+  AppDecision(
+    d,
+    writeImportWizardAt=true,
+    importWizardAt=integrations.browserProfiles.wizard.focusAt
+  ),
+  importWizardAt,
+  importWizardFocused,
+  integrations
+)
+
+fn importWizardFocus(
+  d: AppDecision,
+  importWizardAt: number,
+  importWizardFocused: string,
+  integrations: IntegrationsPage
+): AppDecision = (
+  integrations.browserProfiles.wizard.openedAt > importWizardAt
+    ? AppDecision(d, hostFocus=true, focus=TextArgs(p0=integrations.browserProfiles.wizard.openFocus))
+    : integrations.browserProfiles.wizard.focusAt >= 0
+      and importWizardFocused != "browser-import-popup"
+      and not integrations.browserProfiles.wizard.mounted
+        .filter((element) => element.since <= importWizardAt)
+        .map((element) => element.id).includes(importWizardFocused)
+      ? AppDecision(d, hostFocus=true, focus=TextArgs(p0="browser-import-popup"))
+      : d
+)
+
+// Also a paste's: a dictation tool's synthetic ⌘V can send no Meta keyup, which would keep the hints up.
+fn completeModifiersForget(
+  d: AppDecision,
+  modifierOwnership: ModifierOwnershipState
+): AppDecision = AppDecision(
+  d,
+  writeModifierOwnership=true,
+  modifierOwnership=ModifierOwnershipState(
+    d.modifierOwnership,
+    shortcut=emptyShortcutModifierState(),
+    speed=emptyShortcutModifierState()
+  )
+)
+
+fn completeNoticeExited(
+  d: AppDecision,
+  commandPending: bool,
+  noticeExitState: NoticeExitState
+): AppDecision = (
+  not commandPending
+    ? AppDecision(
+      d,
+      writeCommandPending=true,
+      commandPending=true,
+      changedKind="command",
+      command=CommandArgs(p0=noticeExitState.op, p1=noticeExitState.target, p2="", p3=0),
+      writeNoticeExitState=true,
+      noticeExitState=NoticeExitState(d.noticeExitState, op="")
+    )
+    : AppDecision(
+      d,
+      writeNoticeExitState=true,
+      noticeExitState=NoticeExitState(d.noticeExitState, notice="", op="")
+    )
+)
+
+fn completeProviderTick(
+  d: AppDecision,
+  connectionsPage: ConnectionsPage,
+  providerPage: ProviderPage,
+  providerWizard: ProviderWizard,
+  providerWizardState: ProviderWizardState,
+  settingsOpen: bool,
+  settingsRoute: string
+): AppDecision = providerDialogSettled(
+  settingsOpen and (settingsRoute == "providers"
+    or (settingsRoute == "connections" and connectionsPage.network.ticking))
+    ? AppDecision(d, writeProviderNow=true, providerNow=performanceNow())
+    : d,
+  providerPage,
+  providerWizard,
+  providerWizardState
+)
+
+// The dialog follows the shared plan and disappears when its environment disappears.
+fn providerDialogSettled(
+  d: AppDecision,
+  providerPage: ProviderPage,
+  providerWizard: ProviderWizard,
+  start: ProviderWizardState
+): AppDecision = AppDecision(
+  d,
+  writeProviderWizardState=true,
+  providerWizardState=ProviderWizardState(
+    d.providerWizardState,
+    dialog=(start.dialog == "chatgpt" and providerWizard.chatgptConnected)
+      or providerPage.environment == "-" ? "" : start.dialog
+  )
+)
+
+fn completeRemovalFlip(
+  d: AppDecision,
+  integrations: IntegrationsPage,
+  removalAt: string
+): AppDecision = AppDecision(
+  d,
+  hostFocus=true,
+  focus=TextArgs(
+    p0=removalAt == "" ? "browser-profile-remove-cancel"
+      : integrations.browserProfiles.rows.map((row) => row.id).includes(removalAt)
+        ? `browser-profile-options-${removalAt}` : "browser-profiles-add"
+  ),
+  writeRemovalAt=true,
+  removalAt=integrations.browserProfiles.removalId
+)

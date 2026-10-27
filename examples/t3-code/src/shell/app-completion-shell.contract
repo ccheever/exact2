@@ -1,0 +1,604 @@
+use AppDecision, CommandArgs, NumberArgs, TextArgs, ThreeTextArgs, TransportArgs from "./app-decisions.contract"
+use ConfirmationState, PaletteSessionState, WorkspaceRetryState from "./app-protocols.contract"
+use ComposerDraftState, SettingsPageState from "./app-protocols.contract"
+use WorkspaceDiscovery, WorkspaceRefresh, Time from "./app-shapes.contract"
+use ShellView from "./shell-shapes.contract"
+use Change, Snapshot, Viewport from "../shared/shapes.contract"
+use HighlightStep from "../highlight/highlight.contract"
+use ChipPopover from "../composer/composer-chip-popover.contract"
+use PrDetailView from "../pull-requests/pages-pr-detail.contract"
+use WelcomeView from "../pages/pages-welcome.contract"
+use pageTrailNext from "../pages/pages-hero.contract"
+
+fn completeAutomationRecordingNow(
+  d: AppDecision,
+  shell: ShellView
+): AppDecision = AppDecision(
+  d,
+  writeAutomationRecordingHandled=true,
+  automationRecordingHandled=shell.panel.automationRecording.serial,
+  sendAutomationRecordingServed0=shell.panel.automationRecording.slot == 0
+    or (shell.panel.automationRecording.slot != 1 and shell.panel.automationRecording.slot != 2
+      and shell.panel.automationRecording.slot != 3),
+  record0=CommandArgs(p0="shelllocal:surface-browser-automation-recording", p1="0", p2="", p3=0),
+  sendAutomationRecordingServed1=shell.panel.automationRecording.slot == 1,
+  record1=CommandArgs(p0="shelllocal:surface-browser-automation-recording", p1="1", p2="", p3=0),
+  sendAutomationRecordingServed2=shell.panel.automationRecording.slot == 2,
+  record2=CommandArgs(p0="shelllocal:surface-browser-automation-recording", p1="2", p2="", p3=0),
+  sendAutomationRecordingServed3=shell.panel.automationRecording.slot == 3,
+  record3=CommandArgs(p0="shelllocal:surface-browser-automation-recording", p1="3", p2="", p3=0)
+)
+
+fn completeChipActRun(
+  d: AppDecision,
+  chip: ChipPopover,
+  wallTime: Time
+): AppDecision = AppDecision(
+  d,
+  writeChipActed=true,
+  chipActed=chip.seq,
+  sendLocalChanged=true,
+  local=CommandArgs(
+    p0="editorlocal:chip-act",
+    p1=`${chip.seq}`,
+    p2="",
+    p3=wallTime.epochAtZero + performanceNow()
+  )
+)
+
+fn completeCodeRevealOpen(
+  d: AppDecision,
+  prDetail: PrDetailView,
+  utilityPage: string
+): AppDecision = AppDecision(
+  d,
+  writeCodeRevealHandled=true,
+  codeRevealHandled=`${prDetail.guide.key}:${prDetail.codeTab.revealNonce}`,
+  scrollKind=utilityPage == "pull-requests" ? "pr-page" : "pr-surface",
+  scrollRow=`file:${prDetail.codeTab.revealPath}`
+)
+
+fn completeConfirmHanded(
+  d: AppDecision,
+  commandPending: bool,
+  confirmationState: ConfirmationState,
+  shell: ShellView
+): AppDecision = closeHandedConfirmation(
+  AppDecision(
+    d,
+    writeConfirmationState=true,
+    confirmationState=ConfirmationState(d.confirmationState, handing="")
+  ),
+  confirmationState.handing == "accept",
+  commandPending,
+  confirmationState,
+  shell
+)
+
+fn completeDispatchTimelineReads(
+  d: AppDecision,
+  pendingTimelineReadsRefreshed: bool,
+  pendingTimelineReadsRefreshedNext: bool,
+  wallTime: Time
+): AppDecision = AppDecision(
+  d,
+  sendTimelineReadsRefreshed=not pendingTimelineReadsRefreshed,
+  timeline=not pendingTimelineReadsRefreshed
+    ? NumberArgs(p0=wallTime.epochAtZero + performanceNow()) : d.timeline,
+  sendTimelineReadsRefreshedNext=not pendingTimelineReadsRefreshedNext,
+  timelineNext=not pendingTimelineReadsRefreshedNext
+    ? NumberArgs(p0=wallTime.epochAtZero + performanceNow()) : d.timelineNext
+)
+
+// ChatComposer's drop and Attach files focus the prompt; a legacy row's drop opens its thread (handleThreadFileDrop).
+fn completeFilesAddedDone(
+  d: AppDecision,
+  commandPending: bool,
+  filesAdded: option<Change>,
+  jumpRequest: number
+): AppDecision = match filesAdded {
+  case some(result) => result.message == "focus:composer"
+    ? AppDecision(d, hostFocus=true, focus=TextArgs(p0="composer"))
+    : result.message.startsWith("open:") and not commandPending and result.message.slice(5) != ""
+      ? AppDecision(
+        d,
+        writeComposerDraft=true,
+        composerDraft=ComposerDraftState(d.composerDraft, owner="__unset__"),
+        writeCommandPending=true,
+        commandPending=true,
+        changedKind="command",
+        command=CommandArgs(p0="select-thread", p1=result.message.slice(5), p2="click", p3=0),
+        writeJumpRequest=true,
+        jumpRequest=jumpRequest + 1,
+        writeUtilityPage=true,
+        utilityPage=""
+      )
+      : d,
+  case none => d
+}
+
+fn completeFocusSidebarDialog(
+  d: AppDecision,
+  data: Snapshot
+): AppDecision = AppDecision(
+  d,
+  hostFocus=true,
+  focus=TextArgs(
+    p0=data.sidebar.dialog == "snooze"
+      ? "snooze-mode-date" : `sidebar-${data.sidebar.dialog}-cancel`
+  ),
+  writeTitleDialog=true,
+  titleDialog=data.sidebar.dialogReturn == "thread-title"
+)
+
+fn completeFragmentOpened(
+  d: AppDecision,
+  fragmentChanged: option<Change>,
+  jumpRequest: number,
+  pageTrail: string[],
+  utilityPage: string
+): AppDecision = match fragmentChanged {
+  case some(result) => result.message.startsWith("sidebar:pr-page:")
+    ? AppDecision(
+      d,
+      writePageTrail=true,
+      pageTrail=pageTrailNext(pageTrail, utilityPage, "pull-requests"),
+      writeUtilityPage=true,
+      utilityPage="pull-requests",
+      writeSidebarHoverId=true,
+      sidebarHoverId="",
+      writePrSelected=true,
+      prSelected=result.message.slice(16),
+      writePrPanelOpen=true,
+      prPanelOpen=true,
+      writePrTab=true,
+      prTab="summary"
+    )
+    : result.message == "sidebar:new-thread"
+      ? AppDecision(
+        d,
+        writeComposerDraft=true,
+        composerDraft=ComposerDraftState(d.composerDraft, owner="__unset__"),
+        writeJumpRequest=true,
+        jumpRequest=jumpRequest + 1,
+        writeUtilityPage=true,
+        utilityPage="",
+        hostFocus=true,
+        focus=TextArgs(p0="composer")
+      )
+      : d,
+  case none => d
+}
+
+fn completeGuideFinishOpen(
+  d: AppDecision,
+  prDetail: PrDetailView,
+  utilityPage: string
+): AppDecision = AppDecision(
+  d,
+  writeGuideFinishHandled=true,
+  guideFinishHandled=`${prDetail.guide.key}:${prDetail.guide.finishNonce}`,
+  hostShowPopover=true,
+  showPopover=TextArgs(
+    p0=utilityPage == "pull-requests" ? "pr-page-scroll-composer" : "pr-surface-scroll-composer"
+  )
+)
+
+fn completeHighlightStep(
+  d: AppDecision,
+  pendingHighlightSliced: bool,
+  wallTime: Time
+): AppDecision = (
+  not pendingHighlightSliced
+    ? AppDecision(
+      d,
+      sendHighlightSliced=true,
+      highlight=NumberArgs(p0=wallTime.epochAtZero + performanceNow())
+    )
+    : d
+)
+
+// A refresh replaces an answer in flight, so the pump leaves one alone; one that lands with a text
+// still without its tokens reports highlightPending and is asked again. Replaced every 16 ms, a
+// launch's snapshot answer (seconds) never landed to clear highlightPending, and its forgotten
+// native calls filled the executor's admission limit. With nothing finished, only an answer still
+// reporting highlightPending is asked again.
+fn completeHighlightStepped(
+  d: AppDecision,
+  data: Snapshot,
+  highlightSliced: option<HighlightStep>,
+  pendingData: bool,
+  pendingShell: bool,
+  shell: ShellView
+): AppDecision = match highlightSliced {
+  case some(step) => step.finished or not step.pending
+    ? AppDecision(
+      d,
+      refreshData=not pendingData and (step.finished or data.highlightPending)
+        ? true : d.refreshData,
+      refreshShell=not pendingShell and (step.finished or shell.highlightPending)
+        ? true : d.refreshShell
+    )
+    : d,
+  case none => not pendingData ? AppDecision(d, refreshData=true) : d
+}
+
+// A timeline read's mutation refreshes data as it lands, and a refresh replaces an answer in flight, so the tick
+// leaves a pending data answer alone, as the highlight pump does (highlightStepped): asked again each second, a
+// launch's slow snapshot answer could never land.
+fn completeLiveTick(
+  d: AppDecision,
+  data: Snapshot,
+  liveNow: number,
+  pageCover: bool,
+  pendingData: bool,
+  pendingTimelineReadsRefreshed: bool,
+  pendingTimelineReadsRefreshedNext: bool,
+  pendingWorkspaceRefreshed: bool,
+  prDetail: PrDetailView,
+  settingsOpen: bool,
+  wallTime: Time,
+  welcome: WelcomeView,
+  workspaceDiscovery: WorkspaceDiscovery,
+  workspaceRetry: WorkspaceRetryState
+): AppDecision = liveClock(
+  liveWorkspace(
+    liveTimeline(
+      not settingsOpen and not pageCover and not welcome.show
+        ? AppDecision(d, writeWorkspaceNow=true, workspaceNow=performanceNow())
+        : d,
+      data,
+      pendingData,
+      pendingTimelineReadsRefreshed,
+      pendingTimelineReadsRefreshedNext,
+      wallTime
+    ),
+    workspaceDiscovery,
+    pendingWorkspaceRefreshed,
+    workspaceRetry
+  ),
+  data,
+  liveNow,
+  prDetail,
+  wallTime
+)
+
+fn completePrSettle(
+  d: AppDecision,
+  prQuery: string
+): AppDecision = AppDecision(
+  d,
+  writePrApplied=true,
+  prApplied=prQuery,
+  sendLocalChanged=true,
+  local=CommandArgs(p0="pageslocal:pr-query", p1="", p2=prQuery, p3=0)
+)
+
+fn completeReturnTitleFocus(
+  d: AppDecision
+): AppDecision = AppDecision(
+  d,
+  writeTitleDialog=true,
+  titleDialog=false,
+  hostFocus=true,
+  focus=TextArgs(p0="thread-title")
+)
+
+fn completeSaveNow(
+  d: AppDecision,
+  data: Snapshot
+): AppDecision = AppDecision(
+  d,
+  writeSaveNonce=true,
+  saveNonce=data.saveRequest.nonce,
+  hostSaveFile=true,
+  saveFile=ThreeTextArgs(p0="save-file", p1=data.saveRequest.from, p2=data.saveRequest.name)
+)
+
+fn completeShellGuideOpen(
+  d: AppDecision,
+  pageTrail: string[],
+  shell: ShellView,
+  utilityPage: string
+): AppDecision = AppDecision(
+  d,
+  writeShellOpenHandled=true,
+  shellOpenHandled=shell.openRequest,
+  writePageTrail=true,
+  pageTrail=pageTrailNext(pageTrail, utilityPage, "pull-requests"),
+  writeUtilityPage=true,
+  utilityPage="pull-requests",
+  writeSidebarHoverId=true,
+  sidebarHoverId="",
+  writePrSelected=true,
+  prSelected=shell.openGuideSelected,
+  writePrPanelOpen=true,
+  prPanelOpen=true,
+  writePrTab=true,
+  prTab="guide",
+  writeSettingsPageState=true,
+  settingsPageState=SettingsPageState(d.settingsPageState, open=false)
+)
+
+fn completeShellOpenThread(
+  d: AppDecision,
+  jumpRequest: number,
+  settingsOpen: bool,
+  shell: ShellView,
+  utilityPage: string
+): AppDecision = AppDecision(
+  d,
+  writeShellOpenHandled=true,
+  shellOpenHandled=shell.openRequest,
+  writeComposerDraft=true,
+  composerDraft=ComposerDraftState(d.composerDraft, owner="__unset__"),
+  writeCommandPending=true,
+  commandPending=true,
+  changedKind="command",
+  command=CommandArgs(
+    p0=shell.openThreadId.startsWith("activation:") ? "activation:open" : "select-thread",
+    p1=shell.openThreadId,
+    p2="",
+    p3=0
+  ),
+  writeJumpRequest=true,
+  jumpRequest=jumpRequest + 1,
+  writeSettingsPageState=true,
+  settingsPageState=SettingsPageState(
+    d.settingsPageState,
+    open=settingsOpen and not shell.openThreadId.startsWith("activation:")
+  ),
+  writeUtilityPage=true,
+  utilityPage=shell.openThreadId.startsWith("activation:") ? "" : utilityPage
+)
+
+fn completeShellTick(
+  d: AppDecision,
+  commandPending: bool,
+  shell: ShellView
+): AppDecision = (
+  shell.toastCount > 0 or shell.ticking or commandPending
+    ? AppDecision(d, writeShellClock=true, shellClock=performanceNow())
+    : d
+)
+
+fn completeTerminalCloseConfirm(
+  d: AppDecision,
+  confirmationState: ConfirmationState,
+  shell: ShellView
+): AppDecision = AppDecision(
+  d,
+  writeTerminalCloseHandled=true,
+  terminalCloseHandled=shell.panel.terminalClose.serial,
+  writeConfirmationState=true,
+  confirmationState=ConfirmationState(
+    d.confirmationState,
+    title=shell.panel.terminalClose.title,
+    body=shell.panel.terminalClose.body,
+    destructive=true,
+    op=shell.panel.terminalClose.op,
+    target=shell.panel.terminalClose.target,
+    returnTo="",
+    value=""
+  ),
+  hostFocus=true,
+  focus=TextArgs(p0="app-confirm-cancel")
+)
+
+fn completeTerminalCompleted(
+  d: AppDecision,
+  terminalChanged: option<Change>
+): AppDecision = match terminalChanged {
+  case some(result) => result.message == "terminal:focus-composer"
+    ? AppDecision(d, hostFocus=true, focus=TextArgs(p0="composer"))
+    : d,
+  case none => d
+}
+
+// ThemeEditorPanel's reveal glides, and jumps under Reduce Motion.
+fn completeThemeRevealed(
+  d: AppDecision,
+  themeReveal: string,
+  viewport: Viewport
+): AppDecision = AppDecision(
+  d,
+  scrollKind=viewport.prefersReducedMotion ? "element-instant" : "element-smooth",
+  scrollTarget=`theme-editor-row-${themeReveal}`,
+  writeThemeReveal=true,
+  themeReveal=""
+)
+
+fn completeWindowReopened(
+  d: AppDecision,
+  paletteSession: PaletteSessionState
+): AppDecision = AppDecision(
+  d,
+  writeSettingsPageState=true,
+  settingsPageState=SettingsPageState(d.settingsPageState, open=false),
+  writeUtilityPage=true,
+  utilityPage="",
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(d.paletteSession, open=false),
+  sendFragmentChanged=true,
+  fragment=CommandArgs(p0="shelllocal:reopen", p1="", p2="", p3=0)
+)
+
+fn completeWindowReturned(
+  d: AppDecision,
+  wallTime: Time,
+  windowReturns: number
+): AppDecision = AppDecision(
+  d,
+  writeWindowClock=true,
+  elapsed=performanceNow(),
+  windowReturns=windowReturns + 1,
+  sendTransportPumped=true,
+  transport=TransportArgs(p0=wallTime.epochAtZero + performanceNow(), p1="foreground")
+)
+
+fn completeWorkspaceRefreshFinished(
+  d: AppDecision,
+  workspaceRefreshed: option<WorkspaceRefresh>,
+  workspaceRetry: WorkspaceRetryState
+): AppDecision = match workspaceRefreshed {
+  case some(result) => AppDecision(
+    d,
+    writeWorkspaceRetry=true,
+    workspaceRetry=WorkspaceRetryState(
+      d.workspaceRetry,
+      key=result.key,
+      at=result.retry ? performanceNow() + 10000 : 0,
+      wake=result.wake
+    )
+  ),
+  case none => AppDecision(
+    d,
+    writeWorkspaceRetry=true,
+    workspaceRetry=WorkspaceRetryState(d.workspaceRetry, at=performanceNow() + 10000)
+  )
+}
+
+// Preserve the source transaction's initial confirmation values through the delayed handoff.
+fn closeHandedConfirmation(
+  d: AppDecision,
+  accept: bool,
+  commandPending: bool,
+  start: ConfirmationState,
+  shell: ShellView
+): AppDecision = closeHandedConfirmationResult(
+  AppDecision(
+    d,
+    writeConfirmationState=true,
+    confirmationState=ConfirmationState(d.confirmationState, op=""),
+    writeTerminalCloseHandled=start.op == "terminallocal:close"
+      or start.op == "terminalpanellocal:close" or start.op == "shelllocal:surface-close-confirmed"
+      ? true : d.writeTerminalCloseHandled,
+    terminalCloseHandled=start.op == "terminallocal:close"
+      or start.op == "terminalpanellocal:close" or start.op == "shelllocal:surface-close-confirmed"
+      ? shell.panel.terminalClose.serial : d.terminalCloseHandled,
+    hostFocus=start.op.startsWith("shell:") ? true : d.hostFocus,
+    focus=start.op.startsWith("shell:") ? TextArgs(p0="thread-title") : d.focus
+  ),
+  accept,
+  commandPending,
+  start,
+  shell
+)
+
+fn closeHandedConfirmationResult(
+  d: AppDecision,
+  accept: bool,
+  commandPending: bool,
+  start: ConfirmationState,
+  shell: ShellView
+): AppDecision = (
+  accept and (start.op == "terminallocal:close" or start.op == "terminalpanellocal:close")
+    ? AppDecision(
+      d,
+      sendTerminalChanged=true,
+      terminal=CommandArgs(p0=start.op, p1=start.target, p2=start.value, p3=0)
+    )
+    : accept and not commandPending
+      ? AppDecision(
+        d,
+        writeCommandPending=true,
+        commandPending=true,
+        changedKind="command",
+        command=CommandArgs(p0=start.op, p1=start.target, p2=start.value, p3=0)
+      )
+      : not accept and (start.op == "terminallocal:close" or start.op == "terminalpanellocal:close")
+        ? start.returnTo != ""
+          ? AppDecision(d, hostFocus=true, focus=TextArgs(p0=start.returnTo))
+          : AppDecision(
+            d,
+            sendTerminalChanged=true,
+            terminal=CommandArgs(
+              p0=start.op == "terminallocal:close"
+                ? "terminallocal:focus" : "terminalpanellocal:focus",
+              p1=start.target,
+              p2="",
+              p3=0
+            )
+          )
+        : not accept and start.op == "shelllocal:surface-close-confirmed"
+          and shell.panel.terminal.open
+          ? AppDecision(
+            d,
+            sendTerminalChanged=true,
+            terminal=CommandArgs(
+              p0="terminalpanellocal:focus",
+              p1=`${shell.panel.terminal.threadKey}|${shell.panel.terminal.terminalId}`,
+              p2="",
+              p3=0
+            )
+          )
+          : d
+)
+
+fn liveTimeline(
+  d: AppDecision,
+  data: Snapshot,
+  pendingData: bool,
+  pendingTimelineReadsRefreshed: bool,
+  pendingTimelineReadsRefreshedNext: bool,
+  wallTime: Time
+): AppDecision = (
+  data.timelineReadsNeeded and not pendingData
+    ? completeDispatchTimelineReads(
+      d,
+      pendingTimelineReadsRefreshed,
+      pendingTimelineReadsRefreshedNext,
+      wallTime
+    )
+    : d
+)
+
+fn liveWorkspace(
+  d: AppDecision,
+  workspaceDiscovery: WorkspaceDiscovery,
+  pendingWorkspaceRefreshed: bool,
+  start: WorkspaceRetryState
+): AppDecision = (
+  workspaceDiscovery.needed and not pendingWorkspaceRefreshed
+    ? liveWorkspaceWake(
+      start.key != workspaceDiscovery.key
+        or (performanceNow() >= start.at
+          and (workspaceDiscovery.timer or workspaceDiscovery.wake != start.wake))
+        ? AppDecision(
+          d,
+          sendWorkspaceRefreshed=true,
+          workspace=TextArgs(p0=workspaceDiscovery.key)
+        )
+        : d,
+      workspaceDiscovery,
+      start
+    )
+    : d
+)
+
+fn liveWorkspaceWake(
+  d: AppDecision,
+  workspaceDiscovery: WorkspaceDiscovery,
+  start: WorkspaceRetryState
+): AppDecision = (
+  start.key == workspaceDiscovery.key and performanceNow() < start.at
+    ? AppDecision(
+      d,
+      writeWorkspaceRetry=true,
+      workspaceRetry=WorkspaceRetryState(d.workspaceRetry, wake=workspaceDiscovery.wake)
+    )
+    : d
+)
+
+fn liveClock(
+  d: AppDecision,
+  data: Snapshot,
+  liveNow: number,
+  prDetail: PrDetailView,
+  wallTime: Time
+): AppDecision = (
+  data.running or data.subagentsLive or data.sidebar.ticking
+    or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling
+    ? AppDecision(d, writeLiveNow=true, liveNow=performanceNow())
+    : d
+)

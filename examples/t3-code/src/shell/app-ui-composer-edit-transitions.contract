@@ -1,0 +1,855 @@
+use ComposerChipRequest from "../composer/composer-chip-controls.contract"
+use ComposerFieldObservation from "../composer/composer-rich.contract"
+use AppDecision, ChatLocalResult, CommandArgs, ComposerFieldArgs, TwoTextArgs from "./app-decisions.contract"
+use ComposerDraftState, ComposerIntentState, ComposerMenuState from "./app-protocols.contract"
+use ComposerSelectionState, KeybindingEditorState from "./app-protocols.contract"
+use PaletteSessionState, ProviderWizardState, SettingsPageState from "./app-protocols.contract"
+use SshResponseState from "./app-protocols.contract"
+use UiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+use TranscriptViewportState from "./app-protocols.contract"
+use PanelView from "../panel/panel-shapes.contract"
+
+fn stepComposerBlur(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionComposerBlurWrites1(
+  d,
+  s
+)
+
+fn transitionComposerBlurWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      focused=false,
+      typing=false,
+      composing=false
+    )
+  ),
+  writeComposerModifiers=true,
+  composerShift=false,
+  composerCommand=false
+)
+
+fn stepComposerChipPress(
+  d: UiDecision,
+  s: UiStart,
+  surface: string,
+  owner: string,
+  value: string,
+  serial: number,
+  start: number,
+  end: number,
+  source: string,
+  comment: bool,
+  anchorId: string
+): UiDecision = transitionComposerChipPressGuard1(
+  d,
+  s,
+  surface,
+  owner,
+  value,
+  serial,
+  start,
+  end,
+  source,
+  comment,
+  anchorId
+)
+
+fn transitionComposerChipPressWrites4(
+  d: UiDecision,
+  s: UiStart,
+  surface: string,
+  owner: string,
+  value: string,
+  serial: number,
+  start: number,
+  end: number,
+  source: string,
+  comment: bool,
+  anchorId: string,
+  bounds: Geometry
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    chip=some(ComposerChipRequest(generation=((surface == "preview") ? s.richPromptPreview
+          : s.richComposer).generation, snapshotOwner=s.data.snapshotOwner, owner=owner, value=value,
+        inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment,
+        frame=bounds))
+  )
+)
+
+fn transitionComposerChipPressGuard3(
+  d: UiDecision,
+  s: UiStart,
+  surface: string,
+  owner: string,
+  value: string,
+  serial: number,
+  start: number,
+  end: number,
+  source: string,
+  comment: bool,
+  anchorId: string,
+  bounds: Geometry
+): UiDecision = (
+  not bounds.unavailable and bounds.width > 0 and bounds.height > 0
+  ? transitionComposerChipPressWrites4(
+    d,
+    s,
+    surface,
+    owner,
+    value,
+    serial,
+    start,
+    end,
+    source,
+    comment,
+    anchorId,
+    bounds
+  )
+  : d
+)
+
+fn transitionComposerChipPressMatch2(
+  d: UiDecision,
+  s: UiStart,
+  surface: string,
+  owner: string,
+  value: string,
+  serial: number,
+  start: number,
+  end: number,
+  source: string,
+  comment: bool,
+  anchorId: string
+): UiDecision = match s.chipFrame {
+  case some(bounds) => transitionComposerChipPressGuard3(
+    d,
+    s,
+    surface,
+    owner,
+    value,
+    serial,
+    start,
+    end,
+    source,
+    comment,
+    anchorId,
+    bounds
+  ),
+  case none => d
+}
+
+fn transitionComposerChipPressGuard1(
+  d: UiDecision,
+  s: UiStart,
+  surface: string,
+  owner: string,
+  value: string,
+  serial: number,
+  start: number,
+  end: number,
+  source: string,
+  comment: bool,
+  anchorId: string
+): UiDecision = (
+  ((surface == "preview") ? s.promptPreviewVisible and serial == s.previewState.serial
+    and owner == s.promptPreviewOwner and value == s.previewState.text : s.composerFieldLive
+    and serial == s.fieldProtocol.inputSerial and owner == s.richComposerOwner
+    and value == s.composerText and not s.composerDraft.composing) and ((surface == "preview")
+    ? s.richPromptPreview : s.richComposer).owner == owner and ((surface == "preview")
+    ? s.richPromptPreview : s.richComposer).value == value and ((surface == "preview")
+    ? s.richPromptPreview : s.richComposer).chips.filter((chip) => chip.start == start
+    and chip.end == end and chip.source == source).length == 1
+  ? transitionComposerChipPressMatch2(
+    d,
+    s,
+    surface,
+    owner,
+    value,
+    serial,
+    start,
+    end,
+    source,
+    comment,
+    anchorId
+  )
+  : d
+)
+
+// A queued row's grip released (pan release).
+fn stepComposerDrop(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  vx: number,
+  vy: number
+): UiDecision = transitionComposerDropGuard1(
+  d,
+  s,
+  op,
+  id,
+  vx,
+  vy
+)
+
+fn transitionComposerDropWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  vx: number,
+  vy: number
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=`cc:${op}`,
+      p1=id,
+      p2="",
+      p3=0
+    )
+  )
+)
+
+fn transitionComposerDropGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  vx: number,
+  vy: number
+): UiDecision = (
+  not s.commandPending
+  ? transitionComposerDropWrites2(
+    d,
+    s,
+    op,
+    id,
+    vx,
+    vy
+  )
+  : d
+)
+
+fn stepComposerFocus(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionComposerFocusWrites1(
+  d,
+  s
+)
+
+fn transitionComposerFocusWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      focused=true,
+      composing=false
+    )
+  )
+)
+
+fn stepComposerIntentClear(
+  d: UiDecision,
+  s: UiStart,
+  message: string
+): UiDecision = transitionComposerIntentClearWrites1(
+  d,
+  s,
+  message
+)
+
+fn transitionComposerIntentClearWrites1(
+  d: UiDecision,
+  s: UiStart,
+  message: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeIntentState=true,
+    intentState=ComposerIntentState(
+      d.root.intentState,
+      queue=[],
+      active=0,
+      phase="",
+      notice=message
+    )
+  )
+)
+
+fn stepComposerSelectionObserved(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent,
+  composing: bool
+): UiDecision = transitionComposerSelectionObservedGuard1(
+  d,
+  s,
+  e,
+  composing
+)
+
+fn transitionComposerSelectionObservedWrites2(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent,
+  composing: bool
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendComposerFieldChanged=true,
+    field=ComposerFieldArgs(
+      p0=ComposerFieldObservation(generation=s.richComposer.generation,
+        snapshotOwner=s.data.snapshotOwner, owner=s.richComposerOwner, value=e.value,
+        start=e.selectionStart, end=e.selectionEnd, composing=composing, live=s.composerFieldLive,
+        focused=s.composerDraft.focused, inputSerial=s.fieldProtocol.inputSerial),
+      p1=false
+    ),
+    writeComposerSelection=true,
+    composerSelection=ComposerSelectionState(
+      d.root.composerSelection,
+      owner=s.richComposerOwner,
+      value=e.value,
+      start=e.selectionStart,
+      end=e.selectionEnd
+    )
+  )
+)
+
+fn transitionComposerSelectionObservedGuard1(
+  d: UiDecision,
+  s: UiStart,
+  e: InputEvent,
+  composing: bool
+): UiDecision = (
+  e.value == s.composerText
+  ? transitionComposerSelectionObservedWrites2(
+    d,
+    s,
+    e,
+    composing
+  )
+  : d
+)
+
+// A composer control's key name (composer-controls-commands.ts).
+fn stepComposerKey(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionComposerKeyGuard1(
+  d,
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionComposerKeyWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    changedKind="command",
+    command=CommandArgs(
+      p0=`cc:${op}`,
+      p1=id,
+      p2=value,
+      p3=0
+    )
+  )
+)
+
+fn transitionComposerKeyGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionComposerKeyWrites2(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : d
+)
+
+// SnapShot's setup dialog (T3Window toggleSnapshots, showSnapshotSetup)
+fn stepClearModalError(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionClearModalErrorWrites1(
+  d,
+  s
+)
+
+fn transitionClearModalErrorWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeModalError=true,
+    modalError=""
+  )
+)
+
+// closing Add Environment clears its error (setSavedBackendError(null))
+fn stepCloseConnection(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionCloseConnectionWrites1(
+  d,
+  s
+)
+
+fn transitionCloseConnectionWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeModalError=true,
+    modalError="",
+    writePendingModal=true,
+    pendingModal="",
+    writeConnecting=true,
+    connecting=false,
+    writeOrigin=true,
+    origin="",
+    writeOriginEdited=true,
+    originEdited=false
+  )
+)
+
+fn stepCloseModal(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionCloseModalWrites1(
+  d,
+  s
+)
+
+fn transitionCloseModalWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePendingModal=true,
+    pendingModal="",
+    writeConnecting=true,
+    connecting=false,
+    writeProjectsOpen=true,
+    projectsOpen=false,
+    writeConnectionRemove=true,
+    connectionRemove="",
+    writeOrigin=true,
+    origin="",
+    writeOriginEdited=true,
+    originEdited=false,
+    writePaletteSession=true,
+    paletteSession=PaletteSessionState(
+      d.root.paletteSession,
+      open=false
+    ),
+    writeSettingsPageState=true,
+    settingsPageState=SettingsPageState(
+      d.root.settingsPageState,
+      open=false
+    ),
+    writeKeybindingEditor=true,
+    keybindingEditor=KeybindingEditorState(
+      d.root.keybindingEditor,
+      open=false,
+      previous="",
+      recording=false,
+      drafts=[]
+    ),
+    writeProviderWizardState=true,
+    providerWizardState=ProviderWizardState(
+      d.root.providerWizardState,
+      dialog=""
+    ),
+    writeComposerMenu=true,
+    composerMenu=ComposerMenuState(
+      d.root.composerMenu,
+      modelsOpen=false
+    )
+  )
+)
+
+fn stepConnectionOp(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = transitionConnectionOpGuard1(
+  d,
+  s,
+  op,
+  id,
+  value
+)
+
+fn transitionConnectionOpWrites2(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeCommandPending=true,
+    commandPending=true,
+    writePendingModal=true,
+    pendingModal=(op == "environment-add" or op == "environment-route-add"
+      or op == "environment-ssh-add" or op == "environment-ssh-pick") ? (s.data.connected
+      ? "connect" : "connect-first") : "connection",
+    writeModalError=true,
+    modalError="",
+    writeConnectionRemove=true,
+    connectionRemove="",
+    changedKind="command",
+    command=CommandArgs(
+      p0=op,
+      p1=id,
+      p2=value,
+      p3=0
+    ),
+    writeSshResponse=true,
+    sshResponse=SshResponseState(
+      d.root.sshResponse,
+      returnToConnect=op == "environment-ssh-add" or op == "environment-ssh-pick"
+    ),
+    writeComposerDraft=true,
+    composerDraft=ComposerDraftState(
+      d.root.composerDraft,
+      owner="__unset__"
+    )
+  )
+)
+
+fn transitionConnectionOpGuard1(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = (
+  not s.commandPending
+  ? transitionConnectionOpWrites2(
+    d,
+    s,
+    op,
+    id,
+    value
+  )
+  : d
+)
+
+fn stepConnectionToggleMenu(
+  d: UiDecision,
+  s: UiStart,
+  target: string
+): UiDecision = transitionConnectionToggleMenuWrites1(
+  d,
+  s,
+  target
+)
+
+fn transitionConnectionToggleMenuWrites1(
+  d: UiDecision,
+  s: UiStart,
+  target: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeConnectionMenu=true,
+    connectionMenu=s.connectionMenu == target ? "" : target
+  )
+)
+
+// the window's half keeps the typed credential
+fn stepEditCredential(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionEditCredentialWrites1(
+  d,
+  s
+)
+
+fn transitionEditCredentialWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeOrigin=true,
+    origin=s.pairFields.host != "" and s.pairFields.source == s.origin ? s.pairFields.host
+    : s.origin
+  )
+)
+
+// the window's half fills the credential from a pasted pairing URL
+fn stepEditOrigin(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = transitionEditOriginWrites1(
+  d,
+  s,
+  value
+)
+
+fn transitionEditOriginWrites1(
+  d: UiDecision,
+  s: UiStart,
+  value: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeOrigin=true,
+    origin=value,
+    writeOriginEdited=true,
+    originEdited=true
+  )
+)
+
+// and Add a route (T3Window openRoute); the window's half: the credential, the route target
+fn stepOpenConnection(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = transitionOpenConnectionWrites1(
+  d,
+  s
+)
+
+fn transitionOpenConnectionWrites1(
+  d: UiDecision,
+  s: UiStart
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeModalError=true,
+    modalError="",
+    writeConnecting=true,
+    connecting=true,
+    writeSbSshHost=true,
+    sbSshHost=""
+  )
+)
+
+fn stepSshAnswer(
+  d: UiDecision,
+  s: UiStart,
+  kind: string
+): UiDecision = transitionSshAnswerGuard1(
+  d,
+  s,
+  kind
+)
+
+fn transitionSshAnswerWrites2(
+  d: UiDecision,
+  s: UiStart,
+  kind: string
+): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    sendSshAnswered=true,
+    ssh=TwoTextArgs(
+      p0=s.sshPrompt.requestId,
+      p1=kind
+    ),
+    writeSshResponse=true,
+    sshResponse=SshResponseState(
+      d.root.sshResponse,
+      responding=kind == "submit"
+    )
+  )
+)
+
+fn transitionSshAnswerGuard1(
+  d: UiDecision,
+  s: UiStart,
+  kind: string
+): UiDecision = (
+  not s.sshResponse.responding and s.sshPrompt.requestId != ""
+  ? transitionSshAnswerWrites2(
+    d,
+    s,
+    kind
+  )
+  : d
+)
+
+// A disclosure toggled with the transcript at its end keeps the end in view while the rows re-measure (the list goes
+// on following it); anywhere else the toggled row holds its place (MessagesTimeline's disclosurePinsEnd).
+// the Code tab's gutter drags and "+", in turn
+// fragmentOpened
+// a table popup's trigger frame
+// Keep the guard chain narrow; only the final adapter copies the incoming decision.
+fn stepChatLocal(
+  d: UiDecision,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string
+): UiDecision = finishChatLocal(
+  d,
+  decideChatLocal(
+    ChatLocalResult(
+      writeFoldHold=d.root.writeFoldHold,
+      foldHold=d.root.foldHold,
+      writeRightPanelAt=d.root.writeRightPanelAt,
+      rightPanelAt=d.root.rightPanelAt,
+      sendKind="",
+      args=CommandArgs(p0="", p1="", p2="", p3=0)
+    ),
+    s.transcriptViewport,
+    s.composerOwner,
+    s.shell.panel,
+    op,
+    id,
+    value
+  )
+)
+
+fn decideChatLocal(
+  before: ChatLocalResult,
+  viewport: TranscriptViewportState,
+  composerOwner: string,
+  panel: PanelView,
+  op: string,
+  id: string,
+  value: string
+): ChatLocalResult = chatLocalSend(
+  chatLocalPanel(
+    chatLocalFold(before, viewport, composerOwner, op),
+    panel,
+    op,
+    id,
+    value
+  ),
+  op,
+  id,
+  value
+)
+
+fn chatLocalFold(
+  before: ChatLocalResult,
+  viewport: TranscriptViewportState,
+  composerOwner: string,
+  op: string
+): ChatLocalResult = (
+  (op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir")
+  and not (viewport.atEnd and viewport.owner == composerOwner)
+  ? ChatLocalResult(before, writeFoldHold=true, foldHold=true)
+  : before
+)
+
+fn chatLocalPanel(
+  before: ChatLocalResult,
+  panel: PanelView,
+  op: string,
+  id: string,
+  value: string
+): ChatLocalResult = (
+  op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all"
+  or (op == "surface-close" and panel.tabs.filter((tab) => tab.id == id
+      and tab.closeTitle != "").length == 0) or (op == "surface-browser-float"
+    and not panel.browser.capture.floating) or op == "surface-session-float"
+  or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
+  ? ChatLocalResult(before, writeRightPanelAt=true, rightPanelAt="")
+  : before
+)
+
+fn chatLocalSend(
+  before: ChatLocalResult,
+  op: string,
+  id: string,
+  value: string
+): ChatLocalResult = ChatLocalResult(
+  before,
+  sendKind=(
+    op.startsWith("inline-doc-") ? "inlineDocument"
+    : op == "surface-pr-quick" ? "prQuick"
+    : op.startsWith("surface-files-comment-") ? "fileComment"
+    : op == "pr-code-drag" or op == "pr-code-begin" ? "lineDrag"
+    : op == "link-open" and value.startsWith("#") ? "fragment"
+    : "local"
+  ),
+  args=CommandArgs(p0=`chatlocal:${op}`, p1=id, p2=value, p3=0)
+)
+
+fn finishChatLocal(d: UiDecision, result: ChatLocalResult): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeFoldHold=result.writeFoldHold,
+    foldHold=result.foldHold,
+    writeRightPanelAt=result.writeRightPanelAt,
+    rightPanelAt=result.rightPanelAt,
+    sendInlineDocumentChanged=d.root.sendInlineDocumentChanged or result.sendKind == "inlineDocument",
+    inlineDocument=result.sendKind == "inlineDocument" ? result.args : d.root.inlineDocument,
+    sendPrQuickChanged=d.root.sendPrQuickChanged or result.sendKind == "prQuick",
+    prQuick=result.sendKind == "prQuick" ? result.args : d.root.prQuick,
+    sendFileCommentChanged=d.root.sendFileCommentChanged or result.sendKind == "fileComment",
+    fileComment=result.sendKind == "fileComment" ? result.args : d.root.fileComment,
+    sendLineDragChanged=d.root.sendLineDragChanged or result.sendKind == "lineDrag",
+    lineDrag=result.sendKind == "lineDrag" ? result.args : d.root.lineDrag,
+    sendFragmentChanged=d.root.sendFragmentChanged or result.sendKind == "fragment",
+    fragment=result.sendKind == "fragment" ? result.args : d.root.fragment,
+    sendLocalChanged=d.root.sendLocalChanged or result.sendKind == "local",
+    local=result.sendKind == "local" ? result.args : d.root.local
+  )
+)

@@ -1,0 +1,131 @@
+use UiDecision from "./app-ui-decisions.contract"
+use UiStart from "./app-ui-start.contract"
+use AppDecision from "./app-decisions.contract"
+use ModifierOwnershipState from "./app-protocols.contract"
+use ShortcutModifierState, emptyShortcutModifierState from "./shortcut-modifiers.contract"
+use shortcutModifierStateAfterKeyboardEvent from "./shortcut-modifiers.contract"
+use areShortcutModifierStatesEqual, anyShortcutModifier from "./shortcut-modifiers.contract"
+
+fn stepModifierKey(
+  d: UiDecision,
+  s: UiStart,
+  down: bool,
+  e: KeyboardEvent,
+  editable: bool
+): UiDecision = modifierSpeed(
+  modifierShortcut(
+    modifierUndo(d, s, down, e),
+    s,
+    shortcutModifierStateAfterKeyboardEvent(s.modifierOwnership.shortcut, down, e)
+  ),
+  s,
+  editable ? emptyShortcutModifierState()
+    : shortcutModifierStateAfterKeyboardEvent(s.modifierOwnership.speed, down, e)
+)
+
+// Repeats retain the undo claim; an ordinary key releases it before modifier state settles.
+fn modifierUndo(
+  d: UiDecision,
+  s: UiStart,
+  down: bool,
+  e: KeyboardEvent
+): UiDecision = (
+  down and e.repeat and s.modifierOwnership.undoHeldKey != ""
+    and (e.metaKey or e.ctrlKey) and e.key.toLowerCase() == s.modifierOwnership.undoHeldKey
+    ? UiDecision(
+      d,
+      root=AppDecision(d.root, hostPreventDefault=true, hostStopPropagation=true)
+    )
+    : down and not e.repeat and e.key != "Alt" and e.key != "Control"
+      and e.key != "Meta" and e.key != "Shift"
+      ? stepReleaseUndoClaim(
+        UiDecision(
+          d,
+          root=AppDecision(
+            d.root,
+            writeModifierOwnership=true,
+            modifierOwnership=ModifierOwnershipState(d.root.modifierOwnership, undoHeldKey="")
+          )
+        ),
+        s
+      )
+      : d
+)
+
+fn modifierShortcut(
+  d: UiDecision,
+  s: UiStart,
+  held: ShortcutModifierState
+): UiDecision = (
+  not areShortcutModifierStatesEqual(held, s.modifierOwnership.shortcut)
+    ? UiDecision(
+      d,
+      root=AppDecision(
+        d.root,
+        writeModifierOwnership=true,
+        modifierOwnership=ModifierOwnershipState(d.root.modifierOwnership, shortcut=held)
+      )
+    )
+    : d
+)
+
+fn modifierSpeed(
+  d: UiDecision,
+  s: UiStart,
+  speed: ShortcutModifierState
+): UiDecision = (
+  not areShortcutModifierStatesEqual(speed, s.modifierOwnership.speed)
+    ? UiDecision(
+      d,
+      root=AppDecision(
+        d.root,
+        writeModifierOwnership=true,
+        modifierOwnership=ModifierOwnershipState(d.root.modifierOwnership, speed=speed)
+      )
+    )
+    : d
+)
+
+fn stepModifierEditableFocus(d: UiDecision, s: UiStart): UiDecision = (
+  anyShortcutModifier(s.modifierOwnership.speed)
+    ? UiDecision(
+      d,
+      root=AppDecision(
+        d.root,
+        writeModifierOwnership=true,
+        modifierOwnership=ModifierOwnershipState(
+          d.root.modifierOwnership,
+          speed=emptyShortcutModifierState()
+        )
+      )
+    )
+    : d
+)
+
+fn stepReleaseUndoClaim(d: UiDecision, s: UiStart): UiDecision = (
+  s.data.sidebar.undoUntil > s.modifierOwnership.undoReleasedUntil
+    ? UiDecision(
+      d,
+      root=AppDecision(
+        d.root,
+        writeModifierOwnership=true,
+        modifierOwnership=ModifierOwnershipState(
+          d.root.modifierOwnership,
+          undoReleasedUntil=s.data.sidebar.undoUntil
+        )
+      )
+    )
+    : d
+)
+
+fn stepComposerKeyReleased(
+  d: UiDecision,
+  s: UiStart,
+  k: string,
+  e: KeyboardEvent
+): UiDecision = UiDecision(
+  d,
+  writeComposerModifiers=true,
+  composerShift=e.shiftKey,
+  composerCommand=e.metaKey or e.ctrlKey
+)
