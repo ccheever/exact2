@@ -68,6 +68,40 @@ final class TintDimmingIOSTests: XCTestCase {
         XCTAssertEqual(Array(restored.dropFirst(4)), [1, 1, 0, 0, 1], "display-p3 (`textChannels`' space code 1) and its channels")
     }
 
+    /// A custom slider, which a pointer and keys drive and nothing presses, is a control: its face
+    /// greys
+    func testACustomSliderGreysAsAControl() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointermove", "pointerup", "key"],
+             "props": ["accessibilityRole": "slider"], "style": ["background_color": blue, "written": ["background_color"]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let slider = try XCTUnwrap(p.views[1])
+        dim(p, true)
+        assertChannels(try fill(slider), uikitGrey(blue), "the slider's fill")
+        dim(p, false)
+        assertChannels(try fill(slider), blue, "the slider's fill once the dimming ends")
+    }
+
+    /// The colour a node hands UIKit as its own (`ownUIColor`: a tab bar's tint, an alert's, a
+    /// title's) is as written while dimmed: UIKit dims it itself, and keeps it once the dimming ends
+    func testTheColourHandedToUIKitIsAsWrittenWhileDimmed() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Today"], "style": ["text_color": red, "written": ["text_color"]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let label = try XCTUnwrap(p.views[2])
+        dim(p, true)
+        assertChannels(try runChannels(label), uikitGrey(red), "the label Exact paints greys")
+        assertChannels(try components(XCTUnwrap(label.ownUIColor("text_color")).cgColor), red, "the colour handed to UIKit")
+        dim(p, false)
+    }
+
     /// A neutral colour stays exactly as written on a dimmed face: an HDR white fill keeps its range
     func testANeutralHDRFillKeepsItsRangeWhileDimmed() throws {
         let fourTimesWhite: [String: Any] = ["cs": [["s": "srgb-linear", "v": [4.0, 4.0, 4.0, 1.0]]], "c": [255, 255, 255, 255]]

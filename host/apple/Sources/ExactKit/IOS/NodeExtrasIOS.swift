@@ -478,7 +478,8 @@ extension NodeView {
     }
     /// `ownColor` as this node draws it now, or nil.
     func ownUIColor(_ key: String) -> UIColor? {
-        ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }
+        // As written, never greyed: its callers hand it to UIKit (TintDimmingIOS.swift)
+        ownColor(key) == nil ? nil : undimmedCGColor(key).map { UIColor(cgColor: $0) }
     }
 }
 extension NodeView {

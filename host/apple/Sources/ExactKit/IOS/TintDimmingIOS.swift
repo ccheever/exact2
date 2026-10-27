@@ -50,8 +50,9 @@ extension NodeView {
 
     /// Whether this node's colours grey now: UIKit dims tints and the node is on the face of a
     /// control Exact draws. A control UIKit draws (`appearance` other than `none`) is left to UIKit.
-    /// A node that becomes or stops being a control while UIKit dims tints does not repaint the
-    /// nodes beneath it, which keep their earlier paint until they next paint.
+    /// A node that becomes or stops being a control while UIKit dims tints, by its role or by moving
+    /// into or out of one, does not repaint the nodes beneath it, which keep their earlier paint
+    /// until they next paint.
     var dimsItsPaint: Bool {
         tintAdjustmentMode == .dimmed && !(kind == "control" && style["appearance"]?.string != "none") && insideControl
     }
@@ -110,10 +111,18 @@ extension NodeView {
     /// The colour of row `key` as written, never greyed: what Exact bakes into an image UIKit draws
     /// (a bar item's face), which UIKit leaves undimmed and which stays as baked once the dimming ends
     func undimmedChannels(_ key: String, dark: Bool) -> [Double]? {
-        style[key].flatMap { row in
-            row.channels(dark: dark, contrast: drawsHighContrast, elevated: drawsElevated,
-                         tint: row.namesTint ? (tintAdjustmentMode == .dimmed ? restingTint : viewTint) : nil)
-        }
+        style[key].flatMap { $0.channels(dark: dark, contrast: drawsHighContrast, elevated: drawsElevated, tint: undimmedTint(for: $0)) }
+    }
+
+    /// The colour of row `key` as written, in its own space: what Exact hands UIKit to draw with (a
+    /// tab bar's or an alert's tint, a title's colour), which UIKit dims itself and keeps once the
+    /// dimming ends
+    func undimmedCGColor(_ key: String) -> CGColor? {
+        style[key].flatMap { $0.cgColor(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: undimmedTint(for: $0)) }
+    }
+
+    private func undimmedTint(for row: BatchValue) -> UIColor? {
+        row.namesTint ? (tintAdjustmentMode == .dimmed ? restingTint : viewTint) : nil
     }
 
     /// The paragraph's runs as it paints them now: every run greyed while it dims its paint, and

@@ -68,7 +68,7 @@ extension NodeView {
         return found
     }
     private static let controlRoles: Set<String> = ["button", "link", "tab", "menuitem", "menuitemcheckbox", "menuitemradio",
-                                                    "option", "checkbox", "radio", "switch", "treeitem"]
+                                                    "option", "checkbox", "radio", "switch", "treeitem", "slider", "spinbutton"]
     private static let chromeRoles: Set<String> = ["toolbar", "tablist", "menubar", "menu", "listbox", "tree"]
     /// A control: a node a press acts on, a button, or one in a control's role
     var isControl: Bool {
