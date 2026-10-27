@@ -694,7 +694,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush() }
+        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush(); materializeJoiningGlass() }
         if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
     }
     /// Still off every window a turn later (a tab not shown, a covered

@@ -189,6 +189,38 @@ extension NodeView {
 }
 
 #if os(iOS) || os(tvOS)
+extension NodeView {
+    /// A glass that a person's input adds to a group already in the window
+    /// (a badge a press makes) materializes: its effect is set in an
+    /// animation, which in the group's container grows it out of the glass
+    /// it merges with, as SwiftUI's `glassEffectID` shapes appear in
+    /// `withAnimation`, and its content fades in. A glass that arrives with
+    /// its group (a screen shown), or that data or a timer adds, is drawn at
+    /// once, as UIKit draws glass set outside an animation, and so is every
+    /// one under Reduce Motion. So is one under an `animation` its author
+    /// wrote, on it or on a box between it and the group: the author says
+    /// how it moves (`"written"` names an authored `animation`).
+    func materializeJoiningGlass() {
+        guard let started = presenter?.inputStarted, #available(iOS 26.0, tvOS 26.0, *), window != nil, !ExactEnv.agentFreezes,
+              !UIAccessibility.isReduceMotionEnabled, Materials.glass(materialKind), let view = materialView, let effect = view.effect,
+              let group = sequence(first: superview, next: { $0?.superview }).lazy.compactMap({ $0 as? GlassGroupView }).first,
+              let since = group.shownSince, since < started else { return }
+        var below: UIView? = self
+        while let v = below, v !== group {
+            if let node = v as? NodeView, node.wrote("animation") { return }
+            below = v.superview
+        }
+        view.effect = nil
+        view.contentView.alpha = 0
+        UIView.animate(withDuration: 0.35, delay: 0, options: [.allowUserInteraction]) {
+            view.effect = effect
+            view.contentView.alpha = 1
+        }
+    }
+}
+#endif
+
+#if os(iOS) || os(tvOS)
 /// The platform's glass container as a node's innermost view (D2). Never a
 /// hit target: its children are tested without its bounds (one in visible
 /// overflow is hittable), and empty group space, the bridge between merged
@@ -196,6 +228,12 @@ extension NodeView {
 final class GlassGroupView: UIVisualEffectView {
     weak var owner: NodeView?
     var spacing: CGFloat = -1
+    /// When it last came into a window: a glass a later input adds materializes.
+    private(set) var shownSince: CFTimeInterval?
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        shownSince = window == nil ? nil : CACurrentMediaTime()
+    }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, isUserInteractionEnabled else { return nil }
         return NodeView.hitChildren(in: contentView, at: convert(point, to: contentView), with: event)

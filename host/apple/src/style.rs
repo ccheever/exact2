@@ -132,11 +132,15 @@ pub(crate) fn style_json_rows(
             continue;
         }
         let size = matches!(name, "width" | "height");
-        if matches!(name, "translate" | "scale" | "rotate" | "opacity")
-            || !keep.has(id) && (presenter_ignores(name) || size)
+        if matches!(
+            name,
+            "translate" | "scale" | "rotate" | "opacity" | "animation"
+        ) || !keep.has(id) && (presenter_ignores(name) || size)
         {
-            // A size is layout's; that its author wrote one is still said.
-            if size && style.written.has(id) {
+            // A size is layout's and an animation the engine's; that its
+            // author wrote one is still said (a glass the author animates
+            // in does not also materialize).
+            if (size || name == "animation") && style.written.has(id) {
                 let comma = if written.is_empty() { "" } else { "," };
                 let _ = write!(written, "{comma}\"{name}\"");
             }

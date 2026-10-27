@@ -61,6 +61,9 @@ public struct Batch {
     public var orientation: OrientationRequest? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
+    /// When `ExactSession.applyInput` marked it as a person's input: on iOS
+    /// a glass it adds to a group in the window materializes.
+    public var input: Double? = nil
     /// Failure lines the session writes to the unified log, each once (LLP 1142 D4).
     public var alerts: [String] = []
     /// The journal's other lines, for the unified log at a lower level (LLP 1143).

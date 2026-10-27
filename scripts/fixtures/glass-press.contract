@@ -1,0 +1,28 @@
+// A glass that a press or an edit adds to a group in the window
+// materializes on iOS 26; one that a popover's `toggle` adds is drawn at
+// once (GlassGroupIOSTests). Compiled by build.mjs --test.
+component GlassPress
+  state shown = false
+  state typed = ""
+  state toggled = false
+  action show
+    shown = true
+  action edit(v: string)
+    typed = v
+  action opened
+    toggled = true
+  view
+    main testId="glass-press" width="100%" height="100%"
+      row testId="group" glassGroup=12 gap=8 margin-top=100 margin-left=20
+        box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="first"
+        if shown
+          box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="added"
+        if typed != ""
+          box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="typed"
+        if toggled
+          box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="toggled"
+      button press=show testId="add"
+        text "Add"
+      input value=typed input=edit aria-label="Name" testId="field"
+      column popover="auto" toggle=opened testId="popover"
+        text "Popover"

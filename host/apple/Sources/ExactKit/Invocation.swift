@@ -159,3 +159,16 @@ extension Presenter {
         return nil
     }
 }
+
+extension ExactSession {
+    /// Applies a batch a person's input caused: a press, an edit, a key. The
+    /// batch carries when it was marked, so on iOS a glass it adds to a group
+    /// in the window materializes, as UIKit's does when an app sets it in an
+    /// animation. What `apply` lands before it (a published reply or tick)
+    /// and a timer due after it carry none: their glass is drawn at once.
+    func applyInput(_ batch: Batch) {
+        var batch = batch
+        batch.input = CACurrentMediaTime()
+        apply(batch)
+    }
+}
