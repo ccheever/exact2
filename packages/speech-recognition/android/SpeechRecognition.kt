@@ -202,24 +202,26 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         if (given.size != 1) return reply(error("TypeError"))
         val input = given[0]
         val s = status(args)
-        val inputs = s.getJSONArray("inputs").let { a -> (0 until a.length()).map { a.getString(it) } }
-        if (!s.optBoolean("available") || input !in inputs) return reply(error("NotSupportedError"))
-        if (input == "track" && context.tracks.lookup(args.getString("track"))?.kind != "audio") return reply(error("InvalidStateError"))
-        if (!context.agent) {
-            when (s.getString("state")) {
-                "denied" -> return reply(error("NotAllowedError"))
-                "prompt" -> return context.askPermission(Manifest.permission.RECORD_AUDIO) {
-                    if (context.permission(Manifest.permission.RECORD_AUDIO).state == "granted") start(args, reply) else reply(error("NotAllowedError"))
+        val local = local(args)
+        // `processLocally` where the recognizer cannot keep audio on the device (D9) opens nothing.
+        val refused = local && !s.optBoolean("local")
+        if (!refused) {
+            val inputs = s.getJSONArray("inputs").let { a -> (0 until a.length()).map { a.getString(it) } }
+            if (!s.optBoolean("available") || input !in inputs) return reply(error("NotSupportedError"))
+            if (input == "track" && context.tracks.lookup(args.getString("track"))?.kind != "audio") return reply(error("InvalidStateError"))
+            if (!context.agent) {
+                when (s.getString("state")) {
+                    "denied" -> return reply(error("NotAllowedError"))
+                    "prompt" -> return context.askPermission(Manifest.permission.RECORD_AUDIO) {
+                        if (context.permission(Manifest.permission.RECORD_AUDIO).state == "granted") start(args, reply) else reply(error("NotAllowedError"))
+                    }
                 }
             }
         }
         next += 1
-        val local = local(args)
         val leaves = if (context.agent) !local && !s.optBoolean("local") else !local
         val r = Recognition(this, "recognition-${context.session}-$next", input, args, leaves)
         args.optString("transcript").takeIf { it.isNotEmpty() }?.let { path -> context.file(path)?.let { r.transcript = path to it } }
-        // `processLocally` where the recognizer cannot keep audio on the device (D9) opens nothing.
-        val refused = local && !s.optBoolean("local")
         r.prepareTranscript()
         recognitions[r.id] = r
         say("${r.id}: ${if (input == "track") "on ${args.getString("track")}" else if (input == "file") "of ${args.getString("path")}" else "on the microphone"}" +

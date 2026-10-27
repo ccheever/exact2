@@ -160,7 +160,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         if (context.agent) { fail?.let { u.failure = it; fail = null } }
         // The claim before the engine speaks, as the guide asks (D4).
         reclaim()
-        if (!context.agent) give(u)
+        if (!context.agent && claim != null && reasons.isEmpty()) give(u)
     }
 
     /** The engine speaks [u] from [Utterance.offset], with its words (D3); a word it cannot honour ends it. */
@@ -169,7 +169,10 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         val voice = u.args.optString("voice")
         val lang = u.args.optString("lang")
         val refused = when {
-            voice.isNotEmpty() -> t.voices?.firstOrNull { it.name == voice }?.let { t.voice = it; null } ?: "voice-unavailable"
+            voice.isNotEmpty() -> {
+                val found = t.voices?.firstOrNull { it.name == voice }
+                if (found == null) "voice-unavailable" else { t.voice = found; null }
+            }
             lang.isNotEmpty() -> {
                 val locale = Locale.forLanguageTag(lang)
                 if (t.isLanguageAvailable(locale) < TextToSpeech.LANG_AVAILABLE) "language-unavailable" else { t.language = locale; null }
@@ -339,7 +342,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
             // The claim again before the engine goes on (D4).
             reclaim()
             val u = current?.let { utterances[it] }
-            if (u != null && !context.agent && u.spokenAs == null && u.paused != null) { u.paused = null; give(u) }
+            if (u != null && !context.agent && claim != null && reasons.isEmpty() && u.spokenAs == null && u.paused != null) { u.paused = null; give(u) }
             proceed()
         }
         reclaim()
