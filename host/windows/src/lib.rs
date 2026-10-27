@@ -66,6 +66,12 @@ impl Default for Window {
     }
 }
 
+/// The `windows` crate, for a package's Rust: the desktop builder includes
+/// that source in the app's crate and writes no manifest of its own
+/// (LLP 1133.022 D10 item 5), so the package names it through this host.
+#[cfg(windows)]
+pub use windows;
+
 /// Run a Windows app with its display name, window, baked plan and product identity.
 pub fn run<D: exact_runner::DataSource + Default + 'static>(
     name: &str,

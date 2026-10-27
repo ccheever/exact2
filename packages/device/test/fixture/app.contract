@@ -1,0 +1,31 @@
+// The conformance fixture (LLP 1133.001 D7): every source of @exact/device,
+// read through the generated bindings by data code (D13) and shown by testId
+// for the suites. A read in data code is a reader like a resource: each
+// source's change asks it again, and `toggle` stops the reads, so the last
+// reader of `getBattery` and `connection` goes and the runner releases them
+// to the implementation. The Contract reads `powerState` too, because a
+// package reaches the plan only through a name the Contract reads (QUEUE);
+// a root resource is a reader for the session's life, so `powerState` is
+// never released here.
+use getBattery, connection, powerState, PowerState from "@exact/device"
+
+shape Facts
+  battery: string
+  network: string
+  power: string
+  words: string
+
+component Fixture
+  state reading = true
+  resource facts = facts(reading) as shape Facts
+  resource power = powerState() as shape PowerState else empty()
+  action toggle
+    reading = not reading
+  view
+    column gap=8 padding=16
+      text facts.battery testId="battery"
+      text facts.network testId="network"
+      text facts.power testId="power"
+      text facts.words testId="words"
+      button press=toggle testId="toggle"
+        text (reading ? "Stop reading" : "Read")

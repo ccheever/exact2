@@ -19,6 +19,7 @@
         "@exact/camera": "workspace:*",
         "@exact/cards": "workspace:*",
         "@exact/contacts": "workspace:*",
+        "@exact/device": "workspace:*",
         "@exact/gamepad": "workspace:*",
         "@exact/geocoding": "workspace:*",
         "@exact/geofencing": "workspace:*",
@@ -123,6 +124,10 @@
     },
     "packages/contacts": {
       "name": "@exact/contacts",
+      "version": "1.0.0",
+    },
+    "packages/device": {
+      "name": "@exact/device",
       "version": "1.0.0",
     },
     "packages/dock": {
@@ -302,6 +307,8 @@
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
 
     "@exact/contacts": ["@exact/contacts@workspace:packages/contacts"],
+
+    "@exact/device": ["@exact/device@workspace:packages/device"],
 
     "@exact/dock": ["@exact/dock@workspace:packages/dock"],
 
