@@ -91,6 +91,26 @@ final class CollectionFillIOSTests: XCTestCase {
         print("D3 scheduled scroll reports=\(reports.count) limit=\(limit) elapsed_ms=\((CACurrentMediaTime() - started) * 1000)")
     }
 
+    /// Steps of a port or more each frame (a scroll indicator dragged)
+    /// show rows no frame before showed: past the first, a jump's, each
+    /// rescue is a glimpse, its rows bounded.
+    func testCrossingAPortEachFrameRescuesAGlimpse() throws {
+        let (p, window, scroll) = try fixture()
+        defer { p.reset(); window.isHidden = true }
+        var reports: [Data] = []
+        p.collections.onFeedback = { reports.append($0) }
+        func word(_ data: Data, _ at: Int) -> UInt32 { data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: at, as: UInt32.self) } }
+        scroll.contentOffset.y = 10
+        reports.removeAll()
+        scroll.contentOffset.y = 900
+        XCTAssertEqual(word(try XCTUnwrap(reports.last), 92) & 16, 0, "a lone jump builds what shows")
+        scroll.contentOffset.y = 1800
+        let glimpse = try XCTUnwrap(reports.last)
+        XCTAssertEqual(word(glimpse, 92) & 16, 16, "the next step across a port is a glimpse")
+        XCTAssertEqual(word(glimpse, 88), 2, "two rows before a glimpse's cost is measured")
+        XCTAssertTrue(p.collections.glimpses.contains(1))
+    }
+
     func testScrollReportsOnlyNewRowMeasurements() throws {
         let (p, window, scroll) = try fixture()
         defer { p.reset(); window.isHidden = true }

@@ -859,8 +859,11 @@ impl Collection {
         retire_leaving: bool,
     ) -> Result<(), InstanceError> {
         let limit = fill.limit.filter(|_| !update);
+        let glimpse = fill.glimpse && limit.is_some();
         let mut owed: Vec<std::ops::Range<usize>> = Vec::new();
         let mut port = None;
+        // A glimpse's middle of the viewport and what shows, for its rows.
+        let mut glimpsed = None;
         let mut ranges = if let Some(g) = &self.geometry {
             let pins = self.pins();
             let focus = self.pin(pins[0]);
@@ -879,7 +882,11 @@ impl Collection {
                     [focus.as_deref(), interaction.as_deref()],
                 )
                 .map_err(index_error)?;
-            owed.push(window.visible.clone());
+            if glimpse {
+                glimpsed = Some((window.offset + g.port_main / 2.0, window.visible.clone()));
+            } else {
+                owed.push(window.visible.clone());
+            }
             for key in [&focus, &interaction].into_iter().flatten() {
                 if let Some(i) = self.index.position(key) {
                     owed.push(i..i + 1);
@@ -907,6 +914,10 @@ impl Collection {
                 )
             })
             .collect();
+        // The rows a glimpse leaves are optional, and none is admitted.
+        if let (Some((middle, visible)), Some(limit)) = (glimpsed, limit) {
+            owed.extend(self.glimpsed(visible, middle, limit, &old));
+        }
         let limited = limit.zip(port);
         let is_owed = |p: usize| owed.iter().any(|r| r.contains(&p));
         let toward_start = fill.velocity < 0.0;
@@ -929,6 +940,7 @@ impl Collection {
                 }
             }
             optional.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
+            let limit = if glimpse { 0 } else { limit };
             pending = optional.len() > limit as usize;
             if !fill.no_build {
                 more = optional.len().saturating_sub(limit as usize);

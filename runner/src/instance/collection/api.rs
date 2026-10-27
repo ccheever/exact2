@@ -76,6 +76,14 @@ pub struct CollectionFill {
     /// only through a report without a velocity, which builds the side it
     /// turned to. Carried on the wire as flag bit 3.
     pub lean: bool,
+    /// A glimpse: travel that crosses a viewport or more each frame (a
+    /// scroll indicator dragged, a long animated scroll) shows rows none
+    /// before it showed every frame, more than a frame can build. The
+    /// report builds at most `limit` of the rows that show, those nearest
+    /// the middle of the viewport, and no row past them; the rest of what
+    /// shows stays unbuilt and the report `pending` until one without it.
+    /// Carried on the wire as flag bit 4.
+    pub glimpse: bool,
 }
 /// A mounted row; unmounted keys and records never cross the host seam.
 #[derive(Debug, Clone, PartialEq)]
@@ -185,7 +193,7 @@ impl CollectionFeedback {
     /// padding start/end (LLP 1010 §6.9), u32
     /// focus and interaction (zero means none), f64 velocity, u32 limit
     /// (`u32::MAX` means none), u32 flags (bit 0: an ancestor list is
-    /// moving; bit 1: build only; bit 2: retire only; bit 3: lean), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
+    /// moving; bit 1: build only; bit 2: retire only; bit 3: lean; bit 4: a glimpse), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
     /// Main and cross are the list's axes. No keys, strings, or JSON parsing.
     pub fn encode_with(&self, fill: CollectionFill) -> Result<Vec<u8>, FeedbackError> {
         self.validate()?;
@@ -206,14 +214,17 @@ impl CollectionFeedback {
         w.u32(self.interaction_view.unwrap_or(0));
         w.f64(fill.velocity);
         w.u32(fill.limit.unwrap_or(u32::MAX));
-        if fill.create_only && fill.no_build {
+        if (fill.create_only && fill.no_build)
+            || (fill.glimpse && (fill.create_only || fill.limit.is_none()))
+        {
             return Err(FeedbackError);
         }
         w.u32(
             u32::from(fill.ancestor_moving)
                 | u32::from(fill.create_only) << 1
                 | u32::from(fill.no_build) << 2
-                | u32::from(fill.lean) << 3,
+                | u32::from(fill.lean) << 3
+                | u32::from(fill.glimpse) << 4,
         );
         w.u32(
             self.measurements
@@ -253,7 +264,11 @@ impl CollectionFeedback {
             let velocity = r.f64()?;
             let limit = r.u32()?;
             let flags = r.u32()?;
-            if flags > 15 || flags & 6 == 6 {
+            // A glimpse is built where it applies, and bounded.
+            if flags > 31
+                || flags & 6 == 6
+                || (flags & 16 != 0 && (flags & 2 != 0 || limit == u32::MAX))
+            {
                 return Err(exact_plan::PlanError::BadCount(flags));
             }
             let fill = CollectionFill {
@@ -263,6 +278,7 @@ impl CollectionFeedback {
                 create_only: flags & 2 != 0,
                 no_build: flags & 4 != 0,
                 lean: flags & 8 != 0,
+                glimpse: flags & 16 != 0,
             };
             let count = r.u32()? as usize;
             if count.checked_mul(20) != Some(r.remaining()) {

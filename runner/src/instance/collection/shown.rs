@@ -1,4 +1,5 @@
-//! Which mounted rows have shown in the list's port (LLP 1055 D13).
+//! Which mounted rows have shown in the list's port (LLP 1055 D13), and
+//! which a glimpse builds of those that show.
 //!
 //! A list mounts rows ahead of its port, so an animation that starts when
 //! its node is inserted has run (or finished) before its row arrives. A node
@@ -32,6 +33,33 @@ impl RowsShown {
 }
 
 impl Collection {
+    /// What a glimpse owes ([`super::CollectionFill::glimpse`]): of the
+    /// `visible` rows not `mounted`, the `limit` whose middles are nearest
+    /// `middle`, the viewport's.
+    pub(super) fn glimpsed(
+        &self,
+        visible: std::ops::Range<usize>,
+        middle: f64,
+        limit: u32,
+        mounted: &std::collections::BTreeMap<String, Mounted>,
+    ) -> Vec<std::ops::Range<usize>> {
+        let mut fresh: Vec<(f64, usize)> = visible
+            .filter(|&p| !mounted.contains_key(self.index.key(p).unwrap()))
+            .map(|p| {
+                let start = self.index.prefix(p).unwrap();
+                (
+                    (start + self.index.height(p).unwrap() / 2.0 - middle).abs(),
+                    p,
+                )
+            })
+            .collect();
+        fresh.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        fresh
+            .into_iter()
+            .take(limit as usize)
+            .map(|(_, p)| p..p + 1)
+            .collect()
+    }
     /// Whether the row at `position` overlaps the port the host last
     /// reported. Before any report no row is known to: the first rows are
     /// built before one, and those the first report finds in the port start

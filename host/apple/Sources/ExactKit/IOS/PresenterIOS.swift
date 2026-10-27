@@ -214,6 +214,8 @@ package final class Presenter {
             return velocity == 0 ? nil : velocity
         }
         collections.requestFill = { [unowned self] in scrollPump.requestFill() }
+        collections.glimpse = { [unowned self] id in scrollPump.glimpse(id) }
+        collections.glimpsed = { [unowned self] id, seconds, rows in scrollPump.glimpsed(id, seconds: seconds, rows: rows) }
         // Rows a rescue built show this frame: their text paints now, not
         // after the commit, or they show without it (LLP 1050.000 D1).
         collections.rescued = { [unowned self] in paintVisibleText() }
