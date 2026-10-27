@@ -418,209 +418,126 @@ fn transitionWriteWrites4(
 
 // A guest can forge keys while its background is inert; retain the current modal context.
 // The sidebar owns its button chord, so keyboardDispatch has no row for it.
+shape InlineShortcutDispatch
+  kind: string
+  p0: string
+  p1: string
+  p2: string
+
 fn stepInlineDocumentShortcut(
   d: UiDecision,
   s: UiStart,
   name: string
-): UiDecision = transitionInlineDocumentShortcutGuard1(
+): UiDecision = applyInlineShortcutDispatch(
   d,
   s,
-  name
+  transitionInlineDocumentShortcutGuard1(s, name)
+)
+
+fn applyInlineShortcutDispatch(
+  d: UiDecision,
+  s: UiStart,
+  selected: InlineShortcutDispatch
+): UiDecision = (
+  selected.kind == "command" ? stepCommand(d, s, selected.p0, selected.p1, selected.p2, 0)
+  : selected.kind == "palette-show" ? stepPaletteShow(d, s, selected.p0, selected.p1)
+  : selected.kind == "details" ? stepDetailsAct(d, s, selected.p0, selected.p1, selected.p2)
+  : selected.kind == "thread" ? stepSelectThread(d, s, selected.p0)
+  : selected.kind == "model" ? stepSelectModel(d, s, selected.p0, selected.p1, false)
+  : selected.kind == "panel" ? stepPanelUi(d, s, selected.p0, selected.p1)
+  : selected.kind == "close-modal" ? stepCloseModal(d, s)
+  : selected.kind == "palette-run" ? stepPaletteRun(d, s, selected.p0, selected.p1, selected.p2)
+  : d
 )
 
 fn transitionInlineDocumentShortcutGuard3(
-  d: UiDecision,
   s: UiStart,
   name: string
-): UiDecision = (
+): InlineShortcutDispatch = (
   not s.modal and not s.paletteSession.open and not s.settingsPageState.open
-  ? stepCommand(
-    d,
-    s,
-    "sidebar",
-    "",
-    s.data.sidebarOpen ? "closed" : "open",
-    0
-  )
-  : d
+  ? InlineShortcutDispatch(kind="command", p0="sidebar", p1="", p2=s.data.sidebarOpen ? "closed" : "open")
+  : InlineShortcutDispatch(kind="", p0="", p1="", p2="")
 )
 
 fn transitionInlineDocumentShortcutGuard6(
-  d: UiDecision,
   s: UiStart,
   name: string,
   item: KeyDispatch
-): UiDecision = (
+): InlineShortcutDispatch = (
   item.kind == "diff"
-  ? stepPanelUi(
-    d,
-    s,
-    "toggle",
-    ""
-  )
+  ? InlineShortcutDispatch(kind="panel", p0="toggle", p1="", p2="")
   : item.kind == "command"
-  ? stepCommand(
-    d,
-    s,
-    item.target,
-    item.extra,
-    "",
-    0
-  )
+  ? InlineShortcutDispatch(kind="command", p0=item.target, p1=item.extra, p2="")
   : item.kind == "panel-close"
-  ? stepPanelUi(
-    d,
-    s,
-    "close",
-    ""
-  )
-  : d
+  ? InlineShortcutDispatch(kind="panel", p0="close", p1="", p2="")
+  : InlineShortcutDispatch(kind="", p0="", p1="", p2="")
 )
 
 fn transitionInlineDocumentShortcutGuard7(
-  d: UiDecision,
   s: UiStart,
   name: string,
   item: KeyDispatch
-): UiDecision = (
+): InlineShortcutDispatch = (
   item.kind == "thread"
-  ? stepSelectThread(
-    d,
-    s,
-    item.target
-  )
+  ? InlineShortcutDispatch(kind="thread", p0=item.target, p1="", p2="")
   : item.kind == "back"
-  ? stepCloseModal(
-    d,
-    s
-  )
+  ? InlineShortcutDispatch(kind="close-modal", p0="", p1="", p2="")
   : item.kind == "palette-run"
-  ? stepPaletteRun(
-    d,
-    s,
-    item.target,
-    item.extra,
-    ""
-  )
+  ? InlineShortcutDispatch(kind="palette-run", p0=item.target, p1=item.extra, p2="")
   : item.kind == "new-thread-in"
-  ? stepPaletteRun(
-    d,
-    s,
-    "new-thread",
-    item.target,
-    ""
-  )
-  : d
+  ? InlineShortcutDispatch(kind="palette-run", p0="new-thread", p1=item.target, p2="")
+  : InlineShortcutDispatch(kind="", p0="", p1="", p2="")
 )
 
 fn transitionInlineDocumentShortcutGuard5(
-  d: UiDecision,
   s: UiStart,
   name: string,
   item: KeyDispatch
-): UiDecision = (
+): InlineShortcutDispatch = (
   item.command == "commandPalette.toggle" or item.command == "filePicker.toggle"
     or item.command == "projectSearch.toggle" or item.command == "chat.find"
-  ? stepPaletteShow(
-    d,
-    s,
-    item.target,
-    item.extra
-  )
+  ? InlineShortcutDispatch(kind="palette-show", p0=item.target, p1=item.extra, p2="")
   : item.command == "rightPanel.toggle" or item.command == "rightPanel.toggleMaximized"
     or item.command == "preview.toggle"
-  ? transitionInlineDocumentShortcutGuard6(
-    d,
-    s,
-    name,
-    item
-  )
+  ? transitionInlineDocumentShortcutGuard6(s, name, item)
   : item.command == "threadPanel.toggle"
-  ? stepDetailsAct(
-    d,
-    s,
-    "toggle",
-    "",
-    ""
-  )
+  ? InlineShortcutDispatch(kind="details", p0="toggle", p1="", p2="")
   : item.command == "terminal.toggle"
-  ? stepCommand(
-    d,
-    s,
-    item.target,
-    item.extra,
-    "",
-    0
-  )
+  ? InlineShortcutDispatch(kind="command", p0=item.target, p1=item.extra, p2="")
   : item.command == "thread.previous" or item.command == "thread.next"
     or item.command.startsWith("thread.jump.")
-  ? stepSelectThread(
-    d,
-    s,
-    item.target
-  )
+  ? InlineShortcutDispatch(kind="thread", p0=item.target, p1="", p2="")
   : item.command.startsWith("modelPicker.jump.") and item.kind == "model"
-  ? stepSelectModel(
-    d,
-    s,
-    item.target,
-    item.extra,
-    false
-  )
+  ? InlineShortcutDispatch(kind="model", p0=item.target, p1=item.extra, p2="")
   : item.command == "navigation.back" or item.command == "navigation.forward"
-  ? transitionInlineDocumentShortcutGuard7(
-    d,
-    s,
-    name,
-    item
-  )
-  : d
+  ? transitionInlineDocumentShortcutGuard7(s, name, item)
+  : InlineShortcutDispatch(kind="", p0="", p1="", p2="")
 )
 
 fn transitionInlineDocumentShortcutMatch4(
-  d: UiDecision,
   s: UiStart,
   name: string
-): UiDecision = match (s.shortcuts.filter((item) => item.command == name)).at(0) {
-  case some(item) => transitionInlineDocumentShortcutGuard5(
-    d,
-    s,
-    name,
-    item
-  ),
-  case none => d
+): InlineShortcutDispatch = match (s.shortcuts.filter((item) => item.command == name)).at(0) {
+  case some(item) => transitionInlineDocumentShortcutGuard5(s, name, item),
+  case none => InlineShortcutDispatch(kind="", p0="", p1="", p2="")
 }
 
 fn transitionInlineDocumentShortcutGuard2(
-  d: UiDecision,
   s: UiStart,
   name: string
-): UiDecision = (
+): InlineShortcutDispatch = (
   name == "sidebar.toggle"
-  ? transitionInlineDocumentShortcutGuard3(
-    d,
-    s,
-    name
-  )
-  : transitionInlineDocumentShortcutMatch4(
-  d,
-  s,
-  name
-)
+  ? transitionInlineDocumentShortcutGuard3(s, name)
+  : transitionInlineDocumentShortcutMatch4(s, name)
 )
 
 fn transitionInlineDocumentShortcutGuard1(
-  d: UiDecision,
   s: UiStart,
   name: string
-): UiDecision = (
+): InlineShortcutDispatch = (
   not s.inlineDocumentKeysBlocked
-  ? transitionInlineDocumentShortcutGuard2(
-    d,
-    s,
-    name
-  )
-  : d
+  ? transitionInlineDocumentShortcutGuard2(s, name)
+  : InlineShortcutDispatch(kind="", p0="", p1="", p2="")
 )
 
 fn stepPrOpenGuide(
