@@ -6,7 +6,7 @@ import { requestComposerField } from './composer-field-request';
 // images upload) and binds it as a `file` attachment plus its
 // FileContextRecord. The upload's id persists with the device's drafts; the
 // staged bytes live in memory until then.
-import { removeStaged, stagedUpload } from './composer-staged-copies';
+import { FOLD_UPLOADS, foldUpload, removeFoldUpload, removeStaged, stagedUpload } from './composer-staged-copies';
 import type { T3Client } from '../client/client';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -354,11 +354,16 @@ async function upload(client: T3Client, native: Native, file: DraftFile, body: U
   assertOwner?.();
 }
 
+/** A folded paste above this goes up from an app file (composer-staged-copies.ts foldUpload). */
+const INLINE_FOLD_BYTES = 2 * 1024 * 1024;
+
 /** What a draft file uploads, or null when its bytes were lost (a folded paste across a restart, a staged copy removed). */
 async function stagedBody(client: T3Client, file: DraftFile): Promise<UploadBody | null> {
   if (file.source === 'attached') return stagedUpload(file);
   const text = mapFor(texts, client).get(file.id);
-  return text === undefined ? null : { base64: base64Utf8(text) };
+  if (text === undefined) return null;
+  const bytes = new TextEncoder().encode(text);
+  return bytes.byteLength <= INLINE_FOLD_BYTES ? { base64: base64Utf8(text) } : foldUpload(bytes);
 }
 
 /** The send's file attachments for the prompt's file chips, uploading the staged ones (as SnapShots upload at send). */
@@ -371,7 +376,11 @@ export async function composerFileAttachments(client: T3Client, native: Native, 
     const body = await stagedBody(client, file);
     assertOwner?.();
     if (body === null) throw new ClientError(`${file.name} was not saved with this draft. Attach it again to send it.`);
-    await upload(client, native, file, body, assertOwner);
+    try {
+      await upload(client, native, file, body, assertOwner);
+    } finally {
+      if ('bodyFrom' in body && body.bodyFrom.startsWith(`${FOLD_UPLOADS}/`)) await removeFoldUpload(body.bodyFrom);
+    }
     assertOwner?.();
   }
   const block = fileSendBlock(files);
