@@ -1,0 +1,14 @@
+# Code review: two Mac flakes' event waits (ScrollEnd, HoverFollowsLayout) and the one EventWaits helper, round 1 of 2, 2026-10-27 (grok)
+
+- **Family:** xAI. Grok via `grok -p`, reasoning effort xhigh, Edit and Write denied, a throwaway worktree at `8c4bcc97a2`.
+- **Method:** one brief (sha256 `76605a99e58448ddc2c33ae5adf8cb9297e086333295f11e30d54d9736dd91aa`), blind to the other reviewer; 2 quick rounds (test only), then narrow re-checks until clean. The author (Claude, reload1) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+- **Note:** Grok's progress narration before the report is left out.
+
+**CLEAN.** Commit `8c4bcc97a2` matches the approved test-only plan. No blocker, should-fix, or nit.
+
+The shared helper is `XCTestCase.waitFor` in `host/apple/tests/ExactKitTests/EventWaits.swift`. It only imports XCTest (`Date`, `RunLoop`, `XCTAttachment`), so it builds in the one `ExactKitTests` target for both the macOS and iOS runs. `KeyboardFormIOSTests` and `PadBarIOSTests` keep their own `waitFor`; a plain trailing closure still hits those methods, and the labeled call (`late:` / `giveUp:` / `facts:`) hits the helper. Mutable locals in the non-escaping `giveUp` / `facts` closures are visible across calls, including `delivered()` reading `first` / `last` while `giveUp` writes them.
+
+SmoothCollection's refactor keeps the same stop rule. `giveUp` samples the link, then returns `delivered() > budget`, and the loop is `while !done(), Date() < cap, !giveUp()`. That is the old order: observe frames from the turn that just ran, continue while the span is still `<= budget`, and treat `done` as success before either the cap or the budget. The livelock path still samples before it gives up. A cap exit skips that last sample only because `done` and the cap are checked first; pass/fail is unchanged, and a starved link still reports `seen == 0`. `late` stays 2 seconds and the cap stays 30 seconds.
+
+`took` starts at `waitFor`'s entry, after `asyncAfter` was already armed: for scroll-end, at the end of `clipScrolled` during the last `move`; for scroll-rest, inside `scrolled()` during the last `scroll(to:)`. The gap is the rest of that call plus the existing asserts, well under the 0.01 second slack. `asyncAfter` does not fire before its deadline, and the 5 millisecond run-loop turn only adds time after the fire, so `took >= interval - 0.01` still rejects an early settle or rest and accepts a punctual one. The live-scroll end is still required to be absent at `didEndLiveScroll` (it is queued with `DispatchQueue.main.async`) and is then waited on, with 0.02 seconds only as a late-pass attachment. The absence spins (`quiet + 0.05`, `quiet + 0.1`, and the no-move `0.02`) are unchanged, and the original `XCTAssert`s are still there.
