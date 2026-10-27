@@ -22,9 +22,10 @@
 // start it with; `--team <id>` is the team an App Attest key's RP ID names
 // (`EXACT_APPLE_TEAM`); `EXACT_PLAY_INTEGRITY_KEY` names the service
 // account's key file Play's tokens are decoded with, kept outside the repo.
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { said, verifier } from '../../packages/attestation/test/verify.mjs';
-import { relyingParty } from './relying-party.mjs';
+import { androidOrigin, LOOPBACK, relyingParty } from './relying-party.mjs';
 
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf('--port') + 1] || 4331) || 4331;
@@ -40,7 +41,13 @@ const requests = new Map(), codes = new Map(), tokens = new Map(), jtis = new Se
 const nonce = () => crypto.randomUUID();
 let authNonce = nonce(), resourceNonce = nonce(), coop = false, auto = false;
 const log = { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] };
-const passkeys = relyingParty(log);
+// The RP IDs this server's relying party takes: the app's origin's host, with Apple's origin and each Android
+// signing certificate's (D6), and `localhost` for a loopback page. The public origin's are `origin.mjs`'s.
+const certificates = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8')).host?.android?.certificates ?? [];
+const passkeys = relyingParty(log, { rps: {
+  'auth-fixture.exact.test': [ORIGIN, ...certificates.map(androidOrigin)],
+  localhost: LOOPBACK,
+} });
 const team = args.includes('--team') ? args[args.indexOf('--team') + 1] : process.env.EXACT_APPLE_TEAM ?? 'TEAMID';
 const attestations = verifier({ appId: `${team}.com.exact.authfixture`, packageName: 'com.exact.authfixture', substitute: args.includes('--substitute') });
 log.attestation = attestations.log;

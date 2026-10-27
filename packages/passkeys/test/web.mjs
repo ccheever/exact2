@@ -110,9 +110,11 @@ try {
       const quiet = await text('suggested');
       check(engine, 'modal get: it supersedes the pending conditional one, and the server verifies the assertion',
         back === 'Signed in as fixture.test' && quiet === '' && (await log()).assertions === 2, `${back} / ${quiet} ${JSON.stringify(await log())}`);
-      // The server forgets the passkey: the next sign-in hears `unknown-credential`, and the app signals it (D11).
-      const id = made[0].credentialId.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      await fetch(`${ISSUER}/passkey/forget`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credentialId: id }) });
+      // The server forgets the passkey (the app drops its record): the next sign-in hears `unknown-credential`, and the
+      // app signals it (D11).
+      await tab.getByTestId('forget-passkey').click();
+      const forgot = await until('passkey', (t) => t === 'The server forgot this passkey');
+      check(engine, 'forget: the app drops the passkey\'s record', forgot === 'The server forgot this passkey', String(forgot));
       await presence(false);
       await tab.getByTestId('sign-out').click();
       await signedOut();
