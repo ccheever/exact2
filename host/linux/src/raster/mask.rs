@@ -49,6 +49,32 @@ impl Raster {
 }
 
 impl Raster {
+    pub(super) fn integer_clip(&self, shape: &Shape, ts: Transform) -> Option<tiny_skia::Rect> {
+        if self.width > 8191 || self.height > 8191 || shape.rounded() || shape.corners.is_some() {
+            return None;
+        }
+        let [left, top, right, bottom] = super::image::integer_bounds(shape.rect, self.device(ts))?;
+        let parent = if self.active_clip().is_some() {
+            self.rectangular_clip
+                .filter(|(depth, _)| *depth == self.clips.len())?
+                .1
+        } else {
+            tiny_skia::Rect::from_xywh(0., 0., self.width as f32, self.height as f32)?
+        };
+        tiny_skia::Rect::from_ltrb(
+            left.max(parent.left()),
+            top.max(parent.top()),
+            right.min(parent.right()),
+            bottom.min(parent.bottom()),
+        )
+    }
+
+    pub(super) fn remember_integer_clip(&mut self, rect: Option<tiny_skia::Rect>) {
+        if let Some(rect) = rect {
+            self.rectangular_clip = Some((self.clips.len(), rect));
+        }
+    }
+
     /// The current clip intersected with more shapes, as a mask of its own.
     pub(super) fn mask_with(&self, shapes: &[Shape], ts: Transform) -> Option<Mask> {
         let dev = self.device(ts);
@@ -63,11 +89,11 @@ impl Raster {
         }
         let mut m = match self.active_clip() {
             Some(c) => {
-                if let Some((depth, rect)) = self.rectangular_damage {
+                if let Some((depth, rect)) = self.rectangular_clip {
                     if depth == self.clips.len() {
                         let mut paths = shapes.iter().filter_map(rounded_rect);
                         if let Some(first) = paths.next() {
-                            // A proven integer damage rectangle has only 0/255
+                            // A proven integer clip rectangle has only 0/255
                             // coverage. Build the child once and clear outside it.
                             let mut mask = self.new_clip_mask()?;
                             mask.fill_path(&first, FillRule::Winding, true, dev);
@@ -178,6 +204,106 @@ fn intersect(mask: &mut Mask, parent: &Mask, path: &Path, dev: Transform, round:
 mod tests {
     use super::*;
     use tiny_skia::FillRule;
+
+    #[test]
+    fn integer_pane_clips_keep_fills_exact_across_nested_clips_and_pop() {
+        use super::super::{solid, Color};
+        for scale in [1., 1.25, 1.5, 2.] {
+            for case in 0..5 {
+                let mut r = Raster::new();
+                r.begin(64., 56., scale);
+                for (i, p) in r
+                    .target
+                    .pixels()
+                    .unwrap()
+                    .pixels_mut()
+                    .iter_mut()
+                    .enumerate()
+                {
+                    *p = Color::from_rgba8(31, (i * 37) as u8, 193, (i * 19) as u8)
+                        .premultiply()
+                        .to_color_u8();
+                }
+                let mut expected = r.target.pixels().unwrap().clone();
+                let mut outer = Shape::rect((8., 12., 44., 36.));
+                let mut transform = Transform::identity();
+                match case {
+                    1 => outer.rect.0 += 0.125,
+                    2 => outer.radii = [(5., 7.); 4],
+                    3 => transform = Transform::from_rotate_at(7., 30., 28.),
+                    4 => transform = Transform::from_scale(-1., 1.).post_translate(64., 0.),
+                    _ => {}
+                }
+                let mut masks = Vec::new();
+                for (shape, ts) in [
+                    (outer, transform),
+                    (Shape::rect((16., 8., 40., 36.)), Transform::identity()),
+                    (
+                        Shape::new((20.25, 15.5, 30., 28.), [4.; 4]),
+                        Transform::identity(),
+                    ),
+                ] {
+                    let mut mask = masks.last().cloned().unwrap_or_else(|| {
+                        let mut mask = Mask::new(r.width, r.height).unwrap();
+                        mask.data_mut().fill(255);
+                        mask
+                    });
+                    mask.intersect_path(
+                        &rounded_rect(&shape).unwrap(),
+                        FillRule::Winding,
+                        true,
+                        r.device(ts),
+                    );
+                    masks.push(mask);
+                    r.push_clip(&shape, ts);
+                    assert_eq!(
+                        r.active_clip().unwrap().data(),
+                        masks.last().unwrap().data()
+                    );
+                    if case == 0 && masks.len() < 3 {
+                        assert_eq!(r.rectangular_clip.unwrap().0, r.clips.len());
+                    }
+                    for alpha in [0, 1, 127, 254, 255] {
+                        let fill = Shape::rect((-4., 0., 72., 60.));
+                        let color = [83, 215, 151, alpha];
+                        r.fill(&fill, color, Transform::identity());
+                        expected.fill_path(
+                            &rounded_rect(&fill).unwrap(),
+                            &solid(color),
+                            FillRule::Winding,
+                            r.device(Transform::identity()),
+                            masks.last(),
+                        );
+                        assert_eq!(
+                            r.target.pixels().unwrap().data(),
+                            expected.data(),
+                            "scale={scale} case={case} depth={} alpha={alpha}",
+                            masks.len()
+                        );
+                    }
+                }
+                while !masks.is_empty() {
+                    masks.pop();
+                    r.pop_clip();
+                    let fill = Shape::rect((0.25, 0.5, 63., 55.));
+                    r.fill(&fill, [117, 43, 201, 255], Transform::identity());
+                    expected.fill_path(
+                        &rounded_rect(&fill).unwrap(),
+                        &solid([117, 43, 201, 255]),
+                        FillRule::Winding,
+                        r.device(Transform::identity()),
+                        masks.last(),
+                    );
+                    assert_eq!(
+                        r.target.pixels().unwrap().data(),
+                        expected.data(),
+                        "pop scale={scale} case={case} depth={}",
+                        masks.len()
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn bounded_child_intersection_preserves_parent_coverage_and_order() {
