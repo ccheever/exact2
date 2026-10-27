@@ -530,7 +530,8 @@ Owners as they free up (the lead's order).
    following by its label alone, with no `aria-pressed` (theme2's 2026-10-27 ruling), and a round one's `label`,
    which the compiler can't require, is checked non-empty on every round library-gate cell and by the adopting
    copy's script. Its tone-by-state colours and three press scales are params over `actions.follow-*` tokens, its
-   sizes tokens; its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
+   sizes tokens (theme2's sign-off: tokens, not per-size params). Stated limit: its label's font weight is fixed per
+   size (500 small, 600 tiny), since there is no weight token kind for an app to restyle it; its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
    beside Bluesky's paths. Library-gate places it once per compiler-marked variant value (following, tone, size,
    shape) with each icon pattern and each tone and size following as samples.
 
