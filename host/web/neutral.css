@@ -434,8 +434,15 @@
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style][data-destructive="true"] { color: var(--exact-accent); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:disabled { color: var(--exact-gray-text); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:focus-visible { outline-offset: -2px; }
-  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style][data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-fill) 0 0); }
-  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:enabled:hover { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); } } }
+  /* A menu has one highlight, as NSMenu has: the focused row's wash, which the pointer moves by moving the focus
+     (input-glue.js). Hover adds no wash of its own, not even a row's button style's, and the focused row draws no
+     ring, except under forced colors, where the system draws its own. */
+  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:enabled:focus { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
+  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:enabled:hover:not(:focus, [data-pressed]) { background-color: transparent; background-image: none; }
+  /* Held, a row's press wins over its highlight: as specific, and later. The hover rule above, more specific, leaves a
+     pressed row alone (a tap in Safari hovers a row without focusing it). */
+  #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:enabled[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-fill) 0 0); }
+  @media not (forced-colors: active) { #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:enabled:focus-visible { outline: none; } }
   @media (any-pointer: coarse) { #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 44px; } }
 
   /* A modal route is a sheet (D4.8): the page's ground over a scrim, above its siblings and the tab bar (`z-index`:

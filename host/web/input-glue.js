@@ -717,6 +717,25 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (ground !== "rgba(0, 0, 0, 0)") return; // a fill of its own
     fadesOut.set(el, el.animate([{ backgroundColor: wash }, { backgroundColor: ground }], { duration: 150, easing: "ease-out" }));
   }, true);
+  // In a menu the pointer and the keyboard move one highlight (neutral.css), as NSMenu's: the row under a mouse or a pen
+  // takes the focus, which the arrows move on from, and the pointer leaving the rows gives it back to what held it
+  // before (the menu's button, where Escape leaves it too), so the arrows enter the menu again from its ends. What
+  // held it is noted as the focus comes into the menu, by the pointer or by the arrows.
+  const ROW = 'button, a[href], [role^="menuitem"]';
+  let focusBefore = null;
+  root.addEventListener("focusin", e => { const menu = e.target.closest?.(MENUS); if (menu && !menu.contains(e.relatedTarget)) focusBefore = e.relatedTarget; }, true);
+  root.addEventListener("pointerover", e => {
+    const row = e.pointerType !== "touch" && elementOf(e.target)?.closest(ROW), menu = row && row.closest(ROVES);
+    if (!menu || menu !== topMenu(root) || !radioUsable(row) || document.activeElement === row) return;
+    row.focus({ preventScroll: true, focusVisible: false });
+  }, true);
+  root.addEventListener("pointerout", e => {
+    const row = e.pointerType !== "touch" && elementOf(e.target)?.closest(ROW), menu = row && row.closest(MENUS);
+    if (!menu || row !== document.activeElement || elementOf(e.relatedTarget)?.closest(ROW)?.closest(MENUS) === menu) return;
+    if (focusBefore?.isConnected && focusBefore !== document.body) focusBefore.focus({ preventScroll: true, focusVisible: false });
+    else row.blur();
+    focusBefore = null;
+  }, true);
   const deepFocus = () => { let el = document.activeElement; while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement; return el; };
   { const el = deepFocus(); if (el instanceof Element) focusSeen.set(el, el.matches(":focus-visible")); }
   const focusLook = (el) => el instanceof Element && inPage(el) && !el.matches(DISABLED) && looks(el, document.getElementById("exact-looks")).includes("focus-visible");

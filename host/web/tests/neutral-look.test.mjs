@@ -474,6 +474,16 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('menu'), Math.abs(menu[0] - invoker[0]) <= 1, menu[1] - invoker[1] - invoker[3], menu[2]]).toEqual([at('menu'), true, 4, 176]);
       expect([at('menu rows'), await page.evaluate(() => [color('item'), color('item', 'backgroundColor'), css('item', 'borderTopStyle'), color('item-delete'), color('menu', 'backgroundColor')])])
         .toEqual([at('menu rows'), [INK[scheme], [0, 0, 0, 0], 'none', RED[scheme], SURFACE[scheme]]]);
+      // One highlight, the focused row's (the input glue moves the focus with the pointer), with no ring beside it, and
+      // no second one under the pointer.
+      await page.evaluate(() => document.getElementById('item-delete').focus({ focusVisible: true }));
+      await page.hover('#item');
+      expect([at('menu highlight'), await page.evaluate(() => [css('item-delete', 'backgroundImage') !== 'none', css('item', 'backgroundImage'), css('item-delete', 'outlineStyle')])])
+        .toEqual([at('menu highlight'), [true, 'none', 'none']]);
+      // A row pressed under the pointer without the focus (a tap in Safari) shows its press.
+      await page.evaluate(() => document.getElementById('item').setAttribute('data-pressed', ''));
+      expect([at('menu press under hover'), await page.evaluate(() => css('item', 'backgroundImage') !== 'none')]).toEqual([at('menu press under hover'), true]);
+      await page.evaluate(() => document.getElementById('item').removeAttribute('data-pressed'));
       await page.keyboard.press('Escape');
       await page.click('#invoker-end');
       [menu, invoker] = await page.evaluate(() => [box('menu'), box('invoker-end')]);
