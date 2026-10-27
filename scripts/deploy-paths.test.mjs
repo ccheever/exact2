@@ -69,7 +69,7 @@ test('async iOS schedules every non-documentation change in the coalesced range'
     const apple = appleTouched('new', 'old', () => paths);
     expect(apple).toBe(scheduled);
     const steps = asyncLane.checks('new', 'old', {lane: [], apple, glue: []});
-    for (const name of ['ios', 'ios-touch', 'tvos']) expect(steps.some(([step]) => step === name)).toBe(scheduled);
+    for (const name of ['ios', 'ios-touch', 'tvos', 'watchos']) expect(steps.some(([step]) => step === name)).toBe(scheduled);
   }
 });
 
@@ -87,9 +87,18 @@ test('async compiles tvOS per commit with no simulator, and tier 2 installs it',
   expect(ran.failures).toEqual([]);
 });
 
+test('async compiles watchOS per commit with no simulator, and tier 2 does not again', () => {
+  const steps = asyncLane.checks('new', 'old', {lane: [], apple: true, glue: []});
+  expect(steps.filter(([name]) => name === 'watchos')).toEqual([['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']]]);
+  expect(asyncLane.tierTwoChecks().some(([name]) => name === 'watchos')).toBe(false);
+  // Skipped on a documentation-only range, the step keeps its last failure until it runs again.
+  const skipped = {checks: {}, failures: []};
+  retainSkippedFailures(["watchos: ExactCore/HostPhases.swift: 'CACurrentMediaTime()' is unavailable in watchOS"], skipped);
+  expect(skipped.failures).toEqual(["watchos: ExactCore/HostPhases.swift: 'CACurrentMediaTime()' is unavailable in watchOS"]);
+});
+
 test('tier 2 checks platform host and app crates for their actual target', () => {
   const checks = asyncLane.tierTwoChecks();
-  expect(checks.find(([name]) => name === 'watchos')).toEqual(['watchos', 'bun', ['host/apple/build.mjs', '--watchos', '--no-install']]);
   for (const name of ['linux', 'windows', 'windows-arm64']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('x86_64-unknown-linux-gnu');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('--keep-going');
