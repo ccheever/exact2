@@ -361,7 +361,11 @@ fn many_ranged_params_set_by_the_design_build_in_moments() {
     let began = cpu();
     let built = contract::compile_path(&path);
     let took = cpu() - began;
-    assert!(took < std::time::Duration::from_secs(20), "{took:?} of CPU");
+    // (in CPU time: 0.5 s now, 4.9 s before the batch per value index)
+    assert!(
+        took < std::time::Duration::from_millis(2500),
+        "{took:?} of CPU"
+    );
     // `p7`'s value, out of its range, is refused as before.
     let e = built.unwrap_err();
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
@@ -425,7 +429,11 @@ fn many_ranged_params_reading_a_dial_build_in_moments() {
     let began = cpu();
     let built = contract::compile_path(&path);
     let took = cpu() - began;
-    assert!(took < std::time::Duration::from_secs(20), "{took:?} of CPU");
+    // (in CPU time: 0.5 s now, 32 s before the dial readers)
+    assert!(
+        took < std::time::Duration::from_millis(10000),
+        "{took:?} of CPU"
+    );
     let e = built.unwrap_err();
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
     assert!(e.message.contains("p7"), "{e:?}");
@@ -467,7 +475,11 @@ fn many_ranged_params_naming_a_token_build_in_moments() {
     let began = cpu();
     let built = contract::compile_path(&path);
     let took = cpu() - began;
-    assert!(took < std::time::Duration::from_secs(20), "{took:?} of CPU");
+    // (in CPU time: 4.3 s now, 64 s before tokens reading no param batched)
+    assert!(
+        took < std::time::Duration::from_millis(20000),
+        "{took:?} of CPU"
+    );
     let e = built.unwrap_err();
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
     assert!(e.message.contains("p7"), "{e:?}");
