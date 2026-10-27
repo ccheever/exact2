@@ -58,6 +58,22 @@ struct TextRasterExtent {
     let pixels: CGSize?
 }
 
+/// Which way a tall paragraph's port travels: down, toward the end, until
+/// it moves. Read from the port, not from its band, whose room is mostly
+/// ahead of the port. It turns once the port comes back a quarter port from
+/// the farthest it went, so a finger's jitter paints no new band.
+struct PortTravel {
+    private(set) var down = true
+    private var farthest: CGFloat?
+    mutating func follow(_ port: CGRect) -> Bool {
+        let top = port.minY
+        guard let farthest else { self.farthest = top; return down }
+        if down ? top > farthest : top < farthest { self.farthest = top }
+        else if abs(top - farthest) >= port.height / 4 { down.toggle(); self.farthest = top }
+        return down
+    }
+}
+
 struct TextRasterJob {
     var source: NSAttributedString
     let ranges: [CFRange]
@@ -151,12 +167,22 @@ struct TextRasterJob {
     /// A tall paragraph's band around `port`: 32 points past the box each
     /// side, and as far as the shadows in its pixels reach sideways (LLP
     /// 1077 D3, at most `maxShadowReach`), as tall as `maximumBytes` allows.
-    static func band(_ spec: Spec, width: CGFloat, port: CGRect, scale: CGFloat, maximumBytes: CGFloat) -> CGRect {
+    /// `down`: the port travels that way (true, toward the paragraph's end),
+    /// so three quarters of the room is ahead of it; nil centres it.
+    static func band(_ spec: Spec, width: CGFloat, port: CGRect, scale: CGFloat, maximumBytes: CGFloat, down: Bool? = nil) -> CGRect {
         let reach = spec.shadowReach
         let wide = width + 64 + reach.left + reach.right
         let rowBytes = max(1, wide * scale * scale * 4)
         let height = max(port.height, min(port.height * 2, maximumBytes / rowBytes))
-        return CGRect(x: -32 - reach.left, y: max(-32, port.minY - (height - port.height) / 2), width: wide, height: height)
+        let behind = (height - port.height) * (down.map { $0 ? 0.25 : 0.75 } ?? 0.5)
+        return CGRect(x: -32 - reach.left, y: max(-32, port.minY - behind), width: wide, height: height)
+    }
+    /// Whether a band `clip` that holds `port` still serves it, the port
+    /// travelling `down` or up in a paragraph `height` tall: until the port
+    /// is within half a port of the band's edge ahead, short of the end.
+    static func keeps(_ clip: CGRect, port: CGRect, down: Bool, height: CGFloat) -> Bool {
+        let ahead = down ? clip.maxY - port.maxY : port.minY - clip.minY
+        return (down ? clip.maxY >= height : clip.minY <= 0) || ahead >= port.height / 2
     }
     func render(lines reused: [CTLine]? = nil) -> TextRasterImage? {
         if let measuredGlyphs, let measuredColor, !ellipsis, clamped == nil, !justifies, shadow == nil,

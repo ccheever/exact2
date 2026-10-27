@@ -31,6 +31,8 @@ final class TextSpecs {
     var rasterScale: CGFloat = 1
     var flowShapes: [TextFlowShape] = []
     var layout: (width: CGFloat, paragraph: Paragraph)?
+    /// Which way a tall paragraph's port travels, for its band ahead (`TextRasterizer.key`).
+    var bandTravel = PortTravel()
 }
 
 /// What some nodes set and most do not, apart from the view, so every view

@@ -389,6 +389,49 @@ final class TextPaintTests: XCTestCase {
         XCTAssertEqual(capped.maxX, 100 + 32 + TextRasterJob.maxShadowReach, accuracy: 0.01, "under the cap")
     }
 
+    /// A band a worker paints for a port that travels has three quarters of
+    /// its room ahead of the port, so it is ready before the port leaves the
+    /// band shown; one painted now is centred on the port.
+    func testABandLeadsThePortItTravelsWith() {
+        let spec = Spec(runs: [run("Ab", weight: 400)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let port = CGRect(x: 0, y: 4000, width: 100, height: 800)
+        let budget: CGFloat = 48 * 1024 * 1024
+        let down = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget, down: true)
+        let up = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget, down: false)
+        let centred = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget)
+        XCTAssertEqual(down.height, 1600, "two ports, under the budget")
+        XCTAssertEqual(down.maxY - port.maxY, 600, "travelling down, the room is ahead")
+        XCTAssertEqual(port.minY - down.minY, 200)
+        XCTAssertEqual(port.minY - up.minY, 600, "travelling up, ahead is above")
+        XCTAssertEqual(port.minY - centred.minY, 400)
+    }
+
+    /// A band is kept while the port rests in it or moves on its way, until
+    /// the port is within half a port of its edge ahead. The way is the
+    /// port's own: a band leading down lies mostly below the port, which
+    /// does not turn it up, and nor does a move back of less than a quarter
+    /// port. A port that turns back gets a band ahead of it.
+    func testABandIsKeptUntilThePortNearsItsEdgeAhead() {
+        let spec = Spec(runs: [run("Ab", weight: 400)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let budget: CGFloat = 48 * 1024 * 1024, height: CGFloat = 100_000
+        var travel = PortTravel(), port = CGRect(x: 0, y: 4000, width: 100, height: 800)
+        let keeps = { (band: CGRect) in TextRasterJob.keeps(band, port: port, down: travel.follow(port), height: height) }
+        let down = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget, down: travel.follow(port))
+        for _ in 0..<3 { XCTAssertTrue(keeps(down), "the port at rest") }
+        port.origin.y += 10
+        XCTAssertTrue(keeps(down), "a small move on")
+        port.origin.y += 200
+        XCTAssertFalse(keeps(down), "within half a port of the edge ahead")
+        port.origin.y -= 10
+        XCTAssertTrue(keeps(down), "a finger's jitter back keeps its way")
+        XCTAssertTrue(travel.down)
+        port.origin.y = 4000
+        XCTAssertFalse(keeps(down), "turned back, with a quarter port above")
+        let up = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget, down: travel.down)
+        XCTAssertFalse(travel.down)
+        XCTAssertTrue(keeps(up), "the new band, at rest")
+    }
+
     /// A `line-clamp` paragraph rasters from its published geometry (LLP
     /// 1072 §8.1): a worker shapes the lines, the last one again from the
     /// range it broke at, ending in "…". The same pixels as layout's lines.

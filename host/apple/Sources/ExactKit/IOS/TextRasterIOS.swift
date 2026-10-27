@@ -44,6 +44,10 @@ final class TextRasterizer {
     static let concurrency = max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 2))
     private static let maxInFlight = concurrency * 2
     private static let maximumBytes: CGFloat = 16 * 1024 * 1024
+    /// A tall paragraph's band a worker paints ahead of the scroll: room
+    /// for two ports at 3x on the iPhone Duo's open display, so the band is
+    /// ready before the port leaves the one shown.
+    private static let leadBytes: CGFloat = 48 * 1024 * 1024
     /// The most text (UTF-16 units) a changed paragraph paints on the main
     /// thread to replace its old words at once: a paragraph's worth. A
     /// longer one, which a short box may clip to a few of its lines, keeps
@@ -91,7 +95,9 @@ final class TextRasterizer {
     /// Let go of the pixels no view shows.
     func dropKept() { kept.removeAll(); keptBytes = 0 }
 
-    private func key(_ node: NodeView) -> TextRasterKey {
+    /// `urgent`: the band is painted on the main thread now, so it is no
+    /// taller than it must be; a worker's band leads the scroll instead.
+    private func key(_ node: NodeView, urgent: () -> Bool) -> TextRasterKey {
         let scale = node.window?.screen.scale ?? node.traitCollection.displayScale
         var key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
             box: node.paragraphBox(), scale: max(1, scale))
@@ -99,10 +105,14 @@ final class TextRasterizer {
         // to an unbreakable line's advance; the shared painter clips its ink.
         if node.bounds.height > 4096 || node.bounds.width * node.bounds.height * key.scale * key.scale * 4 > Self.maximumBytes {
             let port = node.presenter?.textPreparationRect(node) ?? node.bounds
+            let down = node.textMore.bandTravel.follow(port)
+            // Kept until the port nears its edge ahead; then a worker paints the next.
             if let old = node.textRasterKey, let clip = old.clip, clip.contains(port), old.size == key.size,
-               old.box == key.box, old.spec == key.spec, old.scale == key.scale { return old }
-            key.clip = TextRasterJob.band(key.spec, width: node.bounds.width, port: port,
-                                          scale: key.scale, maximumBytes: Self.maximumBytes)
+               old.box == key.box, old.spec == key.spec, old.scale == key.scale,
+               TextRasterJob.keeps(clip, port: port, down: down, height: node.bounds.height) || urgent() { return old }
+            let now = urgent()
+            key.clip = TextRasterJob.band(key.spec, width: node.bounds.width, port: port, scale: key.scale,
+                                          maximumBytes: now ? Self.maximumBytes : Self.leadBytes, down: now ? nil : down)
         }
         return key
     }
@@ -113,14 +123,17 @@ final class TextRasterizer {
     /// painted now too (a presented colour). Otherwise a worker job at
     /// `priority`, if there is room for one (false when there is not).
     /// `urgent` and what shows are asked only of a paragraph whose pixels
-    /// are not already its words': they walk its clipping ancestors, and a
-    /// batch's display pass asks again of every paragraph it gave new words.
+    /// are not already its words', and `urgent` also of a tall one whose
+    /// port nears its band's edge (`key`): they walk its clipping ancestors,
+    /// and a batch's display pass asks again of every paragraph it gave new
+    /// words.
     @discardableResult
     func ensure(_ node: NodeView, urgent isUrgent: @autoclosure () -> Bool, now: Bool = false, priority: Operation.QueuePriority = .normal) -> Bool {
         guard node.canRasterText else { return true }
-        let key = key(node)
+        // Asked once, and only when needed: it walks the clipping ancestors.
+        lazy var urgent = isUrgent()
+        let key = key(node, urgent: { urgent })
         if node.textRasterKey == key && node.textRasterReady { return true }
-        let urgent = isUrgent()
         let visible = node.presenter?.textUrgentRect(node) ?? .zero
         // A whole paragraph's pixels of other words are none of this text's:
         // an urgent paint replaces them now, rather than a worker a frame
