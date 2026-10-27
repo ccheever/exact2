@@ -261,6 +261,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         presenter.transformGeometry.changed()
         presenter.videoVisibility?.changed()
         presenter.scrollPump.scrolled(nil)
+        FrameSampler.scrolled(scrollView, in: presenter.session, person: false)
         node.repaintThrough()
     }
 
