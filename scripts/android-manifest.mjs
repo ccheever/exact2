@@ -1,13 +1,14 @@
-// An Android implementation's manifest fragment (LLP 1133.030 D9, D12 item 4; LLP 1133.026 D19 item 3): the
-// components a package declares in its `exact.json` `"manifest"`, checked against an allow-list and written into the
-// APK's generated manifest. Every package gets this seam (LLP 1133.001 D8), so the list bounds what any package runs
-// with no session: what it names, and nothing the XML could say besides, is all a fragment can add. A package that
-// needs another action or type amends the list in its RFC.
+// An Android implementation's manifest fragment (LLP 1133.030 D9, D12 item 4; LLP 1133.026 D19 item 3;
+// LLP 1133.012 D12 item 3): the components and queries a package declares in its `exact.json` `"manifest"`, checked
+// against an allow-list and written into the APK's generated manifest. Every package gets this seam (LLP 1133.001
+// D8), so the list bounds what any package runs with no session and which packages and services it can see: what it
+// names, and nothing the XML could say besides, is all a fragment can add. A package that needs another action or
+// type amends the list in its RFC.
 //
 //   "manifest": {
 //     "receivers": [{"name": "<class>", "directBootAware": true, "actions": ["android.intent.action.BOOT_COMPLETED"]}],
 //     "services": [{"name": "<class>", "directBootAware": true, "foregroundServiceType": "systemExempted"}],
-//     "queries": [{"package": "com.google.android.apps.healthdata"}],
+//     "queries": [{"package": "com.google.android.apps.healthdata"}, {"action": "android.intent.action.TTS_SERVICE"}],
 //     "activities": [{"name": "<class>", "actions": ["androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"]}],
 //     "aliases": [{"name": "<class>", "targetActivity": "<an activity above>", "action": "android.intent.action.VIEW_PERMISSION_USAGE",
 //                  "category": "android.intent.category.HEALTH_PERMISSIONS"}]
@@ -39,6 +40,10 @@ export const SERVICE_TYPES = new Set(['systemExempted']);
  * 1133.026 D19 item 3). */
 export const QUERY_PACKAGES = new Set(['com.google.android.apps.healthdata']);
 
+/** The service intent actions a fragment may make visible (`<queries>`): speech recognition and synthesis on apps
+ * targeting API 30 and later (LLP 1133.012 D12 item 3). */
+export const QUERY_ACTIONS = new Set(['android.speech.RecognitionService', 'android.intent.action.TTS_SERVICE']);
+
 /** The actions an activity may answer: Health Connect's request to show the app's privacy policy. */
 export const ACTIVITY_ACTIONS = new Set(['androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE']);
 
@@ -49,7 +54,7 @@ export const ALIAS_CATEGORIES = new Set(['android.intent.category.HEALTH_PERMISS
 const FIELDS = {
   receivers: new Set(['name', 'directBootAware', 'actions']),
   services: new Set(['name', 'directBootAware', 'foregroundServiceType']),
-  queries: new Set(['package']),
+  queries: new Set(['package', 'action']),
   activities: new Set(['name', 'actions']),
   aliases: new Set(['name', 'targetActivity', 'action', 'category']),
 };
@@ -63,7 +68,7 @@ const escape = (s) => s.replaceAll('&', '&amp;').replaceAll('"', '&quot;').repla
  * refuses. `bound` is `androidImplementations`' list; `privacyPolicy` is the app's `privacy_policy`, carried as
  * meta-data when a fragment declares an activity. */
 export function manifestFragment(bound, { privacyPolicy = null } = {}) {
-  const lines = [], queries = [], names = new Set();
+  const lines = [], queries = new Set(), names = new Set();
   let activities = 0;
   for (const impl of bound) {
     const fragment = impl.manifest;
@@ -87,8 +92,14 @@ export function manifestFragment(bound, { privacyPolicy = null } = {}) {
       for (const c of list) {
         for (const key of Object.keys(c ?? {})) if (!FIELDS[kind].has(key)) refuse(`gives a ${ONE[kind]} "${key}", which the list does not allow`);
         if (kind === 'queries') {
-          listed(QUERY_PACKAGES, c.package, 'a query the package');
-          if (!queries.includes(c.package)) queries.push(c.package);
+          if (c == null || typeof c !== 'object' || Array.isArray(c) || Object.keys(c).length !== 1) refuse('gives a query without exactly one of package or action');
+          if (Object.hasOwn(c, 'package')) {
+            listed(QUERY_PACKAGES, c.package, 'a query the package');
+            queries.add(`        <package android:name="${c.package}" />`);
+          } else {
+            listed(QUERY_ACTIONS, c.action, 'a query the action');
+            queries.add(`        <intent><action android:name="${c.action}" /></intent>`);
+          }
           continue;
         }
         component(kind, c);
@@ -129,7 +140,7 @@ export function manifestFragment(bound, { privacyPolicy = null } = {}) {
   }
   if (activities && privacyPolicy) lines.unshift(`        <meta-data android:name="exact.privacy_policy" android:value="${escape(privacyPolicy)}" />`);
   return [
-    ...(queries.length ? ['    <queries>', ...queries.map((p) => `        <package android:name="${p}" />`), '    </queries>'] : []),
+    ...(queries.size ? ['    <queries>', ...queries, '    </queries>'] : []),
     ...(lines.length ? ['    <application>', ...lines, '    </application>'] : []),
   ].join('\n');
 }

@@ -1,9 +1,11 @@
 // The Android manifest fragment's allow-list (LLP 1133.030 D9): what a package may add, and each refusal by name.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { manifestFragment } from './android-manifest.mjs';
+import { androidImplementations } from '../js/bake/src/typescript.mjs';
 
 const impl = (manifest) => [{ extension: 'alarms', className: 'exact.alarms.AlarmsModule', manifest }];
 
@@ -21,6 +23,62 @@ test("alarms' fragment is allowed, unexported, and nothing beyond what it names"
 test('an implementation with no fragment adds nothing', () => {
   assert.equal(manifestFragment(impl(undefined)), '');
   assert.equal(manifestFragment([]), '');
+});
+
+test('speech action queries and package queries share one element and deduplicate across implementations', () => {
+  const queries = [
+    { action: 'android.speech.RecognitionService' },
+    { package: 'com.google.android.apps.healthdata' },
+    { action: 'android.intent.action.TTS_SERVICE' },
+  ];
+  const xml = manifestFragment([...impl({ queries: [...queries, ...queries] }), ...impl({ queries })]);
+  assert.equal(xml, [
+    '    <queries>',
+    '        <intent><action android:name="android.speech.RecognitionService" /></intent>',
+    '        <package android:name="com.google.android.apps.healthdata" />',
+    '        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>',
+    '    </queries>',
+  ].join('\n'));
+});
+
+test('an unlisted query action is refused with the package and action named', () => {
+  assert.throws(() => manifestFragment([{
+    extension: 'speech-recognition', className: 'exact.speechrecognition.SpeechRecognitionModule',
+    manifest: { queries: [{ action: 'android.intent.action.MAIN' }] },
+  }]), (e) => e.message.includes("speech-recognition's Android implementation") &&
+    e.message.includes('android.intent.action.MAIN') && e.message.includes('not on the list'));
+});
+
+test('a query names exactly one package or action', () => {
+  for (const query of [{}, null, { package: 'com.google.android.apps.healthdata', action: 'android.intent.action.TTS_SERVICE' }]) {
+    assert.throws(() => manifestFragment(impl({ queries: [query] })),
+      (e) => e.message.includes("alarms's Android implementation") && e.message.includes('exactly one of package or action'));
+  }
+});
+
+test('androidImplementations carries the bound speech packages through manifest fragments', () => {
+  const app = mkdtempSync(resolve(tmpdir(), 'exact-speech-manifest-'));
+  const packages = ['speech-recognition', 'speech-synthesis'];
+  try {
+    mkdirSync(resolve(app, 'node_modules/@exact'), { recursive: true });
+    for (const name of packages) symlinkSync(resolve(import.meta.dir, '../packages', name), resolve(app, 'node_modules/@exact', name), 'dir');
+    writeFileSync(resolve(app, 'app.ts'), 'import { startSpeechRecognition } from "@exact/speech-recognition";\nimport { speak } from "@exact/speech-synthesis";\n');
+    const bound = androidImplementations(app).sort((a, b) => a.extension.localeCompare(b.extension));
+    assert.deepEqual(bound.map((b) => b.extension), packages);
+    assert.deepEqual(bound.map((b) => b.manifest), [
+      { queries: [{ action: 'android.speech.RecognitionService' }] },
+      { queries: [{ action: 'android.intent.action.TTS_SERVICE' }] },
+    ]);
+    assert.ok(bound.every((b) => !Object.hasOwn(b, 'queries')));
+    assert.equal(manifestFragment(bound), [
+      '    <queries>',
+      '        <intent><action android:name="android.speech.RecognitionService" /></intent>',
+      '        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>',
+      '    </queries>',
+    ].join('\n'));
+    writeFileSync(resolve(app, 'app.ts'), 'export const unused = true;\n');
+    assert.deepEqual(androidImplementations(app), []);
+  } finally { rmSync(app, { recursive: true, force: true }); }
 });
 
 test('the allow-list refuses, naming what', () => {
