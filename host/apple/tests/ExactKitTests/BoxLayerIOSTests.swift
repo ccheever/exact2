@@ -386,9 +386,11 @@ final class BoxLayerIOSTests: XCTestCase {
             "border_radius_top_right": 20, "border_radius_bottom_right": 20, "border_radius_bottom_left": 20])
         padded.applyContentBox(padding: [0, 0, 0, 4])
         let skewed = image(3, ["object_fit": .string("cover")], "skewed.png")
+        let letterboxed = image(4, ["object_fit": .string("contain"), "border_radius_top_left": 8, "border_radius_top_right": 8,
+            "border_radius_bottom_right": 8, "border_radius_bottom_left": 8])
         let end = Date(timeIntervalSinceNow: 5)
-        while (avatar.raster == nil || padded.raster == nil || skewed.raster == nil) && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
-        avatar.layer.displayIfNeeded(); padded.layer.displayIfNeeded(); skewed.layer.displayIfNeeded()
+        while (avatar.raster == nil || padded.raster == nil || skewed.raster == nil || letterboxed.raster == nil) && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        avatar.layer.displayIfNeeded(); padded.layer.displayIfNeeded(); skewed.layer.displayIfNeeded(); letterboxed.layer.displayIfNeeded()
 
         let sub = try XCTUnwrap(avatar.imageLayer)
         let whole = try XCTUnwrap(sub.sublayers?.first)
@@ -401,6 +403,14 @@ final class BoxLayerIOSTests: XCTestCase {
 
         XCTAssertNil(padded.imageLayer)
         XCTAssertNotNil(padded.layer.contents, "a radius over a padded content box draws")
+
+        // A rounded `contain` image that leaves part of its box empty is
+        // clipped by the box's corners, not drawn.
+        let boxed = try XCTUnwrap(letterboxed.imageLayer)
+        XCTAssertNil(letterboxed.layer.contents)
+        XCTAssertEqual(boxed.frame, letterboxed.bounds)
+        XCTAssertEqual(boxed.sublayers?.first?.frame, CGRect(x: 0, y: 10, width: 40, height: 20))
+        XCTAssertEqual(boxed.cornerRadius, 8); XCTAssertTrue(boxed.masksToBounds)
 
         // The decoded aspect differs; the fitted rectangle retains the natural one.
         let reduced = try XCTUnwrap(skewed.raster?.image.image)
@@ -457,7 +467,7 @@ final class BoxLayerIOSTests: XCTestCase {
         avatar.raster = nil
         XCTAssertNil(avatar.imageLayer, "no pixels outlive the lease")
         XCTAssertNil(sub.superlayer)
-        padded.raster = nil; skewed.raster = nil
+        padded.raster = nil; skewed.raster = nil; letterboxed.raster = nil
     }
 
     /// A `-exact-tint-color` draws the bitmap as a template from the same decoded
