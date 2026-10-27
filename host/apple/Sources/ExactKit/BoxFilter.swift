@@ -9,6 +9,13 @@
 // and after an image or text raster publishes pixels, so those changes
 // show without another batch. An animation under a filtered box is
 // sampled instead of lowered (`svg_lower::eligibility`).
+//
+// A lone `drop-shadow()` is none of that: it is Core Animation's own
+// shadow on the box's layer, as a hand-built view casts one under an icon
+// over a photo, and the render server draws it. A picture costs a Core
+// Image pass on the main thread for every filtered box after every batch,
+// which in a photo grid with a shadowed heart on each favourite was most
+// of a scroll's main-thread time.
 import CoreGraphics
 import QuartzCore
 
@@ -25,6 +32,10 @@ final class BoxFilter {
     /// appearance, when its colours differ there (LLP 1095 D5).
     private var program: [Float] = []
     private var darkProgram: [Float]?
+    /// The chain as a layer's shadow, light and dark, when it is one
+    /// `drop-shadow()`; the layer casting it now.
+    private var shadow: (light: FilterShadow, dark: FilterShadow)?
+    private weak var caster: CALayer?
 
     init() {
         for l in [picture, content, hide] {
@@ -42,7 +53,11 @@ final class BoxFilter {
         guard case .object(let o)? = value, let p = o["p"]?.numbers, p.count > 5 else { return false }
         program = p.map(Float.init)
         darkProgram = o["pd"]?.numbers.map { $0.map(Float.init) }.flatMap { $0.count == program.count ? $0 : nil }
-        return SvgFilterGPU.runs(program)
+        shadow = FilterShadow(program: p).flatMap { light in
+            guard let pd = o["pd"]?.numbers else { return (light, light) }
+            return FilterShadow(program: pd).map { (light, $0) }
+        }
+        return shadow != nil || SvgFilterGPU.runs(program)
     }
 
     /// Draw the box's picture again, `scale` pixels per point. `clip`: the
@@ -53,6 +68,20 @@ final class BoxFilter {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        // A layer that clips its bounds would clip its shadow, which CSS
+        // draws past an `overflow: hidden` box: that box is pictured.
+        if let shadow, !box.masksToBounds {
+            if picture.superlayer != nil { picture.removeFromSuperlayer(); content.contents = nil }
+            // The box shows, and its `clip-path` clips the shadow with it,
+            // as CSS clips a filter's result.
+            if picture.mask != nil { picture.mask = nil }
+            if box.mask !== clip { box.mask = clip }
+            (dark ? shadow.dark : shadow.light).cast(on: box)
+            caster = box
+            return
+        }
+        uncast()
+        if box.mask !== hide { box.mask = hide }
         let b = box.bounds
         let region = CGRect(x: b.minX + CGFloat(program[0]), y: b.minY + CGFloat(program[1]),
                             width: b.width + CGFloat(program[2]), height: b.height + CGFloat(program[3]))
@@ -102,6 +131,39 @@ final class BoxFilter {
     func remove() {
         picture.removeFromSuperlayer()
         content.contents = nil
+        uncast()
+    }
+
+    private func uncast() {
+        caster.map(FilterShadow.uncast)
+        caster = nil
+    }
+}
+
+/// A lone `drop-shadow()` as Core Animation casts it: the alpha of the
+/// layer and everything in it, blurred with `shadowRadius` as the
+/// Gaussian's σ (the function's third length, as Filter Effects 1 defines
+/// `drop-shadow()`).
+struct FilterShadow {
+    let color: CGColor
+    let opacity: Float
+    let radius: CGFloat
+    let offset: CGSize
+
+    init?(program: [Double]) {
+        guard let drop = SvgScene.dropShadow(program: program) else { return nil }
+        (color, opacity, radius, offset) = (drop.color, drop.opacity, drop.sigma, drop.offset)
+    }
+
+    func cast(on layer: CALayer) {
+        if layer.shadowColor != color { layer.shadowColor = color }
+        if layer.shadowOpacity != opacity { layer.shadowOpacity = opacity }
+        if layer.shadowRadius != radius { layer.shadowRadius = radius }
+        if layer.shadowOffset != offset { layer.shadowOffset = offset }
+    }
+
+    static func uncast(_ layer: CALayer) {
+        layer.shadowOpacity = 0
     }
 }
 

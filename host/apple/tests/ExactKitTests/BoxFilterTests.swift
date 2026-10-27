@@ -65,6 +65,67 @@ final class BoxFilterTests: XCTestCase {
         return ["p": .array(program.map(BatchValue.number))]
     }
 
+    /// `drop-shadow(dx dy σ rgba)` as `box_filter` encodes it: the region
+    /// how far past the box it reaches, the subregion the same.
+    private func dropShadow(dx: Double, dy: Double, sigma: Double, rgba: [Double], darkRGBA: [Double]? = nil) -> BatchValue {
+        func program(_ c: [Double]) -> [Double] {
+            let reach = 3 * sigma
+            let region = [-reach + min(dx, 0), -reach + min(dy, 0), 2 * reach + abs(dx), 2 * reach + abs(dy)]
+            return region + [1, 6, -1, -3] + region + [0, sigma, sigma, dx, dy] + c
+        }
+        var o: [String: BatchValue] = ["p": .array(program(rgba).map(BatchValue.number))]
+        if let darkRGBA { o["pd"] = .array(program(darkRGBA).map(BatchValue.number)) }
+        return .object(o)
+    }
+
+    #if os(iOS) || os(tvOS)
+    /// A lone `drop-shadow()` is the box's own layer shadow: no picture,
+    /// no mask hiding the box, nothing to draw again after a batch. A box
+    /// that clips, which would clip its layer's shadow, and a chain of more
+    /// than the shadow are pictured.
+    func testALoneDropShadowIsTheLayersShadow() throws {
+        let box = node(1)
+        box.applyStyle(["filter": dropShadow(dx: 0, dy: 2, sigma: 2, rgba: [0, 0, 0, 0.6])])
+        p.boxFilters.render()
+        XCTAssertNotNil(box.boxFilter)
+        XCTAssertNil(box.boxFilter?.picture.superlayer, "no picture stands in for the box")
+        XCTAssertNil(box.layer.mask, "the box itself shows")
+        XCTAssertEqual(box.layer.shadowRadius, 2, "Core Animation's radius is the σ")
+        XCTAssertEqual(box.layer.shadowOffset, CGSize(width: 0, height: 2))
+        XCTAssertEqual(box.layer.shadowOpacity, 0.6, accuracy: 0.001)
+        XCTAssertEqual(box.layer.shadowColor?.components?.prefix(3).map { Double($0) }, [0, 0, 0])
+
+        box.overrideUserInterfaceStyle = .dark
+        box.updateTraitsIfNeeded()
+        XCTAssertTrue(box.drawsDark)
+        box.applyStyle(["filter": dropShadow(dx: 0, dy: 0, sigma: 1, rgba: [0, 0, 0, 1], darkRGBA: [1, 1, 1, 1])])
+        XCTAssertEqual(box.layer.shadowColor?.components?.prefix(3).map { Double($0) }, [1, 1, 1], "the dark appearance's colour")
+        box.overrideUserInterfaceStyle = .unspecified
+        box.updateTraitsIfNeeded()
+
+        box.applyStyle(["filter": try filter()])
+        XCTAssertNotNil(box.boxFilter?.picture.superlayer, "a chain of more than the shadow is pictured")
+        XCTAssertEqual(box.layer.shadowOpacity, 0, "and the layer casts none")
+        XCTAssertTrue(box.layer.mask === box.boxFilter?.hide)
+
+        let shadow = dropShadow(dx: 0, dy: 2, sigma: 2, rgba: [0, 0, 0, 0.6])
+        box.applyStyle(["filter": shadow, "overflow_x": "hidden", "overflow_y": "hidden"])
+        p.boxFilters.render()
+        XCTAssertTrue(box.layer.masksToBounds)
+        XCTAssertNotNil(box.boxFilter?.picture.superlayer, "a box that clips is pictured, its shadow past its bounds")
+        XCTAssertEqual(box.layer.shadowOpacity, 0)
+
+        box.applyStyle(["filter": shadow])
+        p.boxFilters.render()
+        XCTAssertNil(box.boxFilter?.picture.superlayer)
+        XCTAssertEqual(box.layer.shadowOpacity, 0.6, accuracy: 0.001)
+        box.applyStyle([:])
+        XCTAssertTrue(p.boxFilters.isEmpty)
+        XCTAssertEqual(box.layer.shadowOpacity, 0, "an unfiltered box casts nothing")
+        XCTAssertNil(box.layer.mask)
+    }
+    #endif
+
     private func picture(_ node: NodeView) throws -> CGImage {
         try XCTUnwrap(node.boxFilter?.picture.sublayers?.first?.contents) as! CGImage
     }
