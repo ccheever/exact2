@@ -214,7 +214,7 @@ fn a_list_chevron_takes_no_room_beside_the_detail() {
     let node = k.node(row).unwrap();
     let (_, _, right, _) = k.layout_padding(node.key).unwrap();
     assert_eq!(end(&p, id(&p, "linked-name")), node.frame.width - right);
-    assert_eq!(p.resize(800., 800.), None);
+    assert_eq!(p.resize(600., 800.), None);
     assert_eq!(cover(&p, chevron), None);
     assert_eq!(p.host.kernel().node(chevron).unwrap().frame.width, 16.);
 }
