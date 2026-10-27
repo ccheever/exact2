@@ -1336,8 +1336,7 @@ const sources: Sources = {
   acceptImport: async ([client, proposal, picked, shownGen]) => {
     const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
     if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
-    // What the card shows now is what is accepted: its own choose landed first (its choiceAt current), and another
-    // client's choice meanwhile asks for another look rather than being accepted unseen.
+    // What the card shows is accepted: its own choose landed first, another client's choice asks for another look.
     const moved = { ...stacks(false, 'Another client changed what this import has chosen: review it, then accept.', ''), note: '' };
     if (!heldChoice.inStep(proposal, picked, shownGen)) return moved; // (the card not yet showing it)
     const seen = heldChoice.gen(proposal), items = chosen(proposal, picked);
@@ -1358,15 +1357,13 @@ const sources: Sources = {
     if (mode === 0) op.value = value.trim();
     else if (op.whens?.[mode - 1]) op.whens[mode - 1].value = value.trim();
     else return { ...stacks(false, `No such mode in \`${proposal}\`.`, ''), note: '', carried: [] };
-    // (On 1.18, the card as shown: built from the base as it is now, its choice recorded first, and still it after.)
     const moved = { ...stacks(false, 'Another client changed what this import has chosen: review it, then edit.', ''), note: '', carried: [] };
     if (byChoice && !heldChoice.inStep(proposal, picked, shownGen)) return moved;
     const seen = heldChoice.gen(proposal), was = new Set(chosen(proposal, picked));
     if (!was.has(index)) return { ...stacks(false, `${op.name} is left out of the import: tick it to edit it.`, ''), note: '', carried: [] };
-    const tokens = Number(r.tokens ?? 0);
-    const review = { ...r, kept: false, from: proposal };
-    // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step. A
-    // 1.18 one is named the choiceAt the choose answered, so another client's choice meanwhile is refused, not carried.)
+    const tokens = Number(r.tokens ?? 0), review = { ...r, kept: false, from: proposal };
+    // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step. On
+    // 1.18 the card as shown, its choice recorded first and still it after, edit-held named its choiceAt: refused if moved.)
     if (byChoice && !(await heldChoice.send(proposal, [...was].sort((a, b) => a - b), askChoose(client, proposal)))) return { ...stacks(false, 'The choice could not be recorded on the design server, so the edit was not sent: try again.', ''), note: '', carried: [] };
     if (byChoice && heldChoice.gen(proposal) !== seen) return moved;
     const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim(), ...(byChoice ? { choiceAt: heldChoice.at(proposal) } : {}) } : { method: 'propose', hold: true, client, ops, review }, WRITE_WAIT, heldToken || undefined);
