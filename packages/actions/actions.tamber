@@ -140,15 +140,17 @@ theme
   actions.follow-subtle-following-ink = light-dark(#526580, #8d9db4)
   actions.follow-overlay-fill = #dce2ea  scheme=fixed
   actions.follow-overlay-ink = #000000  scheme=fixed
-  // Bluesky's Button sizes: small (8 by 14, gap 5, text_sm medium, a 16
-  // icon in a 17 box pulled 2 each side; round 33) and tiny (5 by 10, gap 3,
-  // text_xs semi-bold, a 12 icon in a 15 box pulled 1; round 25), both
+  // Bluesky's Button sizes: small (8 by 14, gap 5, text_sm medium on a 17
+  // line, leading_snug, a 16 icon in a 17 box pulled 2 each side; round 33)
+  // and tiny (5 by 10, gap 3, text_xs semi-bold on a 15 line, a 12 icon in a
+  // 15 box pulled 1; round 25), both
   // rounded_full; held smaller while pressed, a round one more.
   actions.follow-corner: length = radius.full
   actions.follow-pad-block: length = 8px
   actions.follow-pad-inline: length = 14px
   actions.follow-gap: length = 5px
   actions.follow-size: length = 0.81875rem
+  actions.follow-line: length = 1.0625rem
   actions.follow-icon: length = 16px
   actions.follow-icon-box: length = 17px
   actions.follow-icon-pull: length = -2px
@@ -157,6 +159,7 @@ theme
   actions.follow-tiny-pad-inline: length = 10px
   actions.follow-tiny-gap: length = 3px
   actions.follow-tiny-size: length = 0.70625rem
+  actions.follow-tiny-line: length = 0.9375rem
   actions.follow-tiny-icon: length = 12px
   actions.follow-tiny-icon-box: length = 15px
   actions.follow-tiny-icon-pull: length = -1px

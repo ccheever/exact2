@@ -109,21 +109,46 @@ test("contract gallery places the cells this app does, each placed, on the app's
 // both states, round too). A round one shows no text, so its label must not
 // be "", which the compiler can't see (one prop required by another's
 // value): every round cell names one, and in both states, the app's swap.
+/** The placement of `id` in `app` (its line, comments set aside) writes
+ * `prop` as a whole string literal with words in it: the closing quote ends
+ * the argument (a `,` or the call's `)` next), so `"Follow Ada".slice(99)`,
+ * a missing prop and `""` all fail. */
+function wordsWritten(app, id, prop) {
+  const line = app.split('\n').map(uncommented).find(l => l.includes(`(id="${id}",`));
+  return !!line && new RegExp(`[(,]\\s*${prop}="\\s*\\S[^"]*"\\s*(?:,|\\)\\s*$)`).test(line);
+}
 test("every round FollowButton cell names its label, the label swapped with the state", () => {
   const app = readFileSync(APP, 'utf8');
   const placed = placements(app, ['FollowButton']);
   const round = placed.filter(p => option(p.values.shape) === 'round');
   expect(round.length).toBeGreaterThanOrEqual(3);
-  // Written, as a string literal with words in it (a missing prop or "" fails).
-  for (const p of round) expect([p.id, /^"\s*\S[^"]*"$/.test(p.values.label ?? '')]).toEqual([p.id, true]);
+  for (const p of round) expect([p.id, wordsWritten(app, p.id, 'label')]).toEqual([p.id, true]);
   expect(new Set(round.map(p => option(p.values.following))).size).toBe(2);
+  // The guard refuses what would leave a round button speechless.
+  const cell = l => `      FollowButton(id="r", following=false, text="", ${l}tone="primary", size="small", shape="round", icon="both", press=press)\n`;
+  expect(['label="Follow Ada", ', 'label="Follow Ada".slice(99), ', 'label="", ', 'label=" ", ', '', 'label=name, '].map(l => wordsWritten(cell(l), 'r', 'label'))).toEqual([true, false, false, false, false, false]);
   // Each cell's words are its state's: the spoken label (the text where it's
-  // "") starts "Following" following, "Follow " or is "Follow" not.
+  // "") starts "Following" following, "Follow " or is "Follow" not; every
+  // label and text a whole literal (or "" for a label).
   for (const p of placed) {
     const said = option(p.values.label) || option(p.values.text);
     const on = option(p.values.following) === 'true';
     expect([p.id, on ? said.startsWith('Following') : !said.startsWith('Following') && said.startsWith('Follow')]).toEqual([p.id, true]);
+    expect([p.id, wordsWritten(app, p.id, 'text'), wordsWritten(app, p.id, 'label') || p.values.label === '""']).toEqual([p.id, true, true]);
   }
+});
+
+// A pill's label is as tall as its icon's box (Bluesky's leading_snug on
+// text_sm and text_xs, 17 and 15 px), so it keeps its height when the icon
+// comes or goes with the state (icon "follow" or "following").
+test("a FollowButton label's line is its icon box's height, each size", () => {
+  const design = readFileSync(join(ROOT, 'packages/actions/actions.tamber'), 'utf8');
+  const px = name => {
+    const v = new RegExp(`^\\s+${name.replace('.', '\\.')}: length = (\\S+)`, 'm').exec(design)?.[1];
+    return v?.endsWith('rem') ? Number.parseFloat(v) * 16 : Number.parseFloat(v);
+  };
+  expect([px('actions.follow-line'), px('actions.follow-tiny-line')]).toEqual([px('actions.follow-icon-box'), px('actions.follow-tiny-icon-box')]);
+  expect([px('actions.follow-line'), px('actions.follow-tiny-line')]).toEqual([17, 15]);
 });
 
 test('the cells rule, and the parse refuses what could hide a cell', () => {

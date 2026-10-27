@@ -94,6 +94,7 @@ component FollowButton
       if shape == "pill"
         text text part="label"
           font-size=(size == "tiny" ? "actions.follow-tiny-size" : "actions.follow-size")
+          line-height=(size == "tiny" ? "actions.follow-tiny-line" : "actions.follow-line")
           font-weight=(size == "tiny" ? 600 : 500)
           white-space="nowrap"
           color=(following ? (tone == "inverted" ? "param.invertedFollowingInk" : (tone == "subtle" ? "param.subtleFollowingInk" : (tone == "overlay" ? "param.overlayFollowingInk" : "param.followingInk"))) : (tone == "inverted" ? "param.invertedInk" : (tone == "subtle" ? "param.subtleInk" : (tone == "overlay" ? "param.overlayInk" : "param.ink"))))
