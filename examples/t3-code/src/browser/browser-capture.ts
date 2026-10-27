@@ -42,6 +42,9 @@ import type { PanelState } from '../panel/panel-surfaces';
 import { previewPdfAssetUrl } from './browser-url';
 import { appFiles } from '../media/save-file';
 import { frameEntry, frameIdOf } from './browser-frames';
+import { agentDriving } from './browser-automation-run';
+import { fleet } from '../connections/settings-b-fleet';
+import { sidebarStatus } from '../sidebar/sidebar-model';
 import { activePicks, annotateState, cancelAnnotate, startAnnotate, type ApplyPick } from './browser-annotate';
 import { automationCalls } from './browser-automation-run';
 
@@ -230,12 +233,20 @@ export function floatingTabOf(client: T3Client): string | null {
 }
 
 /** A hidden tab's page that must keep drawing (browser-frames.ts FrameHold): the hatch records it or shows it in its
- *  separate window, or an agent's recording holds it. */
+ *  separate window, an agent's recording holds it, or the agent drives it in its turn. */
 export function heldFrame(client: T3Client, runtimeId: string): { width: number; height: number } | null {
   const tab = report(client, runtimeId), recording = obj(tab.recording);
   const held = tab.pip === true || recording.armed === true || recording.capturing === true || recording.recording === true
-    || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId);
+    || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId)
+    || agentDriving(client, runtimeId, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return held ? browserMiniSourceSize(client, runtimeId) : null;
+}
+
+/** The thread's turn runs (the reference's PreviewAgentActivity): working, or waiting on the person, as the sidebar shows it. */
+export function threadTurnRunning(client: T3Client, environmentId: string, threadId: string): boolean {
+  const shell = environmentId === client.environmentId ? client.shell : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.shell;
+  const thread = shell?.threads.find(entry => entry.id === threadId);
+  return !!thread && ['working', 'approval', 'input'].includes(sidebarStatus(thread));
 }
 
 export function recordingOf(client: T3Client, ref: ScopedThreadRef, tabId: string, runtimeId: string): boolean {
@@ -248,7 +259,7 @@ export function browserCaptureView(client: T3Client, ref: ScopedThreadRef, tabId
   return {
     pickActive, pickDisabled: !tabId || failed,
     // PreviewChromeRow: the disabled reason, else Cancel while annotating.
-    pickTip: failed ? 'Page didn’t load — pick unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
+    pickTip: failed ? 'Page didn\'t load. Pick is unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
     captureDisabled: !hasWebContents || failed, recording: recordingOf(client, ref, tabId, runtimeId),
     floating: floatingTabOf(client) === tabId, floatDisabled: !hasWebContents || failed,
     separateWindow: tab.pip === true,

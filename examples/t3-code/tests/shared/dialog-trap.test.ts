@@ -268,9 +268,11 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
       const children = block(lines, dialog.index).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
       const depth = indent(children[0]!);
       const direct = children.filter(line => indent(line) === depth);
-      // ControlGuard is the pair of a dialog whose stops are all buttons (dialog-trap.contract).
+      // ControlGuard is the pair of a dialog whose stops are all buttons; Settings' and Usage's modal starts with
+      // RouteFocusGuard, which wraps back to the page's last control (dialog-trap.contract).
       const kind = direct[0]!.trim().startsWith('ControlGuard(') ? 'ControlGuard' : 'FocusGuard';
-      expect(direct[0]!.trim()).toStartWith(`${kind}(guardId="${base}-guard-start", targets=`);
+      const start = direct[0]!.trim().startsWith('RouteFocusGuard(') ? 'RouteFocusGuard' : kind;
+      expect(direct[0]!.trim()).toStartWith(`${start}(guardId="${base}-guard-start", targets=`);
       expect(direct.at(-1)!.trim()).toStartWith(`${kind}(guardId="${base}-guard-end", targets=`);
       expect(children.filter(line => line.includes('FocusGuard(') || line.includes('ControlGuard(')).length).toBe(2);
       // Every name a target can take is an element of the app (or a prop the shell's callers fill: `first`).

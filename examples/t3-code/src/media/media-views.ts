@@ -81,7 +81,10 @@ async function mint(client: T3Client, native: Native | null | undefined, key: st
 export async function filesMediaView(client: T3Client, native: Native | null | undefined, previewPath: string, absolutePath: string, cwd: string, revision: string, now = 0): Promise<MediaView> {
   const kind = isWorkspaceVideoPreviewPath(previewPath) ? 'video' : isWorkspaceImagePreviewPath(previewPath) ? 'image' : '';
   if (!kind || !previewPath || !absolutePath) return NO_MEDIA;
-  const resource = client.threadId ? { _tag: kind === 'video' ? 'media-file' : 'workspace-file', threadId: client.threadId, path: absolutePath } : { _tag: 'draft-workspace-file', cwd, path: absolutePath };
+  // workspaceAssetResource: the server signs `workspace-file` only below the workspace root, so a picture opened from
+  // outside it (an absolute link in the thread) is a `media-file`, as a video always is.
+  const inside = mediaFileReference(absolutePath, cwd).relativePath !== undefined;
+  const resource = client.threadId ? { _tag: kind === 'video' || !inside ? 'media-file' : 'workspace-file', threadId: client.threadId, path: absolutePath } : { _tag: 'draft-workspace-file', cwd, path: absolutePath };
   const key = `files:${JSON.stringify([client.environmentId, client.threadId, cwd, absolutePath, kind])}`;
   const entry = await mint(client, native, key, resource, now);
   const url = entry && !entry.error ? revisedUrl(entry.url, revision) : '';

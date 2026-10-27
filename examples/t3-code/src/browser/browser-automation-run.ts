@@ -66,6 +66,8 @@ type Tab = {
   polled: number; polling: boolean;
   /** Agent requests running on the tab now: while one does, its page's dialogs are answered at once. */
   runs: number;
+  /** The agent drove the tab since its thread's turn began; the turn's end lets it go (`agentDriving`). */
+  agentTurn: boolean;
 };
 type Host = { tabs: Map<string, Tab>; pointerSequence: number; actionSequence: number; shots: number };
 const hosts = new WeakMap<object, Host>();
@@ -78,7 +80,7 @@ function tabOf(client: object, runtimeId: string): Tab {
   const tabs = host(client).tabs;
   let tab = tabs.get(runtimeId);
   if (!tab) {
-    tab = { console: [], network: [], actions: [], muted: false, audible: false, agentEver: false, lastNavigation: 0, installed: false, installing: false, downloads: false, polled: 0, polling: false, runs: 0 };
+    tab = { console: [], network: [], actions: [], muted: false, audible: false, agentEver: false, lastNavigation: 0, installed: false, installing: false, downloads: false, polled: 0, polling: false, runs: 0, agentTurn: false };
     tabs.set(runtimeId, tab);
   }
   return tab;
@@ -95,6 +97,25 @@ export function automationControllerOf(client: object, runtimeId: string): Brows
 export function automationAudio(client: object, runtimeId: string): { audioMuted: boolean; audible: boolean } | null {
   const tab = host(client).tabs.get(runtimeId);
   return tab ? { audioMuted: tab.muted, audible: tab.audible } : null;
+}
+
+/**
+ * DesktopBrowserHost's focus hold (T3 Code 7c3b3b3605ef, apps/desktop/src/preview/DesktopBrowserHost.ts): a hidden tab
+ * keeps running while an agent request runs on it, or while the agent that drove it is still in its thread's turn, model
+ * thinking between steps included; once the turn ends it may throttle again. The turn is read from the thread's run as
+ * the sidebar shows it (`turnRunning`): working, or waiting on the person; work left to background commands is no turn.
+ */
+export function agentDriving(client: object, runtimeId: string, turnRunning: (environmentId: string, threadId: string) => boolean): boolean {
+  const tab = host(client).tabs.get(runtimeId);
+  if (!tab) return false;
+  if (tab.runs > 0) return true;
+  if (!tab.agentTurn) return false;
+  let ref: unknown;
+  try { ref = JSON.parse(runtimeId); } catch { ref = null; }
+  const [environmentId, threadId] = Array.isArray(ref) ? ref.map(part => str(part)) : ['', ''];
+  if (environmentId && threadId && turnRunning(environmentId, threadId)) return true;
+  tab.agentTurn = false;
+  return false;
 }
 
 // ── The page's scripts, media and diagnostics (before the agent needs them) ─────────────────────
@@ -256,6 +277,8 @@ export async function runAutomation(client: T3Client, plan: Obj, deps: RunDeps):
   const tab = run.context.runtimeId ? tabOf(client, run.context.runtimeId) : null;
   let outcome: { ok: boolean; result?: unknown; error?: HostErrorJson };
   if (tab) tab.runs++;
+  // A recording streams the page itself, which holds it drawing (heldFrame); any other request drives it.
+  if (tab && run.context.operation !== 'recordingStart' && run.context.operation !== 'recordingStop') tab.agentTurn = true;
   try { outcome = await execute(run); }
   catch (error) {
     if (letGo(error)) throw error;

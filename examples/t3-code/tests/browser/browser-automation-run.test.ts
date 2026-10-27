@@ -8,7 +8,7 @@ import { adoptFramePrompt, answerFramePrompt, automationAudio, automationControl
 import { adoptFrameEvent, frameByElement, frameCommandView, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
 import { browserHost } from '../../src/browser/browser-surface';
 import { previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
-import { adoptCaptureNative } from '../../src/browser/browser-capture';
+import { adoptCaptureNative, heldFrame } from '../../src/browser/browser-capture';
 import { obj, type Obj } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -226,5 +226,26 @@ describe('the executor', () => {
     expect(automationControllerOf(client, RUNTIME)).toBe('none');
     adoptFrameEvent(client, FRAME, record('currententrychange', { controller: 'agent' }), 0);
     expect(automationControllerOf(client, RUNTIME)).toBe('agent');
+  });
+});
+
+// DesktopBrowserHost.ts at 7c3b3b3605ef: a hidden tab throttles unless the agent drives it in its thread's turn.
+describe('a hidden tab the agent drives', () => {
+  it('keeps drawing through its thread\'s turn and lets go once the turn ends', async () => {
+    const { client } = await run('status', {}, fakePage());
+    const thread: Obj = { id: 'thread-1', latestRunId: 'run-1', status: 'running', runtime: { status: 'running', activeRunId: 'run-1' } };
+    (client.shell as { threads: Obj[] }).threads = [thread];
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    // The turn ends: work left to a dev server is no turn.
+    thread.status = 'idle'; thread.runtime = { status: 'idle' };
+    expect(heldFrame(client, RUNTIME)).toBeNull();
+    // The next turn has not driven the tab yet.
+    thread.status = 'running'; thread.runtime = { status: 'running', activeRunId: 'run-2' };
+    expect(heldFrame(client, RUNTIME)).toBeNull();
+  });
+  it('is not held for a tab the agent never drove', () => {
+    const { client } = setup();
+    (client.shell as { threads: Obj[] }).threads = [{ id: 'thread-1', latestRunId: 'run-1', status: 'running', runtime: { status: 'running', activeRunId: 'run-1' } }];
+    expect(heldFrame(client, RUNTIME)).toBeNull();
   });
 });

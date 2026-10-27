@@ -1,5 +1,6 @@
 // Custom themes: the reference theme file (themePalette.ts parseThemeFile,
-// THEME_FILE_VERSION 1) and duplicates of a library theme with their own canvas and accent.
+// THEME_FILE_VERSION 1), duplicates of a library theme with their own canvas and accent, and
+// readableThemeColorOn (themePalette.ts at 7c3b3b3605ef).
 // Saved with this device's preferences; missing roles fall back to the appearance's default.
 import { ClientError } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
@@ -100,4 +101,64 @@ export function decodeCustomThemes(value: unknown): CustomTheme[] {
     return [{ id: str(theme.id), label: str(theme.label).slice(0, 48), appearance: theme.appearance as 'light' | 'dark', light: variant(theme.light), dark: variant(theme.dark),
       ...(theme.managed === true ? { managed: true } : {}) }];
   }).slice(0, 100);
+}
+
+// ── readableThemeColorOn (themePalette.ts): lightness moved in OKLCH until a colour reads on a surface ──────────
+type Rgb = { r: number; g: number; b: number };
+type Oklch = { L: number; C: number; h: number };
+const toRgb = (hex: string): Rgb => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) });
+const toLinear = (channel: number) => { const c = channel / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const fromLinear = (channel: number) => Math.round(Math.min(1, Math.max(0, channel <= 0.0031308 ? channel * 12.92 : 1.055 * channel ** (1 / 2.4) - 0.055)) * 255);
+function rgbToOklch(color: Rgb): Oklch {
+  const r = toLinear(color.r), g = toLinear(color.g), b = toLinear(color.b);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  return { L, C: Math.hypot(a, bb), h: (Math.atan2(bb, a) * 180) / Math.PI };
+}
+function oklchToLinear({ L, C, h }: Oklch): Rgb {
+  const a = C * Math.cos((h * Math.PI) / 180), bb = C * Math.sin((h * Math.PI) / 180);
+  const l = (L + 0.3963377774 * a + 0.2158037573 * bb) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * bb) ** 3, s = (L - 0.0894841775 * a - 1.291485548 * bb) ** 3;
+  return { r: 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, g: -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, b: -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s };
+}
+/** mapThemeOklchToSrgbGamut: the chroma bisected down until the colour fits sRGB. */
+function inGamut(color: Oklch): Oklch {
+  const fits = (C: number) => { const linear = oklchToLinear({ ...color, C }); return [linear.r, linear.g, linear.b].every(channel => channel >= -0.0001 && channel <= 1.0001); };
+  if (fits(color.C)) return color;
+  let low = 0, high = color.C;
+  const steps = Math.max(1, Math.ceil(Math.log2(Math.max(color.C, 0.000001)) - Math.log2(0.000001)));
+  for (let step = 0; step < steps; step += 1) { const mid = (low + high) / 2; if (fits(mid)) low = mid; else high = mid; }
+  return { ...color, C: low };
+}
+function oklchToRgb(color: Oklch): Rgb {
+  const linear = oklchToLinear(inGamut(color));
+  return { r: fromLinear(linear.r), g: fromLinear(linear.g), b: fromLinear(linear.b) };
+}
+function luminance(color: Rgb): number {
+  const channel = (value: number) => { const c = value / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
+}
+const contrastRatio = (first: Rgb, second: Rgb) => { const a = luminance(first), b = luminance(second); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
+/** solveOklchLightness: 18 bisection steps toward white (`lighter`) or black. */
+function solveLightness(base: Oklch, against: Rgb, minContrast: number, direction: 'lighter' | 'darker'): Oklch {
+  let low = direction === 'lighter' ? base.L : 0, high = direction === 'lighter' ? 1 : base.L;
+  if (contrastRatio(oklchToRgb(base), against) >= minContrast) return base;
+  for (let step = 0; step < 18; step += 1) {
+    const mid = (low + high) / 2, passes = contrastRatio(oklchToRgb({ ...base, L: mid }), against) >= minContrast;
+    if (passes === (direction === 'lighter')) high = mid; else low = mid;
+  }
+  return { ...base, L: direction === 'lighter' ? high : low };
+}
+/**
+ * Moves only the lightness, so a colour too dim on `surface` keeps its hue instead of collapsing to black or white;
+ * the 8-bit colour the solver measured, as hex. A colour that already reads is returned as given.
+ */
+export function readableThemeColorOn(color: string, surface: string, minContrast: number): string {
+  const colorHex = toHex(color), surfaceHex = toHex(surface);
+  if (!colorHex || !surfaceHex) return color;
+  const surfaceRgb = oklchToRgb(rgbToOklch(toRgb(surfaceHex))), base = rgbToOklch(toRgb(colorHex));
+  if (contrastRatio(oklchToRgb(base), surfaceRgb) >= minContrast) return color;
+  const solved = oklchToRgb(solveLightness(base, surfaceRgb, minContrast, luminance(surfaceRgb) < 0.179 ? 'lighter' : 'darker'));
+  return '#' + [solved.r, solved.g, solved.b].map(channel => channel.toString(16).padStart(2, '0')).join('');
 }

@@ -1,7 +1,8 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts),
 // with 9c161462c9's history keys (Shift+PageUp/PageDown, Cmd+Shift+Home/End), `selectAll`, the PTY
-// resize on a pointer release and the selection autoscroll at the window edge, and 74541bab17's
-// synchronized output, Kitty releases for encoded presses only and the single paste per shortcut.
+// resize on a pointer release and the selection autoscroll at the window edge, 74541bab17's
+// synchronized output, Kitty releases for encoded presses only and the single paste per shortcut, and
+// 7c3b3b3605ef's autoscroll that speeds up the farther the pointer is past the edge.
 // 9c161462c9's touch scrolling, link gating (`canActivateLink`, `resendSize`) and shared resize observer
 // are not here.
 // This part holds `GhosttyTerminalSurface`: its creation, public API and DOM event handlers.
@@ -38,6 +39,7 @@ import {
   isTerminalPasteShortcut,
   primeTerminalCopyInput,
   shouldReportTerminalMouse,
+  terminalSelectionAutoscrollRows,
   terminalWheelArrowData,
   terminalWheelDeltaRows,
   TERMINAL_LINK_DRAG_THRESHOLD_PX,
@@ -75,6 +77,7 @@ export {
   resolveTerminalMouseData,
   resolveTerminalMouseTrackingState,
   shouldReportTerminalMouse,
+  terminalSelectionAutoscrollRows,
   terminalWheelArrowData,
   terminalWheelDeltaRows,
   type TerminalSelectionClickSequence,
@@ -911,7 +914,7 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     const bounds = this.canvas.getBoundingClientRect();
     const top = Math.max(bounds.top, 0) + CONTENT_PADDING;
     const bottom = Math.min(bounds.bottom, window.innerHeight) - CONTENT_PADDING;
-    this.setSelectionAutoscroll(event.clientY < top ? -1 : event.clientY > bottom ? 1 : 0);
+    this.setSelectionAutoscroll(terminalSelectionAutoscrollRows(event.clientY, top, bottom));
     const cell = this.cellAt(event.clientX, event.clientY);
     if (cell.x === this.selectionEnd?.x && cell.y === this.selectionEnd.y) return;
     this.extendSelectionTo(event.clientX, event.clientY);

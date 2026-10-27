@@ -45,7 +45,7 @@ class Fake implements Native {
   async later(input: unknown): Promise<unknown> { this.calls.push(obj(input)); return { ok: true, generation: 1, value: {} }; }
 }
 
-describe('D1: ⌘B in the rich-text composer bolds', () => {
+describe('D1: ⌘B in the rich-text composer bolds a selection', () => {
   test('isRichTextBoldShortcut over chords', () => {
     expect(isBoldChord('Meta+b')).toBe(true);
     expect(isBoldChord('Control+B')).toBe(true);
@@ -53,18 +53,20 @@ describe('D1: ⌘B in the rich-text composer bolds', () => {
     expect(isBoldChord('Meta+Alt+b')).toBe(false);
     expect(isBoldChord('Meta+n')).toBe(false);
   });
-  test('the sidebar toggle gives up Meta+b only while the rich-text composer has the focus', () => {
+  test('the sidebar toggle gives up Meta+b only while the rich-text composer has the focus and text selected', () => {
     const c = client();
     expect(richTextComposer(c)).toBe(true);
-    const keys = (focus: boolean, rich = true) => claimBoldChord(keyboardSettings(c.config, focus), focus, rich).keySidebar;
+    const keys = (focus: boolean, rich = true, selected = true) => claimBoldChord(keyboardSettings(c.config, focus), focus, rich, selected).keySidebar;
     expect(keys(false)).toBe('Meta+b');
     expect(keys(true)).toBe('');
+    // Nothing selected: ⌘B toggles the sidebar from the composer too (#24063).
+    expect(keys(true, true, false)).toBe('Meta+b');
     expect(keys(true, false)).toBe('Meta+b');
     c.local.clientSettings = { ...obj(c.local.clientSettings as Obj | undefined), composerRichTextEnabled: false } as never;
     expect(richTextComposer(c)).toBe(false);
     // A rebinding to another chord keeps it.
     c.config = { ...c.config, keybindings: [...bindings, { command: 'sidebar.toggle', shortcut: { key: 'b', modKey: true, shiftKey: true } }] };
-    expect(claimBoldChord(keyboardSettings(c.config, true), true, true).keySidebar).toBe('Meta+Shift+b');
+    expect(claimBoldChord(keyboardSettings(c.config, true), true, true, true).keySidebar).toBe('Meta+Shift+b');
   });
 });
 
