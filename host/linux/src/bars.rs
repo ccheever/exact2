@@ -96,6 +96,12 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    pub(crate) fn show_authored_popover(&mut self, id: Option<ViewId>) -> Result<(), String> {
+        self.navigation.shown_popover = id;
+        self.project_bars();
+        self.layout().map(|_| ())
+    }
+
     /// Read the navigation root's bars from the tree as it now stands and
     /// tell the kernel what they cover; whether that changed (a layout is
     /// then owed, which a commit's own follows with).
@@ -121,7 +127,12 @@ impl<D: DataSource> Host<D> {
             let popovers = kernel.preorder_where(&self.runner.roots(), |_, props| {
                 props.str(PropId::Popover).is_some()
             });
-            wanted.extend(popovers.into_iter().map(|id| (id, HostCover::Whole)));
+            wanted.extend(
+                popovers
+                    .into_iter()
+                    .filter(|id| Some(*id) != self.navigation.shown_popover)
+                    .map(|id| (id, HostCover::Whole)),
+            );
         }
         let (mut routes, mut tabs, mut stacks) = (Vec::new(), None, Vec::new());
         if let (Some(root), Some((above, below))) = (root, room) {

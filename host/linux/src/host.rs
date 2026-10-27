@@ -877,7 +877,7 @@ impl<D: DataSource> Host<D> {
         let event = self.document_value(view, event);
         let press = matches!(event, Event::Press | Event::PressWith(_));
         let refused = |host: &Self, dialog| {
-            let refusal = if dialog && host.neutral_dialog_invoker(view) {
+            let refusal = if host.neutral_dialog_invoker(view) {
                 None
             } else {
                 host.navigation.refusal(host.runner.kernel(), view, dialog)

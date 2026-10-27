@@ -964,6 +964,7 @@ impl Painter {
             return;
         }
         if (walk.scene.hidden)(id)
+            || (self.alert.as_ref().is_some_and(|a| a.key == node.key) && walk.dialog != Some(id))
             || node.is_inline_run()
             || node.style.display == Display::None
             || (node.props.str(PropId::SemanticTag) == Some("dialog") && walk.dialog != Some(id))

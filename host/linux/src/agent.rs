@@ -324,9 +324,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 if let Some(hatches) = p.hatch_state() {
                     s.push_str(&format!(",\"hatches\":{hatches}"));
                 }
-                // The top layer's open surface (LLP 1115.001 D10): each row's
-                // authored node and its box in the surface's window, which
-                // `tap` takes by that node. No shell makes windows here.
+                // The top layer's open surface (LLP 1115.001 D10): each row's node and its box,
+                // which `tap` takes by that node, whether a shell draws it or the author laid it out.
                 let surface = if p.neutral_alerts() {
                     p.alert_json()
                 } else if p.has_windows() {
@@ -412,9 +411,10 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     return malformed("tap back takes no other input fields");
                 }
                 return match p.agent_back(p.host().now()) {
-                    None => error("back: nothing to go back from: no route is beneath the selected one"),
-                    Some(Ok(())) => serde_json::json!({ "back": "route", "delivery": "platform" }).to_string(),
-                    Some(Err(why)) => serde_json::json!({ "back": "route", "delivery": "platform", "refused": why }).to_string(),
+                    None => {
+                        error("back: nothing to go back from: no route is beneath the selected one")
+                    }
+                    Some(answer) => answer.to_string(),
                 };
             }
             // An `into` is the runner's request, never a press: a bad alignment is refused before any delivery.

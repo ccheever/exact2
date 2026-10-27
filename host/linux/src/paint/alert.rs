@@ -1,9 +1,10 @@
-//! A Neutral alert is a retained subtree above the page, not a second row layout.
+//! Authored top-layer subtrees, with a scrim only for modal dialogs.
 use super::*;
 use exact_kernel::NodeKey;
 #[derive(Clone)]
 pub(crate) struct Picture {
     pub key: NodeKey,
+    pub scrim: Option<[u8; 4]>,
     pub offset: (f32, f32),
     pub title: Option<(Rc<Paragraph>, Rect4, crate::text::RunPaint)>,
 }
@@ -16,16 +17,13 @@ impl Painter {
             return;
         };
         self.damage.unsupported = true;
-        self.backend.fill(
-            &Shape::rect((0., 0., self.viewport.0, self.viewport.1)),
-            [
-                0,
-                0,
-                0,
-                (255. * look::number(exact_kernel::generated::metric::SCRIM_ALPHA)).round() as u8,
-            ],
-            Transform::identity(),
-        );
+        if let Some(scrim) = alert.scrim {
+            self.backend.fill(
+                &Shape::rect((0., 0., self.viewport.0, self.viewport.1)),
+                scrim,
+                Transform::identity(),
+            );
+        }
         walk.dialog = Some(node.id);
         self.node(
             walk,

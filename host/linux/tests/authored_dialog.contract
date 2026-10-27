@@ -1,0 +1,58 @@
+component App
+  state query = ""
+  state closes = 0
+  state cancels = 0
+  state events = ""
+  state presses = 0
+  state toggles = ""
+  action changed(value)
+    query = value
+  action closed
+    closes = closes + 1
+    events = `${events}close,`
+  action cancelled
+    cancels = cancels + 1
+    events = `${events}cancel,`
+  action poke
+    presses = presses + 1
+  action ask
+    showModal("dialog")
+  action shut
+    close("dialog")
+  action pop
+    showPopover("picker")
+  action toggling(e: ToggleEvent)
+    toggles = `${e.oldState}>${e.newState}`
+  view
+    column width="100%" height="100%" align-items="flex-start"
+      button "Action" id="action" testId="action" press=ask width=120 height=32
+      button "Command" testId="command" commandfor="dialog" command="show-modal" width=120 height=32
+      button "Page" testId="page" press=poke width=120 height=32
+      button "Picker" id="invoker" testId="invoker" popovertarget="picker" width=120 height=32
+      button "Above" testId="above" commandfor="above-picker" command="show-popover" width=120 height=32
+      button "Manual" testId="manual" popovertarget="manual-picker" width=120 height=32
+      button "Tall" testId="tall" commandfor="tall-dialog" command="show-modal" width=120 height=32
+      button "Source free" testId="source-free" press=pop width=120 height=32
+      button "Context" testId="context" contextPopover="picker" width=120 height=32
+      text `${query}:${closes}:${presses}` testId="result"
+      text toggles testId="toggles"
+      text `${cancels}:${events}` testId="events"
+      dialog id="dialog" testId="dialog" role="dialog" aria-label="Switcher" cancel=cancelled close=closed closedby="closerequest"
+        column width=220
+          button "First" testId="first" press=poke height=30
+          input box-sizing="border-box" type="search" value=query input=changed autofocus=true testId="search" height=30 width=220
+          button "Done" testId="done" commandfor="dialog" command="close" height=30
+          button "Close action" testId="close-action" press=shut height=30
+      dialog id="tall-dialog" testId="tall-dialog" close=closed
+        column width=220
+          button "Top" testId="tall-first" press=poke height=30 flex-shrink=0
+          box height=1000 flex-shrink=0
+          button "Last" testId="last" press=poke height=30 flex-shrink=0
+      column id="picker" testId="picker" popover="auto" role="dialog" width=160 height=90 toggle=toggling cancel=cancelled
+        input box-sizing="border-box" value=query input=changed autofocus=true testId="pop-search" width=150 height=30
+        button "Dialog" testId="replace" commandfor="dialog" command="show-modal" height=30
+        button "Hide" testId="hide" popovertarget="picker" popovertargetaction="hide" height=30
+      column id="above-picker" testId="above-picker" popover="auto" role="dialog" width=160 height=90 position-area="top span-left" margin-bottom=6
+        button "Inside" testId="above-inside" press=poke height=30
+      column id="manual-picker" testId="manual-picker" popover="manual" role="dialog" width=160 height=60
+        button "Hide" testId="manual-hide" popovertarget="manual-picker" popovertargetaction="hide" height=30

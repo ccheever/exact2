@@ -17,6 +17,15 @@ pub(super) enum Cause {
 impl<D: DataSource> Presenter<D> {
     /// `{"revealed":id,"scrolled":…}`, with where the middle moved from and to.
     pub fn reveal(&mut self, id: ViewId) -> Result<String, String> {
+        // The page under an open box is not scrolled: a tap there dismisses
+        // a light-dismiss box where it lands, and is refused under any other.
+        if !self.alert_allows(id) {
+            return if self.alert_light_dismiss() {
+                Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"))
+            } else {
+                Err(format!("view {id} is inert under the open surface"))
+            };
+        }
         // A row of the top layer's open surface is no box of the page's:
         // it is in view in its window (LLP 1115.001 D10). Nor is what a
         // shell's bar stands for (D11): it is in view in the bar.
@@ -208,6 +217,9 @@ impl<D: DataSource> Presenter<D> {
                     node.style.border_widths(),
                 ));
             }
+            if self.alert_root() == Some(a) {
+                break;
+            }
             at = self.scroll_parent(a);
         }
         for (a, sx, sy, max, padding, borders) in scrollers {
@@ -249,6 +261,9 @@ impl<D: DataSource> Presenter<D> {
                 self.dirty = true;
                 self.collection_scroll_input(a, off);
             }
+        }
+        if self.alert.is_some() {
+            return;
         }
         if let Some(target) = self.box_of(id) {
             let doc = self.document();

@@ -723,3 +723,45 @@ fn the_system_back_activates_an_authored_back_control_as_a_press_does() {
     p.run_commands(|| ());
     assert_eq!(open(&p).as_deref(), Some("dpm"));
 }
+
+#[test]
+fn a_shell_dismissal_fires_cancel_but_cannot_keep_the_window_open() {
+    let source = APP.replace("  state said", "  state events = \"\"\n  action cancelled\n    preventDefault()\n    events = `${events}cancel,`\n  action closed\n    events = `${events}close,`\n  state said")
+        .replace("dialog id=\"dpm\"", "dialog cancel=cancelled close=closed id=\"dpm\"")
+        .replace("text said testId=\"said\"", "text events testId=\"events\"\n      text said testId=\"said\"");
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(&source),
+        (),
+        (400., 800.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.serve_windows(Box::new(Nothing));
+    invoke(&mut p, "open-dpm");
+    let serial = p.surface().unwrap().serial;
+    p.key_down("Escape", 0.);
+    assert_eq!(p.surface().unwrap().serial, serial);
+    assert!(p.system_back(0.));
+    assert_eq!(p.surface().unwrap().serial, serial);
+    p.surface_event(serial, top::event::DISMISSED, 0., 0., 0.);
+    p.run_commands(|| ());
+    assert!(p.surface().is_none());
+    assert_eq!(p.focus(), Some(id(&p, "open-dpm")));
+    let events = p
+        .host
+        .kernel()
+        .node(id(&p, "events"))
+        .unwrap()
+        .text_runs()
+        .iter()
+        .map(|r| &*r.text)
+        .collect::<String>();
+    assert_eq!(events, "cancel,cancel,cancel,close,");
+    invoke(&mut p, "open-dpm");
+    let reopened = p.surface().unwrap().serial;
+    p.surface_event(serial, top::event::DISMISSED, 0., 0., 0.);
+    assert_eq!(p.surface().unwrap().serial, reopened);
+}

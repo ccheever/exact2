@@ -1,4 +1,4 @@
-//! Neutral alert sheet defaults; the host admits and opens the retained subtree.
+//! Neutral top-layer defaults; the host admits and opens the retained subtree.
 use super::*;
 use crate::{generated::metric, style::metrics, Dimension, StyleValue};
 use std::sync::LazyLock;
@@ -71,6 +71,75 @@ static ALERT: LazyLock<StyleProps> = LazyLock::new(|| {
         ),
     )
     .unwrap();
+    s
+});
+fn surface(s: &mut StyleProps, y: usize, blur: usize, alpha: usize) {
+    for id in [
+        StyleId::BorderRadiusTopLeft,
+        StyleId::BorderRadiusTopRight,
+        StyleId::BorderRadiusBottomRight,
+        StyleId::BorderRadiusBottomLeft,
+    ] {
+        metric_row(s, id, metric::SURFACE_RADIUS);
+    }
+    let px = |m| metrics::length_in(m, metrics::Column::Neutral, 16., 16.).unwrap();
+    let crate::MetricValue::Number(alpha) = crate::generated::METRICS[alpha].neutral else {
+        unreachable!()
+    };
+    s.set_dynamic(
+        StyleId::BoxShadow,
+        &StyleValue::Text(format!("0 {}px {}px rgb(0 0 0 / {alpha})", px(y), px(blur)).into()),
+    )
+    .unwrap();
+}
+static POPOVER: LazyLock<StyleProps> = LazyLock::new(|| {
+    rows(&[
+        (StyleId::OverflowX, "auto"),
+        (StyleId::OverflowY, "auto"),
+        (StyleId::MarginTop, "4"),
+        (StyleId::MarginBottom, "4"),
+    ])
+});
+static SURFACE: LazyLock<StyleProps> = LazyLock::new(|| {
+    rows(&[
+        (StyleId::OverflowX, "auto"),
+        (StyleId::OverflowY, "auto"),
+        (
+            StyleId::BackgroundColor,
+            "-exact-secondary-grouped-background",
+        ),
+        (StyleId::TextColor, "-exact-label"),
+    ])
+});
+static RAISED: LazyLock<StyleProps> = LazyLock::new(|| {
+    let mut s = SURFACE.clone();
+    for id in [StyleId::MarginTop, StyleId::MarginBottom] {
+        s.set_dynamic(id, &StyleValue::Number(4.)).unwrap();
+    }
+    surface(
+        &mut s,
+        metric::RAISED_SHADOW_Y,
+        metric::RAISED_SHADOW_BLUR,
+        metric::RAISED_SHADOW_ALPHA,
+    );
+    s
+});
+static DIALOG: LazyLock<StyleProps> = LazyLock::new(|| {
+    let mut s = SURFACE.clone();
+    for id in [
+        StyleId::PaddingTop,
+        StyleId::PaddingRight,
+        StyleId::PaddingBottom,
+        StyleId::PaddingLeft,
+    ] {
+        s.set_dynamic(id, &StyleValue::Text("1em".into())).unwrap();
+    }
+    surface(
+        &mut s,
+        metric::MODAL_SHADOW_Y,
+        metric::MODAL_SHADOW_BLUR,
+        metric::MODAL_SHADOW_ALPHA,
+    );
     s
 });
 static TEXT: LazyLock<StyleProps> = LazyLock::new(|| {
@@ -203,6 +272,23 @@ impl NodeArena {
             && self.parent(slot).is_some_and(|p| self.neutral_alert(p))
     }
     pub(crate) fn alert_context(&self, slot: u32) -> u8 {
+        if metrics::column() == metrics::Column::Neutral {
+            let props = self.props(slot);
+            if props.str(PropId::Popover).is_some()
+                && props.str(PropId::AccessibilityRole) != Some("menu")
+            {
+                return if props.bool(PropId::DefaultSurface) == Some(true) {
+                    15
+                } else {
+                    14
+                };
+            }
+            if props.str(PropId::SemanticTag) == Some("dialog")
+                && props.str(PropId::AccessibilityRole) != Some("alertdialog")
+            {
+                return 13;
+            }
+        }
         if self.neutral_alert(slot) {
             return if self.grouped_alert(slot) { 5 } else { 1 };
         }
@@ -265,6 +351,9 @@ impl NodeArena {
             9 => Some(&ACTIONS),
             10 => Some(&MESSAGE_TEXT),
             12 => Some(&ACTIONS_FIRST),
+            13 => Some(&DIALOG),
+            14 => Some(&POPOVER),
+            15 => Some(&RAISED),
             _ => None,
         }
     }
@@ -279,6 +368,9 @@ impl NodeArena {
             &MESSAGE_BOX,
             &MESSAGE_TEXT,
             &ACTIONS,
+            &DIALOG,
+            &POPOVER,
+            &RAISED,
         ]
         .into_iter()
         .fold(StyleMask::EMPTY, |mask, s| mask.union(s.mask))
@@ -292,14 +384,14 @@ impl NodeArena {
             s.display = taffy::Display::None;
             return;
         }
-        if !self.neutral_alert(slot) {
+        if !self.neutral_alert(slot) && self.alert_context(slot) != 13 {
             return;
         }
         let own = self.style(slot).mask.union(self.style(slot).written);
         let em = self.computed_source(slot, StyleId::FontSize).font_size;
         let px =
             |m| metrics::length_in(m, metrics::Column::Neutral, em, self.root_font_size()).unwrap();
-        if !own.has(StyleId::Width) {
+        if self.neutral_alert(slot) && !own.has(StyleId::Width) {
             s.size.width = taffy::style::Dimension::length(
                 px(metric::ALERT_WIDTH)
                     .min((self.env().viewport_width - px(metric::ALERT_MARGIN)).max(0.)),

@@ -214,7 +214,7 @@ impl<D: DataSource> Presenter<D> {
             return Some("page under surface is inert");
         }
         if !self.alert_allows(id) {
-            return Some("page under alert is inert");
+            return Some("page under the open surface is inert");
         }
         let kernel = self.host.kernel();
         let shown = self.alert_root();
@@ -302,7 +302,7 @@ impl<D: DataSource> Presenter<D> {
     /// action on either path can change the tree.
     pub(crate) fn set_focus(&mut self, next: Option<ViewId>, now_ms: f64) -> Option<String> {
         if next.is_some_and(|id| !self.alert_allows(id)) {
-            return Some("focus refused: page under alert is inert".into());
+            return Some("focus refused: page under the open surface is inert".into());
         }
         let previous = self.focus;
         if previous == next {
@@ -448,7 +448,10 @@ impl<D: DataSource> Presenter<D> {
         repeat: bool,
         now_ms: f64,
     ) -> (Option<String>, bool) {
-        let target = self.focus.or_else(|| self.host.roots().first().copied());
+        let target = self
+            .focus
+            .or_else(|| self.alert_root())
+            .or_else(|| self.host.roots().first().copied());
         let mut path = Vec::new();
         let mut at = target.and_then(|id| self.handler_target(id, kind));
         while let Some(id) = at {

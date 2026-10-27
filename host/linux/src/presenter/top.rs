@@ -6,9 +6,11 @@
 //!
 //! **Who has one.** A shell that makes windows says so
 //! ([`Presenter::serve_windows`]: the Canvas host's reader, as it boots).
-//! Desktop Neutral confirmations use `alert.rs` and the ordinary subtree
-//! painter instead. Menus and other unsupported dialog shapes remain refused
-//! without a windowed shell.
+//! Windows draws an alert-shaped dialog and a menu as WinUI's ContentDialog
+//! and MenuFlyout over the window (`top/overlay.rs`). Every other `dialog`
+//! and popover on Windows, and every one on the Linux desktop, is the
+//! author's subtree, laid out by the kernel and painted in the window
+//! (`alert.rs`, LLP 1115.004 D10.7); Android refuses those for now.
 //!
 //! **How a surface is painted.** Not by the kernel's layout of the authored
 //! rows, which no native host shows either. The shape rule (`top/shape.rs`)
@@ -30,15 +32,18 @@
 //! it is hit, and keys go to the surface. The focus moves in (the page's
 //! node loses it) and returns, when it closes, to the node that held it. A
 //! row's tap closes the surface and then runs the row's `press`; an alert's
-//! cancel, Back and Escape close it and run nothing; a tap outside closes
-//! a menu, and does nothing to an alert, which has no outside (LLP 1115.000
-//! D13.4), unless its author wrote `closedby="any"`: then it dismisses it,
-//! as it does a Material dialog left to itself. System Back closes it
-//! before any route is asked ([`Presenter::system_back`]).
+//! cancel closes it and runs nothing; Back and Escape are a close request,
+//! which fires a modal dialog's `cancel` first (HTML) and closes it unless
+//! that was prevented; a tap outside closes a menu, and does nothing to an
+//! alert, which has no outside (LLP 1115.000 D13.4), unless its author wrote
+//! `closedby="any"`: then it dismisses it, as it does a Material dialog left
+//! to itself. System Back closes it before any route is asked
+//! ([`Presenter::system_back`]).
 use super::*;
 use exact_kernel::invocation::Action;
 use exact_kernel::NodeKey;
 
+pub(super) mod area;
 pub(super) mod look;
 mod overlay;
 pub(crate) mod shape;
@@ -182,6 +187,7 @@ pub(super) struct State {
     painter: Option<Box<dyn SurfacePainter>>,
     open: Option<Open>,
     toggles: Vec<(NodeKey, bool, bool)>,
+    closes: Vec<NodeKey>,
     /// The last serial given.
     last: u32,
     /// The surface the shell shows as it was last told: serial and revision.
@@ -242,6 +248,10 @@ impl<D: DataSource> Presenter<D> {
         self.top.painter.is_some()
     }
 
+    pub(super) fn desktop_overlays(&self) -> bool {
+        self.top.overlay.enabled
+    }
+
     /// The surface that is open, if one is.
     pub fn surface(&self) -> Option<Shown<'_>> {
         self.top.open.as_ref().map(|open| Shown {
@@ -260,8 +270,12 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// Whether a surface is open: the page is then inert.
-    pub(super) fn top_open(&self) -> bool {
-        self.top.open.is_some() || self.alert.is_some()
+    pub(crate) fn top_open(&self) -> bool {
+        self.shape_surface_open() || self.alert.is_some()
+    }
+
+    pub(super) fn shape_surface_open(&self) -> bool {
+        self.top.open.is_some()
     }
 
     /// The host was replaced (a reload): its tree is another, and the new
@@ -295,7 +309,20 @@ impl<D: DataSource> Presenter<D> {
         let runner = self.host.runner();
         let pressed = |id: ViewId| runner.handlers_of(id).contains(&EventKind::Press);
         let kernel = self.host.kernel();
-        shape::alert(kernel, pop, &pressed, modal).or_else(|| shape::menu(kernel, pop, &pressed))
+        shape::alert(kernel, pop, &pressed, modal).or_else(|| {
+            if self.top.overlay.enabled {
+                let role = kernel.node(pop)?.props.str(PropId::AccessibilityRole);
+                let menu = role == Some("menu")
+                    || role.is_none()
+                        && kernel
+                            .preorder_where(&[pop], |kind, _| kind == NodeType::TextInput)
+                            .is_empty();
+                if !menu {
+                    return None;
+                }
+            }
+            shape::menu(kernel, pop, &pressed)
+        })
     }
 
     /// The window the shell told, and how far a menu keeps from its top and
@@ -377,23 +404,22 @@ impl<D: DataSource> Presenter<D> {
         // Its session's roles (LLP 1121 stage 5): the surface's look resolves them.
         let _roles = self.host.runner().bind_roles();
         if self.neutral_alerts() {
-            if modal {
-                return self.alert_present(target, name, invoker, now_ms);
-            }
-            self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
-            return false;
+            return self.alert_present(target, name, invoker, point, modal, now_ms);
         }
         let kernel = self.host.kernel();
         let pop = (target.and_then(|key| kernel.node_by_key(key)))
             .map(|node| (node.id, node.key, node.parent));
         let plan = pop.and_then(|(id, ..)| self.surface_plan(id, modal));
+        if self.top.overlay.enabled && plan.is_none() {
+            return self.alert_present(target, name, invoker, point, modal, now_ms);
+        }
         let shows =
             |parent: Option<ViewId>| !parent.is_some_and(|p| self.host.route_visibility(p).1);
         let refusal = match (pop, &plan) {
             (None, _) => Some("no live node has that id"),
             (Some((_, _, parent)), _) if !shows(parent) => Some("it is on a route that does not show"),
             (_, Some(Plan::Menu(_))) if modal => Some("it is a menu, which its invoker opens"),
-            (_, None) => Some("this host presents an alert-shaped alertdialog (text, one cancel, at most three buttons) and a menu popover (button rows); a chooser, a sheet and a dialog its author lays out are not presented yet (LLP 1115.001 D10)"),
+            (_, None) => Some("this host presents an alert-shaped alertdialog (text, one cancel, at most three buttons) and a menu popover (button rows); authored dialogs and popovers are presented on desktop hosts, but not yet in Android's windows (LLP 1115.001 D10)"),
             _ => None,
         };
         let (Some((id, key, _)), Some(plan), None) = (pop, plan, refusal) else {
@@ -402,15 +428,9 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(format!("{what} \"{name}\" refused: {why}"));
             return false;
         };
-        // One surface at a time: one that was open ends as its cancel ends
-        // it, and the focus will go back to where it was before that one.
-        let restore = match self.top.open.take() {
-            Some(old) => {
-                self.queue_toggle(old.key, false);
-                old.restore
-            }
-            None => self.focus.or(invoker),
-        };
+        let restore = self
+            .replace_surface(invoker, now_ms)
+            .and_then(|key| self.host.kernel().node_by_key(key).map(|n| n.id));
         self.report_top_layer();
         if let Err(e) = self.pointer_cancel(now_ms) {
             self.host.log(e);
@@ -473,9 +493,22 @@ impl<D: DataSource> Presenter<D> {
         true
     }
 
-    /// Close the open surface, running nothing: the focus returns to the
-    /// node that held it, where that is still one the page can focus.
-    fn close_surface(&mut self, now_ms: f64) {
+    /// Close the previous surface and carry its original focus return target.
+    pub(super) fn replace_surface(&mut self, invoker: Option<ViewId>, now: f64) -> Option<NodeKey> {
+        let restore = if let Some(open) = &self.alert {
+            open.restore
+        } else {
+            self.top
+                .open
+                .as_ref()
+                .map_or(self.focus.or(invoker), |o| o.restore)
+                .and_then(|id| self.host.kernel().node(id).map(|n| n.key))
+        };
+        self.close_surface(now);
+        restore
+    }
+
+    pub(super) fn close_surface(&mut self, now_ms: f64) {
         if self.alert.is_some() {
             self.alert_close(now_ms);
             return;
@@ -484,7 +517,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         self.report_top_layer();
-        self.queue_toggle(open.key, false);
+        self.queue_surface_closed(open.key, open.modal);
         let back = open.restore.filter(|id| {
             self.host.kernel().node(*id).is_some()
                 && !self.host.route_visibility(*id).1
@@ -512,10 +545,26 @@ impl<D: DataSource> Presenter<D> {
             Plan::Alert { cancellable, .. } => *cancellable,
             Plan::Menu(_) => true,
         };
-        if may {
+        let (serial, node, modal) = (open.serial, open.node, open.modal);
+        if may
+            && (!modal || !self.dialog_close_prevented(node, now_ms))
+            && self.top.open.as_ref().is_some_and(|o| o.serial == serial)
+        {
             self.close_surface(now_ms);
         }
         true
+    }
+
+    /// HTML's cancel is sent only for a person's close request, before close.
+    pub(super) fn dialog_close_prevented(&mut self, id: ViewId, now: f64) -> bool {
+        let error = self.host.dispatch_at(id, Event::Cancel, now);
+        if let Some(error) = error.or(self.after_commit()) {
+            self.host.log(error);
+        }
+        let prevented = self.commands.iter().any(|c| c.name == "preventDefault");
+        self.commands
+            .retain(|c| c.name != "preventDefault" && c.name != "stopPropagation");
+        prevented
     }
 
     /// A person chose row `index`: the surface closes, then the row's
@@ -569,7 +618,16 @@ impl<D: DataSource> Presenter<D> {
         match what {
             0..=3 => self.surface_touch(what, x, y, now_ms),
             event::DISMISSED => {
-                self.dismiss_surface(now_ms);
+                let open = self.top.open.as_ref().unwrap();
+                let (node, modal) = (open.node, open.modal);
+                // The shell's window is already gone. HTML permits ignoring
+                // cancelation when the UA cannot honor it; cancel still fires.
+                if modal {
+                    self.dialog_close_prevented(node, now_ms);
+                }
+                if self.top.open.as_ref().is_some_and(|o| o.serial == serial) {
+                    self.close_surface(now_ms);
+                }
             }
             event::REFUSED => {
                 self.host.log(format!(
@@ -649,9 +707,6 @@ impl<D: DataSource> Presenter<D> {
                 | "ScrollLock"
         ) {
             self.overlay_input(true);
-        }
-        if self.alert.is_some() {
-            return self.alert_key(name, now_ms);
         }
         if self.top.open.is_none() {
             return false;
@@ -760,7 +815,9 @@ impl<D: DataSource> Presenter<D> {
     /// no outside. Whether the touch was taken from the page.
     pub(super) fn top_takes_pointer(&mut self, now_ms: f64) -> bool {
         match self.top.open.as_ref().map(|open| open.outside()) {
-            Some(true) => self.close_surface(now_ms),
+            Some(true) => {
+                self.dismiss_surface(now_ms);
+            }
             Some(false) => {}
             None => return false,
         }
@@ -779,6 +836,9 @@ impl<D: DataSource> Presenter<D> {
     /// chosen, by its authored node; any other node is under the surface,
     /// where a tap closes a menu and does nothing through an alert.
     pub(super) fn surface_tap(&mut self, id: ViewId) -> Option<Result<String, String>> {
+        if self.alert.is_some() {
+            return self.alert_outside_tap(id);
+        }
         let open = self.top.open.as_ref()?;
         let (serial, pop, kind, outside) = (open.serial, open.node, open.kind, open.outside());
         let row = open.layout.targets.iter().position(|t| t.node == id);
@@ -793,8 +853,13 @@ impl<D: DataSource> Presenter<D> {
                 Ok(format!("{{\"tapped\":{id},\"surface\":{serial}}}"))
             }
             (None, _) if outside => {
-                self.close_surface(now);
-                Ok(format!("{{\"tapped\":{id},\"dismissed\":{serial}}}"))
+                self.dismiss_surface(now);
+                let dismissed = if self.top.open.as_ref().is_some_and(|o| o.serial == serial) {
+                    "null".into()
+                } else {
+                    serial.to_string()
+                };
+                Ok(format!("{{\"tapped\":{id},\"dismissed\":{dismissed}}}"))
             }
             (None, _) => Err(format!(
                 "view {id} is under the open alert (view {pop}): the page is inert until it closes"
@@ -928,7 +993,20 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    fn queue_toggle(&mut self, key: NodeKey, open: bool) {
+    pub(super) fn queue_surface_closed(&mut self, key: NodeKey, modal: bool) {
+        self.queue_toggle(key, false);
+        if modal
+            && self
+                .host
+                .kernel()
+                .node_by_key(key)
+                .is_some_and(|n| n.props.str(PropId::SemanticTag) == Some("dialog"))
+        {
+            self.top.closes.push(key);
+        }
+    }
+
+    pub(super) fn queue_toggle(&mut self, key: NodeKey, open: bool) {
         if let Some((_, _, new)) = self.top.toggles.iter_mut().find(|(k, _, _)| *k == key) {
             *new = open;
         } else {
@@ -937,6 +1015,18 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn dispatch_toggles(&mut self) {
+        for key in std::mem::take(&mut self.top.closes) {
+            let Some(id) = self.host.kernel().node_by_key(key).map(|n| n.id) else {
+                continue;
+            };
+            if let Some(error) = self
+                .host
+                .dispatch_at(id, Event::Close, self.host.now())
+                .or(self.after_commit())
+            {
+                self.host.log(error);
+            }
+        }
         for (key, old_open, new_open) in std::mem::take(&mut self.top.toggles) {
             let Some(node) = self.host.kernel().node_by_key(key) else {
                 continue;
@@ -962,7 +1052,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn popover_command(&mut self, command: &str, args: &[exact_plan::Value]) {
-        if !self.has_windows() {
+        if !self.has_windows() && !self.neutral_alerts() {
             self.host.log(format!(
                 "{command} unsupported: this host has no popover presentation"
             ));
@@ -1039,7 +1129,7 @@ impl<D: DataSource> Presenter<D> {
     /// finger is, and the touch presses nothing when it lifts. Whether a
     /// node took it. Nothing on a host with no top layer.
     pub fn long_press(&mut self, x: f32, y: f32, now_ms: f64) -> bool {
-        if !self.has_windows() || self.top.open.is_some() {
+        if (!self.has_windows() && !self.neutral_alerts()) || self.top_open() {
             return false;
         }
         let Some(hit) = self.hit(x, y) else {
@@ -1274,6 +1364,9 @@ impl<D: DataSource> Presenter<D> {
     /// The open surface for the agent's `state`: what it is, the authored
     /// node, what it says, and each row's node and box in the window.
     pub fn surface_json(&self) -> serde_json::Value {
+        if self.alert.is_some() {
+            return self.alert_json();
+        }
         let Some(shown) = self.surface() else {
             return serde_json::Value::Null;
         };

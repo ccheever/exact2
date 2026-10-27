@@ -6,7 +6,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn caret_frame(&self) -> Option<Rect4> {
         let id = self.focus?;
         let selection = self.field_selection(id);
-        if selection.start != selection.end || self.top_open() {
+        if selection.start != selection.end || self.shape_surface_open() {
             return None;
         }
         if self.ime_paint().is_some_and(|c| !c.cursor) {

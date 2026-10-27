@@ -623,6 +623,9 @@ impl<D: DataSource> Presenter<D> {
         );
         let mut at = Some(id);
         while let Some(n) = at {
+            if key && !self.alert_allows(n) {
+                return None;
+            }
             let node = kernel.node(n)?;
             let disabled = if key {
                 disabled_control(&node)
@@ -783,7 +786,7 @@ impl<D: DataSource> Presenter<D> {
         // A popover's invoker, or a dialog's button: the top layer's, where
         // a shell presents one (`presenter/top.rs`); else refused.
         if let Some(invoker) = self.top_invoker(hit) {
-            if self.has_windows() && focus {
+            if (self.has_windows() || self.neutral_alerts()) && focus {
                 self.focus_for_press(hit, (x, y), now_ms, self.direct());
             }
             if mouse_click {

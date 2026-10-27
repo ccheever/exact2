@@ -683,7 +683,7 @@ fn defaults_fonts_and_visibility() {
 }
 
 #[test]
-fn a_nonconfirmation_dialog_is_refused_before_host_layout() {
+fn a_nonconfirmation_dialog_keeps_its_authored_subtree() {
     setup();
     let source = APP.replace("        text \"The count goes back to zero.\"\n", "");
     assert_ne!(source, APP);
@@ -691,14 +691,16 @@ fn a_nonconfirmation_dialog_is_refused_before_host_layout() {
     let dialog = dialog_id(&p);
     p.tap(id(&p, "ask-clear")).unwrap();
     p.run_commands(|| ());
+    let surface = read(&mut p, "state")["surface"].clone();
+    assert_eq!(surface["kind"], "alert");
+    assert_eq!(surface["title"]["text"], "Clear the count?");
+    assert!(p.host().kernel().alert_prefix_frame(dialog).is_some());
+    assert!(p.host().kernel().host_block(dialog).is_some());
+    assert!(p.rect_of(id(&p, "clear-confirm-clear")).is_some());
+    p.tap(id(&p, "clear-confirm-cancel")).unwrap();
+    p.run_commands(|| ());
     assert!(read(&mut p, "state")["surface"].is_null());
-    assert!(p.host().kernel().alert_prefix_frame(dialog).is_none());
     assert!(p.host().kernel().host_block(dialog).is_none());
-    let logs = read(&mut p, "logs").to_string();
-    assert!(
-        logs.contains("alert-shaped alertdialog confirmations"),
-        "{logs}"
-    );
 }
 fn click(p: &mut Presenter<()>, x: f32, y: f32) {
     let now = p.host().now();

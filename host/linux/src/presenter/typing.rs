@@ -304,7 +304,7 @@ impl<D: DataSource> Presenter<D> {
         repeat: bool,
     ) -> Result<String, String> {
         if down && !self.alert_allows(id) {
-            return Err(format!("view {id} is inert under the alert"));
+            return Err(format!("view {id} is inert under the open surface"));
         }
         self.restore_controls();
         // A release's `keyup` handlers at the focus first (#140), whatever
@@ -598,7 +598,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         // An open surface of the top layer takes every key (`top.rs`).
-        if self.surface_key(name, now_ms) {
+        if self.alert_key(name, code, repeat, now_ms) || self.surface_key(name, now_ms) {
             return;
         }
         // The page's shortcuts first, focus or none (`shortcuts.rs`); a
@@ -622,15 +622,7 @@ impl<D: DataSource> Presenter<D> {
             if prevented || self.focus.is_some() {
                 return;
             }
-            if name == "Tab" {
-                if let Some(e) = self.move_focus(self.modifiers().shift, now_ms) {
-                    eprintln!("exact: {e}");
-                }
-            } else if let Some(d) = remote::Direction::of(name).filter(|_| self.remote()) {
-                self.move_focus_toward(d, now_ms);
-            } else {
-                self.desktop_scroll_key(name);
-            }
+            self.key_default(name, code, repeat, now_ms);
             return;
         };
         // A bar's target is no box of the page's: the remote's keys there are
@@ -663,6 +655,11 @@ impl<D: DataSource> Presenter<D> {
         if prevented || self.focus != Some(id) {
             return;
         }
+        self.key_default(name, code, repeat, now_ms);
+    }
+
+    /// Default keyboard behavior shared by the page and authored top-layer boxes.
+    pub(super) fn key_default(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
         // Tab's default action moves the focus, from a canvas or a field too,
         // as the browser's does (LLP 1088 D7.3).
         if name == "Tab" {
@@ -671,6 +668,14 @@ impl<D: DataSource> Presenter<D> {
             }
             return;
         }
+        let Some(id) = self.focus else {
+            if let Some(d) = remote::Direction::of(name).filter(|_| self.remote()) {
+                self.move_focus_toward(d, now_ms);
+            } else {
+                self.desktop_scroll_key(name);
+            }
+            return;
+        };
         // A remote's Select and arrows (LLP 1115.001.003 D3).
         if self.remote_key(id, (name, code, repeat), now_ms) {
             return;

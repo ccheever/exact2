@@ -124,8 +124,8 @@ fn a_popover_keeps_only_a_sticky_its_author_wrote() {
     );
     assert_eq!(
         (k.node(2).unwrap().frame.y, k.host_block_size(2).is_some()),
-        (0.0, true),
-        "in the viewport, its own block, which a host places: no offset"
+        (4.0, true),
+        "in its viewport block: the default margin, without the sticky inset"
     );
     assert!(!sticks(&k), "and the sticky machinery lets it go");
 
@@ -135,6 +135,10 @@ fn a_popover_keeps_only_a_sticky_its_author_wrote() {
         PositionType::Sticky,
         "a popover its author made sticky keeps it"
     );
-    assert_eq!(k.node(3).unwrap().frame.y, below(&k), "in flow");
+    assert_eq!(
+        k.node(3).unwrap().frame.y,
+        below(&k) + 8.,
+        "in flow, including both default popover margins"
+    );
     assert!(sticks(&k), "sticky");
 }

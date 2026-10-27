@@ -26,6 +26,8 @@ pub(super) fn before_prop(
         | PropId::AccessibilityControls
         | PropId::Type
         | PropId::ButtonStyle
+        | PropId::Popover
+        | PropId::DefaultSurface
         | PropId::AlertPart => {
             let mut before = vec![(slot, arena.default_context(slot))];
             if let Some(parent) = arena.parent(slot) {
