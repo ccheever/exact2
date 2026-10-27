@@ -39,9 +39,13 @@ final class TextIndex {
         let node: NodeView
     }
     /// One scroller's paragraphs, those not under a transform or a view
-    /// other than a node between them and it.
+    /// other than a node between them and it. A mount (the document's in the
+    /// viewport's place, a route's or a sheet's view: `DocumentMountIOS.swift`,
+    /// `PresentationMount`) is a port that does not scroll: what is outside
+    /// its bounds is off screen. Without them every paragraph of a list in a
+    /// route was visited every pass (r27's inbox: 3,300, most of a frame).
     private final class Port {
-        weak var scroller: UIScrollView?
+        weak var scroller: UIView?
         /// By `minY`.
         var entries: [Entry] = []
         /// Taller than `tallLimit`, each tested whenever the scroller is.
@@ -52,7 +56,7 @@ final class TextIndex {
         /// A point of reach in the viewport, in the scroller's points: more
         /// under a scale that shrinks it (`unit(_:in:)`).
         var unit: CGFloat = 1
-        init(_ scroller: UIScrollView) { self.scroller = scroller }
+        init(_ scroller: UIView) { self.scroller = scroller }
     }
     private static let tallLimit: CGFloat = 2048
     private var ports: [Port] = []
@@ -71,7 +75,7 @@ final class TextIndex {
         for node in loose where !body(node) { return }
         for port in ports {
             guard let scroller = port.scroller, scroller.window != nil, !scroller.isHidden else { continue }
-            guard scroller.clipsToBounds else {
+            guard scroller.clipsToBounds || !(scroller is UIScrollView) else {
                 for entry in port.entries where !body(entry.node) { return }
                 for entry in port.tall where !body(entry.node) { return }
                 continue
@@ -101,7 +105,7 @@ final class TextIndex {
     /// a scale: the larger of the two, as the scale was when the index was
     /// built. One that changes since (a flight's) moves only what a reach
     /// leads by, which a refresh works ahead on; what shows is at no reach.
-    private static func unit(_ scroller: UIScrollView, in viewport: UIView) -> CGFloat {
+    private static func unit(_ scroller: UIView, in viewport: UIView) -> CGFloat {
         let unit = scroller.convert(CGRect(x: 0, y: 0, width: 1, height: 1), to: viewport)
         let scale = min(unit.width, unit.height)
         return scale.isFinite && scale > 0 ? max(1, 1 / scale) : 1
@@ -121,8 +125,8 @@ final class TextIndex {
             let key = ObjectIdentifier(view)
             if let known = origins[key] { return known }
             var found: (port: Port, shift: CGPoint)?
-            if let scroller = view as? UIScrollView {
-                let port = ports[key] ?? Port(scroller)
+            if view is UIScrollView || view is DocumentMount || view is PresentationMount {
+                let port = ports[key] ?? Port(view)
                 ports[key] = port
                 found = (port, .zero)
             } else if view is NodeView || view is PlainView, identity(view), let parent = view.superview, let above = origin(parent) {

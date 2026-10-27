@@ -202,6 +202,25 @@ final class TextRasterIOSTests: XCTestCase {
         XCTAssertTrue(node.textRasterReady, "what the scroll brought in has pixels")
     }
 
+    /// A document in its mount, under a native container (r27's inbox), is
+    /// indexed by its place in the mount as it is in the viewport: a far
+    /// paragraph is not visited every pass.
+    func testTheIndexSkipsAFarParagraphInTheDocumentsMount() throws {
+        let session = fixture("text-index-mount")
+        defer { session.destroy() }
+        let p = session.presenter
+        window.addSubview(p.documentMount)
+        p.hostDocument(fixed: true)
+        XCTAssertTrue(p.documentFixed)
+        move(p, y: 1500)
+        var visited: [UInt32] = []
+        p.textIndex.visit(p.textViews, reach: 400, viewport: p.viewport) { visited.append($0.id); return true }
+        XCTAssertEqual(visited, [], "1,100 pt below the mount's bounds, past the reach")
+        move(p, y: 300)
+        p.textIndex.visit(p.textViews, reach: 0, viewport: p.viewport) { visited.append($0.id); return true }
+        XCTAssertEqual(visited, [2], "in the mount's bounds")
+    }
+
     /// The clips a refresh finds once per ancestor (`TextClips`) meet as
     /// boxes in the viewport's space, which a rotated parent's are not:
     /// under a transform the walk answers, as it does with none.
