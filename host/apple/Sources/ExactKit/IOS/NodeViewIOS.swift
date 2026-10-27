@@ -1205,7 +1205,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
-    /// picture (`BoxFilter`), drawn again after each batch.
+    /// picture (`BoxFilter`), drawn again when what it shows changes.
     private(set) var boxFilter: BoxFilter?
     var hasBoxFilter: Bool { boxFilter != nil }
     func applyFilter() {
@@ -1216,8 +1216,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if f.set(style["filter"]) {
             boxFilter = f
             layer.mask = f.hide
-            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter() }
-            renderFilter()
+            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
+            redrawFilter()
         } else if let f = boxFilter {
             f.remove()
             boxFilter = nil
@@ -1226,11 +1226,20 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
 
-    func renderFilter() {
+    /// In a batch, the picture is drawn once as it ends, with all of the
+    /// batch in it.
+    private func redrawFilter() {
+        if presenter?.applying == true { presenter?.boxFilters.touched(self) } else { renderFilter() }
+    }
+    func renderFilter(fresh: Bool = true) {
         guard let f = boxFilter else { return }
         guard superview != nil else { f.remove(); return }
         setPaintPosition(paintZPosition)
-        f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark)
+        let shown = window.map { convert(bounds, to: $0).intersects($0.bounds) } ?? true
+        f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark,
+                 node: id, fresh: fresh, shown: shown) { [weak self] in
+            if let self { presenter?.boxFilters.landed(self) }
+        }
     }
 
     /// Inside `GlassGroups.moving`: a container comes or goes under the
@@ -1240,7 +1249,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
         paintOrderMoved()
-        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { redrawFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
         if superview != nil, style["color_scheme"] != nil || overrideUserInterfaceStyle != .unspecified { settleColorScheme() }

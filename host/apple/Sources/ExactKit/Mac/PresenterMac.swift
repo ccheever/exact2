@@ -1413,6 +1413,8 @@ package final class Presenter {
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
     func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false) {
+        // A filtered box draws again when it or anything in it changes.
+        if !boxFilters.isEmpty, let start = views[id] { boxFilters.touched(start) }
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {

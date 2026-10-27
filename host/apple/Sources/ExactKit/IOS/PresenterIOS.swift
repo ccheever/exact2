@@ -1382,6 +1382,9 @@ package final class Presenter {
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
     func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false, boxChanged: Bool = true) {
+        // A filtered box draws again when it or anything in it changes, a
+        // flat leaf (a layer in its parent's view) included.
+        if !boxFilters.isEmpty, let v = views[id] ?? flats.parent(of: id).flatMap({ views[$0] }) { boxFilters.touched(v) }
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {

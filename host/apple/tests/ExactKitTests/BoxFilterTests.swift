@@ -148,7 +148,7 @@ final class BoxFilterTests: XCTestCase {
             for (i, corner) in corners.enumerated() { style["border_radius_" + corner] = .number(selected & (1 << i) == 0 ? 0 : 16) }
             box.applyStyle(style)
             window.displayIfNeeded()
-            box.renderFilter()
+            box.renderFilter(); settle()
             let image = try picture(box)
             let alpha = try [(1,1), (38,1), (38,38), (1,38)].map { try pixel(image, x: $0.0, y: $0.1)[3] }
             XCTAssertEqual(alpha, (0..<4).map { selected & (1 << $0) == 0 ? 255 : 0 }, "corners \(selected)")
@@ -166,7 +166,7 @@ final class BoxFilterTests: XCTestCase {
                 if filtered { style["filter"] = effect }
                 box.applyStyle(style)
                 window.displayIfNeeded()
-                if filtered { box.renderFilter(); return try picture(box) }
+                if filtered { box.renderFilter(); settle(); return try picture(box) }
                 return try XCTUnwrap(Capture.picture(of: XCTUnwrap(box.layer), size: box.bounds.size, scale: 1))
             }
             let reduced = try render(radius: 20), oversized = try render(radius: 999)
@@ -196,7 +196,7 @@ final class BoxFilterTests: XCTestCase {
                     #if os(macOS)
                     window.displayIfNeeded()
                     #endif
-                    box.renderFilter()
+                    box.renderFilter(); settle()
                     let image = try picture(box)
                     let alpha = try [(1,1), (38,1), (38,38), (1,38)].map { try pixel(image, x: $0.0, y: $0.1)[3] }
                     XCTAssertEqual(alpha, (0..<4).map { selected & (1 << $0) == 0 ? 255 : 0 }, "corners \(selected), border \(bordered), clip \(clipped)")
@@ -208,6 +208,43 @@ final class BoxFilterTests: XCTestCase {
     }
 
     #endif
+
+    /// A batch draws a box's picture again only when it touched the box or
+    /// something in it, or the box's size changed; otherwise the picture
+    /// follows the box. A picture after the first is drawn off the main
+    /// thread, the old one showing until it lands.
+    func testABoxIsDrawnAgainOnlyWhenWhatItShowsChanged() throws {
+        let box = node(1)
+        _ = node(2, in: box); _ = node(3)
+        box.applyStyle(["background_color": [255,0,0,255], "filter": try filter()])
+        #if os(macOS)
+        window.displayIfNeeded()
+        box.renderFilter()
+        #endif
+        settle()
+        let first = try picture(box)
+        p.touched(3)
+        p.boxFilters.render()
+        XCTAssertFalse(p.boxFilters.drawing, "a batch that touched nothing in it draws nothing")
+        box.frame.origin = CGPoint(x: 10, y: 20)
+        p.boxFilters.render()
+        XCTAssertFalse(p.boxFilters.drawing)
+        XCTAssertTrue(try picture(box) === first)
+        let moved: CALayer? = box.layer
+        XCTAssertEqual(box.boxFilter?.picture.position, moved?.position, "a box that moved is followed")
+        p.touched(2)
+        p.boxFilters.render()
+        XCTAssertTrue(p.boxFilters.drawing, "a change inside it draws it again, off the main thread")
+        XCTAssertTrue(try picture(box) === first, "the old picture shows until the new one lands")
+        settle()
+        let second = try picture(box)
+        XCTAssertFalse(second === first)
+        XCTAssertEqual(try pixel(second, x: 20, y: 20), [255,0,0,255])
+        box.frame.size = CGSize(width: 50, height: 40)
+        p.boxFilters.render()
+        settle()
+        XCTAssertFalse(try picture(box) === second, "so does a new size")
+    }
 
     func testAnImageDecodeUpdatesItsFilteredAncestorWithoutABatch() throws {
         let outer = node(3), box = node(1, in: outer), image = node(2, kind: "image", in: box)
@@ -234,16 +271,18 @@ final class BoxFilterTests: XCTestCase {
         let end = Date(timeIntervalSinceNow: 20)
         while image.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
         XCTAssertNotNil(image.raster)
-        drainPublication()
+        settle()
         let after = try picture(box)
         XCTAssertFalse(before === after)
         XCTAssertEqual(try pixel(after, x: 20, y: 20), [255,0,0,255])
         XCTAssertEqual(try pixel(picture(outer), x: 20, y: 20), [255,0,0,255], "inner pictures publish before their ancestors")
     }
-    private func drainPublication() {
-        let published = expectation(description: "queued paint publication")
-        DispatchQueue.main.async { published.fulfill() }
-        wait(for: [published], timeout: 20)
+    /// Every picture drawn and landed: a box's first on screen is drawn
+    /// in place, any later one off the main thread.
+    private func settle() {
+        let end = Date(timeIntervalSinceNow: 20)
+        repeat { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) } while p.boxFilters.drawing && Date() < end
+        XCTAssertFalse(p.boxFilters.drawing)
     }
 
     func testALateTextRasterUpdatesItsFilteredAncestorWithoutABatch() throws {
@@ -270,7 +309,7 @@ final class BoxFilterTests: XCTestCase {
         #else
         text.showTextRaster(result, for: key)
         #endif
-        drainPublication()
+        settle()
         let after = try picture(box)
         XCTAssertFalse(before === after)
         let bytes = try XCTUnwrap(after.dataProvider?.data)
