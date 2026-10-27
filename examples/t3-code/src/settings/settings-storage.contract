@@ -76,13 +76,19 @@ shape StoragePage
   cleanupSummary: string
   cleanupReports: CleanupReport[]
 
+// The Worktrees and Maintenance pages (96fc7b9551, Storage split by 9db433f4ba #25651), `view` "worktrees" or
+// "maintenance". Worktrees: Creation (the location, then the slot's rows: Start from remote and Submodules) and the
+// worktree Cleanup rules (WorktreesSettings.tsx); Maintenance: the database notices, Artifacts and logs, Cleanup's
+// Delete now and its last run (StorageCleanupSections).
 component StoragePanel
   props
     data: StoragePage
+    view: string
     busy: bool
     error: string
     rest: action
     restInput: action
+  slot
   view
     column width="100%" gap="2rem" testId="storage-settings"
       if data.error != ""
@@ -92,17 +98,21 @@ component StoragePanel
       if error != ""
         text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="storage-error" padding-left="1rem"
       // DatabaseStorageNotice: one section for every machine that has freed space to reclaim.
-      if data.databaseNotices.length > 0
+      if view == "maintenance" and data.databaseNotices.length > 0
         SettingsSection(title="Database", sectionId="storage-database")
           SettingsRow(title="Reclaim freed database space", description="Old history is cleaned up automatically, but these databases still hold the freed space. Run the command on each machine to return it to disk; it pauses and restarts the background service. Quit the desktop app first if it hosts the environment.", first=true, rowId="storage-database-reclaim")
           for notice in data.databaseNotices key=notice.environmentId
             DatabaseRow(notice=notice, busy=busy, rest=rest)
-      if data.available
-        SettingsSection(title="Worktrees", sectionId="storage-worktrees")
-          if data.directorySupported
+      // Creation draws its slot's rows (settings-core's) without the storage data; the location needs it.
+      if view == "worktrees"
+        SettingsSection(title="Creation", sectionId="worktree-creation")
+          if data.available and data.directorySupported
             SettingsRow(title="Worktree location", description="Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.", first=true, rowId="storage-directory-row")
               for directory in [data.directory] key=`${data.writeScope}:${data.directoryMixed}:${directory}`
                 StorageDirectory(scope=data.writeScope, mixed=data.directoryMixed, value=directory, busy=busy, rest=rest, restInput=restInput)
+          children
+      if view == "worktrees" and data.available
+        SettingsSection(title="Cleanup", sectionId="storage-worktrees")
           if data.project
             SettingsRow(title="Automatic worktree cleanup", description=data.modeDescription, first=true, rowId="storage-row-mode")
               SettingsSelect(selectId="storage-mode", label="Automatic worktree cleanup", valueLabel=data.modeLabel, empty=false, value="", width=160, disabled=busy, options=data.modes, choose=restInput("storage", `scope=${encodeURIComponent(data.writeScope)}&key=mode&value=`))
@@ -112,18 +122,18 @@ component StoragePanel
           if data.keepSupported
             SettingsRow(title="Keep worktrees with local changes", description=data.keepDescription, first=false, rowId="storage-keep-when")
               SettingsSelect(selectId="storage-worktree-keep-when", label="Keep worktrees with local changes", valueLabel=data.keepValue == "" ? "Mixed" : data.keepOptions.filter((option) => option.value == data.keepValue).map((option) => option.label).join(""), empty=false, value=data.keepValue, width=176, disabled=busy, options=data.keepOptions, choose=restInput("storage", `scope=${encodeURIComponent(data.writeScope)}&key=worktreeKeepWhen&value=`))
-        if data.artifacts.length > 0
-          SettingsSection(title="Artifacts and logs", sectionId="storage-artifacts")
-            for rule in data.artifacts key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
-              SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
-                StorageControl(scope=data.writeScope, rule=rule, busy=busy, rest=rest, restInput=restInput)
+      if view == "maintenance" and data.available and data.artifacts.length > 0
+        SettingsSection(title="Artifacts and logs", sectionId="storage-artifacts")
+          for rule in data.artifacts key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
+            SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
+              StorageControl(scope=data.writeScope, rule=rule, busy=busy, rest=rest, restInput=restInput)
 
-      if data.cleanupAvailable
+      if view == "maintenance" and data.cleanupAvailable
         SettingsSection(title="Cleanup", sectionId="storage-cleanup")
           SettingsRow(title="Delete now", description=data.cleanupDescription, first=true, rowId="storage-cleanup-run-row")
             button press=rest("storage-run", `scope=${encodeURIComponent(data.writeScope)}`) disabled=(busy or data.cleanupDisabled) testId="storage-cleanup-run"
               text (busy ? "Deleting…" : "Delete now")
-      if data.cleanupReports.length > 0
+      if view == "maintenance" and data.cleanupReports.length > 0
         CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
 
 // FoldedSettingsSection id="storage-cleanup-last-run" (headerPlacement inside): Last run and its summary in the
