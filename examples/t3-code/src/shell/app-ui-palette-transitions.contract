@@ -2,7 +2,8 @@ use AppDecision, CommandArgs, ProviderAddArgs, ProviderChangeArgs from "./app-de
 use TextArgs from "./app-decisions.contract"
 use ComposerDraftState, ComposerMenuState, PaletteSessionState from "./app-protocols.contract"
 use ProviderWizardState, StreamGeometryState from "./app-protocols.contract"
-use UiDecision from "./app-ui-decisions.contract"
+use UiDecision, PaletteResult from "./app-ui-decisions.contract"
+use projectPaletteResult, applyPaletteResult from "./app-ui-decisions.contract"
 use paletteFrameVisible from "./app-ui-queries.contract"
 use UiStart from "./app-ui-start.contract"
 
@@ -356,30 +357,40 @@ fn stepPaletteFlag(
   d: UiDecision,
   s: UiStart,
   name: string
-): UiDecision = transitionPaletteFlagWrites1(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteFlag(
+    projectPaletteResult(d.root),
+    s,
+    name
+  )
+)
+
+fn decidePaletteFlag(
+  d: PaletteResult,
+  s: UiStart,
+  name: string
+): PaletteResult = transitionPaletteFlagWrites1(
   d,
   s,
   name
 )
 
 fn transitionPaletteFlagWrites1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      cursor=-1,
-      scroll=0,
-      caseSensitive=name == "case" ? not s.paletteSession.caseSensitive
-        : s.paletteSession.caseSensitive,
-      wholeWord=name == "word" ? not s.paletteSession.wholeWord : s.paletteSession.wholeWord,
-      regex=name == "regex" ? not s.paletteSession.regex : s.paletteSession.regex
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=-1,
+    scroll=0,
+    caseSensitive=name == "case" ? not s.paletteSession.caseSensitive
+      : s.paletteSession.caseSensitive,
+    wholeWord=name == "word" ? not s.paletteSession.wholeWord : s.paletteSession.wholeWord,
+    regex=name == "regex" ? not s.paletteSession.regex : s.paletteSession.regex
   )
 )
 
@@ -389,7 +400,20 @@ fn stepPaletteFocusBack(
   d: UiDecision,
   s: UiStart,
   page: string
-): UiDecision = transitionPaletteFocusBackGuard2(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteFocusBack(
+    projectPaletteResult(d.root),
+    s,
+    page
+  )
+)
+
+fn decidePaletteFocusBack(
+  d: PaletteResult,
+  s: UiStart,
+  page: string
+): PaletteResult = transitionPaletteFocusBackGuard2(
   transitionPaletteFocusBackWrites1(
     d,
     s,
@@ -400,73 +424,61 @@ fn stepPaletteFocusBack(
 )
 
 fn transitionPaletteFocusBackWrites1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      restore=page != "pr-link-thread" and not page.startsWith("pr-linked|")
-        and not (not s.settingsPageState.open and not s.pageCover and not s.promptLinkPage.show
-        and paletteFrameVisible(s.paletteFrame))
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    restore=page != "pr-link-thread" and not page.startsWith("pr-linked|")
+      and not (not s.settingsPageState.open and not s.pageCover and not s.promptLinkPage.show
+      and paletteFrameVisible(s.paletteFrame))
   )
 )
 
 fn transitionPaletteFocusBackWrites3(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    hostFocus=true,
-    focus=TextArgs(
-      p0="pull-request-more"
-    )
+  hostFocus=true,
+  focus=TextArgs(
+    p0="pull-request-more"
   )
 )
 
 fn transitionPaletteFocusBackWrites4(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    hostFocus=true,
-    focus=TextArgs(
-      p0="pull-request-linked-threads"
-    )
+  hostFocus=true,
+  focus=TextArgs(
+    p0="pull-request-linked-threads"
   )
 )
 
 fn transitionPaletteFocusBackWrites5(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    hostFocus=true,
-    focus=TextArgs(
-      p0="composer"
-    )
+  hostFocus=true,
+  focus=TextArgs(
+    p0="composer"
   )
 )
 
 fn transitionPaletteFocusBackGuard2(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string
-): UiDecision = (
+): PaletteResult = (
   page == "pr-link-thread"
   ? transitionPaletteFocusBackWrites3(
     d,
@@ -497,7 +509,24 @@ fn stepPaletteGo(
   page: string,
   query: string,
   back: bool
-): UiDecision = transitionPaletteGoWrites9(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteGo(
+    projectPaletteResult(d.root),
+    s,
+    page,
+    query,
+    back
+  )
+)
+
+fn decidePaletteGo(
+  d: PaletteResult,
+  s: UiStart,
+  page: string,
+  query: string,
+  back: bool
+): PaletteResult = transitionPaletteGoWrites9(
   transitionPaletteGoGuard1(
     d,
     s,
@@ -512,69 +541,60 @@ fn stepPaletteGo(
 )
 
 fn transitionPaletteGoWrites2(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      trailPages=s.paletteSession.trailPages.slice(0, (s.paletteSession.trailPages.indexOf(page))),
-      trailQueries=s.paletteSession.trailQueries.slice(0,
-        (s.paletteSession.trailPages.indexOf(page)))
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    trailPages=s.paletteSession.trailPages.slice(0, (s.paletteSession.trailPages.indexOf(page))),
+    trailQueries=s.paletteSession.trailQueries.slice(0,
+      (s.paletteSession.trailPages.indexOf(page)))
   )
 )
 
 fn transitionPaletteGoWrites4(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool,
   text: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      query=text
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=text
   )
 )
 
 fn transitionPaletteGoWrites5(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      query=""
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=""
   )
 )
 
 fn transitionPaletteGoMatch3(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool
-): UiDecision = match (s.paletteSession.trailQueries.at((s.paletteSession.trailPages.indexOf(page)))) {
+): PaletteResult = match (s.paletteSession.trailQueries.at((s.paletteSession.trailPages.indexOf(page)))) {
   case some(text) => transitionPaletteGoWrites4(
     d,
     s,
@@ -593,70 +613,61 @@ fn transitionPaletteGoMatch3(
 }
 
 fn transitionPaletteGoWrites6(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      trailPages=[],
-      trailQueries=[],
-      query=""
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    trailPages=[],
+    trailQueries=[],
+    query=""
   )
 )
 
 fn transitionPaletteGoWrites7(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      trailPages=(s.paletteSession.trailPages.concat([s.paletteSession.page])),
-      trailQueries=(s.paletteSession.trailQueries.concat([s.paletteSession.query])),
-      query=query
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    trailPages=(s.paletteSession.trailPages.concat([s.paletteSession.page])),
+    trailQueries=(s.paletteSession.trailQueries.concat([s.paletteSession.query])),
+    query=query
   )
 )
 
 fn transitionPaletteGoWrites8(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      query=query
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=query
   )
 )
 
 fn transitionPaletteGoGuard1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool
-): UiDecision = (
+): PaletteResult = (
   (s.paletteSession.trailPages.indexOf(page)) >= 0
   ? transitionPaletteGoMatch3(
     transitionPaletteGoWrites2(
@@ -697,20 +708,17 @@ fn transitionPaletteGoGuard1(
 )
 
 fn transitionPaletteGoWrites9(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   page: string,
   query: string,
   back: bool
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      page=page
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    page=page
   )
 )
 
@@ -719,7 +727,22 @@ fn stepPaletteHover(
   s: UiStart,
   index: number,
   over: bool
-): UiDecision = transitionPaletteHoverWrites1(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteHover(
+    projectPaletteResult(d.root),
+    s,
+    index,
+    over
+  )
+)
+
+fn decidePaletteHover(
+  d: PaletteResult,
+  s: UiStart,
+  index: number,
+  over: bool
+): PaletteResult = transitionPaletteHoverWrites1(
   d,
   s,
   index,
@@ -727,19 +750,16 @@ fn stepPaletteHover(
 )
 
 fn transitionPaletteHoverWrites1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   index: number,
   over: bool
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      cursor=over and index >= 0 ? index : s.paletteSession.cursor
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=over and index >= 0 ? index : s.paletteSession.cursor
   )
 )
 

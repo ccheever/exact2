@@ -2,7 +2,8 @@ use KeybindingDraft from "../settings/settings-keybindings.contract"
 use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
 use ComposerDraftState, ComposerMenuState, KeybindingEditorState from "./app-protocols.contract"
 use ModifierOwnershipState from "./app-protocols.contract"
-use UiDecision from "./app-ui-decisions.contract"
+use UiDecision, CommandResult from "./app-ui-decisions.contract"
+use projectCommandResult, applyCommandResult from "./app-ui-decisions.contract"
 use UiStart from "./app-ui-start.contract"
 
 // the undo chord's key (keyboard-dispatch.ts chordKey), whose repeats modifierKey cancels
@@ -16,7 +17,26 @@ fn stepCommand(
   id: string,
   value: string,
   n: number
-): UiDecision = transitionCommandGuard3(
+): UiDecision = applyCommandResult(
+  d,
+  decideCommand(
+    projectCommandResult(d.root),
+    s,
+    op,
+    id,
+    value,
+    n
+  )
+)
+
+fn decideCommand(
+  d: CommandResult,
+  s: UiStart,
+  op: string,
+  id: string,
+  value: string,
+  n: number
+): CommandResult = transitionCommandGuard3(
   transitionCommandGuard1(
     d,
     s,
@@ -33,32 +53,29 @@ fn stepCommand(
 )
 
 fn transitionCommandWrites2(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = UiDecision(
+): CommandResult = CommandResult(
   d,
-  root=AppDecision(
-    d.root,
-    writeModifierOwnership=true,
-    modifierOwnership=ModifierOwnershipState(
-      d.root.modifierOwnership,
-      undoHeldKey=id
-    )
+  writeModifierOwnership=true,
+  modifierOwnership=ModifierOwnershipState(
+    d.modifierOwnership,
+    undoHeldKey=id
   )
 )
 
 fn transitionCommandGuard1(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = (
+): CommandResult = (
   op == "sidebar:undo" and id != ""
   ? transitionCommandWrites2(
     d,
@@ -72,162 +89,141 @@ fn transitionCommandGuard1(
 )
 
 fn transitionCommandWrites4(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = UiDecision(
+): CommandResult = CommandResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendSecretAnswered=true,
-    secret=CommandArgs(
-      p0=op,
-      p1=id,
-      p2=value,
-      p3=n
-    )
+  sendSecretAnswered=true,
+  secret=CommandArgs(
+    p0=op,
+    p1=id,
+    p2=value,
+    p3=n
   )
 )
 
 fn transitionCommandWrites5(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = UiDecision(
+): CommandResult = CommandResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendTimelineDisclosureChanged=true,
-    disclosure=CommandArgs(
-      p0=op,
-      p1=id,
-      p2=value,
-      p3=n
-    )
+  sendTimelineDisclosureChanged=true,
+  disclosure=CommandArgs(
+    p0=op,
+    p1=id,
+    p2=value,
+    p3=n
   )
 )
 
 fn transitionCommandWrites6(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = UiDecision(
+): CommandResult = CommandResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendLineDragChanged=true,
-    lineDrag=CommandArgs(
-      p0=op,
-      p1=id,
-      p2=value,
-      p3=n
-    )
+  sendLineDragChanged=true,
+  lineDrag=CommandArgs(
+    p0=op,
+    p1=id,
+    p2=value,
+    p3=n
   )
 )
 
 fn transitionCommandWrites8(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = UiDecision(
+): CommandResult = CommandResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendTerminalFocusChanged=true,
-    terminalFocus=CommandArgs(
-      p0=op,
-      p1=id,
-      p2=value,
-      p3=n
-    )
+  sendTerminalFocusChanged=true,
+  terminalFocus=CommandArgs(
+    p0=op,
+    p1=id,
+    p2=value,
+    p3=n
   )
 )
 
 fn transitionCommandWrites9(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = UiDecision(
+): CommandResult = CommandResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendTerminalChanged=true,
-    terminal=CommandArgs(
-      p0=op,
-      p1=id,
-      p2=value,
-      p3=n
-    )
+  sendTerminalChanged=true,
+  terminal=CommandArgs(
+    p0=op,
+    p1=id,
+    p2=value,
+    p3=n
   )
 )
 
 fn transitionCommandWrites10(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = UiDecision(
+): CommandResult = CommandResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendLocalChanged=true,
-    local=CommandArgs(
-      p0=op,
-      p1=id,
-      p2=value,
-      p3=n
-    )
+  sendLocalChanged=true,
+  local=CommandArgs(
+    p0=op,
+    p1=id,
+    p2=value,
+    p3=n
   )
 )
 
 fn transitionCommandWrites12(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = UiDecision(
+): CommandResult = CommandResult(
   d,
-  root=AppDecision(
-    d.root,
-    writeCommandPending=true,
-    commandPending=true,
-    changedKind="command",
-    command=CommandArgs(
-      p0=op,
-      p1=id,
-      p2=value,
-      p3=(n == 0 and op.startsWith("chat:")) ? s.wallTime.epochAtZero + performanceNow() : n
-    )
+  writeCommandPending=true,
+  commandPending=true,
+  changedKind="command",
+  command=CommandArgs(
+    p0=op,
+    p1=id,
+    p2=value,
+    p3=(n == 0 and op.startsWith("chat:")) ? s.wallTime.epochAtZero + performanceNow() : n
   )
 )
 
 fn transitionCommandGuard11(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = (
+): CommandResult = (
   not s.commandPending
   ? transitionCommandWrites12(
     d,
@@ -241,13 +237,13 @@ fn transitionCommandGuard11(
 )
 
 fn transitionCommandGuard7(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = (
+): CommandResult = (
   op.endsWith(":focus-in") or op.endsWith(":focus-out")
   ? transitionCommandWrites8(
     d,
@@ -287,13 +283,13 @@ fn transitionCommandGuard7(
 )
 
 fn transitionCommandGuard3(
-  d: UiDecision,
+  d: CommandResult,
   s: UiStart,
   op: string,
   id: string,
   value: string,
   n: number
-): UiDecision = (
+): CommandResult = (
   op.startsWith("secretlocal:")
   ? transitionCommandWrites4(
     d,

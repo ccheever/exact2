@@ -1,4 +1,8 @@
-use AppDecision, initialAppDecision from "./app-decisions.contract"
+use AppDecision, CommandArgs, TextArgs, ThreeTextArgs from "./app-decisions.contract"
+use initialAppDecision from "./app-decisions.contract"
+use ComposerMenuState, ModifierOwnershipState from "./app-protocols.contract"
+use PaletteSessionState, SettingsPageState from "./app-protocols.contract"
+use pageTrailNext from "../pages/pages-hero.contract"
 use UiStart from "./app-ui-start.contract"
 
 shape UiDecision
@@ -71,4 +75,209 @@ fn beginUiDecision(s: UiStart): UiDecision = UiDecision(
   restTop=s.restTop,
   writeRestWidth=false,
   restWidth=s.restWidth
+)
+
+shape CommandResult
+  writeModifierOwnership: bool
+  modifierOwnership: ModifierOwnershipState
+  writeCommandPending: bool
+  commandPending: bool
+  changedKind: string
+  command: CommandArgs
+  sendSecretAnswered: bool
+  secret: CommandArgs
+  sendTimelineDisclosureChanged: bool
+  disclosure: CommandArgs
+  sendLineDragChanged: bool
+  lineDrag: CommandArgs
+  sendTerminalFocusChanged: bool
+  terminalFocus: CommandArgs
+  sendTerminalChanged: bool
+  terminal: CommandArgs
+  sendLocalChanged: bool
+  local: CommandArgs
+
+fn projectCommandResult(d: AppDecision): CommandResult = CommandResult(
+  writeModifierOwnership=d.writeModifierOwnership,
+  modifierOwnership=d.modifierOwnership,
+  writeCommandPending=d.writeCommandPending,
+  commandPending=d.commandPending,
+  changedKind=d.changedKind,
+  command=d.command,
+  sendSecretAnswered=d.sendSecretAnswered,
+  secret=d.secret,
+  sendTimelineDisclosureChanged=d.sendTimelineDisclosureChanged,
+  disclosure=d.disclosure,
+  sendLineDragChanged=d.sendLineDragChanged,
+  lineDrag=d.lineDrag,
+  sendTerminalFocusChanged=d.sendTerminalFocusChanged,
+  terminalFocus=d.terminalFocus,
+  sendTerminalChanged=d.sendTerminalChanged,
+  terminal=d.terminal,
+  sendLocalChanged=d.sendLocalChanged,
+  local=d.local
+)
+
+fn applyCommandResult(d: UiDecision, r: CommandResult): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writeModifierOwnership=r.writeModifierOwnership,
+    modifierOwnership=r.modifierOwnership,
+    writeCommandPending=r.writeCommandPending,
+    commandPending=r.commandPending,
+    changedKind=r.changedKind,
+    command=r.command,
+    sendSecretAnswered=r.sendSecretAnswered,
+    secret=r.secret,
+    sendTimelineDisclosureChanged=r.sendTimelineDisclosureChanged,
+    disclosure=r.disclosure,
+    sendLineDragChanged=r.sendLineDragChanged,
+    lineDrag=r.lineDrag,
+    sendTerminalFocusChanged=r.sendTerminalFocusChanged,
+    terminalFocus=r.terminalFocus,
+    sendTerminalChanged=r.sendTerminalChanged,
+    terminal=r.terminal,
+    sendLocalChanged=r.sendLocalChanged,
+    local=r.local
+  )
+)
+
+shape PaletteResult
+  writePaletteSession: bool
+  paletteSession: PaletteSessionState
+  writeComposerMenu: bool
+  composerMenu: ComposerMenuState
+  writeSettingsPageState: bool
+  settingsPageState: SettingsPageState
+  writeProjectsOpen: bool
+  projectsOpen: bool
+  writePageTrail: bool
+  pageTrail: string[]
+  writeModalError: bool
+  modalError: string
+  writeSettingsThemeDialog: bool
+  settingsThemeDialog: string
+  writeSettingsThemeSubject: bool
+  settingsThemeSubject: string
+  writeProviderLinkTarget: bool
+  providerLinkTarget: string
+  writeSettingsEnvironmentId: bool
+  settingsEnvironmentId: string
+  writeSettingsMenu: bool
+  settingsMenu: string
+  writeSettingsMachine: bool
+  settingsMachine: string
+  writeSettingsProjectId: bool
+  settingsProjectId: string
+  writeUtilityPage: bool
+  utilityPage: string
+  writeRightPanelAt: bool
+  rightPanelAt: string
+  writeSettingsWorkspace: bool
+  settingsProjectKey: string
+  settingsCheckout: string
+  sendLocalChanged: bool
+  local: CommandArgs
+  sendPaletteChanged: bool
+  palette: ThreeTextArgs
+  hostFocus: bool
+  focus: TextArgs
+
+fn projectPaletteResult(d: AppDecision): PaletteResult = PaletteResult(
+  writePaletteSession=d.writePaletteSession,
+  paletteSession=d.paletteSession,
+  writeComposerMenu=d.writeComposerMenu,
+  composerMenu=d.composerMenu,
+  writeSettingsPageState=d.writeSettingsPageState,
+  settingsPageState=d.settingsPageState,
+  writeProjectsOpen=d.writeProjectsOpen,
+  projectsOpen=d.projectsOpen,
+  writePageTrail=d.writePageTrail,
+  pageTrail=d.pageTrail,
+  writeModalError=d.writeModalError,
+  modalError=d.modalError,
+  writeSettingsThemeDialog=d.writeSettingsThemeDialog,
+  settingsThemeDialog=d.settingsThemeDialog,
+  writeSettingsThemeSubject=d.writeSettingsThemeSubject,
+  settingsThemeSubject=d.settingsThemeSubject,
+  writeProviderLinkTarget=d.writeProviderLinkTarget,
+  providerLinkTarget=d.providerLinkTarget,
+  writeSettingsEnvironmentId=d.writeSettingsEnvironmentId,
+  settingsEnvironmentId=d.settingsEnvironmentId,
+  writeSettingsMenu=d.writeSettingsMenu,
+  settingsMenu=d.settingsMenu,
+  writeSettingsMachine=d.writeSettingsMachine,
+  settingsMachine=d.settingsMachine,
+  writeSettingsProjectId=d.writeSettingsProjectId,
+  settingsProjectId=d.settingsProjectId,
+  writeUtilityPage=d.writeUtilityPage,
+  utilityPage=d.utilityPage,
+  writeRightPanelAt=d.writeRightPanelAt,
+  rightPanelAt=d.rightPanelAt,
+  writeSettingsWorkspace=d.writeSettingsWorkspace,
+  settingsProjectKey=d.settingsProjectKey,
+  settingsCheckout=d.settingsCheckout,
+  sendLocalChanged=d.sendLocalChanged,
+  local=d.local,
+  sendPaletteChanged=d.sendPaletteChanged,
+  palette=d.palette,
+  hostFocus=d.hostFocus,
+  focus=d.focus
+)
+
+fn applyPaletteResult(d: UiDecision, r: PaletteResult): UiDecision = UiDecision(
+  d,
+  root=AppDecision(
+    d.root,
+    writePaletteSession=r.writePaletteSession,
+    paletteSession=r.paletteSession,
+    writeComposerMenu=r.writeComposerMenu,
+    composerMenu=r.composerMenu,
+    writeSettingsPageState=r.writeSettingsPageState,
+    settingsPageState=r.settingsPageState,
+    writeProjectsOpen=r.writeProjectsOpen,
+    projectsOpen=r.projectsOpen,
+    writePageTrail=r.writePageTrail,
+    pageTrail=r.pageTrail,
+    writeModalError=r.writeModalError,
+    modalError=r.modalError,
+    writeSettingsThemeDialog=r.writeSettingsThemeDialog,
+    settingsThemeDialog=r.settingsThemeDialog,
+    writeSettingsThemeSubject=r.writeSettingsThemeSubject,
+    settingsThemeSubject=r.settingsThemeSubject,
+    writeProviderLinkTarget=r.writeProviderLinkTarget,
+    providerLinkTarget=r.providerLinkTarget,
+    writeSettingsEnvironmentId=r.writeSettingsEnvironmentId,
+    settingsEnvironmentId=r.settingsEnvironmentId,
+    writeSettingsMenu=r.writeSettingsMenu,
+    settingsMenu=r.settingsMenu,
+    writeSettingsMachine=r.writeSettingsMachine,
+    settingsMachine=r.settingsMachine,
+    writeSettingsProjectId=r.writeSettingsProjectId,
+    settingsProjectId=r.settingsProjectId,
+    writeUtilityPage=r.writeUtilityPage,
+    utilityPage=r.utilityPage,
+    writeRightPanelAt=r.writeRightPanelAt,
+    rightPanelAt=r.rightPanelAt,
+    writeSettingsWorkspace=r.writeSettingsWorkspace,
+    settingsProjectKey=r.settingsProjectKey,
+    settingsCheckout=r.settingsCheckout,
+    sendLocalChanged=r.sendLocalChanged,
+    local=r.local,
+    sendPaletteChanged=r.sendPaletteChanged,
+    palette=r.palette,
+    hostFocus=r.hostFocus,
+    focus=r.focus
+  )
+)
+
+fn decidePalettePageTrailNote(
+  d: PaletteResult,
+  s: UiStart,
+  name: string
+): PaletteResult = PaletteResult(
+  d,
+  writePageTrail=true,
+  pageTrail=pageTrailNext(s.pageTrail, s.utilityPage, name)
 )

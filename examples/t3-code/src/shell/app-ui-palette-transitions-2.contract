@@ -2,10 +2,11 @@ use PickerTarget from "../composer/composer-shapes.contract"
 use AppDecision, CommandArgs, TextArgs, ThreeTextArgs from "./app-decisions.contract"
 use ComposerMenuState, PaletteSessionState, SettingsPageState from "./app-protocols.contract"
 use providerLinkVisit from "./app-settings.contract"
-use UiDecision from "./app-ui-decisions.contract"
+use UiDecision, PaletteResult from "./app-ui-decisions.contract"
+use projectPaletteResult, applyPaletteResult from "./app-ui-decisions.contract"
 use stepOpenModels, stepOpenSettings from "./app-ui-navigation-transitions.contract"
-use stepPageTrailNote from "./app-ui-navigation-transitions.contract"
-use stepPaletteFocusBack, stepPaletteGo from "./app-ui-palette-transitions.contract"
+use decidePalettePageTrailNote from "./app-ui-decisions.contract"
+use decidePaletteFocusBack, decidePaletteGo from "./app-ui-palette-transitions.contract"
 use stepPrSelect, stepPrSetTab from "./app-ui-providers-transitions.contract"
 use PickerAnchor from "./app-ui-query-inputs.contract"
 use UiStart from "./app-ui-start.contract"
@@ -19,7 +20,24 @@ fn stepPaletteRun(
   op: string,
   arg: string,
   arg2: string
-): UiDecision = transitionPaletteRunGuard20(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteRun(
+    projectPaletteResult(d.root),
+    s,
+    op,
+    arg,
+    arg2
+  )
+)
+
+fn decidePaletteRun(
+  d: PaletteResult,
+  s: UiStart,
+  op: string,
+  arg: string,
+  arg2: string
+): PaletteResult = transitionPaletteRunGuard20(
   transitionPaletteRunGuard16(
     transitionPaletteRunGuard14(
       transitionPaletteRunGuard12(
@@ -82,14 +100,14 @@ fn stepPaletteRun(
 )
 
 fn transitionPaletteRunGuard1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "page" or op == "browse"
-  ? stepPaletteGo(
+  ? decidePaletteGo(
     d,
     s,
     arg,
@@ -100,30 +118,27 @@ fn transitionPaletteRunGuard1(
 )
 
 fn transitionPaletteRunWrites3(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      query=arg
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=arg
   )
 )
 
 fn transitionPaletteRunGuard2(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "browse-to"
   ? transitionPaletteRunWrites3(
     d,
@@ -136,35 +151,32 @@ fn transitionPaletteRunGuard2(
 )
 
 fn transitionPaletteRunWrites5(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      returnQuery=s.paletteSession.mode == "command" ? s.paletteSession.query : "",
-      page="",
-      mode=arg,
-      query="",
-      trailPages=[],
-      trailQueries=[]
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    returnQuery=s.paletteSession.mode == "command" ? s.paletteSession.query : "",
+    page="",
+    mode=arg,
+    query="",
+    trailPages=[],
+    trailQueries=[]
   )
 )
 
 fn transitionPaletteRunGuard4(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "mode"
   ? transitionPaletteRunWrites5(
     d,
@@ -177,35 +189,32 @@ fn transitionPaletteRunGuard4(
 )
 
 fn transitionPaletteRunWrites7(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    hostFocus=true,
-    focus=TextArgs(
-      p0="palette-input"
-    ),
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      cursor=op == "mode" and arg == "content" ? -1 : -2,
-      scroll=0
-    )
+  hostFocus=true,
+  focus=TextArgs(
+    p0="palette-input"
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=op == "mode" and arg == "content" ? -1 : -2,
+    scroll=0
   )
 )
 
 fn transitionPaletteRunGuard6(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "page" or op == "browse" or op == "browse-to" or op == "mode"
   ? transitionPaletteRunWrites7(
     d,
@@ -218,37 +227,34 @@ fn transitionPaletteRunGuard6(
 )
 
 fn transitionPaletteRunWrites9(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendLocalChanged=true,
-    local=CommandArgs(
-      p0="device-setting",
-      p1=arg,
-      p2=arg2,
-      p3=0
-    ),
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      open=false
-    )
+  sendLocalChanged=true,
+  local=CommandArgs(
+    p0="device-setting",
+    p1=arg,
+    p2=arg2,
+    p3=0
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
   )
 )
 
 fn transitionPaletteRunGuard8(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "device"
   ? transitionPaletteRunWrites9(
     d,
@@ -261,37 +267,34 @@ fn transitionPaletteRunGuard8(
 )
 
 fn transitionPaletteRunWrites11(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendLocalChanged=true,
-    local=CommandArgs(
-      p0="restlocal:copy-thread",
-      p1=":",
-      p2="",
-      p3=0
-    ),
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      open=false
-    )
+  sendLocalChanged=true,
+  local=CommandArgs(
+    p0="restlocal:copy-thread",
+    p1=":",
+    p2="",
+    p3=0
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
   )
 )
 
 fn transitionPaletteRunGuard10(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "copy-thread"
   ? transitionPaletteRunWrites11(
     d,
@@ -304,37 +307,34 @@ fn transitionPaletteRunGuard10(
 )
 
 fn transitionPaletteRunWrites13(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writeSettingsThemeDialog=true,
-    settingsThemeDialog=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
-      or s.settingsThemeDialog == "duplicate") ? "" : "create",
-    writeSettingsThemeSubject=true,
-    settingsThemeSubject="",
-    writeModalError=true,
-    modalError="",
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      open=false
-    )
+  writeSettingsThemeDialog=true,
+  settingsThemeDialog=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
+    or s.settingsThemeDialog == "duplicate") ? "" : "create",
+  writeSettingsThemeSubject=true,
+  settingsThemeSubject="",
+  writeModalError=true,
+  modalError="",
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
   )
 )
 
 fn transitionPaletteRunGuard12(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "theme-editor"
   ? transitionPaletteRunWrites13(
     d,
@@ -347,59 +347,56 @@ fn transitionPaletteRunGuard12(
 )
 
 fn transitionPaletteRunWrites15(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writeProviderLinkTarget=true,
-    providerLinkTarget="",
-    writeSettingsEnvironmentId=true,
-    settingsEnvironmentId=s.settings.environmentId,
-    writeSettingsThemeDialog=true,
-    settingsThemeDialog=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
-      or s.settingsThemeDialog == "duplicate") ? s.settingsThemeDialog : "",
-    writeSettingsThemeSubject=true,
-    settingsThemeSubject=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
-      or s.settingsThemeDialog == "duplicate") ? s.settingsThemeSubject : "",
-    writeSettingsMenu=true,
-    settingsMenu="",
-    writeSettingsMachine=true,
-    settingsMachine="",
-    writeSettingsWorkspace=true,
-    settingsProjectKey="",
-    settingsCheckout="",
-    writeSettingsProjectId=true,
-    settingsProjectId=op == "project-settings" ? arg : "",
-    writeModalError=true,
-    modalError="",
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      open=false
-    ),
-    writeSettingsPageState=true,
-    settingsPageState=SettingsPageState(
-      d.root.settingsPageState,
-      open=true,
-      route=op == "project-settings" ? "projects" : arg,
-      focusTarget=op == "settings" ? arg2 : "",
-      query=""
-    )
+  writeProviderLinkTarget=true,
+  providerLinkTarget="",
+  writeSettingsEnvironmentId=true,
+  settingsEnvironmentId=s.settings.environmentId,
+  writeSettingsThemeDialog=true,
+  settingsThemeDialog=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
+    or s.settingsThemeDialog == "duplicate") ? s.settingsThemeDialog : "",
+  writeSettingsThemeSubject=true,
+  settingsThemeSubject=(s.settingsThemeDialog == "create" or s.settingsThemeDialog == "edit"
+    or s.settingsThemeDialog == "duplicate") ? s.settingsThemeSubject : "",
+  writeSettingsMenu=true,
+  settingsMenu="",
+  writeSettingsMachine=true,
+  settingsMachine="",
+  writeSettingsWorkspace=true,
+  settingsProjectKey="",
+  settingsCheckout="",
+  writeSettingsProjectId=true,
+  settingsProjectId=op == "project-settings" ? arg : "",
+  writeModalError=true,
+  modalError="",
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
+  ),
+  writeSettingsPageState=true,
+  settingsPageState=SettingsPageState(
+    d.settingsPageState,
+    open=true,
+    route=op == "project-settings" ? "projects" : arg,
+    focusTarget=op == "settings" ? arg2 : "",
+    query=""
   )
 )
 
 fn transitionPaletteRunGuard14(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "settings" or op == "project-settings"
   ? transitionPaletteRunWrites15(
     d,
@@ -412,37 +409,34 @@ fn transitionPaletteRunGuard14(
 )
 
 fn transitionPaletteRunWrites17(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      open=false
-    ),
-    writeSettingsPageState=true,
-    settingsPageState=SettingsPageState(
-      d.root.settingsPageState,
-      open=op == "thread-pull-requests" and s.settingsPageState.open
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
+  ),
+  writeSettingsPageState=true,
+  settingsPageState=SettingsPageState(
+    d.settingsPageState,
+    open=op == "thread-pull-requests" and s.settingsPageState.open
   )
 )
 
 fn transitionPaletteRunGuard18(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op != "thread-pull-requests"
-  ? stepPageTrailNote(
+  ? decidePalettePageTrailNote(
     d,
     s,
     op
@@ -451,29 +445,26 @@ fn transitionPaletteRunGuard18(
 )
 
 fn transitionPaletteRunWrites19(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writeUtilityPage=true,
-    utilityPage=op == "thread-pull-requests" ? s.utilityPage : op,
-    writeRightPanelAt=true,
-    rightPanelAt=op == "thread-pull-requests" ? s.shell.panel.key : s.rightPanelAt
-  )
+  writeUtilityPage=true,
+  utilityPage=op == "thread-pull-requests" ? s.utilityPage : op,
+  writeRightPanelAt=true,
+  rightPanelAt=op == "thread-pull-requests" ? s.shell.panel.key : s.rightPanelAt
 )
 
 fn transitionPaletteRunGuard16(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   op == "usage" or op == "pull-requests" or op == "thread-pull-requests"
   ? transitionPaletteRunWrites19(
     transitionPaletteRunGuard18(
@@ -498,36 +489,33 @@ fn transitionPaletteRunGuard16(
 )
 
 fn transitionPaletteRunWrites21(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    sendPaletteChanged=true,
-    palette=ThreeTextArgs(
-      p0=op == "flow" ? arg : (op == "finder" ? "pick-folder" : op),
-      p1=op == "flow" ? arg2 : arg,
-      p2=op == "open-file" ? arg2 : s.paletteSession.page
-    ),
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      busy=true
-    )
+  sendPaletteChanged=true,
+  palette=ThreeTextArgs(
+    p0=op == "flow" ? arg : (op == "finder" ? "pick-folder" : op),
+    p1=op == "flow" ? arg2 : arg,
+    p2=op == "open-file" ? arg2 : s.paletteSession.page
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    busy=true
   )
 )
 
 fn transitionPaletteRunGuard20(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   op: string,
   arg: string,
   arg2: string
-): UiDecision = (
+): PaletteResult = (
   (op == "flow" or op == "open-project" or op == "finder" or op == "open-file" or op == "thread"
     or op == "new-thread" or op == "thread-pull-requests") and not s.paletteSession.busy
   ? transitionPaletteRunWrites21(
@@ -545,7 +533,22 @@ fn stepPaletteShow(
   s: UiStart,
   mode: string,
   page: string
-): UiDecision = transitionPaletteShowGuard2(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteShow(
+    projectPaletteResult(d.root),
+    s,
+    mode,
+    page
+  )
+)
+
+fn decidePaletteShow(
+  d: PaletteResult,
+  s: UiStart,
+  mode: string,
+  page: string
+): PaletteResult = transitionPaletteShowGuard2(
   transitionPaletteShowWrites1(
     d,
     s,
@@ -558,67 +561,61 @@ fn stepPaletteShow(
 )
 
 fn transitionPaletteShowWrites1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   mode: string,
   page: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writeProjectsOpen=true,
-    projectsOpen=false,
-    writeModalError=true,
-    modalError="",
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      open=(page != "" or not (s.paletteSession.open and s.paletteSession.mode == mode)),
-      mode=mode,
-      page=page,
-      query="",
-      cursor=mode == "files" or page != "" ? -2 : -1,
-      scroll=0,
-      trailPages=[],
-      trailQueries=[],
-      returnQuery=""
-    ),
-    writeComposerMenu=true,
-    composerMenu=ComposerMenuState(
-      d.root.composerMenu,
-      modelsOpen=false,
-      optionsOpen=""
-    )
+  writeProjectsOpen=true,
+  projectsOpen=false,
+  writeModalError=true,
+  modalError="",
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=(page != "" or not (s.paletteSession.open and s.paletteSession.mode == mode)),
+    mode=mode,
+    page=page,
+    query="",
+    cursor=mode == "files" or page != "" ? -2 : -1,
+    scroll=0,
+    trailPages=[],
+    trailQueries=[],
+    returnQuery=""
+  ),
+  writeComposerMenu=true,
+  composerMenu=ComposerMenuState(
+    d.composerMenu,
+    modelsOpen=false,
+    optionsOpen=""
   )
 )
 
 fn transitionPaletteShowWrites3(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   mode: string,
   page: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    hostFocus=true,
-    focus=TextArgs(
-      p0="palette-input"
-    ),
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      restore=false
-    )
+  hostFocus=true,
+  focus=TextArgs(
+    p0="palette-input"
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    restore=false
   )
 )
 
 fn transitionPaletteShowGuard2(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   mode: string,
   page: string
-): UiDecision = (
+): PaletteResult = (
   (page != "" or not (s.paletteSession.open and s.paletteSession.mode == mode))
   ? transitionPaletteShowWrites3(
     d,
@@ -626,7 +623,7 @@ fn transitionPaletteShowGuard2(
     mode,
     page
   )
-  : stepPaletteFocusBack(
+  : decidePaletteFocusBack(
   d,
   s,
   (s.paletteSession.page)

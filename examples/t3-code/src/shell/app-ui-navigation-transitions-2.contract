@@ -4,12 +4,13 @@ use AppDecision, CommandArgs, TextArgs from "./app-decisions.contract"
 use ComposerDraftState, ComposerMenuState, ConfirmationState from "./app-protocols.contract"
 use HoverState, KeybindingEditorState, PaletteSessionState from "./app-protocols.contract"
 use SettingsPageState from "./app-protocols.contract"
-use UiDecision from "./app-ui-decisions.contract"
+use UiDecision, PaletteResult from "./app-ui-decisions.contract"
+use projectPaletteResult, applyPaletteResult from "./app-ui-decisions.contract"
 use stepEditKeybinding from "./app-ui-dispatch-transitions.contract"
 use stepConfirmClose, stepDraftBeside, stepHoverHold from "./app-ui-navigation-transitions.contract"
 use stepOpenModels, stepOpenSettings from "./app-ui-navigation-transitions.contract"
 use stepPageTrailNote from "./app-ui-navigation-transitions.contract"
-use stepPaletteFocusBack, stepPaletteGo from "./app-ui-palette-transitions.contract"
+use decidePaletteFocusBack, decidePaletteGo from "./app-ui-palette-transitions.contract"
 use stepRestRaw from "./app-ui-providers-transitions.contract"
 use PickerAnchor from "./app-ui-query-inputs.contract"
 use UiStart from "./app-ui-start.contract"
@@ -573,62 +574,67 @@ fn transitionSelectModelGuard1(
 fn stepPaletteClose(
   d: UiDecision,
   s: UiStart
-): UiDecision = transitionPaletteCloseGuard1(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteClose(
+    projectPaletteResult(d.root),
+    s
+  )
+)
+
+fn decidePaletteClose(
+  d: PaletteResult,
+  s: UiStart
+): PaletteResult = transitionPaletteCloseGuard1(
   d,
   s
 )
 
 fn transitionPaletteCloseWrites2(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    hostFocus=true,
-    focus=TextArgs(
-      p0="palette-input"
-    ),
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      mode="command",
-      page="",
-      query=s.paletteSession.returnQuery,
-      returnQuery="",
-      trailPages=[],
-      trailQueries=[],
-      cursor=-1,
-      scroll=0
-    )
+  hostFocus=true,
+  focus=TextArgs(
+    p0="palette-input"
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    mode="command",
+    page="",
+    query=s.paletteSession.returnQuery,
+    returnQuery="",
+    trailPages=[],
+    trailQueries=[],
+    cursor=-1,
+    scroll=0
   )
 )
 
 fn transitionPaletteCloseWrites3(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      open=false
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    open=false
   )
 )
 
 fn transitionPaletteCloseGuard1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart
-): UiDecision = (
+): PaletteResult = (
   s.paletteSession.mode != "command"
   ? transitionPaletteCloseWrites2(
     d,
     s
   )
-  : stepPaletteFocusBack(
+  : decidePaletteFocusBack(
     transitionPaletteCloseWrites3(
       d,
       s
@@ -642,7 +648,20 @@ fn stepPaletteEdit(
   d: UiDecision,
   s: UiStart,
   value: string
-): UiDecision = transitionPaletteEditGuard2(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteEdit(
+    projectPaletteResult(d.root),
+    s,
+    value
+  )
+)
+
+fn decidePaletteEdit(
+  d: PaletteResult,
+  s: UiStart,
+  value: string
+): PaletteResult = transitionPaletteEditGuard2(
   transitionPaletteEditWrites1(
     d,
     s,
@@ -653,45 +672,39 @@ fn stepPaletteEdit(
 )
 
 fn transitionPaletteEditWrites1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   value: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      cursor=s.paletteSession.mode == "content" ? -1 : -2,
-      scroll=0
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=s.paletteSession.mode == "content" ? -1 : -2,
+    scroll=0
   )
 )
 
 fn transitionPaletteEditWrites3(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   value: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      query=value
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    query=value
   )
 )
 
 fn transitionPaletteEditGuard2(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   value: string
-): UiDecision = (
+): PaletteResult = (
   value == "" and s.palette.popOnEmpty
-  ? stepPaletteGo(
+  ? decidePaletteGo(
     d,
     s,
     s.palette.parent,
@@ -709,7 +722,20 @@ fn stepPaletteKey(
   d: UiDecision,
   s: UiStart,
   name: string
-): UiDecision = transitionPaletteKeyGuard9(
+): UiDecision = applyPaletteResult(
+  d,
+  decidePaletteKey(
+    projectPaletteResult(d.root),
+    s,
+    name
+  )
+)
+
+fn decidePaletteKey(
+  d: PaletteResult,
+  s: UiStart,
+  name: string
+): PaletteResult = transitionPaletteKeyGuard9(
   transitionPaletteKeyGuard5(
     transitionPaletteKeyGuard1(
       d,
@@ -724,46 +750,40 @@ fn stepPaletteKey(
 )
 
 fn transitionPaletteKeyWrites2(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      cursor=((s.paletteHighlight < 0 or s.paletteHighlight + 1 >= s.palette.count) ? 0
-        : s.paletteHighlight + 1)
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=((s.paletteHighlight < 0 or s.paletteHighlight + 1 >= s.palette.count) ? 0
+      : s.paletteHighlight + 1)
   )
 )
 
 fn transitionPaletteKeyWrites4(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string,
   r: PaletteRow
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      scroll=((s.paletteHighlight < 0 or s.paletteHighlight + 1 >= s.palette.count) ? 0
-        : s.paletteHighlight + 1) == 0 ? 0 : max(s.paletteSession.scroll,
-        r.top + r.height + 24 - s.paletteListHeight)
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    scroll=((s.paletteHighlight < 0 or s.paletteHighlight + 1 >= s.palette.count) ? 0
+      : s.paletteHighlight + 1) == 0 ? 0 : max(s.paletteSession.scroll,
+      r.top + r.height + 24 - s.paletteListHeight)
   )
 )
 
 fn transitionPaletteKeyMatch3(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = match first(s.palette.rows.filter((r) => r.index == ((s.paletteHighlight < 0
+): PaletteResult = match first(s.palette.rows.filter((r) => r.index == ((s.paletteHighlight < 0
         or s.paletteHighlight + 1 >= s.palette.count) ? 0 : s.paletteHighlight + 1))) {
   case some(r) => transitionPaletteKeyWrites4(
     d,
@@ -775,10 +795,10 @@ fn transitionPaletteKeyMatch3(
 }
 
 fn transitionPaletteKeyGuard1(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = (
+): PaletteResult = (
   name == "ArrowDown" and s.palette.count > 0
   ? transitionPaletteKeyMatch3(
     transitionPaletteKeyWrites2(
@@ -793,44 +813,38 @@ fn transitionPaletteKeyGuard1(
 )
 
 fn transitionPaletteKeyWrites6(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      cursor=(s.paletteHighlight <= 0 ? s.palette.count - 1 : s.paletteHighlight - 1)
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=(s.paletteHighlight <= 0 ? s.palette.count - 1 : s.paletteHighlight - 1)
   )
 )
 
 fn transitionPaletteKeyWrites8(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string,
   r: PaletteRow
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      scroll=s.paletteHighlight <= 0 ? max(0, r.top + r.height + 24 - s.paletteListHeight)
-      : min(s.paletteSession.scroll, max(0, r.top - 24))
-    )
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    scroll=s.paletteHighlight <= 0 ? max(0, r.top + r.height + 24 - s.paletteListHeight)
+    : min(s.paletteSession.scroll, max(0, r.top - 24))
   )
 )
 
 fn transitionPaletteKeyMatch7(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = match first(s.palette.rows.filter((r) => r.index == (s.paletteHighlight <= 0
+): PaletteResult = match first(s.palette.rows.filter((r) => r.index == (s.paletteHighlight <= 0
       ? s.palette.count - 1 : s.paletteHighlight - 1))) {
   case some(r) => transitionPaletteKeyWrites8(
     d,
@@ -842,10 +856,10 @@ fn transitionPaletteKeyMatch7(
 }
 
 fn transitionPaletteKeyGuard5(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = (
+): PaletteResult = (
   name == "ArrowUp" and s.palette.count > 0
   ? transitionPaletteKeyMatch7(
     transitionPaletteKeyWrites6(
@@ -860,34 +874,31 @@ fn transitionPaletteKeyGuard5(
 )
 
 fn transitionPaletteKeyWrites10(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = UiDecision(
+): PaletteResult = PaletteResult(
   d,
-  root=AppDecision(
-    d.root,
-    hostFocus=true,
-    focus=TextArgs(
-      p0="palette-input"
-    ),
-    writePaletteSession=true,
-    paletteSession=PaletteSessionState(
-      d.root.paletteSession,
-      cursor=s.paletteSession.cursor >= 0 ? -1 : -2,
-      scroll=0
-    )
+  hostFocus=true,
+  focus=TextArgs(
+    p0="palette-input"
+  ),
+  writePaletteSession=true,
+  paletteSession=PaletteSessionState(
+    d.paletteSession,
+    cursor=s.paletteSession.cursor >= 0 ? -1 : -2,
+    scroll=0
   )
 )
 
 fn transitionPaletteKeyGuard9(
-  d: UiDecision,
+  d: PaletteResult,
   s: UiStart,
   name: string
-): UiDecision = (
+): PaletteResult = (
   (name == "Back" or (name == "Backspace" and s.paletteSession.query == "")) and s.palette.back
   ? transitionPaletteKeyWrites10(
-    stepPaletteGo(
+    decidePaletteGo(
       d,
       s,
       s.palette.parent,
