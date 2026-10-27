@@ -54,6 +54,7 @@ struct App<D: DataSource> {
     edit_menu: Option<exact_linux::presenter::edit_menu::EditMenu>,
     ime: crate::ime::InputMethod,
     appearance: crate::appearance::Changes,
+    modal: crate::modal::Schedule,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -225,6 +226,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         edit_menu: None,
         ime,
         appearance: Default::default(),
+        modal: Default::default(),
         refit_after_scale: false,
     };
     if let Err(e) = event_loop.run_app(&mut state) {
@@ -496,6 +498,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             next_frame_deadline(self.next_frame, frame_started, period)
         };
         events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
+        if self.modal.active() {
+            self.about_to_wait(events);
+        }
         Ok(())
     }
 
@@ -603,6 +608,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             if let RawWindowHandle::Win32(handle) = handle.as_raw() {
                 self.appearance
                     .install(handle.hwnd.get(), self.proxy.clone());
+                self.modal.install(handle.hwnd.get(), self.proxy.clone());
             }
         }
         match app::boot_presenter::<D>(&mut self.config, viewport) {
@@ -654,7 +660,17 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         window.request_redraw();
         self.window = Some(window);
     }
-    fn user_event(&mut self, _: &ActiveEventLoop, event: crate::accessibility::Event) {
+    fn user_event(&mut self, events: &ActiveEventLoop, event: crate::accessibility::Event) {
+        if matches!(event, crate::accessibility::Event::ModalWake) {
+            // Requesting another WM_PAINT is insufficient inside a native
+            // modal loop. Consume its deadline in this dispatched callback.
+            if let Err(error) = self.draw(events) {
+                self.fail(events, error);
+                return;
+            }
+            self.about_to_wait(events);
+            return;
+        }
         if let crate::accessibility::Event::Access(event) = event {
             if let (Some(access), Some(p), Some(window)) =
                 (&mut self.accessibility, &mut self.presenter, &self.window)
@@ -871,6 +887,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         let Some(p) = &mut self.presenter else { return };
         if self.minimized {
+            self.modal.wait_until(None);
             events.set_control_flow(ControlFlow::Wait);
             return;
         }
@@ -928,6 +945,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
             }
         }
+        self.modal.wait_until(match events.control_flow() {
+            ControlFlow::WaitUntil(deadline) => Some(deadline),
+            _ => None,
+        });
     }
 }
 
