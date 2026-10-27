@@ -1,8 +1,21 @@
-//! Read operations over the Apple host's settled layout and runner.
+//! Read operations over the Apple host's settled layout and runner, and
+//! the `then`s an input settled.
 use super::*;
 use std::fmt::Write;
 
 impl<D: DataSource> Host<D> {
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]); `first`, only when one is the
+    /// earliest work due ([`exact_runner::Runner::land_then_first`]).
+    pub fn land_then(&mut self, first: bool) -> String {
+        let a = if first {
+            self.runner.land_then_first()
+        } else {
+            self.runner.land_then()
+        };
+        self.advanced(a)
+    }
+
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last
     /// transition in flight ends, milliseconds, `null` when quiescent — from

@@ -1217,7 +1217,7 @@ impl<D: DataSource> Bridge<D> {
     /// `then`s already armed, the clock unmoved (an agent's input's end).
     pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
         let out = self.host.as_mut().map_or_else(not_booted, |h| match mode {
-            2 => h.land_then(),
+            2 | 3 => h.land_then(mode == 3),
             1 => h.advance_until_request(now_ms),
             _ => h.advance(now_ms),
         });

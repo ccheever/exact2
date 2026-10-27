@@ -6,7 +6,8 @@
 use exact_kernel::{Kernel, ViewId};
 use exact_plan::Value;
 use exact_runner::{
-    Answer, DataError, DataSource, Event, FailureKind, InFlight, Outcome, Request, Runner, Store,
+    Answer, DataError, DataSource, Event, FailureKind, InFlight, Outcome, Request, Runner,
+    RunnerError, Store,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -643,4 +644,110 @@ fn a_rekeyed_virtual_frame_restarts_from_its_completion() {
     assert!(a.error.is_none(), "{:?}", a.error);
     assert_eq!(number(&r, "k"), 1.0);
     assert!(r.timer_due_ms().unwrap() > 4500.0, "{:?}", r.timer_due_ms());
+}
+
+/// An answer's `then` and a timer: `go` sends at 1000 and its reply lands
+/// at 2000, while the snapshot falls due at `snap_ms`.
+fn then_and_timer(snap_ms: u32) -> Runner<Desk> {
+    let mut r = boot(&format!(
+        r#"shape Ack
+  n: number
+component App
+  state followed = 0
+  state snapshot = -1
+  mutation m as shape Ack then follow
+  action go
+    send m = later()
+  action follow
+    followed = followed + 1
+  action snap
+    snapshot = followed
+  task snapper mount
+    after({snap_ms}, snap)
+  view
+    button "go" press=go testId="go"
+"#
+    ));
+    clock(&mut r, &[1000.0, 1000.0, 2000.0]);
+    r.dispatch(view(&r, "go"), Event::Press).unwrap();
+    let request = r.take_requests().remove(0);
+    let answer = Outcome::Failed {
+        kind: FailureKind::Network,
+        message: "any outcome answers".into(),
+    };
+    r.fulfill(request.ticket, answer).unwrap();
+    r
+}
+
+#[test]
+fn a_then_that_is_the_earliest_work_due_lands_alone() {
+    let mut r = then_and_timer(5000);
+    let a = r.land_then_first();
+    assert!(a.error.is_none(), "{:?}", a.error);
+    assert_eq!(number(&r, "followed"), 1.0);
+    assert_eq!(number(&r, "snapshot"), -1.0, "no timer fired");
+    assert_eq!(r.timer_due_ms(), Some(5000.0));
+}
+
+#[test]
+fn a_then_behind_an_earlier_timer_waits_for_the_advance() {
+    let mut r = then_and_timer(1500);
+    let a = r.land_then_first();
+    assert!(
+        a.receipts.is_empty(),
+        "the timer due first is not overtaken"
+    );
+    assert_eq!(number(&r, "followed"), 0.0);
+    r.advance_timed(2000.0);
+    assert_eq!(number(&r, "snapshot"), 0.0, "the timer, then the `then`");
+    assert_eq!(number(&r, "followed"), 1.0);
+}
+
+/// LLP 1072.000 §7.1 (a): an input whose target a due commit removed is
+/// refused and logged, and that commit stands; one on a row the commit
+/// changed runs against the current state.
+#[test]
+fn an_input_on_a_row_a_due_commit_removed_is_refused_and_logged() {
+    let mut r = boot(
+        r#"component App
+  state rows = ["a", "b"]
+  state price = 1
+  state log = ""
+  action tick
+    rows = ["b"]
+    price = price + 1
+  action tap(name: string, p: number)
+    log = `${log}${name}@${p} `
+  task ticker mount
+    after(1000, tick)
+  view
+    column
+      for r in rows key=r
+        button `${r} ${price}` press=tap(r, price) testId=`row-${r}`
+"#,
+    );
+    clock(&mut r, &[1500.0]);
+    let (a, b) = (view(&r, "row-a"), view(&r, "row-b"));
+    let refused = r.dispatch_at(a, Event::Press, 1500.0);
+    assert!(
+        matches!(refused.error, Some(RunnerError::UnknownView(v)) if v == a),
+        "{:?}",
+        refused.error
+    );
+    assert_eq!(refused.receipts.len(), 1, "the timer's commit stands");
+    assert_eq!(number(&r, "price"), 2.0);
+    assert!(r.kernel().find_first_by_test_id("row-a").is_none());
+    assert!(
+        r.journal()
+            .any(|l| l.contains("refused") && l.contains("UnknownView")),
+        "the refusal is logged"
+    );
+    assert_eq!(r.slot("log"), Some(&Value::str("")));
+    let ran = r.dispatch_at(b, Event::Press, 1600.0);
+    assert!(ran.error.is_none(), "{:?}", ran.error);
+    assert_eq!(
+        r.slot("log"),
+        Some(&Value::str("b@2 ")),
+        "the current price"
+    );
 }
