@@ -1,0 +1,36 @@
+dev.bakeoff.watchlist.bae2db3: ExactGroupedLists.GroupedCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 23.68 s of motion
+  bad   hitch ratio (ms/s)                     10.1
+  tell  longest frame (ms)                     39.4
+  ok    main thread p95 (ms/frame)             4.18
+  ok    tracking ratio                         1.001
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       506
+  ok    momentum hand-off (content/asked)      1.03
+  tell  flings that drop a frame at the lift   1/4
+  tell  offset jumps while decelerating        2
+  ok    edge bounce settle (s)                 0.8
+  ok    rubber band (overscroll/finger)        0.49
+  ok    rubber band settle (s)                 0.55
+  ok    status-bar scroll to top (s)           0.94
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              23.6
+  tell  scrub: longest frame (ms)              45.8
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  14 ok, 4 tell, 2 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 9.7, from scrolling 0.4):
+    fling-1500: 1 late frame (1 on a timer's tick), 17 ms late; Exact host 6 ms (in UIKit 3) · app JS (main waits on exact.owner) 6 ms · Exact runtime (main waits on exact.owner) 3 ms; in timers 15 ms, display links and ports 3 ms
+    fling-6000: 2 late frames (2 on a timer's tick), 33 ms late; Exact host 15 ms (in UIKit 3) · app JS (main waits on exact.owner) 12 ms · Exact runtime (main waits on exact.owner) 6 ms; in timers 29 ms, events 6 ms, the main queue 3 ms
+    pull-top: 1 late frame (1 on a timer's tick), 17 ms late; Exact host (main waits on exact.owner) 6 ms (in text & drawing 3) · app JS (main waits on exact.owner) 6 ms · Exact runtime (main waits on exact.owner) 3 ms; in timers 17 ms
+    fling-partway: 2 late frames (2 on a timer's tick), 33 ms late; Exact host (main waits on exact.owner) 14 ms (in text & drawing 3) · Exact host 14 ms (in UIKit 6) · Exact runtime (main waits on exact.owner) 8 ms; in timers 33 ms, events 5 ms, display links and ports 3 ms
+    fling-for-tap: 2 late frames (1 on a timer's tick), 33 ms late; Exact host 19 ms (in UIKit 11) · app JS (main waits on exact.owner) 8 ms · Exact host (main waits on exact.owner) 5 ms; in timers 19 ms, display links and ports 8 ms, events 5 ms, the main queue 3 ms
+    find-carousel-3: 1 late frame (1 on a timer's tick), 19 ms late; app JS (main waits on exact.owner) 13 ms · Exact host 5 ms · Exact runtime (main waits on exact.owner) 3 ms; in timers 19 ms, events 3 ms
+    find-carousel-4: 1 late frame (1 on a timer's tick), 17 ms late; app JS (main waits on exact.owner) 8 ms · Exact host 5 ms · Exact runtime (main waits on exact.owner) 5 ms; in timers 16 ms, events 3 ms
+    find-carousel-5: 1 late frame (1 on a timer's tick), 19 ms late; Exact host 11 ms (in UIKit 6) · Exact host (main waits on exact.owner) 8 ms · Exact runtime (main waits on exact.owner) 6 ms; in timers 19 ms, display links and ports 3 ms, events 3 ms
+    find-carousel-7: 1 late frame (1 on a timer's tick), 18 ms late; Exact host (main waits on exact.owner) 8 ms · Exact host 5 ms · Exact runtime (main waits on exact.owner) 5 ms; in timers 18 ms
+    find-carousel-8: 1 late frame (1 on a timer's tick), 18 ms late; Exact host 8 ms (in accessibility 3) · app JS (main waits on exact.owner) 8 ms · Exact runtime 5 ms; in timers 19 ms, the main queue 3 ms, display links and ports 3 ms, events 3 ms
+    scrub-reveal: 1 late frame (1 on a timer's tick), 17 ms late; app JS (main waits on exact.owner) 14 ms · Exact host 7 ms (in accessibility 3) · Exact runtime (main waits on exact.owner) 3 ms; in timers 24 ms, events 3 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 4 late frames (4 on a timer's tick), 94 ms late; Exact host 49 ms (in UIKit 16) · app JS (main waits on exact.owner) 26 ms · Exact host (main waits on exact.owner) 18 ms (in text & drawing 3); in timers 75 ms, events 26 ms, the main queue 5 ms, display links and ports 3 ms

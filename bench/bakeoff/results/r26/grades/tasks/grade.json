@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped main screen: Today (22) and All (135), then 6 colour-coded lists, each with its open count. Counts update after completing, adding and deleting."},
+      {"n": 2, "status": "pass", "note": "Open tasks come first, then a 'Completed (n)' header with a disclosure chevron that collapses and expands. Tapping a checkbox completes or reopens the task, and it moves between sections."},
+      {"n": 3, "status": "pass", "note": "New Task sheet has a multiline title, notes, a Due Date switch that shows an inline graphical calendar, a None/Low/High segmented control and a List picker. Tapping a row opens a Details sheet; the edit saved."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with an exclamation icon and the word 'Overdue'. High priority shows a red !!!, low priority a grey !."},
+      {"n": 5, "status": "pass", "note": "Swipe left shows a native Delete action. Reordering uses edit mode (List Options > Reorder Tasks) with system drag handles, and the new order persisted."},
+      {"n": 6, "status": "pass", "note": "Add List button opens an alert with a text field. Rename works from the list's menu and from a swipe action. Swipe Delete asks for confirmation in an action sheet."},
+      {"n": 7, "status": "pass", "note": "After relaunch: the renamed list, the new order, the edited and added task, the deletions and the completions all survived."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The selected day in the inline calendar is a black filled circle instead of the accent-tinted selection.",
+      "Reordering is hidden behind List Options > Reorder Tasks instead of being available directly in the list.",
+      "At the largest text size the low-priority '!' hangs beside a wrapped title, so the title's second line is indented oddly."
+    ],
+    "scroll": "The All list (~134 rows) scrolls smoothly with real UITableView physics: no blank rows or popping in during a fling, and it rubber-bands normally at the top. The large title collapses into the inline title properly.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped main screen titled 'Lists': Today and All, then 6 lists with open counts. Counts update correctly."},
+      {"n": 2, "status": "pass", "note": "Open tasks, then a 'Completed (n)' row with a chevron that collapses and expands; the collapsed state persisted. Checkboxes complete and reopen tasks."},
+      {"n": 3, "status": "fail", "note": "Adding works (title, notes, due-date switch with a compact date picker, priority segments). But tapping any task to edit it crashes the app straight to the Home Screen. Reproduced 4 times on new and seeded tasks in two lists, so editing is impossible."},
+      {"n": 4, "status": "pass", "note": "Overdue rows are red with an icon and 'Overdue · Oct 21'. High priority is a red !!!, low a grey !."},
+      {"n": 5, "status": "pass", "note": "Every row has a drag grip for direct reordering, and the order persisted. Swipe left shows Delete. The dragged row stays dimmed afterwards."},
+      {"n": 6, "status": "pass", "note": "+ opens a New List sheet, Rename is in the list's ... menu, and swipe Delete on the main screen asks for confirmation in an alert."},
+      {"n": 7, "status": "pass", "note": "After relaunch: the rename, the order, the added task, the deletions and the completions all survived."}
+    ],
+    "bugs": [
+      "Tapping any task to edit it crashes the app (reproduced in Errands and Garden, on seeded and new tasks).",
+      "After drag-reordering, the moved row stays faded (half opacity) until you leave the screen.",
+      "The New Task priority segmented control reports 'None' as selected to accessibility even after High is chosen visually."
+    ],
+    "tells": [
+      "Every list icon is the same orange, so lists aren't told apart by colour as they are in Reminders.",
+      "Row metadata spacing is irregular: 'Nov 17  · Home', and notes sometimes run inline after the date and sometimes wrap below it. Rows sit tight against the separators.",
+      "At the largest text size the row metadata breaks into stray fragments ('· Errands X' alone on a line, '!' alone on a line) and the reorder grips disappear.",
+      "The swiped Delete pill runs to the screen edge and is clipped.",
+      "Rows are built from loose elements rather than real table cells (each row's checkbox reads as a switch)."
+    ],
+    "scroll": "The long All list scrolls and flings smoothly with no blank or popping rows, and it bounces normally at the top. The plain-style rows feel a bit cramped but the motion is native.",
+    "scores": {"features": 6, "platform": 7, "polish": 6, "overall": 4}
+  },
+  "better": "A",
+  "why": "Both apps look like credible iOS to-do apps and cover most of the spec, but B crashes whenever you tap a task to edit it, so a core requirement doesn't work. A did everything without a single fault: native swipe actions, an inline calendar, colour-coded lists and consistent row layouts that hold up better at large text. B's direct drag grips are nice, but its stuck faded row and fragmented large-text layout add to the gap."
+}

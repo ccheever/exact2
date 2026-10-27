@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All contacts sorted by last name in lettered sections, with pinned section headers. A section index (★, A–Z) jumps on tap and scrubs on drag."},
+      {"n": 2, "status": "pass", "note": "Filters as you type by company ('umbra' gives 9 results), name, email, and phone, whether typed formatted ('926-6190') or as bare digits ('9266190'). Shows a result count and a 'No Contacts Found' empty state. Clear text restores the full list."},
+      {"n": 3, "status": "pass", "note": "Details show avatar, name, company, phone, email, and birthday under 'Personal' only when known. Phone and email are tinted rows with icons and an arrow. Tapping one tries to open it (the simulator shows 'Unable to Open')."},
+      {"n": 4, "status": "pass", "note": "The Add to Favorites / Favorite toggle in details updates the Favorites carousel and its count at the top of the list. A star appears on the row and the change persists."},
+      {"n": 5, "status": "pass", "note": "The New Contact sheet has all five fields. Save is disabled for empty or whitespace-only names and when both names are cleared in Edit. Return moves to the next field and the form scrolls with the keyboard. Edit reuses the same form."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete in the list and a Delete Contact button in details both delete, each after a confirmation alert."},
+      {"n": 7, "status": "pass", "note": "Added, edited and deleted contacts and favorite changes all survived relaunch."}
+    ],
+    "bugs": [
+      "No functional bugs found."
+    ],
+    "tells": [
+      "The section index is a hand-drawn rounded pill with a background, not the bare system index, and it sits on top of the horizontal favorites carousel, clipping the 4th avatar and name.",
+      "Favorites are a custom horizontal avatar carousel with star badges, not a plain list section.",
+      "A teal app tint is used everywhere: plus button, Edit, phone/email links, index, and the swipe Delete button, which is teal rather than the system red destructive action.",
+      "The app launches with the large title already collapsed into the inline title; 'Contacts' appears large only after pulling down.",
+      "New Contact form shows each field's name twice: a small caption label above a placeholder with the same text. It also shows an empty tinted avatar circle.",
+      "Swipe-to-delete asks for confirmation in an alert, which iOS Contacts doesn't do.",
+      "At the largest text size the favorites carousel avatars don't grow while the names become huge. The phone number wraps at its space ('(946)' / '389-8378'), and the birthday and Delete Contact button wrap across lines."
+    ],
+    "scroll": "Smooth on slow drags, flings and the fling back to the top, with pinned section headers that blur the content beneath them. Rubber-banding past the top reveals the large title. Scroll position is kept after returning from details.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Sorted lettered sections with an A–Z index that jumps on tap and scrubs on drag. Favorites have no index entry. Section headers don't stick, and after a jump the target header ends up hidden under the navigation bar."},
+      {"n": 2, "status": "partial", "note": "Filtering works by name, company and phone (formatted or digits). But the search field sits in the bottom toolbar and stays behind the keyboard while typing, so you can't see what you type. Its Clear and Close buttons can't be reached until the keyboard is dismissed. The search text is also restored after relaunch."},
+      {"n": 3, "status": "pass", "note": "Grouped detail card with placeholder avatar, name, company, and phone/email in blue link colour. Birthday is shown when known. Tapping phone gave no visible response in the simulator."},
+      {"n": 4, "status": "pass", "note": "Add to / Remove from Favorites row in details. The contact moves into the Favorites section at the top and the change persists."},
+      {"n": 5, "status": "pass", "note": "New Contact sheet with Cancel and Done. Done is disabled for whitespace-only names and when the name is cleared in Edit. Phone uses the phone pad. Edit works the same way. Return does not move to the next field."},
+      {"n": 6, "status": "pass", "note": "A red swipe Delete in the list deletes immediately; the Delete Contact row in details deletes after a confirmation alert."},
+      {"n": 7, "status": "pass", "note": "Added, edited and deleted contacts and favorites all survived relaunch."}
+    ],
+    "bugs": [
+      "The search field in the bottom toolbar doesn't rise above the keyboard: while typing, the field, its text, the Clear button and Close are all hidden behind the keyboard. Taps on Clear land on keyboard keys, which made my test queries run together ('umbra9266190926-6190').",
+      "The search query is restored after the app is relaunched, so it can reopen to a filtered list or 'No Results'.",
+      "After tapping an index letter, that letter's section header is scrolled under the navigation bar and not visible."
+    ],
+    "tells": [
+      "Section headers are not sticky; iOS Contacts pins the current letter while scrolling.",
+      "The list and its header band stop 22 pt short of the right edge to make room for the index, leaving a visible strip (white in light mode, black in dark mode) beside the rows.",
+      "The section index has no entry for Favorites.",
+      "During search some rows are 402 pt wide and others 380 pt.",
+      "Return in the form dismisses the keyboard instead of moving to the next field.",
+      "At the largest text size the email breaks mid-word ('milo.abbott@ex' / 'ample.com') and the phone wraps at its space. The list hyphenates names ('Ab-bott'); that is syllable hyphenation and excused."
+    ],
+    "scroll": "Native-feeling and smooth on slow drags and flings, with a large title that collapses and rubber-bands normally. Section headers scroll away instead of pinning. Scroll position is kept after returning from details.",
+    "scores": {"features": 7, "platform": 6, "polish": 5, "overall": 5}
+  },
+  "better": "A",
+  "why": "Every requirement works in A, with good keyboard flow, accurate search and a confirmation on every delete. Its flaws are about looks: a custom-drawn index pill, a teal tint and a favorites carousel. B looks closer to stock in places (large title, red swipe delete, standard detail card), but its search field is covered by the keyboard while typing, its headers don't stick, and its list stops short of the right edge. Those hurt everyday use more than A's styling choices."
+}

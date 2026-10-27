@@ -1,0 +1,43 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All seven sections are there. Account has an avatar header, editable Name and Email, and Sign Out. It confirms in an anchored popover, then shows a Sign In row that opens a sheet. Reading has a size slider, five fonts, a segmented control and a preview. Theme offers System/Light/Dark/Sepia. Library has sort plus two toggles. Notifications reveals a reminder time and three toggles. Storage has a bar, a breakdown and a confirmed Clear Cache. About has Version, Privacy and Terms pages, and Rate opens the system review prompt."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort push checkmark lists and pop back on selection. Font names are drawn in their own typeface. The reminder time uses the compact system time picker."},
+      {"n": 3, "status": "pass", "note": "The preview updates live with font, size (12–32 pt) and spacing."},
+      {"n": 4, "status": "pass", "note": "After relaunch it kept name, email, size, font, spacing, Sepia theme, sort, both toggles, notifications on, 10:00 PM reminder and the cleared cache."},
+      {"n": 5, "status": "pass", "note": "Confirmed Reset restored every setting to its default and kept the account, and this held after relaunch."}
+    ],
+    "bugs": [
+      "Choosing a theme, or confirming Reset All Settings, rebuilds the screen and jumps the list back to the top, so you lose your place."
+    ],
+    "tells": [
+      "At 32 pt / Relaxed the long preview paragraph is about 1000 pt tall, more than a full screen inside one cell.",
+      "In the Storage card, the separator under the custom usage bar is inset differently from the other row separators.",
+      "The usage bar legend still shows 'Cache' after the cache is cleared."
+    ],
+    "scroll": "A native inset-grouped list: slow drags track the finger, flings decelerate and bounce, there are no blank or popping rows, and the large title collapses smoothly. Position is lost only when the theme changes or on reset.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present. Name and Email are inline fields. Sign Out confirms in a system alert and leaves a 'Not signed in' row plus Sign In, which restores the previous account at once. Reading has a slider, five fonts, a segmented control, a preview and a summary footer. Theme offers four options. Library has sort plus two toggles. Notifications reveals a reminder time and three toggles. Storage shows used space with a confirmed Clear Cache. About has Version, Privacy and Terms pages, and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort push checkmark lists with footers. They stay open after a selection until you tap Back, as iOS Settings does. The reminder uses the compact system time picker."},
+      {"n": 3, "status": "pass", "note": "The preview updates live with font, size and spacing, and its footer text updates too."},
+      {"n": 4, "status": "pass", "note": "After relaunch it kept the edited name, size, font, spacing, Dark theme, sort, cellular toggle, reminder time and cleared cache."},
+      {"n": 5, "status": "pass", "note": "Confirmed Reset restored the defaults and kept the account and scroll position, and this held after relaunch."}
+    ],
+    "bugs": [
+      "'Rate the App' shows the app's own 'Enjoying Paperback?' alert, and tapping Rate then does nothing visible."
+    ],
+    "tells": [
+      "Rate uses a hand-made alert instead of the system review prompt.",
+      "At the largest text size, the Name and Email values are cut off with an ellipsis ('Jordan Jr Riv…', 'jordan@exa…') instead of wrapping.",
+      "Sepia tints only the preview card, while Light and Dark change the whole screen, so the theme picker is inconsistent.",
+      "Signing out leaves a bare 'Not signed in' text row, and Sign In silently restores the old account without asking for anything."
+    ],
+    "scroll": "A native inset-grouped list: smooth drags and flings, a proper bounce at the top, no blank or popping rows, and scroll position is kept after pushes, theme changes and reset.",
+    "scores": {"features": 8, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both are near-native SwiftUI-style settings screens that meet every requirement and persist everything. A goes further: a profile header and a real sign-in sheet, a storage usage bar, font names in their own typeface, a Sepia theme that tints the whole app, and the system review prompt. A's one real flaw is jumping to the top on a theme change or reset. B keeps its scroll position better but uses a hand-made Rate alert that does nothing, cuts off account fields at large text, and applies Sepia only to the preview."
+}

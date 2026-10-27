@@ -1,0 +1,54 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Full day for the station in time order (134 at Harbor, 138 at Glen Park), grouped by hour with a pinned 'HH:00 · N departures' header that is pushed off by the next one. Rows show the time, a coloured line badge, the destination and the platform. Delayed shows an orange clock and 'Delayed 6 min'; cancelled is clearly marked."},
+      {"n": 2, "status": "pass", "note": "A large station title with a chevron opens a sheet listing all 20 stations alphabetically, with a checkmark on the current one and a bottom search field ('park' finds Elm Park and Glen Park). Picking a station reloads the list at the current time. The 'No stations found' empty state is half hidden behind the search field."},
+      {"n": 3, "status": "partial", "note": "The Now button scrolls correctly, with the next departure just below the pinned header. On launch, though, the next departure sits under the pinned header: 06:06 was clipped at 5:57 and 06:15 fully hidden at 6:02, so the first row you see is the one after. At the largest text size the list opened in the 05:00 hour, among past rows."},
+      {"n": 4, "status": "pass", "note": "A horizontally scrolling row of chips (All lines, Red, Blue, Green, Yellow, Orange). Filtering works, the count updates ('31 departures') and the list stays near the current time."},
+      {"n": 5, "status": "pass", "note": "Past rows are clearly dimmed: grey time and text with faded badges. VoiceOver also reads 'departed'."},
+      {"n": 6, "status": "pass", "note": "The star turns into a filled orange star. The Saved tab lists saved departures across stations, grouped by hour. Saved items and the chosen station (Glen Park) survived a relaunch."}
+    ],
+    "bugs": [
+      "On launch the scroll position puts the next departure underneath the pinned hour header (hidden or clipped), so the first visible row is the one after it.",
+      "At the largest text size the list opens in the past (05:00 hour) instead of at the next departure.",
+      "The station search's 'No stations found' empty state is drawn behind the floating search field and the keyboard, so its text overlaps and can't be read."
+    ],
+    "tells": [
+      "A hand-made header: the app title sits in a glass pill with the date in another pill instead of a navigation title, and there is no large title that collapses on scroll.",
+      "The header (station, 'Today's departures', Now, filter chips) is fixed and never scrolls away, so the list gets only about half of the screen (467 of 874 pt).",
+      "The line filter is a custom horizontal row of pill chips, not a Menu or Picker. The last chips are off screen and you have to discover that the row scrolls.",
+      "A warm, cream-and-rust custom palette and custom typography read as a designed or web-like theme rather than system colours (though dark mode is handled well).",
+      "Every star button has the same accessibility label 'Save departure'; it is only told apart by its value.",
+      "No swipe actions: swipe-to-remove does nothing on the Saved list.",
+      "Saved repeats the whole header block, including a Now button and filter chips, on a two-item list."
+    ],
+    "scroll": "The list scrolls smoothly, with no blank rows or popping, under slow drags and hard flings. The pinned hour headers hand off cleanly and it rubber-bands at both ends. It just feels cramped because the fixed header takes so much of the screen.",
+    "scores": {"features": 8, "platform": 5, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Full day, grouped by '6 AM'-style sticky headers that stay pinned while their hour scrolls. Rows show the time, a coloured letter badge, the platform and the destination. Delayed shows 'Delayed 6 min' as plain black text, which is easy to miss; cancelled strikes through the destination and adds red 'Cancelled'."},
+      {"n": 2, "status": "pass", "note": "A station button in the nav bar opens a native sheet with a bottom search field. Search works and a 'No Stations Found' state appears. The choice reloads the list at the current time. The 20 stations are listed in data order rather than alphabetically, which makes scanning harder."},
+      {"n": 3, "status": "pass", "note": "Opens with the next departure just below the pinned hour header, and the Now button in the nav bar scrolls there correctly. After filtering to Yellow, the position left the 12:39 cancelled row hidden above the header."},
+      {"n": 4, "status": "pass", "note": "A filter button in the nav bar opens an inset-grouped sheet: All lines plus five lines with badges and a checkmark. The header text changes to '1 PM · Yellow line'."},
+      {"n": 5, "status": "pass", "note": "Past rows are dimmed, but subtly: the time and destination turn grey (about #616169 against black), while the badge and the blue star keep full colour, so the past and future boundary is weak at a glance."},
+      {"n": 6, "status": "pass", "note": "The star fills blue. The Saved tab has a large title, hour groups and 'From <station>'. Saved items and the chosen station survived a relaunch."}
+    ],
+    "bugs": [
+      "After the filter changes, the list position can leave the first matching departure (12:39 Yellow) hidden above the pinned header.",
+      "The delayed status shows in the same black as the destination, so it is easy to overlook (the spec asks for status to be shown; it is shown, just weakly)."
+    ],
+    "tells": [
+      "Pinned hour headers are translucent without enough blur: row text and badges ghost through behind '6 AM' or '12 AM' as they scroll under.",
+      "Past-departure dimming is faint and leaves the badges and stars fully saturated.",
+      "The station list is not alphabetical and has no section index.",
+      "The 'No Stations Found' empty state is a small custom card rather than a centred ContentUnavailableView.",
+      "No swipe actions: swipe-to-remove does nothing on the Saved list.",
+      "At the largest text size the star sits vertically centred in tall rows, and adjacent hour headers ('5 AM' over '6 AM') briefly stack."
+    ],
+    "scroll": "Feels like a native collection view: smooth drags and flings, no blank or popping rows, sticky headers that hand off, and an end-of-timetable footer. Pulling to the top reveals a large 'Today' title that collapses on scroll, as an iPhone list should.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "B",
+  "why": "Both apps meet all six requirements and persist correctly. B uses system navigation: nav-bar buttons, native sheets for station and filter, a collapsing large title, and most of the screen for the list. A wraps a custom-themed, fixed header around a half-height list, and its launch position hides the next departure under the pinned header. A styles past and delayed departures more clearly, but B is the one that feels like an iPhone app and is the one I'd ship."
+}

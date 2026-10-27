@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and % change since open, coloured green or red. Long names such as 'Fieldstone Holdings' wrap to two lines at default size, so row heights vary."},
+      {"n": 2, "status": "pass", "note": "A few visible rows change every second and the list updates in place, including while scrolling. With sort set to Change the list re-sorts live, so rows can move under your finger."},
+      {"n": 3, "status": "pass", "note": "A native pull-down menu offers Symbol, Price or Change plus Ascending/Descending, and the button shows the current sort ('Symbol ↑'). Search matches symbol ('arc' gives 3) and name ('cedar' gives 16). Clear 'No matches' empty state."},
+      {"n": 4, "status": "pass", "note": "A star on each row and in the detail nav bar. The segmented control reads 'All / My List (n)'. The My List view works."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, change (% and $), open, volume and currency, plus a filled line chart of up to 60 one-second samples with low/high. Updates live."},
+      {"n": 6, "status": "pass", "note": "Starred tickers and the sort (field and direction) survive a relaunch. The selected segment resets to All, which the spec doesn't require."}
+    ],
+    "bugs": [
+      "A horizontal swipe on a row opens that ticker's detail screen, as if it were a tap.",
+      "With sort set to Change, rows reorder every second, so a tap can land on a different row from the one aimed at. B does the same."
+    ],
+    "tells": [
+      "The large title, status line, segmented control, oversized 62pt search field and sort row are pinned and never scroll away. The list gets only the bottom ~45% of the screen (about 5 rows; the scroll bar reports 48 pages). The large title never collapses as it would in a real navigation stack.",
+      "Mid-screen swipes land on the fixed header and do nothing.",
+      "The list ends above the home indicator instead of running under it, leaving a blank band at the bottom. Rows clip hard at the top edge under the header.",
+      "Custom look: off-white/green-tinted background, initials 'avatar' tiles, uppercase section labels. Nice, but more of a designed theme than a stock iOS list.",
+      "No swipe actions on rows, and no chevrons or other sign that rows open a detail screen.",
+      "At the largest text size the pinned header takes ~40% of the screen, so little more than one row fits.",
+      "Company names wrap to two lines in rows at default size, giving uneven row heights."
+    ],
+    "scroll": "Scrolling is smooth with no blank or popping rows, and live price updates don't jitter. But the list scrolls in a small window under a fixed header, so a fling covers little ground (48 'pages') and the page never collapses its large title.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers in compact 52pt rows: star, symbol, name, $price and signed % change in green or red, with a disclosure chevron."},
+      {"n": 2, "status": "pass", "note": "Prices tick each second and the list updates in place while scrolling. Change sort re-orders live. Once, a 3-second sample showed no visible change, but later samples were fine."},
+      {"n": 3, "status": "partial", "note": "Native sort menu (Symbol, Price, Change, Ascending/Descending) works, and search matches symbol and name with a good 'No Results' / 'Clear Search' state. But the bottom search field stays hidden behind the keyboard while typing, so you can't see the query. The sort button is an icon only and doesn't show the current sort."},
+      {"n": 4, "status": "pass", "note": "A star on each row and in the detail nav bar. Native segmented control All/My List with a count header ('3 stocks')."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, change, open and volume, plus a line chart of up to 60 one-second samples with low/high and a sample count. Updates live."},
+      {"n": 6, "status": "pass", "note": "My List, the sort and even the selected segment survive a relaunch."}
+    ],
+    "bugs": [
+      "The iOS 26-style bottom search bar doesn't move up with the keyboard. While typing, the field and its text are hidden behind the keyboard and only faintly visible through it.",
+      "With sort set to Change, rows reorder every second, so a tap can land on a different row from the one aimed at. A does the same.",
+      "In the accessibility tree the segmented control reported 'My List' selected while 'All' was shown on screen during a search."
+    ],
+    "tells": [
+      "Inline two-line title ('Watchlist / Simulated live') rather than a large title. Acceptable, but less typical for a root list.",
+      "No swipe actions on rows (e.g. swipe to add or remove from My List).",
+      "The sort button is a bare ↑↓ glyph with no indication of the current sort.",
+      "At the largest text size the sort button wraps onto its own row and the stars stack above the symbols. Usable but awkward, and the floating search bar overlaps the last row's text.",
+      "The chart is a plain stroked line (no fill) inside inset-grouped cards. Fine, but generic."
+    ],
+    "scroll": "It feels like a native iPhone list: full-height, it flings far, bounces, content shows through the translucent header and floating search bar, and scroll position is kept after visiting a detail. No blank rows, pop-in or stutter, even with prices updating.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet nearly every requirement and persist My List and sort. B's full-height native list with a floating search bar feels like a real iPhone app, while A pins a tall custom header that leaves about five rows of list and never collapses its large title. B's search field hiding behind the keyboard is a real flaw, but A's cramped fixed layout hurts every moment of use."
+}

@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset grouped list with a 'Pinned' section first, then 'Notes', sorted newest first. Each row shows the title, then a relative/short date (time today, Yesterday, weekday, then M/D/YY) and a one-line body preview that truncates with an ellipsis."},
+      {"n": 2, "status": "pass", "note": "System search field under the large title filters by title and body as you type; it moves into the nav bar with a Close button; shows a 'No Results for …' empty state."},
+      {"n": 3, "status": "pass", "note": "Editor like Apple Notes: date header, large bold title that wraps, body text view; a yellow Done button appears while editing; no Save button needed. An edited note gets today's time and jumps to the top of the Notes section; persists across relaunch."},
+      {"n": 4, "status": "pass", "note": "Compose button in the bottom toolbar opens a blank note with the keyboard up; leaving it empty discards it (count stays 90); typed note kept (91), first line becomes the title."},
+      {"n": 5, "status": "pass", "note": "Swipe left shows Delete (a full swipe deletes); swipe right shows Pin/Unpin (a full swipe pins); long-press shows a context menu with Pin/Unpin Note and Delete. All persist."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' centred in the bottom toolbar as in Apple Notes; updates on add and delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins and deletions all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The '90 Notes' toolbar label stays small at the largest Dynamic Type size (iOS Notes behaves similarly, so this is minor).",
+      "The pinned header and search field stay docked under a blurred inline title while scrolling; this is stock iOS 26/27 behaviour, so barely a tell."
+    ],
+    "scroll": "Native table scrolling: smooth drags and flings with no blank or popping rows. Section headers, the blurred nav bar and the scroll bar all behave as expected, and the scroll position is kept after opening a note and coming back.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset grouped list with 'Pinned' then 'Notes' sections, newest first. Each row shows the title (wraps to 2 lines), a relative/short date and the first line of the body as the preview."},
+      {"n": 2, "status": "partial", "note": "Filtering by title and body works live with a 'No Results' state. But the search field sits in the bottom toolbar and stays behind the keyboard while you type, so you can't see your query or its clear button. The nav title and count also disappear while searching."},
+      {"n": 3, "status": "pass", "note": "Editor with date, title field and body; edits autosave, the date becomes 'Today at …', and the note moves to the top of Notes; persists across relaunch. The title is a single-line field that truncates instead of wrapping."},
+      {"n": 4, "status": "pass", "note": "Compose button top-right opens a blank editor (its Pin and Delete buttons are disabled); leaving it empty discards it; a typed note is kept and the count goes to 91."},
+      {"n": 5, "status": "pass", "note": "Swipe left shows Delete; long-press context menu offers Pin/Unpin Note and Delete; the editor also has Pin and Delete buttons. There is no swipe-right Pin action: a rightward drag just opens the note."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' subtitle under the large title, and as a subtitle of the inline title when scrolled; updates on add and delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins and deletions all survived relaunch."}
+    ],
+    "bugs": [
+      "While typing a search, the bottom search field is hidden behind the keyboard: the query, clear button and close button can't be seen (seen at y=808 under a keyboard starting at y=546).",
+      "A horizontal drag on a row opens the note instead of showing a leading swipe action."
+    ],
+    "tells": [
+      "The search field docked in the bottom toolbar doesn't rise with the keyboard the way the system search toolbar does.",
+      "The nav bar (title, count, compose) disappears entirely during search.",
+      "The editor title is a single-line text field: long titles truncate ('Podcast rec…' at the largest text size) instead of wrapping like Notes.",
+      "No leading (swipe-right) pin action on rows.",
+      "The editor's Pin button looks the same whether the note is pinned or not (only its accessibility label changes to 'Unpin').",
+      "No Done button to dismiss the keyboard in the editor.",
+      "The search field's placeholder and icon don't scale with Dynamic Type at the largest size.",
+      "The search Close button's accessibility label is lowercase 'close'; each row is exposed as one big button with no pinned state."
+    ],
+    "scroll": "Smooth flings and drags with no blank or popping rows, a nice inline title with a count subtitle when scrolled, and the scroll position is kept on return. It feels native, apart from rightward drags opening a note.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet nearly every requirement and persist correctly. A behaves like stock iOS Notes throughout: full leading and trailing swipe actions, a context menu, a search field that stays visible, a wrapping title and a Done button. B hides its search field behind the keyboard while you type, has no swipe-to-pin, and uses a truncating single-line title, so it is the weaker app to use and ship."
+}

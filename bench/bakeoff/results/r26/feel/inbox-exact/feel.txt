@@ -1,0 +1,25 @@
+dev.bakeoff.inbox.b95e4ba: ExactGroupedLists.GroupedCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 23.23 s of motion
+  ok    hitch ratio (ms/s)                     3.6
+  tell  longest frame (ms)                     54.5
+  ok    main thread p95 (ms/frame)             6.83
+  ok    tracking ratio                         1.009
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       503
+  ok    momentum hand-off (content/asked)      1.1
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.7
+  ok    rubber band (overscroll/finger)        0.64
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.49
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  ok    scrub: hitch ratio (ms/s)              0
+  ok    scrub: longest frame (ms)              16.7
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  19 ok, 1 tell, 0 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 3.6):
+    pull-top: 3 late frames (0 on a timer's tick), 67 ms late; Exact host 60 ms (in UIKit 27) · Exact runtime (main waits on exact.owner) 9 ms; in the main queue 46 ms, display links and ports 11 ms, events 11 ms
+    fling-for-tap: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 16 ms (in UIKit 10); in display links and ports 13 ms, the main queue 3 ms

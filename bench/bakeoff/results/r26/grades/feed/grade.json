@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed with author, handle and relative time, full text, full-width rounded images at their own aspect ratio, and a horizontally scrolling carousel of image+title cards."},
+      {"n": 2, "status": "pass", "note": "Heart toggles red/filled and the count goes 872→873; reply count shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a 'Post' screen with the image edge to edge; tapping an image or carousel card opens a full-screen viewer that a swipe down dismisses."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three new 'Just now' posts at the top."},
+      {"n": 5, "status": "pass", "note": "Compose sheet (Cancel / New Post / Post, Post disabled while empty) adds the post at the top."},
+      {"n": 6, "status": "pass", "note": "Like, composed post and refreshed posts all survive relaunching."}
+    ],
+    "bugs": [],
+    "tells": [
+      "In light mode the full-screen photo viewer has a white background instead of black, and the image is no bigger than on the detail screen.",
+      "Carousel cards don't snap card by card; a swipe stops anywhere, leaving a card half off screen with its title cut off.",
+      "The like control is exposed to accessibility as a Switch rather than a button.",
+      "Avatars stay large at the largest text size, squeezing names and text into a narrow column."
+    ],
+    "scroll": "Smooth through 400 posts with no blank rows or pop-in during flings. The large title collapses into the inline glass bar with a proper scroll-edge blur, and scroll position is kept after visiting a post.",
+    "scores": {"features": 10, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed of cards with author, handle, time, full text, rounded aspect-correct images, and a carousel ('A FEW FAVORITES', n photos) whose titled cards snap."},
+      {"n": 2, "status": "pass", "note": "Heart toggles filled and the count goes 872→873; reply count shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a detail screen with a larger image, a timestamp and a replies line; tapping an image or carousel card opens a black full-screen viewer with a caption that a swipe down dismisses."},
+      {"n": 4, "status": "fail", "note": "Pulling down at the top (several speeds and start points, four tries) never added posts; no refresh was seen."},
+      {"n": 5, "status": "pass", "note": "Compose sheet with a placeholder and disabled Post; the new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "Like and composed post survive relaunching."}
+    ],
+    "bugs": [
+      "Pull to refresh does nothing: no new posts appear at the top."
+    ],
+    "tells": [
+      "Custom header (logo + 'Feed' + button) instead of a navigation bar with a large title; it never collapses and has no scroll-edge material, so content is hard-clipped beneath it.",
+      "Editorial web-style landing hero ('LIFE, LATELY', serif 'A little of everything.', 'NEWEST FIRST') on a beige background with posts as rounded white cards; it reads like a web page more than an iOS feed.",
+      "The detail screen's background is white while the feed is beige.",
+      "At the largest text size avatars shrink while text grows, and the '· 8m' wraps onto its own line.",
+      "The header title and logo don't scale with Dynamic Type."
+    ],
+    "scroll": "Smooth flings through the feed with no blank rows or pop-in, carousels snap per card, and position is kept after visiting a post. The static header hard-clips content instead of blurring it.",
+    "scores": {"features": 8, "platform": 6, "polish": 7, "overall": 6}
+  },
+  "better": "A",
+  "why": "A meets every requirement, including pull to refresh, which never worked in B. A also looks like a native iOS app, with a collapsing large title and glass nav bar. B is more styled and has a nicer black photo viewer and snapping carousels, but its web-like editorial header and missing refresh outweigh that."
+}

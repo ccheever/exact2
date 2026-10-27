@@ -1,0 +1,11 @@
+{
+  "spec": "recipes",
+  "key": {
+    "A": "exact",
+    "B": "uikit"
+  },
+  "exit": 0,
+  "minutes": 9.97,
+  "shots": 44,
+  "graded": true
+}

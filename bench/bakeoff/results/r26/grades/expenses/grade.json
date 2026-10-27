@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day under inset-grouped cards; each header reads 'Oct 25, 2026 · $222.02' (date and day total on one line)."},
+      {"n": 2, "status": "pass", "note": "'THIS MONTH $5,269.70 · October 2026 · 86 expenses' card at the top; it updates on add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with amount on the decimal pad, merchant, a 7-category pop-up menu, a date picker defaulting to today and an optional note. Save (a checkmark) stays disabled until the amount is greater than zero, with inline helper text. The new row appears under a new 'Oct 27' group."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an 'Edit Expense' sheet filled in from the row; changes save. A trailing swipe shows a red Delete action that removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab is sorted largest first, with amount, count, '% of total' and a progress bar. Tapping a category pushes a list of its month's transactions grouped by day, with a summary."},
+      {"n": 6, "status": "pass", "note": "Amounts are formatted as $#,###.##. Added, edited and deleted rows all survived relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the Categories rows break words and numbers letter by letter ('Bill' / 's', '1' / '6' / 'e' / 'x' stacked vertically) because the name and amount stay side by side in a fixed row."
+    ],
+    "tells": [
+      "Categories at the largest text size: the category name and expense count wrap one character per line instead of the row switching to a stacked layout.",
+      "Mid-swipe, the row's merchant and subtitle disappear and the row turns into a grey slab with only the amount showing, which is not how a system swipe action looks.",
+      "Category rows and expense rows have no icons or colour; the result is plain and functional, but generic.",
+      "The category drill-down uses a small inline title, while the other screens use large titles.",
+      "Main-list headers join date and total in one string ('Oct 25, 2026 · $222.02') instead of putting the total on the trailing side.",
+      "The form's 'Expense' section header and the merchant field without a label are slightly unusual; the 'Enter an amount greater than zero.' footer shows before the user has typed anything."
+    ],
+    "scroll": "Smooth native collection-view scrolling: slow drags and flings showed no blank rows or pop-in, rubber-banding at the top works, and scroll position is kept when switching tabs.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day. Headers read 'Sun, Oct 25' with the day total trailing, and a new item's day is labelled 'Today'. Rows have tinted category icons."},
+      {"n": 2, "status": "pass", "note": "Summary card shows 'OCTOBER 2026 · This month's spending $5,269.70' with a segmented category colour bar and the expense count; it updates live."},
+      {"n": 3, "status": "pass", "note": "Sheet with a large '$ 0.00' amount field on the decimal pad, merchant, a pushed category picker with icons and a checkmark, a date defaulting to today and an optional note. Save with an empty or zero amount shows red inline errors ('Enter an amount greater than $0…', 'Enter a merchant name.') and does not save."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens 'Edit expense' filled in from the row; edits save. A trailing swipe shows a red Delete action, which deletes and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab: a 'Monthly breakdown' sorted largest first, with icon, amount, '% of spending', a coloured bar and a chevron. Tapping one pushes a large-title screen (e.g. 'Shopping') with that category's month total and its transactions grouped by day."},
+      {"n": 6, "status": "pass", "note": "US currency formatting throughout. An added expense, its edit, and its deletion all persisted across relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "A custom purple accent, a filled purple Save capsule and a tinted summary card give it a branded look rather than stock iOS. Well executed, but not system-default.",
+      "The tab is named 'Activity' while the screen's title is 'Expenses'.",
+      "Lowercase sheet titles ('New expense', 'Edit expense') where iOS convention is title case.",
+      "Validation errors appear only after Save is tapped, rather than Save being disabled until the form is valid."
+    ],
+    "scroll": "Smooth native table scrolling: slow drags and repeated flings showed no blank rows, jumps or pop-in, the top rubber-bands normally, and position is kept across tab switches.",
+    "scores": {"features": 10, "platform": 8, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement, scroll natively and persist correctly. B is more polished: category icons and colours, a category picker with icons, clear inline validation, large titles on the drill-down, and a layout that reflows cleanly at the largest text size. A's Categories screen breaks words letter by letter at the largest size, and its swipe-to-delete row looks odd mid-swipe."
+}
