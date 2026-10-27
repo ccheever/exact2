@@ -81,6 +81,35 @@ import CoreText
             }
         }
     }
+    /// A balanced paragraph's measure is its greedy lines' widest, each less
+    /// the collapsible space that ends it (CSS Text 3 §4.1.3), in the worker
+    /// as in the ordinary layout.
+    func testABalancedRegionMeasuresItsGreedyLinesWithoutTheirTrailingSpaces() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let run = Run(text: "word word word", size: 16, weight: 400, family: 0, italic: false,
+                      lineHeight: 26, letterSpacing: 0)
+        var two = run
+        two.text = "word word"
+        let first = engine.paragraph(Spec(runs: [two], align: 0, lineClamp: 0, color: [0,0,0,255], strut: two), width: .infinity).width
+        // Under `normal` and `pre-wrap` (whose spaces hang there)
+        for whiteSpace in [0, 1] {
+            let spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [0,0,0,255], whiteSpace: whiteSpace, strut: run, balance: true)
+            // Room for "word word" and less than the space after it
+            let room = first + 1
+            let ordinary = engine.paragraph(spec, width: room)
+            let source = RegionTextSource.capture(spec, engine: engine)
+            let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                box.value = RegionWorkerLayout.shape(source, width: room, compact: false).metadata
+                done.signal()
+            }
+            done.wait()
+            XCTAssertEqual(ordinary.lines.count, 2, "white-space \(whiteSpace)")
+            XCTAssertEqual(ordinary.width, first, accuracy: 1.0 / 64, "white-space \(whiteSpace): the greedy line's trailing space takes none of the measure")
+            XCTAssertEqual(box.value!.width, ordinary.width, "white-space \(whiteSpace): the worker measures as the ordinary layout does")
+        }
+    }
+
     func testShapeDoesNotEagerlyExpandEveryCaret() {
         let run = Run(text: String(repeating: "ffi אבג words ", count: 40), size: 16,
             weight: 400, family: 0, italic: false, lineHeight: 26, letterSpacing: 0)

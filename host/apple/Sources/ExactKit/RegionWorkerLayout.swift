@@ -142,6 +142,10 @@ final class RegionWorkerLayout {
                 return preparation.suggestBreak(at: start, width: room, cursor: &cursor)
             }
         }
+        // A line's collapsible trailing spaces take none of its width, as a paragraph's (TextEngine.layout).
+        func removed(_ line: CTLine) -> CGFloat {
+            TextEngine.uncountedTrailingWidth(line, whiteSpace: source.whiteSpace, source: attributed, room: CGFloat(limit))
+        }
         // CSS `text-wrap-style: balance`, as a paragraph's (LineBreakPlan.balance).
         var balanced: (until: Int, room: Double)?
         var greedyWidest: CGFloat = 0
@@ -155,7 +159,7 @@ final class RegionWorkerLayout {
                     if widest {
                         let range = CFRangeMake(start, count)
                         let line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: attributed, range: range)
-                        greedyWidest = max(greedyWidest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+                        greedyWidest = max(greedyWidest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - removed(line))
                     }
                     start += count; n += 1
                 }
@@ -197,7 +201,7 @@ final class RegionWorkerLayout {
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             // The natural width: justification fills the box, never sizes it.
             let drawn = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-            let w = natural ?? drawn
+            let w = natural ?? (drawn - removed(line))
             if spec.align == 3, !clamps, width.isFinite {
                 line = TextEngine.justified(line, source: attributed, range: CFRangeMake(start, count), width: limit)
             }
