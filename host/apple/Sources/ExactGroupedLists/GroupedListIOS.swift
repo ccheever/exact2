@@ -456,6 +456,8 @@ final class GroupedListHost: GroupedLists {
         lists.values.first { $0.collection === scroll }?.projectedRect(for: node)
     }
 
+    func measure(toward node: NodeView, in scroll: UIScrollView) { lists.values.first { $0.collection === scroll }?.measure(toward: node) }
+
     func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)] {
         lists[id]?.scrollAnchors() ?? []
     }
@@ -473,8 +475,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     unowned let host: GroupedListHost
     let collection: UICollectionView
     private(set) var model = GroupedListModel()
-    private var source: GroupedSource!
-    private var rows: [UInt32: GroupedListModel.Row] = [:]
+    private(set) var source: GroupedSource!
+    private(set) var rows: [UInt32: GroupedListModel.Row] = [:]
     /// Some row is custom: its views, carried, are laid out by the kernel.
     private(set) var carriesCustomRows = false
     /// Each row's symbol tint as last configured.
@@ -489,6 +491,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     #if !os(tvOS)
     private var switches: [UInt32: UISwitch] = [:]
     #endif
+    /// `measure` is moving the list: nothing it passes is the reader's scroll.
+    var measuring = false
     /// Custom rows: the parent the presenter put each in, to give it back, and its authored inertness there.
     var carried: [UInt32: (parent: UIView, frame: CGRect, inert: Bool)] = [:]
     /// Each parent rows are carried from, the order of its children (`noteHome`).
@@ -1331,7 +1335,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         collection.removeFromSuperview()
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { owner.scrollViewDidScroll(scrollView) }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { if !measuring { owner.scrollViewDidScroll(scrollView) } }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { owner.scrollViewWillBeginDragging(scrollView) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         owner.scrollViewDidEndDragging(scrollView, willDecelerate: decelerate)

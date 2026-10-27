@@ -1,5 +1,6 @@
 // Which batches take a grouped list's carried rows home, and where a row
-// goes when it does (`GroupedListView.restore`, `sendHome`).
+// goes when it does (`GroupedListView.restore`, `sendHome`); and the rows a
+// scroll to a row passes, sized before it aims (`measure`).
 import ExactKit
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -149,6 +150,47 @@ extension GroupedListView {
             parent.insertSubview(row, at: 0)
         }
         row.frame = row.grid?.drawn ?? place.frame
+    }
+}
+extension GroupedListView {
+    /// Every row from what shows to the one holding `node` sized by its
+    /// cell, so the layout places that row exactly. A row never shown has
+    /// UIKit's estimated height until its cell sizes it: a scroll aimed at a
+    /// row hours down a timetable stopped where the estimates put it, an
+    /// hour short, and the rows it passed grew under it (r28's timetable).
+    /// The list moves a page at a time, unanimated and unreported, to the
+    /// row and back, and the first row that showed stays where it was.
+    func measure(toward node: NodeView) {
+        var at: UIView? = node, path: IndexPath?
+        while let view = at, path == nil {
+            if let n = view as? NodeView, let row = rows[n.id] { path = source.indexPath(for: row.view) }
+            at = view.superview
+        }
+        guard let path else { return }
+        collection.layoutIfNeeded()
+        let start = collection.contentOffset
+        let anchor = collection.indexPathsForVisibleItems.min()
+        let anchorY = anchor.flatMap { collection.layoutAttributesForItem(at: $0)?.frame.minY }
+        measuring = true
+        defer { measuring = false }
+        for _ in 0..<64 {
+            guard let frame = collection.layoutAttributesForItem(at: path)?.frame else { break }
+            let page = collection.bounds, i = collection.adjustedContentInset
+            if frame.minY >= page.minY && frame.maxY <= page.maxY { break }
+            let toward = frame.minY < page.minY ? max(frame.minY, page.minY - page.height) : min(frame.minY, page.minY + page.height)
+            let y = min(max(toward, -i.top), max(-i.top, collection.contentSize.height + i.bottom - page.height))
+            guard abs(y - page.minY) > 0.5 else { break }
+            collection.contentOffset.y = y
+            collection.layoutIfNeeded()
+        }
+        guard collection.contentOffset != start else { return }
+        collection.contentOffset = start
+        collection.layoutIfNeeded()
+        // Rows above it measured on the way up move it down by what they grew.
+        if let anchor, let anchorY, let y = collection.layoutAttributesForItem(at: anchor)?.frame.minY, abs(y - anchorY) > 0.5 {
+            collection.contentOffset.y = start.y + y - anchorY
+            collection.layoutIfNeeded()
+        }
     }
 }
 #endif
