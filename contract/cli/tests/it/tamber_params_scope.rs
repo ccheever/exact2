@@ -19,6 +19,7 @@ const DESIGN: &str = "tamber t\n\ntheme\n  accent.fill = #0a7aff\n";
 /// wall clock, which a loaded machine (the suite's other tests, another
 /// agent's builds) stretches with no work the build did (many ranged params
 /// read 20.7 s of wall at load 58; the build runs on its caller's thread).
+#[cfg(unix)]
 fn cpu() -> std::time::Duration {
     let mut t = libc::timespec {
         tv_sec: 0,
@@ -28,6 +29,13 @@ fn cpu() -> std::time::Duration {
     let read = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
     assert_eq!(read, 0, "this thread's CPU clock");
     std::time::Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
+}
+
+/// Elsewhere (no thread CPU clock here), the monotonic clock, as before.
+#[cfg(not(unix))]
+fn cpu() -> std::time::Duration {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed()
 }
 
 fn build(name: &str, src: &str) -> Result<exact_plan::Plan, contract::CompileError> {
