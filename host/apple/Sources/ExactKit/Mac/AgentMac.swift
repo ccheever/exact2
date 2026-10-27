@@ -706,6 +706,20 @@ extension Agent {
             // and outside the session clock; `layout` reports the overscroll
             // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["malformed": true, "error": "wheel deltas must be finite"] }
+            if req["platform"] as? Bool == true {
+                // `fling`, `hold` and `release` (LLP 1142 D3): the driver posts
+                // a trackpad's events to this process through the window
+                // server, since AppKit tracks a gesture from its queue and
+                // applies one event of a gesture handed to it here. This says
+                // where, and what the driver's events have done so far.
+                let screen = win.convertPoint(toScreen: p)
+                let owner = ChainingScrollView.driverOwner
+                var r: [String: Any] = ["tapped": Int(v.id), "at": at, "pid": Int(getpid()), "window": win.windowNumber,
+                                        "point": [p.x, win.frame.height - p.y], "screen": [screen.x, (NSScreen.screens.first?.frame.height ?? 0) - screen.y],
+                                        "mark": ChainingScrollView.driverMark, "delivered": ChainingScrollView.driverWheels]
+                if let owner, let id = owner.pointerOwner?.id { r["scroller"] = Int(id); r["offset"] = [owner.contentView.bounds.origin.x, owner.contentView.bounds.origin.y] }
+                return r
+            }
             // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
             guard let flags = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
             // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too):

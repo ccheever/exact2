@@ -90,6 +90,14 @@ test('key phases and durations carry the malformed label; failed focus does not'
   expect(refusal.malformed).toBeUndefined();
 });
 
+test('a wheel takes one of gesture, fling, hold and release, and release is 0 0 alone (LLP 1142 D3)', () => {
+  expect(tapWords(['list', 'wheel', '0', '-2000', 'fling'])).toEqual(['list', { wheel: [0, -2000], fling: true }]);
+  expect(tapWords(['list', 'wheel', '0', '900', 'hold', 'at', '10', '20'])).toEqual(['list', { wheel: [0, 900], hold: true, at: [10, 20] }]);
+  expect(tapWords(['list', 'wheel', '0', '0', 'release'])).toEqual(['list', { wheel: [0, 0], release: true }]);
+  for (const words of [['fling', 'hold'], ['gesture', 'fling'], ['fling', 'modifiers', 'Control']]) expect(() => tapWords(['list', 'wheel', '0', '10', ...words])).toThrow(MalformedOperation);
+  expect(() => tapWords(['list', 'wheel', '0', '10', 'release'])).toThrow(MalformedOperation);
+});
+
 test('ContextMenu is a named physical key with no typed text', () => {
   expect(cdpKey('ContextMenu')).toEqual({ code: 'ContextMenu', key: 'ContextMenu', vk: 93, modifiers: 0, text: undefined, location: 0 });
   const event = { type: 'keyDown', code: 'ContextMenu', key: 'ContextMenu', windowsVirtualKeyCode: 93 };

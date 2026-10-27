@@ -273,6 +273,31 @@ final class ScrollRoutingTests: XCTestCase {
         }
     }
 
+    /// LLP 1142 D3: the driver's trackpad comes through the window server,
+    /// marked, and AppKit runs it under the agent too; it is counted where a
+    /// scroller hands it over, which is how the driver confirms delivery.
+    func testTheDriversMarkedWheelIsAppKitsUnderTheAgent() throws {
+        let sv = scroller()
+        sv.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 700))
+        XCTAssertEqual(atOnce { sv.routing(dx: 0, dy: -50, phased: true, in: extent(), driver: true) }, .appKit)
+        XCTAssertEqual(atOnce { sv.routing(dx: 0, dy: -50, phased: true, in: extent(at: NSPoint(x: 0, y: 400)), driver: true) }, .chain)
+        func began(mark: Int64) throws -> NSEvent {
+            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -50, wheel2: 0, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1)
+            cg.setIntegerValueField(.eventSourceUserData, value: mark)
+            return try XCTUnwrap(NSEvent(cgEvent: cg))
+        }
+        let before = ChainingScrollView.driverWheels
+        let marked = try began(mark: ChainingScrollView.driverMark), unmarked = try began(mark: 0)
+        atOnce { sv.scrollWheel(with: marked) }
+        XCTAssertEqual(ChainingScrollView.driverWheels, before + 1)
+        XCTAssert(ChainingScrollView.driverOwner === sv)
+        atOnce { sv.scrollWheel(with: unmarked) }
+        XCTAssertEqual(ChainingScrollView.driverWheels, before + 1, "an unmarked wheel is the agent's own, applied here")
+        ChainingScrollView.latch = .init()
+    }
+
     /// An axis that does not scroll at all chains, whatever the room.
     func testAnAxisThatDoesNotScrollChains() {
         let sv = scroller()

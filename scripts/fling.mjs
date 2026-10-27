@@ -21,7 +21,7 @@ const FLING_MS = 60;
 /** Flags and the `--to` ops, in order. */
 export function parseArgs(argv) {
   const [host, app, ...rest] = argv;
-  const out = { host, app, to: [], flings: 6, distance: 600, target: null, json: false, failOn: [], storage: null };
+  const out = { host, app, to: [], flings: 6, distance: 600, target: null, json: false, failOn: [], storage: null, person: false };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i], next = () => rest[++i];
     if (a === '--to') out.to.push(next());
@@ -31,9 +31,10 @@ export function parseArgs(argv) {
     else if (a === '--storage') out.storage = next();
     else if (a === '--fail-on') out.failOn = next().split(',');
     else if (a === '--json') out.json = true;
+    else if (a === '--person' && host === 'macos') out.person = true;
     else throw new Error(`fling: unknown argument ${a}`);
   }
-  if (!['ios', 'macos'].includes(host) || !app || !out.target) throw new Error('usage: bun scripts/fling.mjs ios|macos <app> --target <scroller testId> [--to "<op>" …] [--flings N] [--distance <pt>] [--storage <name>] [--fail-on late] [--json]\n  macos: the flings are yours, on the trackpad; it holds the frames until you press Enter');
+  if (!['ios', 'macos'].includes(host) || !app || !out.target) throw new Error('usage: bun scripts/fling.mjs ios|macos <app> --target <scroller testId> [--to "<op>" …] [--flings N] [--distance <pt>] [--storage <name>] [--fail-on late] [--json] [--person]\n  macos: the driver flings on a trackpad of its own, through the window server (needs the Accessibility grant of this terminal); --person: the flings are yours, on the trackpad, and it holds the frames until you press Enter');
   if (!(out.flings > 0) || !(out.distance > 0)) throw new Error('fling: --flings and --distance are positive numbers');
   return out;
 }
@@ -138,7 +139,6 @@ export async function main(argv) {
   // The app's own server, if it has one (app.json `server`), as a drive starts it.
   const served = await driveServer(resolveApp(args.app).dir, args.storage ?? undefined);
   let s;
-  // macOS: AppKit ignores momentum an app posts (LLP 1142 §12), so the flings are a person's on the trackpad.
   try { s = await open({ host: args.host, app: args.app, timing: 'platform', ...(args.host === 'ios' ? { touch: 'platform' } : {}), storage: args.storage ?? undefined }); }
   catch (e) { await served?.stop(); throw e; }
   try {
@@ -154,7 +154,7 @@ export async function main(argv) {
     const travel = Math.min(args.distance, box.h * 0.7), moved = [];
     // Toward the end first.
     let flip = 0;
-    if (args.host === 'macos') {
+    if (args.person) {
       process.stderr.write(`fling ${args.target} on the trackpad as often as you like, then press Enter\n`);
       await new Promise((r) => process.stdin.once('data', r));
       args.flings = 0;
@@ -164,7 +164,9 @@ export async function main(argv) {
     const collect = async () => { for (const r of (await s.op({ op: 'perf', frames: true, records: true, late: 0 })).records ?? []) if (r.t > (before.window?.to ?? -Infinity)) records.set(r.t, r); };
     for (let i = 0; i < args.flings; i++) {
       const down = (i + flip) % 2 === 1;
-      await s.tap(args.target, { drag: { dx: 0, dy: down ? travel : -travel, from: [box.w / 2, down ? box.h * 0.15 : box.h * 0.85], over: FLING_MS } });
+      // macOS: a trackpad's fling through the window server, which AppKit runs as a person's (LLP 1142 D3); a positive dy scrolls down.
+      if (args.host === 'macos') await s.tap(args.target, { wheel: [0, down ? -travel : travel], fling: true });
+      else await s.tap(args.target, { drag: { dx: 0, dy: down ? travel : -travel, from: [box.w / 2, down ? box.h * 0.15 : box.h * 0.85], over: FLING_MS } });
       // A real touch's reply comes before UIKit's deceleration: what moved is read from the offset the frames recorded.
       const now = await offsetNow(s);
       // A list already at its end (a chat): the first fling goes the other way, once.

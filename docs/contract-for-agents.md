@@ -3105,6 +3105,18 @@ which the runner steps a point across the drag and back in the hold's last
 150 ms, as a finger does (measured along a list); `hold 50` still glides. A
 drag that ends past the screen is the agent's drag above, `delivery:
 recognized`.
+
+On macOS a wheel is applied at once, with no momentum and no rubber band.
+`tap <scroller> wheel 0 600 fling` is a trackpad's fling instead: the driver
+posts its events to the app through the window server, AppKit glides and bands
+as it does for a person, and the reply comes when the scroller rests, with its
+`offset` (on the real clock; the session's clock does not move). `wheel 0 3000
+hold` leaves the finger down, so `layout` and `screenshot` see a band pulled
+past the end, and `wheel 0 0 release` lifts it; a drive that ends with a hold
+open lifts it too. These need the terminal's Accessibility grant (System
+Settings › Privacy & Security) and a window that is on screen; without either
+the operation fails and says why. A pull that starts at a scroller's end goes to
+the scroller around it, so one from the end of the outermost moves nothing.
 During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
