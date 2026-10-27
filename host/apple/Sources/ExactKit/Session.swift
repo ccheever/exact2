@@ -708,34 +708,34 @@ public final class ExactSession {
             apply(batch)
         }
         presenter.onClose = { [unowned self] id in apply(runtime.dialogClose(id, now: now())) }
-        presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, at: presenter.pressPoint, now: now())) }
+        presenter.onPress = { [unowned self] id in applyInput(runtime.press(id, held: presenter.pressHeld, at: presenter.pressPoint, now: now())) }
         // A text field's `input` and `change` carry the selection the edit
         // left, its `select` the one the person or a script made (x2apps
         // codeedit #2, `FieldSelections`).
         presenter.onChange = { [unowned self] id, value in
             let value = documentValue(id, value)
-            apply(runtime.change(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
+            applyInput(runtime.change(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
         }
         presenter.onInput = { [unowned self] id, value in
             if let edit = presenter.fieldSelections.input(id), let selection = presenter.fieldSelections.reported(id, value) {
-                apply(runtime.fieldEvent(id, 54, edit.payload(value, selection), now: now()))
-            } else { apply(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now())) }
+                applyInput(runtime.fieldEvent(id, 54, edit.payload(value, selection), now: now()))
+            } else { applyInput(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now())) }
         }
         presenter.fieldSelections.onReplacement = { [unowned self] id, value, selection in apply(runtime.fieldEvent(id, 54, (presenter.fieldSelections.input(id) ?? FieldInput(inputType: "insertReplacementText", cancelable: false)).payload(value, selection), now: now())) }
         presenter.fieldSelections.onChange = { [unowned self] id, value, selection in apply(runtime.fieldEvent(id, 52, selection.payload(value), now: now())) }
-        presenter.fieldSelections.onBeforeInput = { [unowned self] id, value, selection, edit in apply(runtime.fieldEvent(id, 53, edit.payload(value, selection), now: now())) }
+        presenter.fieldSelections.onBeforeInput = { [unowned self] id, value, selection, edit in applyInput(runtime.fieldEvent(id, 53, edit.payload(value, selection), now: now())) }
         presenter.fieldSelections.onSelect = { [unowned self] id, value, selection in apply(runtime.fieldSelect(id, value, selection, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
         // each where the node hears it.
         presenter.onChecked = { [unowned self] id, on in
             let handlers = presenter.views[id]?.handlers ?? []
-            if handlers.contains("input") { apply(runtime.checked(id, on, commit: false, now: now())) }
-            if handlers.contains("change") { apply(runtime.checked(id, on, commit: true, now: now())) }
+            if handlers.contains("input") { applyInput(runtime.checked(id, on, commit: false, now: now())) }
+            if handlers.contains("change") { applyInput(runtime.checked(id, on, commit: true, now: now())) }
         }
         presenter.onControlValue = { [unowned self] id, value, input, change in
             let handlers = presenter.views[id]?.handlers ?? []
-            if input, handlers.contains("input") { apply(runtime.input(id, value, now: now())) }
-            if change, handlers.contains("change") { apply(runtime.change(id, value, now: now())) }
+            if input, handlers.contains("input") { applyInput(runtime.input(id, value, now: now())) }
+            if change, handlers.contains("change") { applyInput(runtime.change(id, value, now: now())) }
         }
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
@@ -756,18 +756,18 @@ public final class ExactSession {
         }
         presenter.rootTabs = { [unowned self] id in runtime.rootTabs(id) }
         #endif
-        presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
+        presenter.onHover = { [unowned self] id, over in applyInput(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }
         presenter.onBlur = { [unowned self] id in apply(runtime.blur(id, now: now())) }
         presenter.onFocusEvent = { [unowned self] id, kind, target, related in
             apply(runtime.focusEvent(id, entering: kind == "focusin", target: target, related: related, now: now()))
         }
-        presenter.onKey = { [unowned self] id, press in apply(runtime.key(id, press.payload, up: press.up, capture: press.capture, now: now())) }
-        presenter.onContextmenu = { [unowned self] id in apply(runtime.contextmenu(id, now: now())) }
-        presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
-        presenter.onRefresh = { [unowned self] id in apply(runtime.refresh(id, now: now())) }
-        presenter.onPan = { [unowned self] id, dx, dy in apply(runtime.pan(id, dx: dx, dy: dy, now: now())) }
-        presenter.onPanRelease = { [unowned self] id, vx, vy in apply(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
+        presenter.onKey = { [unowned self] id, press in applyInput(runtime.key(id, press.payload, up: press.up, capture: press.capture, now: now())) }
+        presenter.onContextmenu = { [unowned self] id in applyInput(runtime.contextmenu(id, now: now())) }
+        presenter.onSwiperight = { [unowned self] id in applyInput(runtime.swiperight(id, now: now())) }
+        presenter.onRefresh = { [unowned self] id in applyInput(runtime.refresh(id, now: now())) }
+        presenter.onPan = { [unowned self] id, dx, dy in applyInput(runtime.pan(id, dx: dx, dy: dy, now: now())) }
+        presenter.onPanRelease = { [unowned self] id, vx, vy in applyInput(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
         presenter.onScroll = { [unowned self] id, metrics in applyUnlessEmpty(runtime.scroll(id, metrics: metrics, now: now()), scrolled: true) }
@@ -777,12 +777,12 @@ public final class ExactSession {
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
         presenter.onListText = { [unowned self] id, first, last in runtime.listText(id, first: first, last: last) }
         #endif
-        presenter.onDblclick = { [unowned self] id in apply(runtime.dblclick(id, now: now())) }
-        presenter.onPointer = { [unowned self] id, kind, sample in apply(runtime.pointer(id, kind, sample, now: now())) }
-        presenter.onSubmit = { [unowned self] id in apply(runtime.submit(id, now: now())) }
+        presenter.onDblclick = { [unowned self] id in applyInput(runtime.dblclick(id, now: now())) }
+        presenter.onPointer = { [unowned self] id, kind, sample in applyInput(runtime.pointer(id, kind, sample, now: now())) }
+        presenter.onSubmit = { [unowned self] id in applyInput(runtime.submit(id, now: now())) }
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
-        presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
+        presenter.onClipboard = { [unowned self] id, kind, text in let batch = runtime.clipboard(id, kind, text, now: now()); if kind == 50 { apply(batch) } else { applyInput(batch) } } // 50: a popover's `toggle`, which an app's command fires too
         presenter.onSelectionChange = { [unowned self] id, text, start, end, rects in
             apply(runtime.selectionChange(id, text, start: start, end: end, rects: rects, now: now()))
         }
