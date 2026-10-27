@@ -1,5 +1,7 @@
 # Queue
 
+- **On the Mac, Caltrain's large home title is missing after returning from "Change station" in dark mode** (2026-10-27, found checking c9085fbcfc on main; it is there before that commit too). With the sky on, choose Dark, open "Change station", go back: "Mountain View" under "Next stop" is not drawn (the line below it and the cards are).
+- **The web list's held scroll correction, reverted with the Photos commits** (2026-10-27). 10259a7646 and f076f25383 were committed from an older tree and undid 17cc8cac13 ("A jump that meets a fling waits for it to end, then lands"), so `issues/20261022-web-list-stops-short-of-its-end-after-a-touch-drag.md` is open again. A restore with three fix rounds is on branch `restore/fling` in Charlie's MacBook checkout (4cec3bd544): it drops a held correction when its request is cancelled, publishes the final aligned destination on completion, and cancels a request whose key left the items. Two findings stand (Astra): cancelling restores the anchor from the cancelled seek's unlanded destination, which can emit a correction that lands at once (300 → 900 when the last row is deleted); and a completed request's held correction is not revoked when its key is removed during the 100 ms rest.
 - **The iOS simulator's WebKit download tests fail, one of them always** (2026-10-27, found landing the bake-off on main). `IframeWindowsTests.testADownloadNeverReplacesAFolder` failed every run on the iOS 27 simulator at main before and after the landing (`2d1b719713`, `e9421ad0f5`; two runs each); `IframeAutomationTests.testDownloadsGoToTheFolder`, `testPromptsOfAnAgentControlledFrame` and `IframeWindowsTests.testAFailedDownloadKeepsTheFileItWouldReplace` fail on some runs. In each, WebKit's download events never arrive. They test the web arm (`host/apple/webarm`), which the landing did not touch.
 - **The painted presenter's focus ring keeps the last input's modality per node, where Chrome keeps it per document** (2026-10-27, LLP 1115.004 D9.2; `brush.ringless` in `surface_controls.rs` `focus_for_press`, `presenter/events.rs` `set_focus`, `presenter/arrive.rs`, `presenter/typing.rs` `key_shows_ring`). A press leaves its focus ringless, a key shows the ring, and a focus the app moves inherits from the one it leaves. Three review rounds closed the common paths; what remains follows from `ringless` naming a node instead of recording pointer-or-keyboard modality, as Chromium's `HadKeyboardEvent` does: a press on nothing focusable, or on a text field, forgets the pointer, so a later `focus()` rings; a finger on a canvas while a field keeps focus names the canvas; a key handler that navigates within the press window arrives as the press did; a canvas's focus fallback and a heading's focus handler that remounts can leave the wrong node named; on Android a key does not end touch mode for an arrival with no press; a pointer Back to a field's origin hides its `:focus-visible` look. A modality flag beside the per-focus decision (Chrome's model) would close them together. On Windows (`brush.winui_focus`, `keyless`) WinUI's model is that flag too: its programmatic focus shows the visual when the last input device was the keyboard, so a mouse moved after a key should leave a script's focus ringless (round 3 of the 2026-10-27 review: Astra, citing `focusmgr.cpp`). A bare modifier now counts on Windows.
 - **Restore input focus when a blur handler opens another authored dialog.** On Windows, `a_blur_that_opens_another_dialog_keeps_the_newer_surface` fails in both `authored_dialog` integration suites: the second dialog stays open, but focus is on its container rather than its input. The fixtures contain no autofocus candidates. Excord's quick switcher and emoji picker pass native opening, typing and focus restoration separately. See `autofocus-integrated-linux-tests.log` under `target/windows-chat-comparison/`.
@@ -1158,12 +1160,19 @@ sits on that list carries the trade it would take.
     stdout under `--json`; refuse a dynamic `-exact-press-scale` only beside
     an exit whose keyframes animate `scale`; and child-state initializers
     must run in declaration order (regions.rs; semantics/corpus/rows/
-    row-init-chain.contract is refused otherwise). Open where it stopped
-    (both round-3 reviewers): `Sm` and `Sr` (rt.js, motion and `url(` rows)
-    write through `css()` without the snapshot, so on a swipe or spring node
-    the exit still depends on assignment order; take the snapshot in
-    `css()`. Also open: a bound press scale beside an exit read from a slot
-    (no string literal) is accepted though the exit may name scale keyframes.
+    row-init-chain.contract is refused otherwise). 2026-10-27, a second
+    attempt (branch q24/dynamic-exit-js2 on 450a, at 01897774af, parked after
+    three more fix rounds) carries the six commits onto main and fixes the
+    rest: the snapshot is taken before every writer, including `Sm`'s motion
+    hook; a press scale beside an exit is refused unless every exit the
+    binding can hold is a literal naming no scale keyframes. Its third round
+    found main's holds restore a node's whole saved style on release, so a
+    style committed while a node is held (any property, and modes.js's
+    boundary colours) reverts; it now presents a hold with paused animations
+    on the held properties only. Open where it stopped (Astra): a scale hold's
+    mapping to `--exact-scale` is refreshed only by a gesture sample, so a
+    press-scale change committed mid-pinch snaps the target to scale 1 until
+    the fingers move (host/web/motion-glue.js `cssProperty`).
   - **Contract tests:** `back` reports "back refused" on a sheet over a sheet while the route does
     pop; a test can't fake a data source, or open a URL.
   - **Vocabulary:** no vertical scroll snap (the clone hand-built a pager); no direction hand-off
