@@ -6,7 +6,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ADOPTED, BEFORE_USES, RENDERED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
+import { ADOPTED, BEFORE_USES, RENDERED, RETIRED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
 import { READS, apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, readsOf, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
@@ -37,6 +37,22 @@ test('a stage\'s profile: stage 12 the default, s13c its own tag, adoption, scre
   } finally {
     useStage('s12');
   }
+  try {
+    // Stage 15 B batch 1: stage 13 C's adoption kept, the two exports added; they were placed inside PostCard before,
+    // so they're allowed before and the retired duplicates prove the adoption.
+    useStage('s15b');
+    expect(BASELINE_TAG).toBe('s15b-baseline');
+    expect(parse(['--stage', 's15b']).out).toMatch(/s15b-gate-run\.txt$/);
+    expect(ADOPTED.map(i => i.split('#')[1]).slice(-2)).toEqual(['Avatar', 'VerifiedBadge']);
+    expect(BEFORE_USES).toEqual(ADOPTED);
+    expect(RETIRED).toContain('component Avatar');
+    expect(RETIRED).toContain('style ChatHeaderButton');
+    expect(SCREENS.map(([n]) => n).slice(-2)).toEqual(['chat', 'notifications']);
+    expect(SCREENS.find(([n]) => n === 'chat')[1]).toContain('tap bottomBarMessagesBtn');
+  } finally {
+    useStage('s12');
+  }
+  expect(RETIRED).toEqual([]);
   // Stage 12's run is the defaults, unchanged.
   expect(BASELINE_TAG).toBe('s12e-baseline');
   expect(ADOPTED.length).toBe(4);

@@ -306,6 +306,8 @@ function edgeAt(img, x, y, edge) {
 
 /** The tag the baseline was taken at, in the copy. */
 export let BASELINE_TAG = 's12e-baseline';
+/** The copy's own duplicates a stage retires (stage 15 B), each a whole source line: before defines each, after none. */
+export const RETIRED = [];
 
 /** The files `before` differs from the baseline's tag by: only the lock a
  * newer SDK needs (`exact.mjs lock`) may differ. */
@@ -467,6 +469,12 @@ export function consumerPixels(opts) {
   // component places) count with the component, not on their own.
   const early = uses.before.filter(id => !BEFORE_USES.includes(id) && !/\/common\.contract#/.test(id));
   if (early.length) return fail(`--before already uses library components (${early.join(', ')}): not the baseline`);
+  // A component the packages already placed inside another (stage 15 B's Avatar and VerifiedBadge, inside PostCard)
+  // is no proof of the adoption: the copy's own copies going is.
+  const defines = (copy, line) => run('git', ['grep', '-q', '-x', '-F', '-e', line, '--', '*.contract'], { cwd: copy }).ok;
+  const kept = RETIRED.filter(line => defines(opts.copy, line)), unborn = RETIRED.filter(line => !defines(opts.before, line));
+  if (kept.length) return fail(`--copy still defines ${kept.join(', ')}: not the adoption`);
+  if (unborn.length) return fail(`--before never defined ${unborn.join(', ')}: not the baseline`);
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
   // failure the baseline doesn't have.
@@ -1264,6 +1272,22 @@ function slotCheckTime() {
 const SIGN_IN = ['tap bottomBarSignInBtn', 'type loginPasswordInput fixture-password', 'type loginUsernameInput me.fixture.invalid', 'tap loginNextButton'];
 const SETTINGS = ['tap open-drawer', 'tap drawer-settings'];
 
+/** Stage 13 C's adoption, screens and package testIds, which stage 15 B keeps. */
+const S13C_ADOPTED = [...ADOPTED, '@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow', '@exact/cards/profile-header.contract#ProfileHeader',
+  '@exact/actions/compose-frame.contract#ComposeFrame', '@exact/actions/bar-item.contract#BarItem', '@exact/actions/header-button.contract#HeaderButton'];
+const S13C_SCREENS = [
+  ...SCREENS.map(([n, t]) => [n, [...t]]),
+  ['settings', [...SETTINGS]],
+  ['settings-account', [...SETTINGS, 'tap settings-account']],
+  ['settings-content', [...SETTINGS, 'tap settings-content']],
+  ['settings-notifications', [...SETTINGS, 'tap settings-notifications']],
+  // Signed in through the fixture form, so the bottom bar's tabs (BarItem) show.
+  ['home-signed-in', [...SIGN_IN, 'clock +1500 real']],
+];
+const S13C_RENDERED = [...RENDERED, ['ProfileHeader', id => id.startsWith('profile-header-'), 'profile-header-'], ['ComposeFrame', id => id === 'compose-bar', '"compose-bar"']];
+/** Stage 15 B batch 1's exports, which the packages placed inside PostCard and ProfileHeader already. */
+const S15B_EXPORTS = ['@exact/cards/common.contract#Avatar', '@exact/cards/common.contract#VerifiedBadge'];
+
 /** Each stage's gate (LLP 1139 §5): its baseline's tag on the copy, the
  * components its adoption adds (an earlier stage's the baseline may use
  * already), the screens shot, the package testIds that say a component
@@ -1273,21 +1297,12 @@ export const STAGES = {
   s12: { name: 'Stage 12', tag: 's12e-baseline', out: 'stage12-gate-run.txt', adopted: [...ADOPTED], before: [], screens: SCREENS.map(([n, t]) => [n, [...t]]), rendered: [...RENDERED], restyle: [...RESTYLE] },
   s13c: {
     name: 'Stage 13 C', tag: 's13c-baseline', out: 's13c-gate-run.txt',
-    adopted: [...ADOPTED, '@exact/lists/list-row.contract#ListRow', '@exact/lists/switch-row.contract#SwitchRow', '@exact/cards/profile-header.contract#ProfileHeader',
-      '@exact/actions/compose-frame.contract#ComposeFrame', '@exact/actions/bar-item.contract#BarItem', '@exact/actions/header-button.contract#HeaderButton'],
+    adopted: [...S13C_ADOPTED],
     before: [...ADOPTED],
-    screens: [
-      ...SCREENS.map(([n, t]) => [n, [...t]]),
-      ['settings', [...SETTINGS]],
-      ['settings-account', [...SETTINGS, 'tap settings-account']],
-      ['settings-content', [...SETTINGS, 'tap settings-content']],
-      ['settings-notifications', [...SETTINGS, 'tap settings-notifications']],
-      // Signed in through the fixture form, so the bottom bar's tabs (BarItem) show.
-      ['home-signed-in', [...SIGN_IN, 'clock +1500 real']],
-    ],
+    screens: S13C_SCREENS.map(([n, t]) => [n, [...t]]),
     // ListRow, SwitchRow, BarItem and HeaderButton write only the app's own
     // testIds; the build's source map says they're placed.
-    rendered: [...RENDERED, ['ProfileHeader', id => id.startsWith('profile-header-'), 'profile-header-'], ['ComposeFrame', id => id === 'compose-bar', '"compose-bar"']],
+    rendered: [...S13C_RENDERED],
     restyle: [...RESTYLE],
     // Stage 13 C's tokens and params, a batch a component (s13c-restyle.mjs).
     exact: true,
@@ -1296,6 +1311,27 @@ export const STAGES = {
     },
     // Release identity over the four pieces as they landed on main.
     release: { label: 'stage 13 C', runs: [['21a1a836b3', '21a1a836b3'], ['4841b08acf', '42c2b03a35'], ['0091eae8d0', 'a3c7cd25cd'], ['d9feffb3c0', 'ba581775cb']] },
+  },
+  s15b: {
+    name: 'Stage 15 B batch 1', tag: 's15b-baseline', out: 's15b-gate-run.txt',
+    // The copy's own Avatar and VerifiedBadge calls become the exports, which were shown before too (inside PostCard
+    // and ProfileHeader), so `retired` proves the adoption: the copy's own copies, header styles and settings wrappers go.
+    adopted: [...S13C_ADOPTED, ...S15B_EXPORTS],
+    before: [...S13C_ADOPTED, ...S15B_EXPORTS],
+    retired: ['component Avatar', 'component VerifiedBadge', 'style ChatHeaderButton', 'style HeaderSlot',
+      'component NavRow', 'component ActRow', 'component ValueRow', 'component SwitchRow', 'component CheckRow'],
+    screens: [
+      ...S13C_SCREENS.map(([n, t]) => [n, [...t]]),
+      // Signed in: the chat list (its header buttons, its avatars) and the notifications (avatars and badges).
+      ['chat', [...SIGN_IN, 'clock +1500 real', 'tap bottomBarMessagesBtn', 'clock +1500 real']],
+      ['notifications', [...SIGN_IN, 'clock +1500 real', 'tap bottomBarNotificationsBtn', 'clock +1500 real']],
+    ],
+    rendered: [...S13C_RENDERED],
+    restyle: [...RESTYLE],
+    exact: true,
+    titles: {
+      'consumer-pixels': 'The clone\'s avatars and verification badges come from @exact/cards (Avatar, VerifiedBadge), its chat header buttons from @exact/actions HeaderButton and its settings rows from @exact/lists directly, the duplicates gone, with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)',
+    },
   },
 };
 
@@ -1306,7 +1342,7 @@ export function useStage(stage) {
   EXACT = !!p.exact;
   RELEASE = p.release ?? null;
   TITLES = p.titles ?? {};
-  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle]]) list.splice(0, list.length, ...items);
+  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle], [RETIRED, p.retired ?? []]]) list.splice(0, list.length, ...items);
   return p;
 }
 
@@ -1380,7 +1416,7 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c] [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b] [--only <line> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
   const stage = useStage(opts.stage);
   if (opts.mode === 'baseline') {
     const r = baseline(resolve(opts.copy), resolve(opts.out), opts.hosts.length ? opts.hosts : CLONE_HOSTS);
