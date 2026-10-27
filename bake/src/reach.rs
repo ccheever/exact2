@@ -963,8 +963,9 @@ mod tests {
             ios["tvOmits"],
             json!(["NFCReaderUsageDescription", formats])
         );
+        // Android's bake derives as `linux`.
         assert_eq!(
-            derive_for("android")["android"],
+            derive_for("linux")["android"],
             json!(["android.permission.NFC"])
         );
         let mac = derive_for("macos");

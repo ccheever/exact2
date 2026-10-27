@@ -406,6 +406,10 @@ struct Substituted<'a> {
     /// Names that a `for` row or a `case some` binds here, which hide a
     /// prop, inject or derive of the same name.
     hidden: Vec<&'a str>,
+    /// The names a `use` brings from a package: one may be a module's event,
+    /// heard as an attribute on the root (LLP 1133.004 D6), which only the
+    /// package's declaration, read when sources resolve, can say.
+    imported: Vec<&'a str>,
 }
 
 impl<'a> Substituted<'a> {
@@ -537,6 +541,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 && a.name != "delete"
                                 && a.name != crate::row_look::ROW_LOOK
                                 && !native::leftover(tag, a)
+                                && !names.imported.contains(&a.name.as_str())
                         }) {
                             if let Some(e) = native::refused(tag, a) {
                                 errors.push(e);
@@ -653,9 +658,16 @@ pub fn lint(file: &File) -> Vec<LowerError> {
         }
     }
     let mut errors = Vec::new();
+    let imported: Vec<&str> = (file.uses.iter())
+        .filter(|u| u.path.starts_with('@'))
+        .flat_map(|u| u.names.iter().map(|n| n.local()))
+        .collect();
     for (i, c) in file.components.iter().enumerate() {
         let names = match i {
-            0 => Substituted::default(),
+            0 => Substituted {
+                imported: imported.clone(),
+                ..Substituted::default()
+            },
             _ => Substituted {
                 values: c
                     .props
@@ -669,6 +681,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     .map(|d| (d.name.as_str(), &d.expr))
                     .collect(),
                 hidden: Vec::new(),
+                imported: imported.clone(),
             },
         };
         walk(&c.view, &names, &mut errors);

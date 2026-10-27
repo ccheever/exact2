@@ -3,12 +3,12 @@
 //! implementation carries a number that `cancel` names when it is let go
 //! (LLP 1133.016 D15 item 2, `bound.rs`); a data-code call's body gets one
 //! as the request it travels in is handed out, so the same bookkeeping
-//! covers it, and a call the substitute or the agent holds is retired when
-//! that request is no longer in flight: the answer that made it is no
+//! covers it, and a call the substitute or the agent holds for its value
+//! is retired when that request is no longer in flight: the answer that made it is no
 //! longer kept, and a write it started never settles against a later tag.
 
 use super::super::{DataSource, Runner};
-use super::Json;
+use super::{Json, Waits};
 use crate::request::Request;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -66,7 +66,12 @@ impl<D: DataSource> Runner<D> {
             .collect();
         for token in gone {
             self.extensions.letgo.held.remove(&token);
-            let Some(h) = self.extensions.held.iter().find(|h| h.token == token) else {
+            // Only a call waiting on its value: a ceremony runs to its end
+            // and its reply is disposed of (LLP 1133.016 D11), and a
+            // permission's ticket is the person's to answer.
+            let Some(h) =
+                (self.extensions.held.iter()).find(|h| h.token == token && h.waits == Waits::Value)
+            else {
                 continue;
             };
             let (hold, source) = (h.hold, h.source.clone());
