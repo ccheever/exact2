@@ -113,16 +113,21 @@ component App
     .unwrap();
     m.bind(&plan);
     m.activate().unwrap();
-    let runner = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    // (a machine that kept the turn off the core past the backstop refuses it, and boot fails with
+    // the backstop's words: let by, as in the waiting test; anything else fails)
+    let runner = match Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/") {
+        Ok(runner) => runner,
+        Err(e) if format!("{e:?}").contains("a turn may take") => return,
+        Err(e) => panic!("boot: {e:?}"),
+    };
     let journal: Vec<String> = runner.journal().map(str::to_owned).collect();
-    // (the thread and both clocks; a machine that kept the turn past the backstop refused it instead)
+    // The thread and both clocks, from the ring.
     assert!(
         journal
             .iter()
             .any(|l| l.contains("a data turn held the UI thread")
                 && l.contains("ms of its own")
-                && l.contains("`work`"))
-            || journal.iter().any(|l| l.contains("a turn may take")),
+                && l.contains("`work`")),
         "{journal:?}"
     );
 }
