@@ -101,7 +101,7 @@ impl Caret {
         now: Instant,
     ) -> bool {
         let was_hidden = self.clock.hidden;
-        let Some(rect) = rect.filter(|_| frame.is_some()) else {
+        let Some(rect) = rect else {
             self.clear();
             return was_hidden && frame.is_some();
         };
@@ -146,6 +146,9 @@ impl Caret {
     }
     pub fn needs_picture(&self) -> bool {
         self.patch.is_none()
+    }
+    pub fn can_patch(&self) -> bool {
+        self.frame.is_some() || self.patch.is_some()
     }
     /// A new picture invalidates both sides. The first idle blink renders the
     /// other side once; later blinks copy only their differing rectangle.
@@ -355,6 +358,7 @@ mod tests {
             "release the full frame after caching"
         );
         assert!(!caret.needs_picture());
+        assert!(caret.can_patch());
         let rgb = |p: &Pixmap| {
             p.pixels()
                 .iter()
@@ -378,5 +382,31 @@ mod tests {
         assert_eq!(resized, vec![0; 15]);
         assert!(Patch::between(&off, &off).is_none());
         assert!(Patch::between(&off, &Pixmap::new(8, 5).unwrap()).is_none());
+    }
+
+    #[test]
+    fn a_presented_caret_without_cpu_pixels_keeps_its_blink_deadline() {
+        let now = Instant::now();
+        let mut caret = Caret::default();
+        caret.clock.active = true;
+        caret.clock.interval = Some(Duration::from_millis(500));
+        caret.clock.reset(now);
+        // Matching geometry avoids touching the process's native caret in this test.
+        caret.native.rect = Some([4, 6, 1, 16]);
+        assert!(!caret.presented(0, Some((4., 6., 1., 16.)), 1., None, now));
+        assert!(!caret.can_patch());
+        assert_eq!(caret.deadline(), Some(now + Duration::from_millis(500)));
+        assert!(caret.advance(now + Duration::from_millis(500)));
+        assert!(!caret.visible());
+        assert!(!caret.presented(
+            0,
+            Some((4., 6., 1., 16.)),
+            1.,
+            None,
+            now + Duration::from_millis(500),
+        ));
+        assert!(!caret.visible());
+        assert!(caret.advance(now + Duration::from_millis(1000)));
+        assert!(caret.visible());
     }
 }

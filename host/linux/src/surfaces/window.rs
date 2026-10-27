@@ -1,6 +1,6 @@
 //! A full-window game is composed on its module's GPU, with the ordinary
-//! painter supplying the UI before and after that canvas. All other layouts
-//! keep the capture path. No wgpu object crosses this DLL boundary.
+//! painter supplying the UI before and after that canvas. Other layouts use
+//! their painter's window target. No wgpu object crosses this DLL boundary.
 use super::*;
 use crate::paint::WindowLayer;
 use std::sync::Arc;
@@ -143,6 +143,9 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.surfaces.window_layers = None;
+        if self.surfaces.window_artifact.is_none() {
+            return Ok(self.frame_for(crate::paint::FrameTarget::Window));
+        }
         let frame = self.frame();
         if let Some(abi) = self
             .surfaces
