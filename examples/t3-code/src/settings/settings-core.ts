@@ -11,6 +11,7 @@ import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
 import { ClientError, providerAvailable, type Native } from '../client/protocol';
 import { projectIdentity, providerBadge } from '../client/presentation';
 import { traitsDisplay } from '../composer/composer-controls-model';
+import { acpInstanceIcon } from '../composer/acp-instance-icon';
 import { resolveTextGenerationSelection } from './text-generation-model';
 import { providerEntries, resolveAppModelSelectionForInstance, resolveSelectableProviderInstanceEntry } from '../composer/composer-provider-selection';
 import type { T3Client } from '../client/client';
@@ -39,7 +40,7 @@ import { BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH, BROWSER_SEARCH_ENGINES } from '..
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
 export type CoreRow = {
   id: string; title: string; description: string; status: string; kind: string; checked: boolean; value: string; label: string;
-  icon: string; width: number; options: CoreOption[]; value2: string; label2: string; options2: CoreOption[]; driver: string; badge: string; badgeColor: string;
+  icon: string; width: number; options: CoreOption[]; value2: string; label2: string; options2: CoreOption[]; driver: string; badge: string; badgeColor: string; markIcon: string;
   inheritance: string; inheritanceSummary: string; resettable: boolean; resetLabel: string; disabled: boolean; inert: boolean;
   /** ScopedSwitch: the selected targets disagree; the switch draws its thumb centred and a press turns it on everywhere. */
   mixed: boolean;
@@ -56,7 +57,7 @@ const option = (value: string, label: string, selected: boolean, extra: Partial<
   ({ id: value || 'none', value, label, detail: '', icon: '', selected, disabled: false, ...extra });
 export function coreRow(id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}): CoreRow {
   return { id, title, description, status: '', kind, checked: false, value: '', label: '', icon: '', width: 160, options: [], value2: '', label2: '',
-    options2: [], driver: '', badge: '', badgeColor: '', inheritance: '', inheritanceSummary: '', resettable: false, resetLabel: title.toLowerCase(), disabled: false, inert: false, mixed: false,
+    options2: [], driver: '', badge: '', badgeColor: '', markIcon: '', inheritance: '', inheritanceSummary: '', resettable: false, resetLabel: title.toLowerCase(), disabled: false, inert: false, mixed: false,
     note: '', min: 0, max: 0, step: 1, target: '', placeholder: '', suffix: '', info: '', divider: false, layers: [], layerTitle: '', layerGroups: [], amount: 0, previewSize: 0, menuWidth: 0, qr: [], ...extra };
 }
 
@@ -405,7 +406,7 @@ function modelControl(context: ServerContext, selection: Obj | null, textGenerat
   return traitsControl(context, entry.snapshot, model, stored ? arr(selection!.options) : []);
 }
 /** The model trigger and its TraitsPicker for one resolved instance, model and saved options. */
-export function traitsControl(context: { providers: Obj[] }, provider: Obj, model: Obj | undefined, selections: Obj[]): Partial<CoreRow> {
+export function traitsControl(context: { providers: Obj[]; settings?: Obj }, provider: Obj, model: Obj | undefined, selections: Obj[]): Partial<CoreRow> {
   // TraitsPicker: every select trait in its own section (Reasoning, Service Tier), radio rows with a Default badge.
   const descriptors = arr(obj(model?.capabilities).optionDescriptors).filter(descriptor => descriptor.type === 'boolean' || descriptor.type === 'select' && arr(descriptor.options).length > 0);
   const choices = (descriptor: Obj) => descriptor.type === 'boolean' ? [{ id: 'true', label: 'On' }, { id: 'false', label: 'Off' }]
@@ -424,6 +425,7 @@ export function traitsControl(context: { providers: Obj[] }, provider: Obj, mode
   return {
     value: `${str(provider.instanceId)}|${str(model?.slug)}`, label: str(model?.name, str(model?.slug)), driver: str(provider.driver),
     badge: providerBadge(provider, context.providers).providerBadge, badgeColor: providerBadge(provider, context.providers).providerBadgeColor,
+    markIcon: acpInstanceIcon({ settings: context.settings ?? {} }, provider),
     value2: effortValue, label2: display.label,
     options2: traits,
   };

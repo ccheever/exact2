@@ -10,7 +10,7 @@ use CoreOption from "./settings-core-shared.contract"
 use ScopeChoice from "./settings-core.contract"
 use CorePalette from "./settings-core-shared.contract"
 use SettingsGhost from "./settings-core-shared.contract"
-use ProviderInstanceMark from "../shared/icons-kit.contract"
+use ComposerInstanceMark from "../composer/instance-mark.contract"
 use CcIcon from "../composer/composer-controls.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use PolicyTip from "./settings-kit.contract"
@@ -369,7 +369,7 @@ component CoreRowView
               box position="relative"
                 button press=change(row.id, "picker", "") class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" disabled=(busy or row.inert) aria-label=row.label aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model`
                   if not row.mixed
-                    ProviderInstanceMark(driver=row.driver, size=16, color=pal.muted, badge=row.badge, accent=row.badgeColor)
+                    ComposerInstanceMark(driver=row.driver, icon=row.markIcon, size=16, color=pal.muted, badge=row.badge, accent=row.badgeColor)
                   text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted line-clamp=1 id=`paint-CoreRowView-13-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-7-${row.id}`, paint="mutedForeground", name="chevron-down", size=14, color=pal.muted)
               if row.label2 != ""
