@@ -207,6 +207,32 @@ impl<D: DataSource> Runner<D> {
         self.advance_within(self.now_ms, false, false)
     }
 
+    /// [`Runner::land_then`] when the earliest work due is an answer's
+    /// `then`, a queue's `next` or a transport or MIDI answer; otherwise
+    /// nothing, so no timer due before it is overtaken. A host that runs
+    /// timer advances without waiting for them runs this while it waits, so
+    /// an answer and what its `then` does show in one frame (LLP 1016.001
+    /// D3, LLP 1072.000 §4 B).
+    pub fn land_then_first(&mut self) -> Advanced {
+        let then = self
+            .then_due
+            .iter()
+            .chain(&self.queues.next_due)
+            .chain([&self.transport.answer_due, &self.midi.answer_due])
+            .copied()
+            .filter(|ms| ms.is_finite())
+            .reduce(f64::min);
+        if then.is_none() || then != self.timer_due_ms() {
+            return Advanced {
+                receipts: Vec::new(),
+                now_ms: self.now_ms,
+                error: None,
+                stopped_on_request: false,
+            };
+        }
+        self.land_then()
+    }
+
     /// [`Self::advance_steps`] with the wakes (LLP 1133.017 D6): a wake's
     /// deadline within the advance expires it there, after the work due
     /// before it, and what the wakes can deliver is delivered after. No
