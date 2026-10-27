@@ -642,7 +642,16 @@ fn evaluate(plan: &Plan, name: &str, case: &Json, rich: bool, profile: u8, mask:
         .iter()
         .map(|id| {
             let param = plan.param(id);
-            match plan.str(param.name) {
+            let name = plan.str(param.name);
+            let name = name
+                .rsplit_once("@c")
+                .filter(|(base, suffix)| {
+                    !base.contains('@')
+                        && !suffix.is_empty()
+                        && suffix.bytes().all(|byte| byte.is_ascii_digit())
+                })
+                .map_or(name, |(base, _)| base);
+            match name {
                 "start" => start.clone(),
                 "before" => {
                     let v = incoming(plan, param.ty, profile);
