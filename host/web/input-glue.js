@@ -670,7 +670,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
   // In the page: under `root`, through any shadow root's host.
   const inPage = (el) => { while (el && !root.contains(el)) el = el.getRootNode?.().host; return !!el; };
-  const canHover = matchMedia("(hover: hover)");
+  // The pointer last used, as `data-exact-input` on the page, which every hover look reads (neutral.css, looks.rs): a
+  // finger's tap leaves the browser's `:hover` on what it touched, which no platform shows. Writing the mark restyles
+  // the whole page, so a finger's is written as it lifts, before the `:hover` its tap leaves, and not as it lands,
+  // where the restyle would hold up the scroll the finger may start. The page starts with its primary pointer's.
+  const canHover = matchMedia("(any-hover: hover)"), html = document.documentElement;
+  html.dataset.exactInput ??= matchMedia("(pointer: coarse)").matches ? "touch" : "mouse";
+  const touching = () => html.dataset.exactInput === "touch";
+  const used = e => { if (html.dataset.exactInput !== e.pointerType) html.dataset.exactInput = e.pointerType; };
+  for (const type of ["pointerover", "pointerdown", "pointermove"]) addEventListener(type, e => { if (e.pointerType !== "touch") used(e); }, true);
+  for (const type of ["pointerup", "pointercancel"]) addEventListener(type, e => { if (e.pointerType === "touch") used(e); }, true);
   // The focused node's `:focus-visible` as last seen: a focus look's edge is its flipping. (`:hover` can't be read
   // so: a browser moves it for the style it computes next, so an edge is the pointer crossing a node's border.)
   const focusSeen = new WeakMap();
@@ -700,9 +709,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (twin >= 0) { pointerEdges.splice(0, twin + 1); return; }
         pointerEdges.length = 0;
       }
-      // A hover look holds only where the pointer can hover (looks.rs's media query), on an enabled node; entering or
-      // leaving it, not moving within it.
-      if (!canHover.matches) return;
+      // A hover look holds only where a pointer can hover and the last one used was no finger (looks.rs), on an
+      // enabled node; entering or leaving it, not moving within it.
+      if (!canHover.matches || touching()) return;
       for (let el = target; el instanceof Element && root.contains(el); el = el.parentElement) {
         if (el.contains(related)) break;
         if (!el.matches(DISABLED) && looks(el, sheet).includes(":hover")) els.push(el);

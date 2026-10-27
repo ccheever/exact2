@@ -473,6 +473,9 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     // A finger: a touch's `:active` is the engine's, which a synthesized touch never gets, so this piece marks the
     // innermost pressable while the finger is down, after UIKit's delay for a touch in a scroll view, and lets it go
     // at the lift. Its haptic plays as the press shows.
+    // Every hover look reads which pointer was last used.
+    const input = () => evaluate('document.documentElement.dataset.exactInput');
+    expect(await input()).toBe('mouse');
     await call('Emulation.setTouchEmulationEnabled', { enabled: true });
     const finger = (type, at) => call('Input.dispatchTouchEvent', { type, touchPoints: at ? [{ x: at[0], y: at[1] }] : [] });
     // The delay is judged by the page's clock, so a slow round trip from this test cannot fail it: the page notes when
@@ -496,6 +499,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     // A tapped link of text keeps the browser's `:hover`, which underlines it only where a pointer hovers (neutral.css).
     await finger('touchStart', await centre('link'));
     await finger('touchEnd');
+    expect(await input()).toBe('touch');
     // Chrome gives the tapped element `:hover` with the tap's gesture, which can come a frame or more after the
     // touch's end on a loaded machine: wait frames for it (2 s at most), then read.
     expect(await evaluate(`new Promise(ok => { const el = document.getElementById('link'), end = performance.now() + 2000, look = () => { if (el.matches(':hover') || performance.now() > end) ok([matchMedia('(hover: hover)').matches, el.matches(':hover'), getComputedStyle(el).textDecorationLine].join()); else requestAnimationFrame(look); }; look(); })`)).toBe('false,true,none');

@@ -309,6 +309,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // The unsaid hover: a wash over a pressable nobody styled, and a link in running text underlines.
       await page.hover('#pressable');
       expect([at('hover'), await page.evaluate(() => css('pressable', 'backgroundImage') !== 'none')]).toEqual([at('hover'), true]);
+      // None while a finger was the last pointer used (the input glue's mark), under the same `:hover`.
+      const touched = (input) => page.evaluate((input) => { document.documentElement.dataset.exactInput = input; return css('pressable', 'backgroundImage') !== 'none'; }, input);
+      expect([at('touched'), await touched('touch'), await touched('mouse')]).toEqual([at('touched'), false, true]);
       // None over a box that says `disabled`, nor over a pressable in one.
       await page.evaluate(() => document.getElementById('pressable').insertAdjacentHTML('afterend', '<div data-exact-on="press" disabled id="pressable-off" style="width:120px;height:40px">off <span data-exact-on="press" id="pressable-in">in</span></div>'));
       await page.hover('#pressable-off', { position: { x: 100, y: 30 } });

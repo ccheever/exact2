@@ -21,8 +21,8 @@ const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/
 // As `looks::rules` writes a `:hover` look (a yellow face at 0.8); `:active` is the node's press paint as the
 // host writes it (LLP 1061 D7: a blue face, an absolute opacity of 0.6).
 const on = ':not(:disabled,[disabled]:not([disabled="false"]))';
-const hover = at => `${at}:hover${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;--exact-hover-wash:none!important;}`;
-const rules = `@media (hover:hover){${['3', '6', '7', '9', '11'].map(id => hover(`[data-view="${id}"]`)).join('')}${hover('[data-exact-looks="1"]')}}[data-exact-looks="1"][data-exact-held~=hover]${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;}[data-exact-looks="2"]:focus-visible${on},[data-exact-looks="2"][data-exact-held~=focus-visible]${on}{background-color:rgba(0,255,255,1)!important;}`;
+const hover = at => `:where(html:not([data-exact-input=touch])) ${at}:hover${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;--exact-hover-wash:none!important;}`;
+const rules = `@media (any-hover:hover){${['3', '6', '7', '9', '11'].map(id => hover(`[data-view="${id}"]`)).join('')}${hover('[data-exact-looks="1"]')}}[data-exact-looks="1"][data-exact-held~=hover]${on}{background-color:rgba(255,255,0,1)!important;opacity:0.8!important;}[data-exact-looks="2"]:focus-visible${on},[data-exact-looks="2"][data-exact-held~=focus-visible]${on}{background-color:rgba(0,255,255,1)!important;}`;
 // A node with its own transition on what its look sets: the wasm host's (a view the looks sheet has rules for) and
 // the JS target's (`data-exact-looks`).
 const eased = 'width:100px;height:40px;background-color:#ffffff;opacity:1;transition:background-color 400ms linear,opacity 400ms linear';

@@ -120,12 +120,15 @@
      Tinted buttons use the accent even with authored title ink, matching UIKit's `.tinted()` on iOS 27;
      Chrome cannot interpolate `currentColor` in this custom property. */
   @property --exact-wash { syntax: "<color>"; inherits: false; initial-value: transparent; }
-  @media (hover: hover) {
+  /* Every hover look in this sheet holds where a pointer can hover (`any-hover`: a touchscreen laptop, an iPad with a
+     trackpad) and the last one used was not a finger (`data-exact-input`, the input glue's): each platform shows
+     hover for its pointer and none for a touch. */
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) {
     #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: var(--exact-quaternary-fill); }
     #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"], :disabled):hover { background-color: var(--exact-secondary-fill); }
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) 8%, transparent); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
-  }
+  } }
   /* Each press ties its hover's specificity and wins by coming after it, so these stay below the hover block. */
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: var(--exact-tertiary-fill); }
   #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"])[data-pressed] { background-color: var(--exact-secondary-fill); }
@@ -176,7 +179,7 @@
      disabled one, nor one in a box that says `disabled` (which takes no press either, LLP 1121 D8: CSS's `:disabled`
      matches only a form control), nor a native control, which has its own, nor a pressable covering the window, nor a
      link in running text or one that is text (they underline, below). */
-  @media (hover: hover) {
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) {
     #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [disabled]:not([disabled="false"]), [disabled]:not([disabled="false"]) *, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(var(--exact-quaternary-fill) 0 0)); }
     /* A button its author filled (LLP 1129 D1): the filled button's hover, a wash of its own ink, which shows over any fill. */
     #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-exact-said~="background-color"]:hover:not(:disabled, [disabled]:not([disabled="false"]), [disabled]:not([disabled="false"]) *, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0)); }
@@ -184,11 +187,11 @@
        line in the middle one, a filled row's wash its own. Where the row has no separator a wash above is its one image. */
     #exact-root [data-groupedrowseparator]:is(button, a[data-view][href], [data-exact-on~="press"]):hover:where(:has(~ :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]))):not([aria-hidden="true"], :is([data-exact-said~="border-bottom"], [data-exact-bottom-width], [data-exact-bottom-style]), :is([data-exact-said~="background-image"], [data-exact-background-image]), [swipecontent]:has(> :is([data-exact-said~="border-bottom"], [data-exact-bottom-width], [data-exact-bottom-style])), :has(+ :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])):is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ [swipecontent]:not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])) > :is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ :is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]) + :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])):is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ :is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]) + [swipecontent]:not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])) > :is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])))):not(:disabled, [disabled]:not([disabled="false"]), [disabled]:not([disabled="false"]) *, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(var(--exact-quaternary-fill) 0 0)), linear-gradient(var(--exact-grouped-separator), var(--exact-grouped-separator)), none; }
     #exact-root [data-groupedrowseparator]:is(button, a[data-view][href], [data-exact-on~="press"])[data-exact-said~="background-color"]:hover:where(:has(~ :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]))):not([aria-hidden="true"], :is([data-exact-said~="border-bottom"], [data-exact-bottom-width], [data-exact-bottom-style]), :is([data-exact-said~="background-image"], [data-exact-background-image]), [swipecontent]:has(> :is([data-exact-said~="border-bottom"], [data-exact-bottom-width], [data-exact-bottom-style])), :has(+ :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])):is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ [swipecontent]:not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])) > :is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ :is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]) + :not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])):is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])), :has(+ :is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"]) + [swipecontent]:not(:is([data-exact-hidden], [style*="display:\20 none"], [style*="display:none"])) > :is([data-exact-said~="border-top"], [data-exact-top-width], [data-exact-top-style])))):not(:disabled, [disabled]:not([disabled="false"]), [disabled]:not([disabled="false"]) *, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], [data-exact-text] a, a[href]:not([role], :has(> :not([data-exact-text], img))), :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0)), linear-gradient(var(--exact-grouped-separator), var(--exact-grouped-separator)), none; }
-  }
-  /* Underline text links on keyboard focus, and on hover where the device supports it. Touch browsers retain
-     `:hover` after a tap. A list row washes instead of underlining (below). */
+  } }
+  /* Underline text links on keyboard focus, and on hover where a pointer can hover and the last one used was not a
+     finger. Touch browsers retain `:hover` after a tap. A list row washes instead of underlining (below). */
   #exact-root [data-exact-text] a[data-view][href]:focus-visible, #exact-root a[data-view][href]:not([role], [data-button-style], [data-listrows] > *, [data-listrows] > [data-listitemkey] > *):not(:has(> :not([data-exact-text], img))):focus-visible { text-decoration: underline; }
-  @media (hover: hover) { #exact-root [data-exact-text] a[data-view][href]:hover, #exact-root a[data-view][href]:not([role], [data-button-style], [data-listrows] > *, [data-listrows] > [data-listitemkey] > *):not(:has(> :not([data-exact-text], img))):hover { text-decoration: underline; } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root [data-exact-text] a[data-view][href]:hover, #exact-root a[data-view][href]:not([role], [data-button-style], [data-listrows] > *, [data-listrows] > [data-listitemkey] > *):not(:has(> :not([data-exact-text], img))):hover { text-decoration: underline; } } }
 
   /* A list's rows (LLP 1115.000 D16): the children of a `list` whose rows go down the page and whose author left its
      appearance unsaid (`data-listrows`, Contract's mark; a windowed list's rows are in their wrappers). Under each row
@@ -207,9 +210,9 @@
      author writes is inline and wins. */
   #exact-root :is([data-listrows] > :not([data-listitemkey], [swipecontent]), [data-listrows] > [data-listitemkey] > :not([swipecontent]), [data-listrows] > [swipecontent]:not([swipeleading]) > :first-child, [data-listrows] > [data-listitemkey] > [swipecontent]:not([swipeleading]) > :first-child):not(input, select, textarea, progress) { padding-left: 16px; padding-right: 16px; box-sizing: border-box; }
   #exact-root [data-listrows] > :not(:last-child, [aria-hidden="true"], [data-exact-said~="border-bottom"], [data-listitemkey]:has(> [data-exact-said~="border-bottom"]), :has(+ [data-exact-said~="border-top"]), :has(+ [data-listitemkey] > [data-exact-said~="border-top"])) { box-shadow: inset 0 -1px 0 var(--exact-separator); }
-  @media (hover: hover) {
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) {
     #exact-root :where([data-listrows], [data-listrows] > [data-listitemkey]) > a[data-view][href]:hover:not([disabled]:not([disabled="false"]), [disabled]:not([disabled="false"]) *, [data-button-style], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(var(--exact-quaternary-fill) 0 0)); }
-  }
+  } }
   #exact-root [data-listrows] :is(button, a[data-view][href], [data-exact-on~="press"])[data-pressed]:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"], [data-exact-surface], [data-exact-text] a) { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
   /* Hide the platform separators beside the row's own press (D16), including windowed and swipe content roots.
      Controls inside a row keep their own feedback; authored cards and shadows keep their own ground and edges. */
@@ -242,7 +245,7 @@
   @supports (color: lab(from red l a b)) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):checked { color: lab(from var(--exact-accent, AccentColor) calc((49 - l) * 1e6 + 100) 0 0 / 1); } }
   #exact-root input[data-exact-control][type="checkbox"]:checked::before { background-color: currentColor; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat; }
   #exact-root input[data-exact-control][type="radio"]:checked::before { background: radial-gradient(circle closest-side, currentColor 38%, #0000 42%); }
-  @media (hover: hover) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):enabled:not(:checked):hover { border-color: var(--exact-label); } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]):enabled:not(:checked):hover { border-color: var(--exact-label); } } }
   #exact-root input[data-exact-control]:disabled, #exact-root input[data-exact-switch]:disabled { opacity: .5; }
   @media (any-pointer: coarse) { #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"]) { width: 1.5em; height: 1.5em; } }
   /* A range: a 4 px track in the control's line, the thumb in the accent. No engine but Firefox marks the part
@@ -255,7 +258,7 @@
   /* A file field keeps the browser's words; its button is the outline button. */
   #exact-root input[data-exact-control][type="file"] { color: var(--exact-secondary-label); }
   #exact-root input[data-exact-control][type="file"]::file-selector-button { box-sizing: border-box; min-height: 2.25em; margin-inline-end: .75em; padding: .375em 1em; border: 1px solid var(--exact-line); border-radius: 8px; background-color: transparent; color: var(--exact-label); font: inherit; font-weight: 500; --exact-said-font-weight: ; }
-  @media (hover: hover) { #exact-root input[data-exact-control][type="file"]:enabled::file-selector-button:hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root input[data-exact-control][type="file"]:enabled::file-selector-button:hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); } } }
   @media (any-pointer: coarse) { #exact-root input[data-exact-control][type="file"]::file-selector-button { min-height: 44px; } }
 
   /* The switch, drawn in every browser (one that styles its own would not match the rest): a 36 by 20 track, the
@@ -288,7 +291,7 @@
   #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-secondary-label); }
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(var(--exact-background), var(--exact-fill)); box-shadow: 0 1px 2px rgb(0 0 0 / .16); }
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-label); }
-  @media (hover: hover) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled:hover { color: var(--exact-label); } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled:hover { color: var(--exact-label); } } }
   @media (any-pointer: coarse) { #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls]), [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { min-height: 38px; } }
 
   /* The root tab bar, narrow: a bar of the page's ground under a 1 px line, each tab its symbol over its label, the
@@ -298,7 +301,7 @@
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) > img { width: 1.375rem; height: 1.375rem; }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-secondary-label); }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-accent, AccentColor); }
-  @media (hover: hover) { #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled:not([aria-selected="true"]):hover { color: var(--exact-label); background-image: none; } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled:not([aria-selected="true"]):hover { color: var(--exact-label); background-image: none; } } }
   /* Wide, the sidebar: the raised ground beside a 1 px line, rows of a symbol and a label in the label's ink, the
      selected one on a neutral fill. */
   #exact-root [data-exact-sidebar] > [role="tablist"] { background-color: var(--exact-secondary-background); box-shadow: none; border-top: none; border-inline-end: 1px solid var(--exact-separator); }
@@ -307,7 +310,7 @@
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: var(--exact-secondary-label); }
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"])[aria-selected="true"] { background-color: var(--exact-tertiary-fill); }
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-label); }
-  @media (hover: hover) { #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):not([aria-selected="true"]):hover { background-color: var(--exact-quaternary-fill); } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):not([aria-selected="true"]):hover { background-color: var(--exact-quaternary-fill); } } }
   /* A split's list column: a 1 px line at its inline end, the shown row on the neutral fill. */
   #exact-root [data-exact-split="list"] { box-shadow: none; border-inline-end: 1px solid var(--exact-separator); }
   #exact-root [data-exact-split="list"] [data-exact-split-row] { background-color: var(--exact-tertiary-fill); box-shadow: -64px 0 0 var(--exact-tertiary-fill); background-image: none; }
@@ -334,7 +337,7 @@
   #exact-root [navigationkey] > header button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
   #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; font-weight: 500; --exact-said-font-weight: ; cursor: default; --exact-back-press: 1; }
   #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
-  @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } } }
   #exact-root [navigationkey] > header::part(back):active { background-color: var(--exact-tertiary-fill); } /* after :hover, which a held pointer matches too */
   @media (any-pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
   /* LLP 1115.000 D4.15: a symbol alone on a bar item's face is the bar's symbol size whatever size the app writes on
@@ -359,7 +362,7 @@
      the shell's reset of a `button` (`button:where()`), which it follows, so an opacity the author wrote wins; an
      author's hover look replaces the dim (looks.rs sets it to 1). */
   :where(#exact-root [navigationkey] > header) :is(button, a[data-view][href], [data-exact-on~="press"]):not([data-button-style], [data-native]) { --exact-hover-wash: none; }
-  @media (hover: hover) { button:where(#exact-root [navigationkey] > header :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))), :where(#exact-root [navigationkey] > header :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))) { opacity: var(--exact-hover-dim, .65); } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { button:where(#exact-root [navigationkey] > header :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))), :where(#exact-root [navigationkey] > header :is(button, a[data-view][href], [data-exact-on~="press"]):hover:not(:disabled, [data-button-style], [data-native], input, select, textarea, [data-action], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover))) { opacity: var(--exact-hover-dim, .65); } } }
 
   /* LLP 1116.009 D4: a sheet's bar centres its title, as UIKit's does, whatever flanks it (a Cancel, a Save, both,
      neither); a page's title stays leading. The title's auto side margins share the bar's free space on either side of
@@ -429,7 +432,7 @@
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:disabled { color: var(--exact-gray-text); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:focus-visible { outline-offset: -2px; }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style][data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-fill) 0 0); }
-  @media (hover: hover) { #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:enabled:hover { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); } }
+  @media (any-hover: hover) { :where(html:not([data-exact-input="touch"])) { #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:enabled:hover { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); } } }
   @media (any-pointer: coarse) { #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 44px; } }
 
   /* A modal route is a sheet (D4.8): the page's ground over a scrim, above its siblings and the tab bar (`z-index`:
