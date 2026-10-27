@@ -10,15 +10,20 @@
 // rows mounted, the reader's first visible row where nothing has just been
 // estimated. Where a property is a position on screen, a drive measures it.
 // The gateway's READY follows HELLO and IDENTIFY on real time, which no clock step
-// waits for: each launch lets 500 ms of it pass, or waits for it with the clock
-// frozen (`clock until state`) once `clock settle` has run the `after(1, …)`
-// task that sends IDENTIFY.
+// waits for: each launch (and relaunch) runs `clock settle` (the `after(1, …)` task
+// that sends IDENTIFY), waits for READY with the clock frozen, `clock until state
+// gateway.state == "ready"` (docs/testing.md: a protocol's later state, not `clock
+// +N real`, which a loaded machine outruns), then `clock settle` again for what READY
+// armed a commit later (the directory, the channel list). The
+// picture viewer's tests are viewer.test.contract, the routing ones routing.test.contract,
+// Translate's translate.test.contract, the member list's and cards' members.test.contract.
 epoch "2026-10-22T18:00:00Z"
 time-zone "America/Los_Angeles"
 
 test "the fixture account menu has reachable account details"
   clock settle
-  clock until state gateway.state == "ready" within 5000
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "account"
   tap "account-details"
   expect text "account-identity" == "Sample account: Charlie"
@@ -28,7 +33,9 @@ test "the fixture account menu has reachable account details"
   expect tree has "composer"
 
 test "a channel opens at its newest message, live (§3.1)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   expect state anchor == ""
@@ -38,7 +45,9 @@ test "a channel opens at its newest message, live (§3.1)"
   expect tree missing "jump-present"
 
 test "unread: the bar says how many since when, and lands on the New divider (§3.2)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-help"
   clock settle
   expect text "unread-bar" == "50+ new messages since 7:47 AM"
@@ -52,7 +61,7 @@ test "unread: the bar says how many since when, and lands on the New divider (§
 
 test "the unread bar goes once a send lands, not when it fails"
   clock settle
-  clock until state gateway.state == "ready" within 5000
+  clock until state gateway.state == "ready" within 10000
   clock settle
   tap "channel-help"
   clock settle
@@ -70,7 +79,9 @@ test "the unread bar goes once a send lands, not when it fails"
   expect tree missing "unread"
 
 test "a channel reopens where its reader left it (§3.3)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -91,7 +102,9 @@ test "a channel reopens where its reader left it (§3.3)"
   expect tree has "message-1562755578936174328"
 
 test "reading back moves the window a page ahead of the reader, who stays put (§3.4)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -103,7 +116,9 @@ test "reading back moves the window a page ahead of the reader, who stays put (�
   expect tree has "message-1562732896249194217"
 
 test "changes above the viewport leave the reader's row where it is (§3.5)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -128,7 +143,9 @@ test "changes above the viewport leave the reader's row where it is (§3.5)"
   expect state topOffset == 0
 
 test "a reply's original far back loads around it, lit, and Jump to Present returns (§3.6)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -151,7 +168,9 @@ test "a reply's original far back loads around it, lit, and Jump to Present retu
   expect tree missing "jump-present"
 
 test "at the end a burst follows; nothing to jump to (§3.7)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -164,7 +183,9 @@ test "at the end a burst follows; nothing to jump to (§3.7)"
   expect tree missing "jump-present"
 
 test "away from the end nothing moves, and a pill counts what arrived (§3.8)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -183,7 +204,9 @@ test "away from the end nothing moves, and a pill counts what arrived (§3.8)"
   expect tree missing "jump-present"
 
 test "a send shows at once, dimmed, and its confirmation keeps its row (§3.9)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -204,7 +227,9 @@ test "a send shows at once, dimmed, and its confirmation keeps its row (§3.9)"
   expect state win.rows.49 .id == "1562888267366400000"
 
 test "a failed send stays, marked, and Retry sends it (§3.9)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -226,7 +251,9 @@ test "a failed send stays, marked, and Retry sends it (§3.9)"
   expect tree missing "failed-1562888267366400000"
 
 test "Return sends and Shift-Return breaks the line (§3.12, §3.13)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -240,7 +267,9 @@ test "Return sends and Shift-Return breaks the line (§3.12, §3.13)"
   expect state win.rows.49 .plain == "first line\nsecond line"
 
 test "Up edits the newest own message from history and Escape cancels it (§3.13)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -261,7 +290,9 @@ test "Up edits the newest own message from history and Escape cancels it (§3.13
   expect text "composer" == ""
 
 test "Cancel finding a message restores typing focus and prevents a late edit"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   type "composer" key "ArrowUp"
@@ -286,7 +317,9 @@ test "Cancel finding a message restores typing focus and prevents a late edit"
   expect text "composer" == "a new draft"
 
 test "Up preserves drafts, modified arrows and replies (§3.13)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   type "composer" "leave this draft"
@@ -305,7 +338,9 @@ test "Up preserves drafts, modified arrows and replies (§3.13)"
   expect state editLookup == false
 
 test "Escape cancels a reply and preserves the draft (§3.13)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   type "composer" "a saved draft"
@@ -318,7 +353,9 @@ test "Escape cancels a reply and preserves the draft (§3.13)"
   expect text "composer" == "a saved draft"
 
 test "Cancel reply and Cancel edit return keyboard focus to the preserved draft"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -343,7 +380,9 @@ test "Cancel reply and Cancel edit return keyboard focus to the preserved draft"
   expect state win.rows.49 .plain == "original message"
 
 test "Escape cancels an edit and restores the stashed draft (§3.13)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -363,7 +402,9 @@ test "Escape cancels an edit and restores the stashed draft (§3.13)"
   expect state win.rows.49 .plain == "original message"
 
 test "Escape from history returns to the end and marks the channel read (§3.13)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-help"
   clock settle
   type "composer" "a saved draft"
@@ -382,7 +423,9 @@ test "Escape from history returns to the end and marks the channel read (§3.13)
   expect text "composer" == "a saved draft"
 
 test "a draft survives switching channels and relaunching (§3.12)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   type "composer" "half a thought"
@@ -399,13 +442,17 @@ test "a draft survives switching channels and relaunching (§3.12)"
   back
   clock settle
   reload
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   expect text "composer" == "half a thought"
 
 test "relaunching during an edit preserves the unsent message draft (§3.12)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -418,7 +465,8 @@ test "relaunching during an edit preserves the unsent message draft (§3.12)"
   tap "menu-edit"
   type "composer" "unsaved edit"
   reload
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
   clock settle
   // The relaunch reopens the channel its address names, with its draft and without the edit.
   expect state chan.name == "general"
@@ -428,7 +476,9 @@ test "relaunching during an edit preserves the unsent message draft (§3.12)"
   expect text "composer" == "Keep this unsent message"
 
 test "relaunching during an edit does not turn it into a new message draft"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -440,7 +490,8 @@ test "relaunching during an edit does not turn it into a new message draft"
   tap "menu-edit"
   type "composer" "unsaved edit"
   reload
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
   clock settle
   // The relaunch reopens the channel its address names, with its draft and without the edit.
   expect state chan.name == "general"
@@ -452,21 +503,26 @@ test "relaunching during an edit does not turn it into a new message draft"
 // Web only: a web relaunch keeps the channel's address, with the list beneath it to go Back to; a native
 // relaunch starts at the list, with nothing beneath. Its host-neutral twin (a conversation chosen first) is
 // in routing.test.contract.
+
 test "a user action before the launch's restore lands wins: Back to the list cancels it"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   type "composer" "kept for later"
   reload
   // Back at once, before the gateway's READY lists the channel: the restore is dropped, not applied late.
   back
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
   clock settle
   expect state open == ""
   expect state reading == false
   // And the next launch starts at the list too.
   reload
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
   clock settle
   expect state open == ""
   tap "channel-general"
@@ -474,11 +530,14 @@ test "a user action before the launch's restore lands wins: Back to the list can
   expect text "composer" == "kept for later"
 
 test "the launch's restore runs once: Back to the list stays, through a list refresh"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   reload
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
   clock settle
   expect state chan.name == "general"
   // A message arrives (the list's unread state refreshes) after Back: the list stays.
@@ -492,7 +551,9 @@ test "the launch's restore runs once: Back to the list stays, through a list ref
   expect tree has "channel-general"
 
 test "one author within seven minutes is one group; a day change draws its date (§3.15)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -506,7 +567,9 @@ test "one author within seven minutes is one group; a day change draws its date 
 // The reviews of the first commit (Sol, Grok): one test a finding.
 
 test "a send from history returns to the live tail and lands at its end (review: Sol 2, Grok 1)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -522,7 +585,9 @@ test "a send from history returns to the live tail and lands at its end (review:
   expect tree has "message-1562888267366400000"
 
 test "a send from a window pinned inside the tail shows at the end (review: Sol 2, Grok 1)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -537,7 +602,9 @@ test "a send from a window pinned inside the tail shows at the end (review: Sol 
   expect tree has "message-1562888267366400000"
 
 test "spoilers in headings, small text and timestamps reveal only when pressed"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -556,7 +623,9 @@ test "spoilers in headings, small text and timestamps reveal only when pressed"
   expect state revealed.length == 4
 
 test "Edit starts from the message's Markdown, spoilers kept (review: Sol 1)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -569,7 +638,9 @@ test "Edit starts from the message's Markdown, spoilers kept (review: Sol 1)"
   expect text "composer" == "||secret|| and **bold**"
 
 test "an edit the server refuses keeps its text and says why (review: Sol 4)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -598,7 +669,9 @@ test "an edit the server refuses keeps its text and says why (review: Sol 4)"
   expect text "composer" == "reply draft"
 
 test "a refused deletion says why, keeps the message and draft, and can be retried"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -626,7 +699,9 @@ test "a refused deletion says why, keeps the message and draft, and can be retri
   expect text "composer" == "Keep this draft"
 
 test "a send settles while its reader is in another channel (review: Sol 5)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -644,7 +719,9 @@ test "a send settles while its reader is in another channel (review: Sol 5)"
   expect state win.rows.49 .state == "sent"
 
 test "the unread jump survives the first unread message's deletion (review: Sol 6)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "fixture"
@@ -656,7 +733,9 @@ test "the unread jump survives the first unread message's deletion (review: Sol 
   expect state target == ""
 
 test "the pill counts arrivals; a deletion does not cancel one (review: Sol 7, Grok 3)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -672,7 +751,9 @@ test "the pill counts arrivals; a deletion does not cancel one (review: Sol 7, G
   expect text "jump-present" == "1 new message"
 
 test "within one row's height of the end, a new message is followed (review: Sol 8, Grok 2)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -686,7 +767,9 @@ test "within one row's height of the end, a new message is followed (review: Sol
   expect tree missing "jump-present"
 
 test "a reply to a deleted message does not jump (review: Grok 5)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -701,7 +784,9 @@ test "a reply to a deleted message does not jump (review: Grok 5)"
   expect state highlight == ""
 
 test "what was read at the end is acknowledged (review: Grok 4)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -716,7 +801,8 @@ test "what was read at the end is acknowledged (review: Grok 4)"
 // A reaction while someone types changes the channel, not when their typing stops.
 test "the typing line goes ten seconds after the typing, whatever else changes in the channel"
   clock settle
-  clock until state gateway.state == "ready" within 5000
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -734,7 +820,9 @@ test "the typing line goes ten seconds after the typing, whatever else changes i
   expect tree missing "typing"
 
 test "paging is not refused while another refresh is in flight (review: Grok 6)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -750,7 +838,9 @@ test "paging is not refused while another refresh is in flight (review: Grok 6)"
   expect state win.firstId == "1562033782335219374"
 
 test "a jump whose history arrives later still lands on its target (review: Sol 3)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -773,7 +863,9 @@ test "a jump whose history arrives later still lands on its target (review: Sol 
 // The reviews' second round (Sol, Grok): one test a finding.
 
 test "leaving a channel from its end acknowledges what was on screen (re-check: Grok 4)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -785,7 +877,9 @@ test "leaving a channel from its end acknowledges what was on screen (re-check: 
   expect state channels.0 .unread == 0
 
 test "scrolling up from the end acknowledges what was on screen (re-check: Grok 4)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -800,7 +894,9 @@ test "scrolling up from the end acknowledges what was on screen (re-check: Grok 
   expect state channels.0 .unread == 0
 
 test "an edit settled after leaving its channel leaves the other channel's draft alone (re-check: Sol 1)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-random"
   clock settle
   type "composer" "a draft for random"
@@ -824,7 +920,9 @@ test "an edit settled after leaving its channel leaves the other channel's draft
   expect state editing == ""
 
 test "nothing is acknowledged while the channel list shows (re-check: Sol 2)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -837,7 +935,9 @@ test "nothing is acknowledged while the channel list shows (re-check: Sol 2)"
   expect state channels.0 .unread == 1
 
 test "Mark As Read away from the end reads the channel (re-check: Sol 3)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-help"
   clock settle
   tap "transcript" into "1562230937540887704"
@@ -852,7 +952,9 @@ test "Mark As Read away from the end reads the channel (re-check: Sol 3)"
   expect state channels.1 .unread == 0
 
 test "a send while the list is still moving lands at the live end (re-check: Grok new 1)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -867,7 +969,9 @@ test "a send while the list is still moving lands at the live end (re-check: Gro
   expect tree has "message-1562888267366400000"
 
 test "an arrival the reader watches gets no New divider (re-check: Grok new 2)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-random"
   clock settle
   tap "fixture"
@@ -876,7 +980,9 @@ test "an arrival the reader watches gets no New divider (re-check: Grok new 2)"
   expect tree missing "new-divider"
 
 test "paging continues while the pin request is out (re-check: Grok new 3)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -893,7 +999,9 @@ test "paging continues while the pin request is out (re-check: Grok new 3)"
 
 test "a failed ack at the end is sent again (wiring review: Grok 4)"
   fail fetch "/api/v9/channels/1191168914235588608/messages/1562887009075210000/ack" times 1
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   clock +1100
@@ -903,7 +1011,9 @@ test "a failed ack at the end is sent again (wiring review: Grok 4)"
   expect state chan.unread == 0
 
 test "a channel never read jumps to its first message (wiring review: Sol 8)"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-announcements"
   clock settle
   expect text "unread-bar" == "50+ new messages since 8:27 AM"
@@ -914,7 +1024,9 @@ test "a channel never read jumps to its first message (wiring review: Sol 8)"
   expect tree has "message-1432427377459200001"
 
 test "the server rail switches the list to the direct messages, which open like a channel, and is kept"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "server-@me"
   clock settle
   expect state server == "@me"
@@ -926,13 +1038,17 @@ test "the server rail switches the list to the direct messages, which open like 
   back
   clock settle
   reload
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   expect state server == "@me"
 
 test "image spoilers with and without dimensions wait for disclosure"
   // #random's single spoiler pictures: one with no dimensions, then one with them (main's fixture tiles some photos,
   // which moved the spoilers onto these messages).
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-random"
   clock settle
   tap "transcript" into "1556955556722245885"
@@ -963,7 +1079,9 @@ test "image spoilers with and without dimensions wait for disclosure"
 
 test "failed history can be retried without reopening the channel"
   fail fetch "/api/v9/channels/1191168914235588608/messages"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   expect text "history-error" == "Couldn’t load messages."
@@ -979,7 +1097,9 @@ test "failed history can be retried without reopening the channel"
   expect text "composer" == "Keep this draft"
 
 test "a failed page leaves cached messages readable and another channel loads"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -1005,7 +1125,9 @@ test "a failed page leaves cached messages readable and another channel loads"
   expect tree has "message-1562732896249194217"
 
 test "a failed older page does not block a jump to a different history page"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -1023,7 +1145,9 @@ test "a failed older page does not block a jump to a different history page"
 
 test "retrying older history at the exact top keeps the first visible message"
   size 1100x760
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -1041,7 +1165,9 @@ test "retrying older history at the exact top keeps the first visible message"
   expect state historyStart == false
 
 test "choosing Reply during an edit restores the draft and sends a reply"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -1067,7 +1193,9 @@ test "choosing Reply during an edit restores the draft and sends a reply"
   expect state win.rows.50 .reply.0 .id == "1562887009075210000"
 
 test "editing temporarily puts a reply aside and restores it on cancel or save"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "mark-read"
@@ -1099,96 +1227,11 @@ test "editing temporarily puts a reply aside and restores it on cancel or save"
   expect text "replying" == "Replying to Ada"
   expect text "composer" == "reply draft"
   expect state win.rows.49 .plain == "saved edit"
-test "an image opens full screen, zooms on a double tap and closes"
-  clock +500 real
-  tap "channel-general"
-  clock data
-  clock settle
-  tap "open-1562887009075210000-1562887009075399990"
-  clock settle
-  expect tree has "viewer"
-  expect state viewingAlt == "cafe.png"
-  tap "viewer-handle" dblclick
-  clock settle
-  expect state viewZoom == 2
-  tap "viewer-close"
-  clock settle
-  expect tree missing "viewer"
-  expect state reading == true
-
-test "a picture opens as a screen over its channel, and Back closes it alone"
-  clock +500 real
-  tap "channel-general"
-  clock data
-  clock settle
-  tap "open-1562887009075210000-1562887009075399990"
-  clock settle
-  expect state viewingKey == "1562887009075210000-1562887009075399990"
-  expect state screen == "channel"
-  expect state reading == false
-  back
-  clock settle
-  expect tree missing "viewer"
-  expect state viewing == ""
-  expect state reading == true
-  expect tree has "composer"
-
-test "a channel opened from over a picture replaces the picture's"
-  clock +500 real
-  tap "channel-general"
-  clock data
-  clock settle
-  tap "open-1562887009075210000-1562887009075399990"
-  clock settle
-  type "viewer-close" key "Meta+k"
-  clock settle
-  type "switcher-search" "hel"
-  clock data
-  type "switcher-search" key "Enter"
-  clock data
-  clock settle
-  expect state chan.name == "help"
-  expect state viewing == ""
-  expect state reading == true
-  reload
-  clock +500 real
-  clock settle
-  clock data
-  clock settle
-  expect state chan.name == "help"
-  expect state screen == "channel"
-
-test "a reload over a picture shows its channel"
-  clock +500 real
-  tap "channel-general"
-  clock data
-  clock settle
-  tap "open-1562887009075210000-1562887009075399990"
-  clock settle
-  reload
-  clock +500 real
-  clock settle
-  clock data
-  clock settle
-  expect state viewing == ""
-  expect state screen == "channel"
-  expect state chan.name == "general"
-  expect state nav.tabs.0 .stack.1 .url == "/c/1191168914235588608"
-
-test "a drag down at fit closes the picture"
-  clock +500 real
-  tap "channel-general"
-  clock data
-  clock settle
-  tap "open-1562887009075210000-1562887009075399990"
-  clock settle
-  tap "viewer-handle" drag 0 300
-  clock settle
-  expect tree missing "viewer"
-  expect state reading == true
 
 test "picked pictures go up with the message"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -1213,7 +1256,9 @@ test "picked pictures go up with the message"
   expect state sent.ok == true
 
 test "any emoji reacts from the picker, a server's own by its id"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -1231,7 +1276,9 @@ test "any emoji reacts from the picker, a server's own by its id"
   expect tree has "reaction-1562883971870631694-501"
 
 test "the quick switcher opens a channel by name"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "switcher-open"
   clock settle
   type "switcher-search" "hel"
@@ -1243,7 +1290,9 @@ test "the quick switcher opens a channel by name"
   expect state switching == false
 
 test "Command-K opens the quick switcher from a channel's composer"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -1259,7 +1308,9 @@ test "Command-K opens the quick switcher from a channel's composer"
   expect state chan.name == "help"
 
 test "Up in an empty composer edits your last message; Escape ends the edit"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -1277,23 +1328,10 @@ test "Up in an empty composer edits your last message; Escape ends the edit"
   expect tree missing "editing"
   expect state draft == ""
 
-test "an avatar opens its author's card, with their roles"
-  clock +500 real
-  tap "channel-general"
-  clock data
-  clock settle
-  tap "avatar-1562887009075210000"
-  clock data
-  clock settle
-  expect text "profile-name" == "Ada"
-  expect text "profile-handle" == "@ada"
-  expect state profile.roles.0.name == "Maintainers"
-  tap "profile-close"
-  clock settle
-  expect state profileUser == ""
-
 test "a reply can go without pinging its author"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -1311,68 +1349,20 @@ test "a reply can go without pinging its author"
   expect state sent.ok == true
   expect state replyTo == ""
 
-test "a mention opens its person's card"
-  clock +500 real
-  tap "channel-general"
-  clock data
-  clock settle
-  tap "transcript" into "1562761332271359740"
-  clock settle
-  tap "follow-1562761332271359740-b0.r0"
-  clock data
-  clock settle
-  expect text "profile-handle" == "@charlie"
-
 test "the page's title counts what mentions the reader and names the channel"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   expect state pageTitle == "(5) Excord"
   tap "channel-general"
   clock data
   clock settle
   expect state pageTitle == "(5) Excord | #general"
 
-test "the member list opens from the channel, and a member opens their card"
-  clock +500 real
-  tap "channel-general"
-  clock data
-  clock settle
-  // In a narrow window the list is a sheet; its rows are held before it opens.
-  expect state members.length == 19
-  tap "members-toggle"
-  clock settle
-  expect tree has "member-1191168914227200001"
-  tap "member-1191168914227200001"
-  clock data
-  clock settle
-  expect text "profile-handle" == "@ada"
-  expect state profile.roles.0.name == "Maintainers"
-
-// The channel's Escape (cancel a reply, jump to the present) is not a dialog's: on the web it kept the
-// sheet open.
-test "Escape closes the member sheet over a channel, and then a member's card"
-  clock settle
-  clock until state gateway.state == "ready" within 5000
-  tap "channel-general"
-  clock data
-  clock settle
-  tap "members-toggle"
-  clock settle
-  back
-  clock settle
-  expect state membersSheet == false
-  tap "members-toggle"
-  clock settle
-  tap "member-1191168914227200001"
-  clock data
-  clock settle
-  expect text "profile-handle" == "@ada"
-  back
-  clock settle
-  expect state profileUser == ""
-  expect state open == "1191168914235588608"
-
 test "a channel @everyone may not see is marked private"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   clock data
   clock settle
   expect state channels.0.name == "general"
@@ -1381,7 +1371,9 @@ test "a channel @everyone may not see is marked private"
   expect state channels.2.private == true
 
 test "the composer's emoji button puts the emoji in the draft, a server's own as its markup"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -1404,7 +1396,9 @@ test "the composer's emoji button puts the emoji in the draft, a server's own as
   expect state draft == "Nice 👍<:ferris:501>"
 
 test "a poll takes the reader's vote, shows the results, and gives the vote back"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-random"
   clock data
   clock settle
@@ -1436,7 +1430,9 @@ test "a poll takes the reader's vote, shows the results, and gives the vote back
   expect text "poll-1562732834387394850-3-votes" == "1 vote"
 
 test "an app's answer names who used the command, and its card shows its fields and footer"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-random"
   clock data
   clock settle
@@ -1448,7 +1444,9 @@ test "an app's answer names who used the command, and its card shows its fields 
   expect text "footer-1557316858871283989-e0" == "Buildkite • 10/7/26, 2:01 AM"
 
 test "a file that is not a picture goes up with the message, shown by its name"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock data
   clock settle
@@ -1464,31 +1462,3 @@ test "a file that is not a picture goes up with the message, shown by its name"
   clock settle
   clock data
   expect state picked.length == 0
-
-test "Translate shows a message in the reader's language until Show Original (LLP 1133.027 drive 7)"
-  clock +2000 real
-  tap "channel-general"
-  clock settle
-  tap "fixture"
-  tap "inject-japanese"
-  clock settle
-  tap "明日の会議は十時からです。" contextmenu
-  clock data
-  tap "menu-translate"
-  clock data
-  expect state translated.0.text == "[en] 明日の会議は十時からです。"
-  expect state translated.0.line == "Translated from Japanese"
-  tap "Show Original"
-  expect state translated == []
-
-test "a message in the reader's own language offers no Translate"
-  clock +2000 real
-  tap "channel-general"
-  clock settle
-  tap "fixture"
-  tap "inject-message"
-  clock settle
-  tap "The new build is ready to try." contextmenu
-  clock data
-  expect tree has "menu-copy"
-  expect tree missing "menu-translate"
