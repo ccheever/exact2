@@ -251,25 +251,34 @@ fn modal_keeps_list_visible_inert_and_uses_window() {
     assert_eq!(p.host.route_visibility(id(&p, "a")), (false, false));
 }
 
+/// Runs the calling test again in a child process that shows the neutral
+/// look, which is the whole process's: true in that child.
+fn in_neutral_child() -> bool {
+    const CHILD: &str = "EXACT_SPLIT_NEUTRAL_TEST";
+    if std::env::var_os(CHILD).is_some() {
+        crate::app::show_neutral_look();
+        return true;
+    }
+    let name = std::thread::current().name().unwrap().to_owned();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &name, "--nocapture"])
+        .env(CHILD, "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    false
+}
+
 #[test]
 fn selected_fill_and_authored_background_win_over_default_paint() {
-    const CHILD: &str = "EXACT_SPLIT_NEUTRAL_TEST";
-    if std::env::var_os(CHILD).is_none() {
-        let name = std::thread::current().name().unwrap().to_owned();
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", &name, "--nocapture"])
-            .env(CHILD, "1")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+    if !in_neutral_child() {
         return;
     }
-    crate::app::show_neutral_look();
     for name in ["linked", "a"] {
         for authored in [false, true] {
             let source = APP
@@ -496,6 +505,30 @@ fn placeholder_restyles_again_and_split_survives_desktop_overlays() {
         exact_kernel::Display::Flex
     );
     assert_eq!(p.box_of(empty).unwrap().rect.0, 321.);
+}
+
+#[test]
+fn the_columns_are_divided_in_the_separators_colour() {
+    // The role table's own column here, the neutral one Windows and the
+    // Linux desktop paint in the child.
+    in_neutral_child();
+    let mut p = boot(1200., "auto");
+    let frame = p.frame();
+    let x = (split(&p).pane().0 - DIVIDER) as u32;
+    let line = crate::paint::look::role("-exact-separator", false);
+    let fill = crate::paint::page_color(false);
+    let ink: [u8; 3] = std::array::from_fn(|i| {
+        ((u32::from(line[i]) * u32::from(line[3])
+            + u32::from(fill[i]) * (255 - u32::from(line[3]))
+            + 127)
+            / 255) as u8
+    });
+    let pixel = frame.pixel(x, 400).unwrap();
+    let rgb = [pixel.red(), pixel.green(), pixel.blue()];
+    assert!(
+        rgb.iter().zip(ink).all(|(a, b)| a.abs_diff(b) <= 2),
+        "{rgb:?} is not the separator {ink:?}"
+    );
 }
 
 #[test]

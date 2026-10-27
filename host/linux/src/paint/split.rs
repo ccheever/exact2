@@ -54,7 +54,7 @@ impl Painter {
             self.backend.pop_clip();
             self.backend.fill(
                 &Shape::rect((pane.0 - DIVIDER, pane.1, DIVIDER, pane.3)),
-                look::line(self.dark),
+                look::role("-exact-separator", self.dark),
                 ts,
             );
             let clipped = self.split_clip(pane, ts, clip);

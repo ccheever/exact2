@@ -887,13 +887,7 @@ impl<D: DataSource> Presenter<D> {
                 .is_some_and(|node| node.node_type == NodeType::TextInput);
         let moves = self.focus != focus && !editing;
         if direct || moves {
-            // A text field matches `:focus-visible` however it was focused.
-            let ringless = focus.filter(|id| {
-                self.host
-                    .kernel()
-                    .node(*id)
-                    .is_none_or(|n| n.node_type != NodeType::TextInput)
-            });
+            let ringless = focus.and_then(|id| self.unringed(id));
             self.dirty |= self.brush.ringless != ringless;
             self.brush.ringless = ringless;
         }

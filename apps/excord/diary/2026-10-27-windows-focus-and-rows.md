@@ -16,6 +16,11 @@ task: the channel list beside the chat on Windows, against the web
   kept one source pixel per output pixel and the painter shrank with plain bilinear. Both
   now average the area they cover, and Windows's own decoders scale with WIC's high-quality
   cubic; the photo's rounded edge is unchanged.
+- The line between the channel list and the chat was mid-grey (the control-edge colour);
+  the web draws its separator. It now uses the separator, as LLP 1115.004 D16 says.
+- Opening Excord on a channel ringed its "# general" heading, where the route had moved the
+  focus. Chrome rings a script's focus before any input, so the web does too; WinUI draws
+  no focus visual until a key, so Windows no longer does.
 - The private channel's lock overlaps its hash at 1x; Discord cuts the hash under the lock.
   Left as is: it reads at 2x.
 - On iPhone in dark mode the composer's emoji face is a filled disc, not the outline the web
@@ -26,6 +31,8 @@ task: the channel list beside the chat on Windows, against the web
 
 ### Lean in
 
+- A drive pins DejaVu Sans for repeatable pixels; `EXACT_FONT="Segoe UI Variable"` in the
+  drive's environment shows the window as Windows draws it.
 - The driver's `layout <testId>` showed the row's padding and the chevron's box at once, and
   `screenshot` on the nucbox made the web and Windows side by side a matter of one drive each.
 

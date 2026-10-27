@@ -120,6 +120,112 @@ fn middle(p: &Presenter<()>, name: &str) -> (f32, f32) {
 const RING: [u8; 4] = [255, 0, 0, 255];
 
 #[test]
+fn before_any_key_a_windows_focus_shows_no_ring() {
+    let mut p = boot(BUTTONS);
+    assert_eq!(
+        (p.brush.winui_focus, p.brush.keyless),
+        (cfg!(windows), cfg!(windows))
+    );
+    p.brush.winui_focus = true;
+    p.brush.keyless = true;
+    let native = id(&p, "native");
+    assert!(p.set_focus(Some(native), 1.).is_none());
+    assert_ne!(
+        edge(&mut p, "native"),
+        RING,
+        "the app's focus, before a key"
+    );
+    p.key_down("Control", 2.);
+    assert_ne!(edge(&mut p, "native"), RING, "a modifier alone is no key");
+    p.key_down("ArrowDown", 3.);
+    assert_eq!(edge(&mut p, "native"), RING, "a key shows the ring");
+    let bare = id(&p, "bare");
+    assert!(p.set_focus(Some(bare), 4.).is_none());
+    assert_eq!(edge(&mut p, "bare"), RING, "after a key, Chrome's rule");
+
+    // A chord is keyboard input to WinUI, though not to Chrome.
+    for winui in [true, false] {
+        let mut p = boot(BUTTONS);
+        (p.brush.winui_focus, p.brush.keyless) = (winui, winui);
+        let (x, y) = middle(&p, "native");
+        tap(&mut p, x, y, 1.);
+        p.hold_modifier("ControlLeft", true);
+        p.key_down("s", 3.);
+        p.hold_modifier("ControlLeft", false);
+        let bare = id(&p, "bare");
+        assert!(p.set_focus(Some(bare), 4.).is_none());
+        let ring = edge(&mut p, "bare") == RING;
+        assert_eq!(ring, winui, "after Control+S, winui={winui}");
+    }
+
+    // A focus a reload restores, before any key, under a new id: a box
+    // before it gained a child.
+    let reloaded = |inner: &str| {
+        format!(
+            r##"component App
+  view
+    column width=400 height=300 background-color="white" align-items="flex-start"
+      box{inner}
+      button "Native" appearance="auto" width=120 height=40 accent-color="#ff0000" testId="native"
+"##
+        )
+    };
+    let mut p = boot(&reloaded(""));
+    (p.brush.winui_focus, p.brush.keyless) = (true, true);
+    let native = id(&p, "native");
+    assert!(p.set_focus(Some(native), 1.).is_none());
+    p.reload(&crate::test_plan(&reloaded("\n        text \"x\"")), ())
+        .unwrap();
+    p.boxes();
+    assert_eq!(
+        p.focus,
+        Some(id(&p, "native")),
+        "the reload keeps the focus"
+    );
+    assert_ne!(p.focus, Some(native), "under a new id");
+    assert_ne!(
+        edge(&mut p, "native"),
+        RING,
+        "a restored focus, before a key"
+    );
+
+    // After a key, a pressed control restored under a new id stays ringless.
+    for winui in [true, false] {
+        let mut p = boot(&reloaded(""));
+        (p.brush.winui_focus, p.brush.keyless) = (winui, winui);
+        p.key_down("ArrowDown", 1.);
+        let (x, y) = middle(&p, "native");
+        tap(&mut p, x, y, 2.);
+        p.reload(&crate::test_plan(&reloaded("\n        text \"x\"")), ())
+            .unwrap();
+        p.boxes();
+        assert_eq!(p.focus, Some(id(&p, "native")));
+        assert_ne!(
+            edge(&mut p, "native"),
+            RING,
+            "pressed, then reloaded: winui={winui}"
+        );
+    }
+
+    // The Menu key a field's edit menu takes is keyboard input too.
+    let mut p = boot(
+        r##"component App
+  state value = ""
+  action change(v: string)
+    value = v
+  view
+    column width=400 height=300 background-color="white" align-items="flex-start"
+      input value=value change=change width=200 testId="field"
+      button "Native" appearance="auto" width=120 height=40 accent-color="#ff0000" testId="native"
+"##,
+    );
+    (p.brush.winui_focus, p.brush.keyless) = (true, true);
+    assert!(p.set_focus(Some(id(&p, "field")), 1.).is_none());
+    assert!(p.edit_menu_key("ContextMenu", "ContextMenu", false).0);
+    assert!(!p.brush.keyless, "the Menu key counts");
+}
+
+#[test]
 fn a_press_leaves_no_focus_ring_and_a_key_shows_it() {
     for name in ["native", "bare"] {
         let other = if name == "native" { "bare" } else { "native" };

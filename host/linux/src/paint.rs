@@ -561,6 +561,12 @@ pub struct Painter {
     /// The control a finger's press focused: it is the focus and shows no
     /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
     pub(crate) ringless: Option<ViewId>,
+    /// The focus visual follows WinUI's input tracking, not Chrome's
+    /// `:focus-visible` (LLP 1115.004 D9.2): no ring for a focus the app
+    /// moves before any key (`keyless`), and a key held with Ctrl, Alt or
+    /// the Windows key counts as keyboard input.
+    pub(crate) winui_focus: bool,
+    pub(crate) keyless: bool,
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
@@ -656,6 +662,8 @@ impl Painter {
             cpu_ms: None,
             flatten: None,
             ringless: None,
+            winui_focus: cfg!(windows),
+            keyless: cfg!(windows),
             feedback: (None, None),
             held_press: None,
             clipped: None,
