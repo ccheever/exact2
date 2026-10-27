@@ -1033,11 +1033,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #endif
         case "detail":
             guard let cell = cell(id) as? UICollectionViewListCell else { return nil }
-            func control(_ v: UIView) -> UIControl? {
-                if v === cell.contentView { return nil }
-                return (v as? UIControl) ?? v.subviews.lazy.compactMap(control).first
-            }
-            return control(cell)
+            return cell.firstInTree({ $0 as? UIControl }, prune: { $0 === cell.contentView })
         default: return nil
         }
     }
