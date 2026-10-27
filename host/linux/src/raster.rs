@@ -530,18 +530,22 @@ impl Backend for Raster {
                                     original[2].min(damage.right()),
                                     original[3].min(damage.bottom()),
                                 ) {
-                                    let path = PathBuilder::from_rect(rect);
-                                    if let Some(target) =
-                                        self.target.path_pixels(&path, Transform::identity())
-                                    {
-                                        target.fill_path(
-                                            &path,
-                                            &solid(color),
-                                            FillRule::Winding,
-                                            Transform::identity(),
-                                            None,
-                                        );
-                                    }
+                                    let pixel =
+                                        Color::from_rgba8(color[0], color[1], color[2], 255)
+                                            .premultiply()
+                                            .to_color_u8();
+                                    self.target.draw_rows(|target| {
+                                        let width = target.width() as usize;
+                                        let top = rect.top() as usize;
+                                        let bottom = rect.bottom() as usize;
+                                        for row in target.pixels_mut()[top * width..bottom * width]
+                                            .chunks_exact_mut(width)
+                                        {
+                                            row[rect.left() as usize..rect.right() as usize]
+                                                .fill(pixel);
+                                        }
+                                        top as u32..bottom as u32
+                                    });
                                 }
                                 return;
                             }

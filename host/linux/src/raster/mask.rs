@@ -317,22 +317,29 @@ mod tests {
                         assert_eq!(r.rectangular_clip.unwrap().0, r.clips.len());
                     }
                     for alpha in [0, 1, 127, 254, 255] {
-                        let fill = Shape::rect((-4., 0., 72., 60.));
-                        let color = [83, 215, 151, alpha];
-                        r.fill(&fill, color, Transform::identity());
-                        expected.fill_path(
-                            &rounded_rect(&fill).unwrap(),
-                            &solid(color),
-                            FillRule::Winding,
-                            r.device(Transform::identity()),
-                            masks.last(),
-                        );
-                        assert_eq!(
-                            r.target.pixels().unwrap().data(),
-                            expected.data(),
-                            "scale={scale} case={case} depth={} alpha={alpha}",
-                            masks.len()
-                        );
+                        for bounds in [
+                            (-4., 0., 72., 60.),
+                            (20., 24., 12., 8.),
+                            (17., 17., 1., 1.),
+                            (56., 48., 4., 4.),
+                        ] {
+                            let fill = Shape::rect(bounds);
+                            let color = [83, 215, 151, alpha];
+                            r.fill(&fill, color, Transform::identity());
+                            expected.fill_path(
+                                &rounded_rect(&fill).unwrap(),
+                                &solid(color),
+                                FillRule::Winding,
+                                r.device(Transform::identity()),
+                                masks.last(),
+                            );
+                            assert_eq!(
+                                r.target.pixels().unwrap().data(),
+                                expected.data(),
+                                "scale={scale} case={case} depth={} alpha={alpha} fill={bounds:?}",
+                                masks.len()
+                            );
+                        }
                     }
                 }
                 while !masks.is_empty() {
