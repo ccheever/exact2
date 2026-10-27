@@ -110,9 +110,10 @@ pub struct CollectionRow {
 pub struct AnchorCorrection {
     /// Scroll sequence whose anchor was preserved.
     pub scroll_sequence: u64,
-    /// Corrected content-relative offset on the main axis. Negative only
-    /// for an authored `scrollIntoView` into the padding before the first
-    /// row, down to that padding: `scrollTop` 0 (LLP 1010 §6.9).
+    /// Corrected content-relative offset on the main axis: negative in the
+    /// padding before the first row (an authored `scrollIntoView` down to
+    /// `scrollTop` 0, LLP 1010 §6.9; a short list's end), and past the end
+    /// while a finger or a fling holds the list there.
     pub offset: f64,
     /// An anchor's correction: the offset the anchor was taken at, so
     /// `offset - from` is how far the content before it moved. A host may

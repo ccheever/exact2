@@ -75,6 +75,14 @@ pub(crate) struct Anchor {
     row: Option<usize>,
     within: f64,
     follows_end: bool,
+    /// How far past the end the port was (a rubber band under a finger or a
+    /// fling): kept past the end, so a correction does not pull the band
+    /// back. An anchor that follows the end keeps none: it is held at the end.
+    beyond: f64,
+    /// The offset it was taken at, unclamped: with no row to anchor, the
+    /// port is kept there, past the end too (a rubber band on a list shorter
+    /// than its port).
+    raw: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -635,6 +643,12 @@ impl SizeIndex {
             row,
             within,
             follows_end,
+            beyond: if follows_end {
+                0.0
+            } else {
+                (raw - max).max(0.0)
+            },
+            raw,
         })
     }
 
@@ -674,6 +688,8 @@ impl SizeIndex {
             row: Some(self.position(key)?),
             within,
             follows_end: false,
+            beyond: 0.0,
+            raw: 0.0,
         })
     }
 
@@ -714,11 +730,14 @@ impl SizeIndex {
             return Ok(max);
         }
         if anchor.row.is_none() {
-            return self.clamp_offset(anchor.within, viewport);
+            if anchor.beyond > 0.0 {
+                return Ok(anchor.raw);
+            }
+            return self.clamp_offset(anchor.raw, viewport);
         }
-        Ok(self
-            .anchor_position(anchor)
-            .map_or(0.0, |offset| offset.max(-self.leading).min(max)))
+        Ok(self.anchor_position(anchor).map_or(0.0, |offset| {
+            offset.max(-self.leading).min(max) + anchor.beyond
+        }))
     }
 
     fn band(&self, start: f64, end: f64) -> Range<usize> {
