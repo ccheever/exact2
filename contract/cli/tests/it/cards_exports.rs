@@ -168,14 +168,37 @@ fn a_consumer_uses_person_row_from_the_package_with_its_trailing_slot() {
     let node = |t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap();
     let said = |t: &str, id: PropId| node(t).props.str(id).map(str::to_string);
     assert_eq!(
-        said("ada", PropId::AccessibilityLabel).as_deref(),
+        said("ada-link", PropId::AccessibilityLabel).as_deref(),
         Some("View Ada's profile")
     );
     let disabled = |t: &str| node(t).props.bool(PropId::AccessibilityDisabled);
     assert_eq!(
-        (disabled("ada"), disabled("fen")),
+        (disabled("ada-link"), disabled("fen-link")),
         (Some(false), Some(true))
     );
+    // The link holds the avatar and names, not the slot's control: the row
+    // has no role (its children stay their own to a screen reader), and the
+    // trailing control is the row's, outside the link.
+    let role = |t: &str| {
+        node(t)
+            .props
+            .str(PropId::AccessibilityRole)
+            .map(str::to_string)
+    };
+    assert_eq!(
+        (role("ada"), role("ada-link").as_deref()),
+        (None, Some("link"))
+    );
+    fn holds(k: &Kernel, at: u32, target: u32) -> bool {
+        k.node(at)
+            .unwrap()
+            .children()
+            .into_iter()
+            .any(|c| c == target || holds(k, c, target))
+    }
+    let under = |outer: &str, inner: &str| holds(k, node(outer).id, node(inner).id);
+    assert!(under("ada", "trailing") && !under("ada-link", "trailing"));
+    assert!(under("ada-link", "verified-badge"));
     assert!(
         !k.find_by_test_id("trailing").is_empty(),
         "the slot's trailing control"

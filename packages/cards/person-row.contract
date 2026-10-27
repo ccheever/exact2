@@ -3,10 +3,11 @@ use Name, Avatar, VerifiedBadge from "./common.contract"
 // A person in a list (Bluesky's ProfileCard: Outer, Header with the avatar,
 // NameAndHandle with ProfileBadges and the trailing control, Labels' "Follows
 // you" pill, Description; in ProfileCardWithFollowBtn's py_md px_xl row),
-// LLP 1121 stage 15 B batch 2. The whole row is one link to the person, as
-// ProfileCard.Link is: `press` and its spoken `label` the app's ("View Ada's
-// profile"); `disabled` says it's unavailable and dims it (aria-disabled,
-// which doesn't stop `press`: the app's action checks). Its words are the
+// LLP 1121 stage 15 B batch 2. The row presses as a whole and links to the
+// person, as ProfileCard.Link does: `press`, and the link (the avatar and
+// names, testId `<id>-link`) says the app's `label` ("View Ada's profile");
+// `disabled` says it's unavailable and dims the row (aria-disabled, which
+// doesn't stop `press`: the app's action checks). Its words are the
 // app's: `handle` is the second line as shown ("@ada.bsky.social", or why the
 // person can't be reached), `pill` the pill's text ("" for none). Its one
 // slot is the header's trailing control (a FollowButton, the app's own, or
@@ -42,10 +43,11 @@ component PersonRow
     pill: paint text shape space
     description: text
   view
+    // The row presses as a whole (no role, so its children stay their own to
+    // a screen reader); the link is the avatar with the names, which says the
+    // app's label, so the trailing control in the slot is never inside it
+    // (on iOS an element with a role is one element and hides what it holds).
     column part="surface" testId=id
-      role="link"
-      aria-label=label
-      aria-disabled=disabled
       press=press
       gap="cards.person-gap"
       padding-top="cards.person-pad-block"
@@ -60,33 +62,42 @@ component PersonRow
       border-bottom-color="param.divider"
       opacity=(disabled ? "cards.person-dim" : 1)
       row gap="cards.person-header-gap" align-items="center"
-        box part="avatar" flex-shrink=0
-          Avatar(src=avatar, size="cards.person-avatar")
-        column flex=1 min-width=0
-          row align-items="center" min-width=0
-            text name part="name" class=Name
-              font-size="cards.person-name-size"
-              font-weight=600
-              line-height="cards.person-name-line"
+        row testId=`${id}-link`
+          role="link"
+          aria-label=label
+          aria-disabled=disabled
+          press=press
+          flex=1
+          min-width=0
+          gap="cards.person-header-gap"
+          align-items="center"
+          box part="avatar" flex-shrink=0
+            Avatar(src=avatar, size="cards.person-avatar")
+          column flex=1 min-width=0
+            row align-items="center" min-width=0
+              text name part="name" class=Name
+                font-size="cards.person-name-size"
+                font-weight=600
+                line-height="cards.person-name-line"
+                white-space="nowrap"
+                text-overflow="ellipsis"
+                overflow="hidden"
+                flex-shrink=1
+              if badge != "none"
+                column padding-left="cards.person-badge-gap" flex-shrink=0
+                  VerifiedBadge(
+                    badge=badge,
+                    size="cards.person-badge",
+                    ink="param.badge",
+                    mark="param.badgeMark"
+                  )
+            text handle part="handle"
+              font-size="cards.person-handle-size"
+              line-height="cards.person-handle-line"
+              color="param.meta"
               white-space="nowrap"
               text-overflow="ellipsis"
               overflow="hidden"
-              flex-shrink=1
-            if badge != "none"
-              column padding-left="cards.person-badge-gap" flex-shrink=0
-                VerifiedBadge(
-                  badge=badge,
-                  size="cards.person-badge",
-                  ink="param.badge",
-                  mark="param.badgeMark"
-                )
-          text handle part="handle"
-            font-size="cards.person-handle-size"
-            line-height="cards.person-handle-line"
-            color="param.meta"
-            white-space="nowrap"
-            text-overflow="ellipsis"
-            overflow="hidden"
         children
       if pill != ""
         row padding-top="cards.person-pill-top"

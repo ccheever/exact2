@@ -4047,8 +4047,10 @@ with `""` for none until stage 15 B batch 2: pass `"none"` now, and a data
 value of that enum type. `PersonRow` `(id, label, avatar, name, handle,
 badge, pill, description, descriptionLines, divider, disabled, press)` is a
 person in a list (Bluesky's ProfileCard), its one slot the trailing control
-(a `FollowButton`, your own, or nothing). The whole row is one link
-(`role="link"`, `label` its spoken name, such as "View Ada's profile");
+(a `FollowButton`, your own, or nothing). The row presses as a whole, and
+its avatar with the names is the link (`role="link"`, testId `<id>-link`,
+`label` its spoken name, such as "View Ada's profile"), which never holds the
+slot, so the trailing control stays its own to a screen reader;
 `handle` is the second line as shown (`"@ada.bsky.social"`), `pill` the
 pill's text (`""` for none), `divider` `"bottom"`, `"top"` or `"none"`;
 `disabled` dims it and says so (`aria-disabled`) but doesn't stop `press`, so

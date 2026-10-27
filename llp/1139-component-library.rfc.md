@@ -527,15 +527,19 @@ Owners as they free up (the lead's order).
    `string` with `""` for none; it is now `enum<"none", "verified", "verifier">`, ProfileHeader's type, so a
    consumer passes `"none"`, a dynamic argument must be of that enum (a `string` is refused), and `""` no longer
    compiles. PostCard's `badge` took the same type, as it passes its own to VerifiedBadge; AtCard draws no badge.
-   `contract gallery` gives an enum prop the view compares with literals in an `if` a cell per declared value, as it
-   gave batch 1's string a cell per literal (so VerifiedBadge keeps three cells, and ListRow's `accessory` and
-   FollowButton's `icon` gain theirs).
+   `contract gallery` gives an enum prop the view compares with literals in an `if` (by `==` or `!=`) a cell per
+   declared value, as it gave batch 1's string a cell per literal (so VerifiedBadge keeps three cells, PostCard,
+   ProfileHeader and PersonRow show each badge, and ListRow's `accessory`, PostCard's `context` and FollowButton's
+   `icon` gain theirs); library-gate places PostCard with each badge as samples to match.
    **PersonRow** `(id, label, avatar, name, handle, badge, pill, description, descriptionLines, divider, disabled,
    press)` with one slot, the header's trailing control (a FollowButton, the app's own, or nothing), is a person in a
    list: Bluesky's ProfileCard (Header: the 40 avatar, the name with its md badge, the handle; Labels' pill;
-   Description) in ProfileCardWithFollowBtn's row (py_md px_xl). The row is one link to the person, as
-   ProfileCard.Link is (`role="link"`, its `label` the app's, `press`); `disabled` is `aria-disabled` and dims it to
-   half, and doesn't stop `press`. Its words are the app's: `handle` is the second line as shown, `pill` the pill's
+   Description) in ProfileCardWithFollowBtn's row (py_md px_xl). The row presses as a whole and links to the person,
+   as ProfileCard.Link does: the row has `press` and no role, and its link, the avatar with the names (testId
+   `<id>-link`, `role="link"`, its `label` the app's, `press`), never holds the slot, since on iOS an element with a
+   role is one accessibility element and would hide the trailing button. `disabled` is the link's `aria-disabled`
+   and dims the row to half, and doesn't stop `press`, so a copy whose row is a disabled button (the clone's
+   ChatPersonRow) doesn't join (theme2's condition (b)). Its words are the app's: `handle` is the second line as shown, `pill` the pill's
    text (`""` for none). `divider` is `"bottom"`, `"top"` (Bluesky's border_t) or `"none"`. Its spacing is Bluesky's
    only: a copy's other padding is a named pixel change in its gate, with no density variant (theme2's 2026-10-27
    ruling). Its colours (divider, handle, pill, badge and mark) are params over the cards' tokens, its sizes

@@ -614,9 +614,10 @@ fn placed<'a>(
                 // Its variant props, then each string prop its view compares
                 // with literals in an `if`: those literals and the empty
                 // string, one cell each (stage 15 D4 batch 1 #2); and each
-                // enum prop it compares so (VerifiedBadge's `badge`, an enum
-                // since stage 15 B batch 2, and FollowButton's `icon`): every
-                // value it declares, in order, one cell each.
+                // enum prop it compares so, by `==` or `!=` (VerifiedBadge's
+                // `badge`, an enum since stage 15 B batch 2, PostCard's and
+                // PersonRow's `if badge != "none"`, FollowButton's `icon`):
+                // every value it declares, in order, one cell each.
                 let mut variants = contract_lower::anatomy::described(c, file).variants;
                 for p in &c.props {
                     if variants.iter().any(|(v, _)| *v == p.name) {
@@ -624,14 +625,14 @@ fn placed<'a>(
                     }
                     let options = match &p.ty {
                         Some(TypeExpr::Named(t, _)) if t == "string" => {
-                            let mut options = inert::compared_literals(c, &p.name);
+                            let mut options = inert::compared_literals(c, &p.name, false);
                             if !options.is_empty() && !options.iter().any(|o| o.is_empty()) {
                                 options.push(String::new());
                             }
                             options
                         }
                         Some(TypeExpr::Enum(values, _))
-                            if !inert::compared_literals(c, &p.name).is_empty() =>
+                            if !inert::compared_literals(c, &p.name, true).is_empty() =>
                         {
                             values.clone()
                         }

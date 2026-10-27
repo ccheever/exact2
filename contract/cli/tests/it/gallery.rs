@@ -1200,6 +1200,22 @@ const ENUM_BADGES: &str = r#"component Badge
       text label
 "#;
 
+/// The same, guarded by `!=` (PostCard's and PersonRow's `if badge !=
+/// "none"`), and a string compared by `!=` alone, which stays its name.
+const NE_BADGES: &str = r#"component Badge
+  props
+    badge: enum<"none", "verified", "verifier">
+    note: string
+  parts
+    mark: paint
+  view
+    column part="mark"
+      if badge != "none"
+        text "B"
+      if note != ""
+        text note
+"#;
+
 const ENUM_BADGES_APP: &str = r#"use Badge from "@acme/lib"
 
 component App
@@ -1240,5 +1256,38 @@ fn an_enum_compared_with_literals_gets_a_cell_per_value() {
     assert!(badge
         .iter()
         .all(|c| !c.values.iter().any(|(p, _)| p == "other")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An enum guarded by `!=` gets a cell per value too (Astra's 2b r1: a
+/// PersonRow's or PostCard's gallery kept "none" and never drew a badge); a
+/// string's `!=` adds no cells (batch 1's rule is `==`).
+#[test]
+fn an_enum_guarded_by_not_equal_gets_a_cell_per_value_too() {
+    let dir = fixture("ne-badges");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), NE_BADGES).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Badge from \"@acme/lib\"\n\ncomponent App\n  view\n    column\n      Badge(badge=\"none\", note=\"n\")\n",
+    )
+    .unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let badge: Vec<_> = g.cells.iter().filter(|c| c.component == "Badge").collect();
+    let values: Vec<String> = badge
+        .iter()
+        .map(|c| {
+            c.values
+                .iter()
+                .find(|(p, _)| p == "badge")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(values, ["none", "verified", "verifier"]);
+    assert!(badge
+        .iter()
+        .all(|c| !c.values.iter().any(|(p, _)| p == "note")));
     let _ = std::fs::remove_dir_all(&dir);
 }

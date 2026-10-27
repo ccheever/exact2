@@ -51,6 +51,12 @@ component App
         PostCard(id="sample-pc-reposted", press=press, inThread=false, lineAbove=false, lineBelow=false, context="reposted", contextText="Reposted by Fen", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="none")
           box testId="marker-sample-pc-reposted" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
+        PostCard(id="sample-pc-verified", press=press, inThread=false, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="verified")
+          box testId="marker-sample-pc-verified" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PostCard(id="sample-pc-verifier", press=press, inThread=false, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="verifier")
+          box testId="marker-sample-pc-verifier" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
         // The action rows no wider than 20rem, the counted buttons' own widest
         // (actions.row-max, 320px), so those buttons always fill what the row
         // leaves them on every host, where its gap shows (the gate's restyle

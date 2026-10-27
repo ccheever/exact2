@@ -112,22 +112,23 @@ export const DERIVED = {
  * `color` keeps its read. */
 export const READS = {
   // Stage 15 B batch 2's PersonRow, from its row (.): its padding, gap,
-  // opacity and dividers there; the header (0) with the avatar's box (0/0,
-  // Avatar's column 0/0/0 and picture 0/0/0/0), the names (0/1: the name
-  // 0/1/0/0, the badge's column 0/1/0/1 and VerifiedBadge 0/1/0/1/0 with its
-  // ground /0 and check /1; the handle 0/1/1); the pill's row (1, its text
-  // 1/0); the description's column (1, or 2 after a pill; its text /0).
+  // opacity and dividers there; the header (0) with its link (0/0: the
+  // avatar's box 0/0/0, Avatar's column 0/0/0/0 and picture 0/0/0/0/0; the
+  // names 0/0/1: the name 0/0/1/0/0, the badge's column 0/0/1/0/1 and
+  // VerifiedBadge 0/0/1/0/1/0 with its ground /0 and check /1; the handle
+  // 0/0/1/1) and the slot's control (0/1); the pill's row (1, its text 1/0);
+  // the description's column (1, or 2 after a pill; its text /0).
   'cards.person-pad-block': ['. padding_bottom,padding_top *'],
   'cards.person-pad-inline': ['. padding_left,padding_right *'],
   'cards.person-gap': ['. column_gap,row_gap *'],
-  'cards.person-header-gap': ['0 column_gap,row_gap *'],
-  'cards.person-avatar': ['0/0/0 height,width *', '0/0/0/0 height,width *'],
-  'cards.person-name-size': ['0/1/0/0 font_size *'],
-  'cards.person-name-line': ['0/1/0/0 line_height *'],
-  'cards.person-badge': ['0/1/0/1/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/1/0/1/0/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/1/0/1/0/1 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all'],
-  'cards.person-badge-gap': ['0/1/0/1 padding_left sample-pr-verified,sample-pr-verifier,sample-pr-all'],
-  'cards.person-handle-size': ['0/1/1 font_size *'],
-  'cards.person-handle-line': ['0/1/1 line_height *'],
+  'cards.person-header-gap': ['0 column_gap,row_gap *', '0/0 column_gap,row_gap *'],
+  'cards.person-avatar': ['0/0/0/0 height,width *', '0/0/0/0/0 height,width *'],
+  'cards.person-name-size': ['0/0/1/0/0 font_size *'],
+  'cards.person-name-line': ['0/0/1/0/0 line_height *'],
+  'cards.person-badge': ['0/0/1/0/1/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/0/1/0/1/0/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/0/1/0/1/0/1 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'cards.person-badge-gap': ['0/0/1/0/1 padding_left sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'cards.person-handle-size': ['0/0/1/1 font_size *'],
+  'cards.person-handle-line': ['0/0/1/1 line_height *'],
   'cards.person-pill-top': ['1 padding_top sample-pr-pill,sample-pr-all'],
   'cards.person-pill-size': ['1/0 font_size sample-pr-pill,sample-pr-all'],
   'cards.person-pill-line': ['1/0 line_height sample-pr-pill,sample-pr-all'],
@@ -139,10 +140,10 @@ export const READS = {
   'cards.person-description-line': ['1/0 line_height sample-pr-description,sample-pr-description-one', '2/0 line_height sample-pr-all'],
   'cards.person-dim': ['. opacity pr-disabled'],
   'PersonRow.divider': ['. border_color_bottom,border_color_top *'],
-  'PersonRow.meta': ['0/1/1 text_color *'],
+  'PersonRow.meta': ['0/0/1/1 text_color *'],
   'PersonRow.pill': ['1/0 background_color sample-pr-pill,sample-pr-all'],
-  'PersonRow.badge': ['0/1/0/1/0/0 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
-  'PersonRow.badgeMark': ['0/1/0/1/0/1 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'PersonRow.badge': ['0/0/1/0/1/0/0 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'PersonRow.badgeMark': ['0/0/1/0/1/0/1 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
   // Stage 15 B batch 2's FollowButton, from its button (.): its shape,
   // padding, gap and press scale there; its icon's box (0) and image (0/0,
   // read by the colour it draws in); its label (1, or 0 with no icon). Its
