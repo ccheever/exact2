@@ -9,6 +9,11 @@ private class OrientationView: NSView {
     override var isFlipped: Bool { flipsCoordinates }
 }
 
+private final class OrientationContainer: OrientationView {
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {}
+}
+
 private final class OrientationInk: OrientationView {
     var draws = 0
     var drawnCTM = CGAffineTransform.identity
@@ -32,10 +37,53 @@ private final class OrientationUpdate: OrientationView {
     override func updateLayer() { layer?.contents = image }
 }
 
-// The copy of a subtree under the window's flipped page scroller keeps its
-// drawn contents upright only by taking the flip its root inherits
-// (`paintOrderBitmap`); these hold its copies against AppKit's own pictures.
+// Copies keep each backing store's live flip, including a subtree whose
+// ancestors are outside the capture and a newly mounted, detached layer.
 final class CaptureOrientationMacTests: XCTestCase {
+    func testNewRowsInHiddenOverlay() throws {
+        _ = NSApplication.shared
+        let shell = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 112))
+        shell.wantsLayer = true
+        let root = OrientationView(frame: shell.bounds); shell.addSubview(root)
+        let scroll = NSScrollView(frame: root.bounds)
+        let document = OrientationView(frame: root.bounds)
+        scroll.documentView = document; root.addSubview(scroll)
+        let header = OrientationInk(frame: NSRect(x: 0, y: 0, width: 120, height: 56))
+        document.addSubview(header)
+        let window = NSWindow(contentRect: shell.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = shell
+        defer { window.close() }
+        window.orderFront(nil); shell.displayIfNeeded(); CATransaction.flush()
+        root.alphaValue = 0
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let card = OrientationContainer(frame: NSRect(x: 120, y: 0, width: 120, height: 112))
+        card.wantsLayer = true
+        let row = OrientationInk(frame: NSRect(x: 0, y: 0, width: 120, height: 56))
+        row.wantsLayer = true
+        card.addSubview(row)
+        let field = NSTextField(frame: NSRect(x: 0, y: 56, width: 120, height: 40))
+        field.isBezeled = false; field.isBordered = false; field.drawsBackground = false
+        field.placeholderAttributedString = NSAttributedString(string: "Search", attributes: [.foregroundColor: NSColor.black])
+        document.addSubview(field)
+        document.addSubview(card)
+        // The views are mounted, but AppKit has not joined their layers yet.
+        XCTAssertNil(card.layer?.superlayer); XCTAssertNil(row.layer?.superlayer)
+        XCTAssertNil(field.layer)
+        let rep = try XCTUnwrap(Capture.bitmap(of: root, scale: 1))
+        let child = try XCTUnwrap(Capture.bitmap(of: card, scale: 1))
+        for (picture, x) in [(rep, 4), (rep, 124), (child, 4)] {
+            let top = try XCTUnwrap(picture.colorAt(x: x, y: 4)), bottom = try XCTUnwrap(picture.colorAt(x: x, y: 52))
+            XCTAssertGreaterThan(top.alphaComponent, 0.9)
+            XCTAssertGreaterThan(top.redComponent, 0.9); XCTAssertLessThan(top.blueComponent, 0.1)
+            XCTAssertGreaterThan(bottom.alphaComponent, 0.9)
+            XCTAssertGreaterThan(bottom.blueComponent, 0.9); XCTAssertLessThan(bottom.redComponent, 0.1)
+        }
+        let ink = (60..<96).flatMap { y in (4..<116).compactMap { x in rep.colorAt(x: x, y: y) } }
+            .filter { $0.alphaComponent > 0.8 && max($0.redComponent, $0.greenComponent, $0.blueComponent) < 0.3 }
+        XCTAssertGreaterThan(ink.count, 20, "the newly mounted field's placeholder is captured")
+    }
+
     func testHeaderBesideScrollRows() throws {
         _ = NSApplication.shared
         let shell = OrientationView(frame: NSRect(x: 0, y: 0, width: 480, height: 112))
@@ -114,6 +162,7 @@ final class CaptureOrientationMacTests: XCTestCase {
             print("MIXED \(name) copy=\(marker(copy, i)) original=\(marker(original, i)) cache=\(marker(cache, i))")
             XCTAssertEqual(marker(original, i), "upright", name)
             XCTAssertEqual(marker(cache, i), "upright", name)
+            XCTAssertEqual(marker(copy, i), "upright", name)
             assertMarkerPairExists(copy, i)
         }
         try evidence([("mixed-copy", copy), ("mixed-original", original), ("mixed-cache", cache)])
@@ -194,10 +243,8 @@ final class CaptureOrientationMacTests: XCTestCase {
         for i in 0..<8 {
             print("TIMING CACHE \(i) \(marker(cache, i))")
             for rep in [copy, shownCopy, original, cache] { assertMarkerPairExists(rep, i) }
-            // Record the measured inversion, not a qualification of a fix
-            // for Caltrain's mixed case. Missing contents fail independently.
-            XCTAssertEqual(marker(copy, i), "flipped", "model contents, case \(i)")
-            XCTAssertEqual(marker(shownCopy, i), "flipped", "presentation contents, case \(i)")
+            XCTAssertEqual(marker(copy, i), "upright", "model contents, case \(i)")
+            XCTAssertEqual(marker(shownCopy, i), "upright", "presentation contents, case \(i)")
             XCTAssertEqual(marker(original, i), "upright", "original tree, case \(i)")
             XCTAssertEqual(marker(cache, i), "upright", "AppKit reference, case \(i)")
         }

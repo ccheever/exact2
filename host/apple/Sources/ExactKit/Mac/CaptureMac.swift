@@ -9,18 +9,15 @@ extension Capture {
         // inherited backing layer (its window need not have displayed yet).
         view.wantsLayer = true
         view.layoutSubtreeIfNeeded()
+        // A view's display does not attach newly mounted backing layers.
+        // Finish the window's layer geometry before copying their contents.
+        view.window?.displayIfNeeded()
         view.displayIfNeeded()
         let scale = scale ?? view.window?.backingScaleFactor ?? 2
         guard let root = view.layer else { return nil }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let tree = paintOrderLayer(of: view, root: root)
-        // The copy has no superlayers, so it loses an ancestor's
-        // `geometryFlipped` (AppKit sets the page scroller's), which decides
-        // how drawn contents are read (`contentsAreFlipped`). Without it, what
-        // the views drew came out upside down: Caltrain's page, drawn through
-        // its sky canvas, showed so.
-        if root.contentsAreFlipped() != root.isGeometryFlipped { tree.isGeometryFlipped.toggle() }
         guard let image = picture(of: tree, size: view.bounds.size, scale: scale) else { return nil }
         let rep = NSBitmapImageRep(cgImage: image)
         rep.size = view.bounds.size

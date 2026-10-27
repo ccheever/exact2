@@ -113,7 +113,13 @@ final class PaintCaptureMacTests: XCTestCase {
                 return 0
             }, textureMetal: nil, sync: nil,
             childrenMode: { _ in 1 }, readback: { _, _, _, _, _, _, _ in 0 },
-            child: { _, _, _, _, _, _, _, _, _, _, _, _ in 0 }, childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
+            child: { _, _, _, _, _, _, _, _, width, height, bytes, _ in
+                if let bytes {
+                    let pixel = { (y: Int) in Array(UnsafeBufferPointer(start: bytes + (y * Int(width) + Int(width / 2)) * 4, count: 4)) }
+                    capturedPaintRows.append((pixel(Int(height) / 10), pixel(Int(height) * 9 / 10)))
+                }
+                return 0
+            }, childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
             shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 }, errorPtr: { nil },
             wantsInput: nil, input: nil, messages: nil, published: nil, agent: nil, outPtr: nil)
         let entry = CanvasesHost.Entry(view: canvas, name: "paint", values: [])
@@ -129,6 +135,51 @@ final class PaintCaptureMacTests: XCTestCase {
         let uploaded = try XCTUnwrap(capturedPaintRows.last)
         XCTAssertEqual(uploaded.top, [255, 0, 0, 255], "the first row is the top half's")
         XCTAssertEqual(uploaded.bottom, [0, 0, 255, 255])
+        entry.each = true; canvas.needsCapture = true
+        session.surfaceHost.captureIfNeeded()
+        XCTAssertEqual(capturedPaintRows.count, 2)
+        let child = try XCTUnwrap(capturedPaintRows.last)
+        XCTAssertEqual(child.top, [255, 0, 0, 255], "per-child uploads have the same orientation")
+        XCTAssertEqual(child.bottom, [0, 0, 255, 255])
+    }
+
+    func testIntermediateLayersKeepGeometryAndDrawOnlyOnce() throws {
+        _ = NSApplication.shared
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        root.wantsLayer = true
+        let window = NSWindow(contentRect: root.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = root
+        defer { window.close() }
+        let drawn = NSView(frame: NSRect(x: 10, y: 20, width: 40, height: 40))
+        drawn.wantsLayer = true
+        root.addSubview(drawn)
+        window.orderFront(nil); root.displayIfNeeded(); CATransaction.flush()
+        let backing = try XCTUnwrap(root.layer), ink = try XCTUnwrap(drawn.layer)
+        for (y, color) in [(0, NSColor.red), (20, NSColor.blue)] {
+            let half = CALayer(); half.frame = CGRect(x: 0, y: y, width: 40, height: 20)
+            half.backgroundColor = color.cgColor; ink.addSublayer(half)
+        }
+        let bridge = CALayer()
+        bridge.frame = root.bounds; bridge.bounds.origin = CGPoint(x: 3, y: 7)
+        bridge.transform = CATransform3DMakeTranslation(9, 11, 0)
+        bridge.isGeometryFlipped = true; bridge.opacity = 0.5
+        backing.addSublayer(bridge); bridge.addSublayer(ink)
+        let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: backing, size: root.bounds.size, scale: 1)))
+        let copy = try XCTUnwrap(Capture.paintOrderBitmap(of: root, scale: 1))
+        var colored = 0, difference: CGFloat = 0
+        for y in 0..<100 {
+            for x in 0..<100 {
+                let a = try XCTUnwrap(original.colorAt(x: x, y: y)), b = try XCTUnwrap(copy.colorAt(x: x, y: y))
+                difference = max(difference, abs(b.alphaComponent - a.alphaComponent))
+                if a.alphaComponent > 0.1 {
+                    colored += 1
+                    difference = max(difference, abs(b.redComponent - a.redComponent), abs(b.blueComponent - a.blueComponent))
+                }
+            }
+        }
+        XCTAssertLessThan(difference, 0.01, "the copy keeps the bridge's flip, bounds, transform and opacity")
+        XCTAssertEqual(colored, 1600, "the reference has both colored halves")
+        XCTAssertTrue(ink.superlayer === bridge, "capture leaves the live geometry in place")
     }
 
     func testCaptureSamplesAnimatedShapeOpacityTransformAndMask() throws {
@@ -206,7 +257,7 @@ final class PaintCaptureMacTests: XCTestCase {
         let root = try XCTUnwrap(p.views[1])
         let window = NSWindow(contentRect: root.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = root
-        root.displayIfNeeded()
+        window.displayIfNeeded(); root.displayIfNeeded()
         let liveParent = p.views[2]?.layer?.superlayer
         func color() throws -> NSColor {
             let rep = try XCTUnwrap(Capture.paintOrderBitmap(of: root))
