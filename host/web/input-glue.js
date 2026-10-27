@@ -687,6 +687,36 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // out and over, then the mouse's); a mouse event alone, Firefox's for a scroll under a still pointer, is its own.
   const pointerEdges = [];
   const elementOf = (n) => (n instanceof Element ? n : n?.parentElement ?? null);
+  // @ref LLP 1115.000 D6 — under a mouse or a pen a hover wash shows at once and fades out over 0.15 s as the pointer
+  // leaves, as a Mac's hover highlight does. Every engine has dropped `:hover` by `pointerout` (Firefox and WebKit
+  // have restyled the node by then, so no transition can start there), so the wash's color (`--exact-wash`,
+  // neutral.css) is read as the pointer comes over, and the fade is the node's ground easing from it to nothing: the
+  // same pixels on a node with no fill of its own, which is the only one it plays on. These snap instead: an author's
+  // hover look (LLP 1121 D8), a grouped row's wash (it lies over the row's separator), a node with a fill of its own,
+  // and anything under the agent's clock.
+  const washes = new WeakMap(), fadesOut = new WeakMap();
+  // `<html>` holds the registered property's initial value, which is no wash.
+  let noWash;
+  const hovered = e => { const el = e.pointerType !== "touch" && elementOf(e.target)?.closest('button, a[data-view][href], [data-exact-on~="press"]'); return el && root.contains(el) ? el : null; };
+  addEventListener("pointerover", e => {
+    const el = hovered(e);
+    if (!el) return;
+    fadesOut.get(el)?.cancel();
+    const s = getComputedStyle(el), wash = s.getPropertyValue("--exact-wash");
+    noWash ??= getComputedStyle(html).getPropertyValue("--exact-wash");
+    const shows = s.backgroundImage !== "none" && s.getPropertyValue("--exact-hover-wash").trim() !== "none" && wash !== noWash;
+    washes.set(el, shows && !el.matches('[data-groupedrowseparator], [data-exact-said~="background-color"]') ? wash : null);
+  }, true);
+  addEventListener("pointerout", e => {
+    const el = hovered(e), wash = el && washes.get(el);
+    if (!wash || el.contains(elementOf(e.relatedTarget))) return;
+    washes.delete(el);
+    // Pressed, or kept pressed while its popover is open (menu-rows.js): the press paints over any wash.
+    if (agentMode || el.matches("[data-pressed], [data-exact-open]") || !el.isConnected) return;
+    const ground = getComputedStyle(el).backgroundColor;
+    if (ground !== "rgba(0, 0, 0, 0)") return; // a fill of its own
+    fadesOut.set(el, el.animate([{ backgroundColor: wash }, { backgroundColor: ground }], { duration: 150, easing: "ease-out" }));
+  }, true);
   const deepFocus = () => { let el = document.activeElement; while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement; return el; };
   { const el = deepFocus(); if (el instanceof Element) focusSeen.set(el, el.matches(":focus-visible")); }
   const focusLook = (el) => el instanceof Element && inPage(el) && !el.matches(DISABLED) && looks(el, document.getElementById("exact-looks")).includes("focus-visible");

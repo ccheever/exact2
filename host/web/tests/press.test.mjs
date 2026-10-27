@@ -605,6 +605,36 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a nativ
   try {
     for (const finger of [true, false]) {
       const page = await load('/unsaid', finger);
+      // Under a mouse a wash shows at once, fades out over 0.15 s as the pointer leaves, and shows at once again as it
+      // comes back mid-fade. The fade is held where it starts, in the page, so no round trip outlasts it.
+      await page.evaluate(() => {
+        window.fadeOf = (el) => el.getAnimations().find((a) => !a.transitionProperty && a.effect.getKeyframes()[0]?.backgroundColor);
+        addEventListener('pointerout', (e) => { const el = e.target.closest?.('[id]'); if (el) fadeOf(el)?.pause(); });
+      });
+      for (const id of finger ? [] : ['box', 'bordered']) {
+        // Whether it shows the wash (its image while hovered, its ground fading), and the fade's length.
+        const seen = () => page.evaluate((id) => {
+          const el = document.getElementById(id), s = getComputedStyle(el);
+          return [s.backgroundImage !== 'none' || s.backgroundColor !== 'rgba(0, 0, 0, 0)', fadeOf(el)?.effect.getTiming().duration ?? 0];
+        }, id);
+        await page.hover(`#${id}`);
+        const on = await seen();
+        await page.mouse.move(1, 1);
+        const leaving = await seen();
+        await page.hover(`#${id}`);
+        const back = await seen();
+        await page.mouse.move(1, 1);
+        await page.evaluate((id) => document.getElementById(id).getAnimations().forEach((a) => a.finish()), id);
+        expect([engine, id, on, leaving, back, await seen()]).toEqual([engine, id, [true, 0], [true, 150], [true, 0], [false, 0]]);
+      }
+      // A button kept pressed while its popover is open has no fade under its press as the pointer leaves for the popover.
+      if (!finger) {
+        await page.evaluate(() => document.getElementById('bordered').setAttribute('data-exact-open', ''));
+        await page.hover('#bordered');
+        await page.mouse.move(1, 1);
+        expect([engine, await page.evaluate(() => !!fadeOf(document.getElementById('bordered')))]).toEqual([engine, false]);
+        await page.evaluate(() => document.getElementById('bordered').removeAttribute('data-exact-open'));
+      }
       for (const [id, eased] of Object.entries(EASES)) {
         const at = [engine, finger ? 'finger' : 'mouse', id];
         // The button's transitions (WebKit runs one on an `::after` that draws nothing too), and its face's opacity, its
