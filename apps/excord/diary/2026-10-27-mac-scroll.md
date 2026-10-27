@@ -20,6 +20,17 @@ task: the Mac transcript dropping frames as it scrolls, on a real account
   message or read in a channel they list, and typing elsewhere moves none of them. Twelve
   events in another channel (six typing, six messages) asked 60 list queries before and 6
   after.
+- The same trace's plan sites put 31,193 evaluations in the member list, 98 rows built 318
+  times, all of them in the member sheet, a `dialog` that was never open: a closed dialog
+  still builds an eager `for`'s rows (`docs/agent-pitfalls.md`), and the members resource
+  moved with every presence op 37 sent for the list's range. The sheet now builds its rows
+  only while it is open, and the resource follows presence only while a member list shows.
+- A `sample` of an agent-driven drive put most of each wheel in the presenter's pass over
+  the whole window, for batches that carried no ops. A change that skipped those passes for
+  an empty batch broke four XCTest classes, which apply an empty batch to mean "read the
+  window again" (a window that arrived, a list that changed direction), and nearly all of
+  the empty batches turned out to be the agent's own clock steps (`docs/agent-pitfalls.md`).
+  The change was dropped.
 
 ### Lean in
 
@@ -32,12 +43,13 @@ task: the Mac transcript dropping frames as it scrolls, on a real account
 - A late frame's unattributed time names no cause; the data module's calls were found
   only by reading the journal lines around it.
 - Under the agent no frame is presented, so a fixture drive measures what work runs, not
-  how long it takes.
+  how long it takes; and the agent's own batches swamp a profile of it.
 
 ### Checkpoints
 
 - macOS, the fixture: six typing indicators and six messages in #help with #general open
   ask the channel list six times, and nothing else.
 - web: `app.test.contract` 80 of 80, `routing.test.contract` 4 of 4; `bun test` in
-  `apps/excord`, 656 pass.
+  `apps/excord`, 656 pass. In a narrow window the member sheet opens on the fixture's 19
+  rows, which were held before it opened.
 - Not seen yet: Charlie's account on his MacBook, which is where the jerk was.

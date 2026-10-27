@@ -158,8 +158,12 @@ component Excord
   derive gw = match digested { case some(d) => (d.seq > gateway.seq ? d : gateway), case none => gateway }
   resource guilds = loadGuilds(gw.sidebar) as shape Guild[] else empty()
   resource rail = loadRail(gw.sidebar) as shape RailEntry[] else empty()
-  resource members = loadMembers(open, gw.members) as shape MemberRow[] else empty()
+  // Followed only while a member list shows: op 37 moves `gw.members` with every presence in the list's
+  // range. Otherwise it is read once the snapshot names the open channel and once its list arrives, so a
+  // list opens on rows.
+  resource members = loadMembers(open, membersShown ? gw.members : gw.channel == open ? min(gw.members, 1) : -1) as shape MemberRow[] else empty()
   derive membersBeside = showMembers and paneWidth >= 900 and chan.guild != ""
+  derive membersShown = membersBeside or membersSheet
   // The rail's open folders, kept across launches.
   state openFolders: string[] = [] persist
   derive dmsShown = server == "@me" or guilds.length == 0
@@ -280,6 +284,9 @@ component Excord
   state profileChannel = ""
   // The member list: shown beside a channel when there is room for it (`paneWidth`), else in a sheet.
   state showMembers = true persist
+  // The member sheet is open: a closed dialog still builds an eager list's rows. Opening or leaving a
+  // channel puts it away (`putMembersAway`).
+  state membersSheet = false
   state paneWidth = 0
   resource profile = userProfile(profileUser != "" ? profileChannel : "", profileUser, profileMessage) as shape Profile else empty()
   derive signInError = match signedIn { case some(r) => (r.ok ? "" : r.error), case none => "" }
@@ -429,6 +436,7 @@ component Excord
   // (§3.2), or where this session left it (§3.3).
   action openChannel(id: string)
     closePicker()
+    putMembersAway()
     intent = intent + 1
     // The lists leave the channel being viewed as it was when it opened (`live.ts`); `chan` is its current row.
     let c = id == open and chan.id == id ? chan : channelOf(channels.concat(dms).concat(targets.map(t => t.channel)), id)
@@ -526,6 +534,7 @@ component Excord
     open = ""
     dmsShownCount = 100
     profileUser = ""
+    putMembersAway()
     close("profile")
   // An address the host navigated to is a request (`askRoute`, routing.contract): a Forward to a picture is
   // refused, and from over a picture its channel's address closes the picture alone. Leaving keeps the
@@ -536,6 +545,7 @@ component Excord
     askBack()
   action leaving
     cancelEditLookup()
+    putMembersAway()
     places = places.filter(p => p.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
     if editing != ""
       drafts = withDraft(drafts, open, stash)
@@ -1003,9 +1013,19 @@ component Excord
     if paneWidth >= 900
       showMembers = not showMembers
     else
+      membersSheet = true
       showModal("members")
+  action membersClosed
+    membersSheet = false
+  action putMembersAway
+    if membersSheet
+      membersSheet = false
+      close("members")
   action paneResized(w: number, h: number)
     paneWidth = w
+    // Wide enough, the list stands beside the transcript instead.
+    if w >= 900
+      putMembersAway()
   action memberCard(userId: string, messageId: string)
     close("members")
     showProfile(userId, messageId)
@@ -1397,9 +1417,10 @@ component Excord
                   MemberList(rows=members, open=showProfile)
               if chan.ageRestricted and ageGate != "confirmed"
                 AgeGate(age=age, asking=pending(age), confirm=confirmAge, leave=back)
-      dialog id="members" aria-label="Members" testId="members-sheet"
+      dialog id="members" aria-label="Members" close=membersClosed testId="members-sheet"
         scroll max-height="70vh" width="20rem" max-width="100%"
-          MemberList(rows=members, open=memberCard)
+          if membersSheet
+            MemberList(rows=members, open=memberCard)
       dialog id="profile" aria-label=(profile.name != "" ? profile.name : "Profile") close=profileClosed testId="profile"
         column gap=10 padding=20 width="20rem" max-width="100%" align-items="flex-start"
           ProfileCard(profile=profile)

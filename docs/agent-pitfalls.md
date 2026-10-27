@@ -1458,6 +1458,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (HID, no accessibility) or have the host press a row itself, and read frames
   from Save Trace or a temporary log, not from a run an accessibility client
   touched. (x2-perf, 2026-10-05.)
+- **A `sample` of an agent-driven Mac app blames the presenter for a scroll.** Twenty
+  wheels in Excord put most of the main thread in `ExactSession.apply` →
+  `Presenter.apply`, about 0.75 ms a batch, over 1,800 batches that carried no ops.
+  Cause: the agent applies a batch for each of its own clock steps (`Agent.clockStep`)
+  and position reports (`tellAgentOffset`): 1,533 of the 1,573 empty batches in that
+  drive, against 13 from the app itself. A real session makes none of them. Fix:
+  measure scrolling from a Save Trace (⌥⌘T) of a real session; in an agent drive's
+  profile, discount every stack under `Agent`. (Excord, the Mac transcript, 2026-10-27.)
 - **`axe` stops delivering taps.** Use `axe` only as a last resort, for native
   chrome only a normal launch presents (bars, `UIMenu`s); drive everything else
   with `agent ios` by `testId`. After `axe touch --down --up --delay` (a long
