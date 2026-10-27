@@ -1,7 +1,8 @@
 // Apple bundle assembly. The build owns compilation and artifact publication.
 // @ref LLP 1126 D2/D8 — an extension is packaged inside its app's cohort.
 import { packageActivityArm, assertActivityRefusals } from './activities.mjs';
-import { packageWidgets, packageAlarmExtension, widgetId, entryProfiles, activityEntries, platformWidgetEntries, macWidgetGroup, macWidgetEntitlements } from './widgets.mjs';
+import { packageWidgets, packageAlarmExtension, widgetId, entryProfiles, activityEntries, platformWidgetEntries, macWidgetGroup, macWidgetEntitlements, widgetGroup, widgetSigningTeam } from './widgets.mjs';
+import { packageShareExtension, shareInfo, shareId, macShareEntitlements } from './extensions.mjs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { resolve, basename, dirname } from 'node:path';
@@ -24,17 +25,21 @@ export function assembleMac({intents, shared, macWidgets, triple, appleReach, ha
     // then launches, so the running process has the app's bundle identity —
     // its Info.plist, its document types, its Dock tile (LLP 1033 D2).
     let bundlePath = null;
-    const { team = null, profiles = null } = macWidgets ?? {};
-    const widgetKeys = shared ? {
+    const { team: widgetTeam = null, profiles = null } = macWidgets ?? {};
+    // The share extension's group is the team's, as the widgets' is (LLP 1133.024 D4): ad hoc, the app has no inbox.
+    const team = widgetTeam ?? (app.manifest.share_target && sha1 && sha1 !== '-' ? (() => { try { return widgetSigningTeam(sha1); } catch (e) { console.log(`Mac share extension: ${e.message}`); return null; } })() : null);
+    if (app.manifest.share_target && !team) console.log('Mac share extension: no Apple Development identity; building without it (EXACT_IDENTITY names one, LLP 1133.024 D4).');
+    const shareGroup = app.manifest.share_target && team ? macWidgetGroup(app, team) : null;
+    const widgetKeys = { ...shareInfo(app, shareGroup), ...(shared ? {
       ExactAppGroup: macWidgetGroup(app, team), ExactAppIdentifier: app.id,
       ExactWidgetKinds: platformWidgetEntries(app, 'macos').map(entry => entry.kind),
       ExactWidgetTypeScript: existsSync(resolve(app.dir, 'app.ts')),
       ExactWidgetRequiresSecrets: platformWidgetEntries(app, 'macos').filter(entry => entry.requiresSecrets).map(entry => entry.kind),
       ExactWidgetGeneration: createHash('sha256').update(JSON.stringify([bakedCompat.id, buildReceipt.graph.artifacts])).digest('hex'),
       ...(profiles ? { ExactKeychainAccessGroup: profiles.keychain } : {}),
-    } : {};
+    } : {}) };
     if (shared && !profiles) console.log('Mac widgets: no shared Keychain profiles; entries with requiresSecrets show the placeholder (LLP 1126.001 §5 Q5).');
-    const ent = shared ? resolve(linkRoot, 'mac-entitlements.plist') : null;
+    const ent = shared || shareGroup ? resolve(linkRoot, 'mac-entitlements.plist') : null;
     if (ent) writeFileSync(ent, macWidgetEntitlements({ app, team, profiles }));
     // Replace the dylib, never overwrite it in place: a running app may still
     // have the old one mapped, and rewriting a mapped, ad-hoc-signed file poisons
@@ -115,6 +120,8 @@ export function assembleMac({intents, shared, macWidgets, triple, appleReach, ha
           sign: (extension, path) => run('codesign', ['--force', '--sign', sha1, '--timestamp=none', '--entitlements', path, extension], { stdio: 'ignore' }) });
         for (const name of readdirSync(frameworks)) run('codesign', ['--force', '--sign', sha1, '--timestamp=none', resolve(frameworks, name)], { stdio: 'ignore' });
       }
+      if (shareGroup) packageShareExtension({ app, bundle, directory: linkRoot, sdk, triple, platform: 'macos', group: shareGroup, runApple, entitlements: macShareEntitlements(shareGroup),
+        sign: (extension, path) => run('codesign', ['--force', '--sign', sha1, '--timestamp=none', '--entitlements', path, extension], { stdio: 'ignore' }) });
       const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to)), order = signingOrder(bundle, bakedCompat);
       // A runtime exception's target is checked here, not first at release (LLP 1069.008 D9); a development build signs without the hardened runtime, so with no entitlements.
       helperEntitlements(bundle, app.manifest, bakedCompat, order);
@@ -219,6 +226,17 @@ export function assembleIOS({intents, shared, triple, app, paths, binDir, bin, d
       // The extension's identifier and shared Keychain group under its own profile's prefix (entryProfiles refused a pair whose prefixes differ).
       entitlements: entitlements({ ...app, id: widgetId(app), widgetAppId: app.id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, null, { simulator: !device, prefix: provisioned?.extension.prefix ?? signingProfile?.prefix }),
       sign: (extension, ent) => run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), extension], { stdio: 'ignore' }) });
+    // The share extension (LLP 1133.024 D4): a simulator's group needs no account; a phone's waits for the App Group
+    // and the `.share` App ID on the team, so a device build has no inbox yet and says so.
+    if (kind === 'app' && tv && app.manifest.share_target) console.log('Share extension: not built for tvOS, which has no share sheet (LLP 1133.024 D4).');
+    if (kind === 'app' && !tv && app.manifest.share_target) {
+      const group = device ? null : widgetGroup(app);
+      for (const [key, value] of Object.entries(shareInfo(app, group))) runApple('plutil', ['-replace', key, '-string', value, resolve(assembled, 'Info.plist')]);
+      if (device) console.log(`Share extension: not built for a device until the team registers the App Group ${widgetGroup(app)} and the App ID ${shareId(app)} (LLP 1133.024 §19).`);
+      else packageShareExtension({ app, bundle: assembled, directory: linkRoot, sdk, triple, group, runApple,
+        entitlements: entitlements({ ...app, id: shareId(app), widgetAppId: app.id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, null, { simulator: true, prefix: signingProfile?.prefix }),
+        sign: (extension) => run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', extension], { stdio: 'ignore' }) });
+    }
     if (!shared && alarm && !tv && kind === 'app') packageAlarmExtension({ app, bundle: assembled, directory: linkRoot, sdk, triple, device, runApple, alarm,
       profile: signingProfile ? profile(ph?.udid, widgetId(app)) : null,
       entitlements: entitlements({ ...app, id: widgetId(app), widgetAppId: app.id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, null, { simulator: !device, prefix: signingProfile?.prefix }),

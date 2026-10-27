@@ -358,10 +358,10 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
     // The clip's notifications are ephemeral (`NSAppClip`), so it takes no push environment either.
     if (!app.widgetAppId && !app.clipParent && activityEntries(app).some(entry => entry.push === true)) dict['aps-environment'] = debuggable ? 'development' : 'production';
   }
+  if (app.manifest.share_target && simulator && !app.widgetTV && !app.widgetHost && !app.clipParent) dict['com.apple.security.application-groups'] ??= [widgetGroup(app)]; // the share inbox (LLP 1133.024 D4)
   // @ref LLP 1038 D8 — explicit applinks entries, or the declared origin.
   const domains = Array.isArray(ios.associatedDomains) ? ios.associatedDomains : ios.associatedDomains && app.origin ? [`applinks:${new URL(app.origin).host}`] : [];
-  // @ref LLP 1069.006 D2 — a claimed https auth callback needs `webcredentials:`
-  // (the bake's derivation from the `auth.callback` grants, LLP 1069.008).
+  // @ref LLP 1069.006 D2 — a claimed https auth callback needs `webcredentials:` (the bake's derivation from the `auth.callback` grants, LLP 1069.008).
   const linked = [...domains, ...associatedDomains(reach?.auth, debuggable)];
   // An App Clip is invoked from its `appclips:` domains, which its parent's entitlements list too (Apple,
   // "Associating your App Clip with your website"): each `applinks:` host, in the clip in place of the `applinks:`.
