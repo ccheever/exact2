@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, sorted newest first, with title, a date+preview line and relative dates (time / Yesterday / weekday / short date). Previews truncate early at a word boundary and leave visible empty space."},
+      {"n": 2, "status": "partial", "note": "Filtering by title and body works as you type, and there is a proper 'No Results for …' empty state. But the bottom search field stays behind the keyboard, so you cannot see what you are typing. Matches are not highlighted."},
+      {"n": 3, "status": "pass", "note": "Editing title and body works with no Save button; the edited note moves to the top of Notes and the date updates live to 'Today at …'."},
+      {"n": 4, "status": "pass", "note": "The compose button opens an empty note with the title focused, and Return moves to the body. Leaving an empty note discards it (count stays 90); a note with text is kept (91)."},
+      {"n": 5, "status": "partial", "note": "Swipe left gives a native Delete. Pin is only in a long-press context menu; there is no leading swipe to pin. A rightward drag on a row opens the note instead of doing nothing or revealing actions."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' subtitle under the large title, also shown in the inline title; it updates on create and delete."},
+      {"n": 7, "status": "pass", "note": "New note, pin state, deletion and title edits all survived relaunch."}
+    ],
+    "bugs": [
+      "The search field sits at the bottom and stays under the keyboard when focused, so typed text is hidden (only a faint ghost shows through the keyboard).",
+      "Dragging a row to the right opens the note as if it were tapped.",
+      "While a row's Delete swipe is open, tapping another row navigates into it instead of just closing the swipe.",
+      "In the editor the title is a single-line field that truncates long titles with an ellipsis ('Camera settings for night…'), so you cannot see the whole title while editing it."
+    ],
+    "tells": [
+      "When scrolled, the inline nav title and count draw straight over the row text with no proper bar background or scroll-edge treatment, so the text overlaps and is hard to read.",
+      "Preview lines truncate several words early ('Ask about podcast…' with lots of room left), which suggests the text is measured by hand rather than by UILabel.",
+      "The body placeholder 'Note' in a new note is tiny, widely letter-spaced and in a different-looking font from the body text.",
+      "The editor body sits tight against the title with no paragraph spacing.",
+      "The 'No Results' title is regular weight, not the bold ContentUnavailableView style.",
+      "The editor has no More/share menu, and the toolbar shows only a text 'Done' button while editing.",
+      "At the largest text size the editor title truncates to 'Gift ideas fo…'.",
+      "At the largest text size the editor body breaks inside a word ('recommendatio/ns').",
+      "No leading swipe to pin; pinning is hidden in a long-press menu."
+    ],
+    "scroll": "Scrolling is smooth with native deceleration, a rubber-band large title when pulled past the top and no blank rows. The nav title overlapping content while scrolled looks unfinished. Scroll position is kept when returning from a note.",
+    "scores": {"features": 7, "platform": 6, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped table with Pinned and Notes sections, sorted newest first, with title, a bold relative/short date and a one-line preview that uses the full width."},
+      {"n": 2, "status": "pass", "note": "Search field in the nav bar moves to the top with a Close button when focused and filters title and body as you type. Matching text is highlighted, body matches show a '…for the landlord.' snippet, and there is a 'No Results for …' empty state with an icon."},
+      {"n": 3, "status": "pass", "note": "Title (multi-line) and body edit in place with no Save button; the note moves to the top of Notes and the edit persists."},
+      {"n": 4, "status": "pass", "note": "The compose button in the bottom toolbar opens a note with the title focused and a yellow Done check. Leaving an empty note discards it (count stays 90); a note with text is kept (91)."},
+      {"n": 5, "status": "pass", "note": "Native leading-swipe Pin (orange) and trailing-swipe Delete (red). Tapping elsewhere closes an open swipe. Pinned notes move to the Pinned section."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' in the bottom toolbar like Apple Notes, updated on create and delete."},
+      {"n": 7, "status": "pass", "note": "New note, pin state, deletion and edits all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The '90 Notes' toolbar count does not grow with Dynamic Type at the largest size.",
+      "At the largest text size the editor body/title breaks inside a word ('recommendat/ions', 'recommen-dations' in the list).",
+      "The Pinned header spacing shifts a little between launches/returns (header gap grows)."
+    ],
+    "scroll": "It feels like a native UITableView: smooth drag and fling, proper deceleration and bounce, a nav bar that collapses to an inline title with the search field kept and blurred, no blank or popping rows. Scroll position is kept when returning from a note.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "B meets every requirement with system-feeling behaviour: leading Pin and trailing Delete swipes, a nav-bar search that stays visible above the keyboard and highlights matches, and an Apple Notes-style toolbar count. A covers most of the spec, but its search field hides behind the keyboard. Its pin action is hidden in a long-press menu, a sideways drag opens notes, and its truncation and nav-bar overlap look unfinished."
+}

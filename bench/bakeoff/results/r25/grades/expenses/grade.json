@@ -1,0 +1,106 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Inset-grouped list, newest first (Oct 25 back to Jul 29), each day headed 'Oct 25, 2026 · $222.02'; added expense appears under a new Oct 27 group at the top."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "'THIS MONTH $5,269.70 · October 2026 · 86 expenses' card under the large title; updates immediately on add/edit/delete."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Sheet with amount (decimal pad), merchant, category menu of the 7 data categories, date defaulting to Oct 27 (today), optional note. Save is disabled for empty/-5/0, with an inline footer message; merchant is also required."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Tapping a row opens an Edit Expense sheet prefilled; amount+category change saved and totals updated. Swipe left reveals the system red Delete; deleting updates totals."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Categories tab: month total plus 7 rows largest first (Bills $1,544.59 29% …) with progress bars, share and count; tapping pushes a per-category list grouped by day."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "All amounts are $x,xxx.xx. Add, edit and delete all survived relaunch."
+      }
+    ],
+    "bugs": [],
+    "tells": [
+      "Category rows are tappable but have no disclosure chevron.",
+      "The add/edit form has no field labels for amount and merchant (placeholder only) and no '$' prefix on the amount field.",
+      "Category and Date are laid out as a label above a control instead of the standard inline label/value picker row.",
+      "The 'Enter an amount greater than zero.' validation footer shows before the user has typed anything.",
+      "While a row is swiped open, it turns grey as if highlighted and the merchant text is clipped off the left edge.",
+      "Plain, almost unstyled rows with no category icon or colour: correct but generic."
+    ],
+    "scroll": "Smooth, native-feeling scrolling with the large title collapsing and a soft blur edge under the nav bar. Flings, the return to top and scroll position across tab switches all behave; no blank or popping rows.",
+    "scores": {
+      "features": 9,
+      "platform": 8,
+      "polish": 7,
+      "overall": 8
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Grouped by day with headers like 'Sun, Oct 25' plus the day total on the right ('Today · Oct 27' for new items), newest first down to Jul 29."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Large terracotta card 'OCTOBER 2026 $5,269.70 Total spent this month · 86 expenses'; updates on add/edit/delete."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Sheet with large '$ 0.00' amount (decimal pad with Done accessory), merchant, category menu with icons (the 7 data categories), date defaulting to today, optional note. Saving empty/-5 shows red inline errors and blocks the save."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Tap opens the Edit expense sheet; changes to amount, merchant, category and note saved. Swipe left reveals a delete action that works."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Donut chart plus rows largest first with share to one decimal (29.3%), count and coloured bar; tapping pushes that category's month transactions grouped by day."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "USD formatting throughout; add, edit and delete survived relaunch."
+      }
+    ],
+    "bugs": [],
+    "tells": [
+      "No large title: a small inline 'Expenses' title, with a hand-made 'Transaction history' section heading in the content.",
+      "The nav bar has an opaque background that hard-clips content mid-row instead of the iOS 26+ soft scroll-edge effect.",
+      "The swipe delete action is custom-drawn (a red trash circle with a 'Delete' caption below) rather than the system swipe action, and is not exposed as a button to accessibility.",
+      "The amount column floats mid-row instead of hugging the trailing edge, so amounts don't line up and long merchant names wrap early.",
+      "The form has both a nav-bar Save and a full-width 'Add expense' button (redundant). In dark mode that button is pale salmon with white text and low contrast.",
+      "Heavily branded warm palette, custom card headers and condensed hero numerals: looks like a designed or web-styled app more than stock iOS.",
+      "At the largest text size the category icon tiles and the picker chevron do not scale.",
+      "Notes are not shown in list rows (only in the edit sheet), so a note can't be seen from the list."
+    ],
+    "scroll": "Scrolling is smooth with no blank or popping rows, and position is kept across tab switches, but rows are cut hard against the opaque nav bar rather than fading under it.",
+    "scores": {
+      "features": 9,
+      "platform": 6,
+      "polish": 8,
+      "overall": 7
+    }
+  },
+  "better": "A",
+  "why": "Both meet every requirement and persist correctly. A is close to a stock SwiftUI app (large titles, system swipe-to-delete, native menus, the scroll-edge effect), and its flaws are small layout choices in the form. B is more visually designed (icons, donut chart, richer validation), but it swaps system behaviour for custom pieces: a hand-drawn swipe action, an inline title with a hard-clipped bar, a redundant submit button and floating amounts. That makes it less convincing as a native iPhone app."
+}

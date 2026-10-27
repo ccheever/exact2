@@ -1,0 +1,57 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "The 'Latest' list shows all 420 episodes newest first. Each row shows show, title, full date, minutes and an Unplayed/Played toggle label."},
+      {"n": 2, "status": "pass", "note": "A system 'Unplayed Only' switch filters the list (count line updates). The switch state also persists across relaunch."},
+      {"n": 3, "status": "pass", "note": "The Shows tab lists the 12 shows with episode and unplayed counts. Tapping one pushes that show's episode list with a count header."},
+      {"n": 4, "status": "pass", "note": "The detail screen has show, title, date · length, status, summary, a Play button that becomes 'Playing · Pause' plus a 'Playing' label, and marks the episode played. It also has Add to Up Next and Mark as Played/Unplayed."},
+      {"n": 5, "status": "pass", "note": "Every row has inline 'Unplayed/Played' and '+ Up Next' buttons that work without opening the episode. There are no swipe actions."},
+      {"n": 6, "status": "pass", "note": "Rows can be added from the list or the detail screen. Up Next reorders by dragging the grip. In Edit mode each row gets Earlier/Later/Remove buttons, and Remove works."},
+      {"n": 7, "status": "pass", "note": "Played state, Up Next contents and order, and even the filter switch survived relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the Shows rows break inside words: 'Com-mon Groun/d', '35 episode/s · 22 un-played'.",
+      "When the large title collapses, the inline 'Latest' title sits directly on top of row text ('Up Next' / 'Unplayed' labels) with no bar background, so the two overlap and are hard to read.",
+      "After an episode is added, its 'Queued' / 'Added to Up Next' button is disabled, so it can't be taken back out of the queue from the list or the detail screen."
+    ],
+    "tells": [
+      "No swipe actions anywhere: no leading/trailing swipe to mark played or queue on episode rows, and no swipe-to-delete in Up Next.",
+      "Each row carries a second line of inline text buttons (○ Unplayed, + Up Next), making rows about 125pt tall and reading like a web card instead of an iOS list cell.",
+      "Up Next edit mode is hand-built: text 'Earlier / Later / Remove' buttons under each row instead of the red minus/delete control and system reorder.",
+      "The Up Next list has no separators and no grouping, and looks like a plain web list.",
+      "Rows are exposed as 'Link' elements, and the detail title is split into separate per-word text runs, which feels web-like.",
+      "Shows uses two-letter initials tiles ('CG', 'DW') as artwork, which looks generic.",
+      "Played rows aren't visually de-emphasised; only the small toggle label changes."
+    ],
+    "scroll": "The 420-row list scrolls smoothly, with no blank or popping rows when flinging, a normal bounce at the top, and the position kept after visiting an episode. The collapsed title overlaps content as it scrolls under.",
+    "scores": {"features": 9, "platform": 5, "polish": 5, "overall": 5}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "The Episodes list shows all 420 newest first. Each row has artwork, show, title, date · minutes and a red 'Unplayed' dot or grey 'Played' check."},
+      {"n": 2, "status": "pass", "note": "An 'All episodes / Unplayed' segmented control filters the list (header count goes from 420 to 293). At the largest text it adapts into a switch."},
+      {"n": 3, "status": "pass", "note": "The Shows tab lists 12 shows with artwork, episode count and unplayed count. Tapping one pushes that show's episodes."},
+      {"n": 4, "status": "pass", "note": "The detail screen has artwork, show, title, date · length, status, summary, and a Play episode button that becomes Pause with 'Playing · Preview mode, no audio'. It marks the episode played and shows a Now Playing mini bar."},
+      {"n": 5, "status": "pass", "note": "Swipe left gives 'Mark played' (full swipe works) and swipe right gives 'Up Next'. The ⋯ menu offers Mark as Played/Unplayed and Add to Up Next."},
+      {"n": 6, "status": "pass", "note": "Rows are added via swipe, menu or the detail button. Up Next has system Edit mode with red delete controls and reorder handles, and dragging reorders. Swipe shows Remove."},
+      {"n": 7, "status": "pass", "note": "Played state, queue contents, queue order and removals all survived relaunch."}
+    ],
+    "bugs": [
+      "The Up Next summary reads '1 episodes · 42 min' (wrong plural).",
+      "The 'Weekend Atlas' artwork breaks the word mid-word as 'WEEKEN / D / ATLAS'.",
+      "A full swipe left in Up Next triggers 'Mark played' (the outer action) rather than Remove, even though the header says 'Swipe left to remove'."
+    ],
+    "tells": [
+      "Heavily branded custom styling: a 'PODCASTS' pill in the nav bar, serif taglines ('A little curiosity. A lot to discover.'), warm cream background and spaced-caps section headers. It is attractive but clearly a designed theme, not stock iOS.",
+      "Rows have both a disclosure chevron and a separate ⋯ button next to each other.",
+      "There is a large empty gap between the segmented control and the 'LATEST EPISODES' header.",
+      "There are two search affordances: a nav-bar search button and a pull-down search field.",
+      "The Now Playing bar is a custom opaque strip above the tab bar, not the system tab bar accessory.",
+      "At the largest text size, the sticky section header text ('420 episodes') overlaps the row title beneath it."
+    ],
+    "scroll": "The long list scrolls smoothly, with sticky blurred section headers, no blank or late-popping rows when flinging, a natural pull-past-top that reveals search, and the position kept after visiting an episode.",
+    "scores": {"features": 10, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and persist state, but B does it the iOS way: native swipe actions, context menus, a system edit-mode Up Next with delete controls, and layouts that reflow cleanly at the largest text size. A relies on inline web-like buttons, a hand-built Earlier/Later/Remove edit mode with no swipe actions, a collapsed title that overlaps content, and mid-word breaks at large text. B's flaws are small (a pluralisation slip, one artwork word break)."
+}

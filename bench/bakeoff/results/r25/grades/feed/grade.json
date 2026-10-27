@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "One long feed, newest first. Each post shows author, handle and relative time ('16m ago'), the full text, a full-width image with rounded corners at its own aspect ratio, and a horizontally scrolling carousel of image cards with titles. Carousel images are cropped, not distorted."},
+      {"n": 2, "status": "pass", "note": "The heart toggles to a filled red heart and the count changes 872→873 and back. The reply count shows as 'N replies'."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a 'Post' screen with an edge-to-edge (larger) image. Tapping an image, in the feed, in the detail screen or on a carousel card, opens a black full-screen viewer that closes with a swipe down."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top (Sam Rivera, Leo Martin, Maya Chen, 'just now'). There is also a refresh button in the nav bar."},
+      {"n": 5, "status": "pass", "note": "The compose button opens a sheet with Cancel / New Post / Post. The keyboard comes up on its own and Post stays disabled until there is text. The new post appears at the top as 'You @you · just now'."},
+      {"n": 6, "status": "pass", "note": "After relaunch the like (873, filled) is kept, along with the composed post and the refreshed posts."}
+    ],
+    "bugs": [],
+    "tells": [
+      "At the largest text size the avatar turns from a circle into a large rounded square stacked above the name, which looks odd.",
+      "When scrolled at large text, the small inline 'Feed' title sits on top of post text under the glass bar and is hard to read.",
+      "The full-screen viewer's close button is a dark rounded square, not a circular glass button, and the status bar stays visible over the photo.",
+      "The composer's 'YO' initials avatar for 'You' looks auto-generated.",
+      "Full-screen viewer has no pinch-to-zoom affordance and does not let you page through a carousel's cards."
+    ],
+    "scroll": "Smooth on slow drags and flings, with no blank rows or pop-in. Images are present on arrival, and scroll position is kept when returning from a post. The large title collapses into a glass inline bar as on iOS 26+.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Newest-first feed of cards with author, handle, relative time ('16m'), full text and rounded full-width images at the correct aspect. Carousels ('9 moments' with titled cards) scroll horizontally, but many card images are visibly stretched: circular suns render as ovals."},
+      {"n": 2, "status": "pass", "note": "The heart toggles filled and the count changes 872↔873. The reply count is shown as a bubble with a number."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a 'Moment' screen with a slightly larger image (382 vs 338 pt wide) and a full timestamp. Tapping an image or a carousel card opens a full-screen black viewer with a caption and 'Swipe down to close'. A swipe down closes it."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top and shows a '3 new moments' pill."},
+      {"n": 5, "status": "pass", "note": "The orange compose button opens a 'New moment' sheet with a placeholder. The keyboard comes up on its own and Post is disabled until there is text. The post appears at the top."},
+      {"n": 6, "status": "pass", "note": "After relaunch the like, the composed post and the refreshed posts are all kept."}
+    ],
+    "bugs": [
+      "Carousel card images are distorted (aspect ratio not kept): round suns show as ovals in many cards, e.g. Chili Cauliflower, Coconut Tofu and Spiced Gnocchi."
+    ],
+    "tells": [
+      "No large title. The nav bar is a custom serif 'Feed' wordmark with a sun icon, and it does not grow with Dynamic Type.",
+      "The nav bar is an opaque flat bar that cuts content off hard, with no glass or scroll-edge blur.",
+      "The compose button is a hand-styled solid orange circle, not a system bar button.",
+      "A marketing-style hero header ('LIFE, AS IT HAPPENS / Small moments. Good company.') sits at the top of the feed, which reads more like a web landing page than an iOS app.",
+      "Posts are rounded cards on a beige background, a custom look rather than the iOS list style.",
+      "At the largest text size, avatars shrink to tiny circles beside huge names, the eyebrow's dot no longer lines up with its text, and the handle and time wrap.",
+      "The full-screen viewer's 'Swipe down to close' hint text is non-standard."
+    ],
+    "scroll": "Smooth on drags and flings, with no blank cards or pop-in. Scroll position is kept when returning from a post. The carousel scrolls horizontally with a peek of the next card.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and keep likes and posts across relaunch. B, however, stretches its carousel images. A also looks and behaves like a stock iOS 26 app: large title collapsing into a glass bar, system toolbar buttons and a plain list. B's custom branded chrome, opaque bar and hero header make it feel less native, and its layout copes less well at the largest text size."
+}

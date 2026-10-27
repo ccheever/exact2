@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first; sender, subject, preview capped at two lines, Mail-style dates (time today, weekday this week, then 10/16/26). Unread rows get a blue dot and a bold subject. At the largest text size the preview is no longer capped at two lines."},
+      {"n": 2, "status": "pass", "note": "Native trailing swipe actions (Flag, Archive). A full leading swipe toggles read/unread. Archived mail shows on an Archive screen, which has its own Move to Inbox swipe."},
+      {"n": 3, "status": "pass", "note": "Flag via the swipe action or the detail toolbar; an orange flag shows in the row. A filter menu (All / Unread / Flagged Mail, with a checkmark) filters the list, and the subtitle shows the active filter."},
+      {"n": 4, "status": "pass", "note": "Tapping pushes a Message screen and the unread count drops at once. It has Flag, Archive and Mark as Unread."},
+      {"n": 5, "status": "pass", "note": "Native pull to refresh adds two new unread messages at the top, stamped with the current time. A refresh toolbar button does the same."},
+      {"n": 6, "status": "pass", "note": "\"N unread\" subtitle under the large title, updated live."},
+      {"n": 7, "status": "pass", "note": "Read, flagged and archived states, and the refreshed messages, all survived relaunch."}
+    ],
+    "bugs": [
+      "Flinging back to the top overscrolls far enough to fire pull to refresh again, so the inbox picked up extra pairs of duplicate made-up messages without a deliberate pull."
+    ],
+    "tells": [
+      "At the largest text size the row preview runs to five or more lines instead of two, so one message fills the screen.",
+      "The unread dot sits above the first text line at the largest text size instead of being centred on the sender line.",
+      "The Mark as Unread button is a full-width grey button in the message body rather than a toolbar item, as Mail does it.",
+      "The made-up refresh messages are always the same two (Maya Chen / The Neighborhood), so repeated refreshes stack identical rows."
+    ],
+    "scroll": "A native collection list: slow drags and flings are smooth with no blank or popping rows, the large title collapses into the bar correctly, and it rubber-bands at the top. The only odd thing is that a hard fling back to the top can fire a refresh.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first; sender, subject, a two-line preview (kept at two lines even at the largest text size), dates as 'Oct 24' or a time. Unread rows get a red dot and a semibold sender; the subject is not bolded, so unread rows stand out less."},
+      {"n": 2, "status": "pass", "note": "Trailing swipe shows Flag and Archive, and Archive moves the message to an Archive screen. A leading swipe toggles read/unread. The swipe buttons are missing from the accessibility tree."},
+      {"n": 3, "status": "pass", "note": "Flag via swipe or the reader toolbar. Custom All / Unread / Flagged pill buttons filter the list; the Archive screen has its own pills."},
+      {"n": 4, "status": "pass", "note": "The reader shows an initials avatar, the date and a bottom toolbar with archive, read and flag buttons. Opening marks the message read and the count updates."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds two new unread messages at the top (varied senders)."},
+      {"n": 6, "status": "pass", "note": "\"N unread · M messages\" line under the search field; it updates live."},
+      {"n": 7, "status": "pass", "note": "Read, flagged and archived states, and the refreshed messages, survived relaunch."}
+    ],
+    "bugs": [
+      "After pull to refresh the header settles half-collapsed: the large title is gone and the 'unread · messages' line is clipped under the search field.",
+      "The accessibility tree has duplicate filter buttons (two 'filter-unread') and a pile of stray, unlabelled-position texts at [0,222], and the swipe-action buttons are not exposed at all."
+    ],
+    "tells": [
+      "Custom web-like look: cream/off-white background, brick-red filled pill buttons for the filter where iOS would use a segmented control or a filter menu, and an all-caps 'NEWEST FIRST … All mail' caption row.",
+      "The flag glyph in a row is pinned to the very right screen edge, outside the content margin, and is clipped.",
+      "The separators are heavy, dark grey lines, not hairline system separators.",
+      "The reader has a breadcrumb ('Inbox / Read') at the top, which is a web idiom.",
+      "At the largest text size the filter pills keep a fixed height, so their text fills them edge to edge, and the search field turns into a huge capsule that takes a quarter of the screen.",
+      "List dates are always 'Oct 24' style, never Mail's weekday names for recent days.",
+      "The swipe-action backing is a flat cream block rather than the system rounded cell slide."
+    ],
+    "scroll": "A table-based list that scrolls smoothly with no blank rows or stutter, and flinging back to the top does not trigger a refresh. However, the header collapses awkwardly and can be left half-collapsed with clipped text after a refresh.",
+    "scores": {"features": 9, "platform": 5, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist state. A looks like a stock iOS 26/27 app: glass toolbar, native swipe actions, a filter menu, a bottom search field and Mail-style dates. B uses a custom cream-and-red theme with pill filters, heavy separators, a clipped edge flag and a header that glitches after a refresh. A's only real weaknesses are its uncapped preview at the largest text size and refreshes fired by a hard fling."
+}

@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen: Today and All smart rows, then six lists with coloured icons and open counts. Counts update after completing, deleting or adding a task."},
+      {"n": 2, "status": "pass", "note": "Open tasks come first, then a blue 'Completed (9)' header that collapses and expands with a chevron. Tapping the checkbox completes a task (orange check) and it moves to Completed after a short delay. Reopening also works."},
+      {"n": 3, "status": "pass", "note": "The New Task sheet has title, notes, a Due Date switch with an inline calendar, a Priority menu (None/Low/High) and a List picker. Add stays disabled until there is a title. Tapping a row opens a Details sheet that saves edits."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with an exclamation icon and the word 'Overdue'. High priority shows red '!!!' and low priority a grey '!'. Today and All show the list name with a coloured dot."},
+      {"n": 5, "status": "pass", "note": "Swipe-to-delete is the system trailing action. Reordering works with system reorder handles under '…' > Edit Tasks, and the new order persists. Dragging a row outside Edit mode did not reorder it."},
+      {"n": 6, "status": "pass", "note": "Create works from an alert with a text field. Rename and Delete are in the list's '…' menu, and delete asks for confirmation. The main screen's Edit mode also offers delete, info and reorder for lists."},
+      {"n": 7, "status": "pass", "note": "Completions, deletions, reorders and new or deleted lists all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The blue add button floats in the bottom-right corner, more like an Android floating action button than a toolbar item, and it covers the trailing swipe-delete button on the last row.",
+      "In the main screen's Edit mode, a stray vertical hairline separates the reorder-handle column.",
+      "In the inline calendar the selected day is a black circle instead of the tint colour.",
+      "On the task screens the large title gives way to a small centred inline title once scrolled; in Edit mode on the main screen the title is inline only."
+    ],
+    "scroll": "The 134-row All list drags and flings like a native table, with no blank rows or pop-in, and it rubber-bands at the top. The insets and the scroll-edge blur under the bar look right.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen: Today and All, then lists in alphabetical order with open counts, plus a footer hint 'Touch and hold a list to rename it.' The lists have no icons or colours."},
+      {"n": 2, "status": "pass", "note": "Open tasks come first, then a 'Completed (N)' row with a chevron. It starts collapsed and expands to show blue checked rows. Checkboxes toggle and counts update."},
+      {"n": 3, "status": "pass", "note": "The New Task sheet has title, notes, a Due Date switch with a compact date picker, Priority (None/Low/Medium/High) and List. Save is hidden, not disabled, until there is a title. Tapping a row opens Edit Task, and edits save."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with the word 'Overdue'. High priority shows red '!!!' and low a grey '!'. Today and All show the list name."},
+      {"n": 5, "status": "pass", "note": "Every row has a grip, and dragging it reorders immediately. Swipe left reveals a red Delete pill, which works."},
+      {"n": 6, "status": "partial", "note": "Create works, rename works from the pencil button, and delete is in a touch-and-hold context menu with confirmation. A newly created list cannot be tapped or opened until the app is relaunched, and it is missing from the accessibility tree. Delete is hard to discover: the only hint mentions rename."},
+      {"n": 7, "status": "pass", "note": "New tasks, edits, reorders, deletes and lists all survived relaunch."}
+    ],
+    "bugs": [
+      "A newly created list shows on the Lists screen but does nothing when tapped, and VoiceOver cannot see it, until the app is relaunched. Reproduced twice."
+    ],
+    "tells": [
+      "Task lists are plain, edge-to-edge rows with a hairline above the first row, and separators are missing under some rows, for example after 'Read Priya' and 'Water train tickets'.",
+      "With the large title collapsed, the inline nav title sits over sharp, un-blurred row text, so the two overlap and are hard to read.",
+      "Save and Done buttons vanish when they can't be used instead of showing as disabled.",
+      "The Due Date switch has no accessibility label.",
+      "The only way to delete a list is a touch-and-hold menu; there is no Edit mode or swipe on the Lists screen.",
+      "At the largest text size, user-list rows wrap their chevron onto a line of its own while the Today and All rows don't; the checkboxes and grips don't scale with the text.",
+      "Rows look sparse: no list icons or colours, and dates include the year ('Nov 16, 2026'), which is unlike Reminders."
+    ],
+    "scroll": "Dragging and flinging the All list is smooth, with no blank rows or pop-in, and it bounces at the top. Under the inline title the rows show through sharply instead of blurring.",
+    "scores": {"features": 7, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps cover the whole spec. In B, though, a newly created list can't be opened until the app restarts, and its list deletion is hidden behind an undiscoverable long press. A feels like Reminders, with list icons and colours, an inline calendar, system Edit mode and swipe actions, and correct separators. B's plain list has missing separators and a title that overlaps sharp row text."
+}

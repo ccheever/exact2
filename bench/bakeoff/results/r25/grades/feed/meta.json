@@ -1,0 +1,11 @@
+{
+  "spec": "feed",
+  "key": {
+    "A": "exact",
+    "B": "swiftui"
+  },
+  "exit": 0,
+  "minutes": 10.24,
+  "shots": 41,
+  "graded": true
+}

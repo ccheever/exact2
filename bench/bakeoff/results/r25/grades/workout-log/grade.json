@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list in large-title History, newest first; each row shows name, full date, exercise count and volume (checked a new workout: 135×10 + 50×12 = 1,950 lb)."},
+      {"n": 2, "status": "pass", "note": "Detail screen has a Date/Exercises/Sets/Volume summary, then one section per exercise (headed by muscle) listing its sets; the exercise row pushes to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "+ opens a full-height sheet: name field, Add Exercises sheet with a multi-select checkmark list, a bottom search field and a Muscle pull-down menu (search and filter combine). Add Set/Edit Set sheet; native swipe-to-delete on sets; Finish is disabled until there is a name and a set, with a footer explaining why. Finishing adds the workout to the top of History."},
+      {"n": 4, "status": "pass", "note": "Exercises tab lists all 120 grouped by muscle with equipment subtitles. Within a group the order is unsorted (data order), and this screen has no search."},
+      {"n": 5, "status": "pass", "note": "Muscle and equipment, a large Best Set card (heaviest weight, with workout and date), and an 'N Workouts' list that links to each workout. It updated with the newly finished workout."},
+      {"n": 6, "status": "pass", "note": "An empty draft, a draft with exercises and sets, and finished workouts all survived relaunch. Closing the sheet turns the draft into an 'In Progress' row at the top of History and the + button into 'Resume Workout'."}
+    ],
+    "bugs": [
+      "The Add Set sheet puts focus in Reps even though Weight is the first row and the footer says 'Enter the weight', so the first digits typed go into reps.",
+      "Reps and weight fields accept non-numeric text from a hardware keyboard; validation catches it ('Reps must be a whole number'), but the field still shows the junk.",
+      "Remove Exercise deletes immediately, with its logged sets, and has no confirmation or undo."
+    ],
+    "tells": [
+      "Sets read 'weight × reps' (135 lb × 10), the reverse of the usual 'reps × weight' convention; the history detail and the exercise screen are at least consistent.",
+      "Only two tabs; starting a workout is reachable only from the + in the History nav bar.",
+      "Library is ordered by id within each muscle group, not alphabetically, so it is hard to scan."
+    ],
+    "scroll": "History (61 rows) and the 120-exercise library scroll, fling and rubber-band like a native list, with the scroll-edge blur under the nav bar. There are no blank or popping rows, and the scroll position was kept after pushing a detail and going back.",
+    "scores": {"features": 8, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Large-title History grouped into month sections (October 2026…June 2026), newest first; each row shows name, short date on the right, exercise count and volume. A new workout totalled correctly (10×135 + 9×50 = 1,800 lb)."},
+      {"n": 2, "status": "pass", "note": "Detail screen: summary (date, exercises, sets, total volume), then a tappable header per exercise with its sets and a per-exercise volume footer."},
+      {"n": 3, "status": "pass", "note": "Workout tab: name field with suggestion chips, then Start Workout. Live timer and volume. Add Exercises sheet with search field, muscle chips (combine with search) and multi-select circles. Add Set sheet with text fields plus steppers, prefilled from the last time that exercise was done. Edit Set screen has a Delete Set button; swipe-to-delete also works. Finish asks for confirmation in a popover, saves to History and opens the finished workout."},
+      {"n": 4, "status": "pass", "note": "Library tab groups exercises by muscle with counts ('Arms (20)'), alphabetical within each group, and has a search field."},
+      {"n": 5, "status": "pass", "note": "Muscle and equipment, a Best Set card with trophy (weight × reps, workout and date), and 'Workouts (N)' rows listing each workout's sets. It updated with the new workout."},
+      {"n": 6, "status": "pass", "note": "The in-progress workout (name, exercises, sets, start time) and finished workouts survived relaunch; the selected tab is restored too."}
+    ],
+    "bugs": [
+      "At the largest text size, the 'No Exercises Yet' empty state of a just-started workout is drawn over the form (Started / Volume / exercise count), leaving overlapping, unreadable text.",
+      "On an exercise screen reached from a workout, that workout's row is shown stuck in the gray selected highlight (reproducible).",
+      "In the exercise screen's workout rows, the set summary wraps inside a value ('6 ×' / '27.5 lb') at default text size. At the largest size the best-set card splits '× 8' / 'reps' awkwardly."
+    ],
+    "tells": [
+      "The muscle filter in the picker is a hand-drawn row of capsule chips, not a system Picker or menu.",
+      "The empty workout shows two 'Add Exercises' buttons, a list row and a prominent button in the empty state.",
+      "The Library tab uses an inline title with a search bar where iOS would show a large title like the other tabs.",
+      "The number-pad set fields have no keyboard Done accessory; the keyboard can only be dismissed with Save or Cancel."
+    ],
+    "scroll": "History with month sections and the 120-row library scroll, fling and rubber-band smoothly, with native scroll-edge blur and no blank rows or jumps. The scroll position was kept on push and pop.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement with convincingly native lists, sheets, swipe actions and persistence. B goes further: month-sectioned history, a searchable library, set values prefilled from the last session, steppers, a live timer and a finish confirmation. Its largest-text overlap in the empty workout is a real polish flaw, while A is cleaner but plainer, and its Add Set sheet focuses the wrong field. On balance B is the one I would rather use, once that overlap is fixed."
+}

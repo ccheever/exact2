@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset plain list of all 160 recipes. Each row shows a coloured category SF Symbol, a bold title, and 'Category · clock time · star rating' with a chevron. The large title has a live subtitle: '160 recipes · by name'."},
+      {"n": 2, "status": "pass", "note": "A native pull-down menu lists All plus all nine categories, each with an icon and a count. Search is pinned under the title and matches titles and ingredients ('parsley' gave the same 44 results as B). Category and search combine (Desserts + 'miso' gave 2 results). A 'No Results for “zzqx”' empty state appears."},
+      {"n": 3, "status": "pass", "note": "A native Sort menu offers Name A–Z, Time quickest first and Rating highest first, with a checkmark and icons. Orders are correct, and the sort survives a relaunch."},
+      {"n": 4, "status": "pass", "note": "The detail screen shows a bold title, category, time, 'Serves N', rating, bulleted ingredients and numbered steps (orange numbered circles). A native UIStepper scales quantities exactly (2 tbsp at 5 servings → 0.4 tbsp at 1), with a Reset button and a 'scaled from original' footer. The minimum of 1 disables the minus button. Units pluralise ('2 cups')."},
+      {"n": 5, "status": "pass", "note": "A heart in the nav bar toggles 'Add to'/'Remove from Favorites'. The Favorites tab has a large title, an 'N saved recipes' subtitle, an Edit button and a swipe 'Remove' action (heart-slash icon). The empty state is helpful: 'No Favorites Yet', explanation text, and a 'Browse Recipes' button."},
+      {"n": 6, "status": "pass", "note": "Two favourites survived a relaunch, in the order they were saved."}
+    ],
+    "bugs": [
+      "After using the servings stepper, the Ingredients card loses its white grouped background: rows render straight on the grey page background, and during scrolling one row briefly shows a partial white strip. This is a visible rendering glitch."
+    ],
+    "tells": [
+      "The detail screen has no nav-bar title until you scroll; the title is drawn as a custom bold header in the content, leaving a large empty gap under the nav buttons.",
+      "Ingredient rows use a hand-drawn grey bullet dot, which is unusual in an inset grouped list.",
+      "Scaled quantities are shown as raw decimals ('0.4 tbsp', '0.2 spinach') rather than kitchen fractions."
+    ],
+    "scroll": "Smooth and native. Flings decelerate naturally, the large title collapses into an inline title with a blurred scroll-edge effect, there are no blank or popping rows, and scroll position is kept when returning from a recipe.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset grouped list of all 160 recipes, with title, 'Category · time', and the rating with a star on the right plus a chevron. The large title has the subtitle 'All · 160 recipes by name'."},
+      {"n": 2, "status": "pass", "note": "A native pull-down menu offers All Categories plus the nine categories (no counts or icons). Search covers titles and ingredients ('parsley' gave 44 results, identical to A). It combines with the category filter, and there is a 'No Recipes Found' empty state."},
+      {"n": 3, "status": "pass", "note": "A native Sort menu offers Name, Time and Rating. Orders are correct, and the sort persists across a relaunch."},
+      {"n": 4, "status": "pass", "note": "The detail screen has an inline nav title, a Category/Time/Rating grouped section, and a Servings row with a native stepper. Ingredients are an amount + name table; steps are numbered. Scaling uses fractions ('⅓ tbsp', '2⅓ tbsp' for 2.4, '¾ g' for 0.8 g), which approximates and looks odd for grams. A 'Reset to N Servings' row appears. Units are not pluralised ('2 cup parsley')."},
+      {"n": 5, "status": "pass", "note": "A heart in the nav bar toggles the favourite. The Favorites tab lists saved recipes with a footer 'Swipe left on a recipe to remove it.' and a swipe action. The empty state reads 'No Favorites Yet' plus a hint and a 'Browse Recipes' button."},
+      {"n": 6, "status": "pass", "note": "Two favourites survived a relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size, ingredient names on the detail screen break letter by letter in a narrow right column ('ric/e', 'st/oc/k', 'eg/gs', 'car-/rot/s'), which makes them nearly unreadable.",
+      "At the largest text size, recipe titles in the main list break inside words without hyphens ('Dumpl/ings') because the rating stays beside the title instead of stacking below it.",
+      "Fractional scaling is lossy: 2.4 tbsp is shown as '2⅓ tbsp' and 0.8 g as '¾ g'."
+    ],
+    "tells": [
+      "The layout does not adapt to accessibility text sizes; the side-by-side row layouts are kept, which squeezes text to a few characters per line.",
+      "The swipe action on a favourite says 'Delete' (destructive wording) for what is really un-favouriting.",
+      "The 'No Favorites Yet' title is regular weight rather than the bold title of the system ContentUnavailableView.",
+      "In the servings row, the number floats mid-row, detached from both its label and the stepper.",
+      "Units are not pluralised ('2 cup parsley')."
+    ],
+    "scroll": "Smooth and native. Flings and the bounce at the top feel right, the large title collapses to an inline title with a blurred edge, there are no blank or popping rows, and scroll position is kept after returning from a recipe.",
+    "scores": {"features": 8, "platform": 7, "polish": 5, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements with native menus, search, steppers and tab bars, and both scroll like real iPhone lists. B falls apart at the largest text size: ingredient names and titles break mid-word, letter by letter. B's fraction scaling is also lossy and its units are not pluralised. A's main flaw is the ingredient card losing its background after scaling, a smaller cosmetic glitch."
+}

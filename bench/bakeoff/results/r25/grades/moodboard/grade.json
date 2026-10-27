@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Edge-to-edge 3-column grid of 600 HSL squares with centred emoji, newest first; liked tiles carry a heart badge."},
+      {"n": 2, "status": "pass", "note": "Filter button in the nav bar opens a native menu with All Boards plus 10 boards; the title and count update (Coast: 64 tiles)."},
+      {"n": 3, "status": "pass", "note": "Pushed detail with a large square, title, board and date; swiping left/right steps through neighbours (n of 600), and there are prev/next buttons too. The nav title is a generic 'Tile'."},
+      {"n": 4, "status": "pass", "note": "Heart in the nav bar plus a Like/Liked button in the detail view; the Liked tab shows liked tiles in the same grid with its own filter and select."},
+      {"n": 5, "status": "pass", "note": "Select puts circles on tiles; nav bar shows 'N selected', Select All, Like, Delete; delete asks for confirmation in an alert. Bulk Like exits select mode."},
+      {"n": 6, "status": "pass", "note": "Likes and deletions (597 tiles, Liked count) survive relaunch."}
+    ],
+    "bugs": [
+      "After a bulk delete the large title briefly sits 20pt higher than normal (Library at y=103 vs 123) until the next layout."
+    ],
+    "tells": [
+      "Grid tiles are exposed to accessibility as Switches ('Switch … value=0'), so VoiceOver reads each photo tile as a toggle.",
+      "Selection badges are white rounded squares with a blue check / blue ring, not the system filled-circle checkmark used in Photos.",
+      "In select mode the large-title area turns into an empty white band about 60pt tall above the grid.",
+      "When the title collapses on scroll, the inline title and the '597 tiles · Newest first' subtitle sit over the scrolling tiles and are hard to read.",
+      "Detail view: the symbol stays small in the large tile, and the nav title is a generic 'Tile' instead of the tile's name.",
+      "Hearts are plain black, not tinted, in the detail view and grid badges.",
+      "Thin, slightly uneven grey gutter lines between tiles.",
+      "At the largest text size the subtitle truncates ('Newest fi…'), the select title truncates to '0 selec…', the badges don't scale, and the date wraps onto two lines."
+    ],
+    "scroll": "Smooth native momentum scrolling with no blank or popping rows; flings and pull-to-top behave like a UIKit list, and scroll position is kept on returning from a tile.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "3-column grid of rounded HSL squares with centred emoji, newest first, with small gutters; liked tiles show a heart badge in the corner."},
+      {"n": 2, "status": "pass", "note": "'All boards' pill opens a native menu with All plus 10 boards; the count updates (Coast: 64), and the filter bar stays pinned while scrolling."},
+      {"n": 3, "status": "pass", "note": "Detail is a native paged horizontal collection that follows the finger; it shows board, serif title and date, with 'n of 600' in the nav bar and arrow buttons."},
+      {"n": 4, "status": "pass", "note": "Big 'Add to Liked' / 'Liked' button in the detail view; the Liked tab ('Worth keeping.') shows liked tiles in the same grid with a filter."},
+      {"n": 5, "status": "pass", "note": "Select mode shows system checkmark circles and a bottom bar with count, Select all, Like and Delete; delete is confirmed and followed by an Undo snackbar."},
+      {"n": 6, "status": "pass", "note": "Deletions (597) and likes (62 liked) survive relaunch."}
+    ],
+    "bugs": [
+      "The delete confirmation appears as a popover whose arrow points at the top-middle tile, not at the Delete button that triggered it."
+    ],
+    "tells": [
+      "Branded custom header (stack icon + 'THE COLLECTION' small caps, serif 'Moodboard' headline and tagline) replaces a system large title, and the header never collapses into the nav bar.",
+      "Cream background and an orange-red accent with serif type: a styled, web/marketing-like look rather than system colours.",
+      "The bulk-action bar (Like / Delete capsules) and the Undo snackbar are drawn by hand above the tab bar instead of using a system toolbar.",
+      "The unselected Liked tab icon is a filled black heart, which reads as selected.",
+      "The detail view has a custom 'Swipe to explore' footer strip with arrows that takes vertical space.",
+      "At the largest text size the 'THE COLLECTION' label disappears, leaving only the icon, and the header eats half the screen before the grid."
+    ],
+    "scroll": "Smooth native scrolling with a pinned filter bar; no blank rows or stutter on flings, and position is kept on returning from detail (shifts by about 14pt).",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement and persist correctly. A looks closer to a stock iOS app, but it has more rough edges: tiles exposed as switches, a blank band in select mode, the collapsed title overlapping the tiles, and truncation at large text. B's custom branding is less system-like but well finished, with a truly paged detail view, system checkmark selection and undo after delete, so it's the one I'd rather ship."
+}

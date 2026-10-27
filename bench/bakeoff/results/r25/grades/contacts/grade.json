@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All contacts sorted by last name in inset-grouped sections A–Z, with a working section index (tapping M jumps to Martin). The favorites section is oddly headed and indexed as '#'."},
+      {"n": 2, "status": "partial", "note": "Filtering by name, company, phone (with or without punctuation) and email works live, and the clear (x) button restores the list. But the bottom search field stays hidden behind the keyboard while you type, so you cannot see your query or reach its clear button. 'Clear Search' in the empty state brought the list back but left the text in the field, so the next keystrokes were appended to the old query. The query also survives a relaunch."},
+      {"n": 3, "status": "pass", "note": "Details show initials, name, company, phone, email, and birthday only when known. Phone and email are blue and look tappable."},
+      {"n": 4, "status": "pass", "note": "Add to/Remove from Favorites row on the details screen. The Favorites section at the top updates and stays in sort order."},
+      {"n": 5, "status": "pass", "note": "Add/Edit sheet with Cancel/Done. Done stays disabled until there is a non-blank first or last name; whitespace-only names are rejected. Email field gets the email keyboard. Edits show at once."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete in the list (immediate, red Delete button) and Delete Contact on the details screen with a confirmation alert. A fast horizontal swipe opened the contact instead of revealing Delete."},
+      {"n": 7, "status": "pass", "note": "Add, edit, delete and favorite changes all survived a relaunch."}
+    ],
+    "bugs": [
+      "The bottom search bar does not rise above the keyboard: while typing, the field and its clear button sit under the keyboard and can't be seen. Taps aimed at the clear button land on keys instead, scrambling the query.",
+      "'Clear Search' on the No Results screen brings back the list but leaves the old text in the field; the next characters typed are added to it.",
+      "The search text is kept across a relaunch, so the app can open straight into a filtered or No Results state.",
+      "A quick horizontal swipe on a row was taken as a tap and pushed the details screen instead of showing the Delete action."
+    ],
+    "tells": [
+      "The Favorites section is headed '#' and indexed as '#', with 'Favorites' drawn as a fake first row (star plus label) inside the section rather than as a section header.",
+      "List rows show only the name: no company subtitle, no avatars, and no visual mark on favorites in the main list. Results matched by company or email therefore look arbitrary.",
+      "At the largest text size, wrapped rows (e.g. 'Elena Al-/varez') have almost no vertical padding; the text nearly touches the separators.",
+      "The details header (avatar and name) sits inside a white card instead of on the grouped background, as Contacts does it.",
+      "The edit form has no field labels once fields are filled (Felix / Adeyemi / Quarry Partners stacked with no captions)."
+    ],
+    "scroll": "Native-feeling list: smooth drags and flings, rubber-banding at the top with the large title returning, index jumps land on the right header, and scroll position is kept when coming back from details. Inset-grouped section headers do not stick while scrolling.",
+    "scores": {"features": 7, "platform": 6, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list sorted by last name (last name in bold) with sticky letter headers, avatars and company subtitles. The section index (star, A–Z) jumps correctly."},
+      {"n": 2, "status": "pass", "note": "Search field under the nav bar filters by name, company, phone (digits only works) and email as you type, with a 'N contacts found' count and a proper No Results view. Clear (x) restores all contacts. The field stays visible above the keyboard."},
+      {"n": 3, "status": "pass", "note": "Details show a coloured avatar, name, company, a Favorite badge, phone and email rows with icons and an arrow showing they open something, and a birthday under 'Personal' when known."},
+      {"n": 4, "status": "pass", "note": "Add to/Remove from Favorites toggles on the details screen. Favorites show as a horizontal card carousel at the top with a count, and a star appears on favorite rows."},
+      {"n": 5, "status": "pass", "note": "New/Edit Contact sheet with a live avatar and name preview. Done stays disabled until a non-blank first or last name is entered. Return moves to the next field. Edits are reflected immediately."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete in the list and Delete Contact on the details screen. Both ask for confirmation with an alert naming the contact."},
+      {"n": 7, "status": "pass", "note": "Added, edited and deleted contacts and favorite changes all survived a relaunch."}
+    ],
+    "bugs": [
+      "In the form, the focused field is not fully scrolled clear of the keyboard: the Last name field sat half under the keyboard, with the keyboard's floating Done button over it.",
+      "The title opens collapsed (inline) on launch and only becomes a large title after pulling down to the top, so the first screen differs from the scrolled-to-top state."
+    ],
+    "tells": [
+      "Custom teal accent and pastel coloured initials avatars, plus favourites as horizontal cards: a branded look rather than stock Contacts.",
+      "The section index has a drawn pill background that overlaps content: the third favorite card ('Sara Alvarez') and the swipe Delete button are clipped beneath it.",
+      "The swipe Delete action is teal with a trash icon and a 'Delete' caption below, instead of the standard red destructive action. Swipe-delete also shows an alert, which iOS doesn't do.",
+      "The tinted 'person stack' icon next to '320 contacts' looks like a button but does nothing.",
+      "The form shows each field's caption above it and the same word again as a placeholder (e.g. 'First name' / 'First name').",
+      "On the details screen, content scrolls up under the transparent nav bar with no edge blur; the avatar sits behind the back and Edit buttons."
+    ],
+    "scroll": "Smooth and native: flings decelerate naturally, sticky letter headers push each other properly, no blank or popping rows, index jumps are instant, and pulling past the top rubber-bands and reveals the large title.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement at heart, but A's search, the main way to use a 320-person directory, is broken in practice: the field hides under the keyboard, 'Clear Search' leaves the old text, and the query survives a relaunch. B's search, forms, confirmations and richer rows (company, avatars, favorite stars) all work smoothly. B's branded teal styling and custom index pill are more visible departures from stock iOS than A's plainer look, but A's functional flaws outweigh that."
+}
