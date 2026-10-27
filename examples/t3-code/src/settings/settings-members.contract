@@ -90,8 +90,9 @@ members T3Code
     settingsCheckout = ""
     settingsProjectId = ""
     modalError = ""
-  // The search jump's target page has its data: the jump scrolls once that page is laid out.
-  derive settingsJumpReady = settingsOpen and settingsFocusTarget != "" and (settingsRoute != "storage" or storageSettings.available) and (settingsRoute != "archived" or archives.available) and (settingsRoute != "diagnostics" or diagnostics.available) and (settingsRoute != "keybindings" or bindings.available) and (settingsRoute != "scheduled-tasks" or scheduled.available) and (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "integrations" or integrations.available) and ((settingsRoute != "general" and settingsRoute != "appearance") or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0))
+  // The search jump's target page has its data: the jump scrolls once that page is laid out (the list is settings-search.ts
+  // CORE_ROUTES, the pages drawn from settings-core's sections).
+  derive settingsJumpReady = settingsOpen and settingsFocusTarget != "" and ((settingsRoute != "maintenance" and settingsRoute != "worktrees") or storageSettings.available) and (settingsRoute != "archived" or archives.available) and (settingsRoute != "diagnostics" or diagnostics.available) and (settingsRoute != "keybindings" or bindings.available) and (settingsRoute != "scheduled-tasks" or scheduled.available) and (settingsRoute != "source-control" or sourceControl.available) and ((settingsRoute != "browser" and settingsRoute != "devices") or integrations.available) and (not ["general", "appearance", "chat", "diffs", "threads", "worktrees", "maintenance", "about", "labs"].includes(settingsRoute) or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0))
   action focusSettingsTarget
     if settingsJumpReady
       settingsScrollPage = settingsPage

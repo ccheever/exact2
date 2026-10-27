@@ -481,9 +481,11 @@ component SourceControlPanel
             for item in data.text key=`${data.scope}:${item.key}:${item.value}:${item.checked}:${item.child}`
               ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
 
+// The Browser and Devices pages (96fc7b9551, Integrations split by 9db433f4ba #25651): `view` "browser" or "devices".
 component IntegrationsPanel
   props
     data: IntegrationsPage
+    view: string
     busy: bool
     error: string
     rest: action
@@ -496,25 +498,26 @@ component IntegrationsPanel
       if data.error != ""
         Card()
           SettingsNotice(message=data.error, warning=false)
-      // IntegrationsSettingsPanel: one Browser section. Agent browser access (a scoped server setting, so only with a
+      // BrowserSettingsPanel: one Browser section. Agent browser access (a scoped server setting, so only with a
       // connected environment) comes first; the rest are device-local ("ignore the header selection"), so they show with
       // no connected environment too: BrowserProfilesSetting, the tab defaults, the recording rows, "Open links in",
       // Auto-show, Search engine and "Open pull requests in T3 Code".
-      column width="100%" gap="0.625rem" testId="integrations-browser"
-        row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
-          SectionTitle(title="Browser")
-        Card()
-          if data.available
-            column width="100%" testId="integrations-browser-access"
-              for item in data.browser key=`${data.scope}:${item.key}:${item.checked}`
-                ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
-          BrowserProfilesSetting(view=data.browserProfiles, local=local)
-          BrowserTabDefaultRows(view=data.browserProfiles.defaults, local=local)
-          BrowserDefaults(linkTarget=data.linkTarget, restInput=restInput)
-          BrowserAutoShowRow(view=data.browserProfiles.defaults, local=local)
-          BrowserSearchEngineRow(view=data.browserProfiles.defaults, local=local)
-          PullRequestLinksRow(view=data.browserProfiles.defaults, local=local)
-      if data.available
+      if view == "browser"
+        column width="100%" gap="0.625rem" testId="integrations-browser"
+          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+            SectionTitle(title="Browser")
+          Card()
+            if data.available
+              column width="100%" testId="integrations-browser-access"
+                for item in data.browser key=`${data.scope}:${item.key}:${item.checked}`
+                  ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
+            BrowserProfilesSetting(view=data.browserProfiles, local=local)
+            BrowserTabDefaultRows(view=data.browserProfiles.defaults, local=local)
+            BrowserDefaults(linkTarget=data.linkTarget, restInput=restInput)
+            BrowserAutoShowRow(view=data.browserProfiles.defaults, local=local)
+            BrowserSearchEngineRow(view=data.browserProfiles.defaults, local=local)
+            PullRequestLinksRow(view=data.browserProfiles.defaults, local=local)
+      if view == "devices" and data.available
         column width="100%" gap="0.625rem" testId="integrations-devices"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
             SectionTitle(title="Devices")

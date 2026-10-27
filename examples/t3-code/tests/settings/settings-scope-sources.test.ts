@@ -173,7 +173,7 @@ describe('settings scope across environments', () => {
   test('checkouts of one project that disagree draw mixed for start-from-origin', async () => {
     const client = focused({ projectSettingsOverrides: { pa: { newWorktreesStartFromOrigin: false } } });
     fleet.entries.set(B, entry(B, 'env-b', 'Server', {}));
-    const core = await settingsCore(as(client), nativeFor(), '', 'github.com/acme/app', '', '', 'general', '', true);
+    const core = await settingsCore(as(client), nativeFor(), '', 'github.com/acme/app', '', '', 'worktrees', '', true);
     const start = core.sections.flatMap(section => section.rows).find(item => item.id === 'start-from-origin')!;
     expect([start.mixed, start.inheritance]).toEqual([true, 'mixed']);
     const calls: Obj[] = [];
