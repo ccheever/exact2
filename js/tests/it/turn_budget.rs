@@ -61,8 +61,8 @@ fn a_turn_that_works_past_its_budget_is_refused() {
     let mut m = module(&root, |_| Box::new(Waits::<0>));
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     // A short loop is within it.
-    assert_eq!(call(&mut m, &mut s, "busy", "1000").len() > 0, true);
-    // Enough iterations for well over 100 ms of the module's own time on any machine.
+    assert_eq!(call(&mut m, &mut s, "busy", "1000"), "496491"); // (7 × 499500 mod 1000003)
+                                                                // Enough iterations for well over 100 ms of the module's own time on any machine.
     match m.answer(&mut s, "work", &args("busy", "30000000")) {
         Err(DataError::Unavailable(e)) => assert!(
             e.contains("over the 100 ms budget for one turn") && e.contains("scheduler.yield()"),
