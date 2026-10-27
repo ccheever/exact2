@@ -14,7 +14,14 @@ extension Capture {
         guard let root = view.layer else { return nil }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        guard let image = picture(of: paintOrderLayer(of: view, root: root), size: view.bounds.size, scale: scale) else { return nil }
+        let tree = paintOrderLayer(of: view, root: root)
+        // The copy has no superlayers, so it loses an ancestor's
+        // `geometryFlipped` (AppKit sets the page scroller's), which decides
+        // how drawn contents are read (`contentsAreFlipped`). Without it, what
+        // the views drew came out upside down: Caltrain's page, drawn through
+        // its sky canvas, showed so.
+        if root.contentsAreFlipped() != root.isGeometryFlipped { tree.isGeometryFlipped.toggle() }
+        guard let image = picture(of: tree, size: view.bounds.size, scale: scale) else { return nil }
         let rep = NSBitmapImageRep(cgImage: image)
         rep.size = view.bounds.size
         return rep

@@ -5,6 +5,16 @@ import XCTest
 @testable import ExactSurfaces
 
 private var capturedPaintPixels: [[UInt8]] = []
+private var capturedPaintRows: [(top: [UInt8], bottom: [UInt8])] = []
+
+/// Red over blue, drawn into its backing store, not a layer's colour.
+private final class DrawnHalves: NSView {
+    override var isFlipped: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.red.setFill(); NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height / 2).fill()
+        NSColor.blue.setFill(); NSRect(x: 0, y: bounds.height / 2, width: bounds.width, height: bounds.height / 2).fill()
+    }
+}
 
 final class PaintCaptureMacTests: XCTestCase {
     override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
@@ -61,6 +71,64 @@ final class PaintCaptureMacTests: XCTestCase {
         p.apply(wireBatch([["op": "rank", "id": 4, "rank": 10]]))
         XCTAssertEqual(capturedPaintPixels.last, [255, 0, 0, 255])
         XCTAssertEqual(capturedPaintPixels.count, 4)
+    }
+
+    /// A canvas's children reach its surface top row first, as they show
+    /// (Caltrain's sky, LLP 1014). In an app's window AppKit flips the page
+    /// scroller's layer, and the layer copy the capture draws has no
+    /// ancestors to carry that: what a view drew came out upside down.
+    func testCanvasChildrenUploadTopRowFirst() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "paint-orientation")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        // As an app's window holds it: in an unflipped, layer-backed view (`ExactView`).
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        content.wantsLayer = true
+        window.contentView = content
+        p.viewport.frame = content.bounds
+        content.addSubview(p.viewport)
+        for v: NSView? in [p.viewport, p.viewport.contentView, p.viewport.documentView] { v?.wantsLayer = true }
+        defer { window.close() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "canvas"],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]], ["op": "roots", "ids": [1]],
+        ] + (1...3).map { ["op": "frame", "id": $0, "x": 0, "y": 0, "w": 100, "h": 100] }))
+        let canvas = try XCTUnwrap(p.views[2])
+        let drawn = DrawnHalves(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        drawn.wantsLayer = true
+        try XCTUnwrap(p.views[3]).addSubview(drawn)
+        capturedPaintRows = []
+        let module = GpuModule(create: { _, _, _, _, _ in 7 }, bind: { _, _, _ in 0 },
+            render: { _, _, _, _, _ in 1 }, dirty: { _ in 0 }, destroy: { _ in },
+            texture: { _, width, height, bytes, _ in
+                if let bytes {
+                    let pixel = { (y: Int) in Array(UnsafeBufferPointer(start: bytes + (y * Int(width) + Int(width / 2)) * 4, count: 4)) }
+                    capturedPaintRows.append((pixel(Int(height) / 10), pixel(Int(height) * 9 / 10)))
+                }
+                return 0
+            }, textureMetal: nil, sync: nil,
+            childrenMode: { _ in 1 }, readback: { _, _, _, _, _, _, _ in 0 },
+            child: { _, _, _, _, _, _, _, _, _, _, _, _ in 0 }, childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
+            shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 }, errorPtr: { nil },
+            wantsInput: nil, input: nil, messages: nil, published: nil, agent: nil, outPtr: nil)
+        let entry = CanvasesHost.Entry(view: canvas, name: "paint", values: [])
+        entry.id = 7; entry.module = module; entry.through = true
+        session.surfaceHost.entries[2] = entry
+        window.orderFrontRegardless()
+        content.displayIfNeeded()
+        XCTAssertEqual(p.viewport.layer?.isGeometryFlipped, true, "AppKit flips the page scroller's layer in an unflipped window")
+        window.display()
+        CATransaction.flush()
+        canvas.needsCapture = true
+        session.surfaceHost.captureIfNeeded()
+        let uploaded = try XCTUnwrap(capturedPaintRows.last)
+        XCTAssertEqual(uploaded.top, [255, 0, 0, 255], "the first row is the top half's")
+        XCTAssertEqual(uploaded.bottom, [0, 0, 255, 255])
     }
 
     func testCaptureSamplesAnimatedShapeOpacityTransformAndMask() throws {

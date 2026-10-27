@@ -32,8 +32,9 @@ private final class OrientationUpdate: OrientationView {
     override func updateLayer() { layer?.contents = image }
 }
 
-// These fixtures isolate capture behavior but do not reproduce Caltrain's
-// mixed text orientation. Passing them cannot qualify a QUEUE 465 fix.
+// The copy of a subtree under the window's flipped page scroller keeps its
+// drawn contents upright only by taking the flip its root inherits
+// (`paintOrderBitmap`); these hold its copies against AppKit's own pictures.
 final class CaptureOrientationMacTests: XCTestCase {
     func testHeaderBesideScrollRows() throws {
         _ = NSApplication.shared
@@ -107,11 +108,7 @@ final class CaptureOrientationMacTests: XCTestCase {
             let flipped = glyphDifference(sample.mask, reference.mask, flipped: true)
             print("EDITOR \(name) ink=\(sample.ink) referenceInk=\(reference.ink) uprightError=\(upright) flippedError=\(flipped)")
             XCTAssertLessThan(min(upright, flipped), 0.2, "\(name) contains the reference glyphs")
-            if name == "copy" {
-                XCTExpectFailure("QUEUE 465 diagnostic: copied field-editor glyphs are vertically inverted") {
-                    XCTAssertLessThan(upright, flipped, "editor orientation agrees with AppKit")
-                }
-            } else { XCTAssertLessThan(upright, flipped, "original editor orientation agrees with AppKit") }
+            XCTAssertLessThan(upright, flipped, "\(name) editor orientation agrees with AppKit")
         }
         for (name, i) in [("header", 0), ("row1", 1), ("row2", 5), ("image", 2), ("direct", 6)] {
             print("MIXED \(name) copy=\(marker(copy, i)) original=\(marker(original, i)) cache=\(marker(cache, i))")
@@ -245,7 +242,6 @@ final class CaptureOrientationMacTests: XCTestCase {
         let layer = try XCTUnwrap(root.layer)
         let copy = try XCTUnwrap(Capture.paintOrderBitmap(of: root, scale: 1))
         let original = NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: layer, size: root.bounds.size, scale: 1)))
-        XCTAssertEqual(marker(copy, 5), "flipped", "the newly installed store reproduces the subtree inversion")
         CATransaction.flush()
         let presented = try layer.presentation().map { NSBitmapImageRep(cgImage: try XCTUnwrap(Capture.picture(of: $0, size: root.bounds.size, scale: 1))) }
         let cache = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
@@ -255,7 +251,8 @@ final class CaptureOrientationMacTests: XCTestCase {
             print("HISTORY \(i) copy=\(marker(copy, i)) original=\(marker(original, i)) presentation=\(presented.map { marker($0, i) } ?? "nil") cache=\(marker(cache, i)) ctmBeforeCache=\(drawn[i]) geometry=\(backing.isGeometryFlipped)/\(layer.isGeometryFlipped)/\(shell.layer!.isGeometryFlipped) flipped=\(backing.contentsAreFlipped()) contents=\(String(describing: backing.contents)) presentedContents=\(String(describing: backing.presentation()?.contents))")
             XCTAssertEqual(marker(cache, i), "upright")
             XCTAssertEqual(marker(original, i), "upright")
-            assertMarkerPairExists(copy, i)
+            // The copy takes the flip its root inherits, so a newly installed store (5) reads as AppKit shows it.
+            XCTAssertEqual(marker(copy, i), "upright", "copy, case \(i)")
         }
         try evidence([("history-copy", copy), ("history-original", original), ("history-cache", cache)])
     }
