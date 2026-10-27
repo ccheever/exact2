@@ -95,8 +95,8 @@ describe('the checks (describePullRequestChecks, summarizePullRequestChecks, Che
     expect(checksList([{ ...check('lint', 'skipped'), url: '' }], false).details).toBe(false);
   });
   test('the trigger counts completed checks, awaiting action among the incomplete ones', () => {
-    expect(checksCount([check('a', 'success'), check('b', 'pending'), check('c', 'pending')])).toBe('1/3');
-    expect(checksCount([check('a', 'success'), check('b', 'action-required'), check('c', 'failure')])).toBe('2/3');
+    expect(checksCount([check('a', 'success'), check('b', 'pending'), check('c', 'pending')])).toBe('1/3 checks');
+    expect(checksCount([check('a', 'success'), check('b', 'action-required'), check('c', 'failure')])).toBe('2/3 checks');
     expect(checksCount([check('a', 'success'), check('b', 'failure')])).toBe('1 failed');
     expect(checksCount([check('a', 'success')])).toBe('');
   });
@@ -258,7 +258,7 @@ describe('the split row, its card and the tab icon', () => {
     forgetDetails(client);
     const running = [check('build', 'pending'), check('test', 'failure'), check('lint', 'success')];
     replies['pullRequests.detail'] = () => detail({ checks: running }); replies['pullRequests.checks'] = () => ({ state: 'open', checks: running });
-    expect((await prRowsView(client, native, { status: null, threadId: 't1', now: 2, projectId: 'p1', rightGap: 0, inline: true })).rows[0]!.checksCount).toBe('2/3');
+    expect((await prRowsView(client, native, { status: null, threadId: 't1', now: 2, projectId: 'p1', rightGap: 0, inline: true })).rows[0]!.checksCount).toBe('2/3 checks');
     forgetDetails(client);
   });
   test('a hand-off draft shows its branch\'s pull request, as the reference card does after Resolve', async () => {

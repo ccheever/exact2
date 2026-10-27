@@ -115,7 +115,7 @@ export function checksList(checks: Obj[], showAll: boolean): { rows: CheckRow[];
 export function checksCount(checks: Obj[]): string {
   const incomplete = checks.filter(check => check.status === 'pending' || check.status === 'action-required').length;
   const failing = checks.filter(failed).length;
-  return incomplete > 0 ? `${checks.length - incomplete}/${checks.length}` : failing > 0 ? `${failing} failed` : '';
+  return incomplete > 0 ? `${checks.length - incomplete}/${checks.length} checks` : failing > 0 ? `${failing} failed` : '';
 }
 
 // ── Hand-off prompts (untrusted pull request text is bounded and marked) ──

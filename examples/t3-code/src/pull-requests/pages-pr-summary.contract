@@ -112,16 +112,16 @@ shape PrSummaryView
   filterLabel: string
   filteredOutText: string
 
-fn prsMuted(): string = "light-dark(#71717b, #818181)"
-fn prsInk(): string = "light-dark(#27272a, #f5f5f5)"
-fn prsBorder(): string = "light-dark(#e4e4e799, #ffffff0a)"
-fn prsCheckTone(status: string): string = status == "failure" or status == "cancelled" ? "light-dark(#e40014, #fb414a)" : status == "pending" or status == "action-required" ? "light-dark(#e17100, #ffb900e6)" : status == "success" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #818181)"
+fn prsMuted(): string = "light-dark(#71717b, #a1a1a1)"
+fn prsInk(): string = "light-dark(#18181b, #f5f5f5)"
+fn prsBorder(): string = "light-dark(#e4e4e799, #ffffff0c)"
+fn prsCheckTone(status: string): string = status == "failure" or status == "cancelled" ? "light-dark(#e40014, #fb414a)" : status == "pending" or status == "action-required" ? "light-dark(#e17100, #ffb900e6)" : status == "success" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #a1a1a1)"
 fn prsCheckIcon(status: string): string = status == "failure" or status == "cancelled" ? "circle-x" : status == "pending" or status == "action-required" ? "circle-dot" : status == "success" ? "circle-check" : status == "skipped" ? "circle-slash" : "circle-dashed"
 // REVIEW_OUTCOME_PRESENTATION: the ring a face wears (a stale verdict's is mixed 35% into the background).
-fn prsRing(outcome: string, stale: bool): string = outcome == "approved" ? (stale ? "0 0 0 2px light-dark(#a6e8d2, #075139)" : "0 0 0 2px light-dark(#00bc7d, #00d492)") : outcome == "changes-requested" ? (stale ? "0 0 0 2px light-dark(#f6a6ad, #602a2b)" : "0 0 0 2px light-dark(#e40014, #ff6467)") : outcome == "dismissed" ? (stale ? "0 0 0 2px light-dark(#d4d4d7, #2e2e2e)" : "0 0 0 2px light-dark(#71717b99, #81818199)") : "none"
+fn prsRing(outcome: string, stale: bool): string = outcome == "approved" ? (stale ? "0 0 0 2px light-dark(#a6e8d2, #075139)" : "0 0 0 2px light-dark(#00bc7d, #00d492)") : outcome == "changes-requested" ? (stale ? "0 0 0 2px light-dark(#f6a6ad, #602a2b)" : "0 0 0 2px light-dark(#e40014, #ff6467)") : outcome == "dismissed" ? (stale ? "0 0 0 2px light-dark(#d4d4d7, #2e2e2e)" : "0 0 0 2px light-dark(#71717b99, #a1a1a199)") : "none"
 fn prsOutcomeIcon(outcome: string): string = outcome == "approved" ? "circle-check" : outcome == "changes-requested" ? "circle-x" : "circle-dashed"
 fn prsBadgeBg(outcome: string): string = outcome == "approved" ? "light-dark(#00bc7d14, #00bc7d29)" : outcome == "changes-requested" ? "light-dark(#fb2c3614, #fb2c3629)" : "light-dark(#ffffff, #ffffff0a)"
-fn prsBadgeInk(outcome: string): string = outcome == "approved" ? "light-dark(#007a55, #00d492)" : outcome == "changes-requested" ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)"
+fn prsBadgeInk(outcome: string): string = outcome == "approved" ? "light-dark(#007a55, #00d492)" : outcome == "changes-requested" ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)"
 
 // PullRequestSummaryTab, under the panel's tab bar.
 component PrdSummary
@@ -234,7 +234,7 @@ component PrdSummary
                 PrdActivityUnavailable(error=summary.activityError, compact=true, retry=retry)
               else
                 if summary.truncated
-                  text summary.truncatedText margin-bottom="0.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a004d, #fe9a004d)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.75rem" line-height="1rem" color=prsInk() testId="pull-request-comments-truncated"
+                  text summary.truncatedText margin-bottom="0.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a004d, #fe9a004d)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.75rem" line-height="1rem" color=prsInk() testId="pull-request-comments-truncated"
                 if summary.empty
                   text "No comments yet." padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color=prsMuted()
                 else if summary.filteredOutText != ""
@@ -280,7 +280,7 @@ component PrdSectionHeader
     testId: string
   slot
   view
-    row id=id position="sticky" top=0 z-index=10 width="100%" padding-right="1rem" box-sizing="border-box" align-items="center" background-color="light-dark(#fcfcfc, #0a0a0a)"
+    row id=id position="sticky" top=0 z-index=10 width="100%" padding-right="1rem" box-sizing="border-box" align-items="center" background-color="light-dark(#fcfcfc, #000000)"
       button press=press aria-expanded=open testId=testId flex=1 min-width=0 height="2.5rem" padding-left="1rem" padding-right="1rem" box-sizing="border-box" gap="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
         text label font-size="0.75rem" line-height="1rem" font-weight=500 color=prsMuted() white-space="nowrap"
         box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true
@@ -315,7 +315,7 @@ component PrdWideButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover testId=testId width="100%" height="1.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=(outline ? 1 : 0) border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : (outline ? "light-dark(#ffffff, #ffffff07)" : "#00000000")) box-shadow=(outline ? "0 1px 2px #0000000d" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press hover=hover testId=testId width="100%" height="1.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=(outline ? 1 : 0) border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : (outline ? "light-dark(#ffffff, #ffffff07)" : "#00000000")) box-shadow=(outline ? "0 1px 2px #0000000d" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=prsInk()
 
 component PrdShowOlder
@@ -344,7 +344,7 @@ component PrdCommentFilter
         text summary.filterLabel font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(over ? prsInk() : prsMuted())
       // aria-modal: while it shows, its Escape closes it, not the Pull Requests page.
       column id=menuId popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" aria-modal=true position="absolute" margin-top="0.25rem" testId="pull-request-comments-filter-layer"
-        column padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Filter comments" testId="pull-request-comments-filter-menu"
+        column padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Filter comments" testId="pull-request-comments-filter-menu"
           KeyMenu(menuId=`${menuId}-keys`, items=rows, keyed=0, gap="0px", modal=true)
             column width="100%" role="group" aria-label="Show"
               text "Show" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=prsMuted() aria-hidden=true
@@ -369,7 +369,7 @@ component PrdFilterRow
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role="menuitemcheckbox" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role="menuitemcheckbox" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         if checked
           PgIcon(name="check", size=14, color=prsInk())
@@ -389,9 +389,9 @@ component PrdCheckRow
   action hover(value: bool)
     over = value
   view
-    row width="100%" align-items="center" gap="0.5rem" padding-right=(check.fix != "" ? "0.25rem" : "0px") box-sizing="border-box" border-radius="0.375rem" background-color=(over ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") hover=hover
+    row width="100%" align-items="center" gap="0.5rem" padding-right=(check.fix != "" ? "0.25rem" : "0px") box-sizing="border-box" border-radius="0.25rem" background-color=(over ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") hover=hover
       if check.url != ""
-        link href=check.url press=linkOpen(surface == "thread" ? "button" : "button-page", check.url) cursor="pointer" aria-label=`${check.name}: ${check.statusLabel}` testId=`pull-request-check-${check.key}` flex=1 min-width=0 min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="flex-start"
+        link href=check.url press=linkOpen(surface == "thread" ? "button" : "button-page", check.url) cursor="pointer" aria-label=`${check.name}: ${check.statusLabel}` testId=`pull-request-check-${check.key}` flex=1 min-width=0 min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" display="flex" flex-direction="row" align-items="flex-start"
           box margin-top="0.125rem" flex-shrink=0
             PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
           text check.name flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prsInk() overflow-wrap="anywhere"
@@ -431,7 +431,7 @@ component PrdOutcomeBadge
     label: string
   view
     // The label, not the icon's bottom edge, aligns the badge with the text around it.
-    row height="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" gap="0.25rem" border-radius="0.25rem" border-width=(outcome == "dismissed" ? 1 : 0) border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=prsBadgeBg(outcome) align-items="baseline" flex-shrink=0 testId="pull-request-outcome-badge"
+    row height="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" gap="0.25rem" border-radius="0.25rem" border-width=(outcome == "dismissed" ? 1 : 0) border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=prsBadgeBg(outcome) align-items="baseline" flex-shrink=0 testId="pull-request-outcome-badge"
       box align-self="center" display="flex"
         PgIcon(name=prsOutcomeIcon(outcome), size=12, color=prsBadgeInk(outcome))
       text label font-size="0.625rem" line-height="1rem" font-weight=500 white-space="nowrap" color=prsBadgeInk(outcome)
@@ -470,7 +470,7 @@ component PrdCommentCard
   action focusWithin(on: bool)
     focused = on
   view
-    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" role="article" hover=hover focusin=focusWithin(true) focusout=focusWithin(false) testId=`pull-request-comment-${card.id}`
+    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() background-color="light-dark(#fcfcfc, #000000)" role="article" hover=hover focusin=focusWithin(true) focusout=focusWithin(false) testId=`pull-request-comment-${card.id}`
       row flex-wrap="wrap" align-items="baseline" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-left-radius="0.5rem" border-top-right-radius="0.5rem" background-color="light-dark(#f4f4f540, #ffffff06)"
         row flex=1 min-width=0 flex-wrap="wrap" align-items="baseline" gap="0.5rem"
           PrdIdentity(card=card)
@@ -522,7 +522,7 @@ component PrdCollapsedComment
           PrdIdentity(card=card)
           if item.replyCount != ""
             text item.replyCount flex-shrink=0 padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color=prsMuted() testId=`pull-request-finished-replies-${card.id}`
-          button press=toggle aria-expanded=open testId=`pull-request-finished-toggle-${card.id}` flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          button press=toggle aria-expanded=open testId=`pull-request-finished-toggle-${card.id}` flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
             text card.finishedLabel font-size="0.75rem" line-height="1rem" color=prsMuted()
             box width="0.875rem" height="0.875rem" rotate=(open ? 180 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true
               PgIcon(name="chevron-down", size=14, color=prsMuted())
@@ -558,7 +558,7 @@ component PrdReplies
     handoffs: PrHandoffsView
     surface: string
   view
-    column margin-left="1rem" padding-left="0.75rem" gap="0.5rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId=`pull-request-replies-${item.card.id}`
+    column margin-left="1rem" padding-left="0.75rem" gap="0.5rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" testId=`pull-request-replies-${item.card.id}`
       for reply in item.replies key=reply.key
         PrdCommentCard(card=reply, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
 
@@ -597,7 +597,7 @@ component PrdRetry
   action hover(value: bool)
     over = value
   view
-    button press=retry hover=hover aria-label="Retry" testId="pull-request-activity-retry" height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+    button press=retry hover=hover aria-label="Retry" testId="pull-request-activity-retry" height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
       PgIcon(name="refresh-cw", size=14, color=prsMuted())
       text "Retry" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=prsInk()
 
@@ -622,8 +622,8 @@ component PrdGhostRemark
     meta: string
   view
     row align-items="flex-start" gap="0.5rem"
-      box width="1.25rem" height="1.25rem" flex-shrink=0 border-radius="624.9375rem" background-color="light-dark(#71717b26, #81818126)"
+      box width="1.25rem" height="1.25rem" flex-shrink=0 border-radius="624.9375rem" background-color="light-dark(#71717b26, #a1a1a126)"
       column flex=1 gap="0.375rem"
-        box width=meta height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"
-        box width="100%" height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"
-        box width="75%" height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"
+        box width=meta height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #a1a1a126)"
+        box width="100%" height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #a1a1a126)"
+        box width="75%" height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #a1a1a126)"
