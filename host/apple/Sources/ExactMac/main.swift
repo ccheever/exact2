@@ -606,8 +606,17 @@ final class Delegate: NSObject, NSApplicationDelegate {
         exact.installWakes()
         exact.installReach()
     }
-    /// The Dock menu: the manifest's shortcuts, then the app's (LLP 1133.023 D3).
-    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? { ExactShortcuts.dockMenu() }
+    /// The Dock menu, one menu: the manifest's shortcuts, then the app's (LLP
+    /// 1133.023 D3), then the front window's session's `-exact-menu="dock"`
+    /// buttons (LLP 1133.025 D5), above AppKit's own items.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let shortcuts = ExactShortcuts.dockMenu(), buttons = frontWindow()?.session.dockMenu
+        guard let shortcuts, let buttons else { return shortcuts ?? buttons }
+        shortcuts.autoenablesItems = false // a disabled button's item stays dimmed
+        shortcuts.addItem(.separator())
+        for item in buttons.items { buttons.removeItem(item); shortcuts.addItem(item) }
+        return shortcuts
+    }
     /// A Spotlight result of the app's index opened (LLP 1133.023 D4).
     func application(_ application: NSApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
         guard let location = ExactContentIndex.location(of: userActivity) else { return false }
@@ -626,11 +635,6 @@ final class Delegate: NSObject, NSApplicationDelegate {
         // made, is hidden, not gone (LLP 1133.025 D4, D6).
         if windows.contains(where: { !$0.closing && ($0.session.placesStatusItems || PageFacts.isUnshown($0.window)) }) { return false }
         return ExactDocuments.endsWithoutWindows(hiding: windows.contains { !$0.closing })
-    }
-    /// The Dock menu (LLP 1133.025 D5): the main window's session's
-    /// `-exact-menu="dock"` buttons, above AppKit's own items.
-    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        frontWindow()?.session.dockMenu
     }
     /// The Dock icon clicked, or the app opened again, with no window
     /// showing: the window an app that keeps running hid comes back as it
