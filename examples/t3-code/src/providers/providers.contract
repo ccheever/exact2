@@ -246,7 +246,7 @@ component ProvidersPanel
               scroll flex-grow=1 flex-shrink=1 flex-basis=(wide ? "0%" : "auto") min-width=0 width=(wide ? "auto" : "100%") height=(wide ? "100%" : "auto") testId="provider-editor-scroll"
                 column width="100%" padding-top="1rem" padding-bottom="1rem" gap="1.5rem" box-sizing="border-box"
                   for editor in page.editors key=editor.key
-                    ProviderEditor(editor=editor, scheme=scheme, rowWide=((wide ? width - 275 : width - 2) - 66 >= 512), busy=busy, setupBusy=setupBusy, writable=page.writable, settingsWritable=page.settingsWritable, error=error, op=op, accent=accent, ui=ui, addingUi=addingUi, modelAdding=modelAdding)
+                    ProviderEditor(editor=editor, scheme=scheme, rowWide=((wide ? width - 275 : width - 2) - 32 >= 512), busy=busy, setupBusy=setupBusy, writable=page.writable, settingsWritable=page.settingsWritable, error=error, op=op, accent=accent, ui=ui, addingUi=addingUi, modelAdding=modelAdding)
                   if page.editors.length == 0
                     text page.emptyEditor font-size="0.875rem" line-height="1.25rem" padding="0.5rem" color="light-dark(#71717b, #a1a1a1)"
         column width="100%" gap="0.625rem"

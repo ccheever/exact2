@@ -203,6 +203,12 @@ describe('device tools, refs, archive menu, look', () => {
     expect(value.sidebar).toContain('light-dark(');
     expect(look(as(fakeClient())).themed).toBe(false);
   });
+  test('the user message surface is index.css --message-surface on the stock theme, the theme role otherwise', () => {
+    const client = fakeClient();
+    expect(look(as(client)).message).toMatch(/#ebebed.*#1e1e1e|^#1e1e1e$|^#ebebed$/);
+    Object.assign(client.local.clientSettings as Obj, { themeLight: 'grove', themeDark: 'iris' });
+    expect(look(as(client)).message).toMatch(/#cce1d7.*#4b3d72|^#4b3d72$|^#cce1d7$/);
+  });
 });
 
 import { convertVsCodeTheme, importThemeText, parseJsonc, themeImportCommand } from '../../src/appearance/settings-appearance-import';

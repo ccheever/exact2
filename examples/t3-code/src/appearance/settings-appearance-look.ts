@@ -91,9 +91,12 @@ export function windowAppearanceMode(client: T3Client): string {
   return paintOf(client).mode;
 }
 
-/** bg-message (--message-surface): the theme's messageSurface role; the stock theme keeps --accent. */
+/**
+ * bg-message (--message-surface): the theme's messageSurface role. The stock theme's is index.css's own token
+ * (7df7cb9999): light zinc-200 55% over zinc-100, dark neutral-950 92% over white.
+ */
 function messageSurface(prefs: ClientPrefs, custom: CustomTheme[], mode: string): string {
-  const half = (id: string, appearance: 'light' | 'dark') => id === 't3-code' ? (appearance === 'light' ? '#f4f4f5' : '#ffffff0a') : themeRoles(id, appearance, custom).messageSurface;
+  const half = (id: string, appearance: 'light' | 'dark') => id === 't3-code' ? (appearance === 'light' ? '#ebebed' : '#1e1e1e') : themeRoles(id, appearance, custom).messageSurface;
   const light = half(prefs.themeLight, 'light'), dark = half(prefs.themeDark, 'dark');
   return mode === 'light' ? light : mode === 'dark' ? dark : `light-dark(${light}, ${dark})`;
 }
