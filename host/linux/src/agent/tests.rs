@@ -5,6 +5,8 @@ use exact_runner::{DataError, Value};
 
 // The clipboard, keys, modifiers and mouse contacts.
 mod input;
+// A re-ask after a turn over its budget, which `clock settle` waits for.
+mod overrun;
 
 /// A source whose one request is handed to work that never replies: the
 /// reply is leaked, so neither an outcome nor the drop's abort arrives.

@@ -1,6 +1,6 @@
 //! Settlement: reuse, stand-ins, refusals and their rollback.
 use super::*;
-use crate::{Carried, Outcome, Store};
+use crate::{CallOrigin, Carried, Outcome, Store};
 use exact_kernel::{Kernel, NodeType};
 use exact_plan::{asm::Asm, builder::PlanBuilder, Items, Plan, Stdlib, TypeKind};
 use std::cell::Cell;
@@ -124,6 +124,9 @@ struct Data {
     /// What a reply's parse refuses with, when set (`overrun.rs`'s tests).
     parse_error: Option<DataError>,
     refuse: Option<DataError>,
+    /// `guard` opens a stream, and refuses with this when set.
+    guard_stream: bool,
+    guard_refuse: Option<DataError>,
     adopted: Vec<(String, Vec<Value>, Value)>,
 }
 
@@ -142,6 +145,8 @@ impl Data {
             fail_parse: false,
             parse_error: None,
             refuse: None,
+            guard_stream: false,
+            guard_refuse: None,
             adopted: Vec::new(),
         }
     }
@@ -165,6 +170,12 @@ impl DataSource for Data {
         if let (Some(e), "rows") = (&self.refuse, source) {
             return Err(e.clone());
         }
+        if let (Some(e), "guard") = (&self.guard_refuse, source) {
+            return Err(e.clone());
+        }
+        if self.guard_stream && source == "guard" {
+            return Ok(Answer::stream(Request::get("https://example.test/guard")));
+        }
         if self.guard_writes && source == "guard" || self.rows_writes && source == "rows" {
             store.set("token", "guarded")?;
         }
@@ -184,10 +195,13 @@ impl DataSource for Data {
     fn parse(
         &mut self,
         store: &mut Store,
-        _: &str,
+        source: &str,
         _: &[Value],
         _: Outcome,
     ) -> Result<Answer, DataError> {
+        if source == "guard" {
+            return Ok(Answer::Now(Value::Bool(true)));
+        }
         if self.write_on_parse {
             store.set("token", "candidate")?;
         }
@@ -917,4 +931,140 @@ fn an_overrun_reply_asks_again_with_a_new_request() {
     r.fulfill(again[0].ticket, reply()).unwrap();
     assert!(!r.pending_res[0]);
     assert!(r.overruns[0].is_none());
+}
+
+// Round 1's findings on the first build (theme2's 18:55 condition (a)): each
+// test below was red on it (ad991effff..f9d20916a9).
+
+fn reply() -> Outcome {
+    Outcome::Response(crate::Response {
+        status: 200,
+        headers: vec![],
+        body: vec![],
+    })
+}
+
+/// The re-ask keeps the original ask's origin and invocation, from a refused
+/// turn of the ask (the query) and from a refused reply alike.
+#[test]
+fn a_reask_keeps_the_asks_origin_and_invocation() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.as_invocation(CallOrigin::Tool, 7, |r| {
+        r.act("change", vec![Value::Number(1.)])
+    })
+    .unwrap();
+    let t0 = r.now_ms();
+    r.data().refuse = None;
+    r.data().later = true;
+    r.advance(t0 + 250.).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(asked.len(), 1, "asked again");
+    assert_eq!(r.ticket_origin(asked[0].ticket), CallOrigin::Tool);
+    assert_eq!(r.ticket_id(asked[0].ticket), 7);
+    // Its reply refused by a turn over its budget: asked again, the same.
+    r.data().parse_error = Some(overrun());
+    r.fulfill(asked[0].ticket, reply()).unwrap();
+    r.data().parse_error = None;
+    let t1 = r.now_ms();
+    r.advance(t1 + 1000.).unwrap();
+    let again = r.take_requests();
+    assert_eq!(again.len(), 1, "asked again after the reply's refusal");
+    assert_eq!(r.ticket_origin(again[0].ticket), CallOrigin::Tool);
+    assert_eq!(r.ticket_id(again[0].ticket), 7);
+}
+
+/// A re-ask whose commit is refused (here a downstream answer outside its
+/// shape) leaves no resource pending forever: the wait comes due again.
+#[test]
+fn a_refused_reask_is_not_left_pending_forever() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, true),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let t0 = r.now_ms();
+    r.data().refuse = None;
+    r.data().value = records(3);
+    r.data().bad_guard = true;
+    assert!(r.advance(t0 + 250.).is_err(), "the re-ask's commit is refused");
+    assert!(r.pending_res[0], "still waiting, as an ask in flight");
+    assert!(r.timer_due_ms().is_some(), "and due again");
+    r.data().bad_guard = false;
+    r.advance(t0 + 60_000.).unwrap();
+    assert_eq!(r.resource("rows").cloned(), Some(records(3)));
+    assert!(!r.pending_res[0]);
+}
+
+/// Commits that don't ask the resource again (its arguments unchanged) burn
+/// no try: it is not asked in them, and its wait stands as it was.
+#[test]
+fn an_unrelated_commit_burns_no_try() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let (t0, asked) = (r.now_ms(), r.data().queries);
+    tick(&mut r);
+    r.act("tick", vec![Value::Number(2.)]).unwrap();
+    assert_eq!(r.data().queries, asked, "not asked in unrelated commits");
+    assert!(r.pending_res[0] && r.failed_resources().is_empty());
+    assert_eq!(r.timer_due_ms(), Some(t0 + 250.));
+    assert!(!r.journal().any(|l| l.contains("(2 of 2)")));
+}
+
+/// A downstream resource's turn over its budget, in the commit of another's
+/// reply, is not that reply's: the reply's resource is not asked again.
+#[test]
+fn a_downstream_overrun_is_not_the_replys() {
+    let mut data = Data::new(records(1));
+    data.later = true;
+    data.guard_stream = true;
+    let mut r = boot(plan(TypeKind::Number, None, false, true), data);
+    let out = r.take_requests();
+    let rows = out.iter().find(|q| q.target == "rows").unwrap().ticket;
+    let guard = out.iter().find(|q| q.target == "guard").unwrap().ticket;
+    // Its stream open, a message landed: a re-ask of it now fails, not waits.
+    let message = Outcome::Message(crate::Message {
+        data: "true".into(),
+        ..crate::Message::default()
+    });
+    r.fulfill(guard, message).unwrap();
+    r.data().guard_refuse = Some(overrun());
+    let _ = r.fulfill(rows, reply());
+    let t0 = r.now_ms();
+    r.data().guard_refuse = None;
+    let _ = r.advance(t0 + 5_000.);
+    assert!(
+        !r.take_requests().iter().any(|q| q.target == "rows"),
+        "rows answered; guard's turn was refused"
+    );
+    assert!(!r
+        .journal()
+        .any(|l| l.contains("resource rows:") && l.contains("asked again")));
+}
+
+/// One advance across both delays fires each re-ask at its own time, in
+/// deadline order, not once at the advance's end.
+#[test]
+fn reasks_fire_at_their_own_times_under_advance() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let t0 = r.now_ms();
+    let a = r.advance_timed(t0 + 5_000.);
+    assert!(a.error.is_none());
+    let at: Vec<f64> = a.receipts.iter().map(|t| t.at_ms).collect();
+    assert_eq!(at, vec![t0 + 250., t0 + 1250.]);
+    assert!(!r.pending_res[0], "its streak spent within the advance");
+    assert!(r.failed_resources()[0].1.contains("over the 100 ms budget"));
 }
