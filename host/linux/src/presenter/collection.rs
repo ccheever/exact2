@@ -310,8 +310,15 @@ fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Op
     // Read the origin from authored style, independently of the mounted row.
     // Subtracting an f64 logical row top from its f32 layout position invents
     // padding at large offsets, invalidating valid anchor corrections.
-    let basis = containing_width(kernel, snapshot.view, viewport);
-    let pad = |d| length(kernel, d, basis);
+    let basis = std::cell::OnceCell::new();
+    let pad = |d: Dimension| {
+        let basis = if d.has_percent() {
+            *basis.get_or_init(|| containing_width(kernel, snapshot.view, viewport))
+        } else {
+            0.
+        };
+        length(kernel, d, basis)
+    };
     let s = node.style;
     let axis = snapshot.axis;
     // Main-axis padding before and after the content, the cross-axis padding
@@ -1332,7 +1339,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_collection_percentage_padding_uses_its_containing_block() {
+    fn empty_collection_padding_resolves_lengths_and_percentages() {
         struct Empty;
         impl DataSource for Empty {
             fn query(
@@ -1343,20 +1350,29 @@ mod tests {
                 Ok(exact_runner::Value::list(vec![]))
             }
         }
-        let plan = contract::compile("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"10%\" padding-right=\"10%\" box-sizing=\"border-box\"\n        for x in rows key=x\n          text `${x}`\n").unwrap();
-        let (host, error) = Host::boot(
-            &plan.encode(),
-            Empty,
-            Box::new(exact_kernel::MonospaceMeasurer::default()),
-            400.,
-            500.,
-        )
-        .unwrap();
-        assert!(error.is_none());
-        let facts = geometry(host.kernel(), &host.collections()[0], 400.).unwrap();
-        assert_eq!(facts.width, 100.);
-        assert_eq!(facts.cross, 60.);
-        assert_eq!(facts.origin, 0.);
+        for (padding, cross) in [
+            ("20px", 60.),
+            ("10%", 60.),
+            ("calc(10% + 3px)", 54.),
+            ("min(10%, 12px)", 76.),
+            ("clamp(10px, 10%, 30px)", 60.),
+        ] {
+            let source = format!("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"{padding}\" padding-right=\"{padding}\" box-sizing=\"border-box\"\n        for x in rows key=x\n          text `${{x}}`\n");
+            let plan = contract::compile(&source).unwrap();
+            let (host, error) = Host::boot(
+                &plan.encode(),
+                Empty,
+                Box::new(exact_kernel::MonospaceMeasurer::default()),
+                400.,
+                500.,
+            )
+            .unwrap();
+            assert!(error.is_none());
+            let facts = geometry(host.kernel(), &host.collections()[0], 400.).unwrap();
+            assert_eq!(facts.width, 100., "{padding}");
+            assert_eq!(facts.cross, cross, "{padding}");
+            assert_eq!(facts.origin, 0., "{padding}");
+        }
     }
 
     /// A padding whose `calc()` resolves below zero is zero, CSS's range for
