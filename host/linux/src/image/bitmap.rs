@@ -169,6 +169,175 @@ mod tests {
     use vello::peniko::Blob;
 
     #[test]
+    fn bilinear_cropped_bitmap_matches_two_pixel_margin_byte_exactly() {
+        use crate::image::crop;
+        use crate::paint::{object_fit, Backend, Shape};
+        use crate::raster::Raster;
+        use exact_kernel::ObjectFit;
+        use exact_raster::{Crop, PixelSize};
+        use tiny_skia::{Color, IntRect, Transform};
+
+        let gate = Gate::new();
+        let session = gate.session();
+        for transpose in [false, true] {
+            let natural = if transpose { (72, 128) } else { (128, 72) };
+            let full = PixelSize {
+                width: natural.0,
+                height: natural.1,
+            };
+            let mut source = Pixmap::new(natural.0, natural.1).unwrap();
+            for (i, pixel) in source.pixels_mut().iter_mut().enumerate() {
+                let column = if transpose {
+                    i as u32 / natural.0
+                } else {
+                    i as u32 % natural.0
+                };
+                let value = (column % 2 * 255) as u8;
+                *pixel = Color::from_rgba8(value, value, value, 255)
+                    .premultiply()
+                    .to_color_u8();
+            }
+            // Crops chosen by MARGIN = 2 at draw scales 0.5, 50/72 and 1.
+            for (height, start, width) in [(36., 44, 40), (50., 49, 30), (72., 53, 22)] {
+                let (box_rect, expected) = if transpose {
+                    ((0., 0.1, height, 17.3), (0, start, (72, width)))
+                } else {
+                    ((0.1, 0., 17.3, height), (start, 0, (width, 72)))
+                };
+                let actual =
+                    crop::part(natural, full, (box_rect.2, box_rect.3), ObjectFit::Cover).unwrap();
+                let dst = object_fit(natural, ObjectFit::Cover, box_rect).unwrap();
+                let mut drawn = Vec::new();
+                for (x, y, (w, h)) in [actual, expected] {
+                    let pixels = source
+                        .clone_rect(IntRect::from_xywh(x as i32, y as i32, w, h).unwrap())
+                        .unwrap();
+                    let bytes = u64::from(w) * u64::from(h) * 4;
+                    let reservation = session.reserve_allocation(bytes).unwrap();
+                    let mut bitmap = Bitmap::new(pixels, natural, reservation.charge());
+                    bitmap.crop = Crop { x, y, full };
+                    let bitmap = Arc::new(bitmap);
+                    reservation.commit(bytes).unwrap();
+                    let placed = bitmap.placed(dst);
+                    assert!(placed.2 / w as f32 >= 0.5 && placed.3 / h as f32 >= 0.5);
+                    let mut raster = Raster::transparent();
+                    raster.begin(80., 80., 1.);
+                    raster.image(
+                        &bitmap,
+                        placed,
+                        &[Shape::rect(box_rect)],
+                        Transform::identity(),
+                        None,
+                    );
+                    drawn.push(raster.finish().unwrap());
+                }
+                if !transpose && height == 50. {
+                    let pixel = drawn[1].pixel(7, 2).unwrap();
+                    assert_eq!(
+                        [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()],
+                        [76, 76, 76, 255]
+                    );
+                }
+                assert!(
+                    drawn[0].data() == drawn[1].data(),
+                    "transpose={transpose} height={height}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shrinking_cropped_decode_matches_whole_inside_fractional_box() {
+        use crate::image::{
+            crop,
+            png_decode::{decode_rows, inspect, DecodePlan},
+        };
+        use crate::paint::{object_fit, Backend, Shape};
+        use crate::raster::Raster;
+        use exact_kernel::ObjectFit;
+        use std::io::Cursor;
+        use tiny_skia::{Color, Transform};
+
+        let gate = Gate::new();
+        let session = gate.session();
+        for transpose in [false, true] {
+            let natural = if transpose { (256, 1024) } else { (1024, 256) };
+            let full = if transpose { (32, 128) } else { (128, 32) };
+            for patterned in [false, true] {
+                let mut source = Pixmap::new(natural.0, natural.1).unwrap();
+                source.fill(Color::WHITE);
+                if patterned {
+                    for (i, pixel) in source.pixels_mut().iter_mut().enumerate() {
+                        let x = i as u32 % natural.0 / 8;
+                        let y = i as u32 / natural.0 / 8;
+                        *pixel = Color::from_rgba8(
+                            (x * 71) as u8,
+                            (y * 53) as u8,
+                            ((x + y) * 29) as u8,
+                            ((x * 17 + y * 31) % 256) as u8,
+                        )
+                        .premultiply()
+                        .to_color_u8();
+                    }
+                }
+                let bytes = source.encode_png().unwrap();
+                let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+                let plan = DecodePlan::new(header, full).unwrap();
+                let whole = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
+                for scale in [1., 1.25, 1.5] {
+                    let box_rect = if transpose {
+                        (0., 0.75, 8., 8.)
+                    } else {
+                        (0.75, 0., 8., 8.)
+                    };
+                    let (x, y, size) = crop::part(
+                        natural,
+                        plan.pixels,
+                        (8. * scale, 8. * scale),
+                        ObjectFit::Cover,
+                    )
+                    .unwrap();
+                    let part = plan.part(x, y, size).unwrap();
+                    let cropped = decode_rows(Cursor::new(&bytes), &part, || false).unwrap();
+                    let dst = object_fit(natural, ObjectFit::Cover, box_rect).unwrap();
+                    let mut drawn = Vec::new();
+                    for (pixels, crop) in [(cropped, part.crop), (whole.clone(), plan.crop)] {
+                        let bytes = u64::from(pixels.width()) * u64::from(pixels.height()) * 4;
+                        let reservation = session.reserve_allocation(bytes).unwrap();
+                        let mut bitmap = Bitmap::new(pixels, natural, reservation.charge());
+                        bitmap.crop = crop;
+                        let bitmap = Arc::new(bitmap);
+                        reservation.commit(bytes).unwrap();
+                        let mut raster = Raster::transparent();
+                        raster.begin(12., 12., scale);
+                        raster.image(
+                            &bitmap,
+                            bitmap.placed(dst),
+                            &[Shape::rect(box_rect)],
+                            Transform::identity(),
+                            None,
+                        );
+                        drawn.push(raster.finish().unwrap());
+                    }
+                    if !transpose && !patterned && scale == 1. {
+                        assert_eq!(drawn[0].pixel(0, 0).unwrap().alpha(), 64);
+                        assert_eq!(drawn[1].pixel(0, 0).unwrap().alpha(), 64);
+                    }
+                    assert_eq!(
+                        drawn[0].data(),
+                        drawn[1].data(),
+                        "transpose={transpose} patterned={patterned} scale={scale}"
+                    );
+                    assert!(drawn[0]
+                        .data()
+                        .chunks_exact(4)
+                        .all(|p| p[..3].iter().all(|c| *c <= p[3])));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn scene_blob_and_second_view_keep_the_unique_allocation_charged() {
         let gate = Gate::new();
         let session = gate.session();

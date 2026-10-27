@@ -10,10 +10,6 @@
 use exact_kernel::ObjectFit;
 use exact_raster::PixelSize;
 
-/// Pixels kept beyond the box's edge on each side: a painter's filter reads
-/// a neighbour of the last pixel that shows.
-const MARGIN: u32 = 2;
-
 /// The part of a picture of `natural` size, decoded whole at `full`, that a
 /// box of `shown` (device pixels) shows under `fit`: where it starts in the
 /// whole decode and its size. `None` for the whole picture: a fit that does
@@ -42,11 +38,19 @@ pub(super) fn part(
     // One axis: the share of the picture the box shows, as pixels of the
     // whole decode, widened to whole pixels and by the margin.
     let axis = |box_len: f32, drawn: f32, pixels: u32| {
+        // Keep the bilinear crop origin: changing it shifts f32 sampling phase.
+        // Only area filtering needs a full footprint plus its boundary pixel.
+        let footprint = pixels as f32 / drawn;
+        let margin = if footprint > 2. {
+            (footprint.ceil() as u32).saturating_add(1)
+        } else {
+            2
+        };
         let share = (box_len / drawn).min(1.0);
         let from = pixels as f32 * (1.0 - share) / 2.0;
         let to = pixels as f32 * (1.0 + share) / 2.0;
-        let from = (from.floor() as u32).saturating_sub(MARGIN);
-        let to = (to.ceil() as u32).saturating_add(MARGIN).min(pixels);
+        let from = (from.floor() as u32).saturating_sub(margin);
+        let to = (to.ceil() as u32).saturating_add(margin).min(pixels);
         (from.min(to), to - from.min(to))
     };
     let (x, w) = axis(shown.0, dw, full.width);
@@ -93,6 +97,20 @@ mod tests {
         .unwrap();
         assert_eq!((x, w), (0, 900));
         assert_eq!((y, h), (348, 504));
+    }
+
+    #[test]
+    fn a_shrinking_cover_keeps_the_destination_pixels_footprint() {
+        // 1024×256 decoded at 128×32, drawn at 32×8: the box shows 48..80.
+        // Each destination pixel reads 128/32 = 4 decoded pixels; keep 4+1 each side.
+        assert_eq!(
+            part((1024, 256), size(128, 32), (8., 8.), ObjectFit::Cover),
+            Some((43, 0, (42, 32)))
+        );
+        assert_eq!(
+            part((256, 1024), size(32, 128), (8., 8.), ObjectFit::Cover),
+            Some((0, 43, (32, 42)))
+        );
     }
 
     /// The other fits draw the whole picture (or are not cut here).

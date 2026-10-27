@@ -9,6 +9,9 @@ mod border;
 mod canvas;
 mod geometry;
 mod image;
+mod image_area;
+#[cfg(test)]
+mod image_area_tests;
 #[cfg(target_arch = "x86_64")]
 mod image_sample;
 pub use geometry::rounded_rect;
@@ -71,6 +74,7 @@ pub struct Raster {
     spare_clip: std::cell::RefCell<Option<Mask>>,
     #[cfg(target_arch = "x86_64")]
     image_samples: Vec<image_sample::Sample>,
+    image_area: image_area::Scratch,
     #[cfg(test)]
     pub(crate) clip_allocations: std::cell::Cell<usize>,
     #[cfg(test)]
@@ -863,16 +867,22 @@ impl Backend for Raster {
             }
         }
         if let Some(t) = self.target.pixels() {
-            #[cfg(target_arch = "x86_64")]
-            let drawn = image_sample::draw(
+            let drawn = image_area::draw(
                 t,
                 image.pixels(),
                 dev,
                 mask.as_deref(),
-                &mut self.image_samples,
+                &mut self.image_area,
             );
-            #[cfg(not(target_arch = "x86_64"))]
-            let drawn = false;
+            #[cfg(target_arch = "x86_64")]
+            let drawn = drawn
+                || image_sample::draw(
+                    t,
+                    image.pixels(),
+                    dev,
+                    mask.as_deref(),
+                    &mut self.image_samples,
+                );
             if !drawn {
                 t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_deref());
             }
