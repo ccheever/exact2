@@ -98,7 +98,7 @@ export function flowOf(client: T3Client): Flow {
 export type Readiness = Record<string, { ready: boolean; hint: string }>;
 /** buildAddProjectRemoteSourceReadiness over server.discoverSourceControl. */
 export function readiness(discovery: Obj | null): Readiness {
-  const unavailable = { ready: false, hint: 'Provider status unavailable. Open Settings -> Source Control and rescan.' };
+  const unavailable = { ready: false, hint: 'Provider status unavailable. Open Settings -> Source control and rescan.' };
   const result: Readiness = { url: { ready: true, hint: '' }, ...Object.fromEntries(SOURCES.map(source => [source, unavailable])) };
   if (!discovery) return result;
   for (const source of SOURCES) {
@@ -106,7 +106,7 @@ export function readiness(discovery: Obj | null): Readiness {
     if (!provider) continue;
     const auth = obj(provider.auth), detail = typeof auth.detail === 'string' ? auth.detail : str(obj(auth.detail).value);
     if (str(provider.status) !== 'available') result[source] = { ready: false, hint: str(provider.installHint) };
-    else if (str(auth.status) === 'unauthenticated') result[source] = { ready: false, hint: detail || `${str(provider.label)} is not authenticated. Open Settings -> Source Control for setup guidance.` };
+    else if (str(auth.status) === 'unauthenticated') result[source] = { ready: false, hint: detail || `${str(provider.label)} is not authenticated. Open Settings -> Source control for setup guidance.` };
     else result[source] = { ready: true, hint: '' };
   }
   return result;

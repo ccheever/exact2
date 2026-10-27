@@ -50,10 +50,10 @@ import { automationCalls } from './browser-automation-run';
 export function annotationTheme(scheme: string): Record<string, string> {
   const dark = scheme === 'dark';
   return {
-    colorScheme: dark ? 'dark' : 'light', radius: '0.625rem', background: dark ? '#0a0a0a' : '#ffffff', foreground: dark ? '#f5f5f5' : '#27272a',
-    popover: dark ? '#171717' : '#ffffff', popoverForeground: dark ? '#f5f5f5' : '#27272a', primary: dark ? '#346bf1' : '#1b4ed8', primaryForeground: '#ffffff',
+    colorScheme: dark ? 'dark' : 'light', radius: '0.5rem', background: dark ? '#000000' : '#ffffff', foreground: dark ? '#f5f5f5' : '#18181b',
+    popover: dark ? '#171717' : '#ffffff', popoverForeground: dark ? '#f5f5f5' : '#18181b', primary: dark ? '#346bf1' : '#1b4ed8', primaryForeground: '#ffffff',
     muted: dark ? 'rgb(255 255 255 / 4%)' : 'rgb(0 0 0 / 4%)', mutedForeground: dark ? '#a1a1aa' : '#71717b', accent: dark ? 'rgb(255 255 255 / 4%)' : 'rgb(0 0 0 / 4%)',
-    accentForeground: dark ? '#f5f5f5' : '#27272a', border: dark ? 'rgb(255 255 255 / 8%)' : 'rgb(0 0 0 / 8%)', input: dark ? 'rgb(255 255 255 / 10%)' : 'rgb(0 0 0 / 10%)',
+    accentForeground: dark ? '#f5f5f5' : '#18181b', border: dark ? 'rgb(255 255 255 / 8%)' : 'rgb(0 0 0 / 8%)', input: dark ? 'rgb(255 255 255 / 10%)' : 'rgb(0 0 0 / 10%)',
     ring: dark ? '#346bf1' : '#1b4ed8', fontSans: 'system-ui, sans-serif', fontMono: 'ui-monospace, monospace',
   };
 }

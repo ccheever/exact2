@@ -593,11 +593,11 @@ shape Viewport
   displayMode: string // "fullscreen" while the window is in full screen (LLP 1039)
 
 style Ink
-  color="light-dark(#27272a, #ededed)"
+  color="light-dark(#18181b, #ededed)"
 style Muted
   color="light-dark(#71717a, #858585)"
 style Canvas
-  background-color="light-dark(#fcfcfc, #0a0a0a)"
+  background-color="light-dark(#fcfcfc, #000000)"
 style Surface
   background-color="light-dark(#ffffff, #101010)"
 style Edge
@@ -613,7 +613,7 @@ style Field
   box-sizing="border-box" min-width=0 padding="0.625rem" border-radius="0.5rem"
   border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #303030)"
   background-color="light-dark(#fafafa, #191919)"
-  color="light-dark(#27272a, #ededed)" font-size="0.8125rem"
+  color="light-dark(#18181b, #ededed)" font-size="0.8125rem"
 style Primary
   display="flex" flex-direction="row" align-items="center" justify-content="center"
   box-sizing="border-box"
