@@ -504,6 +504,13 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
             }
+            // A list row's chevron takes no room, as the web's `display: none`
+            // has it, so what is beside it reaches the row's end.
+            for id in &s.chevrons {
+                if let Some(n) = kernel.node(*id) {
+                    covers.insert(n.key, (n.id, HostCover::Whole));
+                }
+            }
         }
         let previous_blocks =
             std::mem::replace(&mut self.host.navigation.split.blocks, blocks.clone());

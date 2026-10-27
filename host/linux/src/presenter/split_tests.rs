@@ -198,6 +198,28 @@ fn resize_releases_blocks_covers_lifts_and_placements() {
 }
 
 #[test]
+fn a_list_chevron_takes_no_room_beside_the_detail() {
+    let source = APP.replace("SPLIT", "auto").replace(
+        "text \"Linked\"",
+        "text \"Linked\" flex=1 testId=\"linked-name\"",
+    );
+    let mut p = boot_source(1200., &source);
+    let (row, chevron) = (id(&p, "linked"), id(&p, "chevron"));
+    let end = |p: &Presenter<()>, id: ViewId| {
+        let f = p.host.kernel().node(id).unwrap().frame;
+        f.x + f.width
+    };
+    assert_eq!(cover(&p, chevron), Some(HostCover::Whole));
+    let k = p.host.kernel();
+    let node = k.node(row).unwrap();
+    let (_, _, right, _) = k.layout_padding(node.key).unwrap();
+    assert_eq!(end(&p, id(&p, "linked-name")), node.frame.width - right);
+    assert_eq!(p.resize(800., 800.), None);
+    assert_eq!(cover(&p, chevron), None);
+    assert_eq!(p.host.kernel().node(chevron).unwrap().frame.width, 16.);
+}
+
+#[test]
 fn author_opt_out_width_and_minimum_detail() {
     let mut p = boot(1200., "none");
     tap(&mut p, "a");
