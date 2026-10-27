@@ -1,7 +1,7 @@
 //! @ref LLP 1115.004 D16 — Windows list/details.
 //! @ref LLP 1115.002 D4 — the root list stays in the page; details have pane blocks.
 use super::*;
-use exact_kernel::{BlockAxis, HostBlock, HostCover, Kernel, NodeKey};
+use exact_kernel::{BlockAxis, Display, HostBlock, HostCover, Kernel, NodeKey};
 use exact_runner::Runner;
 use std::collections::BTreeSet;
 
@@ -132,6 +132,38 @@ fn owner<D: DataSource>(runner: &Runner<D>, list: ViewId, mut id: ViewId) -> Opt
         id = node.parent?;
     }
     press
+}
+
+/// The first row under `at` the app says is current (ARIA reads `""` as
+/// `false`), its rows found as `Runner::stack_split` finds them.
+fn current_row<D: DataSource>(runner: &Runner<D>, at: ViewId) -> Option<ViewId> {
+    for child in runner.kernel().node(at)?.children() {
+        let Some(row) = runner.kernel().node(child) else {
+            continue;
+        };
+        if row.style.display == Display::None
+            || row.props.str(PropId::Popover).is_some()
+            || row.props.str(PropId::NavigationSplit) == Some("placeholder")
+        {
+            continue;
+        }
+        let href = row.props.str(PropId::Href).filter(|h| !h.is_empty());
+        let current = row
+            .props
+            .str(PropId::AccessibilityCurrent)
+            .is_some_and(|c| !matches!(c, "" | "false"));
+        match (runner.press_writes_router(child), href) {
+            (Some(writes), _) if writes && current => return Some(child),
+            (None, Some(_)) if current => return Some(child),
+            (None, None) => {
+                if let Some(row) = current_row(runner, child) {
+                    return Some(row);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 impl<D: DataSource> Presenter<D> {
@@ -299,17 +331,14 @@ impl<D: DataSource> Presenter<D> {
                 })
             })
             .or_else(|| {
-                // A detail the app opened itself (at launch, after Back) has
-                // no row a press pushed: its row is the one the app says is
-                // current (ARIA reads `""` as `false`).
-                let list = rule.list.filter(|_| detail.is_some())?;
-                kernel
-                    .preorder_where(&[list], |_, p| {
-                        p.str(PropId::AccessibilityCurrent)
-                            .is_some_and(|c| !matches!(c, "" | "false"))
-                    })
-                    .into_iter()
-                    .find(|id| owner(self.host.runner(), list, *id) == Some(*id))
+                // A detail the app opened itself (at launch, after Back): no
+                // row pushed or links a route in the column.
+                let pushed =
+                    base.is_some_and(|id| linked(id).is_some() || actions.contains_key(&id));
+                current_row(
+                    self.host.runner(),
+                    rule.list.filter(|_| detail.is_some() && !pushed)?,
+                )
             });
         let placeholder = detail
             .is_none()

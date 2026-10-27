@@ -241,7 +241,8 @@ fn a_detail_no_row_pushed_marks_the_row_the_app_says_is_current() {
         .replace("SPLIT", "auto")
         .replace(
             "button press=open(\"b\") height=48 testId=\"b\"",
-            "button press=open(\"b\") height=48 testId=\"b\" aria-current=(top(nav).name == \"item\" ? \"page\" : \"false\")",
+            // A hidden copy of the row before it is no row of the list.
+            "button press=open(\"b\") display=\"none\" aria-current=\"page\"\n                text \"Beta\"\n              button press=open(\"b\") height=48 testId=\"b\" aria-current=(top(nav).name == \"item\" ? \"page\" : \"false\")",
         )
         .replace(
             "            box navigationSplit=\"placeholder\"",
