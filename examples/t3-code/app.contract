@@ -160,6 +160,7 @@ component T3Code
     citeEnd
     restScrolled
     restGesture
+    restMotion
     releaseUndoClaim
     composerMenuActive
     composerMenuHover

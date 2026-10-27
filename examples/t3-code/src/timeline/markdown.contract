@@ -467,9 +467,9 @@ component BlockBody
       box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
     if block.kind == "table-row"
       row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
-        for cell in block.cells key=cell.id
-          text flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.75rem" line-height=1.625 color=prose
-            ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400), ms=-1, me=-1)
+        for cell, at in block.cells key=cell.id
+          text flex=1 min-width=0 padding-left=(at == 0 ? "0px" : "0.75rem") padding-right=(at == block.cells.length - 1 ? "0px" : "0.75rem") padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.875rem" line-height=1.625 color=prose
+            ChatRuns(runs=cell.runs, size=14, weight=(block.header ? 600 : 400), ms=-1, me=-1)
     if block.kind == "table"
       MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, chips=chips, urls=urls, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
     if block.kind == "image"
@@ -1223,7 +1223,7 @@ component CopyCodeButton
       MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=2, still=still)
 
 // MarkdownTable (ChatMarkdown.tsx; MIT, see LICENSE-T3): a full-width table of
-// 12pt cells that scrolls sideways past its content width; cells keep one line
+// 14pt cells that scrolls sideways past its content width; cells keep one line
 // (an ellipsis at the column's edge) until "Expand table cells" lets body cells
 // wrap across the column (Settings → Word wrap decides the start). A cell's
 // 24rem max-width only caps what it asks of the column: Chrome's table layout
@@ -1262,10 +1262,11 @@ component MarkdownTable
         column width=(fit ? "auto" : "100%") role="table"
           for tableRow in block.rows key=tableRow.id
             row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" role="row"
-              for cell in tableRow.cells key=`${cell.id}\t${cell.runs.map((part) => part.text).join("")}`
+              for cell, at in tableRow.cells key=`${cell.id}\t${cell.runs.map((part) => part.text).join("")}`
                 for column in block.columns.filter((entry) => entry.id == cell.id) key=column.id
-                  TableCell(cell=cell, column=column, header=tableRow.header, expanded=expanded, fitLane=fitLane, prose=prose, chips=chips, urls=urls, local=local, nodePrefix=`${block.id}-${tableRow.id}-${cell.id}`, clipped=noteClipped)
-      row width="100%" margin-top="0.125rem" align-items="center" justify-content="space-between"
+                  TableCell(cell=cell, column=column, header=tableRow.header, first=(at == 0), last=(at == tableRow.cells.length - 1), expanded=expanded, fitLane=fitLane, prose=prose, chips=chips, urls=urls, local=local, nodePrefix=`${block.id}-${tableRow.id}-${cell.id}`, clipped=noteClipped)
+      // mt-0.5 -mx-1: the footer's buttons stand 4pt out on both sides, within the row's own inset.
+      row margin-left="-0.25rem" margin-right="-0.25rem" margin-top="0.125rem" align-items="center" justify-content="space-between"
         if block.rows.map((row) => row.cells.map((cell) => `${row.header ? "h:" : "b:"}${block.id}-${row.id}-${cell.id}`).join("\n")).join("\n").split("\n").filter((id) => clipped.includes(id)).length > 0
           Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
             TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
@@ -1274,7 +1275,7 @@ component MarkdownTable
         Tip(label="Copy table", side="top", align="end", offset=28)
           TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), pressFirst=local("table-menu", block.id, `keys:first\t${block.markdown}\t${block.csv}`), pressLast=local("table-menu", block.id, `keys:last\t${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // its popup is the window's (table-menu.contract)
 
-// A th or td: 7.2/12 padding (8.8 in the header), the column's sizing cell
+// A th or td, top-aligned: 7.2/12 padding (8.8 in the header; none outside the first and last), the column's sizing cell
 // drawn invisibly beneath so every row's cell takes the column's width. The
 // shown content asks for no width (width 0) and fills the cell (min-width 100%),
 // so only the sizer sizes the column and the text uses all of it. Fitting the lane, the sizer wraps and the cell
@@ -1286,6 +1287,9 @@ component TableCell
     cell: ChatCell
     column: ChatColumn
     header: bool
+    // The row's first and last cells sit flush with the prose: no padding on their outer side.
+    first: bool
+    last: bool
     expanded: bool
     fitLane: bool
     prose: string
@@ -1306,33 +1310,34 @@ component TableCell
     if cellWidth > 0 and width > 0
       clipped(`${header ? "h:" : "b:"}${nodePrefix}`, cellClipped(width, cellWidth))
   view
-    column resize=cellSized position="relative" flex-grow=column.grow flex-shrink=(fitLane ? 1 : 0) min-width=(fitLane ? "auto" : 0) padding-left="0.75rem" padding-right="0.75rem" padding-top=(header ? "0.55rem" : "0.45rem") padding-bottom=(header ? "0.55rem" : "0.45rem") box-sizing="border-box" justify-content="center" role=(header ? "columnheader" : "cell")
+    column resize=cellSized position="relative" flex-grow=column.grow flex-shrink=(fitLane ? 1 : 0) min-width=(fitLane ? "auto" : 0) padding-left=(first ? "0px" : "0.75rem") padding-right=(last ? "0px" : "0.75rem") padding-top=(header ? "0.55rem" : "0.45rem") padding-bottom=(header ? "0.55rem" : "0.45rem") box-sizing="border-box" justify-content="flex-start" role=(header ? "columnheader" : "cell")
       // Measure the same runs without a cap so a short table has no expansion control.
       box position="absolute" left=0 top=0 display="grid" grid-template-columns="max-content" opacity=0 pointer-events="none" aria-hidden=true
         if cellBoxes(cell.runs)
           row resize=naturalSized width="auto" flex-shrink=0
             CellSizer(runs=cell.runs, weight=(header ? 600 : 400), color=prose, chips=chips, urls=urls, natural=true)
         else
-          text resize=naturalSized font-size="0.875rem" line-height=1.625 white-space="nowrap" flex-shrink=0
-            ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
+          row resize=naturalSized width="auto" flex-shrink=0
+            text font-size="0.875rem" line-height=1.625 white-space="nowrap" flex-shrink=0
+              ChatRuns(runs=cell.runs, size=14, weight=(header ? 600 : 400), ms=-1, me=-1)
       if cellBoxes(cell.runs)
         // A code span keeps its bordered box (inline spans paint backgrounds only); an image is its picture.
         CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=(header or not expanded), justify=(column.align == "center" ? "center" : column.align == "right" ? "flex-end" : "flex-start"), chips=chips, urls=urls, local=local, nodePrefix=nodePrefix)
       if not cellBoxes(cell.runs) and ((header and not fitLane) or not expanded)
         // One line, cut with an ellipsis at the column's edge (text-overflow: ellipsis).
         text width=0 min-width="100%" font-size="0.875rem" line-height=1.625 line-clamp=1 color=prose text-align=column.align
-          ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
+          ChatRuns(runs=cell.runs, size=14, weight=(header ? 600 : 400), ms=-1, me=-1)
       if not cellBoxes(cell.runs) and not ((header and not fitLane) or not expanded)
         text width=0 min-width="100%" font-size="0.875rem" line-height=1.625 overflow-wrap=(fitLane ? "break-word" : "anywhere") color=prose text-align=column.align
-          ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
+          ChatRuns(runs=cell.runs, size=14, weight=(header ? 600 : 400), ms=-1, me=-1)
       box height=0 overflow="hidden" aria-hidden=true
         if column.capped and not fitLane
-          box width="22.5rem" height=0
+          box width=`${24 - (first ? 0 : 0.75) - (last ? 0 : 0.75)}rem` height=0
         if (fitLane or not column.capped) and cellBoxes(column.sizer)
           CellSizer(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, chips=chips, urls=urls, natural=false)
         if (fitLane or not column.capped) and not cellBoxes(column.sizer)
-          text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.875rem" line-height=1.625 white-space=(fitLane ? "normal" : "nowrap") opacity=0
-            ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400), ms=-1, me=-1)
+          text max-width=(expanded and column.header ? "6250rem" : `${24 - (first ? 0 : 0.75) - (last ? 0 : 0.75)}rem`) font-size="0.875rem" line-height=1.625 white-space=(fitLane ? "normal" : "nowrap") opacity=0
+            ChatRuns(runs=column.sizer, size=14, weight=(column.header ? 600 : 400), ms=-1, me=-1)
 
 // tableHasClippedCells, per cell: its unwrapped content (`natural`) is wider than the cell's content box
 // (`box`, what `resize` reports). The 24rem cap only limits what a cell asks of its column; spare room

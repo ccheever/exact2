@@ -12,13 +12,14 @@ import { modelPreferenceSource } from '../providers/model-preferences';
 import { applyPickerPrefs } from '../providers/settings-b-models'; // hidden models and saved order
 import { fanoutSelections, fanoutSupported } from './composer-controls-fanout';
 import type { T3Client } from '../client/client';
+import { acpInstanceIcon } from './acp-instance-icon';
 import { pickerReady, pickerOptions, pickerSetupEntries, shouldOfferModelPickerSetup } from '../providers/provider-picker-setup';
 import { usesChatGptSharing } from '../providers/chatgpt-plan';
 import { composerPair } from './composer-provider-selection'; // the checked row
 
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
 type Item = { id: string; name: string; shortName: string; subProvider: string; providerId: string; providerName: string;
-  driver: string; favorite: boolean; legacy: boolean; isNew: boolean; order: number };
+  driver: string; icon: string; favorite: boolean; legacy: boolean; isNew: boolean; order: number };
 
 export { pickerReady };
 
@@ -162,7 +163,7 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const items: Item[] = providers.filter(provider => pickerReady(provider) && matchesLock(provider, lock)).flatMap(provider => applyPickerPrefs(source, str(provider.instanceId), arr(provider.models)).map((model, order) => {
     const id = str(model.slug), providerId = str(provider.instanceId);
     return { id, name: str(model.name, id), shortName: str(model.shortName), subProvider: str(model.subProvider), providerId,
-      providerName: str(provider.displayName, str(provider.driver)), driver: str(provider.driver), favorite: keys.has(`${providerId}:${id}`),
+      providerName: str(provider.displayName, str(provider.driver)), driver: str(provider.driver), icon: acpInstanceIcon(client.config, provider), favorite: keys.has(`${providerId}:${id}`),
       legacy: model.isLegacy === true, isNew: model.badge === 'new', order };
   }));
   // An active instance that needs setup opens selected, so its footer offers the setup (ModelPickerContent:245-264).
@@ -198,12 +199,12 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const fan = target ? null : fanoutSelections(client as unknown as T3Client);
   const fanKeys = new Set((fan ?? []).map(selection => `${selection.instanceId}:${selection.model}`));
   const row = (item: Item, index: number, kind: string) => ({ key: `${item.providerId}:${item.id}`, kind, id: item.id, providerId: item.providerId,
-    name: display(item), label: providerRowLabel(item.providerName, item.subProvider), driver: item.driver, twoLine: twoLine(item),
+    name: display(item), label: providerRowLabel(item.providerName, item.subProvider), driver: item.driver, icon: item.icon, twoLine: twoLine(item),
     favorite: item.favorite, selected: fan ? fanKeys.has(`${item.providerId}:${item.id}`) : item.providerId === current.providerId && item.id === current.modelId, isNew: item.isNew,
     index, highlighted: false, expanded: false, checked: !!fan && fanKeys.has(`${item.providerId}:${item.id}`), reason: target?.reason(item.providerId, item.id) ?? '', jump: '', jumpKey: '' });
   const rows = ordered.map((item, index) => item === null
     ? { key: `legacy:${selected}`, kind: 'legacy', id: '', providerId: selected, name: 'Legacy models', label: `${legacy.length} models`,
-      driver: '', twoLine: true, favorite: false, selected: false, isNew: false, index, highlighted: false, expanded: false, checked: false, reason: '', jump: '', jumpKey: '' }
+      driver: '', icon: '', twoLine: true, favorite: false, selected: false, isNew: false, index, highlighted: false, expanded: false, checked: false, reason: '', jump: '', jumpKey: '' }
     : row(item, index, legacy.length && inLegacy(item) ? 'legacy-model' : 'model'));
   // The rail's instance badges count only its own (enabled) entries, as ModelPickerSidebar does.
   // Locked-out instances follow the compatible ones, disabled.
@@ -213,7 +214,7 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   // only where the picker offers setup (onOpenProviderSetup).
   const setup = target?.setup !== false;
   const rail = railOrder.map((provider, index) => ({ id: str(provider.instanceId), index: index + 1,
-    name: str(provider.displayName, str(provider.driver)), driver: str(provider.driver), ready: pickerReady(provider) && matchesLock(provider, lock),
+    name: str(provider.displayName, str(provider.driver)), driver: str(provider.driver), icon: acpInstanceIcon(client.config, provider), ready: pickerReady(provider) && matchesLock(provider, lock),
     selectable: (pickerReady(provider) || (setup && shouldOfferModelPickerSetup(provider, pickerOptions(provider)))) && matchesLock(provider, lock),
     label: railLabel(provider, !matchesLock(provider, lock)), selected: str(provider.instanceId) === selected, ...badge(provider, enabled) }));
   const at = rail.findIndex(entry => entry.selected);
