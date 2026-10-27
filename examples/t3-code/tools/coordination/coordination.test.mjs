@@ -511,6 +511,74 @@ test('missing process start times block live owners but release after same-boot 
   }
 });
 
+test('confirmed same-host restart retires only the audited native operation and preserves unknown history', async () => {
+  const f = fixture(); await f.start(); const c = f.c(f.main);
+  const current = processIdentity(process.pid); expect(current?.bootId).toBeTruthy();
+  await f.c(f.a).recordOutput(f.ta.id, f.ta.thread, 'target/retained', 1);
+  await f.c(f.a).resource(f.ta.id, f.ta.thread, 'storage', 'fixture:retained');
+  const operation = 'prior-boot-native';
+  const guard = { pid: 2147483646, host: current.host, bootId: 'prior-boot', started: 'prior boot launcher' };
+  const child = { ...guard, pid: 2147483645, operation, role: 'child', started: 'prior boot child' };
+  await c.transaction(s => {
+    // Any accidental census of this old group fails without inspecting real PIDs.
+    s.leases['native-build'] = { task: f.ta.id, operation, guard, kind: 'native-build', phase: 'awaiting-audit', group: 0 };
+    s.tasks[f.ta.id].processes = [{ ...guard, operation, role: 'guard' }, child, { ...child, operation: 'retained-operation' }];
+    s.events.push({ action: 'process-audit-held', operation, held: true, audit: { noUnrecordedDescendants: false } });
+  });
+  const baseline = await c.status();
+  const accepted = { ...audit(f.ta, operation, [guard, child], 'coordinator'), noUnrecordedDescendants: false,
+    newBootBoundary: { fromBootId: guard.bootId, toBootId: current.bootId, host: current.host,
+      sameHostRestartConfirmed: true, confirmationReference: 'fixture human confirmation' } };
+  const refusals = [
+    ['same boot', (s, a) => { s.leases['native-build'].guard.bootId = current.bootId; a.newBootBoundary.fromBootId = current.bootId; }],
+    ['missing recorded boot', s => { delete s.leases['native-build'].guard.bootId; }],
+    ['wrong prior boot', (s, a) => { a.newBootBoundary.fromBootId = 'forged'; }],
+    ['wrong current boot', (s, a) => { a.newBootBoundary.toBootId = 'forged'; }],
+    ['missing current boot', (s, a) => { delete a.newBootBoundary.toBootId; }],
+    ['unconfirmed restart', (s, a) => { a.newBootBoundary.sameHostRestartConfirmed = false; }],
+    ['missing confirmation reference', (s, a) => { delete a.newBootBoundary.confirmationReference; }],
+    ['empty confirmation reference', (s, a) => { a.newBootBoundary.confirmationReference = ' '; }],
+    ['wrong current host', (s, a) => { a.newBootBoundary.host = 'another-host'; }],
+    ['wrong prior host', s => { s.leases['native-build'].guard.host = 'another-host'; }],
+    ['running launcher', s => { s.leases['native-build'].phase = 'running'; }],
+    ['pending launch', s => { s.tasks[f.ta.id].pending.push('pending-operation'); }],
+    ['mixed boot process', s => { s.tasks[f.ta.id].processes[1].bootId = current.bootId; }],
+    ['legacy process', s => { delete s.tasks[f.ta.id].processes[1].bootId; }],
+    ['missing process start', s => { s.tasks[f.ta.id].processes[1].started = null; }],
+    ['invalid process PID', s => { s.tasks[f.ta.id].processes[1].pid = 0; }],
+    ['no recorded operation', s => { s.tasks[f.ta.id].processes = []; }],
+    ['omitted child', (s, a) => { a.processes = [guard]; }],
+    ['omitted guard', (s, a) => { a.processes = [child]; }],
+    ['unrecorded identity', (s, a) => { a.processes.push({ ...child, pid: 2147483644 }); }],
+    ['false lifetime claim', (s, a) => { a.noUnrecordedDescendants = true; }],
+    ['noncoordinator', (s, a) => { a.auditorThreadId = f.ta.thread; }],
+    ['nonnative operation', s => { const l = s.leases['native-build']; delete s.leases['native-build']; s.leases['process:old'] = { ...l, kind: 'process' }; }],
+    ['ordinary audit remains closed', (s, a) => { delete a.newBootBoundary; }],
+    ['mismatched task', (s, a) => { a.taskId = f.tb.id; }],
+  ];
+  const stateFile = join(f.root, 'state.json');
+  for (const [name, mutate] of refusals) {
+    const state = structuredClone(baseline), attempt = structuredClone(accepted);
+    mutate(state, attempt); writeFileSync(stateFile, JSON.stringify(state));
+    const before = readFileSync(stateFile, 'utf8');
+    await expect(c.auditRun(f.ta.id, attempt.auditorThreadId, attempt), name).rejects.toThrow();
+    expect(readFileSync(stateFile, 'utf8'), name).toBe(before);
+  }
+  writeFileSync(stateFile, JSON.stringify(baseline));
+  const released = await c.auditRun(f.ta.id, 'coordinator', accepted);
+  expect(released).toMatchObject({ action: 'process-audit-released', operation, held: false,
+    historicalLifetime: 'unknown', releaseBasis: 'confirmed-same-host-restart', guard, audit: accepted });
+  expect(released.retiredProcesses).toEqual(baseline.tasks[f.ta.id].processes.filter(p => p.operation === operation));
+  const after = await c.status();
+  expect(after.events.slice(0, -1)).toEqual(baseline.events);
+  expect(after.events.at(-1)).toEqual(released);
+  const expected = structuredClone(baseline);
+  delete expected.leases['native-build'];
+  expected.tasks[f.ta.id].processes = expected.tasks[f.ta.id].processes.filter(p => p.operation !== operation);
+  expected.events.push(released);
+  expect(after).toEqual(expected);
+});
+
 test('port and storage receipts collide across processes and release for reuse', async () => {
   const f = fixture(); await f.start();
   const claim = task => f.cli(task.worktree, ['resource-claim', ...own(task), '--kind', 'port', '--value', 'fixture-host:49161']);

@@ -315,6 +315,30 @@ export class Coordination {
       if (!entry) fail('unknown operation or already released');
       const [key, lease] = entry;
       if (audit.taskId !== id || audit.worktree !== task.worktree || audit.auditorThreadId !== thread || !Array.isArray(audit.processes)) fail('matching explicit process audit required');
+      if (audit.newBootBoundary) {
+        this.coordinator(s, thread);
+        const boundary = audit.newBootBoundary;
+        const previousBoot = lease.guard?.bootId;
+        if (key !== 'native-build' || lease.kind !== 'native-build' || lease.phase !== 'awaiting-audit' || task.pending.length ||
+            !bootId || !previousBoot || previousBoot === bootId || boundary.fromBootId !== previousBoot || boundary.toBootId !== bootId ||
+            boundary.host !== hostname() || lease.guard.host !== boundary.host || boundary.sameHostRestartConfirmed !== true ||
+            typeof boundary.confirmationReference !== 'string' || !boundary.confirmationReference.trim() || audit.noUnrecordedDescendants !== false) {
+          fail('confirmed same-host restart boundary required');
+        }
+        const retired = task.processes.filter(p => p.operation === audit.operation);
+        const members = [lease.guard, ...retired, ...audit.processes];
+        if (!retired.length || members.some(p => !Number.isSafeInteger(p.pid) || p.pid <= 0 || !p.started || p.bootId !== previousBoot || p.host !== boundary.host) ||
+            [...retired, lease.guard].some(p => !audit.processes.some(a => a.pid === p.pid && a.started === p.started && a.bootId === p.bootId && a.host === p.host)) ||
+            audit.processes.some(a => ![...retired, lease.guard].some(p => a.pid === p.pid && a.started === p.started))) {
+          fail('matching recorded prior-boot identities required');
+        }
+        task.processes = task.processes.filter(p => p.operation !== audit.operation);
+        delete s.leases[key];
+        return this.event(s, task, 'process-audit-released', {
+          operation: audit.operation, group: lease.group, audit, held: false,
+          releaseBasis: 'confirmed-same-host-restart', historicalLifetime: 'unknown', retiredProcesses: retired, guard: lease.guard,
+        });
+      }
       if (lease.phase === 'running' && this.processState(s, lease.guard) !== 'dead') fail('launcher still live or unknown');
       for (const member of [...groupMembers(lease.group), ...audit.processes]) {
         if (!Number.isSafeInteger(member.pid) || member.pid <= 0 || !processHostMatches(member, { host: hostname(), bootId }, s.repos[this.repo]?.processHosts) || !member.started) fail('unknown audited process identity');
