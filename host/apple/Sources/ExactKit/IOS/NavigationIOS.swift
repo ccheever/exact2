@@ -1283,6 +1283,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let departed = stacks[ObjectIdentifier(navigationController)]?.written.last.flatMap { id in
             controllers.values.first { ObjectIdentifier($0) == id && !navigationController.viewControllers.contains($0) }
         }
+        let written = Set(stacks[ObjectIdentifier(navigationController)]?.written ?? [])
+        let poppedKeys = controllers.values.filter { written.contains(ObjectIdentifier($0)) && !navigationController.viewControllers.contains($0) }.map(\.key)
         let source = swipe.map { (node: $0.node, key: $0.key) } ?? departed.map { (node: $0.node, key: $0.key) }
         recordPop(navigationController)
         guard navigationController === navigation, let viewController = navigationController.topViewController else { return }
@@ -1326,14 +1328,21 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let sourceReplaced = swipe != nil && sourceKey == nil
             && selectedRouteCount == swipe?.depth
         let rootKey = selectedKey ?? ""
-        let dispatches = (viewController as? RouteController).map {
+        // The app follows UIKit's finished pop (NavigationRules.appIsBehind)
+        let uikitTop = (viewController as? RouteController)?.key ?? ""
+        let behindUIKit = !cancelled && !presenter.modals.inTransition
+            && NavigationRules.appIsBehind(poppedKeys: poppedKeys, uikitTop: uikitTop, shownKeys: shownKeys, rootKey: rootKey)
+        let dispatches = behindUIKit || (viewController as? RouteController).map {
             NavigationRules.dispatchesBack(shownKey: $0.key, rootKey: rootKey,
                                            sourceKey: sourceKey, sourceReplaced: sourceReplaced,
                                            modalActive: presenter.modals.inTransition)
         } ?? false
+        if behindUIKit, sourceKey != rootKey, !sourceReplaced {
+            presenter.session?.log("navigation: UIKit popped to \(uikitTop); the app's stack follows it from \(rootKey)")
+        }
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")
         guard dispatches else { return }
-        if swipe == nil, let destination = (viewController as? RouteController)?.key,
+        if swipe == nil || behindUIKit, let destination = (viewController as? RouteController)?.key,
            let from = shownKeys.firstIndex(of: rootKey),
            let to = shownKeys.firstIndex(of: destination), from - to > 1 {
             goBack(from: rootKey, to: destination)
