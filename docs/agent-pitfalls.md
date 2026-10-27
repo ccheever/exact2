@@ -287,6 +287,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   its action: that misses a return which lands before the hide's timer has fired
   (`prefer visibility-state hidden` then `visible` with no clock step between).
   (Web and iOS simulator, 2026-10-06.)
+- **A jump gated on the tab that shows runs again on every return to it.** A
+  tab's panel and its list stay mounted while another tab shows, so the list
+  keeps the reader's place, as a `UITabBarController`'s tabs and SwiftUI's
+  `TabView` keep theirs. A task gated on the tab (`task reveal when
+  top(nav).name == "board" key=station` with `after(1, jumpNow)`) re-arms when
+  the gate turns true again: switching to another tab and back runs its
+  `scrollIntoView` and throws that place away. Fix: gate the jump on what should
+  move the list (the data loaded, the station or filter chosen: its `key`), not
+  on which tab shows; run a jump the reader asks for (a Now button) from its
+  press. (Bake-off r25, timetable: Saved and back took the board from 07:34 to
+  05:00.)
 
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target
