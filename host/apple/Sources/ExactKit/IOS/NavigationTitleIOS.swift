@@ -570,17 +570,23 @@ extension NavigationHost {
     /// another tab's root was selected. A hidden tablist hides the bar; a
     /// shown one shows it only if Exact hid it (`tablistHidBar`), so a hatch's
     /// own hide stands, and between those moments nothing is written, so a
-    /// hatch's own show stands too. Never mid-transition. A root first seen
-    /// with its tablist shown writes nothing. iOS 17 has no
+    /// hatch's own show stands too. Never mid-transition: a change made then
+    /// (a sheet presenting, a push or pop in flight) waits, and the root
+    /// arrives again at the next call that can move the bar. A shown tablist
+    /// leaves the bar as it is unless Exact hid it. iOS 17 has no
     /// `setTabBarHidden`: there the bar stays.
     func followTablistAtRoot(_ root: RouteController, hidden: Bool, in stack: UIViewController) {
         let changed = root.tablistHidden != hidden
         root.tablistHidden = hidden
         guard root === stack.stackRoutes.last, stack.transitionCoordinator == nil, tabBarShows,
-              let tabs = tabController, stack.tabBarController === tabs else { return }
+              let tabs = tabController, stack.tabBarController === tabs else {
+            if changed, tablistRoot === root { tablistRoot = nil }
+            return
+        }
         guard #available(iOS 18.0, tvOS 18.0, *) else { return }
         // Arrived: the root on top at rest for the first time since another
-        // route or root was (a pushed route selected clears `tablistRoot`).
+        // route or root was (a pushed route selected clears `tablistRoot`), or
+        // since a change of its own the bar could not follow (above).
         let arrived = tablistRoot !== root
         tablistRoot = root
         guard changed || arrived else { return }
