@@ -673,6 +673,14 @@ package final class SwipeActionsHost {
                     } else { action.title = host.label(target) }
                     return action
                 }
+                // `delete=`'s Delete (LLP 1116.020 D1) is a hand-built list's: UIKit's
+                // red, the trash symbol over its title (its web paint is the page's).
+                if destructive, target.props["id"] == "exact-swipe-delete", let image = UIImage(systemName: "trash") {
+                    image.accessibilityLabel = host.label(target)
+                    images[target.id] = image; action.image = image
+                    action.title = target.face?.title ?? host.label(target)
+                    return action
+                }
                 // Its authored background, else the accent its author wrote
                 // on it, as a native action's (Mail's Flag is orange), else
                 // UIKit's for its style.
