@@ -8,7 +8,8 @@
 export function fake() {
   const scanning = new Set(), waiting = [], written = [];
   const aborted = () => new DOMException('The operation was aborted.', 'AbortError');
-  const record = r => ({ ...r, data: r.data == null ? null : new DataView(new Uint8Array(r.data).buffer), toRecords: () => null });
+  // A tag's record as Chrome hands it over: its data a DataView, a string given as its UTF-8.
+  const record = r => ({ ...r, data: r.data == null ? null : new DataView((typeof r.data === 'string' ? new TextEncoder().encode(r.data) : new Uint8Array(r.data)).buffer), toRecords: () => null });
   class NDEFReader extends EventTarget {
     onreading = null;
     onreadingerror = null;

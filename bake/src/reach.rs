@@ -963,7 +963,10 @@ mod tests {
             ios["tvOmits"],
             json!(["NFCReaderUsageDescription", formats])
         );
-        assert_eq!(derive_for("android")["android"], json!(["android.permission.NFC"]));
+        assert_eq!(
+            derive_for("android")["android"],
+            json!(["android.permission.NFC"])
+        );
         let mac = derive_for("macos");
         assert_eq!(mac["entitlements"], json!([]));
         assert!(mac.get("entitlementValues").is_none());

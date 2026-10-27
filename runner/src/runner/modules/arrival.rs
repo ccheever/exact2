@@ -146,7 +146,9 @@ impl<D: DataSource> Runner<D> {
         }
         if declared == name("write") {
             if let Err(why) = message_checked(&args["message"]) {
-                return Some(Decision::Now(json!({ "error": "TypeError", "message": why })));
+                return Some(Decision::Now(
+                    json!({ "error": "TypeError", "message": why }),
+                ));
             }
         }
         let names = [name("scan"), name("write"), name("lock")];
@@ -179,7 +181,10 @@ impl<D: DataSource> Runner<D> {
         let mut writes = self.claims(&extension, &[&name("write"), &name("lock")]);
         writes.pop();
         for c in writes {
-            self.log(format!("{extension}.{}: replaced by a newer write", c.declared));
+            self.log(format!(
+                "{extension}.{}: replaced by a newer write",
+                c.declared
+            ));
             self.retire_hold(c.hold);
             self.release(c.token, json!({ "error": "AbortError" }));
         }
@@ -271,7 +276,8 @@ impl<D: DataSource> Runner<D> {
     /// Tag `id` arrives in `extension`'s field.
     fn tag_arrives(&mut self, extension: &str, arrival: &Json, id: &str) {
         let name = |k: &str| arrival[k].as_str().unwrap_or_default().to_owned();
-        let Some(tag) = (self.fixtures(extension, arrival).into_iter()).find(|t| t["id"] == id) else {
+        let Some(tag) = (self.fixtures(extension, arrival).into_iter()).find(|t| t["id"] == id)
+        else {
             return;
         };
         self.log(format!("{extension}: tag `{id}` arrived"));
@@ -301,15 +307,19 @@ impl<D: DataSource> Runner<D> {
         let plain = tag["ndef"] == false;
         if plain {
             // The NDEF reader session never reports a tag without NDEF (D11).
-            let polled = scans.iter().any(|c| {
-                (c.args["apple"]["polling"].as_array()).is_some_and(|p| !p.is_empty())
-            });
+            let polled = scans
+                .iter()
+                .any(|c| (c.args["apple"]["polling"].as_array()).is_some_and(|p| !p.is_empty()));
             if self.host_target() == "ios" && !polled {
-                self.log(format!("{extension}: tag `{id}` holds no NDEF, unseen by an NDEF reader session"));
+                self.log(format!(
+                    "{extension}: tag `{id}` holds no NDEF, unseen by an NDEF reader session"
+                ));
                 return;
             }
             let args = json!([nfc_tag(&tag)]).to_string();
-            if let Err(e) = self.raise_module_event(extension, &name("readingerror"), &args, CallOrigin::Device) {
+            if let Err(e) =
+                self.raise_module_event(extension, &name("readingerror"), &args, CallOrigin::Device)
+            {
                 self.log(e);
             }
             return;
@@ -331,7 +341,9 @@ impl<D: DataSource> Runner<D> {
                 .collect(),
         );
         let args = json!([reading]).to_string();
-        if let Err(e) = self.raise_module_event(extension, &name("reading"), &args, CallOrigin::Device) {
+        if let Err(e) =
+            self.raise_module_event(extension, &name("reading"), &args, CallOrigin::Device)
+        {
             self.log(e);
         }
         for c in scans.into_iter().filter(|c| c.args["once"] == true) {
@@ -343,8 +355,16 @@ impl<D: DataSource> Runner<D> {
 
     /// The answer of a write (or, `lock`, a lock) to `tag`, which the
     /// fixture takes when it succeeds (D7's steps, by the fixture's `write`).
-    fn tag_written(&mut self, extension: &str, arrival: &Json, tag: &Json, args: &Json, lock: bool) -> Json {
-        let fail = |error: &str, message: Option<&str>| json!({ "error": error, "message": message });
+    fn tag_written(
+        &mut self,
+        extension: &str,
+        arrival: &Json,
+        tag: &Json,
+        args: &Json,
+        lock: bool,
+    ) -> Json {
+        let fail =
+            |error: &str, message: Option<&str>| json!({ "error": error, "message": message });
         let records = tag["records"].as_array().cloned().unwrap_or_default();
         if !lock && args["overwrite"] == false && !records.is_empty() {
             return fail("NotAllowedError", Some("overwrite"));
@@ -359,7 +379,12 @@ impl<D: DataSource> Runner<D> {
         }
         let id = tag["id"].clone();
         let from = format!("{extension}.{}", arrival["from"].as_str().unwrap_or("tags"));
-        if let Some(tags) = self.extensions.preferred.get_mut(&from).and_then(Json::as_array_mut) {
+        if let Some(tags) = self
+            .extensions
+            .preferred
+            .get_mut(&from)
+            .and_then(Json::as_array_mut)
+        {
             if let Some(t) = tags.iter_mut().find(|t| t["id"] == id) {
                 if lock {
                     t["write"] = json!("read-only");
@@ -384,20 +409,35 @@ impl<D: DataSource> Runner<D> {
             let name = |k: &str| arrival[k].as_str().unwrap_or_default().to_owned();
             if hidden {
                 for c in self.claims(&extension, &[&name("write"), &name("lock")]) {
-                    self.log(format!("{extension}.{}: aborted, the app left the foreground", c.declared));
+                    self.log(format!(
+                        "{extension}.{}: aborted, the app left the foreground",
+                        c.declared
+                    ));
                     self.retire_hold(c.hold);
-                    self.release(c.token, json!({ "error": "AbortError", "message": "background" }));
+                    self.release(
+                        c.token,
+                        json!({ "error": "AbortError", "message": "background" }),
+                    );
                 }
                 let system = (self.plan.modules.iter())
-                    .find(|m| self.plan.str(m.extension) == extension && self.plan.str(m.declared) == name("status"))
+                    .find(|m| {
+                        self.plan.str(m.extension) == extension
+                            && self.plan.str(m.declared) == name("status")
+                    })
                     .cloned()
                     .and_then(|s| self.value_of(&s))
                     .is_some_and(|s| s["readerUI"] == "system");
                 for c in self.claims(&extension, &[&name("scan")]) {
                     if system {
-                        self.log(format!("{extension}.{}: interrupted, the app left the foreground", c.declared));
+                        self.log(format!(
+                            "{extension}.{}: interrupted, the app left the foreground",
+                            c.declared
+                        ));
                         self.retire_hold(c.hold);
-                        self.release(c.token, json!({ "reason": "interrupted", "message": "background" }));
+                        self.release(
+                            c.token,
+                            json!({ "reason": "interrupted", "message": "background" }),
+                        );
                     } else {
                         self.log(format!("{extension}.{}: suspended", c.declared));
                         self.extensions.arrivals.suspended.insert(c.token);
@@ -410,7 +450,10 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.log(format!("{extension}: scans resumed"));
                 let key = format!("{extension}.{}", name("field"));
-                if let Some(id) = (self.extensions.preferred.get(&key)).and_then(Json::as_str).map(str::to_owned) {
+                if let Some(id) = (self.extensions.preferred.get(&key))
+                    .and_then(Json::as_str)
+                    .map(str::to_owned)
+                {
                     self.tag_arrives(&extension, &arrival, &id);
                 }
             }
@@ -428,7 +471,12 @@ impl<D: DataSource> Runner<D> {
         let name = |k: &str| arrival[k].as_str().unwrap_or_default().to_owned();
         let field = format!("{extension}.{}", name("field"));
         entry["tags"] = Json::Array(self.fixtures(extension, &arrival));
-        entry["field"] = self.extensions.preferred.get(&field).cloned().unwrap_or(Json::Null);
+        entry["field"] = self
+            .extensions
+            .preferred
+            .get(&field)
+            .cloned()
+            .unwrap_or(Json::Null);
         let suspended = &self.extensions.arrivals.suspended;
         entry["scans"] = Json::Array(
             (self.claims(extension, &[&name("scan")]).iter())
@@ -438,12 +486,23 @@ impl<D: DataSource> Runner<D> {
                 })
                 .collect(),
         );
-        entry["write"] = (self.claims(extension, &[&name("write"), &name("lock")]).last())
-            .map_or(Json::Null, |c| json!({ "ticket": c.hold, "name": c.declared, "origin": c.origin.word() }));
+        entry["write"] = (self
+            .claims(extension, &[&name("write"), &name("lock")])
+            .last())
+        .map_or(
+            Json::Null,
+            |c| json!({ "ticket": c.hold, "name": c.declared, "origin": c.origin.word() }),
+        );
         entry["readings"] = Json::Array(
-            (self.extensions.arrivals.readings.get(extension).into_iter().flatten())
-                .map(|(id, tag)| json!({ "id": id, "tag": tag["id"] }))
-                .collect(),
+            (self
+                .extensions
+                .arrivals
+                .readings
+                .get(extension)
+                .into_iter()
+                .flatten())
+            .map(|(id, tag)| json!({ "id": id, "tag": tag["id"] }))
+            .collect(),
         );
     }
 }
@@ -457,7 +516,10 @@ fn nfc_tag(tag: &Json) -> Json {
 fn record_bytes(record: &Json) -> Vec<u8> {
     match &record["data"] {
         Json::String(s) => s.as_bytes().to_vec(),
-        data => data["base64"].as_str().map(base64_decode).unwrap_or_default(),
+        data => data["base64"]
+            .as_str()
+            .map(base64_decode)
+            .unwrap_or_default(),
     }
 }
 
@@ -473,7 +535,8 @@ fn record_info(record: &Json) -> Json {
             .and_then(|r| r["data"].as_str().map(str::to_owned)),
         _ => None,
     };
-    let mut info = json!({ "recordType": record_type, "text": text, "size": record_bytes(record).len() });
+    let mut info =
+        json!({ "recordType": record_type, "text": text, "size": record_bytes(record).len() });
     for field in ["mediaType", "id", "encoding", "lang"] {
         info[field] = record[field].clone();
     }
@@ -575,7 +638,10 @@ mod tests {
     #[test]
     fn base64_round_trips() {
         for text in ["", "a", "ab", "abc", "abcd", "com.exact.shelf:book"] {
-            assert_eq!(base64_decode(&base64_encode(text.as_bytes())), text.as_bytes());
+            assert_eq!(
+                base64_decode(&base64_encode(text.as_bytes())),
+                text.as_bytes()
+            );
         }
         assert_eq!(base64_encode(b"ab"), "YWI=");
     }
@@ -583,9 +649,21 @@ mod tests {
     #[test]
     fn a_message_needs_records_of_their_kinds() {
         assert!(message_checked(&json!({ "records": [] })).is_err());
-        assert!(message_checked(&json!({ "records": [{ "recordType": "url", "data": "https://x.org" }] })).is_ok());
-        assert!(message_checked(&json!({ "records": [{ "recordType": "url", "data": "nope" }] })).is_err());
-        assert!(message_checked(&json!({ "records": [{ "recordType": "mime", "data": "text" }] })).is_err());
-        assert!(message_checked(&json!({ "records": [{ "recordType": "x.org:a", "data": { "base64": "YQ==" } }] })).is_ok());
+        assert!(message_checked(
+            &json!({ "records": [{ "recordType": "url", "data": "https://x.org" }] })
+        )
+        .is_ok());
+        assert!(
+            message_checked(&json!({ "records": [{ "recordType": "url", "data": "nope" }] }))
+                .is_err()
+        );
+        assert!(
+            message_checked(&json!({ "records": [{ "recordType": "mime", "data": "text" }] }))
+                .is_err()
+        );
+        assert!(message_checked(
+            &json!({ "records": [{ "recordType": "x.org:a", "data": { "base64": "YQ==" } }] })
+        )
+        .is_ok());
     }
 }

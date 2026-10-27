@@ -1,12 +1,10 @@
 # Recipe: reading and writing NFC tags
 
-`@exact/nfc` is Web NFC's NDEF with its names (LLP 1133.035): `scan`,
-`write`, `makeReadOnly`, and a `reading` event on the root. Shelf's Tag This
-Book (`apps/shelf`) is the whole app to copy from.
+`@exact/nfc` is Web NFC's NDEF reading and writing (LLP 1133.035). Shelf's
+Tag This Book (`apps/shelf`) is the whole app to copy from.
 
-1. **Declare** the grant and its purpose. iOS ends an app that reads a tag
-   without the purpose, and a signed iOS build needs the App ID's NFC Tag
-   Reading capability.
+1. **Declare** the grant and its purpose. A signed iOS build also needs the
+   App ID's NFC Tag Reading capability.
 
    ```ts
    export const grants = 'device.nfc nfcPurpose';
@@ -67,15 +65,13 @@ component App
 
 **A failure on iOS is the sheet's last line.** Pass the sentences as
 `apple.errorMessages` (strings keys, by cause: `readOnly`, `tooSmall`,
-`lost`, `notNdef`, `failed`), and show your own alert only where `readerUI`
+`lost`, `notNdef`, `failed`, `unreadable`), and show your own alert only where `readerUI`
 is `app`. A failed write's `code` is D3's error (`NetworkError`,
 `NotSupportedError`, `AbortError`, …) and its message ends with the cause.
 
-**Lock with care.** `makeReadOnly()` cannot be undone: confirm with an
-alert dialog first.
+**Lock with care.** `makeReadOnly()` cannot be undone: confirm first.
 
-**Driving it.** No simulator has a radio, so drives use the declared
-substitute: `prefer extension nfc.tags=[…]` declares the tags, `prefer
-extension nfc.field=<id>` brings one into the field, and `tap @t cancel`
-or `tap @t timeout` ends a held scan. On the iOS simulator the real Core
-NFC answers `available` false with `--bind nfc`.
+**Driving it.** No simulator has a radio, so drives use the substitute:
+`prefer extension nfc.tags=[…]` declares the tags, `prefer extension
+nfc.field="<id>"` brings one into the field, and `tap @t cancel` or `tap @t
+timeout` ends a held scan.

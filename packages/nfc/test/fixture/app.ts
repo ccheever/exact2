@@ -21,7 +21,7 @@ const sources: Sources = {
   // A write of an app's own record, whose data is bytes.
   writeBytes: async () => {
     try {
-      const done = await write({ message: { records: [{ recordType: 'example.com:fixture', data: new Uint8Array([1, 2, 3]) }] } });
+      const done = await write({ message: { records: [{ recordType: 'example.com:fixture', mediaType: null, id: null, encoding: null, lang: null, data: new Uint8Array([1, 2, 3]) }] } });
       return { text: `written ${done.serialNumber}` };
     } catch (e) {
       return { text: failed(e) };

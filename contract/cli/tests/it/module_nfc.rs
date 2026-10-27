@@ -113,7 +113,9 @@ impl exact_runner::DataSource for Data {
     fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
         let native = |send: &str, args: Json| {
             let body = json!({ "extension": "nfc", "send": send, "args": args });
-            Ok(Answer::Later(Request::native(body.to_string().into_bytes())))
+            Ok(Answer::Later(Request::native(
+                body.to_string().into_bytes(),
+            )))
         };
         match source {
             "tag" => native(
@@ -123,7 +125,10 @@ impl exact_runner::DataSource for Data {
                     { "recordType": "com.exact.shelf:book", "data": { "base64": "Ym9vay0x" } }] } }),
             ),
             "records" => native("ndefRecords", json!({ "reading": args[0].as_str() })),
-            "command" => native("sendCommand", json!({ "tag": "t", "apdu": { "base64": "YA==" } })),
+            "command" => native(
+                "sendCommand",
+                json!({ "tag": "t", "apdu": { "base64": "YA==" } }),
+            ),
             "slow" | "lookup" => Ok(Answer::Later(Request::get("https://fixture.test/slow"))),
             _ => Err(DataError::UnknownSource(source.into())),
         }
@@ -144,7 +149,9 @@ impl exact_runner::DataSource for Data {
             if args[0].as_str().is_some_and(|k| !k.is_empty()) && reply.is_null() {
                 let body = json!({ "extension": "nfc", "send": "sendCommand",
                     "args": { "tag": "t", "apdu": { "base64": "YA==" } } });
-                return Ok(Answer::Later(Request::native(body.to_string().into_bytes())));
+                return Ok(Answer::Later(Request::native(
+                    body.to_string().into_bytes(),
+                )));
             }
         }
         self.0.lock().unwrap().push(reply.clone());
@@ -221,17 +228,23 @@ impl Host {
                 let (tx, rx) = mpsc::channel();
                 match self.r.native_work(&out.request) {
                     Dispatch::Run(Work::Now(work)) => tx.send(work()).unwrap(),
-                    Dispatch::Run(Work::Later(work)) => {
-                        work(Reply::new(move |o| {
-                            let _ = tx.send(o);
-                        }))
-                    }
+                    Dispatch::Run(Work::Later(work)) => work(Reply::new(move |o| {
+                        let _ = tx.send(o);
+                    })),
                     _ => continue,
                 }
                 self.waiting.push((out.ticket, rx));
             }
             for (token, dispatch) in self.r.release_work() {
-                if let (Some(ticket), Dispatch::Run(Work::Now(work))) = (PARKED.with(|p| p.borrow().iter().find(|(t, _)| *t == token).map(|(_, k)| *k)), dispatch) {
+                if let (Some(ticket), Dispatch::Run(Work::Now(work))) = (
+                    PARKED.with(|p| {
+                        p.borrow()
+                            .iter()
+                            .find(|(t, _)| *t == token)
+                            .map(|(_, k)| *k)
+                    }),
+                    dispatch,
+                ) {
                     moved = true;
                     let _ = self.r.fulfill(ticket, work());
                 }
@@ -303,7 +316,8 @@ impl Host {
     }
 
     fn nfc(&self) -> Json {
-        let state: Json = serde_json::from_str(&agent::handle(&self.r, r#"{"op":"state"}"#)).unwrap();
+        let state: Json =
+            serde_json::from_str(&agent::handle(&self.r, r#"{"op":"state"}"#)).unwrap();
         state["extensions"]["nfc"].clone()
     }
 
@@ -352,7 +366,11 @@ fn a_tag_in_the_field_reads_into_a_waiting_scan() {
     let mut h = Host::boot("read", "android");
     h.tags();
     h.field("dune");
-    assert!(h.logs().contains("tag `dune` read by no scan"), "{}", h.logs());
+    assert!(
+        h.logs().contains("tag `dune` read by no scan"),
+        "{}",
+        h.logs()
+    );
     h.act("startScan");
     let scans = h.tickets("scan");
     assert_eq!(scans.len(), 1, "{}", h.logs());
@@ -363,7 +381,11 @@ fn a_tag_in_the_field_reads_into_a_waiting_scan() {
     h.field("clear");
     h.field("dune");
     assert!(h.heard().contains("read r1"), "{} {}", h.heard(), h.logs());
-    assert!(h.slot("scanned").contains("\"read\""), "{}", h.slot("scanned"));
+    assert!(
+        h.slot("scanned").contains("\"read\""),
+        "{}",
+        h.slot("scanned")
+    );
     assert!(h.slot("scanned").contains("r1"), "{}", h.slot("scanned"));
     assert!(h.tickets("scan").is_empty());
     assert_eq!(h.nfc()["readings"][0], json!({ "id": "r1", "tag": "dune" }));
@@ -374,7 +396,11 @@ fn a_tag_in_the_field_reads_into_a_waiting_scan() {
     let scan = h.tickets("scan");
     assert_eq!(scan.len(), 1, "the scan goes on: {}", h.logs());
     h.tap(scan[0], "cancel");
-    assert!(h.slot("scanned").contains("cancelled"), "{}", h.slot("scanned"));
+    assert!(
+        h.slot("scanned").contains("cancelled"),
+        "{}",
+        h.slot("scanned")
+    );
     assert!(h.tickets("scan").is_empty());
 }
 
@@ -392,7 +418,11 @@ fn ios_reads_no_tag_without_ndef_and_its_scan_times_out() {
     let refused = h.tap(scan[0], "later");
     assert!(refused.contains("timeout"), "the taps are named: {refused}");
     h.tap(scan[0], "timeout");
-    assert!(h.slot("scanned").contains("timeout"), "{}", h.slot("scanned"));
+    assert!(
+        h.slot("scanned").contains("timeout"),
+        "{}",
+        h.slot("scanned")
+    );
 }
 
 /// §10's writes: a waiting write settles against the tag that arrives and
@@ -407,8 +437,17 @@ fn a_waiting_write_settles_against_the_tag() {
     assert_eq!(h.tickets("write").len(), 1, "{}", h.logs());
     assert_eq!(h.nfc()["write"]["name"], "write");
     h.field("blank");
-    assert!(h.slot("written").contains("04:a2"), "{} {}", h.slot("written"), h.logs());
-    assert!(!h.heard().contains("read"), "a write raises no reading: {}", h.heard());
+    assert!(
+        h.slot("written").contains("04:a2"),
+        "{} {}",
+        h.slot("written"),
+        h.logs()
+    );
+    assert!(
+        !h.heard().contains("read"),
+        "a write raises no reading: {}",
+        h.heard()
+    );
     let blank = &h.nfc()["tags"][0];
     assert_eq!(blank["records"][0]["recordType"], "url", "{blank}");
 
@@ -418,10 +457,18 @@ fn a_waiting_write_settles_against_the_tag() {
 
     h.act("writeUrl");
     h.act("lock");
-    assert!(h.logs().contains("write: replaced by a newer write"), "{}", h.logs());
+    assert!(
+        h.logs().contains("write: replaced by a newer write"),
+        "{}",
+        h.logs()
+    );
     assert_eq!(h.tickets("write").len(), 1);
     h.act("stopWrite");
-    assert!(h.logs().contains("makeReadOnly: stopped by abortWrite"), "{}", h.logs());
+    assert!(
+        h.logs().contains("makeReadOnly: stopped by abortWrite"),
+        "{}",
+        h.logs()
+    );
     assert!(h.tickets("write").is_empty());
 
     h.act("writeEmpty");
@@ -441,9 +488,18 @@ fn abort_and_a_superseded_scan_leave_one_claim() {
     let mut h = Host::boot("abort", "android");
     h.act("keepScanning");
     h.act("keepScanning");
-    assert_eq!(h.nfc()["scans"].as_array().map(Vec::len), Some(1), "{}", h.nfc());
+    assert_eq!(
+        h.nfc()["scans"].as_array().map(Vec::len),
+        Some(1),
+        "{}",
+        h.nfc()
+    );
     h.act("stopScan");
-    assert!(h.slot("scanned").contains("stopped"), "{}", h.slot("scanned"));
+    assert!(
+        h.slot("scanned").contains("stopped"),
+        "{}",
+        h.slot("scanned")
+    );
     assert_eq!(h.nfc()["scans"], json!([]));
 }
 
@@ -455,7 +511,11 @@ fn the_background_interrupts_or_suspends_by_reader_ui() {
     let mut h = Host::boot("bg-ios", "ios");
     h.act("keepScanning");
     h.hidden(true);
-    assert!(h.slot("scanned").contains("interrupted"), "{}", h.slot("scanned"));
+    assert!(
+        h.slot("scanned").contains("interrupted"),
+        "{}",
+        h.slot("scanned")
+    );
 
     let mut h = Host::boot("bg-android", "android");
     h.tags();
@@ -479,11 +539,18 @@ fn a_data_code_write_is_let_go_with_its_request() {
     h.tags();
     h.act("tagData");
     h.act("tagData");
-    assert!(h.logs().contains("nfc.write: its call was let go"), "{}", h.logs());
+    assert!(
+        h.logs().contains("nfc.write: its call was let go"),
+        "{}",
+        h.logs()
+    );
     assert_eq!(h.tickets("write").len(), 1, "{}", h.logs());
     h.field("blank");
     let blank = &h.nfc()["tags"][0];
-    assert_eq!(blank["records"][1]["recordType"], "com.exact.shelf:book", "{blank}");
+    assert_eq!(
+        blank["records"][1]["recordType"], "com.exact.shelf:book",
+        "{blank}"
+    );
     assert!(h.slot("tagged").contains("04:a2"), "{}", h.slot("tagged"));
 
     h.act("keepScanning");
@@ -492,10 +559,17 @@ fn a_data_code_write_is_let_go_with_its_request() {
     h.pump();
     let seen = h.data.0.lock().unwrap().last().cloned().unwrap();
     assert_eq!(seen[1]["data"], json!({ "base64": "Ym9vay0x" }), "{seen}");
-    assert_eq!(seen[0]["text"], "https://openlibrary.org/works/OL893415W", "{seen}");
+    assert_eq!(
+        seen[0]["text"], "https://openlibrary.org/works/OL893415W",
+        "{seen}"
+    );
     h.r.act("recordsOf", vec![Value::str("r9")]).unwrap();
     h.pump();
-    assert!(h.slot("records").contains("NotFoundError"), "{}", h.slot("records"));
+    assert!(
+        h.slot("records").contains("NotFoundError"),
+        "{}",
+        h.slot("records")
+    );
 }
 
 /// D15: only the person scans or writes; a tool's request is refused
@@ -538,21 +612,39 @@ fn a_command_is_refused_with_a_tool_or_a_wake_among_its_causes() {
     h.act("keepScanning");
     h.field("dune");
     h.act_from(CallOrigin::Tool, "command");
-    assert!(h.slot("commanded").contains("person-required"), "{}", h.logs());
+    assert!(
+        h.slot("commanded").contains("person-required"),
+        "{}",
+        h.logs()
+    );
     h.act_from(CallOrigin::Wake, "command");
     assert!(h.logs().contains("a wake among its causes"), "{}", h.logs());
     h.act("command");
-    assert!(h.slot("commanded").contains("NotSupportedError"), "{} {}", h.slot("commanded"), h.logs());
+    assert!(
+        h.slot("commanded").contains("NotSupportedError"),
+        "{} {}",
+        h.slot("commanded"),
+        h.logs()
+    );
 
     h.act_from(CallOrigin::Tool, "slow");
     h.act("command");
-    assert!(h.slot("commanded").contains("person-required"), "beside a tool's request: {}", h.logs());
+    assert!(
+        h.slot("commanded").contains("person-required"),
+        "beside a tool's request: {}",
+        h.logs()
+    );
     h.answer("slowed");
 
     // The reading set `key` (the device's), then a tool's newer key reached the kept request.
-    assert!(h.fetches.iter().any(|(_, t)| t == "parsed"), "{:?} {}", h.fetches, h.logs());
+    assert!(
+        h.fetches.iter().any(|(_, t)| t == "parsed"),
+        "{:?} {}",
+        h.fetches,
+        h.logs()
+    );
     h.act_from(CallOrigin::Tool, "toolKey");
-    assert!(h.logs().contains("kept"), "{}", h.logs());
+    assert!(h.logs().contains("keep request"), "{}", h.logs());
     h.answer("parsed");
     let parsed = h.slot("parsed");
     assert!(parsed.contains("person-required"), "{parsed} {}", h.logs());

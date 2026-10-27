@@ -876,8 +876,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         if (d?.hold) { h.permission = next.name; h.ticket = nextTicket(); say(`device ${capability(h)} ${h.ticket} held (agent)`); continue; }
       }
       if (h.forward) { releaseForward(h); continue; }
-      const d = decideTimed(h.row, h.send, h.timeout);
-      if (d.hold) { h.waits = d.hold; h.ticket = nextTicket(); h.deadline = d.hold === "value" && h.timeout != null ? clock.now + h.timeout : null; say(`device ${capability(h)} ${h.ticket} held (agent)`); } else release(h, d.now);
+      const d = decideTimed(h.row, h.send, h.timeout, h.args);
+      if (d.hold) { h.waits = d.hold; h.ticket = nextTicket(); h.deadline = d.hold === "value" && h.timeout != null ? clock.now + h.timeout : null; say(`device ${capability(h)} ${h.ticket} held (agent)`); ar.claimed(h.row); } else release(h, d.now);
     }
     settleEffects(name, state);
     reask([...byKey.values()].filter(r => permissionNamed(r, name)).map(r => r.key));

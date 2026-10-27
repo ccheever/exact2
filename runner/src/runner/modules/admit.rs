@@ -375,8 +375,7 @@ impl<D: DataSource> Runner<D> {
     /// Request `ticket`'s causes.
     pub(in crate::runner) fn ticket_causes(&self, ticket: u64) -> Causes {
         let o = &self.extensions.origins;
-        (o.ticket_causes.get(&ticket).copied().unwrap_or_default())
-            .with(self.ticket_origin(ticket))
+        (o.ticket_causes.get(&ticket).copied().unwrap_or_default()).with(self.ticket_origin(ticket))
     }
 
     /// Request `ticket` of `target`, in flight, is kept with the newer

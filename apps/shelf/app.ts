@@ -231,15 +231,15 @@ const sources: Sources = {
     const book = books.find((b) => b.id === id);
     if (!book) return { ok: false, cause: 'gone' };
     const records: NDEFRecordInit[] = [];
-    if (book.sourceKey) records.push({ recordType: 'url', data: `https://openlibrary.org${book.sourceKey}` });
-    records.push({ recordType: BOOK_RECORD, data: new TextEncoder().encode(book.id) });
+    if (book.sourceKey) records.push({ recordType: 'url', mediaType: null, id: null, encoding: null, lang: null, data: `https://openlibrary.org${book.sourceKey}` });
+    records.push({ recordType: BOOK_RECORD, mediaType: null, id: null, encoding: null, lang: null, data: new TextEncoder().encode(book.id) });
     try {
       await write({
         message: { records },
         apple: {
           alertMessage: 'nfc.holdBook',
           doneMessage: 'nfc.tagged',
-          errorMessages: { readOnly: 'nfc.locked', tooSmall: 'nfc.tooSmall', lost: 'nfc.holdStill', notNdef: 'nfc.noLink', failed: 'nfc.failed' },
+          errorMessages: { readOnly: 'nfc.locked', tooSmall: 'nfc.tooSmall', lost: 'nfc.holdStill', notNdef: 'nfc.noLink', failed: 'nfc.failed', unreadable: null },
         },
       });
       return { ok: true, cause: '' };
