@@ -12,8 +12,8 @@ import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
-import { serverUrl } from './verify.mjs';
-import { backendOriginSelection } from '../js/bake/src/typescript.mjs';
+import { onThisMachine, serverUrl } from './verify.mjs';
+import { backendOrigin, backendOriginSelection } from '../js/bake/src/typescript.mjs';
 import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
@@ -492,8 +492,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
-  // Native runs use the scaffold's same declared origin when no web admission file exists.
-  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
+  // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, when no web
+  // admission file exists.
+  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? backendOrigin(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
   const tests = backendFetchPrefixes(JSON.parse(c.stdout), granted.length ? granted : appOrigin ? [appOrigin] : []);
   const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
   if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
@@ -507,7 +508,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Android's stores are on the device, out of the driver's reach, but a run's names stay its own there too (LLP 1107).
   const tag = base || host === 'android' ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
-  const server = serverUrl(selected.dir); // where a `request` line's path is (LLP 1116.006 D8)
+  // Where a `request` line's path is (LLP 1116.006 D8): the backend the build selected when it is on this
+  // machine (a checkout's fixture port, LLP 1142 D13), else the address app.ts calls.
+  const chosen = backendOrigin(selected.dir, launched);
+  const server = chosen && onThisMachine(chosen) ? chosen.replace(/\/+$/, '') : serverUrl(selected.dir);
   let done = false;
   for (const [n, t] of tests.entries()) {
     if (done) break;
@@ -875,11 +879,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
 /** Resolve the built grant alias and diagnose a fault that cannot meet a granted URL. */
 export function resolveFaultPrefix(prefix, origins, say=console.warn) {
   const unique=[...new Set(origins.map(o=>o.replace(/\/+$/,'')))];
-  if (prefix==='backend') {
+  // A path (`/api/v9/channels`) is under the backend, as a `request` line's is: the test names what it
+  // fails without the port a checkout's fixture was given.
+  if (prefix==='backend' || prefix.startsWith('/')) {
     const loopback=unique.filter(origin=>/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin));
     const candidates=loopback.length ? loopback : unique;
-    if (candidates.length!==1) throw new Error(`fetch "backend" needs exactly one net.fetch origin; found ${candidates.length}. Use a literal URL for a multi-backend app.`);
-    return candidates[0];
+    if (candidates.length!==1) throw new Error(`fetch ${JSON.stringify(prefix)} needs exactly one net.fetch origin; found ${candidates.length}. Use a literal URL for a multi-backend app.`);
+    return prefix==='backend' ? candidates[0] : candidates[0]+prefix;
   }
   if (!unique.some(origin => origin.startsWith(prefix) || prefix.startsWith(origin+'/') || prefix===origin))
     say(`warning: fetch fault prefix ${JSON.stringify(prefix)} matches no granted origin (${unique.join(', ') || 'none'}); it will not intercept the backend`);

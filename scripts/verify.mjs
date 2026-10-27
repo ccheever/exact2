@@ -75,6 +75,13 @@ function importsOf(dir, path) {
   return found;
 }
 
+/** Whether `origin` is served from this machine: a loopback address, or a private-network one that names
+ *  one of this machine's interfaces (a phone's development build reaches the checkout's fixture there). */
+export function onThisMachine(origin) {
+  return /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(origin)
+    || privateNetwork(origin) && Object.values(networkInterfaces()).flat().some(n => n?.address === new URL(origin).hostname.replace(/^\[|\]$/g, ''));
+}
+
 /** The server URL the data module calls: the first local one (`http://127.0.0.1:8787`, or localhost) in app.ts, else in
  * a module of the app's own that it imports (`import { API } from './api'`); null when it calls none. */
 export function serverUrl(dir) {
@@ -112,8 +119,7 @@ export function appServer(dir, env = process.env) {
   if (!entry) return null;
   const fixture = /(^|[/\\])fixtures?[/\\]/.test(entry);
   const selected = fixture ? backendOriginSelection(dir, env) : null;
-  const local = selected && (/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(selected.origin)
-    || privateNetwork(selected.origin) && Object.values(networkInterfaces()).flat().some(n => n?.address === new URL(selected.origin).hostname.replace(/^\[|\]$/g, '')));
+  const local = selected && onThisMachine(selected.origin);
   const url = selected ? local ? selected.origin : null : serverUrl(dir);
   const why = !url ? `${entry} is left alone: app.ts calls no local URL (http://127.0.0.1:<port>), so where the app reaches it is unknown` : null;
   const refusal = url && database && !readsDB(dir, entry)

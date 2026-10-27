@@ -585,7 +585,7 @@ test "a refused deletion says why, keeps the message and draft, and can be retri
   clock +350
   clock settle
   type "composer" "Keep this draft"
-  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages/1562888267366400000" times 1
+  fail fetch "/api/v9/channels/1191168914235588608/messages/1562888267366400000" times 1
   tap "row-1562888267366400000" contextmenu
   tap "menu-delete"
   tap "delete-confirm"
@@ -594,7 +594,7 @@ test "a refused deletion says why, keeps the message and draft, and can be retri
   expect text "composer" == "Keep this draft"
   expect text "delete-error" == "Check your connection and try again."
   tap "delete-error-ok"
-  pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages/1562888267366400000"
+  pass fetch "/api/v9/channels/1191168914235588608/messages/1562888267366400000"
   tap "row-1562888267366400000" contextmenu
   tap "menu-delete"
   tap "delete-confirm"
@@ -850,7 +850,7 @@ test "paging continues while the pin request is out (re-check: Grok new 3)"
 // The wiring's reviews (Sol, Grok): one test a finding the view shows.
 
 test "a failed ack at the end is sent again (wiring review: Grok 4)"
-  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages/1562887009075210000/ack" times 1
+  fail fetch "/api/v9/channels/1191168914235588608/messages/1562887009075210000/ack" times 1
   clock +500 real
   tap "channel-general"
   clock settle
@@ -920,7 +920,7 @@ test "image spoilers with and without dimensions wait for disclosure"
   expect tree has "media-image-1557059859277414659-1557059859277516980"
 
 test "failed history can be retried without reopening the channel"
-  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
+  fail fetch "/api/v9/channels/1191168914235588608/messages"
   clock +500 real
   tap "channel-general"
   clock settle
@@ -929,7 +929,7 @@ test "failed history can be retried without reopening the channel"
   expect tree missing "history-loading"
   expect state pageTries == 3
   type "composer" "Keep this draft"
-  pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
+  pass fetch "/api/v9/channels/1191168914235588608/messages"
   type "retry-history" key " "
   clock settle
   expect tree has "message-1562887009075210000"
@@ -941,7 +941,7 @@ test "a failed page leaves cached messages readable and another channel loads"
   tap "channel-general"
   clock settle
   tap "mark-read"
-  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
+  fail fetch "/api/v9/channels/1191168914235588608/messages"
   tap "transcript" into "1562732896249194217"
   clock settle
   expect text "history-error" == "Couldn’t load more messages."
@@ -955,7 +955,7 @@ test "a failed page leaves cached messages readable and another channel loads"
   expect state pageTries == 0
   back
   clock settle
-  pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages"
+  pass fetch "/api/v9/channels/1191168914235588608/messages"
   tap "channel-general"
   clock settle
   expect tree missing "history-error"
@@ -967,7 +967,7 @@ test "a failed older page does not block a jump to a different history page"
   tap "channel-general"
   clock settle
   tap "mark-read"
-  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  fail fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
   tap "transcript" into "1562624645306263268"
   clock settle
   expect text "history-error" == "Couldn’t load more messages."
@@ -985,13 +985,13 @@ test "retrying older history at the exact top keeps the first visible message"
   tap "channel-general"
   clock settle
   tap "mark-read"
-  fail fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  fail fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
   type "transcript" key "Home"
   clock settle
   expect state pageTries == 3
   expect state historyStart == true
   expect state topKey == "1562618399954052832"
-  pass fetch "http://127.0.0.1:4790/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  pass fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
   tap "retry-history"
   clock settle
   expect tree has "message-1562618399954052832"
@@ -1065,7 +1065,7 @@ test "an image opens full screen, zooms on a double tap and closes"
   tap "open-1562887009075210000-1562887009075399990"
   clock settle
   expect tree has "viewer"
-  expect state viewing == "http://127.0.0.1:4790/media/cafe.png"
+  expect state viewingAlt == "cafe.png"
   tap "viewer-handle" dblclick
   clock settle
   expect state viewZoom == 2

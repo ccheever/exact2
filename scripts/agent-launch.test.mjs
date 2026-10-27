@@ -446,11 +446,21 @@ test('automatic web listeners stay in PORT_LO/PORT_HI and refuse exhaustion', as
 
 test('backend fetch prefixes follow the built origin and refuse ambiguous grants', async () => {
   const {backendFetchPrefixes} = await import('./agent-test.mjs');
-  const tests = () => [{steps: [{op: 'fail-fetch', prefix: 'backend', line: 1}, {op: 'pass-fetch', prefix: 'backend', line: 2}, {op: 'fail-fetch', prefix: 'https://other.example', line: 3}]}];
+  const tests = () => [{steps: [{op: 'fail-fetch', prefix: 'backend', line: 1}, {op: 'pass-fetch', prefix: 'backend', line: 2}, {op: 'fail-fetch', prefix: 'https://other.example', line: 3}, {op: 'fail-fetch', prefix: '/api/items?limit=5', line: 4}]}];
   expect(backendFetchPrefixes(tests(), ['http://127.0.0.1:30125/'])[0].steps.map(s => s.prefix))
-    .toEqual(['http://127.0.0.1:30125', 'http://127.0.0.1:30125', 'https://other.example']);
+    .toEqual(['http://127.0.0.1:30125', 'http://127.0.0.1:30125', 'https://other.example', 'http://127.0.0.1:30125/api/items?limit=5']);
   expect(() => backendFetchPrefixes(tests(), [])).toThrow(/exactly one net.fetch origin/);
   expect(() => backendFetchPrefixes(tests(), ['https://one.example', 'https://two.example'])).toThrow(/literal URL/);
+});
+
+// A `request` path goes where a `/` fault prefix does whenever the selected backend is this machine's.
+test('a selected backend on this machine is a loopback origin or one of its private-network addresses', async () => {
+  const {onThisMachine} = await import('./verify.mjs');
+  const {networkInterfaces} = await import('node:os');
+  const lan = Object.values(networkInterfaces()).flat().find(n => n?.family === 'IPv4' && !n.internal && /^(10|192\.168)\./.test(n.address));
+  expect([onThisMachine('http://127.0.0.1:5138'), onThisMachine('http://localhost:5138'), onThisMachine('http://[::1]:5138')]).toEqual([true, true, true]);
+  expect([onThisMachine('https://discord.com'), onThisMachine('http://10.255.255.254:5138')]).toEqual([false, false]);
+  if (lan) expect(onThisMachine(`http://${lan.address}:5138`)).toBe(true);
 });
 
 test('backend selection changes captured origin and grants while preserving unrelated literals', async () => {
