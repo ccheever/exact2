@@ -218,8 +218,8 @@ fn a_consumer_uses_person_row_from_the_package_with_its_trailing_slot() {
         assert!(found, "{text} is inside the link");
     }
     // One press target, the link: the row takes no press (so no Tab stop or
-    // control of its own on any host), and the trailing control and the
-    // row's text stay outside it; the slot's control is not dimmed.
+    // control of its own on any host), and only the trailing control is
+    // outside the link; the slot's control is not dimmed.
     let opacity = |t: &str| format!("{:?}", node(t).computed(exact_kernel::StyleId::Opacity));
     assert_eq!(
         opacity("fen"),

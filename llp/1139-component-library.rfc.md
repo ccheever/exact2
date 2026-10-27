@@ -546,7 +546,7 @@ Owners as they free up (the lead's order).
    change: the slot's own column (its control, the row's trailing padding and the space under the control); and
    because that column is beside the link, the pill and the description run under the names, not under the
    control, so a description wraps that much narrower than Bluesky's when a trailing control is placed (with an
-   empty slot the link stops a header gap short of the trailing padding). `disabled` is the link's
+   empty slot the link's text stops a header gap short of the trailing padding, its press area reaching it). `disabled` is the link's
    `aria-disabled` and dims the link, not the app's trailing control, and doesn't stop `press`, so a copy whose
    row is a disabled button (the clone's ChatPersonRow) doesn't join (theme2's condition (b)). Its words are the app's: `handle` is the second line as shown, `pill` the pill's
    text (`""` for none). `divider` is `"bottom"`, `"top"` (Bluesky's border_t) or `"none"`. Its spacing is Bluesky's

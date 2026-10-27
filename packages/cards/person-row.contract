@@ -123,5 +123,5 @@ component PersonRow
       column flex-shrink=0
         padding-top="cards.person-pad-block"
         padding-right="cards.person-pad-inline"
-        box height="cards.person-avatar" justify-content="center"
+        column height="cards.person-avatar" justify-content="center"
           children
