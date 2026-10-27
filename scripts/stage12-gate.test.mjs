@@ -488,17 +488,27 @@ test('stage 15 B\'s adoption proof: the copy\'s own files place an export, and i
     ],
   };
   expect(appPlaced(map)).toEqual(['@exact/cards/common.contract#VerifiedBadge']);
+  expect(appPlaced({ sources: [], nodes: [{ library: '@exact/cards/common.contract#Avatar', chain: [] }] })).toEqual([]);
+  // Shown: only a node whose innermost call site is the copy's own file counts for an app placement.
+  const layout = JSON.stringify({ viewport: { w: 100, h: 100 }, nodes: [
+    { x: 0, y: 0, w: 10, h: 10, sourceMap: { status: 'compatible', file: '/x/node_modules/@exact/cards/common.contract', component: 'Avatar', chain: [{ file: '/x/node_modules/@exact/cards/post-card.contract' }] } },
+    { x: 0, y: 20, w: 10, h: 10, sourceMap: { status: 'compatible', file: '/x/node_modules/@exact/cards/common.contract', component: 'VerifiedBadge', chain: [{ file: '/x/post.contract' }] } },
+  ] });
+  expect(renderedComponents(layout).sort()).toEqual(['@exact/cards/common.contract#Avatar', '@exact/cards/common.contract#VerifiedBadge']);
+  expect(renderedComponents(layout, true)).toEqual(['@exact/cards/common.contract#VerifiedBadge']);
   // A declaration's start: a trailing comment still declares it; a longer name doesn't; git's own failure is an error.
   const dir = mkdtempSync(join(tmpdir(), 'retired-'));
   try {
     const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
     git('init', '-q');
-    writeFileSync(join(dir, 'a.contract'), 'component Avatar // the old one\n  props\ncomponent AvatarRow\nstyle HeaderSlot\n');
+    writeFileSync(join(dir, 'a.contract'), 'component Avatar // the old one\n  props\ncomponent AvatarRow\nstyle  HeaderSlot\ncomponent Badge-old\n');
     git('add', 'a.contract');
     expect(declares(dir, 'component Avatar')).toEqual({ hit: true });
     expect(declares(dir, 'style HeaderSlot')).toEqual({ hit: true });
     expect(declares(dir, 'component AvatarRo')).toEqual({ hit: false });
     expect(declares(dir, 'component NavRow')).toEqual({ hit: false });
+    // Two blanks still declare; a hyphenated longer name is another component.
+    expect(declares(dir, 'component Badge')).toEqual({ hit: false });
     expect(declares(join(dir, 'missing'), 'component Avatar').error).toMatch(/git grep/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -190,7 +190,7 @@ function driveScreens(copy, host, dir, env) {
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], ...(retried ? { retried } : {}), said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), said: allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -199,11 +199,13 @@ function driveScreens(copy, host, dir, env) {
 /** The library components a drive's whole layout shows, by the source map
  * each shown node carries (its declaring file and component): one a
  * package's file declares, as `@exact/<package>/<file>#<Component>`. */
-export function renderedComponents(out) {
+export function renderedComponents(out, app = false) {
   const line = out.split('\n').filter(l => l.startsWith('{') && l.includes('"nodes"') && l.includes('"viewport"')).at(-1);
   if (!line) return [];
   const layout = JSON.parse(line);
-  const ids = layout.nodes.filter(n => shown(n, layout.viewport)).map(n => {
+  // `app`: only those the copy's own files instantiate (the innermost call site, chain[0], in no package's file).
+  const own = n => n.sourceMap?.chain?.[0]?.file && !/\/(?:packages|node_modules\/@exact)\//.test(n.sourceMap.chain[0].file);
+  const ids = layout.nodes.filter(n => shown(n, layout.viewport) && (!app || own(n))).map(n => {
     // A package's file, in the checkout's packages/ or a copy's node_modules/@exact/.
     const m = /\/(?:packages|node_modules\/@exact)\/([\w-]+)\/([\w-]+)\.contract$/.exec(n.sourceMap?.file ?? '');
     return m && n.sourceMap.component ? `@exact/${m[1]}/${m[2]}.contract#${String(n.sourceMap.component).replace(new RegExp(`__${m[2].replace(/\W/g, '_')}$`), '')}` : null;
@@ -322,7 +324,9 @@ export function appPlaced(map) {
 /** Whether the copy's tracked contracts declare `line` (a declaration's start, so a trailing comment still counts);
  * an error when git grep fails rather than answering. */
 export function declares(copy, line) {
-  const pattern = `^${line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9_]|$)`;
+  const [keyword, name] = line.split(/\s+/), esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Any run of blanks between the keyword and the name; the name ends where a Contract identifier can't go on.
+  const pattern = `^${esc(keyword)}[[:blank:]]+${esc(name)}([^A-Za-z0-9_-]|$)`;
   const r = spawnSync('git', ['grep', '-q', '-E', '-e', pattern, '--', '*.contract'], { cwd: copy, encoding: 'utf8' });
   if (r.status === 0 || r.status === 1) return { hit: r.status === 0 };
   return { error: `git grep in ${copy} exited ${r.status}: ${(r.stderr ?? '').trim().split('\n').at(-1)}` };
@@ -528,6 +532,9 @@ export function consumerPixels(opts) {
   const byComponent = ADOPTED.map(id => ({ id, name: id.split('#')[1], per: Object.fromEntries(hosts.map(h => [h, onScreens('after', h, id)])) }));
   const notShown = byComponent.flatMap(c => hosts.filter(h => !c.per[h].length).map(h => `${c.name} on ${h}`));
   const shownBefore = ADOPTED.filter(id => !BEFORE_USES.includes(id)).filter(id => hosts.some(h => onScreens('before', h, id).length)).map(id => id.split('#')[1]);
+  // An export the packages also place inside another counts only where the copy's own files instantiate it, shown.
+  const appOn = (host, id) => shots.after.shots.some(x => x.host === host && (x.appComponents ?? []).includes(id));
+  const appNotShown = APP_PLACED.flatMap(id => hosts.filter(h => !appOn(h, id)).map(h => `${id.split('#')[1]} on ${h}`));
   const p = shots.after.provenance;
   const evidence = [`before ${shots.before.provenance.copy.slice(0, 7)} (${BASELINE_TAG}, lock for the SDK), after ${p.copy.slice(0, 7)}, SDK ${p.exact2?.slice(0, 10)}: ${r.length} shots, ${r.length - bad.length} identical outside their allowlists`,
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
@@ -536,9 +543,10 @@ export function consumerPixels(opts) {
     `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
     ...(TITLES['consumer-pixels'] && !unseen.length && !own.length && !shownEarly.length ? [] : [`rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`]),
     `shown on the screens shot, by each node's source map, every host: ${byComponent.length - new Set(notShown.map(x => x.split(' on ')[0])).size} of ${byComponent.length}${notShown.length ? `; NOT shown: ${notShown.join(', ')}` : ''}${shownBefore.length ? `; before already shows ${shownBefore.join(', ')}` : ''}`,
+    ...(APP_PLACED.length ? [`shown where the copy's own files instantiate them, every host: ${APP_PLACED.map(id => id.split('#')[1]).join(', ')}${appNotShown.length ? `; NOT shown: ${appNotShown.join(', ')}` : ''}`] : []),
     ...byComponent.map(c => { const all = [...new Set(Object.values(c.per).flat())]; const same = hosts.every(h => c.per[h].length === all.length); return `  ${c.name}: ${same ? all.join(', ') : hosts.map(h => `${h} ${c.per[h].join(', ') || 'none'}`).join('; ')}`; }),
     ...conformEvidence(conform)];
-  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length ? fail(...evidence) : pass(...evidence);
+  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target
