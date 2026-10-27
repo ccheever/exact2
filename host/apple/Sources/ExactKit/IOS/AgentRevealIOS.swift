@@ -50,6 +50,8 @@ extension Agent {
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled && !sv.isHidden {
             let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
             let port = visiblePort(sv, for: v)
+            // (No band left between the covers: nothing to scroll the middle into, so nothing moves.)
+            if port.height <= 0 { continue }
             var o = sv.contentOffset
             if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
             // Inline, only as far as it takes from the side its middle is on; a

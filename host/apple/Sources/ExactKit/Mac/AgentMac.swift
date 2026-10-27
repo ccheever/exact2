@@ -425,7 +425,7 @@ extension Agent {
         for case let clip as NSClipView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) {
             let frame = v.convert(v.bounds, to: clip), bounds = clip.bounds, port = clearPort(clip, of: v)
             let mid = CGPoint(x: frame.midX, y: frame.midY)
-            if port.contains(mid) { continue }
+            if port.contains(mid) || port.height <= 0 { continue }
             var origin = bounds.origin
             if mid.y < port.minY || mid.y >= port.maxY { origin.y = bounds.minY + mid.y - port.midY }
             if mid.x < port.minX || mid.x >= port.maxX { origin.x = frame.maxX > port.maxX ? frame.maxX - port.width : frame.minX }

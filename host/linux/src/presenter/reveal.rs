@@ -40,20 +40,23 @@ impl<D: DataSource> Presenter<D> {
             .ok_or_else(|| format!("no view {id} on screen"))?;
         let from = middle(&b);
         let (vw, vh) = self.display.viewport().unwrap_or(self.viewport);
-        if inside(from, (0.0, 0.0, vw, vh)) && b.clip.is_none_or(|c| inside(from, c)) {
+        // (Cleared of a sticky box: scrolled, whatever an attached display's boxes say before its next frame.)
+        let cleared = if inside(from, (0.0, 0.0, vw, vh)) && b.clip.is_none_or(|c| inside(from, c))
+        {
             // In view, but perhaps under a sticky box of its own scroller: scrolled clear of it, as a person would.
             if !self.clear_of_sticky(id, from) {
                 return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
             }
+            true
         } else {
             self.scroll_into(id, false, true, delta);
             let at = self.box_of(id).map_or(from, |b| middle(&b));
-            self.clear_of_sticky(id, at);
-        }
+            self.clear_of_sticky(id, at)
+        };
         let to = self.box_of(id).map_or(from, |b| middle(&b));
         Ok(format!(
             "{{\"revealed\":{id},\"scrolled\":{},\"from\":[{},{}],\"to\":[{},{}]}}",
-            to != from,
+            to != from || cleared,
             num(r2(from.0)),
             num(r2(from.1)),
             num(r2(to.0)),
