@@ -7,6 +7,7 @@
 routes nav
   tab large "/"
   tab inline "/inline"
+  tab panes "/panes"
   tab mixed "/mixed"
 
 component EdgeEffect
@@ -22,7 +23,7 @@ component EdgeEffect
         for t in nav.tabs key = t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key = e.id
-              column navigationKey=`${e.id}` navigationScroll=(e.name == "mixed" ? "document-mixed" : `content-${e.name}`) testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+              column navigationKey=`${e.id}` navigationScroll=(e.name == "panes" ? "pane-first" : (e.name == "mixed" ? "document-mixed" : `content-${e.name}`)) testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header
                   text (e.name == "large" ? "Large" : (e.name == "mixed" ? "Mixed" : "Inline")) role="heading" aria-level=(e.name == "inline" ? 2 : 1)
                 if e.name == "mixed"
@@ -33,6 +34,14 @@ component EdgeEffect
                     column height=1400
                       text "The document also scrolls"
                     input type="text" value="" testId="mixed-field" height=44
+                else if e.name == "panes"
+                  column flex=1 min-height=0 overflow="hidden"
+                    column id="arrangement" testId="arrangement" display="flex" flex-direction="row" flex=1 min-height=0
+                      for pane in ["first", "second"] key = pane
+                        scroll id=`pane-${pane}` testId=`pane-${pane}` flex=1 min-width=0 min-height=0 box-sizing="border-box" height="100%" overflow-x="hidden"
+                          for r in rows key = r
+                            row padding=16
+                              text `${pane} row ${r}` testId=`${pane}-row-${r}`
                 else
                   scroll id=`content-${e.name}` testId=`content-${e.name}` -exact-scroll-edge-effect=(e.name == "large" ? "soft" : none) flex=1 min-height=0 refresh=reload refreshing=false
                     if e.name == "large"
@@ -50,6 +59,9 @@ component EdgeEffect
         button role="tab" aria-controls="panel-inline" aria-selected=(nav.tab == "inline") press=pick("inline") testId="tab-inline" flex=1
           image "symbol:bookmark"
           text "Inline"
+        button role="tab" aria-controls="panel-panes" aria-selected=(nav.tab == "panes") press=pick("panes") testId="tab-panes" flex=1
+          image "symbol:bookmark"
+          text "Panes"
         button role="tab" aria-controls="panel-mixed" aria-selected=(nav.tab == "mixed") press=pick("mixed") testId="tab-mixed" flex=1
           image "symbol:bookmark"
           text "Mixed"
