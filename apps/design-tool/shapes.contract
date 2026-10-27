@@ -173,6 +173,18 @@ shape Unmapped
   block: string
   key: string
 
+// The diff a held import's card shows, as its choice is now (stage 15 D1.1): the held one when all of it is chosen,
+// else the plan of what is chosen; `note` says when there is none, or it could not be planned.
+shape ChosenDiff
+  proposal: string
+  diff: string
+  note: string
+
+shape ChosenDiffs
+  ok: bool
+  answer: number
+  diffs: ChosenDiff[]
+
 shape Held
   proposal: string
   client: string

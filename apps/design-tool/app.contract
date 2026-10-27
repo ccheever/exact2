@@ -2,7 +2,7 @@
 // files, served by the app's Tamber server at its own local URL
 // (`bun exact.mjs tamber tool <app>`). app.ts is the protocol client; this
 // view keeps no design state of its own: the files are the design.
-use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted, Choices from "./shapes.contract"
+use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted, Choices, ChosenDiffs from "./shapes.contract"
 use Pairing from "./pairing.contract"
 use Inspector from "./inspector.contract"
 use Builds from "./builds.contract"
@@ -174,6 +174,8 @@ component DesignTool
   // Each import card's choice, sent to the server as it is ticked (tamber/1.18 `choose`), so a reload or another
   // client starts from it; and the flips another client's choice since makes stale.
   resource choices = sendChoices(client, picked.join(";"), changes.answer) as shape Choices else empty(ok=true)
+  // The diff each recomputed or edited import's card shows, as its choice is now (stage 15 D1.1).
+  resource chosenDiffs = loadChosenDiffs(client, picked.join(";"), changes.answer) as shape ChosenDiffs else empty(ok=true)
   resource scope = loadScope(client, changes.committable) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
@@ -1444,7 +1446,7 @@ component DesignTool
                   row gap=12
                     text f.path flex=1 testId=`file-${f.path}`
                     text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
-            Proposals(held=changes.held, picked=picked, client=client, canWrite=canWrite, canPropose=canPropose, writing=pending(written), acceptImportNow=acceptImportNow, editImportValue=editImportValue, toggleLeaveOut=toggleLeaveOut, toggleOffer=toggleOffer, togglePick=togglePick, acceptAll=acceptAll, acceptPicked=acceptPicked, dropProposal=dropProposal)
+            Proposals(held=changes.held, diffs=chosenDiffs.diffs, picked=picked, client=client, canWrite=canWrite, canPropose=canPropose, writing=pending(written), acceptImportNow=acceptImportNow, editImportValue=editImportValue, toggleLeaveOut=toggleLeaveOut, toggleOffer=toggleOffer, togglePick=togglePick, acceptAll=acceptAll, acceptPicked=acceptPicked, dropProposal=dropProposal)
             column gap=8 testId="import"
               text "Import a theme" role="heading" aria-level=2
               text "Its tokens, the role overrides it offers (each off until ticked) and what it could not map are held as a proposal, reviewed above." color="-exact-secondary-label" font="-exact-footnote"

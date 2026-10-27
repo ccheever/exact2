@@ -98,8 +98,9 @@ let beat = LONG_POLL_MS;
 // Held proposals, as a test holds them (`/__stub/hold`).
 let held: any[] = [], holds = 0, moves = 0, protocolSaid: string | null = null; // (`protocolSaid`: what hello says, a test's (`/__stub/protocol`))
 // (`holds`: the ids made; with `moves`, a choice recorded, the held list's revision.)
-// The `choose`s asked, as a test reads them (`/__stub/chooses`).
-let chooses: { proposal: string; items: number[]; client: string }[] = [];
+// The `choose`s asked, as a test reads them (`/__stub/chooses`); `loseChooses`, how many more are recorded and their
+// answers lost, as a test asks (`/__stub/lose-choose` `{n}`).
+let chooses: { proposal: string; items: number[]; client: string }[] = [], loseChooses = 0;
 // Live copies (LLP 1122 T7), as a test turns them on (`/__stub/copies`):
 // hello's page is this stub's own origin, whose root is a copy's page: it
 // registers a build named by its frame (`copy-<name>`, a stable id, as a
@@ -398,7 +399,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // (`sha256` "stale"), or a value the app does not build with ("not-a-colour").
       const refusedRow = ['propose', 'transaction'].includes(request.method) && ((request.ops ?? []).map(rowRefusal).find(Boolean) || moveRefusal(request.ops ?? []));
       if (refusedRow) return send({ error: typeof refusedRow === 'string' ? { message: refusedRow } : refusedRow }, 409);
-      if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      if (request.method === 'propose') return send({ ok: { files: FILES, class: classOf(request.ops), changed: request.ops.filter((o: { name?: string; from?: string }) => o.name ?? o.from).map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n${request.ops.map((op: unknown) => `+  ${JSON.stringify(op)}\n`).join('')}` } }); // (each operation a line)
       // A write on digests the files have left is the server's conflict, naming who moved them (the third pass's #2).
       if (request.method === 'transaction' && request.files?.['app.tamber'] && request.files['app.tamber'] !== FILES['app.tamber']) return send({ error: { message: 'stale digests: app.tamber', conflict: true, files: FILES, stale: ['app.tamber'], by: { 'app.tamber': lastBy } } }, 409);
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
@@ -421,6 +422,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
         if (protocolSaid && protocolSaid !== 'tamber/1.18') { p.diff = `choose sent to a ${protocolSaid} server`; moves++; return send({ error: { message: 'the stub answers no choose' } }, 400); }
         Object.assign(p, { choice: [...new Set(request.items as number[])].sort((a, b) => a - b), choiceBy: request.client, choiceAt: (p.choiceAt ?? 0) + 1 }); moves++; // (it moves the held list, as the server's does)
         chooses.push({ proposal: p.proposal, items: p.choice, client: request.client });
+        if (loseChooses > 0) { loseChooses--; return send({ error: { message: 'the stub lost this answer' } }, 504); }
         return send({ ok: { proposal: p.proposal, choice: p.choice, choiceBy: p.choiceBy, choiceAt: p.choiceAt } });
       }
       if (request.method === 'accept') {
@@ -567,7 +569,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       TOKEN = `stub-token-${restarts}`;
       log.length = 0;
       held = [];
-      holds = 0; moves = 0; chooses = []; protocolSaid = null;
+      holds = 0; moves = 0; chooses = []; loseChooses = 0; protocolSaid = null;
       dryAsks = 0; namelessAsks = 0;
       longPolls = false; skipCursor = false; refuseHello = false; beat = LONG_POLL_MS;
       heldAnswer = null;
@@ -593,6 +595,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
   '/__stub/package-component': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); PACKAGED = await req.json(); filesBefore ??= FILES; FILES = { ...FILES, ...PACKAGED!.files }; return send({ ok: true }); } },
   '/__stub/library': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); LIBRARY = await req.json(); return send({ ok: true }); } },
   '/__stub/protocol': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); protocolSaid = (await req.json()).protocol ?? null; return send({ ok: true }); } },
+  '/__stub/lose-choose': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); loseChooses = Number((await req.json()).n ?? 1); return send({ ok: true }); } },
   '/__stub/chooses': { GET: (req) => (driver(req) ? send({ chooses }) : send({ message: 'Not found.' }, 404)) },
   // Another client's choice on a held proposal, as a test makes one (`{proposal, items, client}`).
   '/__stub/choose': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); const b = await req.json(); const p = held.find(h => h.proposal === b.proposal); if (!p) return send({ message: 'no such proposal' }, 404); Object.assign(p, { choice: b.items, choiceBy: b.client, choiceAt: (p.choiceAt ?? 0) + 1 }); moves++; return send({ ok: true }); } },

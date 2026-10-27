@@ -123,3 +123,34 @@ test('round 3: a card is in step only as the page shows it built from its moved 
   heldChoice.saw([{ proposal: 't', choice: [0, 2], choiceAt: 1 }], 'e6');
   expect(card('', 't')).toEqual([0]);
 });
+
+test('H2: the page\'s own choose whose answer was lost comes back as its own, not another client\'s; a same-name tab\'s different choice still rebases', async () => {
+  heldChoice.saw([{ proposal: 'h', choiceAt: 0 }], 'e7', 'design-tool:Ada');
+  heldChoice.takeShown();
+  // The server records [0, 1] (at 1), and its answer never comes.
+  expect(await heldChoice.send('h', [0, 1], () => Promise.resolve(null))).toBe(false);
+  heldChoice.saw([{ proposal: 'h', choice: [0, 1], choiceBy: 'design-tool:Ada', choiceAt: 1 }], 'e7', 'design-tool:Ada');
+  expect(heldChoice.gen('h')).toBe(0);
+  expect(heldChoice.stale('h:1')).toBe(false);
+  expect(heldChoice.shownStale()).toBe(false);
+  // An accept names the record's choiceAt, read after the match: the server's stale check stays the authority.
+  expect(heldChoice.at('h')).toBe(1);
+  // Another tab under the same name chooses something else: that rebases, as another client's choice does.
+  heldChoice.saw([{ proposal: 'h', choice: [1], choiceBy: 'design-tool:Ada', choiceAt: 2 }], 'e7', 'design-tool:Ada');
+  expect(heldChoice.gen('h')).toBe(1);
+  expect(heldChoice.base('h')).toEqual([1]);
+});
+
+test('H3: a flip made after another client\'s choice rebased the card counts; only the flips picked held when the rebase was taken are dropped', () => {
+  heldChoice.saw([{ proposal: 'k', choice: [0], choiceAt: 1 }], 'e8', 'design-tool:Ada');
+  heldChoice.takeShown();
+  heldChoice.saw([{ proposal: 'k', choice: [1], choiceAt: 2, choiceBy: 'design-tool:Bo' }], 'e8', 'design-tool:Ada');
+  // The page's next answer takes the flips it had then as obsolete.
+  expect(heldChoice.drop(['k:2,3'])).toEqual(['k:2,3']);
+  // A token unticked after that, before the page has dropped the old flip: it counts, and only the old one is dropped.
+  expect(heldChoice.stale('k:1')).toBe(false);
+  expect(heldChoice.drop(['k:2,3', 'k:1'])).toEqual(['k:2,3']);
+  expect(card('k:2,3;k:1', 'k')).toEqual([]);
+  heldChoice.drop(['k:1']);
+  expect(heldChoice.inStep('k', 'k:1', heldChoice.gen('k'))).toBe(true);
+});

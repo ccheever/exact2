@@ -41,27 +41,38 @@ export function carriedChoice(fresh: string, tokens: number, offers: { items?: n
 // base be (its flips already say so). Another client's choice since replaces the base, and the page's flips on that
 // card become obsolete at once: never sent, never accepted, then dropped from `picked` (the last to choose wins, as on
 // the server). A newer record that comes while the page's own `choose` is on its way is kept, and settled when it lands.
+// A record of the page's own last `choose` (its client, the items it asked), whose answer may have been lost, is the
+// page's own: client names are shared by a person's tabs, so the items tell it apart, and the same items from another
+// tab under the name would be the same base. Only the flips `picked` held when a rebase was taken are obsolete: one
+// made after it counts.
 type Base = { at: number; choice: number[] | null };
-type Record = { proposal: unknown; choice?: number[]; choiceAt?: number };
+type Record = { proposal: unknown; choice?: number[]; choiceBy?: string | null; choiceAt?: number };
 const bases = new Map<string, Base>(), latest = new Map<string, Base>(), mine = new Map<string, number>(), sent = new Map<string, string>();
-const pending = new Map<string, Promise<boolean>>(), touched = new Set<string>(), rebased = new Set<string>(), gens = new Map<string, number>();
+const pending = new Map<string, Promise<boolean>>(), touched = new Set<string>(), gens = new Map<string, number>(), asked = new Map<string, string>();
+// (`rebased`: a card whose flips are not yet taken, all of them obsolete until the page's next answer takes them; `stale`, those taken)
+const rebased = new Set<string>(), stale = new Map<string, Set<string>>();
 let answers = 0, epoch = '', run = 0, dirty = false;
 
 /** `id`'s base replaced by `b`, another client's: the page's flips on it obsolete from now, its cards to be shown again. */
-function rebase(id: string, b: Base) { bases.set(id, b); sent.delete(id); touched.delete(id); rebased.add(id); gens.set(id, (gens.get(id) ?? 0) + 1); dirty = true; }
+function rebase(id: string, b: Base) { bases.set(id, b); sent.delete(id); touched.delete(id); rebased.add(id); stale.delete(id); gens.set(id, (gens.get(id) ?? 0) + 1); dirty = true; }
 /** Whether a record newer than `id`'s base and than the page's own choose of it, so another client's, is kept. */
 const foreign = (id: string) => { const b = bases.get(id), l = latest.get(id); return !!b && !!l && l.at > b.at && l.at > (mine.get(id) ?? 0); };
 /** After the page's own `choose` of `id` landed (or failed): a newer record kept meanwhile, not its echo, rebases. */
 function settle(id: string) { if (foreign(id)) rebase(id, latest.get(id)!); }
+/** Whether the page's flip `f` (`<proposal>:<i[,j]>`) no longer counts: its card rebased and not yet taken, or `f` in
+ * `picked` when the rebase was taken. */
+const obsolete = (f: string) => { const id = f.slice(0, f.indexOf(':')); return rebased.has(id) || !!stale.get(id)?.has(f); };
 
 export const heldChoice = {
   /** The held list as read on server run `on`: each proposal's base taken at first sight, or again when another client
    * chose since (kept, while the page's own `choose` of it is on its way, until that lands). A proposal missing from a
-   * list (out being accepted, and back if that fails) keeps its base. A new run knows nothing. */
-  saw(records: Record[], on: string) {
+   * list (out being accepted, and back if that fails) keeps its base. A new run knows nothing. `client`: this page's,
+   * whose record of the items it last asked is its own (its `choiceAt` taken as the page's, its answer lost or not). */
+  saw(records: Record[], on: string, client = '') {
     if (on !== epoch) { this.forget(); epoch = on; }
     for (const p of records) {
       const id = String(p.proposal), seen = { at: p.choiceAt ?? 0, choice: p.choice ?? null };
+      if (client && p.choiceBy === client && seen.choice && asked.get(id) === JSON.stringify(seen.choice)) mine.set(id, Math.max(mine.get(id) ?? 0, seen.at));
       latest.set(id, seen);
       if (!bases.has(id)) bases.set(id, seen);
       else if (!pending.has(id)) settle(id);
@@ -75,7 +86,7 @@ export const heldChoice = {
   /** The `choiceAt` an accept of `id` names: the newest this page knows, its own `choose`s' included. */
   at: (id: string): number => Math.max(mine.get(id) ?? 0, bases.get(id)?.at ?? 0),
   /** Whether the page's flip `f` (`<proposal>:<i[,j]>`) no longer counts: made over a base since replaced. */
-  stale: (f: string): boolean => rebased.has(f.slice(0, f.indexOf(':'))),
+  stale: (f: string): boolean => obsolete(f),
   /** Whether a base moved since the cards were last built from the list: they are built again (`takeShown`). */
   shownStale: (): boolean => dirty,
   /** The cards were built from the bases as they are now (each card carries its `gen`, as `choiceGen`). */
@@ -84,12 +95,15 @@ export const heldChoice = {
    * would accept or carry: built from its base as it is now, with none of its flips made obsolete by another client's
    * choice still in `picked`. An accept or an edit asks for another look when not. (The page's own card's number, not
    * the module's build: a card built again is shown only once the page has it.) */
-  inStep: (id: string, picked: string, shownGen: number): boolean => shownGen === (gens.get(id) ?? 0) && !(rebased.has(id) && picked.split(';').some(f => f.startsWith(`${id}:`))),
-  /** The flips in `picked` that no longer count, to drop from it; said again each time until `picked` has none of a
-   * rebased card's, so a dropped answer loses nothing. */
+  inStep: (id: string, picked: string, shownGen: number): boolean => shownGen === (gens.get(id) ?? 0) && !picked.split(';').some(f => f.startsWith(`${id}:`) && obsolete(f)),
+  /** The flips in `picked` that no longer count, to drop from it: a rebased card's as `picked` has them at its first
+   * answer since (a flip made after that counts), said again each time until `picked` has none of them, so a dropped
+   * answer loses nothing. */
   drop(picked: string[]): string[] {
-    const out = picked.filter(f => rebased.has(f.slice(0, f.indexOf(':'))));
-    for (const id of [...rebased]) if (!picked.some(f => f.startsWith(`${id}:`))) rebased.delete(id);
+    for (const id of rebased) stale.set(id, new Set(picked.filter(f => f.startsWith(`${id}:`))));
+    rebased.clear();
+    const out = picked.filter(obsolete);
+    for (const [id, flips] of stale) { for (const f of flips) if (!picked.includes(f)) flips.delete(f); if (!flips.size) stale.delete(id); }
     return out;
   },
   /** Whether `id`'s card has been ticked on this page since its base (its choice is the page's to send, flips or none). */
@@ -104,6 +118,7 @@ export const heldChoice = {
       if (foreign(id)) return false;
       if (sent.get(id) === key) return true;
       sent.delete(id); // (an answer that never comes leaves the server's choice unknown: the next ask sends again)
+      asked.set(id, key);
       const ok = await ask(items);
       if (at !== run || ok?.choiceAt === undefined) return false;
       mine.set(id, Math.max(mine.get(id) ?? 0, ok.choiceAt));
@@ -120,5 +135,5 @@ export const heldChoice = {
   /** A number for each answer of the tool's `sendChoices`. */
   answer: (): number => ++answers,
   /** Nothing known (a new server run); answers still on their way are ignored. */
-  forget() { bases.clear(); latest.clear(); mine.clear(); sent.clear(); pending.clear(); touched.clear(); rebased.clear(); gens.clear(); dirty = false; run += 1; },
+  forget() { bases.clear(); latest.clear(); mine.clear(); sent.clear(); pending.clear(); touched.clear(); rebased.clear(); stale.clear(); asked.clear(); gens.clear(); dirty = false; run += 1; },
 };

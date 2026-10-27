@@ -13,7 +13,7 @@ import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf, levelsOf, lookOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
-import { pairingSources } from './pairing';
+import { pairingSources } from './pairing'; import { chosenDiffSources } from './chosen-diff';
 import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { heldTitle, opWords, whenText } from './optext';
 import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, heard, keep, resolveAll, type Kept } from './reread';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
@@ -420,7 +420,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     }
     heldDesign = design;
     heldOps = new Map(heldRaw.map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
-    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review])); heldChoice.saw(heldRaw, heldAt.epoch); heldChoice.takeShown(); // (each card's base, the server's choice, built again when one moves: choice.ts)
+    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review])); heldChoice.saw(heldRaw, heldAt.epoch, client); heldChoice.takeShown(); // (each card's base, the server's choice, built again when one moves: choice.ts)
     held = heldRaw.map(p => ({
       proposal: String(p.proposal), client: String(p.client ?? ''), editedBy: String(p.editedBy ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
       tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], title: heldTitle((p.ops ?? []).map((o: { op: unknown }) => o.op), (p.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file ?? ''), token: String(c.token) })), designFile), replaces: String(p.replaces ?? ''),
@@ -757,7 +757,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 
 const sources: Sources = {
   ...pairingSources(call, pairWith, remote), sendSelectUp: async ([client, build, up]) => { stepping.add(String(build)); const r = await call('/__tamber', { method: 'inspect', client, build, select: { up } }); if (r.error) stepping.delete(String(build)); return { ok: !r.error, error: r.error }; },
-  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API),
+  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API), ...chosenDiffSources(call, () => held.filter(h => h.importer && (h.replaces || h.from)), (p, picked) => chosen(p, picked), p => heldOps.get(p) ?? [], () => heldToken || undefined), // (D1.1: the diff a card shows follows its choice)
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
@@ -1339,9 +1339,9 @@ const sources: Sources = {
     // What the card shows is accepted: its own choose landed first, another client's choice asks for another look.
     const moved = { ...stacks(false, 'Another client changed what this import has chosen: review it, then accept.', ''), note: '' };
     if (!heldChoice.inStep(proposal, picked, shownGen)) return moved; // (the card not yet showing it)
-    const seen = heldChoice.gen(proposal), items = chosen(proposal, picked);
-    if (!(await heldChoice.flush(proposal)) || heldChoice.gen(proposal) !== seen) return moved;
-    if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
+    const seen = heldChoice.gen(proposal), items = chosen(proposal, picked); if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
+    // (1.18: what it accepts recorded first, as an edit does, so no choose of its own lands after the choiceAt it names; before, its sends flushed)
+    if (!(await (byChoice ? heldChoice.send(proposal, items, askChoose(client, proposal)) : heldChoice.flush(proposal))) || heldChoice.gen(proposal) !== seen) return heldChoice.gen(proposal) !== seen || !byChoice ? moved : { ...stacks(false, 'The choice could not be recorded on the design server, so nothing was accepted: try again.', ''), note: '' };
     // (on 1.18 its items always named, all of them included: never the server's choice by default, which may be older)
     return sources.acceptHeld([client, proposal, items.length === ops.length && !byChoice ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
   },

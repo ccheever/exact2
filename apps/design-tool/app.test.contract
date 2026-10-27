@@ -659,6 +659,99 @@ test "another client's choice since the page saw one (tamber/1.18): the card tak
   clock data
   expect text "write-note" == "imp was recomputed on the files as they are now, as imp-r: review its diff and accept it again."
 
+test "a recomputed import's diff follows its card's choice at once: the plan of what is chosen, the held one when all is, none when nothing is (stage 15 D1.1)"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp-r", "replaces": "imp", "client": "design-tool:Ada", "diff": "--- app.tamber\n+++ app.tamber\n+  every operation\n", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "#ffffff"}}, {"index": 1, "op": {"op": "add-token", "name": "shadcn.ring", "value": "#000000"}}], "review": {"importer": "shadcn", "counted": {"source": 2, "mapped": 2, "reported": 0}, "tokens": 2, "unmapped": [], "offers": []}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  every operation\n"
+  tap "take-imp-r-1"
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  {\"op\":\"add-token\",\"name\":\"shadcn.card\",\"value\":\"#ffffff\"}\n"
+  tap "take-imp-r-0"
+  clock data
+  expect text "held-diff-imp-r" == ""
+  expect text "held-diff-note-imp-r" == "Nothing is chosen, so accepting it would write nothing."
+  tap "take-imp-r-0"
+  tap "take-imp-r-1"
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  every operation\n"
+  expect tree missing "held-diff-note-imp-r"
+
+test "H1: accepting right after a tick whose choose answer was lost records what it accepts first (tamber/1.18), never refused as another client's change"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/lose-choose" {"n": 1} as ada
+  tap "override-imp-AccentColor"
+  clock data
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "Accepted imp."
+
+test "H2: the page's own choose whose answer was lost comes back as its own (tamber/1.18): its tick shows, and accepting takes it"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/lose-choose" {"n": 1} as ada
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "override-imp-AccentColor" == "true"
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "Accepted imp."
+
+test "H3: a tick made after another client's choice rebased the card counts (tamber/1.18): only the flip the page had then is dropped"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/choose" {"proposal": "imp", "items": [0, 1], "client": "design-tool:Bo"} as ada
+  clock +1
+  clock data
+  tap "take-imp-0"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "take-imp-0" == "false"
+  expect text "override-imp-AccentColor" == "true"
+
 test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
   type "name" "Ada"
   tap "save-name"
