@@ -452,6 +452,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         textDelegate?.responds(to: selector) == true ? textDelegate : nil
     }
     func searchBarTextDidBeginEditing(_ bar: UISearchBar) {
+        host?.presenter.searchEditingChanged()
         guard let field else { return }
         host?.presenter.fieldSelections.focused(field)
         host?.presenter.focus(field.id)
@@ -467,6 +468,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         bar.resignFirstResponder()
     }
     func searchBarTextDidEndEditing(_ bar: UISearchBar) {
+        host?.presenter.searchEditingChanged()
         let completion = editingCompletion
         editingCompletion = nil
         if let field, let presenter = host?.presenter, presenter.views[field.id] === field {

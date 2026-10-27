@@ -385,13 +385,31 @@ extension Presenter {
         }
         let area = IntoView.inset(frame, style: target.style, family: "scroll_margin", outward: true)
         let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
-        let port = IntoView.inset(sv.pageBounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
+        var port = IntoView.inset(sv.pageBounds.inset(by: inset), style: owner?.style ?? [:], family: "scroll_padding")
+        if let grouped, sv === grouped, let pinned = pinnedHeader(over: frame, in: grouped) {
+            port.origin.y += pinned
+            port.size.height = max(0, port.height - pinned)
+        }
         let x = IntoView.aligned(inline, target: area.minX, area.maxX, port: port.minX, size: port.width) - (port.minX - sv.bounds.minX)
         let y = IntoView.aligned(block, target: area.minY, area.maxY, port: port.minY, size: port.height) - (port.minY - sv.bounds.minY)
         let rangeInset = sv.adjustedContentInset
         let maxX = max(-rangeInset.left, sv.contentSize.width + rangeInset.right - sv.bounds.width)
         let maxY = max(-rangeInset.top, sv.contentSize.height + rangeInset.bottom - sv.bounds.height)
         return (frame, CGPoint(x: min(max(x, -rangeInset.left), maxX), y: min(max(y, -rangeInset.top), maxY)))
+    }
+
+    /// The height of the section header a plain list pins over the port's
+    /// top while `row` (in the collection's content) is in its section, as
+    /// UIKit pins a plain list's headers: a row brought to the start lands
+    /// below it, as UITableView's `scrollToRow(at:at: .top)` and SwiftUI's
+    /// `scrollTo` leave it, not under it.
+    private func pinnedHeader(over row: CGRect, in grouped: UIScrollView) -> CGFloat? {
+        guard let collection = grouped as? UICollectionView, (collection.superview as? NodeView)?.props["listStyle"] == "plain",
+              let path = collection.indexPathForItem(at: CGPoint(x: row.midX, y: row.midY)),
+              let header = collection.layoutAttributesForSupplementaryElement(
+                ofKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: path.section)),
+              header.frame.height > 0 else { return nil }
+        return header.frame.height
     }
 }
 #endif
