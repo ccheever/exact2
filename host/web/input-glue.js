@@ -992,7 +992,9 @@ function clear(el, middle) {
     const r = c.getBoundingClientRect();
     if ((r.top + r.bottom) / 2 > mid) bottom = Math.min(bottom, r.top); else top = Math.max(top, r.bottom);
     const next = bottom > top ? root.elementFromPoint(x, (top + bottom) / 2) : null;
+    // (Only a box of the same port, or a fixed one: a sticky of another scroller doesn't stay where this one moves.)
     c = next && !(next === el || el.contains(next)) ? coverAt(next) : null;
+    if (c && getComputedStyle(c).position !== "fixed" && sticky(c) !== port) c = null;
   }
   if (bottom <= top) return null;
   // (A scaled port scrolls by its own pixels: the viewport's distance over its scale.)

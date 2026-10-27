@@ -142,11 +142,8 @@ impl<D: DataSource> Presenter<D> {
                 .map(|(c, _)| c);
         }
         let dy = at.1 - (top + bottom) / 2.0;
-        if is_root {
-            self.scroll_page_by(dy)
-        } else {
-            self.scroll_by(scroller, dy)
-        }
+        // (A root that scrolls itself moves by its own offset; one that doesn't, by the page's.)
+        self.scroll_by(scroller, dy) || (is_root && self.scroll_page_by(dy))
     }
 
     /// The page scrolled by `dy` points, within its travel, as `scroll_into`'s page step: whether it moved.
