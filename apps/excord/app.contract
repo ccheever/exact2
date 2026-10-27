@@ -211,7 +211,7 @@ component Excord
   mutation editPaged as shape Ack refreshes editTarget then afterEditPage
   // A send shows at once (`echoed`, the local row), then posts (`sent`).
   mutation echoed as shape Sent queue refreshes win, chan then postEchoed
-  mutation sent as shape Ack queue refreshes win, chan, categories
+  mutation sent as shape Sent queue refreshes win, chan, categories then afterSent
   mutation changed as shape Ack queue refreshes win, chan, categories, dms, guilds, rail
   mutation deleted as shape Ack queue refreshes win, chan, categories, dms, guilds, rail then afterDelete
   mutation edited as shape Ack refreshes win then afterEdit
@@ -793,6 +793,15 @@ component Excord
       case some(r)
         if r.ok
           send sent = postMessage(r.channel, r.key)
+      case none
+        aimed = aimed
+  // Discord reads the channel up to the reader's own message, so a sent message leaves the bar nothing
+  // to count.
+  action afterSent
+    match sent
+      case some(r)
+        if r.ok and r.channel == open
+          unreadBar = false
       case none
         aimed = aimed
   // A save belongs to one edit session, even if the same message is reopened.

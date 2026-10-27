@@ -472,7 +472,7 @@ const sources: Sources = {
   },
   postMessage: async ([channel, key], _secrets, storage) => {
     const send = live.sends.get(key);
-    if (!send) return refused('That message is no longer waiting to send.');
+    if (!send) return { ...refused('That message is no longer waiting to send.'), key, channel };
     try {
       const reply = send.replyTo ? { messageId: send.replyTo, guildId: S.channel(store, channel)?.guild_id, mention: send.mention } : undefined;
       const attachments = send.files.length ? await upload(channel, key, send.files, send.uploaded ??= [], storage) : undefined;
@@ -480,11 +480,11 @@ const sources: Sources = {
         { content: send.content, nonce: key, replyTo: reply, attachments }));
       live.sends.delete(key);
       applyEvent(live, 'MESSAGE_CREATE', sent);
-      return OK;
+      return { ...OK, key, channel };
     } catch (error) {
       S.failPending(store, channel, key, error instanceof Error ? error.message : String(error));
       touched(live, channel);
-      return refused(error);
+      return { ...refused(error), key, channel };
     }
   },
   retrySend: ([channel, key]) => {
