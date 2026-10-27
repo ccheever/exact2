@@ -53,6 +53,10 @@ abstract class ExactExtension(val context: ExtensionContext) {
     /** The activity is in front again: what changed in Settings meanwhile is read again (Android has no event). */
     open fun resumed() {}
 
+    /** [Activity.onPause]: what only the activity in front may hold is let go, such as NFC reader mode, which
+     * [android.nfc.NfcAdapter.enableReaderMode] admits only while the activity is resumed (LLP 1133.035 D16 item 5). */
+    open fun paused() {}
+
     /**
      * Picture [source] of the interface's `img` scheme (`photos:<id>`, LLP 1133.019 D2, D11 item 1) for a box of
      * [width] by [height] device pixels at `object-fit` [fit], once the runner admitted it: [reply] once, from any
@@ -573,5 +577,9 @@ internal object Extensions {
         made.values.forEach { it.resumed() }
     }
 
-    fun paused() { foreground = false }
+    /** [Activity.onPause]. */
+    fun paused() {
+        foreground = false
+        made.values.forEach { it.paused() }
+    }
 }

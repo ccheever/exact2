@@ -326,6 +326,9 @@ impl<D: DataSource> Runner<D> {
                 Err(answer)
             };
         }
+        if self.apply_stops(row) {
+            return Ok(());
+        }
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let extension = self.plan.str(row.extension).to_owned();

@@ -68,7 +68,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The module name a data-code call's body names, `{"extension",
     /// "send"|"source"}`.
-    fn called(&self, body: &[u8]) -> Option<super::ModulesRow> {
+    pub(super) fn called(&self, body: &[u8]) -> Option<super::ModulesRow> {
         let v: Json = serde_json::from_slice(body).ok()?;
         let extension = v.get("extension")?.as_str()?;
         let declared = v["send"].as_str().or(v["source"].as_str())?;

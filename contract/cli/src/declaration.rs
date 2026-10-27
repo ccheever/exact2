@@ -271,6 +271,15 @@ fn module(
             ))
         }
     };
+    // A name whose signature carries bytes in every form (LLP 1133.006 D8
+    // item 1) is data code's alone too, refused in Contract by its own id
+    // (`contract-module-bytes`, LLP 1133.022 D19 item 4). An option that may
+    // be a string or bytes (`string|bytes`) keeps the name in Contract, with
+    // the string alone (LLP 1133.035 D2).
+    let bytes = std::iter::once(&entry["answers"])
+        .chain(object(&entry["options"]).values())
+        .any(|t| carries_bytes(t, interface, &mut Vec::new()));
+    let data_only = data_only || bytes;
     let takes_json = std::iter::once(&entry["answers"])
         .chain(object(&entry["options"]).values())
         .any(is_json);
@@ -326,8 +335,11 @@ fn module(
         .collect::<Result<Vec<_>, _>>()?;
     let mut substitute = substitute(entry, interface)?;
     let effect = kind == ModuleKind::Send && answers.is_none();
-    if admission.is_some() || effect {
+    if admission.is_some() || effect || bytes {
         let mut json: Value = serde_json::from_str(&substitute).unwrap_or_default();
+        if bytes {
+            json["bytes"] = true.into();
+        }
         if let Some(admission) = admission {
             json["admission"] = admission.into();
         }
@@ -472,9 +484,22 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         Value::String(s) if s == "implementation" => {
             out.insert("implementation".into(), Value::Bool(true));
         }
+        // An arrival the agent's words stand for (LLP 1133.035 D16 item 1):
+        // the names a tag in the field settles, raises and ends, read by
+        // the runner from any name of the interface.
+        Value::Object(forms)
+            if forms.len() == 1
+                && forms["arrival"].as_object().is_some_and(|a| {
+                    ["field", "from", "status", "scan", "write", "lock", "reading", "readingerror"]
+                        .iter()
+                        .all(|k| a.get(*k).is_some_and(Value::is_string))
+                }) =>
+        {
+            out.insert("arrival".into(), forms["arrival"].clone());
+        }
         other => {
             return Err(format!(
-                "an interface's `substitute` is \"implementation\", not `{other}`"
+                "an interface's `substitute` is \"implementation\" or {{\"arrival\": {{\"field\", \"from\", \"status\", \"scan\", \"write\", \"lock\", \"reading\", \"readingerror\"}}}}, not `{other}`"
             ))
         }
     }
@@ -597,6 +622,8 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             // only when it gives one of those options (LLP 1133.012 D12
             // item 5): a recognition of a track is a capture start, of a
             // file not.
+            // `{"none": ["tool", "wake"]}`: refused while any of those is
+            // among the call's possible causes (LLP 1133.035 D16 item 6).
             "origin" => check(
                 matches!(value.as_str(), Some("app" | "person"))
                     || (value["is"] == "app"
@@ -605,8 +632,15 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
                                 o.as_str()
                                     .is_some_and(|o| !object(&entry["options"])[o].is_null())
                             })
+                        }))
+                    || (value.as_object().is_some_and(|o| o.len() == 1)
+                        && value["none"].as_array().is_some_and(|none| {
+                            !none.is_empty()
+                                && none.iter().all(|w| {
+                                    matches!(w.as_str(), Some("device" | "wake" | "tool"))
+                                })
                         })),
-                "`origin` is \"app\", \"person\", or {\"whenAny\": [its options], \"is\": \"app\"}",
+                "`origin` is \"app\", \"person\", {\"whenAny\": [its options], \"is\": \"app\"}, or {\"none\": [\"device\", \"wake\" or \"tool\"]}",
             )?,
             "foreground" => check(value.is_boolean(), "`foreground` is true or false")?,
             // A `foreground` name admitted while hidden when the app holds a
@@ -1012,7 +1046,10 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
         return Ok(TypeExpr::Named("string".to_owned(), span));
     }
     let named = match ty {
-        "strings-key" | "surface" | "color" => "string",
+        // Bytes are data code's (LLP 1133.006 D8 item 1): Contract never
+        // calls a name that carries them, and takes the string alone of an
+        // option that may be either (`string|bytes`).
+        "strings-key" | "surface" | "color" | "bytes" | "string|bytes" => "string",
         "number" | "string" | "bool" | "unit" => ty,
         shape
             if shape.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
@@ -1023,6 +1060,26 @@ fn type_expr(ty: &str, span: Span) -> Result<TypeExpr, String> {
         _ => return Err(format!("`{ty}` is not a declaration's type")),
     };
     Ok(TypeExpr::Named(named.to_owned(), span))
+}
+
+/// Whether a value of `ty` carries bytes in every form: `bytes` itself, or
+/// a record of the interface's shapes with such a field, at any depth.
+fn carries_bytes(ty: &Value, interface: &Value, seen: &mut Vec<String>) -> bool {
+    let Some(ty) = ty.as_str().or(ty["type"].as_str()) else {
+        return false;
+    };
+    let named = bare(ty).0;
+    if named == "bytes" {
+        return true;
+    }
+    let Some(fields) = interface["shapes"][named].as_object() else {
+        return false;
+    };
+    if seen.iter().any(|s| s == named) {
+        return false;
+    }
+    seen.push(named.to_owned());
+    fields.values().any(|t| carries_bytes(t, interface, seen))
 }
 
 /// `ty` without `option<…>` and a list's `[]`, and whether a list was there.

@@ -36,6 +36,7 @@ import { wakes, REFUSED } from "./wakes.js";
 import { reach } from "./reach.js";
 import { updates } from "./update.js";
 import { spans, fillAll } from "./spans.js";
+import { arrivals } from "./arrival.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -132,6 +133,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (p) return p;
     const s = sp.decide(row, send, args);
     if (s) return s;
+    // A tag's arrival decides its own names (LLP 1133.035 §10, `arrival.js`).
+    const arriving = ar.decide(row, send, args);
+    if (arriving) return arriving;
     if (send && row.sub.ceremony) return ceremonies.decide(row, args);
     if (send && row.sub.records) return { now: null }; // a signal the substitute records (LLP 1133.011 §9)
     if (send && row.sub.shortcuts === "pin") return { now: rc.pin(row, args) };
@@ -165,6 +169,17 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   };
   const forwarded = new Map();
   let requests = 0;
+  // A data-code call is let go with the answer that made it (LLP 1133.035 D16 item 4): once its `kept` reads false
+  // after a commit, a held one answers its `stopped` (else its `cancel`) and a forwarded one is cancelled at its
+  // implementation, as a Contract send's is.
+  const dataCalls = new Set();
+  After.push(() => {
+    for (const h of held.filter(h => h.waits === "value" && h.send && !h.kept())) {
+      say(`device ${capability(h)} ${h.ticket} retired: its call was let go`);
+      release(h, h.row.sub.stopped ?? h.row.sub.cancel ?? { error: "AbortError" });
+    }
+    for (const c of [...dataCalls]) if (!c.kept()) { dataCalls.delete(c); say(`cancel ${c.key} request ${c.request}: its call was let go`); c.impl.cancel(c.request); }
+  });
   // `args` choose the permission the call waits on (`permissionOf`), kept by name.
   // `kept`: whether data code's call is still wanted (`ts-data.js`), which a ceremony's reply reads (D11).
   const hold = (row, waits, name, json = false, timeout = null, forward = null, args = {}, kept = () => true) => {
@@ -175,6 +190,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const h = { ticket: queued ? null : nextTicket(), row, waits, name, send: row.send, resolve, reject, json, timeout, forward, args, kept, queued, permission: permissionOf(row, args)?.name, deadline: waits === "value" && timeout != null ? clock.now + timeout : null };
       held.push(h);
       if (!queued) say(`device ${capability(h)} ${h.ticket} held (agent)`);
+      ar.claimed(row);
       if (waits === "ceremony") ceremonies.record(h, queued ? "queued" : "held");
     });
   };
@@ -468,7 +484,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const pictures = Object.keys(schemes).length ? packagePictures(schemes, admitPicture, instance, extension => pictureDecision(imageRows[extension])) : null;
   const tell = () => { sampled.visibility(!shown()); for (const impl of loaded.values()) impl.then(i => i?.foreground?.(shown())); };
   if (typeof addEventListener === "function") addEventListener("visibilitychange", tell);
-  (globalThis.exact ??= {}).foreground = visible => { if (agentShown !== visible) { agentShown = visible; tell(); } };
+  (globalThis.exact ??= {}).foreground = visible => { if (agentShown !== visible) { agentShown = visible; tell(); ar.visibility(!visible); } };
   // The agent's preferred values for an extension's names, by name.
   const preferredOf = extension => Object.fromEntries([...preferred].filter(([k]) => k.startsWith(`${extension}.`)).map(([k, v]) => [k.slice(extension.length + 1), v]));
   // Under the agent, the preferred value laid over the implementation's answer field by field (LLP 1133.009 D10 item 11).
@@ -500,8 +516,10 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (row.live) live.add(row.key);
     const request = ++requests, asker = how.name ?? reader;
     if (row.send && asker && impl.cancel) forwarded.set(asker, { key: row.key, request, impl });
+    const call = row.send && how.kept && impl.cancel ? { key: row.key, request, impl, kept: how.kept } : null;
+    if (call) dataCalls.add(call);
     const told = { origin: how.origin ?? "app", request, ...(route(row) === "agent" ? { preferred: how.sheet ?? preferred.get(row.key) } : {}) };
-    const answered = Promise.resolve(impl[name](args ?? {}, told)).finally(() => { if (forwarded.get(asker)?.request === request) forwarded.delete(asker); });
+    const answered = Promise.resolve(impl[name](args ?? {}, told)).finally(() => { if (forwarded.get(asker)?.request === request) forwarded.delete(asker); dataCalls.delete(call); });
     if (row.live && row.sub.poll) {
       polls.set(row.key, clock.now);
       asking.add(row.key);
@@ -526,6 +544,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const rc = reach({ say, announce: keys => reask(keys), preferred: key => preferred.get(key) });
   const listOf = row => [...byKey.values()].filter(r => extensionOf(r) === extensionOf(row) && r.sub.list).map(r => r.sub.list.state);
   const applyEffect = (row, args) => {
+    if (ar.stops(row)) return null;
     const reached = rc.effect(row, args, [...byKey.values()]);
     if (reached !== undefined) return reached;
     const name = row.key.split(".")[1], sub = row.sub;
@@ -610,6 +629,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     run: f => { const before = origin; origin = "wake"; try { f(); } finally { origin = before; } } });
   // ---- events (LLP 1133.004 D6)
   const unheard = [];
+  const ar = arrivals({ rows: () => [...byKey.values()], held, preferred, release: (h, json) => { say(`device ${capability(h)} ${h.ticket} retired`); release(h, json); },
+    raise: (key, args) => raise(key, args, "device"), say, valueOf });
   const raise = (key, args, from) => {
     const declared = events[key];
     if (!declared) return say(`${key}: no handler hears it`);
@@ -810,7 +831,14 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (reader && sampled.sampled(row)) d = sampledAnswer(row, d, given, reader);
       if (d.forward && row.send && row.sub.gesture && ready.has(extensionOf(row))) {
         const impl = ready.get(extensionOf(row)), declared = row.key.slice(row.key.indexOf(".") + 1);
-        if (impl?.[declared]) return Promise.resolve(impl[declared](given, { origin, request: ++requests })).then(json => { handled(row, given, json); return answer(row, json); });
+        if (impl?.[declared]) {
+          // Registered for `cancel` as `viaImplementation` registers, the call staying in the press's dispatch.
+          const request = ++requests;
+          if (impl.cancel) forwarded.set(name, { key: row.key, request, impl });
+          return Promise.resolve(impl[declared](given, { origin, request }))
+            .finally(() => { if (forwarded.get(name)?.request === request) forwarded.delete(name); })
+            .then(json => { handled(row, given, json); return answer(row, json); });
+        }
       }
       if (d.forward) return viaImplementation(row, given, reader, { name, origin }).then(json => { disposeDropped(row, json, name, n); if (reader) sampled.answered(row, reader, json); return answer(row, json); });
       if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet, origin }) : null, given);
@@ -906,6 +934,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         Object.assign(e, sampled.state(extension));
         sp.state(extension, e);
         rc.state([...byKey.values()].filter(r => extensionOf(r) === extension), e);
+        ar.state(extension, e);
         const own = ready.get(extension)?.state?.();
         if (own) e.implementation = own;
       }
@@ -956,7 +985,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const spanned = sp.admitted(row, args, origin, d);
       if (spanned) return spanned.then(json => complete(json, row.type));
       if (reader) d = sampledAnswer(row, d, args, reader);
-      if (d.forward) return viaImplementation(row, args, null, { origin }).then(json => { if (reader) sampled.answered(row, reader, json); return complete(kept() ? json : ceremonies.dropped(row, json), row.type); });
+      if (d.forward) return viaImplementation(row, args, null, { origin, kept }).then(json => { if (reader) sampled.answered(row, reader, json); return complete(kept() ? json : ceremonies.dropped(row, json), row.type); });
       if (d.hold) return hold(row, d.hold, row.key, true, timeout, route(row) === "agent" ? sheet => viaImplementation(row, args, null, { origin, sheet }) : null, args, kept);
       say(`native ${row.key} (${route(row) === "substitute" ? "substituted" : "refused"})`);
       if (row.sub.ceremony || row.sub.records) ceremonies.record({ row, args }, errorCode(d.now) ?? "recorded");
@@ -1057,11 +1086,14 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       }
       const from = sibling(h.row, h.row.sub.from);
       if (req.op === "tap") {
-        if (req.choice !== "cancel") return { error: `@${h.ticket} (${cap}): tap takes cancel, not ${req.choice}` };
-        say(`device ${cap} ${h.ticket} cancelled`);
-        release(h, h.row.sub.cancel ?? { error: "NotSupportedError" });
-        return { ticket: req.ticket, capability: cap, answered: "cancel", delivery: "substituted" };
+        // A further tap the ticket takes (`taps`: a scan's `timeout`).
+        const taps = ar.taps(h.row);
+        if (req.choice !== "cancel" && !taps.includes(req.choice)) return { error: `@${h.ticket} (${cap}): tap takes ${["cancel", ...taps].join(" | ")}, not ${req.choice}` };
+        say(`device ${cap} ${h.ticket} ${req.choice === "cancel" ? "cancelled" : `answered: ${req.choice}`}`);
+        release(h, (req.choice === "cancel" ? h.row.sub.cancel : h.row.sub.taps[req.choice]) ?? { error: "NotSupportedError" });
+        return { ticket: req.ticket, capability: cap, answered: req.choice, delivery: "substituted" };
       }
+      if (!from) return { error: `@${h.ticket} (${cap}): answered by tap, not type` };
       let v;
       try { v = typed(from, req.text); } catch (e) { return { error: `@${h.ticket}: ${e.message}` }; }
       say(`device ${cap} ${h.ticket} answered: a value`);
@@ -1079,7 +1111,12 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const group = req.extension ?? {};
       for (const [key, v] of Object.entries(group)) {
         const word = agentWord(key);
-        if (word) { if (v !== "clear" && !wordFits(word, v)) return { error: `prefer extension: \`${key}\` is a ${word}` }; continue; }
+        if (word) {
+          if (v !== "clear" && !wordFits(word, v)) return { error: `prefer extension: \`${key}\` is a ${word}` };
+          const refused = ar.refusal(key, v, group);
+          if (refused) return { error: refused };
+          continue;
+        }
         const row = byKey.get(key);
         const sources = [...byKey.values()].filter(r => !r.send).map(r => r.key);
         if (!row) return { error: `prefer extension: no source \`${key}\` in this app; its module sources are ${sources.join(", ") || "none"}` };
@@ -1096,8 +1133,10 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         }
       }
       for (const [name, state] of Object.entries(req.permission ?? {})) setPermission(name, state);
+      const moved = [];
       for (const [key, v] of Object.entries(group)) {
         const row = byKey.get(key), before = row?.sub.changes ? valueOf(row) : undefined;
+        moved.push([key, preferred.get(key)]);
         if (v === "clear") preferred.delete(key); else preferred.set(key, v);
         if (row) sampled.prefer(row, v);
         say(`prefer extension ${key}`);
@@ -1107,6 +1146,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       for (const extension of new Set(Object.keys(group).map(k => byKey.get(k) ?? rowOf(k)).filter(r => r && route(r) === "agent").map(extensionOf))) {
         loaded.get(extension)?.then(impl => impl?.preferred?.(preferredOf(extension)));
       }
+      // A field word's change is an arrival, once every word is set.
+      for (const [key, before] of moved) ar.moved(key, before, preferred.get(key));
       settleValues();
       const keys = Object.keys(group).filter(k => byKey.has(k));
       if (keys.length) reask(keys);

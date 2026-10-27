@@ -1,0 +1,76 @@
+// The conformance fixture (LLP 1133.001 D7; LLP 1133.035 §12): every name of
+// @exact/nfc, read and sent as an app would, each answer shown by testId for
+// the suite. A reading's records with their bytes, a write of bytes and the
+// tier 2 commands are data code's (app.ts).
+use nfcStatus, scan, abortScan, write, makeReadOnly, abortWrite, reading, readingerror, NFCStatus, NDEFScanEnd, NDEFWriteResult, NDEFReading, NFCTag, NDEFMessageInit, NDEFRecordInit from "@exact/nfc"
+
+shape Line
+  text: string
+
+fn ended(e: NDEFScanEnd): string = `${e.reason}${match e.reading { case some(r) => ` ${r}`, case none => "" }}`
+fn texts(r: NDEFReading): string = r.records.map(x => `${x.recordType}=${match x.text { case some(t) => t, case none => "-" }}`).join(" ")
+
+component Fixture
+  state heard = "none"
+  state unread = "none"
+  state lastReading = ""
+  resource status = nfcStatus() as shape NFCStatus
+  mutation scanned as shape NDEFScanEnd
+  mutation written as shape NDEFWriteResult
+  mutation records as shape Line
+  mutation data as shape Line
+  mutation commanded as shape Line
+  action startScan
+    send scanned = scan(once=true, apple.alertMessage="nfc.hold")
+  action keepScanning
+    send scanned = scan()
+  action stopScan
+    abortScan()
+  action writeLink
+    send written = write(message=NDEFMessageInit(records=[NDEFRecordInit(recordType="url", mediaType=none, id=none, encoding=none, lang=none, data=some("https://example.com/fixture"))]), apple.alertMessage="nfc.hold", apple.doneMessage="nfc.done")
+  action lock
+    send written = makeReadOnly(apple.alertMessage="nfc.hold")
+  action stopWrite
+    abortWrite()
+  action readRecords
+    send records = recordsOf(lastReading)
+  action writeData
+    send data = writeBytes()
+  action command
+    send commanded = command(lastReading)
+  action tagRead(r: NDEFReading)
+    heard = `${r.id} ${r.serialNumber} ${texts(r)}`
+    lastReading = r.id
+  action tagUnread(t: NFCTag)
+    unread = t.id
+    lastReading = t.id
+  view
+    column gap=8 padding=16 reading=tagRead readingerror=tagUnread
+      text `${status.available} ${status.radio} ${status.state} ${status.readerUI}` testId="status"
+      button press=startScan testId="scan"
+        text "Scan"
+      button press=keepScanning testId="scan-all"
+        text "Scan all"
+      button press=stopScan testId="stop-scan"
+        text "Stop"
+      button press=writeLink testId="write"
+        text "Write link"
+      button press=lock testId="lock"
+        text "Lock"
+      button press=stopWrite testId="stop-write"
+        text "Stop writing"
+      button press=readRecords testId="records"
+        text "Records"
+      button press=writeData testId="write-data"
+        text "Write data"
+      button press=command testId="command"
+        text "Command"
+      text heard testId="heard"
+      text unread testId="unread"
+      text (pending(scanned) ? "scanning" : match scanned { case some(e) => ended(e), case none => "idle" }) testId="scanned"
+      text (match failure(scanned) { case some(f) => `${f.code} ${f.message}`, case none => "" }) testId="scan-error"
+      text (pending(written) ? "writing" : match written { case some(w) => `written ${w.serialNumber}`, case none => "idle" }) testId="written"
+      text (match failure(written) { case some(f) => `${f.code} ${f.message}`, case none => "" }) testId="write-error"
+      text (match records { case some(l) => l.text, case none => "-" }) testId="record-bytes"
+      text (pending(data) ? "writing" : match data { case some(l) => l.text, case none => "-" }) testId="data"
+      text (match commanded { case some(l) => l.text, case none => "-" }) testId="commanded"

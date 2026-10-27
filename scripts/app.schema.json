@@ -710,6 +710,27 @@
                 "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$"
               }
             },
+            "nfc": {
+              "description": "The NFC tag reader session's lists (LLP 1133.035 D11), written to Info.plist: `iso7816Identifiers`, the ISO 7816 application identifiers (hex) a tag session selects, and `felicaSystemCodes`, the FeliCa system codes it polls for (never the wildcard FF). Core NFC reports no ISO 7816 or FeliCa tag the app does not list.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "iso7816Identifiers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^([0-9A-Fa-f]{2}){5,16}$"
+                  }
+                },
+                "felicaSystemCodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(?![Ff]{4}$)[0-9A-Fa-f]{4}$"
+                  }
+                }
+              }
+            },
             "team": {
               "type": "string"
             }

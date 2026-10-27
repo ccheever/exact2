@@ -54,7 +54,7 @@ import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
 import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { backgroundKeys, transportSecurity } from './plist.mjs';
+import { backgroundKeys, nfcKeys, transportSecurity } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { keptModules } from './modules.mjs';
@@ -368,7 +368,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const clips = appClip(app) && !app.widgetTV ? linked.filter((d) => d.startsWith('applinks:')).map((d) => `appclips:${d.slice('applinks:'.length)}`) : [];
   const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
-  for (const name of reach?.entitlements ?? []) dict[name] = entitlementValue(name, debuggable);
+  for (const name of reach?.entitlements ?? []) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
   return plistFile(dict);
 };
 
@@ -450,7 +450,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
     ...(activityEntries(app).length ? { NSSupportsLiveActivities: true, ...(activityEntries(app).some(e => e.frequent === true) ? { NSSupportsLiveActivitiesFrequentUpdates: true } : {}) } : {}) });
   Object.assign(dict, transportSecurity(tv ? {} : ios, ios.localNetworking ? { NSAllowsLocalNetworking: true } : {}));
   if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
-  Object.assign(dict, backgroundKeys(ios, reach, id, tv || clip));
+  Object.assign(dict, backgroundKeys(ios, reach, id, tv || clip), nfcKeys(ios, tv));
   // The schemes `canOpenURL` may ask about; iOS answers false for any other (`UIApplication.canOpenURL(_:)`)
   if (ios.queriesSchemes?.length) dict.LSApplicationQueriesSchemes = ios.queriesSchemes;
   // @ref LLP 1096 D8 — the audio session's category, which ExactKit's one owner reads.

@@ -73,12 +73,57 @@ impl CallOrigin {
     }
 }
 
+/// A set of origins: every cause a commit or a request has (LLP 1133.035
+/// D16 item 6). A request that a later commit keeps with newer arguments
+/// takes that commit's causes too, and its answer's commit, its `then` and
+/// what they ask carry them all, so a rule that refuses a tool sees a
+/// tool's arguments however they arrived. The rest of admission reads one
+/// origin; only the `none` rule reads the set.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::runner) struct Causes(u8);
+
+impl Causes {
+    fn bit(origin: CallOrigin) -> u8 {
+        1 << origin as u8
+    }
+
+    pub(in crate::runner) fn with(self, origin: CallOrigin) -> Causes {
+        Causes(self.0 | Self::bit(origin))
+    }
+
+    pub(in crate::runner) fn union(self, other: Causes) -> Causes {
+        Causes(self.0 | other.0)
+    }
+
+    pub(in crate::runner) fn has(self, origin: CallOrigin) -> bool {
+        self.0 & Self::bit(origin) != 0
+    }
+
+    /// Whether the app (a person, or its own code) is the only cause.
+    fn app_only(self) -> bool {
+        self.0 & !Self::bit(CallOrigin::App) == 0
+    }
+}
+
 /// The origins the runner keeps. Only those other than `app` are kept, so
 /// an app with no tool or wake keeps nothing.
 #[derive(Default)]
 pub(in crate::runner) struct Origins {
     /// The commit being made.
     now: CallOrigin,
+    /// The commit being made's causes beside `now`: for an answer's commit
+    /// and its `then`, the request's whole set.
+    causes: Causes,
+    /// Each request in flight's causes, by ticket, where one is not the app.
+    ticket_causes: BTreeMap<u64, Causes>,
+    /// Each resource's last ask's causes, where one is not the app.
+    asked_causes: BTreeMap<usize, Causes>,
+    /// Each armed `then`'s causes, where one is not the app.
+    then_causes: BTreeMap<usize, Causes>,
+    /// The causes of the call being admitted where the caller knows them
+    /// better than the commit does: a data-code call's are every cause in
+    /// flight (`data_causes`).
+    calling: Option<Causes>,
     /// Each request in flight, by ticket.
     tickets: BTreeMap<u64, CallOrigin>,
     /// Each resource's last ask, by resource.
@@ -107,6 +152,9 @@ pub(in crate::runner) struct OriginsSaved {
     tickets: BTreeMap<u64, CallOrigin>,
     asked: BTreeMap<usize, CallOrigin>,
     thens: BTreeMap<usize, CallOrigin>,
+    ticket_causes: BTreeMap<u64, Causes>,
+    asked_causes: BTreeMap<usize, Causes>,
+    then_causes: BTreeMap<usize, Causes>,
     ids: BTreeMap<u64, u64>,
     then_ids: BTreeMap<usize, u64>,
     let_go: usize,
@@ -232,6 +280,9 @@ impl<D: DataSource> Runner<D> {
             tickets: o.tickets.clone(),
             asked: o.asked.clone(),
             thens: o.thens.clone(),
+            ticket_causes: o.ticket_causes.clone(),
+            asked_causes: o.asked_causes.clone(),
+            then_causes: o.then_causes.clone(),
             ids: o.ids.clone(),
             then_ids: o.then_ids.clone(),
             let_go: o.let_go.len(),
@@ -244,6 +295,9 @@ impl<D: DataSource> Runner<D> {
         o.tickets = saved.tickets;
         o.asked = saved.asked;
         o.thens = saved.thens;
+        o.ticket_causes = saved.ticket_causes;
+        o.asked_causes = saved.asked_causes;
+        o.then_causes = saved.then_causes;
         o.ids = saved.ids;
         o.then_ids = saved.then_ids;
         o.let_go.truncate(saved.let_go);
@@ -263,9 +317,86 @@ impl<D: DataSource> Runner<D> {
         origin: CallOrigin,
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
-        let before = std::mem::replace(&mut self.extensions.origins.now, origin);
+        self.as_caused(origin, Causes::default(), f)
+    }
+
+    /// Run `f` as a commit of `origin` with `causes` besides.
+    fn as_caused<T>(
+        &mut self,
+        origin: CallOrigin,
+        causes: Causes,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let o = &mut self.extensions.origins;
+        let before = std::mem::replace(&mut o.now, origin);
+        let caused = std::mem::replace(&mut o.causes, causes);
         let out = f(self);
-        self.extensions.origins.now = before;
+        let o = &mut self.extensions.origins;
+        o.now = before;
+        o.causes = caused;
+        out
+    }
+
+    /// [`Self::as_invocation`] with the causes of the request or `then`
+    /// whose commit this is.
+    pub(in crate::runner) fn as_invocation_caused<T>(
+        &mut self,
+        origin: CallOrigin,
+        id: u64,
+        causes: Causes,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let before = std::mem::replace(&mut self.extensions.origins.id, id);
+        let out = self.as_caused(origin, causes, f);
+        self.extensions.origins.id = before;
+        out
+    }
+
+    /// The causes of the commit being made: its origin and its request's.
+    pub(in crate::runner) fn commit_causes(&self) -> Causes {
+        let o = &self.extensions.origins;
+        o.causes.with(o.now)
+    }
+
+    /// The causes a request of `target` asked now carries: the commit's,
+    /// or, for the device's re-ask of a resource, its last ask's.
+    pub(in crate::runner) fn causes_for(&self, target: Target) -> Causes {
+        let o = &self.extensions.origins;
+        match target {
+            Target::Resource(i) if o.reasking => {
+                let origin = o.asked.get(&i).copied().unwrap_or_default();
+                let causes = o.asked_causes.get(&i).copied().unwrap_or_default();
+                causes.with(origin)
+            }
+            _ => self.commit_causes(),
+        }
+    }
+
+    /// Request `ticket`'s causes.
+    pub(in crate::runner) fn ticket_causes(&self, ticket: u64) -> Causes {
+        let o = &self.extensions.origins;
+        (o.ticket_causes.get(&ticket).copied().unwrap_or_default())
+            .with(self.ticket_origin(ticket))
+    }
+
+    /// Request `ticket` of `target`, in flight, is kept with the newer
+    /// arguments of the commit being made: it takes that commit's causes.
+    pub(in crate::runner) fn note_kept(&mut self, target: Target, ticket: u64) {
+        let causes = self.ticket_causes(ticket).union(self.causes_for(target));
+        if !causes.app_only() {
+            self.extensions.origins.ticket_causes.insert(ticket, causes);
+        }
+    }
+
+    /// Run `f`, admitting the call it makes with `causes` as its own.
+    pub(in crate::runner) fn calling<T>(
+        &mut self,
+        causes: Causes,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let before = self.extensions.origins.calling.replace(causes);
+        let out = f(self);
+        self.extensions.origins.calling = before;
         out
     }
 
@@ -301,9 +432,19 @@ impl<D: DataSource> Runner<D> {
     /// resource's ask is its readers' origin for the device's re-asks.
     pub(in crate::runner) fn note_asked(&mut self, target: Target, ticket: u64) {
         let origin = self.origin_for(Some(target));
+        let causes = self.causes_for(target);
         let o = &mut self.extensions.origins;
         if origin != CallOrigin::App {
             o.tickets.insert(ticket, origin);
+        }
+        if !causes.app_only() {
+            o.ticket_causes.insert(ticket, causes);
+        }
+        if let Target::Resource(i) = target {
+            match causes.app_only() {
+                true => o.asked_causes.remove(&i),
+                false => o.asked_causes.insert(i, causes),
+            };
         }
         let id = match target {
             Target::Resource(_) if o.reasking => 0,
@@ -333,12 +474,28 @@ impl<D: DataSource> Runner<D> {
             .fold(o.now, CallOrigin::min)
     }
 
+    /// Every input [`Self::data_origin`] folds, kept apart: the commit's
+    /// causes, each request in flight's, and each handler running (LLP
+    /// 1133.035 D16 item 6).
+    pub(in crate::runner) fn data_causes(&self) -> Causes {
+        let tools = self.tool_origin().into_iter();
+        (self.pending.iter())
+            .map(|p| self.ticket_causes(p.ticket))
+            .fold(self.commit_causes(), Causes::union)
+            .union(tools.fold(Causes::default(), Causes::with))
+    }
+
     /// Mutation `m`'s `then` is armed by the commit being made.
     pub(in crate::runner) fn note_then(&mut self, m: usize) {
+        let causes = self.commit_causes();
         let o = &mut self.extensions.origins;
         match o.now {
             CallOrigin::App => o.thens.remove(&m),
             other => o.thens.insert(m, other),
+        };
+        match causes.app_only() {
+            true => o.then_causes.remove(&m),
+            false => o.then_causes.insert(m, causes),
         };
         match o.id {
             0 => o.then_ids.remove(&m),
@@ -346,12 +503,13 @@ impl<D: DataSource> Runner<D> {
         };
     }
 
-    /// The origin and invocation mutation `m`'s armed `then` runs under;
-    /// spent here.
-    pub(in crate::runner) fn then_origin(&mut self, m: usize) -> (CallOrigin, u64) {
+    /// The origin, invocation and causes mutation `m`'s armed `then` runs
+    /// under, its answer's commit's; spent here.
+    pub(in crate::runner) fn then_origin(&mut self, m: usize) -> (CallOrigin, u64, Causes) {
         let o = &mut self.extensions.origins;
         let origin = o.thens.remove(&m).unwrap_or_default();
-        (origin, o.then_ids.remove(&m).unwrap_or(0))
+        let causes = o.then_causes.remove(&m).unwrap_or_default();
+        (origin, o.then_ids.remove(&m).unwrap_or(0), causes)
     }
 
     /// Request `to` carries on request `from`'s ask: its origin and invocation.
@@ -370,6 +528,7 @@ impl<D: DataSource> Runner<D> {
         let pending = &self.pending;
         let o = &mut self.extensions.origins;
         (o.tickets).retain(|t, _| pending.iter().any(|p| p.ticket == *t));
+        (o.ticket_causes).retain(|t, _| pending.iter().any(|p| p.ticket == *t));
         (o.ids).retain(|t, _| pending.iter().any(|p| p.ticket == *t));
     }
 
@@ -733,10 +892,22 @@ impl<D: DataSource> Runner<D> {
         // `{"whenAny": [options], "is": "app"}`: only a call giving one of
         // them is held to `app` (LLP 1133.012 D12 item 5).
         let app_only = match &sub["origin"] {
+            Json::Object(o) if o.contains_key("none") => false,
             Json::Object(o) => (o["whenAny"].as_array().into_iter().flatten())
                 .any(|a| a.as_str().is_some_and(|a| given(args, a))),
             o => o == "app",
         };
+        // `{"none": [origins]}`: refused while any of them is among the
+        // call's possible causes, read before they are folded to one (LLP
+        // 1133.035 D16 item 6).
+        if let Some(none) = sub["origin"]["none"].as_array().filter(|_| applies) {
+            let causes = (self.extensions.origins.calling).unwrap_or_else(|| self.commit_causes());
+            let found = (none.iter().filter_map(Json::as_str))
+                .find(|w| ORIGINS.iter().any(|o| o.word() == *w && causes.has(*o)));
+            if let Some(word) = found {
+                return Err(format!("person-required (a {word} among its causes)"));
+            }
+        }
         // A sampled source's tool or wake reader joins a stream the app's own
         // consumers run, as it runs; one that would start it is refused
         // (LLP 1133.013 D4, D11).
@@ -777,6 +948,14 @@ impl<D: DataSource> Runner<D> {
         answer
     }
 }
+
+/// Every origin, least privileged first.
+pub(in crate::runner) const ORIGINS: [CallOrigin; 4] = [
+    CallOrigin::Device,
+    CallOrigin::Wake,
+    CallOrigin::Tool,
+    CallOrigin::App,
+];
 
 /// Whether a call gave option `argument`: set and not `false`. The grant
 /// key `"*"` is given by every call.

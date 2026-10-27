@@ -880,6 +880,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   ends the page first. Fix: navigate in the mutation's `then`, which runs once the
   write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
 
+- **A module event's attribute refused as unknown on the root.** `main
+  reading=tagRead` fails `lower-unknown-attr` ("`main` has no attribute
+  `reading`") when the file also declares a derive, state or action named
+  `reading`, even with `reading` in the `use` line: the local name hides the
+  module's event, so the attribute is never bound. Shelf's `derive reading` (the
+  books in progress) did this to `@exact/nfc`'s `reading` event (LLP 1133.035).
+  Fix: rename the local name.
+
 - **Repeating with `pause` mutations.** A `then` cannot send its own mutation
   (`analyze-then-self-send`), and two mutations whose `then`s send each other
   are the same loop. To repeat while a condition holds, use a task with `when`

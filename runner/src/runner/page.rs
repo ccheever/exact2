@@ -47,6 +47,7 @@ impl<D: DataSource> Runner<D> {
         } else if previous.hidden != page.hidden {
             self.samples_visibility(page.hidden);
             self.tell_foreground();
+            self.arrival_visibility(page.hidden);
         }
         result
     }

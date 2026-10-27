@@ -50,6 +50,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("native-module"),
     recipe!("native-views"),
     recipe!("navigation-stack"),
+    recipe!("nfc"),
     recipe!("number-field"),
     recipe!("numeric-readout"),
     recipe!("permissions"),

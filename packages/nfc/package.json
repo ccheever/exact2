@@ -1,0 +1,12 @@
+{
+  "name": "@exact/nfc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reading and writing NFC tags' NDEF messages, with Web NFC's names (LLP 1133.035).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

@@ -27,6 +27,7 @@
         "@exact/local-auth": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
+        "@exact/nfc": "workspace:*",
         "@exact/passkeys": "workspace:*",
         "@exact/pedometer": "workspace:*",
         "@exact/photos": "workspace:*",
@@ -151,6 +152,10 @@
       "name": "@exact/motion",
       "version": "1.0.0",
     },
+    "packages/nfc": {
+      "name": "@exact/nfc",
+      "version": "1.0.0",
+    },
     "packages/passkeys": {
       "name": "@exact/passkeys",
       "version": "1.0.0",
@@ -264,6 +269,8 @@
     "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
 
     "@exact/motion": ["@exact/motion@workspace:packages/motion"],
+
+    "@exact/nfc": ["@exact/nfc@workspace:packages/nfc"],
 
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
 

@@ -828,6 +828,9 @@ impl<D: DataSource> Runner<D> {
                         self.ids.work.resources.get(i).map_or(0, |w| w.request);
                 }
                 let ticket = p.ticket;
+                // The newer arguments' causes join the request's (LLP
+                // 1133.035 D16 item 6).
+                self.note_kept(target, ticket);
                 // A source that parks calls hears the kept ticket's newer
                 // arguments and drops the call parked under the old ones.
                 self.forgot = true;
@@ -846,6 +849,8 @@ impl<D: DataSource> Runner<D> {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         let name = self.target_name(target);
+        let mut request = request;
+        self.number_data_call(&mut request);
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
@@ -1205,12 +1210,14 @@ impl<D: DataSource> Runner<D> {
         }
         let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
         let target = p.target;
-        // An answer lands as a commit of its request's origin (LLP 1133.002 D12).
+        // An answer lands as a commit of its request's origin (LLP 1133.002
+        // D12), with every cause the request has (LLP 1133.035 D16 item 6).
         let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
-        let result = self.as_invocation(origin, id, |r| r.fulfill_inner(p, outcome));
+        let causes = self.ticket_causes(ticket);
+        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
         self.conclude(checkpoint, &result, was_poisoned);
-        // Its `then` runs under the same origin and invocation.
-        self.as_invocation(origin, id, |r| r.arm_then(result.is_ok()));
+        // Its `then` is armed under the same origin, invocation and causes.
+        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if let (Some(handles), Err(_)) = (handles, &result) {

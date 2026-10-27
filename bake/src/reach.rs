@@ -158,6 +158,8 @@ pub(crate) fn derive(
     // entitlements the platform's signature must carry.
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
+    // An entitlement whose value is no boolean (LLP 1133.035 D16 item 2).
+    let mut values = Map::new();
     let mut flags: Vec<&str> = Vec::new();
     // iOS's background modes and task identifiers (LLP 1133.017 D14).
     let (mut modes, mut tasks): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
@@ -200,6 +202,9 @@ pub(crate) fn derive(
             "macos" => entitlements.extend(grant.device.hardened),
             "ios" => {
                 entitlements.extend(grant.device.ios_entitlements);
+                for (name, value) in grant.device.ios_entitlement_values {
+                    values.insert((*name).into(), json!(value));
+                }
                 flags.extend(grant.device.ios_flags);
                 modes.extend(grant.device.ios_modes);
                 tasks.extend(grant.device.ios_tasks);
@@ -325,6 +330,9 @@ pub(crate) fn derive(
     }
     if !services.is_empty() {
         compat.reach["androidServices"] = Value::Object(services);
+    }
+    if !values.is_empty() {
+        compat.reach["entitlementValues"] = Value::Object(values);
     }
     Ok(())
 }
@@ -932,6 +940,33 @@ mod tests {
             assert_eq!(c.reach["usage"], json!({}));
             assert_eq!(c.reach["android"], json!([]));
         }
+    }
+
+    #[test]
+    fn nfc_signs_its_formats_array_on_ios_and_leaves_tvos_out() {
+        // LLP 1133.035 D15, D16 item 2.
+        let dir = app(&[("en", r#"{"nfc": "Reads the tags on your books."}"#)]);
+        let derive_for = |platform: &str| {
+            let mut c = compat("device.nfc nfc");
+            derive(&dir.0, platform, None, &mut c).unwrap();
+            c.reach
+        };
+        let formats = "com.apple.developer.nfc.readersession.formats";
+        let ios = derive_for("ios");
+        assert_eq!(
+            ios["usage"],
+            json!({"NFCReaderUsageDescription": {"en": "Reads the tags on your books."}})
+        );
+        assert_eq!(ios["entitlements"], json!([formats]));
+        assert_eq!(ios["entitlementValues"], json!({formats: ["TAG"]}));
+        assert_eq!(
+            ios["tvOmits"],
+            json!(["NFCReaderUsageDescription", formats])
+        );
+        assert_eq!(derive_for("android")["android"], json!(["android.permission.NFC"]));
+        let mac = derive_for("macos");
+        assert_eq!(mac["entitlements"], json!([]));
+        assert!(mac.get("entitlementValues").is_none());
     }
 
     #[test]

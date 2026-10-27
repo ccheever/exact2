@@ -48,6 +48,9 @@ pub struct Device {
     /// iOS signing entitlements the device needs beside its usage strings
     /// (LLP 1069.008.000 D2): HealthKit authorizes nothing without its own.
     pub ios_entitlements: &'static [&'static str],
+    /// The value of each of `ios_entitlements` that is no boolean, by name:
+    /// NFC's reader-session formats are an array (LLP 1133.035 D16 item 2).
+    pub ios_entitlement_values: &'static [(&'static str, &'static [&'static str])],
     /// A usage key written with this row's text when no granted row writes it
     /// (LLP 1069.008.000 D1): App Store Connect wants both HealthKit keys
     /// beside the entitlement, and iOS shows only the prompt an app asks for.
@@ -91,6 +94,7 @@ const ROW: Device = Device {
     web: None,
     policy: &[],
     ios_entitlements: &[],
+    ios_entitlement_values: &[],
     companion: None,
     tvos: true,
     keeps_no_answers: false,
@@ -435,6 +439,21 @@ pub const DEVICES: &[Device] = &[
             "android.permission.FOREGROUND_SERVICE",
             "android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED",
         ],
+        tvos: false,
+        ..ROW
+    },
+    // NFC, `@exact/nfc`'s (LLP 1133.035 D15): iOS asks nothing, yet ends an
+    // app that reads a tag without the usage key, and reads none without the
+    // reader-session entitlement, whose value lists the formats (`TAG`, the
+    // one Apple documents). Android's permission is a normal one, granted at
+    // install. Web NFC has no policy feature; Core NFC is on neither the Mac
+    // nor the TV.
+    Device {
+        name: "nfc",
+        ios: &["NFCReaderUsageDescription"],
+        android: &["android.permission.NFC"],
+        ios_entitlements: &["com.apple.developer.nfc.readersession.formats"],
+        ios_entitlement_values: &[("com.apple.developer.nfc.readersession.formats", &["TAG"])],
         tvos: false,
         ..ROW
     },

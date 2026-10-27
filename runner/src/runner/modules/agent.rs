@@ -111,6 +111,7 @@ impl<D: DataSource> Runner<D> {
                 entry["surfaces"] = surfaces;
             }
             self.reach_json(extension, entry);
+            self.arrival_json(extension, entry);
             let one = (entry["permissions"].as_object())
                 .filter(|p| p.len() == 1)
                 .and_then(|p| p.values().next().cloned());
@@ -190,6 +191,9 @@ impl<D: DataSource> Runner<D> {
                 if value != "clear" && !word_fits(&ty, value) {
                     return refuse(format!("prefer extension: `{key}` is a {ty}"));
                 }
+                if let Some(e) = self.arrival_refusal(key, value, group) {
+                    return refuse(e);
+                }
                 continue;
             }
             let Some(row) = self
@@ -262,7 +266,9 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let mut told = std::collections::BTreeSet::new();
+        let mut moved = Vec::new();
         for (key, value) in group {
+            moved.push((key, self.extensions.preferred.get(key).cloned()));
             // A list whose changes are the device's events (`spans.rs`).
             let listed = (self.plan.modules.iter())
                 .find(|m| self.key(m) == *key)
@@ -294,6 +300,11 @@ impl<D: DataSource> Runner<D> {
         }
         for extension in told {
             self.tell_preferred(&extension);
+        }
+        // A field word's change is an arrival, once every word is set.
+        for (key, before) in moved {
+            let after = self.extensions.preferred.get(key).cloned();
+            self.arrival_field(key, before, after);
         }
         self.settle_values();
         let (receipts, error) = self.apply_announced();

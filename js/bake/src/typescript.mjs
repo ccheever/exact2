@@ -1252,13 +1252,15 @@ function moduleType(t, inList=false) {
   const json=/^json<([A-Za-z0-9_]+)>$/.exec(t);
   if (json) return json[1];
   if (t==='unit') return 'void';
+  // Bytes are data code's (LLP 1133.006 D8 item 1); an option that may be either takes both (LLP 1133.035 D2).
+  if (t==='string|bytes') return inList ? '(string | Uint8Array)' : 'string | Uint8Array';
   if (t.endsWith('[]')) return moduleType(t.slice(0,-2),true)+'[]';
   let m, union;
   if ((m=/^option<(.*)>$/.exec(t))) union=moduleType(m[1])+' | null';
   else if ((m=/^enum<(.*)>$/.exec(t))) union=m[1].split('|').map(s=>JSON.stringify(s.trim())).join(' | ');
   // A `surface` is a canvas's surface name (LLP 1133.013 D12 item 3).
   // A `shape-name` is a JSON Schema object in data code (LLP 1133.016 D8).
-  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string','shape-name':'Record<string, unknown>'}[t] ?? t;
+  else return {number:'number',string:'string',bool:'boolean','strings-key':'string',surface:'string','shape-name':'Record<string, unknown>',bytes:'Uint8Array'}[t] ?? t;
   return inList ? '('+union+')' : union;
 }
 
@@ -1278,6 +1280,13 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
   // A path option is a string; a bounded one (`{"type", "min", …}`) is its `type`.
   const pathless=(t)=>t && typeof t==='object' ? (t.type==='path' ? (t.optional ? 'option<string>' : 'string') : t.type) : t;
   const optional=(t)=>{ t=pathless(t); const m=/^option<(.*)>$/.exec(String(t).trim()); return m ? ['?',moduleType(m[1])] : ['',moduleType(t)]; };
+  // Bytes cross the seam as `{"base64": …}` (LLP 1133.035 D2): a binding whose names carry any encodes its
+  // arguments' bytes, and decodes the answers of the names whose answers carry them.
+  const unwrapped=(t)=>String(pathless(t) ?? '').trim().replace(/^option<(.*)>$/,'$1').replace(/\[\]$/,'').replace(/^option<(.*)>$/,'$1');
+  const carries=(t,either,seen=new Set())=>{ const n=unwrapped(t); if (n==='bytes' || (either && n==='string|bytes')) return true;
+    const fields=shapes[n]; if (!fields || seen.has(n)) return false; seen.add(n); return Object.values(fields).some(f=>carries(f,either,seen)); };
+  const answersOf=(e)=>e.answers && typeof e.answers==='object' ? e.answers.else : e.answers;
+  const wired=(declaration.names ?? []).some(e=>!e.event && [answersOf(e),...Object.values(e.options ?? {})].some(t=>carries(t,true)));
   for (const entry of declaration.names ?? []) {
     // An event is the root's to hear, never data code's (LLP 1133.004 §11).
     if (entry.event) continue;
@@ -1294,18 +1303,50 @@ export function moduleBinding(name, declaration, implementations, dom=()=>[]) {
     const verb=entry.source ? 'source' : 'send';
     // A send that answers nothing resolves `undefined` (LLP 1133.004 D5).
     const promised=entry.answers===null ? 'void' : moduleType(answers);
+    const decoded=wired && carries(answers,false) ? ', true' : '';
     lines.push(`export function ${fn}(options: ${type}${required ? '' : ' = {}'}): Promise<${promised}> {`,
-      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options })${entry.answers===null ? '.then(() => undefined)' : ''};`, '}');
+      `  return call({ extension: ${JSON.stringify(extension)}, ${verb}: ${JSON.stringify(fn)}, args: options }${decoded})${entry.answers===null ? '.then(() => undefined)' : ''};`, '}');
     // The synchronous form (LLP 1133.002 D14): inside an answer, where the host has a synchronous path to the module.
     if (entry.sync?.name) lines.push(`export function ${entry.sync.name}(options: ${type}${required ? '' : ' = {}'}): ${moduleType(answers)} {`,
       `  return callNow({ extension: ${JSON.stringify(extension)}, sync: ${JSON.stringify(entry.sync.name)}, args: options });`, '}');
   }
+  if (wired) lines.push(
+    'const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";',
+    'function toWire(v: any): any {',
+    '  if (v instanceof ArrayBuffer) v = new Uint8Array(v);',
+    '  else if (ArrayBuffer.isView(v) && !(v instanceof Uint8Array)) v = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);',
+    '  if (v instanceof Uint8Array) {',
+    '    let s = "";',
+    '    for (let i = 0; i < v.length; i += 3) {',
+    '      const n = (v[i] << 16) | ((v[i + 1] ?? 0) << 8) | (v[i + 2] ?? 0);',
+    '      s += B64[n >> 18 & 63] + B64[n >> 12 & 63] + (i + 1 < v.length ? B64[n >> 6 & 63] : "=") + (i + 2 < v.length ? B64[n & 63] : "=");',
+    '    }',
+    '    return { base64: s };',
+    '  }',
+    '  if (Array.isArray(v)) return v.map(toWire);',
+    '  if (v && typeof v === "object") { const o: any = {}; for (const k of Object.keys(v)) o[k] = toWire(v[k]); return o; }',
+    '  return v;',
+    '}',
+    'function fromWire(v: any): any {',
+    '  if (Array.isArray(v)) return v.map(fromWire);',
+    '  if (!v || typeof v !== "object") return v;',
+    '  const keys = Object.keys(v);',
+    '  if (keys.length === 1 && typeof v.base64 === "string") {',
+    '    const s = v.base64.replace(/=+$/, ""), out = new Uint8Array(Math.floor(s.length * 3 / 4));',
+    '    let bits = 0, n = 0, at = 0;',
+    '    for (const c of s) { n = (n << 6) | B64.indexOf(c); bits += 6; if (bits >= 8) { bits -= 8; out[at++] = (n >> bits) & 255; } }',
+    '    return out;',
+    '  }',
+    '  const o: any = {}; for (const k of keys) o[k] = fromWire(v[k]); return o;',
+    '}');
   lines.push(
-    'function call(body: { extension: string; source?: string; send?: string; args: unknown }): Promise<any> {',
+    `function call(body: { extension: string; source?: string; send?: string; args: unknown }${wired ? ', bytes = false' : ''}): Promise<any> {`,
+    ...(wired ? ['  body = { ...body, args: toWire(body.args) };'] : []),
     '  const via = (globalThis as any).__exact_module;',
     '  const answer: Promise<any> = via ? via(body) : fetch("exact-native:", { method: "POST", body: JSON.stringify(body), exactIndependentHttp: { maxResponseBytes: 1048576 } } as any)',
     '    .then((r: any) => r.text().then((t: string) => { if (r.status === 200) return JSON.parse(t); throw failed(t || "the module did not answer", "UnknownError"); }));',
-    '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
+    wired ? '  return answer.then((v: any) => { const a = answered(v, `${body.extension}.${body.source ?? body.send}`); return bytes ? fromWire(a) : a; });'
+      : '  return answer.then((v: any) => answered(v, `${body.extension}.${body.source ?? body.send}`));',
     '}',
     'function callNow(body: { extension: string; sync: string; args: unknown }): any {',
     '  const now = (globalThis as any).__exact_module_sync;',
