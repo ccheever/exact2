@@ -523,18 +523,18 @@ impl Kernel {
 }
 
 /// Where the platform's own list puts a grouped list's cards and their
-/// content, in points: each card's inset from the list's left and right
-/// edges, and each cell's layout margins, left and right. UIKit chooses
-/// them by the device, the list's width and what lies beside it (16 or 20
-/// points, and none beside the iPhone Duo's side strip), so the host reads
-/// them from its list (`GroupedListIOS.swift`) and the sheet's stand-ins
+/// content, in points: each card's inset from the list's content-box edges
+/// (excluding CSS padding), and each cell's layout margins, left and right.
+/// UIKit chooses them by the device, the list's width and what lies beside
+/// it (16 or 20 points, and none beside the iPhone Duo's side strip). The host
+/// reads them from its list (`GroupedPlacingIOS.swift`), and the sheet's stand-ins
 /// (`grouped-card-inset`, `grouped-row-inset`, `grouped-row-padding-end`)
 /// give way to them: a custom row's content then starts where a standard
 /// row's text does, at the cell's margin, as UIKit's own content
 /// configurations put it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GroupedMargins {
-    /// The card's left and right insets in the list.
+    /// The card's left and right insets from the list's content-box edges.
     pub card: [f32; 2],
     /// The cell's left and right layout margins.
     pub cell: [f32; 2],

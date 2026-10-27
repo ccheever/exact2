@@ -22,6 +22,20 @@ extension GroupedListHost {
 }
 
 extension GroupedListView {
+    /// UIKit's card and cell margins, left then right, inside the list's
+    /// content box. The kernel already applies CSS padding; including it
+    /// in the card margins would subtract it from a custom row's width twice.
+    func margins() -> [CGFloat]? {
+        guard let cell = collection.visibleCells.first as? UICollectionViewListCell,
+              let path = collection.indexPath(for: cell),
+              let frame = collection.layoutAttributesForItem(at: path)?.frame else { return nil }
+        let m = cell.directionalLayoutMargins
+        let rtl = cell.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        return [max(0, frame.minX - reach.left - horizontalPadding.left),
+                max(0, collection.bounds.width - frame.maxX - reach.right - horizontalPadding.right),
+                rtl ? m.trailing : m.leading, rtl ? m.leading : m.trailing]
+    }
+
     /// Before a batch: the carried rows it must read at home go back. A
     /// carried row's own box (a `frame` op) and the order of the nodes it
     /// was carried from (a `children` op, which `placing` follows) are kept

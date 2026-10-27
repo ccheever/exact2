@@ -504,7 +504,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// How far the collection reaches past the list's box at its left and
     /// right: over the window's side safe area where the list's edge meets
     /// it, as a hand-built list spans the screen (iPhone landscape).
-    private var reach: (left: CGFloat, right: CGFloat) = (0, 0)
+    private(set) var reach: (left: CGFloat, right: CGFloat) = (0, 0)
+    /// CSS padding applied inside the sections, separate from UIKit's card margins.
+    private(set) var horizontalPadding = UIEdgeInsets.zero
     /// Of `reach`, what is a fold's half band: UIKit counts it as safe area
     /// but sets no margin past it there, where a hand-built split view's
     /// card has its 20 (`section`).
@@ -647,10 +649,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // the web's space, all of it above the later section; a footer's
             // bottom inset is its own gap under the rows, and stays.
             var insets = section.contentInsets
-            // A fold's half band, as a hand-built split view's card stands clear of it.
-            let rtl = self.collection.effectiveUserInterfaceLayoutDirection == .rightToLeft
-            insets.leading += rtl ? self.foldReach.right : self.foldReach.left
-            insets.trailing += rtl ? self.foldReach.left : self.foldReach.right
+            // A fold's half band, as a hand-built split view's card stands
+            // clear of it, and the list's padding. The section's leading
+            // inset is on the left in either direction, as UIKit lays it.
+            insets.leading += self.foldReach.left + self.horizontalPadding.left
+            insets.trailing += self.foldReach.right + self.horizontalPadding.right
             if let space, s?.header == nil { insets.top = space }
             if s?.footer == nil {
                 if index + 1 < model.sections.count { if self.section(at: index + 1)?.spaceAbove != nil { insets.bottom = 0 } }
@@ -662,6 +665,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             for item in section.boundarySupplementaryItems where item.elementKind == UICollectionView.elementKindSectionFooter {
                 item.pinToVisibleBounds = false
             }
+            // A plain list's header and footer ignore the section's insets
+            // unless told; the padding is the list's, so they stay inside it
+            // as its rows do. (An item inset on them moves the cell's text
+            // margin by it too, and the label has no width left.)
+            if self.horizontalPadding.left > 0 || self.horizontalPadding.right > 0 { section.supplementariesFollowContentInsets = true }
             return section
         }
     }
@@ -761,6 +769,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// custom row's look is read again (`refreshLooks`).
     func mount(looks: Bool = true) {
         if collection.superview !== owner { owner.addSubview(collection) }
+        let horizontal = UIEdgeInsets(top: 0, left: owner.padding("left"), bottom: 0, right: owner.padding("right"))
+        if horizontal != horizontalPadding { horizontalPadding = horizontal; resized = true }
         // Padding is room around the sections; final footer space is below
         // the footer. Apply only this module's delta, keeping refresh and
         // keyboard insets on the collection that owns them.
@@ -943,19 +953,6 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
-    }
-
-    /// Where UIKit put this list's cards and their content: a shown cell's
-    /// insets from the list's left and right edges (the list's box, not the
-    /// collection's reach past it), then its layout margins, left and right,
-    /// where content pinned to them starts and ends (nil while no cell shows).
-    func margins() -> [CGFloat]? {
-        guard let cell = collection.visibleCells.first as? UICollectionViewListCell,
-              let path = collection.indexPath(for: cell),
-              let frame = collection.layoutAttributesForItem(at: path)?.frame else { return nil }
-        let m = cell.directionalLayoutMargins
-        let rtl = cell.effectiveUserInterfaceLayoutDirection == .rightToLeft
-        return [frame.minX - reach.left, collection.bounds.width - frame.maxX - reach.right, rtl ? m.trailing : m.leading, rtl ? m.leading : m.trailing]
     }
 
     #if os(iOS)
