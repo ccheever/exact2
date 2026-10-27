@@ -8,7 +8,7 @@ import XCTest
 /// display link's frames; a short deadline failed tests that got every
 /// event right, late. A failure says how long it waited, how many turns ran
 /// and the slowest, and `facts` (what the wait itself saw); a pass that took
-/// longer than `late` is kept as a LATE-PASS attachment saying the same, so
+/// longer than `late` is kept as a LATE-PASS attachment and log line saying the same, so
 /// lateness is evidence without failing. It answers how long it took.
 extension XCTestCase {
     @discardableResult
@@ -30,6 +30,9 @@ extension XCTestCase {
             return took
         }
         if took > late {
+            // Kept twice: an attachment in a result bundle (the iOS runs'), and a line in the run's own log,
+            // which the Mac runner's swift xctest keeps where it keeps no attachment.
+            print("LATE-PASS \(name) \(what): \(said)")
             let note = XCTAttachment(string: "LATE-PASS \(what): \(said)")
             note.name = "LATE-PASS \(what)"
             note.lifetime = .keepAlways

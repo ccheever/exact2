@@ -121,9 +121,8 @@ final class ScrollEndMacTests: XCTestCase {
         // window server's animation clock. The bounds observer owns the end.
         move(sv, to: 40)
         XCTAssertTrue(node.scrollEnd?.owed == true)
-        let ended = expectation(description: "interrupted scroll ends")
         var ends = 0
-        p.onScrollend = { _ in ends += 1; ended.fulfill() }
+        p.onScrollend = { _ in ends += 1 }
         if wheel {
             let event = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: 0, wheel2: -1, wheel3: 0))
             sv.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: event)))
@@ -131,7 +130,7 @@ final class ScrollEndMacTests: XCTestCase {
             p.scrollElementIntoView(["visible", "nearest", "nearest", "instant"])
         }
         XCTAssertNil(node.scrollEnd?.elementAnimation)
-        wait(for: [ended], timeout: 1)
+        waitFor("interrupted scroll ends", late: 1) { ends > 0 } // (its event, not a 1 s deadline: EventWaits)
         XCTAssertEqual(sv.contentView.bounds.minY, 40)
         XCTAssertEqual(ends, 1)
     }
