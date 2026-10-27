@@ -54,7 +54,8 @@ extension GroupedListView {
     /// carried as a cell shows, at the next projection sync).
     func look(_ id: UInt32, row: NodeView) {
         mark(id, leadingSymbol(of: row))
-        let press = row.props["swipeContent"].flatMap { swipeBody(of: row, named: $0) } ?? row
+        let body = row.props["swipeContent"].flatMap { swipeBody(of: row, named: $0) } ?? row
+        let press = Self.presses(body) ? body : link(in: body) ?? body
         if customLooks[id]?.press !== press {
             customLooks[id]?.press?.listRow = false
             press.listRow = true
@@ -65,6 +66,23 @@ extension GroupedListView {
         // a line that moved since it was noted lays the list out again.
         if let noted = customLooks[id]?.line, noted != line { resized = true }
         customLooks[id]?.line = line
+    }
+
+    /// The row's own `link` when the row is not one, beside its buttons (an
+    /// episode's link and its Mark and Add buttons, a ticker's star and its
+    /// link): the cell's main press, which UIKit makes a button. A link
+    /// inside another control is that control's.
+    private func link(in row: NodeView) -> NodeView? {
+        var level = [row]
+        while !level.isEmpty {
+            let next = level.flatMap { $0.container.subviews.compactMap { $0 as? NodeView } }
+            if let found = next.first(where: { $0.props["accessibilityRole"] == "link" }) { return found }
+            level = next.filter { !Self.presses($0) }
+        }
+        return nil
+    }
+    private static func presses(_ node: NodeView) -> Bool {
+        node.kind == "button" || ["button", "link", "checkbox", "radio", "switch"].contains(node.props["accessibilityRole"] ?? "")
     }
 
     /// Every custom row noted, carried now or not, its mark checked again
