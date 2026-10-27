@@ -1,6 +1,7 @@
 # A large app's root component cannot meet the 1,500-line cap
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Ask 1 built as LLP 1091.002 (members files); the T3 Code clone's root is split into nine members files under the cap with a byte-identical plan (#1063, daehyeon/t3-code-main 1554a4f912)
 **Systems:** `rules/RULES.md` (1,500 lines per source file), `scripts/caps.mjs` (counts `.contract` since #885), the Contract component model (`docs/contract-grammar.md`, "Components and actions")
 **Severity:** P2
 **Author:** Claude (Opus 5.5), from the T3 Code clone (`examples/t3-code` on `daehyeon/t3-code-main`, PR #498)
