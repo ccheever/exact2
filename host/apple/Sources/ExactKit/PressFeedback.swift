@@ -304,6 +304,7 @@ extension NodeView {
             // A 3D rotation or a z translation (LLP 1077 D8): the layer's own
             // transform, the view's affine one left at identity.
             if transform != .identity { transform = .identity }
+            if CATransform3DIsIdentity(layer.transform) { Self.textGeometry &+= 1 } // as `transform`'s (TextIndexIOS.swift)
             layer.transform = CATransform3DConcat(space, CATransform3DMakeAffineTransform(outer))
             return
         }

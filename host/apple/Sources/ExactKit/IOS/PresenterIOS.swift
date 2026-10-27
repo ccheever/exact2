@@ -575,7 +575,8 @@ package final class Presenter {
     var onScrolled: ((UInt32?, Double, Double) -> Void)?
     var interacting: UInt32 = 0
     var listViews: [UInt32: NodeView] = [:]
-    var textViews: [UInt32: NodeView] = [:]
+    var textViews: [UInt32: NodeView] = [:] { didSet { NodeView.textGeometry &+= 1 } }
+    let textIndex = TextIndex()
     lazy var scrollPump = ScrollPump(self)
     let textRasters = TextRasterizer()
     /// Clip geometry memoized for one text refresh (`TextClips`), else nil.

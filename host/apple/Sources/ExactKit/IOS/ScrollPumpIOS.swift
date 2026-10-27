@@ -261,7 +261,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             if still < Self.restDelay { armRest(after: Self.restDelay - still); return }
             // Cold shaped text is held to the screens a scroll passes.
             if let p = presenter, let text = p.session?.text {
-                let visible = p.textViews.values.lazy.filter { p.textIsVisible($0) }.count
+                var visible = 0
+                p.textIndex.visit(p.textViews, reach: 0, viewport: p.viewport) { if p.textIsVisible($0) { visible += 1 }; return true }
                 text.fitShaped(visibleParagraphs: visible)
                 if let m = text.measurer { Owner.shared.post { m.fitShaped(visibleParagraphs: visible) } }
             }

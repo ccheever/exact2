@@ -514,15 +514,21 @@ extension Presenter {
         var owed = false
         // A paragraph that never rasters (it truncates as it paints, say)
         // is out before its geometry, which is most of a scan's cost.
-        for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText {
+        func unsettled(_ node: NodeView) -> Bool { !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText }
+        textIndex.visit(textViews, reach: 0, viewport: viewport) { node in
+            guard unsettled(node) else { return true }
             owed = true
             let c = clips ?? TextClips(viewport, soon: 0, reach: 0)
             clips = c; textClips = c
-            if culls && !presented(node) && !c.frame(node).intersects(port) { continue }
+            if culls && !presented(node) && !c.frame(node).intersects(port) { return true }
             let visible = textScrollportRect(node)
-            guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { continue }
+            guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { return true }
             textRasters.ensure(node, urgent: true)
+            return true
         }
+        // The refresh has work while a paragraph within its least lead
+        // (a viewport) lacks pixels; one farther waits until it is nearer.
+        if !owed { textIndex.visit(textViews, reach: port.height, viewport: viewport) { node in owed = unsettled(node); return !owed } }
         return owed
     }
 
@@ -586,11 +592,13 @@ extension Presenter {
         func presented(_ node: UIView) -> Bool { presentations.contains { node.isDescendant(of: $0.view) } }
         if textRasters.inFlight > 0 { textRasters.abandonStale { !presented($0) && passed(clips.frame($0)) } }
         var ranked: [(distance: CGFloat, node: NodeView)] = []
-        for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText {
+        textIndex.visit(textViews, reach: reach, viewport: viewport) { node in
+            guard !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText else { return true }
             let r = clips.frame(node)
             let distance = presented(node) ? 0 : max(0, port.minY - r.maxY, r.minY - port.maxY)
-            guard !(culls && distance > reach), (presented(node) || !passed(r)), !textBand(node, reach: reach).isEmpty else { continue }
+            guard !(culls && distance > reach), (presented(node) || !passed(r)), !textBand(node, reach: reach).isEmpty else { return true }
             ranked.append((distance, node))
+            return true
         }
         ranked.sort { $0.distance == $1.distance ? $0.node.id < $1.node.id : $0.distance < $1.distance }
         var deferred = false
