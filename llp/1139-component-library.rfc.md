@@ -535,14 +535,20 @@ Owners as they free up (the lead's order).
    press)` with one slot, the header's trailing control (a FollowButton, the app's own, or nothing), is a person in a
    list: Bluesky's ProfileCard (Header: the 40 avatar, the name with its md badge, the handle; Labels' pill;
    Description) in ProfileCardWithFollowBtn's row (py_md px_xl). It links to the person, as ProfileCard.Link does, with
-   ONE press target: the link, the avatar with the names (testId `<id>-link`, `role="link"`, its `label` the app's,
-   `press`). The row takes no press, role or Tab stop, and the slot is beside the link, never inside it: on iOS an
-   element with a role is one accessibility element and would hide the trailing button, and a second pressable
-   would be a second Tab stop everywhere and a second control on Linux. So unlike Bluesky's Link, a tap on the
-   pill, the description or the row's padding opens nothing (a copy whose whole row pressed lists that as a named
-   change). `disabled` is the link's `aria-disabled` and dims the row's own content to half, not the app's
-   trailing control, and doesn't stop `press`, so a copy whose row is a disabled button (the clone's
-   ChatPersonRow) doesn't join (theme2's condition (b)). Its words are the app's: `handle` is the second line as shown, `pill` the pill's
+   ONE press target: the link (testId `<id>-link`, `role="link"`, its `label` the app's, `press`) is everything but
+   the slot, the avatar, the names, the pill, the description and the row's padding on its side (theme2's 2b
+   sign-off condition). They are text (the description is a plain string, never rich text with links or mentions
+   of its own), so they fold into the link's spoken `label` and nothing interactive nests in it. The row takes no
+   press, role or Tab stop, and the slot is the link's sibling, never inside it: on iOS an element with a role is
+   one accessibility element and hides what it holds, and a second pressable would be a second Tab stop everywhere
+   and a second control on Linux. The slot's column sits at the trailing edge, its control centred on the
+   avatar's line as in Bluesky's header. What's left outside Bluesky's card tap, and so the explore copy's named
+   change: the slot's own column (its control, the row's trailing padding and the space under the control); and
+   because that column is beside the link, the pill and the description run under the names, not under the
+   control, so a description wraps that much narrower than Bluesky's when a trailing control is placed (with an
+   empty slot the link stops a header gap short of the trailing padding). `disabled` is the link's
+   `aria-disabled` and dims the link, not the app's trailing control, and doesn't stop `press`, so a copy whose
+   row is a disabled button (the clone's ChatPersonRow) doesn't join (theme2's condition (b)). Its words are the app's: `handle` is the second line as shown, `pill` the pill's
    text (`""` for none). `divider` is `"bottom"`, `"top"` (Bluesky's border_t) or `"none"`. Its spacing is Bluesky's
    only: a copy's other padding is a named pixel change in its gate, with no density variant (theme2's 2026-10-27
    ruling). Its colours (divider, handle, pill, badge and mark) are params over the cards' tokens, its sizes

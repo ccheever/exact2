@@ -4048,14 +4048,13 @@ value of that enum type. `PersonRow` `(id, label, avatar, name, handle,
 badge, pill, description, descriptionLines, divider, disabled, press)` is a
 person in a list (Bluesky's ProfileCard), its one slot the trailing control
 (a `FollowButton`, your own, or nothing). Its one press target is the link,
-the avatar with the names (`role="link"`, testId `<id>-link`, `label` its
-spoken name, such as "View Ada's profile"); the row, its pill and its
-description take no press, and the slot sits beside the link, never in it, so
-the trailing control stays its own to a screen reader;
+everything but the slot (`role="link"`, testId `<id>-link`, `label` its
+spoken name, such as "View Ada's profile"); the slot is a column beside it at
+the trailing edge, never in it, so the trailing control stays its own to a
+screen reader, and the pill and description run under the names;
 `handle` is the second line as shown (`"@ada.bsky.social"`), `pill` the
 pill's text (`""` for none), `divider` `"bottom"`, `"top"` or `"none"`;
-`disabled` dims the row's own content (not your trailing control) and says
-so on the link (`aria-disabled`) but doesn't stop `press`, so check in your
+`disabled` dims the link (not your trailing control) and says so on it (`aria-disabled`) but doesn't stop `press`, so check in your
 action. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
 `ink` and `mark`, have no defaults: pass token or role names
 (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or

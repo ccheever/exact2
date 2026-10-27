@@ -191,6 +191,11 @@ fn a_consumer_uses_person_row_from_the_package_with_its_trailing_slot() {
         (role("ada"), role("ada-link").as_deref()),
         (None, Some("link"))
     );
+    fn holds_text(k: &Kernel, at: u32, want: &str) -> bool {
+        let n = k.node(at).unwrap();
+        n.props.str(PropId::Text) == Some(want)
+            || n.children().into_iter().any(|c| holds_text(k, c, want))
+    }
     fn holds(k: &Kernel, at: u32, target: u32) -> bool {
         k.node(at)
             .unwrap()
@@ -201,6 +206,17 @@ fn a_consumer_uses_person_row_from_the_package_with_its_trailing_slot() {
     let under = |outer: &str, inner: &str| holds(k, node(outer).id, node(inner).id);
     assert!(under("ada", "trailing") && !under("ada-link", "trailing"));
     assert!(under("ada-link", "verified-badge"));
+    // The link takes the pill and the description too (theme2's 2b
+    // condition): only the slot is outside it.
+    for text in ["Follows you", "Maps."] {
+        let k = r.kernel();
+        let found = k
+            .find_by_test_id("ada-link")
+            .first()
+            .map(|key| k.node_by_key(*key).unwrap().id)
+            .is_some_and(|link| holds_text(k, link, text));
+        assert!(found, "{text} is inside the link");
+    }
     // One press target, the link: the row takes no press (so no Tab stop or
     // control of its own on any host), and the trailing control and the
     // row's text stay outside it; the slot's control is not dimmed.

@@ -4,12 +4,10 @@ use Name, Avatar, VerifiedBadge from "./common.contract"
 // NameAndHandle with ProfileBadges and the trailing control, Labels' "Follows
 // you" pill, Description; in ProfileCardWithFollowBtn's py_md px_xl row),
 // LLP 1121 stage 15 B batch 2. It links to the person, as ProfileCard.Link
-// does: the link is the avatar with the names (testId `<id>-link`), its
-// `press` and spoken `label` the app's ("View Ada's profile"); the pill and
-// the description below it are text, no press of their own. `disabled` says
-// the link is unavailable and dims the row's own content, not the app's
-// trailing control (aria-disabled, which doesn't stop `press`: the app's
-// action checks). Its words are the
+// does: the link (testId `<id>-link`) is everything but the slot, its
+// `press` and spoken `label` the app's ("View Ada's profile"). `disabled`
+// says the link is unavailable and dims it, not the app's trailing control
+// (aria-disabled, which doesn't stop `press`: the app's action checks). Its words are the
 // app's: `handle` is the second line as shown ("@ada.bsky.social", or why the
 // person can't be reached), `pill` the pill's text ("" for none). Its one
 // slot is the header's trailing control (a FollowButton, the app's own, or
@@ -45,35 +43,38 @@ component PersonRow
     pill: paint text shape space
     description: text
   view
-    // One press target, the link: the avatar with the names, which says the
-    // app's label. The row itself takes no press, role or Tab stop, so the
-    // trailing control in the slot, beside the link and never inside it,
-    // stays its own control to every host's assistive technology (on iOS an
-    // element with a role is one element and hides what it holds; a press
-    // handler is a control of its own on Linux and a Tab stop everywhere).
-    column part="surface" testId=id
-      gap="cards.person-gap"
-      padding-top="cards.person-pad-block"
-      padding-bottom="cards.person-pad-block"
-      padding-left="cards.person-pad-inline"
-      padding-right="cards.person-pad-inline"
+    // One press target, the link: everything but the slot (the avatar, the
+    // names, the pill, the description and the row's padding on its side),
+    // spoken as the app's `label`, its text folded into it. The row itself
+    // takes no press, role or Tab stop, and the slot is the link's sibling,
+    // never inside it: on iOS an element with a role is one accessibility
+    // element and hides what it holds, so the trailing control stays its own
+    // (a press handler would also be a second Tab stop everywhere and a
+    // second control on Linux). The slot's column, at the trailing edge,
+    // holds its control centred on the avatar's line, as Bluesky's header
+    // does; the pill and the description run under the names, not under it.
+    row part="surface" testId=id
+      align-items="flex-start"
       border-top-width=(divider == "top" ? "cards.hairline" : "0px")
       border-bottom-width=(divider == "bottom" ? "cards.hairline" : "0px")
       border-top-style="solid"
       border-bottom-style="solid"
       border-top-color="param.divider"
       border-bottom-color="param.divider"
-      row gap="cards.person-header-gap" align-items="center"
-        row testId=`${id}-link`
-          role="link"
-          aria-label=label
-          aria-disabled=disabled
-          press=press
-          flex=1
-          min-width=0
-          gap="cards.person-header-gap"
-          align-items="center"
-          opacity=(disabled ? "cards.person-dim" : 1)
+      column testId=`${id}-link`
+        role="link"
+        aria-label=label
+        aria-disabled=disabled
+        press=press
+        flex=1
+        min-width=0
+        gap="cards.person-gap"
+        padding-top="cards.person-pad-block"
+        padding-bottom="cards.person-pad-block"
+        padding-left="cards.person-pad-inline"
+        padding-right="cards.person-header-gap"
+        opacity=(disabled ? "cards.person-dim" : 1)
+        row gap="cards.person-header-gap" align-items="center"
           box part="avatar" flex-shrink=0
             Avatar(src=avatar, size="cards.person-avatar")
           column flex=1 min-width=0
@@ -101,23 +102,26 @@ component PersonRow
               white-space="nowrap"
               text-overflow="ellipsis"
               overflow="hidden"
-        children
-      if pill != ""
-        row padding-top="cards.person-pill-top" opacity=(disabled ? "cards.person-dim" : 1)
-          text pill part="pill" class=Name
-            font-size="cards.person-pill-size"
-            line-height="cards.person-pill-line"
-            padding-top="cards.person-pill-pad-block"
-            padding-bottom="cards.person-pill-pad-block"
-            padding-left="cards.person-pill-pad-inline"
-            padding-right="cards.person-pill-pad-inline"
-            border-radius="cards.person-pill-corner"
-            background-color="param.pill"
-      if description != ""
-        column padding-top="cards.person-description-top"
-          opacity=(disabled ? "cards.person-dim" : 1)
-          text description part="description" class=Name
-            font-size="cards.person-description-size"
-            line-height="cards.person-description-line"
-            white-space="pre-line"
-            line-clamp=descriptionLines
+        if pill != ""
+          row padding-top="cards.person-pill-top"
+            text pill part="pill" class=Name
+              font-size="cards.person-pill-size"
+              line-height="cards.person-pill-line"
+              padding-top="cards.person-pill-pad-block"
+              padding-bottom="cards.person-pill-pad-block"
+              padding-left="cards.person-pill-pad-inline"
+              padding-right="cards.person-pill-pad-inline"
+              border-radius="cards.person-pill-corner"
+              background-color="param.pill"
+        if description != ""
+          column padding-top="cards.person-description-top"
+            text description part="description" class=Name
+              font-size="cards.person-description-size"
+              line-height="cards.person-description-line"
+              white-space="pre-line"
+              line-clamp=descriptionLines
+      column flex-shrink=0
+        padding-top="cards.person-pad-block"
+        padding-right="cards.person-pad-inline"
+        box height="cards.person-avatar" justify-content="center"
+          children

@@ -111,37 +111,38 @@ export const DERIVED = {
  * answered `currentcolor` (LLP 1116.019 D6), so a symbol's tint moved to
  * `color` keeps its read. */
 export const READS = {
-  // Stage 15 B batch 2's PersonRow, from its row (.): its padding, gap and
-  // dividers there; the header (0) with its link (0/0: the
-  // avatar's box 0/0/0, Avatar's column 0/0/0/0 and picture 0/0/0/0/0; the
-  // names 0/0/1: the name 0/0/1/0/0, the badge's column 0/0/1/0/1 and
-  // VerifiedBadge 0/0/1/0/1/0 with its ground /0 and check /1; the handle
-  // 0/0/1/1; a disabled row's opacity) and the slot's control (0/1); the pill's row (1, its text 1/0);
-  // the description's column (1, or 2 after a pill; its text /0).
-  'cards.person-pad-block': ['. padding_bottom,padding_top *'],
-  'cards.person-pad-inline': ['. padding_left,padding_right *'],
-  'cards.person-gap': ['. column_gap,row_gap *'],
-  'cards.person-header-gap': ['0 column_gap,row_gap *', '0/0 column_gap,row_gap *'],
-  'cards.person-avatar': ['0/0/0/0 height,width *', '0/0/0/0/0 height,width *'],
+  // Stage 15 B batch 2's PersonRow, from its row (.): its dividers there;
+  // the link (0: its padding, gap and a disabled row's opacity) holding the
+  // header (0/0: the avatar's box 0/0/0, Avatar's column 0/0/0/0 and picture
+  // 0/0/0/0/0; the names 0/0/1: the name 0/0/1/0/0, the badge's column
+  // 0/0/1/0/1 and VerifiedBadge 0/0/1/0/1/0 with its ground /0 and check /1;
+  // the handle 0/0/1/1), the pill's row (0/1, its text 0/1/0) and the
+  // description's column (0/1, or 0/2 after a pill; its text /0); the slot's
+  // column (1: its padding; its box 1/0, the avatar's height).
+  'cards.person-pad-block': ['0 padding_bottom,padding_top *', '1 padding_top *'],
+  'cards.person-pad-inline': ['0 padding_left *', '1 padding_right *'],
+  'cards.person-gap': ['0 column_gap,row_gap *'],
+  'cards.person-header-gap': ['0 padding_right *', '0/0 column_gap,row_gap *'],
+  'cards.person-avatar': ['0/0/0/0 height,width *', '0/0/0/0/0 height,width *', '1/0 height *'],
   'cards.person-name-size': ['0/0/1/0/0 font_size *'],
   'cards.person-name-line': ['0/0/1/0/0 line_height *'],
   'cards.person-badge': ['0/0/1/0/1/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/0/1/0/1/0/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/0/1/0/1/0/1 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all'],
   'cards.person-badge-gap': ['0/0/1/0/1 padding_left sample-pr-verified,sample-pr-verifier,sample-pr-all'],
   'cards.person-handle-size': ['0/0/1/1 font_size *'],
   'cards.person-handle-line': ['0/0/1/1 line_height *'],
-  'cards.person-pill-top': ['1 padding_top sample-pr-pill,sample-pr-all'],
-  'cards.person-pill-size': ['1/0 font_size sample-pr-pill,sample-pr-all'],
-  'cards.person-pill-line': ['1/0 line_height sample-pr-pill,sample-pr-all'],
-  'cards.person-pill-pad-block': ['1/0 padding_bottom,padding_top sample-pr-pill,sample-pr-all'],
-  'cards.person-pill-pad-inline': ['1/0 padding_left,padding_right sample-pr-pill,sample-pr-all'],
-  'cards.person-pill-corner': ['1/0 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right sample-pr-pill,sample-pr-all'],
-  'cards.person-description-top': ['1 padding_top sample-pr-description,sample-pr-description-one', '2 padding_top sample-pr-all'],
-  'cards.person-description-size': ['1/0 font_size sample-pr-description,sample-pr-description-one', '2/0 font_size sample-pr-all'],
-  'cards.person-description-line': ['1/0 line_height sample-pr-description,sample-pr-description-one', '2/0 line_height sample-pr-all'],
-  'cards.person-dim': ['0/0 opacity pr-disabled'],
+  'cards.person-pill-top': ['0/1 padding_top sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-size': ['0/1/0 font_size sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-line': ['0/1/0 line_height sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-pad-block': ['0/1/0 padding_bottom,padding_top sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-pad-inline': ['0/1/0 padding_left,padding_right sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-corner': ['0/1/0 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right sample-pr-pill,sample-pr-all'],
+  'cards.person-description-top': ['0/1 padding_top sample-pr-description,sample-pr-description-one', '0/2 padding_top sample-pr-all'],
+  'cards.person-description-size': ['0/1/0 font_size sample-pr-description,sample-pr-description-one', '0/2/0 font_size sample-pr-all'],
+  'cards.person-description-line': ['0/1/0 line_height sample-pr-description,sample-pr-description-one', '0/2/0 line_height sample-pr-all'],
+  'cards.person-dim': ['0 opacity pr-disabled'],
   'PersonRow.divider': ['. border_color_bottom,border_color_top *'],
   'PersonRow.meta': ['0/0/1/1 text_color *'],
-  'PersonRow.pill': ['1/0 background_color sample-pr-pill,sample-pr-all'],
+  'PersonRow.pill': ['0/1/0 background_color sample-pr-pill,sample-pr-all'],
   'PersonRow.badge': ['0/0/1/0/1/0/0 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
   'PersonRow.badgeMark': ['0/0/1/0/1/0/1 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
   // Stage 15 B batch 2's FollowButton, from its button (.): its shape,
