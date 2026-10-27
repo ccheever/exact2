@@ -131,7 +131,7 @@ extension Presenter {
         #if os(iOS)
         if let nav = c.navigationController, navigation.routeShowsBar(c, in: nav), c.navigationItem.largeTitleDisplayMode == .always, c.ridingBars.isEmpty { return Bands() }
         #endif
-        if !c.ridingBars.isEmpty, case .edges(let edges)? = navigation.covers[c.node.id], edges.top > 0.5 { return Bands() }
+        if !c.ridingBars.isEmpty, navigation.padsTop(c) { return Bands() }
         return controlBands(of: v, in: c.node, judge)
     }
 

@@ -2,7 +2,8 @@
 // title over a scroller it does not name, the shape `exact new` makes. The
 // title opens expanded and collapses as the content scrolls
 // (NavigationCollapseIOSTests). UIKit opens it when the stack has its first
-// screen before it enters the window, as the tabs' stacks always did.
+// screen before it enters the window, as the tabs' stacks always did. A box
+// pinned 16 points from the route's top rests 16 below the bar (LLP 1123 C33b).
 routes nav
   home "/"
 
@@ -20,3 +21,4 @@ component LargeTitle
             scroll testId="home-strip" overflow-x="scroll" overflow-y="hidden" height=60
               row width=1200 height=100
             column height=1600 width=800
+          column testId="home-pinned" position="absolute" top=16 left=16 width=40 height=20

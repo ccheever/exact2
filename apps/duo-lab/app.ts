@@ -25,6 +25,13 @@ const WORDS = (
 ).split(' ');
 
 const PLACES = ['North Shore', 'Ochre Dunes', 'Alpine Water', 'Winter Ridge'];
+// What each picture shows (assets/provenance.json), a few ways each, so the rows read as a collection's captions.
+const CAPTIONS = [
+  ['Turquoise water breaks around a granite headland.', 'A small cove below golden coastal grass.', 'A winding Atlantic shoreline in cool morning light.', 'Surf around the pale rocks of the headland.'],
+  ['A single dune ridge curves toward the horizon.', 'Long blue shadows across ochre sand.', 'An empty desert under a pale apricot sky.', 'Morning light on sculpted dunes, no footprints.'],
+  ['Dark pines reflected in a still alpine lake.', 'Warm grey rocks at the edge of blue-green water.', 'Granite peaks beyond a calm lake in late summer.', 'A quiet morning on the water below the mountains.'],
+  ['A snowy ridge above lavender clouds.', 'The crest catches a thin ribbon of sunlight.', 'Layered mountains over a sea of cloud.', 'Winter light on a high ridge.'],
+];
 const ASSETS = ['assets/north-shore.png', 'assets/ochre-dunes.png', 'assets/alpine-water.png', 'assets/winter-ridge.png'];
 const PEOPLE = ['ada', 'bram', 'cleo', 'dev', 'esme', 'finn', 'greta', 'hollis', 'ines', 'jude'];
 
@@ -61,11 +68,11 @@ function items() {
 
 // ---------------------------------------------------------- Images' rows
 function imageRows() {
-  const next = lcg(466);
   const rows = [];
   for (let i = 0; i < 300; i++) {
     const k = i % ASSETS.length;
-    rows.push({ id: i + 1, asset: ASSETS[k], caption: `${i + 1}. ${PLACES[k]} — ${sentence(next, 5 + Math.floor(next() * 5))}` });
+    const said = CAPTIONS[k][Math.floor(i / ASSETS.length) % CAPTIONS[k].length];
+    rows.push({ id: i + 1, asset: ASSETS[k], caption: `${PLACES[k]}: ${said}` });
   }
   return rows;
 }

@@ -755,7 +755,6 @@ extension NavigationHost {
         followTablist(routes, in: stack)
         let stackShows = nav.map(barShows) ?? !ExactEnv.authoredChrome
         let back = container?.props["navigationBack"]
-        let presented = nav.map { nav in presentedNavigations.contains { $0 === nav } } ?? false
         for (index, c) in routes.enumerated() {
             // The bar is each route's (LLP 1115.000 D5.2, D5.3): its header,
             // the system Back alone on a pushed route with none of its own
@@ -794,7 +793,7 @@ extension NavigationHost {
             #endif
             collapse(c, shape: shape, shows: shows, scroller: scroller)
             showReadouts(shows ? shape : nil, in: c)
-            reachBottom(c, presented: presented)
+            reachBottom(c)
             c.paintBackdrop()
             searchField(shows ? shape?.search : nil, in: c)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
@@ -1060,9 +1059,8 @@ extension NavigationHost {
         // here while it pushes the scroller down (`MenusIOS`), and a title
         // must not collapse with a scroller that is no longer the route's top.
         let flowing = { (v: NodeView) in (!v.isHidden || v.presenter?.menus.isLaidOut(v) == true) && Self.inFlow(v) }
-        let whole = wantsWholeView && presenter.viewportFit != "cover"
         let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids[($0 + 1)...].first(where: flowing) } }
-            ?? (shows || whole ? kids.first(where: flowing) : nil)
+            ?? (shows || wantsWholeView ? kids.first(where: flowing) : nil)
         var riders: [NodeView] = []
         #if os(iOS)
         if #available(iOS 26.0, *), shape?.level == 1, let scroller,
@@ -1074,8 +1072,7 @@ extension NavigationHost {
         for old in c.ridingBars where !riders.contains(where: { $0 === old }) { old.controlRide = 0; old.applyTransform() }
         c.ridingBars = riders
         c.rideBars()
-        let covered: Bool
-        if case .edges(let edges)? = covers[c.node.id] { covered = edges.top > 0.5 } else { covered = false }
+        let covered = padsTop(c)
         let ordinary = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
         let target = !riders.isEmpty ? (covered ? nil : scroller) : ordinary
         if let target, !riders.isEmpty {
@@ -1161,17 +1158,15 @@ extension NavigationHost {
     /// route keeps its bottom cover, which the kernel pads nothing of while
     /// UIKit insets the scroller (`reportCovers`, `scroller_insets_bottom`),
     /// so an absolutely positioned footer still rests on the bars. A footer under
-    /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
-    /// whose own `env()` insets would be added to UIKit's, though not a
-    /// sheet's route, which is covered for the sheet's whole safe area
-    /// whatever the document's fit (`reportCovers`).
-    private func reachBottom(_ c: RouteController, presented: Bool) {
+    /// the scroller keeps the cover. A route clears its own safe area whatever
+    /// the document's fit (LLP 1123 D3), so under `viewport-fit=cover` too.
+    private func reachBottom(_ c: RouteController) {
         // Until a scroller reaches the bottom edge the route's bottom cover
         // pads its in-flow content above the bars, and its content box is
         // the authored one: a scroller there ends that far above it. The
         // cover it has without one, so a scroller that does not grow as the
         // cover goes is at the edge either way.
-        let target = presented || presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
+        let target = Self.bottomScroller(in: c.node, cover: c.bottomClearance)
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
         c.safeArea.release(c.edgeScroll?.scrollView)
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }

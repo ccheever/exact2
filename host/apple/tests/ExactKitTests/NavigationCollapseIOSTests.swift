@@ -208,6 +208,35 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertLessThan(bar.frame.height, expanded, "and the title collapses as the content scrolls")
     }
 
+    /// LLP 1123 C33b over `scripts/fixtures/large-title.contract`: a box
+    /// pinned 16 points from the top of a route whose scroller goes under its
+    /// large title rests 16 points below the bar, open and collapsed, as a
+    /// view pinned to the safe-area guide does, while the scroller starts
+    /// under the bar and its content just below it.
+    func testABoxPinnedToTheTopOfARouteRestsBelowItsCollapsingTitle() throws {
+        let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "large-title-pinned", beforeItsWindow: true)
+        let route = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController as? RouteController)
+        let home = try node(session, "home-scroll"), pinned = try node(session, "home-pinned"), top = try node(session, "home-top")
+        XCTAssertTrue(route.collapseScroll === home, "the title collapses with the scroller")
+        let bar = try XCTUnwrap(route.navigationController?.navigationBar), expanded = bar.frame.height
+        // UIKit shows no large title where it places a vertical bar (the iPhone Duo upright or closed)
+        let large = !bar.traitCollection.placesVerticalBar
+        if large { XCTAssertGreaterThan(expanded, 90, "the large title is open") }
+        func check(_ title: String) {
+            let below = bar.convert(bar.bounds, to: nil).maxY
+            until("\(title): the box rests 16 below the bar") { abs(pinned.convert(pinned.bounds, to: nil).minY - below - 16) < 0.5 }
+            XCTAssertEqual(pinned.convert(pinned.bounds, to: nil).minY, below + 16, accuracy: 0.5, "\(title): 16 below the bar")
+            XCTAssertEqual(home.convert(home.bounds, to: nil).minY, 0, accuracy: 0.5, "\(title): the scroller starts under the bar")
+        }
+        check("open")
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, bar.convert(bar.bounds, to: nil).maxY, accuracy: 0.5, "its content just below the open title")
+        guard large else { return }
+        home.pendingScrollTop = 300
+        home.applyPendingScroll()
+        until("the title collapses") { bar.frame.height < expanded - 20 }
+        check("collapsed")
+    }
+
     /// The agent's `tap <scroller> drag 0 -900` to the end under an expanded
     /// large title rests at the end, as a finger's drag does once its bounce
     /// settles: UIKit adds the collapsing title's height to the offset, which
@@ -508,15 +537,15 @@ final class NavigationCollapseIOSTests: XCTestCase {
 
     /// LLP 1123 D9 and D12 on the fixture's Second route, whose scroller goes
     /// under the bar with its title and reaches the window's bottom under the
-    /// bars there: the route is covered nothing at the top and pads nothing at
-    /// the bottom. Its values still describe its content root between the
-    /// bars as they are: `--exact-safe-area-inset-top` is 0, so a box padded
-    /// by it gains nothing, and `10cqh` is a tenth of the height between the
-    /// bars. They stay so as the large title collapses (where UIKit shows it
-    /// large: the iPhone Duo's cover screen shows it inline), under a bar
-    /// over the bottom, as an iPhone's tab bar is (the cover screen holds its
-    /// tab bar in the side strip), and as the route's safe area at the top
-    /// grows, as under a taller bar.
+    /// bars there: the route pads nothing at the top or the bottom. Its
+    /// values still describe its content root between the bars as they are:
+    /// `--exact-safe-area-inset-top` is 0, so a box padded by it gains
+    /// nothing, and `10cqh` is a tenth of the height between the bars. They
+    /// stay so as the large title collapses (where UIKit shows it large: the
+    /// iPhone Duo's cover screen shows it inline), under a bar over the
+    /// bottom, as an iPhone's tab bar is (the cover screen holds its tab bar
+    /// in the side strip), and as the route's safe area at the top grows, as
+    /// under a taller bar.
     func testARoutesValuesLeaveOutItsBarsAsItsTitleCollapses() throws {
         let (session, nav) = try second("owner-values")
         let route = try XCTUnwrap(nav.topViewController as? RouteController), host = try XCTUnwrap(window?.rootViewController)

@@ -1015,6 +1015,8 @@ pub(crate) fn continue_document(
 
     relative::resolve(arena, layout, touched, receipt);
     sync_text_nodes(arena, layout, text_nodes, touched);
+    // The absolute boxes a covered box's bottom-edge chain holds, once the batch is whole.
+    crate::kernel::settle_chain(arena, Some(layout));
 
     Ok(())
 }

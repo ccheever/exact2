@@ -256,8 +256,10 @@ component Messages
     main testId="messages" id="messages-root" navigationKey=`${top(nav).id}` navigationBack="back" navigate=navigate viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" display="flex" flex-direction="column" overflow="hidden" class=Canvas font-family="system-ui" color="light-dark(#000000, #ffffff)"
       for entry in stack(nav) key=entry.id
         // Every screen draws its own chrome (the thread's glass header and
-        // Back), so it says it has no system bar (LLP 1115.000 D5.2).
-        column navigationKey=`${entry.id}` navigationBar="none" class=Screen height=viewport.height
+        // Back), so it says it has no system bar (LLP 1115.000 D5.2). Its
+        // composer's material reaches the bottom edge, padded by the route's
+        // inset there (LLP 1123 D4).
+        column navigationKey=`${entry.id}` navigationBar="none" -exact-safe-area="bottom" class=Screen height=viewport.height
           if entry.name == "inbox"
             column testId="inbox" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=48 padding-left=20 padding-right=16 justify-content="space-between" align-items="center" flex-shrink=0
@@ -307,7 +309,7 @@ component Messages
                 if data.threads.length == 0
                   text "No Results" font-size=20 font-weight=600 text-align="center" margin-top=70
               text (data.connected ? "OpenRouter connected" : "AI connects through your Mac") font-size=11 class=Secondary text-align="center" padding=12
-              box height="env(safe-area-inset-bottom)" flex-shrink=0
+              box height="var(--exact-safe-area-inset-bottom)" flex-shrink=0
           if entry.name == "thread"
             column testId="conversation" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=44 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" flex-shrink=0 z-index=3
@@ -365,7 +367,7 @@ component Messages
                             box width=2 height=8 border-radius=1 background-color="#8e8e93"
                             box width=2 height=4 border-radius=1 background-color="#8e8e93"
                 if not editing
-                  box height="calc(env(safe-area-inset-bottom) - 18px)" min-height=0 flex-shrink=0
+                  box height="calc(var(--exact-safe-area-inset-bottom) - 18px)" min-height=0 flex-shrink=0
           if entry.name == "reader"
             column testId="reader" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=44 padding-left=16 padding-right=16 align-items="center" gap=16
@@ -443,7 +445,7 @@ component Messages
             if choosing
               column position="absolute" top=0 left=0 right=0 bottom=0 z-index=40 background-color="#00000030" justify-content="flex-end"
                 button press=dismiss testId="dismiss-models" aria-label="Close model picker" position="absolute" top=0 left=0 width="100%" height="100%"
-                column testId="model-picker" height="88%" border-top-left-radius=28 border-top-right-radius=28 class=Canvas padding-top=10 padding-bottom="env(safe-area-inset-bottom)" animation=(viewport.prefersReducedMotion ? "none" : "card 260ms cubic-bezier(0.2, 0.05, 0.15, 1)")
+                column testId="model-picker" height="88%" border-top-left-radius=28 border-top-right-radius=28 class=Canvas padding-top=10 padding-bottom="var(--exact-safe-area-inset-bottom)" animation=(viewport.prefersReducedMotion ? "none" : "card 260ms cubic-bezier(0.2, 0.05, 0.15, 1)")
                   box width=36 height=5 border-radius=3 background-color="light-dark(#d1d1d6, #48484a)" align-self="center" margin-bottom=12
                   row padding-left=20 padding-right=16 height=44 align-items="center" justify-content="space-between"
                     text (newConversation ? "New Message" : "Choose a Model") font-size=24 font-weight=700

@@ -520,10 +520,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `tabindex` is now an attribute on every element and module tag's box (LLP
   1088 D7.3), with no DOM-property alias. Fix: write `tabindex` (x2apps paint,
   2026-10-04).
-- **With `viewport-fit="cover"`, route content goes under the native bar.** Cause:
-  the bar's cover is added to the route's padding, but a cover-fit root has no top
-  safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
-  authored header. (Signal Clone, build 5.)
+- **With `viewport-fit="cover"`, a route padded by `env(safe-area-inset-top)` starts
+  its content a status bar too low on iOS.** Cause: a route clears its own safe area,
+  the status bar and its bars, under either fit (LLP 1123 D3), and adds it to the
+  padding written on the route, so `env()` counts the status bar a second time
+  (lowering warns, `lower-env-in-owner`). Fix: leave the bars to the route. Where the
+  web needs the padding (a page under Safari's status bar), write
+  `var(--exact-safe-area-inset-top)`: on the web it is the root's `env()`, and on iOS
+  0 on an edge the route clears, or the inset on one it turns off (`-exact-safe-area`,
+  LLP 1123 D4). (Messages, 2026-10-27.)
 - **A banner at the root of a tabbed app stays under the status bar on iOS.** A
   root-level `position="absolute" top=0` box padded with `env(safe-area-inset-top)`
   is drawn at y 0, and one at `top="calc(env(safe-area-inset-top) + 8px)"` at y 8.
@@ -538,10 +543,20 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   Put the banner in the route that shows it, where the host pads that route's top:
   an absolutely positioned child at `top=0` then starts below the status bar and any
   bar. A route whose scroller starts at its top or right under its header is inset
-  by UIKit instead, and a box at its `top=0` is under the bars; at
-  `top="var(--exact-safe-area-inset-top)"` it stays there, as that is 0 in a route
-  whose content starts below the bar (D9). (euxy port's "COPY SAVED" notice,
-  2026-10-21.)
+  by UIKit instead of padded, and such a child is still placed below the bar, open
+  or collapsed. Not under a large title whose control bars ride the bar (a segmented
+  filter over a list, LLP 1131): that route is covered nothing at the top, so a box
+  at its `top=0` is under the bars, and at `top="var(--exact-safe-area-inset-top)"`
+  it stays there, as that is 0 in a route whose content starts below the bar (D9).
+  (euxy port's "COPY SAVED" notice, 2026-10-21.)
+- **A bottom sheet or bar in a route stops above the home indicator on iOS, the
+  route's background showing below it.** Cause: a route clears its whole safe area
+  (LLP 1123 D3), and on an edge it clears, `var(--exact-safe-area-inset-bottom)` and
+  `var(--exact-safe-area-corners-inset-bottom)` are 0, so padding moved over from
+  `env(safe-area-inset-bottom)` adds nothing and the box ends where the clearance
+  begins. Take the edge on the route's root, `-exact-safe-area="bottom"` (LLP 1123
+  D4): the box reaches the bottom, and the same `var()` is then the inset to pad its
+  controls by. (Duo Lab's note sheet, 2026-10-27.)
 
 - **After a relaunch on iOS, a form opens with old values and ignores the fresh answer.**
   While the data module is not ready, a native host (and the wasm web target) can make

@@ -111,10 +111,10 @@ pub struct NodeArena {
     /// tablist's or radio group's native control size; absent before
     /// measurement or after removal. A few nodes have one.
     intrinsic: IdMap<u32, (f32, f32)>,
-    /// What a host container covers of a box (LLP 1075.003 §3.5): a few
-    /// route nodes at most, so a list by slot rather than a column (and not a
-    /// map, whose code every web core would carry).
-    covers: Vec<(u32, crate::kernel::HostCover)>,
+    /// What a host container covers of a box (LLP 1075.003 §3.5), and the
+    /// absolutely positioned boxes placed past a covered box's bottom-edge
+    /// chain (`cover::settle_chain`).
+    pub(crate) covers: crate::kernel::Covers,
     /// The content owners a host published values for (LLP 1123 D9), by their root's slot:
     /// each with the environment its subtree's rows resolve against (the document's, carrying
     /// its values) and the one a top-layer box in it does, which carries only its container
@@ -299,7 +299,7 @@ impl NodeArena {
         self.insets.clear();
         self.nonzero_insets.clear();
         self.intrinsic.clear();
-        self.covers.clear();
+        self.covers = Default::default();
         self.owners.clear();
         self.grouped_margins.clear();
         self.list_margins.clear();
@@ -953,7 +953,7 @@ impl NodeArena {
         self.contents[s] = (0.0, 0.0);
         self.set_inset(slot, None);
         self.intrinsic.remove(&slot);
-        self.covers.retain(|(s, _)| *s != slot);
+        self.covers.remove(slot);
         self.owners.retain(|(s, _, _)| *s != slot);
         self.grouped_margins.retain(|(s, _)| *s != slot);
         self.list_margins.retain(|(s, _)| *s != slot);
@@ -1157,17 +1157,11 @@ impl NodeArena {
 
     /// What a host container covers of a box, when it has said.
     pub fn cover(&self, slot: u32) -> Option<crate::kernel::HostCover> {
-        self.covers
-            .iter()
-            .find(|(s, _)| *s == slot)
-            .map(|(_, c)| *c)
+        self.covers.get(slot)
     }
 
     pub(crate) fn set_cover(&mut self, slot: u32, cover: Option<crate::kernel::HostCover>) {
-        self.covers.retain(|(s, _)| *s != slot);
-        if let Some(c) = cover {
-            self.covers.push((slot, c));
-        }
+        self.covers.set(slot, cover);
     }
 
     /// The margins the platform's list gives the grouped list `slot`.

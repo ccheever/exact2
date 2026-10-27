@@ -266,76 +266,21 @@ fn header_padded() -> Kernel {
     kernel
 }
 
+/// LLP 1123 D3: a route's top cover is its whole local top, the status bar
+/// and the bar, so a replaced header's own `env()` padding is not added to it.
 #[test]
-fn a_replaced_header_that_cleared_the_status_bar_hands_that_inset_to_the_bar() {
+fn a_replaced_header_hands_no_inset_to_its_routes_cover() {
     let mut kernel = header_padded();
     assert_eq!(frame(&mut kernel, 4).1, 114.0, "as authored: 62 + 52");
-    // The host reports the bar's 44 past the status bar, as it does when
-    // the route pads the inset; the list still starts under the bar.
     kernel
-        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
+        .set_host_cover(2, Some(HostCover::Edges([106.0, 0.0, 0.0, 0.0])))
         .unwrap();
     kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
     assert_eq!(
         frame(&mut kernel, 4).1,
         106.0,
-        "the status bar's 62 and the bar's 44"
+        "the route's local top, not 106 and the header's 62"
     );
-    // The header's padding changing while it is replaced reaches the route.
-    let unpadded = style(&[(StyleId::PaddingTop, StyleValue::Number(0.0))]);
-    let op = Op::SetStyle {
-        id: 3,
-        patch: Box::new(unpadded),
-    };
-    kernel.apply(2, 3, &[op]).unwrap();
-    assert_eq!(frame(&mut kernel, 4).1, 44.0, "nothing to hand over");
-    let padded = style(&[(
-        StyleId::PaddingTop,
-        StyleValue::Text("env(safe-area-inset-top)".into()),
-    )]);
-    let op = Op::SetStyle {
-        id: 3,
-        patch: Box::new(padded),
-    };
-    kernel.apply(3, 4, &[op]).unwrap();
-    assert_eq!(frame(&mut kernel, 4).1, 106.0);
-    // A new inset (a rotation) reaches the route through the header's.
-    kernel.set_env(Env::new(20.0, 0.0, 0.0, 0.0)).unwrap();
-    assert_eq!(frame(&mut kernel, 4).1, 64.0);
-    // The header given back: laid out as authored again.
-    kernel.set_host_cover(3, None).unwrap();
-    assert_eq!(frame(&mut kernel, 4).1, 20.0 + 44.0 + 52.0);
-}
-
-/// LLP 1001 §2 (2026-10-07): a header padded by a comparison that reads
-/// the top inset cleared it too; one that reads only another inset did not.
-/// The corner-adapted safe area's top is never less than the inset (LLP 1123
-/// D10), so it clears it; the margins' top can lie above the safe area where
-/// an app turns `insetsLayoutMarginsFromSafeArea` off, so it does not.
-#[test]
-fn a_replaced_header_padded_by_a_comparison_of_the_top_inset_hands_it_over() {
-    let mut kernel = header_padded();
-    kernel
-        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
-        .unwrap();
-    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
-    for (padding, y) in [
-        ("clamp(0px, env(safe-area-inset-top), 200px)", 106.0),
-        ("max(12px, env(safe-area-inset-bottom))", 44.0),
-        ("env(-exact-safe-area-corners-inset-top)", 106.0),
-        ("max(12px, env(-exact-safe-area-corners-inset-top))", 106.0),
-        ("env(-exact-layout-margins-inset-top)", 44.0),
-    ] {
-        let op = Op::SetStyle {
-            id: 3,
-            patch: Box::new(style(&[(
-                StyleId::PaddingTop,
-                StyleValue::Text(padding.into()),
-            )])),
-        };
-        kernel.apply(2, 3, &[op]).unwrap();
-        assert_eq!(frame(&mut kernel, 4).1, y, "{padding}");
-    }
 }
 
 #[test]
@@ -352,45 +297,6 @@ fn a_scroller_under_the_bar_takes_no_inset_from_the_header() {
         0.0,
         "the list starts at the top, under the bar"
     );
-}
-
-#[test]
-fn a_route_whose_replaced_header_leaves_takes_back_its_inset() {
-    let mut kernel = header_padded();
-    kernel
-        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
-        .unwrap();
-    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
-    assert_eq!(frame(&mut kernel, 4).1, 106.0);
-    // The header goes (an `if`), the bar's cover stays.
-    let op = Op::SetChildren {
-        id: 2,
-        children: vec![4],
-    };
-    kernel.apply(2, 3, &[op]).unwrap();
-    assert_eq!(
-        frame(&mut kernel, 4).1,
-        44.0,
-        "no replaced header, no inset"
-    );
-    let op = Op::SetChildren {
-        id: 2,
-        children: vec![3, 4],
-    };
-    kernel.apply(3, 4, &[op]).unwrap();
-    assert_eq!(frame(&mut kernel, 4).1, 106.0, "and back with it");
-}
-
-#[test]
-fn a_replaced_header_destroyed_outright_leaves_no_inset() {
-    let mut kernel = header_padded();
-    kernel
-        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
-        .unwrap();
-    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
-    assert_eq!(frame(&mut kernel, 4).1, 106.0);
-    kernel.apply(2, 3, &[Op::DestroyView { id: 3 }]).unwrap();
-    assert_eq!(frame(&mut kernel, 4).1, 44.0);
 }
 
 /// The route's list (4) as a scroller padded by 16 holding a column (5)
@@ -478,6 +384,88 @@ fn a_scroller_the_platform_insets_lays_out_its_content_between_the_insets() {
     );
     kernel.set_host_cover(4, None).unwrap();
     assert_eq!(frame(&mut kernel, 5).3, 812.0, "cleared, as authored");
+}
+
+/// LLP 1123 C33b: a box pinned 16 points below the top of a route whose list
+/// goes under a large title's bar rests 16 below the bar, expanded and
+/// collapsed, as a view pinned to the safe-area guide does, while the list
+/// reaches under the bar and keeps its layout as the title collapses. A box
+/// in flow above the list, or a list no longer inset at its top, has the
+/// route pad the bar again.
+#[test]
+fn a_box_pinned_to_the_top_of_a_route_whose_list_goes_under_the_bar_rests_below_it() {
+    let mut kernel = scroller(false);
+    let view = |id| Op::CreateView {
+        id,
+        node_type: NodeType::View,
+    };
+    let pinned = vec![
+        view(9),
+        Op::SetStyle {
+            id: 9,
+            patch: Box::new(style(&[
+                (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                (StyleId::Top, StyleValue::Number(16.0)),
+                (StyleId::Left, StyleValue::Number(16.0)),
+                (StyleId::Width, StyleValue::Number(40.0)),
+                (StyleId::Height, StyleValue::Number(20.0)),
+            ])),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, 9],
+        },
+    ];
+    kernel.apply(1, 3, &pinned).unwrap();
+    // The bar's 168 with its large title open, and the home indicator's 34;
+    // UIKit insets the list by both.
+    let route = |top| Some(HostCover::Edges([top, 0.0, 34.0, 0.0]));
+    kernel.set_host_cover(2, route(168.0)).unwrap();
+    kernel
+        .set_host_cover(4, Some(HostCover::Inset([168.0, 34.0])))
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 4),
+        (0.0, 0.0, 390.0, 844.0),
+        "the list reaches under the bars"
+    );
+    let content = (0.0, 16.0, 390.0, 844.0 - 168.0 - 34.0 - 32.0);
+    assert_eq!(frame(&mut kernel, 5), content, "its content between them");
+    assert_eq!(frame(&mut kernel, 9).1, 184.0, "16 below the open title");
+    // The title collapses to a 116-point bar: the box goes up with it, and
+    // the list's layout stays.
+    kernel.set_host_cover(2, route(116.0)).unwrap();
+    assert_eq!(frame(&mut kernel, 9).1, 132.0, "16 below the collapsed bar");
+    assert_eq!(frame(&mut kernel, 4), (0.0, 0.0, 390.0, 844.0));
+    assert_eq!(frame(&mut kernel, 5), content);
+    // No longer inset at its top, the list starts below the bar.
+    kernel
+        .set_host_cover(4, Some(HostCover::Inset([0.0, 34.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 4), (0.0, 116.0, 390.0, 728.0));
+    kernel
+        .set_host_cover(4, Some(HostCover::Inset([168.0, 34.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 4).1, 0.0, "inset again, under the bar");
+    // A caption in flow above the list: the route pads the bar above it.
+    let caption = vec![
+        view(10),
+        Op::SetStyle {
+            id: 10,
+            patch: Box::new(style(&[
+                (StyleId::Height, StyleValue::Number(30.0)),
+                (StyleId::FlexShrink, StyleValue::Number(0.0)),
+            ])),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 10, 4, 9],
+        },
+    ];
+    kernel.apply(1, 4, &caption).unwrap();
+    assert_eq!(frame(&mut kernel, 10).1, 116.0, "the caption below the bar");
+    assert_eq!(frame(&mut kernel, 4).1, 146.0);
+    assert_eq!(frame(&mut kernel, 9).1, 132.0);
 }
 
 #[test]
@@ -827,67 +815,6 @@ fn a_footer_attached_late_a_clipping_box_and_the_reported_padding() {
     assert_eq!(kernel.cover_bottom(key), 83.0);
 }
 
-/// Round 3 (Astra, Grok): an absolute child at `top: 0` of a route whose top
-/// cover holds its replaced header's inset (`header_inset`) follows that
-/// inset as the header is replaced, its padding changes, and the inset does.
-#[test]
-fn an_absolute_child_follows_the_inset_its_routes_replaced_header_hands_the_bar() {
-    let mut kernel = header_padded();
-    let badge = [
-        Op::CreateView {
-            id: 5,
-            node_type: NodeType::View,
-        },
-        Op::SetStyle {
-            id: 5,
-            patch: Box::new(style(&[
-                (StyleId::PositionType, StyleValue::Text("absolute".into())),
-                (StyleId::Top, StyleValue::Number(0.0)),
-                (StyleId::Left, StyleValue::Number(0.0)),
-                (StyleId::Width, StyleValue::Number(10.0)),
-                (StyleId::Height, StyleValue::Number(10.0)),
-            ])),
-        },
-        Op::SetChildren {
-            id: 2,
-            children: vec![3, 4, 5],
-        },
-    ];
-    kernel.apply(1, 3, &badge).unwrap();
-    kernel
-        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
-        .unwrap();
-    assert_eq!(frame(&mut kernel, 5).1, 44.0, "the bar's 44");
-    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
-    assert_eq!(
-        frame(&mut kernel, 5).1,
-        106.0,
-        "and the status bar's 62 the header handed it"
-    );
-    let padding = |kernel: &mut Kernel, batch, value| {
-        let op = Op::SetStyle {
-            id: 3,
-            patch: Box::new(style(&[(StyleId::PaddingTop, value)])),
-        };
-        kernel.apply(1, batch, &[op]).unwrap();
-    };
-    padding(&mut kernel, 4, StyleValue::Number(0.0));
-    assert_eq!(frame(&mut kernel, 5).1, 44.0, "nothing handed over");
-    padding(
-        &mut kernel,
-        5,
-        StyleValue::Text("env(safe-area-inset-top)".into()),
-    );
-    assert_eq!(frame(&mut kernel, 5).1, 106.0);
-    kernel.set_env(Env::new(20.0, 0.0, 0.0, 0.0)).unwrap();
-    assert_eq!(frame(&mut kernel, 5).1, 64.0, "a rotation's new inset");
-    kernel.set_host_cover(3, None).unwrap();
-    assert_eq!(frame(&mut kernel, 5).1, 44.0, "the header given back");
-    // The route's cover cleared (a keyboard ending it above the bars).
-    kernel.set_host_cover(2, None).unwrap();
-    assert_eq!(frame(&mut kernel, 5).1, 0.0, "placed as written");
-}
-
 /// Round 3 (Astra): an inset at its top alone on a box down the chain stops
 /// the walk there; said or cleared, in either order with the scroller's,
 /// the route is derived again.
@@ -916,6 +843,115 @@ fn a_top_only_inset_down_the_chain_said_or_cleared_re_derives_the_route() {
             "and reaches the scroller: {scroller_first}"
         );
     }
+}
+
+/// A button pinned 16 points above the foot of a positioned pane that holds
+/// the route's bottom scroller rests on the tab bar while the pane reaches
+/// under it, as a UIKit view pinned to the lower view's safe-area guide
+/// stays above the tab bar, and follows the clearance whatever takes the
+/// pane onto the chain or off it, in one batch with the button's own
+/// restyling too.
+#[test]
+fn an_absolute_box_in_a_pane_that_reaches_under_the_bar_rests_on_it() {
+    let mut kernel = nested();
+    let view = |id| Op::CreateView {
+        id,
+        node_type: NodeType::View,
+    };
+    let shown = |id, display: &str| Op::SetStyle {
+        id,
+        patch: Box::new(style(&[(
+            StyleId::Display,
+            StyleValue::Text(display.into()),
+        )])),
+    };
+    let pinned = vec![
+        Op::SetStyle {
+            id: 4,
+            patch: Box::new(style(&[(
+                StyleId::PositionType,
+                StyleValue::Text("relative".into()),
+            )])),
+        },
+        view(8),
+        Op::SetStyle {
+            id: 8,
+            patch: Box::new(style(&[
+                (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                (StyleId::Bottom, StyleValue::Number(16.0)),
+                (StyleId::Right, StyleValue::Number(16.0)),
+                (StyleId::Width, StyleValue::Number(56.0)),
+                (StyleId::Height, StyleValue::Number(56.0)),
+            ])),
+        },
+        Op::SetChildren {
+            id: 4,
+            children: vec![5, 6, 8],
+        },
+    ];
+    kernel.apply(1, 2, &pinned).unwrap();
+    // 16 above the bar's top at 761, wherever the pane ends.
+    let resting = 844.0 - 83.0 - 16.0 - 56.0;
+    assert_eq!(
+        frame(&mut kernel, 8).1,
+        resting,
+        "the pane ends above the bar"
+    );
+    kernel
+        .set_host_cover(6, Some(HostCover::Inset([0.0, 83.0])))
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 4).3,
+        792.0,
+        "the pane reaches under the bar"
+    );
+    assert_eq!(
+        frame(&mut kernel, 8).1,
+        resting,
+        "the button rests on the bar"
+    );
+    // The route's clearance changes: a home indicator alone.
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 8).1, 844.0 - 34.0 - 16.0 - 56.0);
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([0.0, 0.0, 83.0, 0.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 8).1, resting);
+    // A box after the pane ends the route's flow: the pane ends above it and the bar.
+    let after = vec![
+        view(9),
+        Op::SetStyle {
+            id: 9,
+            patch: Box::new(style(&[
+                (StyleId::Height, StyleValue::Number(10.0)),
+                (StyleId::FlexShrink, StyleValue::Number(0.0)),
+            ])),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, 9, 7],
+        },
+    ];
+    kernel.apply(1, 3, &after).unwrap();
+    assert_eq!(frame(&mut kernel, 4).3, 699.0);
+    assert_eq!(frame(&mut kernel, 8).1, resting - 10.0, "off the chain");
+    kernel.apply(1, 4, &[shown(9, "none")]).unwrap();
+    assert_eq!(frame(&mut kernel, 4).3, 792.0);
+    assert_eq!(frame(&mut kernel, 8).1, resting, "on it again");
+    // The button restyled in the batch that takes the pane off the chain,
+    // before and after the change.
+    let moved = |id| Op::SetStyle {
+        id,
+        patch: Box::new(style(&[(StyleId::Right, StyleValue::Number(20.0))])),
+    };
+    kernel.apply(1, 5, &[shown(9, "block"), moved(8)]).unwrap();
+    assert_eq!(frame(&mut kernel, 8).1, resting - 10.0);
+    kernel.apply(1, 6, &[moved(8), shown(9, "none")]).unwrap();
+    assert_eq!(frame(&mut kernel, 8).1, resting);
+    kernel.apply(1, 7, &[moved(8), shown(9, "block")]).unwrap();
+    assert_eq!(frame(&mut kernel, 8).1, resting - 10.0);
 }
 
 #[test]
@@ -964,4 +1000,139 @@ fn a_host_block_does_not_inherit_its_parents_covered_edges() {
     assert_eq!(frame(&mut k, 5), (0., 0., 600., 500.));
     k.set_host_block(5, None).unwrap();
     assert_eq!(frame(&mut k, 5), (0., 30., 190., 814.));
+}
+
+/// `route()` with a `scroll` (10) in its list's place, holding a column (11)
+/// that fills it, and `rows` on the scroll.
+fn side_scroll(rows: &[(StyleId, StyleValue<'static>)]) -> Kernel {
+    let mut kernel = route();
+    let ops = vec![
+        Op::CreateView {
+            id: 10,
+            node_type: NodeType::ScrollView,
+        },
+        Op::SetStyle {
+            id: 10,
+            patch: Box::new(style(
+                &[
+                    &[
+                        (StyleId::FlexGrow, StyleValue::Number(1.0)),
+                        (StyleId::MinHeight, StyleValue::Number(0.0)),
+                    ],
+                    rows,
+                ]
+                .concat(),
+            )),
+        },
+        Op::CreateView {
+            id: 11,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 11,
+            patch: Box::new(style(&[(StyleId::Height, StyleValue::Number(300.0))])),
+        },
+        Op::SetChildren {
+            id: 10,
+            children: vec![11],
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, 10],
+        },
+    ];
+    kernel.apply(1, 2, &ops).unwrap();
+    kernel
+}
+
+#[test]
+fn a_scroll_on_a_covered_side_reaches_under_the_side_controls() {
+    let mut kernel = side_scroll(&[]);
+    // The iPhone Duo's cover display: its side strip holds the bar's items.
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([0.0, 84.0, 0.0, 0.0])))
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 10).2,
+        390.0,
+        "its box runs under the strip, where UIKit draws its indicator"
+    );
+    assert_eq!(
+        (frame(&mut kernel, 11).0, frame(&mut kernel, 11).2),
+        (0.0, 306.0),
+        "and its content keeps its place"
+    );
+    assert_eq!(
+        frame(&mut kernel, 4).2,
+        306.0,
+        "a box that is no scroll stays clear"
+    );
+    // The cover changing re-derives the scroll that reaches past it.
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([0.0, 0.0, 0.0, 47.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 10).2, 390.0);
+    assert_eq!(
+        frame(&mut kernel, 11).0,
+        47.0,
+        "turned, the strip on the left"
+    );
+    kernel.set_host_cover(2, None).unwrap();
+    assert_eq!(
+        (frame(&mut kernel, 11).0, frame(&mut kernel, 11).2),
+        (0.0, 390.0),
+        "uncovered, as authored"
+    );
+}
+
+#[test]
+fn a_scroll_off_the_covered_side_does_not_reach_it() {
+    let mut kernel = side_scroll(&[(StyleId::MarginRight, StyleValue::Number(8.0))]);
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([0.0, 84.0, 0.0, 0.0])))
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 10).2,
+        298.0,
+        "a margin keeps it off the strip: 390 - 84 - 8"
+    );
+}
+
+#[test]
+fn a_scroll_narrower_than_its_box_does_not_reach_the_strip() {
+    let mut kernel = side_scroll(&[
+        (StyleId::BoxSizing, StyleValue::Text("border-box".into())),
+        (StyleId::MaxWidth, StyleValue::Number(200.0)),
+    ]);
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([0.0, 84.0, 0.0, 0.0])))
+        .unwrap();
+    assert_eq!(
+        (frame(&mut kernel, 10).2, frame(&mut kernel, 11).2),
+        (200.0, 200.0),
+        "its maximum ends it before the strip: no reach, its content unpadded"
+    );
+}
+
+#[test]
+fn a_change_to_what_decides_the_reach_derives_it_again() {
+    let cover = Some(HostCover::Edges([0.0, 84.0, 0.0, 0.0]));
+    let pad = |kernel: &mut Kernel| {
+        let patch = Box::new(style(&[(StyleId::PaddingRight, StyleValue::Number(8.0))]));
+        kernel
+            .apply(2, 3, &[Op::SetStyle { id: 2, patch }])
+            .unwrap();
+    };
+    // The route's padding written after the scroll reached past its side,
+    let mut updated = side_scroll(&[]);
+    updated.set_host_cover(2, cover).unwrap();
+    assert_eq!(frame(&mut updated, 10).2, 390.0);
+    pad(&mut updated);
+    // and before.
+    let mut fresh = side_scroll(&[]);
+    pad(&mut fresh);
+    fresh.set_host_cover(2, cover).unwrap();
+    for id in [10, 11] {
+        assert_eq!(frame(&mut updated, id), frame(&mut fresh, id), "#{id}");
+    }
 }

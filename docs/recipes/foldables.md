@@ -4,7 +4,9 @@ A foldable (the iPhone Duo) splits its inner display at the hinge when partially
 `exactViewport()` says how, in the web's names: `devicePosture` is `"folded"`, and
 `horizontalViewportSegments` (side by side, a book) or `verticalViewportSegments` (one
 above the other, a laptop) is 2. `env(viewport-segment-<left|top|width|height> <x> <y>)`
-places a box on segment `x, y` (LLP 1078).
+places a box on the window's segment `x, y` (LLP 1078). A route has its own, measured
+below its bar: `var(--exact-viewport-segment-<field>-<x>-<y>, 50%)`, the fallback for a
+route holding one segment of two, and `var(--exact-safe-area-inset-<edge>)` (LLP 1123 D9).
 
 ```contract
 shape Viewport
@@ -33,21 +35,18 @@ On a fold ([HIG](https://developer.apple.com/design/human-interface-guidelines/d
 
 - **Scrolling content stays**: a list or document spans the band (the hinge). Keep
   other controls off it.
-- **A pane that does not scroll moves** and keeps its width: centred (full width on a
-  narrow screen); the trailing segment on a book fold, where the talk moves an alert.
+- **A pane of controls moves** (scrolling only where it does not fit) and keeps its width:
+  centred (full width when narrow); the trailing segment on a book fold, as an alert.
 - **A list and its detail** is a split view (`pattern list-detail`; iOS pushes until
   LLP 1127). **Two peer panes** are an arrangement: place them by segment (duo-lab's
-  Fold tab).
-- A route that is itself the pane on the trailing segment keeps its title with
-  `navigationBar=(book ? "none" : "auto")`: on a book fold its first-child `header`
-  paints in it as written, with its own Back if pushed; otherwise it is UIKit's bar.
+  Fold tab). Keep the route's `header`: the bar is the platform's.
 - Two panes go in reading order, the first on the leading segment: segment 1 in
   right-to-left text, as segments count from the left.
 - Folded like a laptop, controls you place yourself go on the bottom segment, as the talk
-  says: cap a bottom sheet's `max-height` at both the room below its header and
-  `calc(100% - env(viewport-segment-top 0 1))`, with its containing block from the
-  viewport's top. On iOS a keyboard over that segment leaves its top below the
-  viewport, 0 tall (Chrome moves or drops it): duo-lab's note sheet lifts that cap.
+  says: cap a bottom sheet's `max-height` at
+  `calc(100% - var(--exact-viewport-segment-top-0-1))`, its containing block the
+  route's. On iOS a keyboard over that segment leaves its top below the viewport, 0
+  tall (Chrome moves or drops it): duo-lab's note sheet lifts that cap.
 - Place panes by segment edges, ending one under the keyboard at `100%` or
   `bottom: 0`: hosts differ on segment heights.
 - Change values on one node so a fold keeps a field's text; UIKit may still end editing

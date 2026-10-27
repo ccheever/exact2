@@ -419,30 +419,21 @@ final class ContentOwnersIOSTests: XCTestCase {
         until("the root hears the field leave with its sheet") { heard.last?.hasPrefix("focusout:sheet-a") == true }
     }
 
-    /// Under `viewport-fit="cover"` the document's insets are its own, not a
-    /// sheet's: a sheet's route is covered for the sheet's whole safe area
-    /// (its inline bar, the home indicator of an edge-attached sheet), not
-    /// for what is left of it after the document's insets, which would leave
-    /// the route under its bar. A route in the document is still covered
-    /// only past the insets the page pads with itself.
-    func testASheetsRouteIsCoveredForItsOwnSafeArea() {
-        let cover = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
-        let edges = { (safe: UIEdgeInsets, presented: Bool, whole: Bool, reached: CGFloat) in
-            NavigationHost.routeEdges(safe: safe, document: cover, presented: presented, whole: whole, covered: !presented && !whole,
-                                      reached: reached)
+    /// Each route is covered for its own safe area whatever the document's
+    /// fit (LLP 1123 D3): a sheet's inline bar and an edge-attached sheet's
+    /// home indicator, and in the document, under `viewport-fit="cover"` as
+    /// under `auto`, its bar and the status bar, and the tab bar with the home
+    /// indicator, as far as the route reaches it.
+    func testARouteIsCoveredForItsOwnSafeAreaWhateverTheFit() {
+        let edges = { (safe: UIEdgeInsets, reached: CGFloat) in
+            NavigationHost.routeEdges(safe: safe, edges: true, reached: reached)
         }
-        XCTAssertEqual(edges(UIEdgeInsets(top: 44, left: 0, bottom: 0, right: 0), true, true, 0),
-                       .init(top: 44, right: 0, bottom: 0, left: 0), "a floating sheet's inline bar")
-        XCTAssertEqual(edges(UIEdgeInsets(top: 56, left: 0, bottom: 34, right: 0), true, true, 34),
-                       .init(top: 56, right: 0, bottom: 34, left: 0), "an edge-attached sheet's bar and home indicator")
-        XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 34, right: 0), false, false, 34),
-                       .init(top: 44, right: 0, bottom: 0, left: 0), "a route in the document: its bar past the status bar the page pads for")
-        // A tab's route under `viewport-fit="cover"`: the tab bar past the home indicator env() has, the bar's 49.
-        XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), false, false, 83),
-                       .init(top: 44, right: 0, bottom: 49, left: 0), "a covered page's route still clears the tab bar, which its env() does not hold")
-        XCTAssertEqual(NavigationHost.routeEdges(safe: UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), document: .zero, presented: false, whole: true,
-                                                 reached: 83),
-                       .init(top: 106, right: 0, bottom: 83, left: 0), "the whole view's route: the bar and the status bar")
+        XCTAssertEqual(edges(UIEdgeInsets(top: 44, left: 0, bottom: 0, right: 0), 0), .init(top: 44, right: 0, bottom: 0, left: 0), "a floating sheet's inline bar")
+        XCTAssertEqual(edges(UIEdgeInsets(top: 56, left: 0, bottom: 34, right: 0), 34), .init(top: 56, right: 0, bottom: 34, left: 0), "an edge-attached sheet's bar and home indicator")
+        XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), 83), .init(top: 106, right: 0, bottom: 83, left: 0), "a tab's route: its bar, the status bar, the tab bar")
+        XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 84), 40), .init(top: 106, right: 84, bottom: 40, left: 0), "the Duo's side strip, and the bottom as far as the route reaches")
+        XCTAssertEqual(NavigationHost.routeEdges(safe: UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 84), edges: false, reached: 83),
+                       .init(top: 106, right: 0, bottom: 0, left: 0), "with the containers not whole, the top alone")
     }
 
     /// A sheet's route ends only at a docked keyboard (LLP 1123 C26): the
@@ -765,17 +756,24 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true)
         let nav = try XCTUnwrap(p.navigation.primaryNavigation)
         let route = try XCTUnwrap(nav.topViewController as? RouteController)
-        // The route's child that contains viewport-info-open: a left cover moves it right
-        var child = try node(session, "viewport-info-open").id
-        while let parent = (agent.runnerNode(child)["parent"] as? NSNumber)?.uint32Value, parent != route.node.id { child = parent }
+        // Where viewport-info-open starts in the route: a left cover moves it right, also inside a
+        // scroller that reaches under the cover, whose content stays clear of it
+        let target = try node(session, "viewport-info-open").id
         func left() -> CGFloat? {
-            guard let frame = agent.runnerNode(child)["frame"] as? [String: Any], let x = frame["x"] as? NSNumber else { return nil }
-            return CGFloat(x.doubleValue)
+            var x: CGFloat = 0, at = target
+            while at != route.node.id {
+                let n = agent.runnerNode(at)
+                guard let frame = n["frame"] as? [String: Any], let dx = frame["x"] as? NSNumber,
+                      let parent = (n["parent"] as? NSNumber)?.uint32Value else { return nil }
+                x += CGFloat(dx.doubleValue); at = parent
+            }
+            return x
         }
         func wantedLeft() -> CGFloat {
             if case .edges(let edges)? = p.navigation.covers[route.node.id] { return edges.left }
             return 0
         }
+        let uncovered = try XCTUnwrap(left()) - wantedLeft()
         let insets = route.additionalSafeAreaInsets, frame = route.view.frame
         for extra in [CGFloat(31), 0] {
             let previous = wantedLeft()
@@ -787,8 +785,8 @@ final class ContentOwnersIOSTests: XCTestCase {
                     XCTAssertNotEqual(wantedLeft(), previous, "the native change produces a different cover inside the served callback")
                 }
             }
-            until("the runner applies the sampled left cover \(wantedLeft()); the route's child starts at \(String(describing: left()))") {
-                left().map { abs($0 - wantedLeft()) < 0.5 } == true
+            until("the runner applies the sampled left cover \(wantedLeft()); the target starts at \(String(describing: left()))") {
+                left().map { abs($0 - uncovered - wantedLeft()) < 0.5 } == true
             }
             XCTAssertEqual(p.navigation.delivered[route.node.id], p.navigation.covers[route.node.id])
         }

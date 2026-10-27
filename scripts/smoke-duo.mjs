@@ -40,6 +40,11 @@ const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
 /** The native bar standing for the authored tablist, independent of accessibility grouping. */
 const nativeTabBar = async (s) => (await s.layout('tab-bar')).node.native.tabBar;
+/** UIKit's navigation bar over the route `id`, when it shows one. */
+const navigationBarFrame = async (s, id) => {
+  const bar = (await s.layout(id)).node.native.navigationBar;
+  return bar?.visible ? bar.frame : undefined;
+};
 const tabBarFrame = async (s) => {
   const bar = await nativeTabBar(s);
   return bar?.visible ? bar.frame : undefined;
@@ -358,6 +363,11 @@ async function suite({ open: openSession, check: record }, reset) {
     check(laid && onGrid(bar.y + bar.h, l.viewport.h), `${tag}: the agent's chrome lays the tablist out at the viewport's bottom: ${JSON.stringify(bar)} in ${JSON.stringify(l.viewport)}`);
     return laid ? bar.y : l.viewport.h;
   };
+  /** The left and right edges of a duo-lab route's content root in layout `l` of session `s`. Under UIKit's bars a
+   * route clears its whole safe area (LLP 1123 D3), the iPhone Duo's side strip included (C13), as a view inside its
+   * controller's safe area lies (LLP 1123, "Evidence: UIKit per view": 867 points of the open panel's 951); under the
+   * agent's chrome its routes clear nothing. */
+  const contentAcross = (s, l) => s.chrome === 'agent' ? [0, l.viewport.w] : [l.env['safe-area-inset-left'], l.viewport.w - l.env['safe-area-inset-right']];
   /** Tap duo-lab's second item and return its detail's title, the selection a leg's folds must keep. */
   const chooseSecond = async (s) => {
     const first = byTestId(await s.tree(), 'detail-title')?.props.text;
@@ -403,12 +413,28 @@ async function suite({ open: openSession, check: record }, reset) {
     check(text('fact-h') === String(h) && text('fact-v') === String(v), `${tag}: the screen prints ${text('fact-h')}×${text('fact-v')}, layout.env ${h}×${v}`);
     check(text('fact-size') === `${l.viewport.w}×${l.viewport.h}`, `${tag}: fact-size ${text('fact-size')} vs layout ${l.viewport.w}×${l.viewport.h}`);
     check(l.env['device-posture'] === (two ? 'folded' : 'continuous'), `${tag}: layout.env reports posture ${l.env['device-posture']}`);
-    // The panes sit exactly on the two rects, cut where the routes end (`routesEnd`), whichever axis the device splits
-    // (across: each pane the routes' height; down: each the viewport's width, the lower one ending with the routes).
+    // The panes fill the route's content root across (`contentAcross`) and sit on the route's own segments, the
+    // window's within that content root (LLP 1123 D9), from where it begins to where the routes end (`routesEnd`),
+    // whichever axis the device splits (across: both the content's height; down: each the content root's width, the
+    // upper one ending at the band, the lower one ending with the routes). The content root may begin under UIKit's bar,
+    // padding below it by the route's inset: the facts start below the bar either way. Side by side, neither pane spans
+    // the route's bottom edge, so under UIKit's bars both end where the route's clearance begins, above the home
+    // indicator (D3, C33a), which they no longer pad themselves (`var(--exact-safe-area-corners-inset-bottom)` is 0 there).
+    // Stacked, the lower pane holds the route's bottom scroller, which reaches the window's bottom under UIKit's bars
+    // with every box above it (LLP 1116 D2), as UIKit's own split arrangement extends its lower view under a tab bar.
     const list = box(l, 'pane-list'), detail = box(l, 'pane-detail'), end = await routesEnd(s, l, tag);
-    const on = (pane, r, full) => pane && (full ? near(pane.x, r[0]) && near(pane.w, l.viewport.w) && onGrid(pane.y, r[1]) && onGrid(pane.h, Math.min(r[1] + r[3], end) - r[1]) : onGrid(pane.x, r[0]) && onGrid(pane.w, r[2]) && near(pane.y, r[1]) && near(pane.h, end - r[1]));
-    if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2) && on(detail, segs[1], v === 2), `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}) above ${end}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
-    else check(list && detail && near(list.w, l.viewport.w) && near(detail.w, l.viewport.w) && detail.y >= list.y + list.h - 0.01 && onGrid(detail.y + detail.h, end), `${tag}: one pane, the list above the detail, ending with the routes at ${end}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
+    const bar = s.chrome !== 'agent' ? await navigationBarFrame(s, 'screen-fold') : undefined;
+    const below = bar ? bar.y + bar.h : 0, facts = box(l, 'fact-posture');
+    const [left, right] = contentAcross(s, l), foot = s.chrome === 'agent' ? end : end - l.env['safe-area-inset-bottom'];
+    const reach = s.chrome === 'agent' ? end : l.viewport.h;
+    const on = (pane, r, full, upper) => {
+      const x = Math.max(r[0], left), w = Math.min(r[0] + r[2], right) - x;
+      return pane && (full
+        ? near(pane.x, x) && near(pane.w, w) && (upper || onGrid(pane.y, r[1])) && onGrid(pane.y + pane.h, Math.min(r[1] + r[3], upper ? end : reach))
+        : onGrid(pane.x, x) && onGrid(pane.w, w) && near(pane.y + pane.h, foot));
+    };
+    if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2, true) && on(detail, segs[1], v === 2, false) && (v === 2 || near(list.y, detail.y)) && facts?.y >= below - 0.01, `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}) within the content root ${left}…${right} above ${v === 2 ? reach : foot}, the facts below ${below}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)} facts ${JSON.stringify(facts)}`);
+    else check(list && detail && near(list.x, left) && near(list.w, right - left) && near(detail.x, left) && near(detail.w, right - left) && detail.y >= list.y + list.h - 0.01 && onGrid(detail.y + detail.h, reach), `${tag}: one pane across the content root ${left}…${right}, the list above the detail, ending at ${reach}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
     check(text('detail-title') === chosen, `${tag}: the selection survived: ${text('detail-title')} (was ${chosen})`);
   };
   /** At a fold, layout `l` has two segments, and no control of the screen shown lies on the band between them, the
@@ -435,16 +461,17 @@ async function suite({ open: openSession, check: record }, reset) {
     check(on.length === 0, `${tag}: no control on the band ${JSON.stringify(band)}: ${JSON.stringify(on.map((m) => ({ id: m.testId ?? m.id, x: m.x, y: m.y, w: m.w, h: m.h })))}`);
   };
   /** Combinations and the note screen are each one pane that does not scroll, which a fold moves
-   * (docs/recipes/foldables.md): in layout `l` at hinge `deg`, box `id` keeps to the trailing segment on a book fold,
-   * and fully open it is centred. */
-  const paneMoves = (l, id, tag, deg) => {
-    const b = box(l, id), trailing = l.env['viewport-segments']?.[1];
+   * (docs/recipes/foldables.md): in layout `l` of session `s` at hinge `deg`, box `id` keeps to the trailing segment on
+   * a book fold, and fully open it is centred in its route's content root (`contentAcross`), whose width its `100%` is,
+   * as a view centred on its controller's safe area is. */
+  const paneMoves = (s, l, id, tag, deg) => {
+    const b = box(l, id), trailing = l.env['viewport-segments']?.[1], [left, right] = contentAcross(s, l);
     if (!check(b, `${tag}: ${id} is laid out`)) return;
     if (l.env['horizontal-viewport-segments'] === 2) check(within(b, trailing), `${tag}: ${id} keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(b)}`);
-    else if (deg === 180) check(b.w < l.viewport.w && near(b.x + b.w / 2, l.viewport.w / 2, 0.5), `${tag}: ${id} is centred: ${JSON.stringify(b)} in ${JSON.stringify(l.viewport)}`);
+    else if (deg === 180) check(b.w < right - left && near(b.x + b.w / 2, (left + right) / 2, 0.5), `${tag}: ${id} is centred in its route's content root ${left}…${right}: ${JSON.stringify(b)} in ${JSON.stringify(l.viewport)}`);
   };
   /** With the keyboard up where one is expected (layout `l`), the note sheet ends where its route does (`routesEnd`),
-   * below the note's header, with Dismiss and the textarea above that end. Under UIKit's bars it first reads the layout
+   * below the note's header (UIKit's bar; under the agent's chrome, the status bar), with Dismiss and the textarea above that end. Under UIKit's bars it first reads the layout
    * again until its keyboard inset equals the native state's `overlap`. It returns the layout it checked. Given `top`,
    * the lower segment's before the keyboard, the fold keeps its two segments, the lower one's top there and ending where
    * the viewport does, never below zero (LLP 1078, the keyboard). */
@@ -464,12 +491,14 @@ async function suite({ open: openSession, check: record }, reset) {
       check(l.env['keyboard-inset-height'] === native?.overlap, `${tag}: layout and native state observe the same keyboard inset: layout ${l.env['keyboard-inset-height']}, native ${JSON.stringify(native)}`);
     }
     const [, lower] = l.env['vertical-viewport-segments'] === 2 ? l.env['viewport-segments'] : [];
-    if (lower || top !== undefined) check(lower && (top === undefined || near(lower[1], top)) && near(lower[3], Math.max(0, l.viewport.h - lower[1]), 0.02), `${tag}: the keyboard leaves the lower segment's top ${top} and ends it with the viewport ${l.viewport.h}: ${JSON.stringify(lower)}`);
-    const sheet = box(l, 'note-sheet'), back = box(l, 'note-back'), dismiss = box(l, 'note-dismiss'), area = box(l, 'note-textarea'), kb = l.env['keyboard-inset-height'];
+    // The document's segments end with its viewport, which the keys shorten only without UIKit's navigation (LLP 1008 §9)
+    if (lower || top !== undefined) check(lower && (top === undefined || near(lower[1], top)) && near(lower[3], Math.max(0, l.viewport.h - lower[1]), 0.02), `${tag}: the lower segment keeps its top ${top} and ends with the viewport ${l.viewport.h}: ${JSON.stringify(lower)}`);
+    const sheet = box(l, 'note-sheet'), dismiss = box(l, 'note-dismiss'), area = box(l, 'note-textarea'), kb = l.env['keyboard-inset-height'];
     const needsKeyboard = await expected(s, kb);
     const end = await routesEnd(s, l, tag, native);
     if (needsKeyboard && uikit) check(native?.visible === true, `${tag}: the expected native keyboard is visible: ${JSON.stringify(native)}`);
-    check(sheet && back && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!needsKeyboard || kb > 0), `${tag}: the sheet ends with its route at ${end}, below the note's header, Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
+    const bar = uikit ? await navigationBarFrame(s, 'screen-note') : undefined, below = bar ? bar.y + bar.h : l.env['safe-area-inset-top'];
+    check(sheet && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= below - 0.01 && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!needsKeyboard || kb > 0), `${tag}: the sheet ends with its route at ${end}, below the note's header at ${below} (the bar ${JSON.stringify(bar)}), Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
     return l;
   };
   // The insets fixture serves its leg and the keyboard probe, which the legs that type need
@@ -729,13 +758,13 @@ async function suite({ open: openSession, check: record }, reset) {
       check(byTestId(await s.tree(), 'screen-combos') != null, 'the Combinations tab opened');
       await eachPose(s, 'combos', async ({ l: l0 }, tag, deg) => {
         if (folded(deg)) await offBand(s, l0, tag);
-        paneMoves(l0, 'combos-title', tag, deg);
+        paneMoves(s, l0, 'combos-content', tag, deg);
         await s.tap('open-note'); await settle(s);
         let t = await s.tree();
         check(byTestId(t, 'screen-note') != null && byTestId(t, 'note-sheet') != null, `${tag}: the note screen pushed with its sheet`);
         const pushed = await s.layout();
         if (folded(deg)) await offBand(s, pushed, `${tag} note`);
-        paneMoves(pushed, 'note-sheet', tag, deg);
+        paneMoves(s, pushed, 'note-sheet', tag, deg);
         // The title field raises the keyboard (a textarea under the driver's `type` takes
         // text and focus but no keyboard, 2026-10-02); the textarea takes the draft.
         // Each pose writes its own, so a value left from the last cannot pass.
@@ -769,7 +798,7 @@ async function suite({ open: openSession, check: record }, reset) {
         await pose(s, deg);
         await s.tap('note-dismiss'); await down(s, tag);
         check((await s.state()).slots.noteFocused === false, `${tag}: dismiss ended editing`);
-        await s.tap('note-back'); await settle(s);
+        await s.back(); await settle(s);
         t = await s.tree();
         check(byTestId(t, 'screen-combos') != null && byTestId(t, 'screen-note') == null, `${tag}: back popped the note screen`);
         const echo = byTestId(t, 'draft-echo')?.props.text;
@@ -1064,7 +1093,7 @@ async function suite({ open: openSession, check: record }, reset) {
     await offBand(s, l, `${tag}→90° editing`);
     await pose(s, 130);
     await s.tap('note-dismiss'); await down(s, tag);
-    await s.tap('note-back'); await settle(s);
+    await s.back(); await settle(s);
     await s.tap('tab-fold'); await settle(s);
   };
   if (leg('rotate')) {

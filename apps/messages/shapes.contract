@@ -78,9 +78,11 @@ style GlassButton
 style NativeGlass
   appearance="auto" buttonStyle="glass"
   width=40 height=40 flex-shrink=0
+// A route's root: the route clears the status bar and the sides itself (LLP 1123 D3), so
+// these are 0 there, and the inset on an edge the route turns off.
 style Screen
   position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box"
-  padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+  padding-top="var(--exact-safe-area-inset-top)" padding-left="var(--exact-safe-area-inset-left)" padding-right="var(--exact-safe-area-inset-right)"
   background-color="light-dark(#ffffff, #000000)"
 
 keyframes received

@@ -464,6 +464,13 @@ extension Agent {
             if let shown { observation["frame"] = rect(box(shown)) }
             native["tabBar"] = observation
         }
+        // A route's navigation bar, which draws its header (LLP 1115.000 D5.2)
+        if let route = navigation.controllers[host.id], route.node === host, let nav = route.navigationController {
+            let shown = !nav.isNavigationBarHidden && nav.navigationBar.window != nil
+            var observation: [String: Any] = ["visible": shown]
+            if shown { observation["frame"] = rect(box(nav.navigationBar)) }
+            native["navigationBar"] = observation
+        }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let grouped = presenter.groupedLists?.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
