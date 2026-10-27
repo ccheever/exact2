@@ -15,6 +15,21 @@ fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
 
 const DESIGN: &str = "tamber t\n\ntheme\n  accent.fill = #0a7aff\n";
 
+/// This thread's CPU time: what an in-process build's work takes, not the
+/// wall clock, which a loaded machine (the suite's other tests, another
+/// agent's builds) stretches with no work the build did (many ranged params
+/// read 20.7 s of wall at load 58; the build runs on its caller's thread).
+fn cpu() -> std::time::Duration {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: a valid timespec for the call to fill.
+    let read = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    assert_eq!(read, 0, "this thread's CPU clock");
+    std::time::Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
+}
+
 fn build(name: &str, src: &str) -> Result<exact_plan::Plan, contract::CompileError> {
     contract::compile_path(&app(name, &[("app.contract", src), ("app.tamber", DESIGN)]))
 }
@@ -335,10 +350,10 @@ fn many_ranged_params_set_by_the_design_build_in_moments() {
         "many-ranged",
         &[("app.contract", &src), ("app.tamber", &design)],
     );
-    let began = std::time::Instant::now();
+    let began = cpu();
     let built = contract::compile_path(&path);
-    let took = began.elapsed();
-    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
+    let took = cpu() - began;
+    assert!(took < std::time::Duration::from_secs(20), "{took:?} of CPU");
     // `p7`'s value, out of its range, is refused as before.
     let e = built.unwrap_err();
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
@@ -399,10 +414,10 @@ fn many_ranged_params_reading_a_dial_build_in_moments() {
         "many-dial",
         &[("app.contract", &src), ("app.tamber", &design)],
     );
-    let began = std::time::Instant::now();
+    let began = cpu();
     let built = contract::compile_path(&path);
-    let took = began.elapsed();
-    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
+    let took = cpu() - began;
+    assert!(took < std::time::Duration::from_secs(20), "{took:?} of CPU");
     let e = built.unwrap_err();
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
     assert!(e.message.contains("p7"), "{e:?}");
@@ -441,10 +456,10 @@ fn many_ranged_params_naming_a_token_build_in_moments() {
         "many-named",
         &[("app.contract", &src), ("app.tamber", &design)],
     );
-    let began = std::time::Instant::now();
+    let began = cpu();
     let built = contract::compile_path(&path);
-    let took = began.elapsed();
-    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
+    let took = cpu() - began;
+    assert!(took < std::time::Duration::from_secs(20), "{took:?} of CPU");
     let e = built.unwrap_err();
     assert_eq!(e.id, "tamber-param-range", "{e:?}");
     assert!(e.message.contains("p7"), "{e:?}");
