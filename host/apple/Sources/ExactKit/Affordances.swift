@@ -40,7 +40,7 @@ extension NodeView {
     /// The platform tint used by a native control’s symbol.
     var inheritedTint: PlatformColor {
         #if os(iOS) || os(tvOS)
-        return paintedTint
+        return inheritedInk
         #else
         return viewTint ?? .controlAccentColor
         #endif
@@ -94,7 +94,12 @@ extension NodeView {
         case "multicolor": return base.applying(SymbolConfig.preferringMulticolor())
         case "palette":
             let colors = (style["symbol_palette"]?.array ?? []).compactMap { c -> PlatformColor? in
-                c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: c)).map(TextEngine.color)
+                #if os(iOS) || os(tvOS)
+                return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: c, key: "symbol_palette"))
+                    .map { TextEngine.color(dimmedWithTint($0, key: "symbol_palette")) }
+                #else
+                return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: c)).map(TextEngine.color)
+                #endif
             }
             return colors.isEmpty ? base : base.applying(SymbolConfig(paletteColors: colors))
         default: return base

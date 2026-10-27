@@ -138,7 +138,13 @@ extension NodeView {
         // actually on screen. @ref LLP 1034 D2
         let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
         // The view's own tint, read once, where anything here names it (LLP 1095 D8).
-        let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
+        let namesTint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint)
+        #if os(iOS) || os(tvOS)
+        // Resolve the tint as it rests on a dimmed face Exact draws, so `dimmedRuns` greys the colour at its own alpha
+        let tint = namesTint ? (dimsItsPaint ? restingTint : viewTint) : nil
+        #else
+        let tint = namesTint ? viewTint : nil
+        #endif
         let ink = textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
@@ -217,6 +223,9 @@ extension NodeView {
             for i in runs.indices { runs[i].propagate(lines, color: color ?? ink) }
             strut.propagate(lines, color: color ?? ink)
         }
+        #if os(iOS) || os(tvOS)
+        dimmedRuns(&runs, strut: &strut, tinted: tint != nil)
+        #endif
         var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: strut,
                                   color: ink,
                                   language: presenter?.documentLanguage ?? "", flow: !flowShapes.isEmpty)

@@ -132,7 +132,6 @@ final class NodeExtras {
     var paintedThisTurn: Bool = false
     var placement: [Double]?
     var symbolView: UIImageView?
-    var restingTint: UIColor?
     var symbolFound = false
     var symbolKey: String?
     var symbolRefusal: String?
@@ -332,8 +331,6 @@ extension NodeView {
     package var paintedThisTurn: Bool { get { extras?.paintedThisTurn ?? false } set { if newValue || extras != nil { more.paintedThisTurn = newValue } } }
     package var placement: [Double]? { get { extras?.placement } set { if newValue != nil || extras != nil { more.placement = newValue }; if newValue != nil { Self.placedViews.add(self) } } }
     var symbolView: UIImageView? { get { extras?.symbolView } set { if newValue != nil || extras != nil { more.symbolView = newValue } } }
-    /// The tint as it rests, for colours outside a control while UIKit dims tints (TintDimmingIOS.swift)
-    var restingTint: UIColor? { get { extras?.restingTint } set { if newValue != nil || extras != nil { more.restingTint = newValue } } }
     var symbolFound: Bool { get { extras?.symbolFound ?? false } set { if newValue || extras != nil { more.symbolFound = newValue } } }
     var symbolKey: String? { get { extras?.symbolKey } set { if newValue != nil || extras != nil { more.symbolKey = newValue } } }
     var symbolRefusal: String? { get { extras?.symbolRefusal } set { if newValue != nil || extras != nil { more.symbolRefusal = newValue } } }

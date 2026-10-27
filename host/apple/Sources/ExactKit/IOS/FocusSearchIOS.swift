@@ -58,6 +58,16 @@ final class Viewport: ScrollView {
     var pageMargins = UIEdgeInsets.zero
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
+    /// Its tint undimmed (its embedder's or its window's), which a status outside a control keeps
+    /// while UIKit dims tints (`NodeView.restingTint`): the one it last had, while it is dimmed. An
+    /// embedder's tint changed while the viewport is dimmed shows once the dimming ends, and a
+    /// viewport first attached under an already dimmed embedder has none and takes the window's.
+    var restingTint: UIColor? { tintAdjustmentMode == .dimmed ? undimmedTint : tintColor }
+    private var undimmedTint: UIColor?
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        if tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
+    }
     #if os(iOS)
     // The page's own scroller takes the keyboard down with a drag that
     // reaches it, as a scroller's unsaid `keyboardDismissMode` does

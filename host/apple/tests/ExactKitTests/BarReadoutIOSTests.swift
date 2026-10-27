@@ -159,6 +159,27 @@ final class BarReadoutIOSTests: XCTestCase {
         XCTAssertEqual(dotAlone.intrinsicContentSize.width, 7, accuracy: 0.01, "no words, no inset")
     }
 
+    /// A status's symbol keeps its colour behind a sheet or an alert, as its words keep theirs: UIKit
+    /// would dim it as a tint (TintDimmingIOS.swift)
+    func testAStatusSymbolKeepsItsColourWhileDimmed() throws {
+        let green: [Double] = [52, 199, 89, 255]
+        let inked: [String: Any] = ["text_color": green, "written": ["text_color"]]
+        let p = route([status(4, style: inked), ["op": "create", "id": 5, "kind": "image", "props": ["imageSource": "symbol:sf/lock.fill", "symbolName": "lock.fill"], "style": inked],
+                       text(6, "Locked", style: inked)],
+                      kids: [4], more: [["op": "children", "id": 4, "ids": [5, 6]]])
+        let route = RouteController(try XCTUnwrap(p.views[1]))
+        let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
+        let view = try XCTUnwrap(p.navigation.barItems(shape.trailing, route).first?.customView as? ReadoutView)
+        window.addSubview(view)
+        p.navigation.showReadouts(shape, in: route)
+        let symbol = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UIImageView }.first, "the readout shows its symbol")
+        view.tintAdjustmentMode = .dimmed
+        defer { view.tintAdjustmentMode = .automatic }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        XCTAssertTrue(symbol.tintColor.resolvedColor(with: symbol.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a))
+        for (got, want) in zip([r, g, b, a].map { Double($0) * 255 }, green) { XCTAssertEqual(got, want, accuracy: 2, "the symbol keeps its green while dimmed") }
+    }
+
     /// The bar item's view: the author's direction with padding kept on
     /// its physical side, no accessibility element when `aria-hidden`, and
     /// the platform's body type following the text size.

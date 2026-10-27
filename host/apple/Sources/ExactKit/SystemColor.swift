@@ -286,6 +286,7 @@ extension NodeView {
         guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil || insideControl else { return }
         paragraphOwner.invalidateText(); paragraphOwner.setNeedsDisplay()
         applyStyle(style)
+        if insideControl { presenter?.flats.tintChanged(id) }
         presenter?.controls.tintChanged(self)
     }
 
