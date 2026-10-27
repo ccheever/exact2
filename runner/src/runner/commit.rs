@@ -1195,7 +1195,7 @@ impl<D: DataSource> Runner<D> {
         if self.pending[pos].reask_at.is_some() {
             return self.reask_answered(ticket, outcome, &summary);
         }
-        self.overran_reply = false;
+        self.overrun.replied = false;
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
@@ -1340,7 +1340,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
-        self.overran_reply = matches!(parsed, Err(DataError::Overrun(_)));
+        self.overrun.replied = matches!(parsed, Err(DataError::Overrun(_)));
         let value = match parsed.map_err(|error| RunnerError::Data {
             resource: name.clone(),
             error,

@@ -340,9 +340,7 @@ struct PendingReq {
     held: bool,
     long_poll: bool,
     replied: bool,
-    /// Held by the runner, never sent: a resource a turn over its budget
-    /// refused waits here to be asked again at this time (`overrun.rs`), read
-    /// as this ask in flight; infinite once asked and not yet answered.
+    /// Never sent: when a resource an overrun refused is asked again (`overrun.rs`).
     reask_at: Option<f64>,
     /// The re-asks after a turn over its budget this ask's streak has made.
     reasks: usize,
@@ -367,8 +365,8 @@ impl PendingReq {
         self.stream.is_none_or(|s| s.messages == 0)
     }
 
-    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9).
-    /// A re-ask's wait is no I/O: the agent's settle goes to its time instead (`overrun.rs`).
+    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9),
+    /// not a re-ask's wait (no I/O: the agent's settle goes to its time, `overrun.rs`).
     fn waited(&self) -> bool {
         self.in_flight() && !self.held && !self.replied && self.reask_at.is_none()
     }
@@ -462,11 +460,8 @@ pub struct Runner<D: DataSource> {
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
-    /// The re-ask after a turn over its budget being committed (`overrun.rs`):
-    /// its resource, the re-asks its streak has made with it, and its arguments.
-    overrun_reasking: Option<(usize, usize, Vec<Value>)>,
-    /// The reply being landed was refused by its own turn over its budget.
-    overran_reply: bool,
+    /// The re-ask being committed, and the reply being landed (`overrun.rs`).
+    overrun: overrun::Overrun,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -952,8 +947,7 @@ impl<D: DataSource> Runner<D> {
             forgot: false,
             failed_args: Vec::new(),
             failed_why: Vec::new(),
-            overrun_reasking: None,
-            overran_reply: false,
+            overrun: Default::default(),
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
             requests: Vec::new(),

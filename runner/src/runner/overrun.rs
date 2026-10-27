@@ -19,6 +19,15 @@ use crate::failure::Failure;
 use crate::Outcome;
 use exact_plan::Value;
 
+/// The re-ask being committed: its resource, the re-asks its streak has made
+/// with it, and its arguments; and whether the reply being landed was refused
+/// by its own turn over its budget.
+#[derive(Default)]
+pub(super) struct Overrun {
+    pub(super) reasking: Option<(usize, usize, Vec<Value>)>,
+    pub(super) replied: bool,
+}
+
 /// How long after each refusal the resource is asked again: spaced, so a spike
 /// of load that refused it has passed (an idle tick under load can come at
 /// once and refuse it again).
@@ -47,7 +56,7 @@ impl<D: DataSource> Runner<D> {
     /// ask in flight for these arguments it replaces (a store reader asked
     /// again keeps its count).
     pub(super) fn overrun_reasks(&self, target: Target, args: &[Value], forced: bool) -> usize {
-        match (target, &self.overrun_reasking) {
+        match (target, &self.overrun.reasking) {
             // (the re-ask's own arguments: new ones start anew, forced)
             (Target::Resource(i), Some((r, reasks, asked))) if i == *r && asked == args => *reasks,
             _ if forced => 0,
@@ -144,7 +153,7 @@ impl<D: DataSource> Runner<D> {
         target: Target,
         error: &RunnerError,
     ) -> bool {
-        let own = std::mem::take(&mut self.overran_reply);
+        let own = std::mem::take(&mut self.overrun.replied);
         let Target::Resource(i) = target else {
             return false;
         };
@@ -221,9 +230,9 @@ impl<D: DataSource> Runner<D> {
         let args = p.args.clone();
         let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
         let result = self.as_invocation(origin, id, |r| {
-            let before = r.overrun_reasking.replace((i, reasks + 1, args));
+            let before = r.overrun.reasking.replace((i, reasks + 1, args));
             let result = r.commit_again(vec![i], "a turn over its budget, asked again");
-            r.overrun_reasking = before;
+            r.overrun.reasking = before;
             result
         });
         let refused = match &result {
