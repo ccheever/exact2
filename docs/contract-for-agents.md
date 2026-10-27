@@ -1548,6 +1548,11 @@ a refreshing control's room. To pad an edge by its inset, read
 refused on the session root and on descendants; a computed value that is none
 of these is `auto`, journalled once. Other hosts keep their presentation.
 
+`-exact-background-extension="auto"` on an `image` that meets the safe area (a
+sidebar, an inspector, the iPhone Duo's side strip) fills that area with the
+image's mirrored, blurred edges, as SwiftUI's `backgroundExtensionEffect()`
+does (iOS 26; LLP 1123 D11). The image keeps its laid-out frame.
+
 On macOS, date, time, datetime-local and select controls are default Tab stops,
 independent of the system's Keyboard navigation setting. Their native control
 owns focus and editing keys; `focus`/`blur` and cancellable `key` handlers still

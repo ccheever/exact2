@@ -903,6 +903,7 @@ package final class Presenter {
                 let color = v.style["text_color"], old = v.style
                 v.applyStyle(v.presented(op.style))
                 v.refreshPressInheritance()
+                if old["display"] != v.style["display"] { compositingChanged(v) }
                 anchorChanges.note(id, from: old, to: v.style, popover: v.props["popover"] != nil)
                 flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }
@@ -985,7 +986,7 @@ package final class Presenter {
                 case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutResize = CGSize(width: CGFloat(op.w), height: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
-                case "opacity": v.alpha = x; v.refreshPressOpacity()
+                case "opacity": v.alpha = x; v.refreshPressOpacity(); compositingChanged(v)
                 case "flight": presentFlight(id, x)
                 default: break
                 }

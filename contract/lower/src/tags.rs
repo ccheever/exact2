@@ -600,6 +600,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // `none` for a full-bleed screen.
         "navigationBar" => AttrTarget::Prop(p(name)),
         "-exact-safe-area" => AttrTarget::Prop(p("safeArea")),
+        "-exact-background-extension" => AttrTarget::Prop(p("backgroundExtension")),
         // @ref LLP 1127 — a sheet that an expanded split shows as its inspector.
         "navigationInspector" => AttrTarget::Prop(p(name)),
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),

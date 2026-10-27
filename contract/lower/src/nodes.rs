@@ -326,6 +326,26 @@ impl Lowerer<'_> {
                     );
         }
         controls::check_zero_size(tag, expanded, children, *span)?;
+        // @ref LLP 1123 — an image's paint extended into the safe areas it meets.
+        if let Some(a) = expanded
+            .iter()
+            .rev()
+            .find(|a| a.name == "-exact-background-extension")
+        {
+            // Every literal the value can be is checked, a conditional's branches included.
+            let mut literals = Vec::new();
+            crate::theme::literal_leaves(&a.value, &mut literals);
+            let invalid = literals
+                .into_iter()
+                .find(|(word, _)| word != "auto" && word != "none");
+            if tag != "image" || invalid.is_some() {
+                return err(
+                    "lower-attr-value",
+                    "`-exact-background-extension` takes \"auto\" or \"none\" on an `image`: `auto` fills the safe areas the image meets with its mirrored, blurred edges",
+                    invalid.map_or(a.span, |(_, span)| span),
+                );
+            }
+        }
         // @ref LLP 1116.007 D5 — a route that scrolls a grouped list is on
         // the grouped background, unless its author said otherwise.
         let grouped_page = self.nav_place.grouped_page(tag, expanded, children, *span);

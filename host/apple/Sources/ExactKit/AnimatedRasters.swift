@@ -164,6 +164,9 @@ final class AnimatedRasters {
             let bitmap = layer.sublayers?.first ?? layer
             bitmap.contents = p.frame ?? p.image.image
             CATransaction.commit()
+            // Its background extension shows the same frame; a drawn image's
+            // follows from `display`.
+            if view.props["backgroundExtension"] == "auto" { view.syncBackgroundExtension() }
         } else {
             view.setNeedsDisplay()
         }

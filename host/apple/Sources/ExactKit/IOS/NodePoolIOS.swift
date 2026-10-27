@@ -516,6 +516,7 @@ extension NodeView {
         buttonRasterView = nil
         raster = nil; imageSource = nil
         if symbolView == nil { image = nil }
+        removeBackgroundExtension()
         symbolRefusal = nil
         inlinePressed = nil
         // The next node's hatch decides again.
