@@ -104,9 +104,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             let hidden = hostHidden || css
-            // UIKit's setter walks the subtree's backdrop masks and
-            // accessibility even when the value stands (a list hiding its
-            // hidden sections every batch).
+            // UIKit's setter walks the subtree's backdrop masks and accessibility
+            // even when the value stands (a list hiding its hidden sections every batch).
             guard super.isHidden != hidden else { return }
             super.isHidden = hidden
             if scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
@@ -1226,8 +1225,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
 
-    /// In a batch, the picture is drawn once as it ends, with all of the
-    /// batch in it.
+    /// In a batch, the picture is drawn once as it ends, with the whole batch in it.
     private func redrawFilter() {
         if presenter?.applying == true { presenter?.boxFilters.touched(self) } else { renderFilter() }
     }
