@@ -15,6 +15,8 @@ final class NavigationBarIOSTests: XCTestCase {
     private var sessions: [ExactSession] = []
 
     override func tearDown() {
+        // An attempt that never reached its replay (an exception ended it) still reports what it held.
+        if let held = heldIssues { heldIssues = nil; held.forEach(record) }
         for session in sessions { session.destroy() }
         // The module artifact is the process's: later tests run without it.
         NativeViews.uninstallTable()
@@ -30,6 +32,76 @@ final class NavigationBarIOSTests: XCTestCase {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
         XCTAssertTrue(done(), what)
+    }
+
+    private static func responder(in view: UIView?) -> UIView? {
+        guard let view else { return nil }
+        if view.isFirstResponder { return view }
+        for sub in view.subviews { if let found = responder(in: sub) { return found } }
+        return nil
+    }
+
+    /// The keyboard-service retries a decision and a run may take (theme2 and the lead, 2026-10-26).
+    private static let retriesPerDecision = 2, retriesPerRun = 4
+
+    /// A hang guard, not a deadline: how long a step may take before the wait reads as a hang.
+    private static let hangGuard: TimeInterval = 60
+
+    /// Set when UIKit itself drops an editor because its keyboard service connection failed (`keyboardServiceDrop`):
+    /// the attempt stops waiting, and the decision is retried (`retriesPerDecision`, `retriesPerRun`).
+    private var serviceDropped = false
+    /// How many issues the attempt had held when the drop came: any before it stand, and the attempt isn't retried.
+    private var issuesBeforeDrop = 0
+    /// The issues an attempt records, held until it's known whether the attempt stands or is retried.
+    private var heldIssues: [XCTIssue]?
+    override func record(_ issue: XCTIssue) {
+        // (An uncaught exception ends the attempt outside its replay: it is never held.)
+        if heldIssues != nil, issue.type != .uncaughtException { heldIssues?.append(issue) } else { super.record(issue) }
+    }
+
+    /// Whether an editor's end of editing is UIKit dropping it because the simulator's keyboard service connection
+    /// failed: `-[_UIRemoteKeyboards queue_failedConnection:]` on the stack, and between it and the resign no Exact
+    /// frame (matched by the mangled module, `8ExactKit`, since ExactKit links into this test bundle's image): the
+    /// text field's resign passes through, a presenter or view resigning would not. Kept this narrow on purpose:
+    /// if UIKit renames the symbol, nothing matches and the test fails as before rather than retrying.
+    private static func keyboardServiceDrop(_ stack: [String]) -> Bool {
+        guard let failed = stack.firstIndex(where: { $0.contains("queue_failedConnection") }),
+              let resign = stack[..<failed].lastIndex(where: { $0.contains("resignFirstResponder") }) else { return false }
+        return !stack[(resign + 1)..<failed].contains { $0.contains("8ExactKit") }
+    }
+
+    /// Waits for `done`, re-checked each run-loop turn (each notification and layout lands in one); a firing guard
+    /// names the step it was waiting on. A keyboard-service drop ends the wait (its attempt is retried).
+    /// `cleanup`: a wait between attempts, which a drop doesn't end.
+    private func settle(_ step: String, cleanup: Bool = false, state: () -> String = { "" }, _ done: () -> Bool) {
+        let aborts = { !cleanup && self.serviceDropped }
+        let deadline = Date().addingTimeInterval(Self.hangGuard)
+        while !done(), !aborts(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+        if aborts() { return }
+        XCTAssertTrue(done(), "hang guard (\(Int(Self.hangGuard)) s) fired waiting for: \(step) \(state())")
+    }
+
+    /// A notification the step waits on (`settle` on its `fired`).
+    private final class Awaited {
+        var fired = false
+        private var token: NSObjectProtocol?
+        init(_ name: Notification.Name) {
+            token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.fired = true }
+        }
+        deinit { token.map(NotificationCenter.default.removeObserver) }
+    }
+    private func awaiting(_ name: Notification.Name) -> Awaited { Awaited(name) }
+
+    /// The navigation's transition in flight, waited for to its end: whether it was cancelled (nil when none was in
+    /// flight). Read inside the completion: UIKit doesn't keep the context past it.
+    @discardableResult
+    private func finished(_ nav: UINavigationController, _ step: String, after act: () -> Void = {}) -> Bool? {
+        guard let coordinator = nav.transitionCoordinator else { act(); return nil }
+        var ended = false, cancelled: Bool?
+        coordinator.animate(alongsideTransition: nil) { context in cancelled = context.isCancelled; ended = true }
+        act()
+        settle(step) { ended }
+        return cancelled
     }
 
     /// The fixture booted in a window, its module's hatches connected or not.
@@ -207,93 +279,194 @@ final class NavigationBarIOSTests: XCTestCase {
         guard hostedWindowScene() != nil else {
             throw missing("scene", "the system keyboard needs the hosted iOS test app")
         }
-        for (decision, legacy) in [("retain", false), ("dismiss", false), ("handoff", false), ("handoff", true)] {
-            let session = try fixture("keyboard-screen-\(decision)", module: false)
-            let p = session.presenter
-            let nav = try XCTUnwrap(p.navigation.primaryNavigation)
-            let opener = try node(session, "open-focused-plain").id
-            let firstShown = expectation(forNotification: UIResponder.keyboardDidShowNotification, object: nil)
-            p.press(opener)
-            let returning = try XCTUnwrap(nav.topViewController as? RouteController)
-            let target = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "plain-first" && $0.isDescendant(of: returning.node) })
-            let destination = try XCTUnwrap(target.field)
-            until("the first screen finishes appearing") { destination.isFirstResponder && nav.transitionCoordinator == nil }
-            wait(for: [firstShown], timeout: 5)
-            let firstHidden = expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil)
-            p.blurElement([])
-            wait(for: [firstHidden], timeout: 5)
-            until("the first screen releases its keyboard") { p.keyboardInset == 0 }
-            destination.keyboardType = .numberPad
-            let full = returning.view.bounds.size
-            let sourceShown = expectation(forNotification: UIResponder.keyboardDidShowNotification, object: nil)
-            p.press(try node(session, "plain-push").id)
-            let source = try XCTUnwrap(nav.topViewController as? RouteController)
-            let outgoingNode = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "plain-first" && $0.isDescendant(of: source.node) })
-            let outgoing = try XCTUnwrap(outgoingNode.field)
-            until("the second screen finishes appearing") { nav.viewControllers.count == 3 && nav.transitionCoordinator == nil }
-            p.focusNode(outgoingNode)
-            wait(for: [sourceShown], timeout: 5)
-            until("the outgoing editor has its keyboard") { outgoing.isFirstResponder && p.keyboardInset > 0 }
-            let occupiedSize = source.node.bounds.size
-            let app = Transitions()
-            app.usesLegacyAnimator = legacy
-            app.onWillShow = { controller in
-                if controller === returning {
-                    if decision == "dismiss" { p.blurElement([]) }
-                    if decision == "handoff" { p.focusNode(target) }
-                } else if controller === source {
-                    p.focusNode(outgoingNode)
-                }
-            }
-            p.navigation.setAppDelegate(nav, app)
-            app.interactive = true
-            nav.popViewController(animated: true)
-            until("the interactive pop begins") { nav.transitionCoordinator?.isInteractive == true && app.animatorStarted }
-            // UIKit's legacy setup withdraws early focus. Claim again after setup,
-            // as in the native reference; interruptible animators retain willShow focus.
-            if legacy { p.focusNode(target) }
-            app.interaction.update(0.35)
-            if decision == "retain" {
-                XCTAssertTrue(outgoing.isFirstResponder)
-                XCTAssertEqual(source.node.bounds.size, occupiedSize, "the outgoing editor keeps its keyboard allocation during the swipe")
-                XCTAssertLessThan(occupiedSize.height, full.height)
-                until("the returning route fills what the outgoing keyboard exposes") { returning.node.bounds.size == full }
-            } else if decision == "dismiss" {
-                until("the screen's explicit resignation clears avoidance") { p.keyboardInset == 0 && returning.node.bounds.size == full }
-                XCTAssertFalse(p.hasKeyboardEditor)
-            } else {
-                let view = try XCTUnwrap(session.view)
-                until("the destination's editor and keyboard own the layout") {
-                    destination.isFirstResponder && p.keyboardInset > 0 &&
-                        abs(returning.node.bounds.height - view.keyboardLayoutGuide.layoutFrame.minY) < 0.5
-                }
-                XCTAssertEqual(p.viewportSize, full, "a focus handoff leaves the native container's size unchanged")
-                XCTAssertNil(p.pendingFocusNode, "the focus request is delivered during the transition")
-                XCTAssertLessThan(returning.node.bounds.height, full.height)
-            }
-            app.interaction.cancel()
-            until("the cancelled pop returns to its source") { nav.transitionCoordinator == nil && nav.viewControllers.count == 3 }
-            guard nav.viewControllers.count == 3 else { return }
-            until("the source's focus claim wins after cancellation") { outgoing.isFirstResponder && p.keyboardInset > 0 }
-            app.interactive = false
-            app.usesAnimator = false
-            let popHidden = decision == "handoff" ? nil : expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil)
-            nav.popViewController(animated: true)
-            until("the native pop finishes") { nav.transitionCoordinator == nil && nav.viewControllers.count == 2 }
-            if decision == "handoff" {
-                until("the returning editor keeps the keyboard") { destination.isFirstResponder && p.keyboardInset > 0 }
-            } else {
-                until("the returning screen has no keyboard") { !p.hasKeyboardEditor && p.keyboardInset == 0 && returning.node.bounds.size == full }
-            }
-            // A zero inset can precede DidHide. Finish dismissal before the
-            // next fixture replaces this window and claims keyboard focus.
-            if let popHidden { wait(for: [popHidden], timeout: 5) }
-            let finalHidden = decision == "handoff" ? expectation(forNotification: UIResponder.keyboardDidHideNotification, object: nil) : nil
-            window?.endEditing(true)
-            if let finalHidden { wait(for: [finalHidden], timeout: 5) }
-            window?.isHidden = true
-            session.destroy()
+        // Whether the system keyboard is up, by its did-show and did-hide: a decision starts only once the last one's
+        // keyboard is down (under load its did-hide lands after the next push, which then loses its focus).
+        var keyboardUp = false
+        let shows = NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { _ in keyboardUp = true }
+        let hides = NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { _ in keyboardUp = false }
+        defer { NotificationCenter.default.removeObserver(shows); NotificationCenter.default.removeObserver(hides) }
+        // Each decision in an attempt of its own, retried if UIKit drops an editor because the simulator's keyboard
+        // service connection failed (`keyboardServiceDrop`): the retry waits for the service to answer again
+        // (`keyboardServiceBack`), then starts clean, the keyboard down and the screens pushed again, every check run
+        // again. Up to 2 retries a decision and 4 a run, then the run fails: the drops come in clusters under load
+        // (a probe-gated single retry still failed about 1 run in 5 at load 40-70; main failed 5-6 runs in 10), the
+        // fault is UIKit's connection to the keyboard daemon (an in-app input view still drops it), and the hardware
+        // keyboard, set for this simulator alone, still dropped (it's connected by Simulator.app, which a headless
+        // run doesn't have). Each retry is printed with its decision and attempt. A failure recorded before the drop
+        // stands: that attempt isn't retried.
+        let ends = NotificationCenter.default.addObserver(forName: UITextField.textDidEndEditingNotification, object: nil, queue: nil) { [weak self] _ in
+            guard let self, Self.keyboardServiceDrop(Thread.callStackSymbols) else { return }
+            if !serviceDropped { issuesBeforeDrop = heldIssues?.count ?? 0 }
+            serviceDropped = true
         }
+        defer { NotificationCenter.default.removeObserver(ends) }
+        var retries: [String] = []
+        for (decision, legacy) in [("retain", false), ("dismiss", false), ("handoff", false), ("handoff", true)] {
+            let name = decision + (legacy ? " (legacy)" : "")
+            for attempt in 0...Self.retriesPerDecision {
+                settle("the last decision's keyboard to hide before \(name)", cleanup: true) { !keyboardUp }
+                serviceDropped = false // (a drop while the last keyboard went down is no attempt's)
+                heldIssues = []
+                do { try screenResponderDecision(decision, legacy: legacy) } catch { XCTFail("\(name): \(error)") }
+                let issues = heldIssues ?? []
+                heldIssues = nil
+                let dropped = serviceDropped && issuesBeforeDrop == 0
+                if serviceDropped, issuesBeforeDrop > 0 { XCTFail("\(name): a keyboard-service drop came after this attempt had failed; not retried") }
+                serviceDropped = false
+                // Handoff ends with the keyboard up: it goes down, did-hide come, before the window does (#1056).
+                let finalHidden = decision == "handoff" ? awaiting(UIResponder.keyboardDidHideNotification) : nil
+                window?.endEditing(true)
+                if let finalHidden { settle("\(name)'s keyboard to hide before its window goes", cleanup: true) { finalHidden.fired || !keyboardUp } }
+                window?.isHidden = true
+                for session in sessions { session.destroy() }
+                sessions = []
+                if dropped, attempt < Self.retriesPerDecision, retries.count < Self.retriesPerRun {
+                    print("NavigationBarIOSTests: retry \(attempt + 1) of \(name): UIKit dropped an editor when its keyboard service connection failed (queue_failedConnection)")
+                    settle("\(name)'s keyboard to hide before the keyboard service is probed", cleanup: true) { !keyboardUp }
+                    if keyboardServiceBack(keyboardDown: { !keyboardUp }) { retries.append("\(name) #\(attempt + 1)"); continue }
+                    XCTFail("\(name): the keyboard service didn't answer a plain field after the drop (3 probes); not retried")
+                } else if dropped, attempt == Self.retriesPerDecision {
+                    XCTFail("\(name): UIKit's keyboard service connection failed \(attempt + 1) times; not retried again")
+                } else if dropped {
+                    XCTFail("\(name): UIKit's keyboard service connection failed again with the run's \(Self.retriesPerRun) retries spent")
+                }
+                for issue in issues { record(issue) }
+                break
+            }
+        }
+        print("NavigationBarIOSTests: keyboard-service retries \(retries.count) \(retries)")
+    }
+
+    /// The retry starts once UIKit's keyboard service answers again: a plain UIKit field in a window of its own takes
+    /// focus and its keyboard shows (did-show), then resigns and it hides (did-hide), with no drop in between; a drop
+    /// probes again, up to three times.
+    /// Whether it answered: the field took focus, did-show came while it held it, did-hide came after it resigned,
+    /// and no drop between.
+    private func keyboardServiceBack(keyboardDown: () -> Bool) -> Bool {
+        guard let scene = hostedWindowScene() else { XCTFail("the keyboard service probe needs the hosted app's scene"); return false }
+        for _ in 0..<3 {
+            serviceDropped = false
+            let probe = UIWindow(windowScene: scene)
+            probe.frame = scene.coordinateSpace.bounds
+            let field = UITextField(frame: CGRect(x: 20, y: 100, width: 200, height: 40))
+            probe.addSubview(field)
+            probe.makeKeyAndVisible()
+            // Both observed from before the focus, so a hide the probe didn't ask for is seen too.
+            var shownWhileFocused = false, resigned = false, hiddenEarly = false, hiddenAfterResign = false
+            let shown = NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { _ in
+                if field.isFirstResponder { shownWhileFocused = true }
+            }
+            let hidden = NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { _ in
+                if resigned { hiddenAfterResign = true } else { hiddenEarly = true }
+            }
+            let focused = field.becomeFirstResponder()
+            if focused { settle("keyboard service probe: a plain field's keyboard to show") { shownWhileFocused } }
+            resigned = true
+            if field.isFirstResponder { _ = field.resignFirstResponder() }
+            if focused, shownWhileFocused { settle("keyboard service probe: its keyboard to hide") { hiddenAfterResign } }
+            probe.isHidden = true
+            NotificationCenter.default.removeObserver(shown)
+            NotificationCenter.default.removeObserver(hidden)
+            let answered = focused && shownWhileFocused && hiddenAfterResign && !hiddenEarly && !serviceDropped
+            // The next probe, or the retry, starts with the keyboard down, whatever a drop did meanwhile.
+            settle("keyboard service probe: the keyboard down before what follows", cleanup: true) { keyboardDown() }
+            serviceDropped = false
+            if answered { return true }
+        }
+        return false
+    }
+
+    /// One decision's pushes, swipe, cancel and native pop (`testScreenResponderDecisionsSurviveCompletedAndCancelledPops`).
+    private func screenResponderDecision(_ decision: String, legacy: Bool) throws {
+        let session = try fixture("keyboard-screen-\(decision)", module: false)
+        let p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let opener = try node(session, "open-focused-plain").id
+        let firstShown = awaiting(UIResponder.keyboardDidShowNotification)
+        p.press(opener)
+        let returning = try XCTUnwrap(nav.topViewController as? RouteController)
+        let target = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "plain-first" && $0.isDescendant(of: returning.node) })
+        let destination = try XCTUnwrap(target.field)
+        finished(nav, "the push to the first screen to end")
+        settle("the first screen's editor to take focus", state: {
+            "(first responder \(destination.isFirstResponder), in window \(destination.window != nil), transition \(nav.transitionCoordinator != nil), pending \(String(describing: p.pendingFocusNode)), top \(nav.topViewController === returning), responder \(Self.responder(in: self.window).map { "\(type(of: $0))" } ?? "none"))"
+        }) { destination.isFirstResponder && nav.transitionCoordinator == nil }
+        settle("the first screen's keyboard to show") { firstShown.fired }
+        let firstHidden = awaiting(UIResponder.keyboardDidHideNotification)
+        p.blurElement([])
+        settle("the first screen's keyboard to hide") { firstHidden.fired }
+        settle("the first screen to release its keyboard") { p.keyboardInset == 0 }
+        destination.keyboardType = .numberPad
+        let full = returning.view.bounds.size
+        let sourceShown = awaiting(UIResponder.keyboardDidShowNotification)
+        p.press(try node(session, "plain-push").id)
+        let source = try XCTUnwrap(nav.topViewController as? RouteController)
+        let outgoingNode = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "plain-first" && $0.isDescendant(of: source.node) })
+        let outgoing = try XCTUnwrap(outgoingNode.field)
+        finished(nav, "the push to the second screen to end")
+        settle("the second screen to finish appearing") { nav.viewControllers.count == 3 && nav.transitionCoordinator == nil }
+        p.focusNode(outgoingNode)
+        settle("the second screen's keyboard to show") { sourceShown.fired }
+        settle("the outgoing editor to have its keyboard") { outgoing.isFirstResponder && p.keyboardInset > 0 }
+        let occupiedSize = source.node.bounds.size
+        let app = Transitions()
+        app.usesLegacyAnimator = legacy
+        app.onWillShow = { controller in
+            if controller === returning {
+                if decision == "dismiss" { p.blurElement([]) }
+                if decision == "handoff" { p.focusNode(target) }
+            } else if controller === source {
+                p.focusNode(outgoingNode)
+            }
+        }
+        p.navigation.setAppDelegate(nav, app)
+        app.interactive = true
+        nav.popViewController(animated: true)
+        settle("the interactive pop to begin") { nav.transitionCoordinator?.isInteractive == true && app.animatorStarted }
+        // UIKit's legacy setup withdraws early focus. Claim again after setup,
+        // as in the native reference; interruptible animators retain willShow focus.
+        if legacy { p.focusNode(target) }
+        app.interaction.update(0.35)
+        if decision == "retain" {
+            XCTAssertTrue(outgoing.isFirstResponder)
+            XCTAssertEqual(source.node.bounds.size, occupiedSize, "the outgoing editor keeps its keyboard allocation during the swipe")
+            XCTAssertLessThan(occupiedSize.height, full.height)
+            settle("the returning route to fill what the outgoing keyboard exposes") { returning.node.bounds.size == full }
+        } else if decision == "dismiss" {
+            settle("the screen's explicit resignation to clear avoidance") { p.keyboardInset == 0 && returning.node.bounds.size == full }
+            XCTAssertFalse(p.hasKeyboardEditor)
+        } else {
+            let view = try XCTUnwrap(session.view)
+            settle("the destination's editor and keyboard to own the layout") {
+                destination.isFirstResponder && p.keyboardInset > 0 &&
+                    abs(returning.node.bounds.height - view.keyboardLayoutGuide.layoutFrame.minY) < 0.5
+            }
+            XCTAssertEqual(p.viewportSize, full, "a focus handoff leaves the native container's size unchanged")
+            XCTAssertNil(p.pendingFocusNode, "the focus request is delivered during the transition")
+            XCTAssertLessThan(returning.node.bounds.height, full.height)
+        }
+        // The cancel's own end anchors what follows: the pop must report itself cancelled (one that completed
+        // instead fails here), the stack unchanged, then the source's responder and keyboard as they were.
+        XCTAssertNotNil(nav.transitionCoordinator, "the interactive pop is in flight")
+        let cancelled = finished(nav, "the cancelled pop to end") { app.interaction.cancel() }
+        XCTAssertEqual(cancelled, true, "the pop was cancelled, not completed")
+        settle("the cancelled pop to return to its source") { nav.transitionCoordinator == nil && nav.viewControllers.count == 3 }
+        guard nav.viewControllers.count == 3 else { return }
+        settle("the source's focus claim to win after cancellation") { outgoing.isFirstResponder && p.keyboardInset > 0 }
+        app.interactive = false
+        app.usesAnimator = false
+        // A zero inset can precede did-hide: the pop's keyboard is down, did-hide come, before the next fixture replaces
+        // this window and claims keyboard focus (#1056).
+        let popHidden = decision == "handoff" ? nil : awaiting(UIResponder.keyboardDidHideNotification)
+        nav.popViewController(animated: true)
+        XCTAssertEqual(finished(nav, "the native pop to end"), false, "the native pop completed, not cancelled or missing")
+        settle("the native pop to finish") { nav.transitionCoordinator == nil && nav.viewControllers.count == 2 }
+        if decision == "handoff" {
+            settle("the returning editor to keep the keyboard") { destination.isFirstResponder && p.keyboardInset > 0 }
+        } else {
+            settle("the returning screen to have no keyboard") { !p.hasKeyboardEditor && p.keyboardInset == 0 && returning.node.bounds.size == full }
+        }
+        if let popHidden { settle("the native pop's keyboard to hide") { popHidden.fired } }
     }
 
     func testAPushAfterKeyboardDismissalInstallsTheDestinationBeforeReturning() throws {
