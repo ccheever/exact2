@@ -297,7 +297,11 @@ final class ElementScrollTests: XCTestCase {
         waitFor("the scroll completes", late: 1, giveUp: {
             slowest = max(slowest, Date().timeIntervalSince(turn)); turn = Date()
             return false
-        }, facts: { "\(positions.count) frames drawn" }) { completed }
+        }, facts: {
+            // (and the turn that completed it, which ends the loop before its give-up runs: Astra's round 1)
+            slowest = max(slowest, Date().timeIntervalSince(turn))
+            return "\(positions.count) frames drawn, the slowest turn \(String(format: "%.3f", slowest)) s"
+        }) { completed }
         if let marked { XCTAssertFalse(marked(), "the element animation's mark is gone after its end") }
         let low = min(first, target), high = max(first, target)
         var intermediate = positions.contains { $0 > low + 1 && $0 < high - 1 }
