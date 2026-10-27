@@ -256,3 +256,125 @@ fn an_incoming_call_rings_and_the_person_answers_it() {
         logs(&r)
     );
 }
+
+/// `@fixture/intercom`, a module outside exact2's packages (LLP 1133.033 §12
+/// stage 0): its own keyed list with the forms calls uses (`with`, `stamp`,
+/// `refuse`, `ends`, `tap.choices` with `when`, `set` and an event) drives as
+/// `@exact/calls` does.
+const INTERCOM: &str = r#"{
+  "kind": "interface",
+  "name": "@fixture/intercom",
+  "version": "1.0.0",
+  "shapes": {
+    "Line": { "id": "string", "peer": "string", "state": "enum<open|paused|closed>", "openedAt": "option<number>" },
+    "LineEvent": { "paused": "option<bool>" }
+  },
+  "names": [
+    {
+      "send": "openLine",
+      "permission": "none",
+      "options": { "id": "string", "peer": "string" },
+      "answers": null,
+      "substitute": {
+        "list": {
+          "state": "lines",
+          "key": "id",
+          "refuse": "InvalidStateError",
+          "with": { "state": "open" },
+          "stamp": "openedAt",
+          "ends": { "state": ["closed"] },
+          "tap": {
+            "choices": {
+              "pause": { "when": { "state": ["open"] }, "set": { "state": "paused" }, "event": "linepause", "args": [{ "id": "id", "peer": "peer", "state": "state", "openedAt": "openedAt" }, { "paused": true }] },
+              "close": { "when": { "state": ["open", "paused"] }, "set": { "state": "closed" }, "event": "lineclose", "args": [{ "id": "id", "peer": "peer", "state": "state", "openedAt": "openedAt" }] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": "closeLine",
+      "permission": "none",
+      "options": { "id": "string" },
+      "answers": null,
+      "substitute": { "update": { "state": "lines", "key": "id", "when": { "state": ["open", "paused"] }, "set": { "state": "closed" }, "else": "InvalidStateError" } }
+    },
+    { "source": "lines", "live": true, "answers": "Line[]", "substitute": { "listed": { "state": "lines", "fields": ["id", "peer", "state", "openedAt"] } } },
+    { "event": "linepause", "on": "root", "raised": "activation", "args": ["Line", "LineEvent"], "hold": 4 },
+    { "event": "lineclose", "on": "root", "raised": "activation", "args": ["Line"], "hold": 4 }
+  ]
+}"#;
+
+const INTERCOM_APP: &str = r#"use openLine, closeLine, lines, linepause, lineclose, Line, LineEvent from "@fixture/intercom"
+
+component App
+  state heard = ""
+  resource list = lines() as shape Line[]
+  action open
+    openLine(id="l1", peer="door")
+  action close
+    closeLine(id="l1")
+  action paused(line: Line, e: LineEvent)
+    heard = "pause " + line.id + " " + line.state
+  action closed(line: Line)
+    heard = "close " + line.id
+  view
+    column linepause=paused lineclose=closed
+      text testId="heard" heard
+"#;
+
+#[test]
+fn a_third_party_list_drives_as_calls_does() {
+    let app = App::new("intercom");
+    let package = app.0.join("node_modules/@fixture/intercom");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::write(
+        package.join("package.json"),
+        r#"{ "name": "@fixture/intercom", "version": "1.0.0", "exports": { ".": "./exact.json" } }"#,
+    )
+    .unwrap();
+    std::fs::write(package.join("exact.json"), INTERCOM).unwrap();
+    std::fs::write(app.0.join("app.contract"), INTERCOM_APP).unwrap();
+    let mut r = boot(&app);
+    r.act("open", Vec::new()).unwrap();
+    settle(&mut r);
+    let line = state(&r)["lines"][0].clone();
+    assert_eq!(
+        (line["state"].as_str(), line["openedAt"].is_number()),
+        (Some("open"), true),
+        "{line}"
+    );
+    let reference = line["ref"].as_u64().unwrap();
+    r.act("open", Vec::new()).unwrap();
+    settle(&mut r);
+    assert!(
+        logs(&r).contains("openLine: refused: InvalidStateError"),
+        "{}",
+        logs(&r)
+    );
+    tap(&mut r, reference, "pause").unwrap();
+    settle(&mut r);
+    assert!(
+        slot(&r, "heard").contains("pause l1 paused"),
+        "{} {}",
+        slot(&r, "heard"),
+        logs(&r)
+    );
+    let refused = tap(&mut r, reference, "pause").unwrap_err();
+    assert!(refused.contains("`pause` is refused"), "{refused}");
+    tap(&mut r, reference, "close").unwrap();
+    settle(&mut r);
+    assert!(
+        slot(&r, "heard").contains("close l1"),
+        "{}",
+        slot(&r, "heard")
+    );
+    // Closed, the app's own close is refused by its `when`.
+    r.act("close", Vec::new()).unwrap();
+    settle(&mut r);
+    assert!(
+        logs(&r).contains("closeLine: refused: InvalidStateError"),
+        "{}",
+        logs(&r)
+    );
+}
