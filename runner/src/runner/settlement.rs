@@ -229,6 +229,12 @@ impl<D: DataSource> Runner<D> {
         // pass hands the host, and the pending flags as they will be —
         // published with the rest only when the pass succeeds.
         let mut force = std::mem::take(&mut self.refresh_next);
+        // What this settlement refreshes stays refreshed in every pass, though
+        // the first ask takes it out of `force` (a store reader asked again
+        // after a later resource wrote): a turn over its budget's wait, or a
+        // request, replaces the standing ask and starts a new streak
+        // (`overrun.rs`).
+        let refreshing = force.clone();
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
@@ -418,11 +424,7 @@ impl<D: DataSource> Runner<D> {
                     // resource is device data just like a direct reader.
                     self.store_readers[i] |= store_dependent;
                     let forced = force.contains(&i);
-                    // A refresh a turn over its budget refused stays one when a
-                    // later pass asks again (a store reader): its wait replaces
-                    // the standing one and starts its streak anew (`overrun.rs`).
-                    let refreshed =
-                        forced || matches!(effects[i], RequestEffect::Wait { forced: true, .. });
+                    let refreshed = forced || refreshing.contains(&i);
                     // A stand-in a refused activation failed holds for a kept
                     // seed's identifying arguments, whatever its context
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
@@ -845,7 +847,7 @@ impl<D: DataSource> Runner<D> {
                                     effects[i] = RequestEffect::Later {
                                         args: args.clone(),
                                         request: Box::new(request),
-                                        forced,
+                                        forced: refreshed,
                                     };
                                     pending_res[i] = true;
                                     kept

@@ -131,6 +131,10 @@ struct Data {
     later_get: bool,
     /// `watch` answers later (else now, false).
     watch_later: bool,
+    /// `rows`'s next turn answers later, whatever `refuse` says.
+    later_once: bool,
+    /// `rows`'s next turn is refused with this.
+    refuse_once: Option<DataError>,
     /// `guard` writes the store once.
     guard_writes_once: bool,
     /// Moved by `rows`'s refused turn: a turn that took this long, on a live clock.
@@ -157,6 +161,8 @@ impl Data {
             guard_refuse: None,
             later_get: false,
             watch_later: false,
+            later_once: false,
+            refuse_once: None,
             guard_writes_once: false,
             turn_ms: None,
             adopted: Vec::new(),
@@ -188,6 +194,12 @@ impl DataSource for Data {
         }
         if source == "guard" && std::mem::take(&mut self.guard_writes_once) {
             store.set("token", "once")?;
+        }
+        if source == "rows" && std::mem::take(&mut self.later_once) {
+            return Ok(Answer::Later(Request::continuation(1)));
+        }
+        if let Some(e) = self.refuse_once.take().filter(|_| source == "rows") {
+            return Err(e);
         }
         if let (Some(e), "rows") = (&self.refuse, source) {
             if let Some((clock, ms)) = &self.turn_ms {
@@ -1338,4 +1350,61 @@ fn a_slow_turn_does_not_spend_its_own_delay() {
     r.data().turn_ms = Some((clock, 400.));
     r.act("change", vec![Value::Number(1.)]).unwrap();
     assert_eq!(r.timer_due_ms(), Some(1650.));
+}
+
+// Round 3 of the redesign (Astra, Grok): each red before its fix.
+
+/// A refresh whose first pass hands out a request, asked again in a later pass
+/// and refused there by a turn over its budget, still replaces another
+/// invocation's wait.
+#[test]
+fn a_refresh_that_first_asked_later_still_replaces_the_wait() {
+    let mut data = Data::new(records(2));
+    data.read_store = true;
+    let mut r = boot(plan(TypeKind::Number, None, true, true), data);
+    r.data().refuse = Some(overrun());
+    r.as_invocation(CallOrigin::Tool, 7, |r| {
+        r.act("change", vec![Value::Number(1.)])
+    })
+    .unwrap();
+    let t0 = r.now_ms();
+    r.advance(t0 + 100.).unwrap();
+    r.data().guard_writes_once = true;
+    r.data().later_once = true;
+    r.commit_again(vec![0, 1], "a refresh of both").unwrap();
+    assert!(
+        r.take_requests().is_empty(),
+        "the first pass's request, discarded"
+    );
+    assert_eq!(r.timer_due_ms(), Some(t0 + 350.), "the refresh's own time");
+}
+
+/// A refresh refused in its first pass whose later pass hands out a request:
+/// that request starts a new streak, so its own refusal waits 250 ms.
+#[test]
+fn a_refreshs_request_from_a_later_pass_starts_a_new_streak() {
+    let mut data = Data::new(records(2));
+    data.read_store = true;
+    let mut r = boot(plan(TypeKind::Number, None, true, true), data);
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let t0 = r.now_ms();
+    r.advance(t0 + 250.).unwrap();
+    assert!(
+        r.journal().any(|l| l.contains("(2 of 2)")),
+        "one re-ask made"
+    );
+    r.data().refuse = None;
+    r.data().later = true;
+    r.data().refuse_once = Some(overrun());
+    r.data().guard_writes_once = true;
+    r.commit_again(vec![0, 1], "a refresh of both").unwrap();
+    let asked = r.take_requests();
+    let rows = asked
+        .iter()
+        .find(|q| q.target == "rows")
+        .expect("rows asked");
+    r.data().parse_error = Some(overrun());
+    r.fulfill(rows.ticket, reply()).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(r.now_ms() + 250.));
 }

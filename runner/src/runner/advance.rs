@@ -339,16 +339,17 @@ impl<D: DataSource> Runner<D> {
             // while timers wait on an unseen wake or call, which owns it.
             // Nor past a drop's hold deadline, which goes first, or waits
             // with the timers.
+            // Every candidate is ordered by the earliest re-ask, even one a
+            // hold deadline keeps from going.
             let hold = self.reorder_deadline().filter(|at| *at <= now_ms);
-            let reask = self.reask_due(now_ms).filter(|(_, at)| {
-                timer_at.is_none_or(|timer| *at <= timer)
-                    && before_wake(*at)
-                    && hold.is_none_or(|hold| *at < hold)
-            });
+            let earliest = self
+                .reask_due(now_ms)
+                .filter(|(_, at)| timer_at.is_none_or(|timer| *at <= timer) && before_wake(*at));
+            let reask = earliest.filter(|(_, at)| hold.is_none_or(|hold| *at < hold));
             let ready = |at: f64| {
                 timer_at.is_none_or(|timer| at <= timer)
                     && before_wake(at)
-                    && reask.is_none_or(|(_, reask)| at <= reask)
+                    && earliest.is_none_or(|(_, reask)| at <= reask)
             };
             // An answer's `then` goes before a timer due at the same time: the
             // answer landed first. A queue's `next` goes after the `then`s and
