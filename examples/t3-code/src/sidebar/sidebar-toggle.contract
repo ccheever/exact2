@@ -21,4 +21,4 @@ component SidebarToggle
           if open
             Icon(name="sidebar", color=(artwork ? "#ffffffe6" : "light-dark(#71717b, #a3a3a3)"), size=16)
           else
-            Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+            Icon(name="panel-left", size=16, color="light-dark(#18181bcc, #f5f5f5cc)")

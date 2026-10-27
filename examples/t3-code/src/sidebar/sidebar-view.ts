@@ -60,7 +60,7 @@ export interface SidebarThread {
   terminalCount: number; terminalLabel: string;
   age: string; badge: string; stacked: boolean; badgeIcon: string; badgeState: string; section: string; status: string; selected: boolean; routeThread: boolean; searchFirst: boolean;
   matchLabel: string; matchUser: boolean; matchParts: SearchPart[];
-  card: boolean; statusIcon: string; statusColor: string; duration: string; titleColor: string; titleWeight: number;
+  card: boolean; metaEmpty: boolean; statusIcon: string; statusColor: string; duration: string; titleColor: string; titleWeight: number;
   recede: boolean; pinned: boolean; canPin: boolean; canSettle: boolean; canSnooze: boolean; canUnsettle: boolean; canWake: boolean;
   wakeLabel: string; woke: boolean; branch: string; worktree: boolean; draft: boolean; jump: string; renaming: boolean; multi: boolean;
   regenerating: boolean; label: string; hoverKey: string; rowKey: string; glyph: ProjectGlyph;
@@ -87,8 +87,10 @@ export interface SidebarView {
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
 }
 
-const FOREGROUND = 'light-dark(#27272a, #f3f3f3)';
-const SECONDARY = 'light-dark(#71717b, #818181)';
+const FOREGROUND = 'light-dark(#18181b, #f3f3f3)';
+/** --secondary-label: row metadata, a step below read titles (#8f8f8f on the dark sidebar). */
+const SECONDARY = 'light-dark(#71717b, #8f8f8f)';
+const MUTED = 'light-dark(#71717b, #a3a3a3)';
 const timestamp = (value: unknown) => { const time = Date.parse(str(value)); return Number.isFinite(time) ? time : -Infinity; };
 
 /**
@@ -195,12 +197,15 @@ export function searchRows(client: T3Client, parts: Partition): { thread: Obj; s
   return [...titles, ...content];
 }
 
-/** The title's ink (Sidebar.tsx title span); a settled row's whole content is secondary/70 at rest. */
+/**
+ * The title's ink (SidebarThreadRow title span). A settled row's whole content is secondary at rest unless it is open
+ * (variantAction "unsettle"); a receding card title is foreground/75 and inks up on hover in the row.
+ */
 function titleInk(card: boolean, section: SidebarSection, recede: boolean, unread: boolean, woke: boolean, status: string, active: boolean): string {
-  if (section === 'settled') return 'light-dark(#71717bb3, #818181b3)';
+  if (section === 'settled' && !active) return SECONDARY;
   return card
-    ? recede ? SECONDARY : unread || woke || status === 'input' ? FOREGROUND : status === 'failed' ? 'light-dark(#27272af2, #f3f3f3f2)' : 'light-dark(#27272ae6, #f3f3f3e6)'
-    : recede ? 'light-dark(#71717bb3, #818181b3)' : active || woke || status === 'input' ? FOREGROUND : unread ? SECONDARY : 'light-dark(#71717bb3, #818181b3)';
+    ? recede ? 'light-dark(#18181bbf, #f3f3f3bf)' : status === 'failed' && !unread && !woke ? 'light-dark(#18181bf2, #f3f3f3f2)' : FOREGROUND
+    : recede ? SECONDARY : active || woke || status === 'input' ? FOREGROUND : unread ? MUTED : 'light-dark(#71717bb3, #8f8f8fb3)';
 }
 
 /** Sidebar.tsx prBadge: the thread's links (resolveThreadPullRequestBadge), else, with no current link, the pull request
@@ -278,6 +283,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const card = section === 'active' || section === 'pinned' || section === 'working';
   const started = statusSince(thread, status);
   const scratch = str(thread.branch) ? null : scratchMachine(client, thread, extra.spans);
+  const prBadge = rowPrBadge(client, thread), remote = scratch ? null : remoteThread(client, thread);
   const searchPr = extra.searching ? searchPullRequest(client, thread, client.query) : null;
   const draftKey = `${client.environmentId}:${id}`;
   // A background environment's row draws its own server's project (its favicon is that server's).
@@ -290,12 +296,14 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName), providerIcon: providerIconUrl(instance, obj(environment.settings)),
     terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
-    ...rowPrBadge(client, thread), // resolveThreadPullRequestBadge (pr-surface.ts), else the branch's pull request
+    ...prBadge, // resolveThreadPullRequestBadge (pr-surface.ts), else the branch's pull request
     section, status: pill?.label ?? '', selected: active, routeThread, searchFirst: extra.searchFirst,
     ...searchMatch(thread, client.query, serverMatches(client).get(id)),
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
+    // metaLineEmpty: only the provider icon would remain, so a card drops its third line and the icon joins the title.
+    metaEmpty: !str(thread.branch) && !scratch && !prBadge.badge && !remote && terminalCount === 0,
     duration: started ? workingDuration(now - Date.parse(started)) : '',
-    workingSince: started ? Date.parse(started) : 0, remoteMachine: scratch ? '' : remoteThread(client, thread)?.machine ?? '',
+    workingSince: started ? Date.parse(started) : 0, remoteMachine: remote?.machine ?? '',
     scratchMachine: scratch?.machine ?? '', scratchLabel: scratch?.label ?? '',
     searchPr: searchPr?.text ?? '', searchPrIcon: searchPr?.icon ?? '', searchPrState: searchPr?.state ?? '', searchPrLabel: searchPr?.label ?? '',
     titleColor: titleInk(card, section, recede, unread, woke, status, active), titleWeight: recede ? 400 : 500, recede,

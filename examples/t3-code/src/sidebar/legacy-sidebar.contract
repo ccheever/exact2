@@ -70,7 +70,7 @@ component LegacyIcon
     color: string
   derive geometry = name == "chevron-right" ? "m9 18 6-6-6-6" : name == "archive" ? "M3 3h18a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4" : name == "arrow-up-down" ? "m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16" : name == "folder-plus" ? "M12 10v6M9 13h6M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" : name == "grip-vertical" ? "M8 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M8 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M8 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M14 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M14 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M14 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" : name == "git-pull-request" ? "M18 15a3 3 0 1 0 0 6a3 3 0 1 0 0-6M6 3a3 3 0 1 0 0 6a3 3 0 1 0 0-6M13 6h3a2 2 0 0 1 2 2v7M6 9v12" : name == "globe-2" ? "M21.54 15H17a2 2 0 0 0-2 2v4.54M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" : ""
   view
-    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       path d=geometry
 
 component LegacySidebar
@@ -123,7 +123,7 @@ component LegacySidebar
             Wordmark()
             text "Code" font-size="0.875rem" font-weight=500 letter-spacing=-0.35 color="#ffffffb3"
           else
-            LookWordmark(ink=(data.look.themed ? data.look.sidebarText : "light-dark(#27272a, #f1f3f7)"), muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"))
+            LookWordmark(ink=(data.look.themed ? data.look.sidebarText : "light-dark(#18181b, #f1f3f7)"), muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"))
         if data.look.pill != "" and width - 13 >= data.controlsLeft + 149.04
           LookPill(label=data.look.pill)
       // SidebarContent's fixed header: the command palette trigger.
@@ -152,37 +152,37 @@ component LegacySidebar
         row margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f5, #0a0a0a)" align-items="center" gap="0.1875rem" flex-shrink=0 role="status" testId="sidebar-undo-notice"
           text data.sidebar.undoText font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a3a3a3)"
           button cursor="pointer" press=run("undo", "", "") testId="sidebar-undo" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-            text data.sidebar.undoLabel font-size="0.6875rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f1f3f7)" white-space="nowrap"
+            text data.sidebar.undoLabel font-size="0.6875rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f1f3f7)" white-space="nowrap"
       if data.sidebar.pillKey != ""
         ProviderPill(tone=data.sidebar.pillTone, title=data.sidebar.pillTitle, description=data.sidebar.pillDescription, dismissible=data.sidebar.pillDismissible, open=openProviders(""), dismiss=local("pill-dismiss", "", data.sidebar.pillKey))
       row height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" align-items="center" gap="0.25rem" flex-shrink=0 role="list"
         if page == ""
           SidebarTip(tip="sidebar-settings", hoverCard=hoverCard)
             button cursor="pointer" press=openSettings testId="connection-settings" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-settings" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Settings" title=""
-              Icon(name="settings", size=16, color=(hoverId == "sidebar-settings" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
+              Icon(name="settings", size=16, color=(hoverId == "sidebar-settings" ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#86868e, #8b8b8b)"))
           if pullRequests
             SidebarTip(tip="sidebar-pull-requests", hoverCard=hoverCard)
               button cursor="pointer" press=navigate("pull-requests") testId="open-pull-requests" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-pull-requests" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Pull Requests" title=""
-                Icon(name="pull-requests", size=16, color=(hoverId == "sidebar-pull-requests" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
+                Icon(name="pull-requests", size=16, color=(hoverId == "sidebar-pull-requests" ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#86868e, #8b8b8b)"))
           SidebarTip(tip="sidebar-usage", hoverCard=hoverCard)
             button cursor="pointer" press=navigate("usage") testId="open-usage" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-usage" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Usage" title=""
-              Icon(name="usage", size=16, color=(hoverId == "sidebar-usage" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
+              Icon(name="usage", size=16, color=(hoverId == "sidebar-usage" ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#86868e, #8b8b8b)"))
         else
           button cursor="pointer" press=navigate("") testId="sidebar-back" flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" aria-label="Back"
-            PgIcon(name="arrow-left", size=16, color="light-dark(#a8a8ae, #545454)")
+            PgIcon(name="arrow-left", size=16, color="light-dark(#86868e, #8b8b8b)")
             text "Back" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#70707acc, #a2a2a2cc)"
         if data.updateEverything.running or data.updateEverything.available
           UpdateEverything(v=data.updateEverything, run=run)
         else
           row margin-left="auto" flex-shrink=0
             SidebarTip(tip="sidebar-update", hoverCard=hoverCard)
-              SidebarUpdatePill(color="light-dark(#a8a8ae, #545454)", testId="sidebar-check-updates")
+              SidebarUpdatePill(color="light-dark(#86868e, #8b8b8b)", testId="sidebar-check-updates")
 
 component LegacyKbd
   props
     label: string
   view
-    text label height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#27272a0d, #ffffff0d)" font-size="0.6875rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #818181)" flex-shrink=0
+    text label height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#18181b0d, #ffffff0d)" font-size="0.6875rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #818181)" flex-shrink=0
 
 // ProjectSortMenu: Sort projects, Sort threads (radio groups) and Visible threads (a 1-15 number field).
 component LegacyOptions
@@ -214,7 +214,7 @@ component LegacyOptions
           LegacyIcon(name="arrow-up-down", size=14, color="light-dark(#71717b, #818181)")
       // MenuPopup align="end" side="bottom" (LegacySidebar.tsx ProjectSortMenu): its right edge under the trigger's.
       row id="legacy-sidebar-options" focusout=left popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" testId="legacy-sidebar-options-layer"
-        column width="12rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Sidebar options" flex-shrink=0
+        column width="12rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Sidebar options" flex-shrink=0
           KeyMenu(menuId="legacy-sidebar-options-keys", items=items, keyed=0, gap="0px", modal=true)
             text "Sort projects" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
             LegacyRadio(keysId="legacy-sidebar-options-keys", label="Last user message", checked=(legacy.projectSort == "updated_at"), press=local("legacy-sort-projects", "", "updated_at"), testId="legacy-sort-projects-updated_at")
@@ -246,8 +246,8 @@ component LegacyRadio
     button id=testId cursor="pointer" press=press hover=hover focus=focused(true) blur=focused(false) role="menuitemradio" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" data-focus-stop="enabled"
       box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         if checked
-          box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#27272a, #f5f5f5)"
-      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" white-space="nowrap"
+          box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#18181b, #f5f5f5)"
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" flex=1 min-width=0 text-align="left" white-space="nowrap"
 
 // NumberField (w-28, sm): decrement, the value, increment; clamps to 1-15.
 component LegacyCount
@@ -277,7 +277,7 @@ component LegacyCount
     row margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" width="7rem" height="1.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" align-items="stretch" role="group" aria-label="Visible thread count"
       button cursor="pointer" id="legacy-preview-decrease" press=step("-1") tabindex=-1 disabled=(count <= 1) aria-label="Decrease visible thread count" testId="legacy-preview-decrease" width="1.75rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         SidebarIcon(name="minus", size=14, color="light-dark(#71717b, #818181)")
-      input id="legacy-preview-count" value=value input=edit change=commit submit=submitDraft inputmode="numeric" aria-label="Visible thread count" testId="legacy-preview-count" flex=1 min-width=0 padding=0 border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" data-editable="yes"
+      input id="legacy-preview-count" value=value input=edit change=commit submit=submitDraft inputmode="numeric" aria-label="Visible thread count" testId="legacy-preview-count" flex=1 min-width=0 padding=0 border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.8125rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" data-editable="yes"
       button cursor="pointer" id="legacy-preview-increase" press=step("1") tabindex=-1 disabled=(count >= 15) aria-label="Increase visible thread count" testId="legacy-preview-increase" width="1.75rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         SidebarIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
 
@@ -344,7 +344,7 @@ component LegacyProject
               LegacyIcon(name="chevron-right", size=14, color="light-dark(#71717bb3, #818181b3)")
           SidebarProjectGlyph(g=p.glyph, size=16, dim=false)
           row flex=1 min-width=0 gap="0.5rem" align-items="center"
-            text p.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272ae6, #f3f3f3e6)" line-clamp=1 min-width=0 text-align="left"
+            text p.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181be6, #f3f3f3e6)" line-clamp=1 min-width=0 text-align="left"
             if p.countLabel != ""
               text p.countLabel font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #818181)" flex-shrink=0 white-space="nowrap"
           box width="1rem" flex-shrink=0
@@ -368,10 +368,10 @@ component LegacyProject
               if p.hiddenLabel != ""
                 box width="0.875rem" height="0.875rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 role="img" aria-label=p.hiddenLabel
                   box width="0.5625rem" height="0.5625rem" border-radius="0.3125rem" background-color=p.hiddenDot animation=(p.hiddenPulse and not reduced ? "lsStatusPulse 2s infinite" : "none")
-              text "Show more" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f3f3f3)"
+              text "Show more" font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f3f3f3)"
           if p.showLess
             button cursor="pointer" press=local("legacy-less", p.key, "") testId=`legacy-show-less-${p.key}` height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-              text "Show less" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f3f3f3)"
+              text "Show less" font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f3f3f3)"
 
 // SidebarThreadRow: status, the pull request link, title (double-click renames), then the discovered
 // port, the worktree glyph, the terminal glyph and the meta slot (remote machine, the ⌘ jump label or the
@@ -517,7 +517,7 @@ component LegacyThread
                 text t.statusLabel font-size="0.625rem" line-height="0.875rem" color=t.statusColor white-space="nowrap"
             // The title's own tooltip (its full text), as the reference's TooltipTrigger around the title span.
             LegacyTitleTip(label=t.title, tipId=`legacy-tip-title-${t.id}`, relay=innerHover)
-              text t.title testId=`thread-title-${t.id}` flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=(isOpen ? 500 : 400) color=(highlighted or pointed ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#71717bcc, #818181cc)") line-clamp=1 text-align="left"
+              text t.title testId=`thread-title-${t.id}` flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=(isOpen ? 500 : 400) color=(highlighted or pointed ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#71717bcc, #818181cc)") line-clamp=1 text-align="left"
           row margin-left="auto" gap="0.375rem" align-items="center" flex-shrink=0
             // handleOpenDiscoveredPort: the first server a terminal of this thread listens on, in a Browser tab beside it.
             LegacyRowTip(label=t.portTip, side="top", align="center", tipId=`legacy-tip-port-${t.id}`, shown=(t.portLabel != ""), relay=innerHover)
@@ -538,9 +538,9 @@ component LegacyThread
                 box flex-shrink=0 display="flex" role="img" aria-label=t.remoteLabel testId=`thread-remote-${t.id}`
                   CnMachineIcon(kind=t.remoteMachine, size=12, color="light-dark(#71717b66, #81818166)")
               if threadJumpHints and t.jump != ""
-                text t.jump height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#ffffffe6, #0a0a0ae6)" font-family="ui-monospace, monospace" font-size="0.625rem" line-height="1.125rem" font-weight=500 color="light-dark(#27272a, #f3f3f3)" white-space="nowrap" aria-label=t.jump testId=`thread-jump-${t.id}`
+                text t.jump height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#ffffffe6, #0a0a0ae6)" font-family="ui-monospace, monospace" font-size="0.625rem" line-height="1.125rem" font-weight=500 color="light-dark(#18181b, #f3f3f3)" white-space="nowrap" aria-label=t.jump testId=`thread-jump-${t.id}`
               else
-                text t.age font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=(highlighted ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#71717b, #818181)") white-space="nowrap"
+                text t.age font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=(highlighted ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#71717b, #818181)") white-space="nowrap"
         if confirmShown
           DialogOpenFocus(target=`thread-archive-confirm-${t.id}`)
           button cursor="pointer" press=confirmArchive focus=within("confirm", true) blur=within("confirm", false) autofocus=true id=`thread-archive-confirm-${t.id}` aria-label=`Confirm archive ${t.title}` testId=`thread-archive-confirm-${t.id}` position="absolute" right="0.25rem" top="0.375rem" height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="light-dark(#e7000b1f, #ff646f2e)" display="flex" flex-direction="row" align-items="center"
@@ -582,7 +582,7 @@ component LegacyThreadMenu
                 button press=run("legacy-thread-choice", owner, e.id) popovertarget="legacy-thread-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`legacy-thread-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
                   if e.destructive
                     image "symbol:sf/trash" width=12 height=12 object-fit="contain"
-                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)")
 
 // handleProjectButtonContextMenu (LegacySidebar.tsx:1683-1788) as the project headers' one context popover: Rename,
 // Group into…, Copy Path, Project settings, Remove; with several members each targeted row is a submenu of the members
@@ -602,13 +602,13 @@ component LegacyProjectMenu
                 hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
               if e.sub
                 button popovertarget=`legacy-project-menu-sub-${e.id}` aria-haspopup="menu" role="menuitem" disabled=e.disabled testId=`legacy-project-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
-                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
                   text "›" aria-hidden=true font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
               else
                 button press=run("legacy-project-choice", owner, e.id) popovertarget="legacy-project-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`legacy-project-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
                   if e.destructive
                     image "symbol:sf/trash" width=12 height=12 object-fit="contain"
-                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)")
       for p in projects key=p.key
         if p.key == owner
           for s in p.menu.filter((e) => e.sub) key=s.id
@@ -619,7 +619,7 @@ component LegacyProjectMenu
                 button press=run("legacy-project-choice", owner, e.id) popovertarget="legacy-project-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`legacy-project-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
                   if e.destructive
                     image "symbol:sf/trash" width=12 height=12 object-fit="contain"
-                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+                  text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)")
 
 component LegacyRowTip
   inject
@@ -675,7 +675,7 @@ component LegacyRenameField
     releaseUndoClaim() // a field's edit hands ⌘Z back to the fields (ThreadUndoShortcut's input listener)
   view
     FieldOpenSelect(target=`rename-${t.id}`, length=t.title.length)
-    input id=`rename-${t.id}` value=title input=edit submit=run("legacy-rename", t.id, title) blur=run("legacy-rename", t.id, title) focus=within("rename", true) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f3f3f3)" autocorrect="off" data-editable="yes"
+    input id=`rename-${t.id}` value=title input=edit submit=run("legacy-rename", t.id, title) blur=run("legacy-rename", t.id, title) focus=within("rename", true) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f3f3f3)" autocorrect="off" data-editable="yes"
 
 // The legacy sidebar's dialogs, mounted with the window's overlays (sidebar-overlays.contract):
 // Rename project, Project grouping, the project removal confirm and "Archive N threads?".
@@ -722,13 +722,13 @@ component LegacyDialogFrame
         FocusGuard(guardId="legacy-dialog-guard-start", targets=dialogTargets, popup=label)
         DialogOpenFocus(target=first)
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
-          text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
           text description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
           column gap="0.75rem" padding-top="0.5rem"
             children
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
           button id=`${label}-cancel` cursor="pointer" press=cancel disabled=busy aria-keyshortcuts="Escape" testId=`${label}-cancel` display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" data-focus-stop=(busy ? "" : "enabled")
-            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
           button id=`${label}-save` cursor="pointer" press=save disabled=busy testId=`${label}-save` display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)" data-focus-stop=(busy ? "" : "enabled")
             text "Save" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         // DialogPopup's X (LegacySidebar's dialogs keep showCloseButton), its last child.
@@ -753,8 +753,8 @@ component LegacyRenameProject
   view
     LegacyDialogFrame(title=legacy.dialogTitle, description=legacy.dialogDescription, label="legacy-rename-project", first="legacy-project-title", busy=busy, cancel=local("legacy-dialog-close", "", ""), save=save)
       column gap="0.375rem"
-        text "Project title" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-        input id="legacy-project-title" value=title input=edit submit=save autofocus=true aria-label="Project title" testId="legacy-project-title" height="2rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.3125rem" padding-bottom="0.3125rem" line-height="1.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" data-focus-stop="enabled" data-editable="yes"
+        text "Project title" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+        input id="legacy-project-title" value=title input=edit submit=save autofocus=true aria-label="Project title" testId="legacy-project-title" height="2rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.3125rem" padding-bottom="0.3125rem" line-height="1.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" data-focus-stop="enabled" data-editable="yes"
       if legacy.dialogDetail != ""
         text legacy.dialogDetail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
@@ -768,7 +768,7 @@ component LegacyGroupingDialog
     // Base UI's Dialog opens on its popup's first Tab stop, the grouping rule's SelectTrigger (LegacySidebar.tsx:2594).
     LegacyDialogFrame(title=legacy.dialogTitle, description=legacy.dialogDescription, label="legacy-grouping", first="legacy-grouping-rule", busy=busy, cancel=local("legacy-dialog-close", "", ""), save=run("legacy-grouping-save", "", ""))
       column gap="0.375rem"
-        text "Grouping rule" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        text "Grouping rule" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
         select id="legacy-grouping-rule" value=legacy.dialogGrouping change=local("legacy-dialog-grouping", "") aria-label="Project grouping rule" testId="legacy-grouping-rule" height="2rem" box-sizing="border-box" font-size="0.875rem" data-focus-stop="enabled" data-editable="yes"
           option "Use global default" value="inherit"
           option "Group by repository" value="repository"
