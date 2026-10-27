@@ -106,6 +106,7 @@ shape Thread
   matchUser: bool
   matchParts: SearchPart[]
   card: bool
+  metaEmpty: bool // a card with no branch, machine, pull request, remote glyph or terminal: two lines, its provider beside the title
   statusIcon: string
   statusColor: string
   duration: string

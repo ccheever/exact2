@@ -114,14 +114,14 @@ describe('sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/t
   });
 
   test('pills carry the reference labels, icons and hues', () => {
-    expect(topStatus('working', false, false)).toEqual({ label: 'Working', icon: 'circle-dashed', color: '#2b7fff' });
+    expect(topStatus('working', false, false)).toEqual({ label: 'Working', icon: 'circle-dashed', color: 'light-dark(#1447e6, #51a2ff)' });
     expect(topStatus('waiting', false, false)?.label).toBe('Waiting');
     expect(topStatus('approval', false, false)).toMatchObject({ label: 'Approval', icon: 'shield-question' });
     expect(topStatus('input', false, false)).toMatchObject({ label: 'Input', icon: 'message-circle-question', color: 'light-dark(#4f39f6, #a3b3ff)' });
-    expect(topStatus('limited', false, false)).toMatchObject({ label: 'Limited', color: '#fe9a00' });
+    expect(topStatus('limited', false, false)).toMatchObject({ label: 'Limited', color: 'light-dark(#bb4d00, #ffb900)' });
     expect(topStatus('failed', false, false)).toMatchObject({ label: 'Failed', icon: 'circle-alert' });
     expect(topStatus('ready', true, true)).toMatchObject({ label: 'Woke', icon: 'alarm-clock' });
-    expect(topStatus('ready', false, true)).toMatchObject({ label: 'Done', icon: 'circle-check', color: '#00bc7d' });
+    expect(topStatus('ready', false, true)).toMatchObject({ label: 'Done', icon: 'circle-check', color: 'light-dark(#007a55, #00d492)' });
     expect(topStatus('ready', false, false)).toBeNull();
   });
 
@@ -366,7 +366,7 @@ describe('sidebar projection (sidebar-view.ts)', () => {
     client.local.drafts['env:d'] = 'unsent';
     const rows = sidebarSnapshot(client, NOW, helpers).threads;
     expect(rows.find(row => row.id === 'w')).toMatchObject({ woke: true, status: 'Woke' });
-    expect(rows.find(row => row.id === 'd')).toMatchObject({ status: 'Done', draft: true, titleColor: 'light-dark(#27272a, #f3f3f3)', titleWeight: 500 });
+    expect(rows.find(row => row.id === 'd')).toMatchObject({ status: 'Done', draft: true, titleColor: 'light-dark(#18181b, #f3f3f3)', titleWeight: 500 });
   });
 });
 

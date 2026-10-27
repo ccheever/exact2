@@ -55,7 +55,7 @@ describe('f68e24fb41: commands left running do not hold the thread', () => {
     expect(isWorkingThread(devServer)).toBe(false);
     const visited = lastVisited(devServer, iso(-120_000));
     expect(unseenCompletion(devServer, visited)).toBe(true);
-    expect(topStatus(sidebarStatus(devServer), false, true)).toMatchObject({ label: 'Done', icon: 'circle-check', color: '#00bc7d' });
+    expect(topStatus(sidebarStatus(devServer), false, true)).toMatchObject({ label: 'Done', icon: 'circle-check', color: 'light-dark(#007a55, #00d492)' });
     for (const kind of ['subagent', 'monitor', 'background_task', 'something-new']) {
       const held = shell('b', { ...base, pendingBackgroundTasks: [{ id: 't', kind: 'command' }, { id: 'u', kind }] });
       expect(sidebarStatus(held)).toBe('waiting');
@@ -139,12 +139,12 @@ describe('integration: hover keys, utility pages and the settled tail', () => {
     expect(sidebarSnapshot(client, NOW, helpers).threads.map(row => row.hoverKey)).toEqual(['a', 'b']);
   });
 
-  test('the open settled row keeps secondary/70 ink at rest; idle styling paints the open row as any other', () => {
+  test('the open settled row keeps full ink (the settled recession skips the open row); idle styling paints the open row as any other', () => {
     const { client } = fake([shell('a', { latestRunId: 'r', status: 'completed', latestRunCompletedAt: iso(-60_000) }), shell('b', { settledOverride: 'settled' })], { threadId: 'b' });
     const [active, settled] = sidebarSnapshot(client, NOW, helpers).threads;
-    expect(settled).toMatchObject({ selected: true, section: 'settled', titleColor: 'light-dark(#71717bb3, #818181b3)', titleWeight: 500 });
+    expect(settled).toMatchObject({ selected: true, section: 'settled', titleColor: 'light-dark(#18181b, #f3f3f3)', titleWeight: 500 });
     const open = sidebarSnapshot(fake([shell('a', { latestRunId: 'r', status: 'completed', latestRunCompletedAt: iso(-60_000) })], { threadId: 'a' }).client, NOW, helpers).threads[0]!;
-    expect(open).toMatchObject({ selected: true, recede: false, titleWeight: 500, idleRecede: true, idleTitleColor: 'light-dark(#71717b, #818181)', idleTitleWeight: 400 });
+    expect(open).toMatchObject({ selected: true, recede: false, titleWeight: 500, idleRecede: true, idleTitleColor: 'light-dark(#18181bbf, #f3f3f3bf)', idleTitleWeight: 400 });
     expect(active!.recede).toBe(active!.idleRecede);
   });
 });

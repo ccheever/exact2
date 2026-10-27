@@ -290,14 +290,15 @@ export function statusSince(thread: Obj, status: SidebarStatus): string | null {
 export interface TopStatus { label: string; icon: string; color: string }
 /** Sidebar.tsx topStatus: the pill that replaces the age at the card's top right. */
 export function topStatus(status: SidebarStatus, woke: boolean, unread: boolean, goalActive = false): TopStatus | null {
-  if (status === 'working') return { label: goalActive ? 'Goal' : 'Working', icon: 'circle-dashed', color: '#2b7fff' };
-  if (status === 'waiting') return { label: 'Waiting', icon: 'circle-dot-dashed', color: 'light-dark(#71717b, #818181)' };
+  // The status tones are the -foreground tokens (blue-, amber-, red-, emerald-700 in light; -400 in dark).
+  if (status === 'working') return { label: goalActive ? 'Goal' : 'Working', icon: 'circle-dashed', color: 'light-dark(#1447e6, #51a2ff)' };
+  if (status === 'waiting') return { label: 'Waiting', icon: 'circle-dot-dashed', color: 'light-dark(#71717b, #a3a3a3)' };
   if (status === 'approval') return { label: 'Approval', icon: 'shield-question', color: 'light-dark(#bb4d00, #ffb900)' };
   if (status === 'input') return { label: 'Input', icon: 'message-circle-question', color: 'light-dark(#4f39f6, #a3b3ff)' };
-  if (status === 'limited') return { label: 'Limited', icon: 'circle-alert', color: '#fe9a00' };
-  if (status === 'failed') return { label: 'Failed', icon: 'circle-alert', color: 'light-dark(#fb2c36, #fb414a)' };
-  if (woke) return { label: 'Woke', icon: 'alarm-clock', color: '#fe9a00' };
-  if (unread) return { label: 'Done', icon: 'circle-check', color: '#00bc7d' };
+  if (status === 'limited') return { label: 'Limited', icon: 'circle-alert', color: 'light-dark(#bb4d00, #ffb900)' };
+  if (status === 'failed') return { label: 'Failed', icon: 'circle-alert', color: 'light-dark(#c10007, #ff6467)' };
+  if (woke) return { label: 'Woke', icon: 'alarm-clock', color: 'light-dark(#bb4d00, #ffb900)' };
+  if (unread) return { label: 'Done', icon: 'circle-check', color: 'light-dark(#007a55, #00d492)' };
   return null;
 }
 
