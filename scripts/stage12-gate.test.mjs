@@ -6,7 +6,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ADOPTED, BEFORE_USES, RENDERED, RETIRED, STAGES, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
+import { ADOPTED, APP_PLACED, BEFORE_USES, RENDERED, RETIRED, STAGES, appPlaced, declares, useStage, allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE, readExact, mutationFails, MUTATION, drivePlan, s13cPlan, renderedComponents } from './stage12-gate.mjs';
 import { READS, apart, caseReads, cases as exactCases, inspectDrive, locate, matches, newTokens, packageParams, readsOf, same } from './s13c-restyle.mjs';
 
 test('the command line', () => {
@@ -47,12 +47,14 @@ test('a stage\'s profile: stage 12 the default, s13c its own tag, adoption, scre
     expect(BEFORE_USES).toEqual(ADOPTED);
     expect(RETIRED).toContain('component Avatar');
     expect(RETIRED).toContain('style ChatHeaderButton');
+    expect(APP_PLACED.map(i => i.split('#')[1])).toEqual(['Avatar', 'VerifiedBadge']);
     expect(SCREENS.map(([n]) => n).slice(-2)).toEqual(['chat', 'notifications']);
     expect(SCREENS.find(([n]) => n === 'chat')[1]).toContain('tap bottomBarMessagesBtn');
   } finally {
     useStage('s12');
   }
   expect(RETIRED).toEqual([]);
+  expect(APP_PLACED).toEqual([]);
   // Stage 12's run is the defaults, unchanged.
   expect(BASELINE_TAG).toBe('s12e-baseline');
   expect(ADOPTED.length).toBe(4);
@@ -474,3 +476,31 @@ test('an --only run leaves the gate record untouched', () => {
   rmSync(said, { force: true });
   rmSync(home, { recursive: true, force: true });
 }, 900_000);
+
+test('stage 15 B\'s adoption proof: the copy\'s own files place an export, and its own declarations go', () => {
+  // A node the copy's own file instantiates counts; one a package's component places inside itself doesn't.
+  const map = {
+    sources: [{ file: '/c/post.contract', home: 'post.contract' }, { file: '/p/post-card.contract', home: '@exact/cards/post-card.contract' }],
+    nodes: [
+      { library: '@exact/cards/common.contract#Avatar', chain: [{ file: '/p/post-card.contract' }, { file: '/c/post.contract' }] },
+      { library: '@exact/cards/common.contract#VerifiedBadge', chain: [{ file: '/c/post.contract' }] },
+      { component: 'Row', chain: [{ file: '/c/post.contract' }] },
+    ],
+  };
+  expect(appPlaced(map)).toEqual(['@exact/cards/common.contract#VerifiedBadge']);
+  // A declaration's start: a trailing comment still declares it; a longer name doesn't; git's own failure is an error.
+  const dir = mkdtempSync(join(tmpdir(), 'retired-'));
+  try {
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('init', '-q');
+    writeFileSync(join(dir, 'a.contract'), 'component Avatar // the old one\n  props\ncomponent AvatarRow\nstyle HeaderSlot\n');
+    git('add', 'a.contract');
+    expect(declares(dir, 'component Avatar')).toEqual({ hit: true });
+    expect(declares(dir, 'style HeaderSlot')).toEqual({ hit: true });
+    expect(declares(dir, 'component AvatarRo')).toEqual({ hit: false });
+    expect(declares(dir, 'component NavRow')).toEqual({ hit: false });
+    expect(declares(join(dir, 'missing'), 'component Avatar').error).toMatch(/git grep/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

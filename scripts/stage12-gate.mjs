@@ -306,8 +306,27 @@ function edgeAt(img, x, y, edge) {
 
 /** The tag the baseline was taken at, in the copy. */
 export let BASELINE_TAG = 's12e-baseline';
-/** The copy's own duplicates a stage retires (stage 15 B), each a whole source line: before defines each, after none. */
+/** The copy's own duplicates a stage retires (stage 15 B), each a declaration's start: before declares each, after none. */
 export const RETIRED = [];
+/** The exports a stage's adoption instantiates from the copy's own files (stage 15 B's Avatar and VerifiedBadge, which
+ * the packages placed inside PostCard and ProfileHeader already): after's files place each, before's none. */
+export const APP_PLACED = [];
+
+/** The library components a source map's view nodes instantiate from a file no package's: the innermost call site
+ * (`chain[0]`, the instantiation's span) in the copy's own sources, not inside another package component. */
+export function appPlaced(map) {
+  const home = new Map((map.sources ?? []).map(s => [s.file, s.home ?? '']));
+  return [...new Set((map.nodes ?? []).filter(n => n.library && n.chain?.[0] && !(home.get(n.chain[0].file) ?? '').startsWith('@')).map(n => n.library))];
+}
+
+/** Whether the copy's tracked contracts declare `line` (a declaration's start, so a trailing comment still counts);
+ * an error when git grep fails rather than answering. */
+export function declares(copy, line) {
+  const pattern = `^${line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9_]|$)`;
+  const r = spawnSync('git', ['grep', '-q', '-E', '-e', pattern, '--', '*.contract'], { cwd: copy, encoding: 'utf8' });
+  if (r.status === 0 || r.status === 1) return { hit: r.status === 0 };
+  return { error: `git grep in ${copy} exited ${r.status}: ${(r.stderr ?? '').trim().split('\n').at(-1)}` };
+}
 
 /** The files `before` differs from the baseline's tag by: only the lock a
  * newer SDK needs (`exact.mjs lock`) may differ. */
@@ -470,11 +489,16 @@ export function consumerPixels(opts) {
   const early = uses.before.filter(id => !BEFORE_USES.includes(id) && !/\/common\.contract#/.test(id));
   if (early.length) return fail(`--before already uses library components (${early.join(', ')}): not the baseline`);
   // A component the packages already placed inside another (stage 15 B's Avatar and VerifiedBadge, inside PostCard)
-  // is no proof of the adoption: the copy's own copies going is.
-  const defines = (copy, line) => run('git', ['grep', '-q', '-x', '-F', '-e', line, '--', '*.contract'], { cwd: copy }).ok;
-  const kept = RETIRED.filter(line => defines(opts.copy, line)), unborn = RETIRED.filter(line => !defines(opts.before, line));
-  if (kept.length) return fail(`--copy still defines ${kept.join(', ')}: not the adoption`);
-  if (unborn.length) return fail(`--before never defined ${unborn.join(', ')}: not the baseline`);
+  // is no proof of the adoption: the copy's own files instantiating it is, and its own copies going.
+  const maps = Object.fromEntries(['before', 'after'].map(side => [side, JSON.parse(readFileSync(join(ROOT, 'target', 'stage12-gate', `${side}-map`, 'app.plan.map.json'), 'utf8'))]));
+  const unplaced = APP_PLACED.filter(id => !appPlaced(maps.after).includes(id)), placedBefore = APP_PLACED.filter(id => appPlaced(maps.before).includes(id));
+  if (unplaced.length) return fail(`--copy's own files don't place ${unplaced.join(', ')}: not the adoption`);
+  if (placedBefore.length) return fail(`--before's own files place ${placedBefore.join(', ')} already: not the baseline`);
+  const said = RETIRED.flatMap(line => [['after', opts.copy], ['before', opts.before]].map(([side, copy]) => ({ line, side, ...declares(copy, line) })));
+  const broken = said.filter(x => x.error), kept = said.filter(x => x.side === 'after' && x.hit), unborn = said.filter(x => x.side === 'before' && x.hit === false);
+  if (broken.length) return fail(broken.map(x => x.error).join('; '));
+  if (kept.length) return fail(`--copy still declares ${kept.map(x => x.line).join(', ')}: not the adoption`);
+  if (unborn.length) return fail(`--before never declared ${unborn.map(x => x.line).join(', ')}: not the baseline`);
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
   // failure the baseline doesn't have.
@@ -1318,6 +1342,7 @@ export const STAGES = {
     // and ProfileHeader), so `retired` proves the adoption: the copy's own copies, header styles and settings wrappers go.
     adopted: [...S13C_ADOPTED, ...S15B_EXPORTS],
     before: [...S13C_ADOPTED, ...S15B_EXPORTS],
+    appPlaced: [...S15B_EXPORTS],
     retired: ['component Avatar', 'component VerifiedBadge', 'style ChatHeaderButton', 'style HeaderSlot',
       'component NavRow', 'component ActRow', 'component ValueRow', 'component SwitchRow', 'component CheckRow'],
     screens: [
@@ -1329,6 +1354,8 @@ export const STAGES = {
     rendered: [...S13C_RENDERED],
     restyle: [...RESTYLE],
     exact: true,
+    // The package side as it landed on main (the copy's adoption is the copy's, not main's).
+    release: { label: 'stage 15 B batch 1', runs: [['17c3169cef', '44e0294c88']] },
     titles: {
       'consumer-pixels': 'The clone\'s avatars and verification badges come from @exact/cards (Avatar, VerifiedBadge), its chat header buttons from @exact/actions HeaderButton and its settings rows from @exact/lists directly, the duplicates gone, with no visual change (conform clean; zero differing pixels outside the allowlist, web, iOS, macOS, Linux, light and dark)',
     },
@@ -1342,7 +1369,7 @@ export function useStage(stage) {
   EXACT = !!p.exact;
   RELEASE = p.release ?? null;
   TITLES = p.titles ?? {};
-  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle], [RETIRED, p.retired ?? []]]) list.splice(0, list.length, ...items);
+  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle], [RETIRED, p.retired ?? []], [APP_PLACED, p.appPlaced ?? []]]) list.splice(0, list.length, ...items);
   return p;
 }
 
