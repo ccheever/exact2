@@ -249,6 +249,7 @@ final class CanvasesHost {
     /// unplaced HUD children keep their ordinary overlay. Hit-testing follows
     /// the placements the surface reports after each frame.
     private func captureEach(_ m: GpuModule, _ e: Entry, overlay: NSView, scale: CGFloat) -> Bool {
+        Capture.prepareBackingLayers(of: overlay)
         let children = overlay.subviews.compactMap { $0 as? NodeView }
         var uploaded = 0
         let t0 = CACurrentMediaTime()
@@ -261,7 +262,7 @@ final class CanvasesHost {
             let hidden = child.hiddenByHost
             if child.placementHidden { child.isHidden = false }
             defer { child.isHidden = hidden }
-            guard let rep = Capture.bitmap(of: child, scale: scale), let data = rep.bitmapData else { continue }
+            guard let rep = Capture.bitmap(of: child, scale: scale, prepared: true), let data = rep.bitmapData else { continue }
             guard live(e.view.id) === e else { return false }
             let f = child.frame
             let r = m.child(e.id, UInt32(i), child.props["testId"] ?? "", Float(f.origin.x), Float(f.origin.y), Float(f.width), Float(f.height), UInt32(rep.pixelsWide), UInt32(rep.pixelsHigh), UnsafePointer(data), rep.pixelsHigh * rep.bytesPerRow)

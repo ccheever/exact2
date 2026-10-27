@@ -10,12 +10,11 @@ import UIKit
 #endif
 
 extension Capture {
-    static func paintOrderLayer(of view: PaintView, root: CALayer) -> CALayer {
+    /// `branchProbe` counts membership lookups so tests can bound work without timing.
+    static func paintOrderLayer(of view: PaintView, root: CALayer, branchProbe: (() -> Void)? = nil) -> CALayer {
         var owners: [ObjectIdentifier: PaintView] = [:]
         func index(_ v: PaintView) {
             #if os(macOS)
-            // Newly mounted controls may not have inherited backing yet.
-            if v.layer == nil { v.wantsLayer = true }
             if let layer = v.layer { owners[ObjectIdentifier(layer)] = v }
             #else
             owners[ObjectIdentifier(v.layer)] = v
@@ -27,6 +26,7 @@ extension Capture {
         // Route each view branch through its live intermediate layers, once.
         // They carry geometry and clipping even though no view owns them.
         var branches: [ObjectIdentifier: [CALayer]] = [:]
+        var seen: [ObjectIdentifier: Set<ObjectIdentifier>] = [:]
         for owner in owners.values {
             guard let parent = owner.layer else { continue }
             for child in NodeView.hitOrder(owner.subviews).reversed().compactMap(\.layer) {
@@ -36,7 +36,8 @@ extension Capture {
                 var container = parent
                 for branch in path.reversed() {
                     let key = ObjectIdentifier(container)
-                    if branches[key]?.contains(where: { $0 === branch }) != true {
+                    branchProbe?()
+                    if seen[key, default: []].insert(ObjectIdentifier(branch)).inserted {
                         branches[key, default: []].append(branch)
                     }
                     container = branch
@@ -87,12 +88,13 @@ extension Capture {
             layer.bounds = values.bounds; layer.position = values.position
             layer.anchorPoint = values.anchorPoint; layer.anchorPointZ = values.anchorPointZ
             layer.transform = values.transform; layer.sublayerTransform = values.sublayerTransform
-            let flipped = source.contentsAreFlipped()
             #if os(macOS)
-            // AppKit can leave a newly mounted view's layer detached until
-            // display. Its contents must keep their live flip in the copy.
+            let flipped = source.contentsAreFlipped()
+            // Contents inherit their orientation through the live ancestors;
+            // the copied branch must preserve it in its new ancestry.
             layer.isGeometryFlipped = flipped != inheritedFlip
             #else
+            let flipped = false
             layer.isGeometryFlipped = values.isGeometryFlipped
             #endif
             layer.opacity = values.opacity; layer.isHidden = values.isHidden
@@ -132,7 +134,11 @@ extension Capture {
             }.map(\.element)
             #endif
             let childSet = Set(children.map(ObjectIdentifier.init))
-            let replacements = Set((owner?.subviews ?? []).compactMap { ($0 as? NodeView)?.boxFilter?.picture }.map(ObjectIdentifier.init))
+            let replacements = Set(children.compactMap { child -> ObjectIdentifier? in
+                guard let node = owners[ObjectIdentifier(child)] as? NodeView,
+                      let picture = node.boxFilter?.picture, picture.superlayer === source else { return nil }
+                return ObjectIdentifier(picture)
+            })
             // Own contents and decorations first: shadow casters, fills,
             // text rasters, Canvas 2D pictures. Each view branch is below.
             let own = (source.sublayers ?? []).filter { !childSet.contains(ObjectIdentifier($0)) && !replacements.contains(ObjectIdentifier($0)) }

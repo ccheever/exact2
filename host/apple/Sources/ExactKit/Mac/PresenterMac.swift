@@ -1437,7 +1437,8 @@ package enum Capture {
 
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
-    package static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
+    package static func bitmap(of view: NSView, scale: CGFloat, prepared: Bool = false) -> NSBitmapImageRep? {
+        if !prepared { prepareBackingLayers(of: view) }
         // A subtree painted through its canvas composites at alpha 0; paint
         // it opaque into the bitmap regardless.
         let alpha = view.alphaValue
@@ -1454,7 +1455,7 @@ package enum Capture {
             }
         }
         hide(view)
-        let rep = paintOrderBitmap(of: view, scale: scale)
+        let rep = paintOrderBitmap(of: view, scale: scale, prepared: true)
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep

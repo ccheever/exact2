@@ -4,14 +4,24 @@
 import AppKit
 
 extension Capture {
-    static func paintOrderBitmap(of view: NSView, scale: CGFloat? = nil) -> NSBitmapImageRep? {
-        // A canvas overlay can be captured before AppKit has installed its
-        // inherited backing layer (its window need not have displayed yet).
-        view.wantsLayer = true
+    /// AppKit attaches new backing layers at the window display boundary.
+    /// Do this once per upload, before Capture.bitmap changes visibility.
+    package static func prepareBackingLayers(of view: NSView) {
         view.layoutSubtreeIfNeeded()
-        // A view's display does not attach newly mounted backing layers.
-        // Finish the window's layer geometry before copying their contents.
-        view.window?.displayIfNeeded()
+        if view.layer == nil, (view as? NSTextView)?.isFieldEditor != true { view.wantsLayer = true }
+        func unattached(_ v: NSView) -> Bool {
+            // The installed editor inherits backing from its field. Opting it
+            // into backing explicitly can interrupt AppKit's editing session.
+            if (v as? NSTextView)?.isFieldEditor == true { return false }
+            guard let layer = v.layer else { return true }
+            if v.superview != nil, layer.superlayer == nil { return true }
+            return v.subviews.contains(where: unattached)
+        }
+        if unattached(view) { view.window?.displayIfNeeded() }
+    }
+
+    static func paintOrderBitmap(of view: NSView, scale: CGFloat? = nil, prepared: Bool = false) -> NSBitmapImageRep? {
+        if !prepared { prepareBackingLayers(of: view) }
         view.displayIfNeeded()
         let scale = scale ?? view.window?.backingScaleFactor ?? 2
         guard let root = view.layer else { return nil }

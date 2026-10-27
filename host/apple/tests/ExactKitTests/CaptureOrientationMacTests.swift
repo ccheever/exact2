@@ -14,6 +14,35 @@ private final class OrientationContainer: OrientationView {
     override func updateLayer() {}
 }
 
+final class CaptureDisplayWindow: NSWindow {
+    var displays = 0
+    var displayTime = 0.0
+    var duringDisplay: (() -> Void)?
+    override func displayIfNeeded() {
+        displays += 1
+        duringDisplay?()
+        let start = CACurrentMediaTime()
+        super.displayIfNeeded()
+        displayTime += CACurrentMediaTime() - start
+    }
+}
+
+private final class CaptureFieldEditor: NSTextView {
+    var backingWrites = 0
+    override var wantsLayer: Bool {
+        get { super.wantsLayer }
+        set { backingWrites += 1; super.wantsLayer = newValue }
+    }
+}
+
+private final class CaptureEditingWindow: NSWindow {
+    let editor = CaptureFieldEditor()
+    override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+        editor.isFieldEditor = true
+        return editor
+    }
+}
+
 private final class OrientationInk: OrientationView {
     var draws = 0
     var drawnCTM = CGAffineTransform.identity
@@ -40,7 +69,78 @@ private final class OrientationUpdate: OrientationView {
 // Copies keep each backing store's live flip, including a subtree whose
 // ancestors are outside the capture and a newly mounted, detached layer.
 final class CaptureOrientationMacTests: XCTestCase {
-    func testNewRowsInHiddenOverlay() throws {
+    func testCaptureDoesNotBackTheInstalledFieldEditor() throws {
+        _ = NSApplication.shared
+        let root = OrientationView(frame: NSRect(x: 0, y: 0, width: 480, height: 112))
+        root.wantsLayer = true
+        let window = CaptureEditingWindow(contentRect: root.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = root
+        window.appearance = NSAppearance(named: .aqua)
+        defer { window.close() }
+        window.makeKeyAndOrderFront(nil); window.displayIfNeeded()
+        let field = NSTextField(frame: NSRect(x: 10, y: 10, width: 200, height: 40))
+        field.isBezeled = false; field.drawsBackground = false
+        field.font = .systemFont(ofSize: 20); field.textColor = .black
+        field.stringValue = "Palo Fg"
+        root.addSubview(field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        let selection = NSRange(location: 1, length: 3)
+        editor.selectedRange = selection
+        XCTAssertTrue(editor.isFieldEditor)
+        XCTAssertNil(editor.layer, "capture starts before the editor inherits backing")
+        window.editor.backingWrites = 0
+        _ = Capture.paintOrderLayer(of: root, root: try XCTUnwrap(root.layer))
+        XCTAssertEqual(window.editor.backingWrites, 0, "copying must not change the installed editor's backing policy")
+        let rep = try XCTUnwrap(Capture.bitmap(of: root, scale: 1))
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertTrue(field.currentEditor() === editor)
+        XCTAssertEqual(editor.selectedRange, selection)
+        let rect = root.convert(editor.bounds, from: editor)
+        XCTAssertGreaterThan(glyphs(rep, in: rect).ink, 20, "editing text is still drawn")
+    }
+
+    func testWarmCaptureDoesNotDisplayTheWindow() throws {
+        _ = NSApplication.shared
+        let root = OrientationView(frame: NSRect(x: 0, y: 0, width: 600, height: 560))
+        root.wantsLayer = true
+        let window = CaptureDisplayWindow(contentRect: root.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = root
+        defer { window.close() }
+        for i in 0..<50 {
+            root.addSubview(OrientationInk(frame: NSRect(x: (i % 5) * 120, y: (i / 5) * 56, width: 120, height: 56)))
+        }
+        let field = NSTextField(frame: NSRect(x: 25, y: 25, width: 90, height: 24))
+        field.stringValue = "Palo Fg"
+        root.subviews[0].addSubview(field)
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        editor.selectedRange = NSRange(location: 2, length: 2)
+        window.displayIfNeeded(); CATransaction.flush()
+        for each in [false, true] {
+            var times: [Double] = []
+            root.alphaValue = each ? 1 : 0
+            window.displays = 0; window.displayTime = 0
+            for _ in 0..<30 {
+                let start = CACurrentMediaTime()
+                if each {
+                    for child in root.subviews { _ = try XCTUnwrap(Capture.bitmap(of: child, scale: 1)) }
+                } else { _ = try XCTUnwrap(Capture.bitmap(of: root, scale: 1)) }
+                times.append((CACurrentMediaTime() - start) * 1000)
+            }
+            times.sort()
+            print("CAPTURE 50 children each=\(each) median_ms=\(times[15]) p95_ms=\(times[28]) window_displays_per_frame=\(Double(window.displays) / 30) window_display_ms=\(window.displayTime * 1000 / 30)")
+            XCTAssertTrue(window.firstResponder === editor)
+            XCTAssertEqual(editor.selectedRange, NSRange(location: 2, length: 2))
+            XCTAssertEqual(window.displays, 0, "an attached subtree needs no window display")
+        }
+    }
+
+    func testNewRowsInHiddenOverlay() throws { try newRows(firstChild: false) }
+    func testNewRowsFirstCapturedPerChild() throws { try newRows(firstChild: true) }
+
+    private func newRows(firstChild: Bool) throws {
         _ = NSApplication.shared
         let shell = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 112))
         shell.wantsLayer = true
@@ -50,7 +150,7 @@ final class CaptureOrientationMacTests: XCTestCase {
         scroll.documentView = document; root.addSubview(scroll)
         let header = OrientationInk(frame: NSRect(x: 0, y: 0, width: 120, height: 56))
         document.addSubview(header)
-        let window = NSWindow(contentRect: shell.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = CaptureDisplayWindow(contentRect: shell.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = shell
         defer { window.close() }
         window.orderFront(nil); shell.displayIfNeeded(); CATransaction.flush()
@@ -65,13 +165,16 @@ final class CaptureOrientationMacTests: XCTestCase {
         let field = NSTextField(frame: NSRect(x: 0, y: 56, width: 120, height: 40))
         field.isBezeled = false; field.isBordered = false; field.drawsBackground = false
         field.placeholderAttributedString = NSAttributedString(string: "Search", attributes: [.foregroundColor: NSColor.black])
-        document.addSubview(field)
+        card.addSubview(field)
         document.addSubview(card)
         // The views are mounted, but AppKit has not joined their layers yet.
         XCTAssertNil(card.layer?.superlayer); XCTAssertNil(row.layer?.superlayer)
         XCTAssertNil(field.layer)
+        window.displays = 0
+        window.duringDisplay = { XCTAssertEqual(root.alphaValue, 0, "attach layers before exposing the overlay") }
+        let childFirst = firstChild ? try XCTUnwrap(Capture.bitmap(of: card, scale: 1)) : nil
         let rep = try XCTUnwrap(Capture.bitmap(of: root, scale: 1))
-        let child = try XCTUnwrap(Capture.bitmap(of: card, scale: 1))
+        let child = try childFirst ?? XCTUnwrap(Capture.bitmap(of: card, scale: 1))
         for (picture, x) in [(rep, 4), (rep, 124), (child, 4)] {
             let top = try XCTUnwrap(picture.colorAt(x: x, y: 4)), bottom = try XCTUnwrap(picture.colorAt(x: x, y: 52))
             XCTAssertGreaterThan(top.alphaComponent, 0.9)
@@ -79,9 +182,17 @@ final class CaptureOrientationMacTests: XCTestCase {
             XCTAssertGreaterThan(bottom.alphaComponent, 0.9)
             XCTAssertGreaterThan(bottom.blueComponent, 0.9); XCTAssertLessThan(bottom.redComponent, 0.1)
         }
-        let ink = (60..<96).flatMap { y in (4..<116).compactMap { x in rep.colorAt(x: x, y: y) } }
-            .filter { $0.alphaComponent > 0.8 && max($0.redComponent, $0.greenComponent, $0.blueComponent) < 0.3 }
-        XCTAssertGreaterThan(ink.count, 20, "the newly mounted field's placeholder is captured")
+        XCTAssertLessThanOrEqual(window.displays, 1, "only a new backing tree needs a window display")
+        window.duringDisplay = nil
+        let reference = try XCTUnwrap(field.bitmapImageRepForCachingDisplay(in: field.bounds))
+        field.cacheDisplay(in: field.bounds, to: reference)
+        let expected = glyphs(reference, in: field.bounds)
+        for (picture, container) in [(rep, root), (child, card)] {
+            let actual = glyphs(picture, in: container.convert(field.bounds, from: field))
+            XCTAssertGreaterThan(actual.ink, 20, "the newly mounted field's placeholder is captured")
+            XCTAssertLessThan(glyphDifference(actual.mask, expected.mask), glyphDifference(actual.mask, expected.mask, flipped: true),
+                              "the placeholder has AppKit's upright orientation")
+        }
     }
 
     func testHeaderBesideScrollRows() throws {
@@ -298,7 +409,7 @@ final class CaptureOrientationMacTests: XCTestCase {
             print("HISTORY \(i) copy=\(marker(copy, i)) original=\(marker(original, i)) presentation=\(presented.map { marker($0, i) } ?? "nil") cache=\(marker(cache, i)) ctmBeforeCache=\(drawn[i]) geometry=\(backing.isGeometryFlipped)/\(layer.isGeometryFlipped)/\(shell.layer!.isGeometryFlipped) flipped=\(backing.contentsAreFlipped()) contents=\(String(describing: backing.contents)) presentedContents=\(String(describing: backing.presentation()?.contents))")
             XCTAssertEqual(marker(cache, i), "upright")
             XCTAssertEqual(marker(original, i), "upright")
-            // The copy takes the flip its root inherits, so a newly installed store (5) reads as AppKit shows it.
+            // Every copied branch preserves its backing store's orientation, including replacement store 5.
             XCTAssertEqual(marker(copy, i), "upright", "copy, case \(i)")
         }
         try evidence([("history-copy", copy), ("history-original", original), ("history-cache", cache)])
@@ -314,9 +425,9 @@ final class CaptureOrientationMacTests: XCTestCase {
         var points: [(Int, Int)] = []
         for y in 0..<Int(rect.height) {
             for x in 0..<Int(rect.width) {
-                let px = Int((rect.minX + CGFloat(x)) * CGFloat(rep.pixelsWide) / 480)
-                let py = Int((rect.minY + CGFloat(y)) * CGFloat(rep.pixelsHigh) / 112)
-                if let c = rep.colorAt(x: px, y: py), c.alphaComponent > 0.9,
+                let px = Int((rect.minX + CGFloat(x)) * CGFloat(rep.pixelsWide) / rep.size.width)
+                let py = Int((rect.minY + CGFloat(y)) * CGFloat(rep.pixelsHigh) / rep.size.height)
+                if let c = rep.colorAt(x: px, y: py), c.alphaComponent > 0.2,
                    max(c.redComponent, c.greenComponent, c.blueComponent) < 0.4 { points.append((x, y)) }
             }
         }
