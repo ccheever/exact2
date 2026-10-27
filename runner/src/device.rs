@@ -72,8 +72,10 @@ pub struct Device {
     /// The row another must stand beside (`grant-needs`, LLP 1133.033 D3):
     /// a capture in the background is a capture first.
     pub needs: Option<&'static str>,
-    /// The kinds of the Android reader's foreground services the row
-    /// declares in the manifest (`capture`, `call`; LLP 1133.033 D2).
+    /// The Android reader's foreground services the row declares in the
+    /// manifest, each `<kind>:<type>` (`capture:microphone`; LLP 1133.033
+    /// D2): a kind's `<service>` is declared with every type its rows give
+    /// it, so a later row adds a type to a kind (LLP 1133.032 D11 item 3).
     pub android_services: &'static [&'static str],
 }
 
@@ -125,7 +127,7 @@ pub const DEVICES: &[Device] = &[
             "android.permission.FOREGROUND_SERVICE",
             "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         ],
-        android_services: &["capture"],
+        android_services: &["capture:microphone"],
         needs: Some("microphone"),
         tvos: false,
         ..ROW
@@ -147,7 +149,7 @@ pub const DEVICES: &[Device] = &[
             "android.permission.FOREGROUND_SERVICE_MICROPHONE",
             "android.permission.USE_FULL_SCREEN_INTENT",
         ],
-        android_services: &["call"],
+        android_services: &["call:phoneCall", "call:microphone"],
         needs: Some("microphone"),
         tvos: false,
         ..ROW
@@ -682,7 +684,7 @@ mod tests {
         let row = both[1].device;
         assert_eq!(row.ios_modes, ["audio"]);
         assert_eq!(row.ios_flags, ["ExactCapturesInBackground"]);
-        assert_eq!(row.android_services, ["capture"]);
+        assert_eq!(row.android_services, ["capture:microphone"]);
         assert!(row.web.is_none() && !row.tvos && row.macos.is_empty());
     }
 

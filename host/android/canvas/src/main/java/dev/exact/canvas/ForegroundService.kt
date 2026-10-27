@@ -1,5 +1,6 @@
 package dev.exact.canvas
 
+import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -11,19 +12,21 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * The host's foreground services (LLP 1133.033 D2): one service class per kind of claim, declared in the app's
- * manifest only when a granted line derives it (`device.microphone-background` declares [Capture]), with every type it
- * promotes as and its purpose's text as `dev.exact.purpose` meta-data. Packages never start one: they claim it through
+ * manifest only when a granted line derives it (`device.microphone-background` declares [Capture] with `microphone`),
+ * with every type its lines give it and its purpose's text as `dev.exact.purpose` meta-data. Packages never start one: they claim it through
  * [ExtensionContext.foregroundService], and the service runs while any claim of its kind is held.
  */
 open class ForegroundService : Service() {
-    /** A capture that outlives the screen: type `microphone`. */
+    /** A capture that outlives the screen: `microphone`, and `mediaProjection` for a screen (LLP 1133.032 D11 item 3). */
     class Capture : ForegroundService()
 
     /** A call: types `phoneCall` and `microphone` (D11). */
@@ -46,6 +49,27 @@ open class ForegroundService : Service() {
 }
 
 /**
+ * The platform event that permits a claim to start its service while the reader is not in front (LLP 1133.033 D2).
+ * Android 12 and later refuse a start from the background except after such events
+ * ([restrictions](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start)).
+ */
+sealed class ForegroundPermit {
+    /** The person acted on a notification's action (D11). */
+    object NotificationAction : ForegroundPermit()
+
+    /** A high-priority push arrived (D12). */
+    object Push : ForegroundPermit()
+
+    /**
+     * MediaProjection's consent, as `createScreenCaptureIntent()`'s result delivered it (LLP 1133.032 D11 item 3). A
+     * claim with the `mediaProjection` type needs it, since Android forbids that service before consent
+     * ([service types](https://developer.android.com/develop/background-work/services/fgs/service-types#media-projection));
+     * [ForegroundClaim.permit] keeps it for `getMediaProjection` in [ForegroundServices.claim]'s `promoted`.
+     */
+    class Consent(val resultCode: Int, val data: Intent) : ForegroundPermit()
+}
+
+/**
  * A package's hold on a foreground service of [kind] ([ForegroundServices.claim]). Released by [release] or with the
  * process; the service stops with the last claim of its kind.
  */
@@ -54,9 +78,12 @@ class ForegroundClaim internal constructor(
     val kind: String,
     types: Set<String>,
     val origin: String,
+    /** The event that permitted the start, kept for the caller (a [ForegroundPermit.Consent]'s result). */
+    val permit: ForegroundPermit?,
     internal val extension: String,
     internal var notification: (Notification.Builder) -> Unit,
     internal val lost: (String) -> Unit,
+    internal val promoted: (ForegroundClaim) -> Unit,
     internal val agent: Boolean,
 ) {
     /** When it was made, ms since the epoch: the notification's chronometer counts from it (D4). */
@@ -66,6 +93,9 @@ class ForegroundClaim internal constructor(
         private set
 
     internal var released = false
+
+    /** The types the service last promoted with that [promoted] was told of: it hears each new set once. */
+    internal var told: Set<String> = emptySet()
 
     /** Promote the service again with [types], which Android allows to add types (D2). */
     fun types(types: Set<String>) {
@@ -93,6 +123,9 @@ class ForegroundServices internal constructor(private val application: Context, 
     /** Whether the app's lines declare a service of [kind]: the manifest has its class. */
     fun declared(kind: String): Boolean = Claims.declared(application, kind)
 
+    /** Whether the app's lines declare a service of [kind] with [type] among its types (`microphone`, …). */
+    fun declared(kind: String, type: String): Boolean = Claims.declared(application, kind, type)
+
     /**
      * Under the agent, the platform's refusal every claim meets, as the drive prefers it (`prefer extension
      * <extension>.foregroundService={"refused": "…"}`, D21); null for none. The implementation sets it from its
@@ -103,29 +136,40 @@ class ForegroundServices internal constructor(private val application: Context, 
     /**
      * Claim a service of [kind] with [types] for a capability started by [origin]. The service starts with the first
      * claim of its kind and promotes itself with the union of its claims' types. A start needs the reader resumed,
-     * unless [permitted] (the platform event that allows it: a notification's action, a high-priority push); a claim
-     * joining a running service needs nothing. Null, with the reason in the log, when the line was not granted or the
-     * platform refuses the start; [lost] hears a refusal that comes after (the service's `startForeground` threw).
-     * [notification] sets the claimant's parts of the notification after the module's own (D4). Under the agent no
-     * service starts and nothing posts: the claim is told the runner, which lists it in `state.extensions`.
+     * unless [permit] names the platform event that allows it; a claim joining a running service needs nothing. A
+     * `mediaProjection` claim needs a [ForegroundPermit.Consent] whatever the reader's state. Null, with the reason in
+     * the log, when the lines do not declare the kind with every type or the platform refuses the start; [lost] hears a
+     * refusal that comes after (the service's `startForeground` threw). [promoted] runs on the main thread once the
+     * service has called `startForeground` with every one of [types] (at once when it joins a service promoted with
+     * them), never inside this call: work the platform allows only in a promoted service, such as
+     * `getMediaProjection`, starts there. [notification] sets the claimant's parts of the notification after the
+     * module's own (D4). Under the agent no service starts and nothing posts: the claim is told the runner, which lists
+     * it in `state.extensions`, and [promoted] runs as soon as the main thread takes it.
      */
-    fun claim(kind: String, types: Set<String>, origin: String, permitted: Boolean = false,
-              notification: (Notification.Builder) -> Unit = {}, lost: (String) -> Unit = {}): ForegroundClaim? {
+    fun claim(kind: String, types: Set<String>, origin: String, permit: ForegroundPermit? = null,
+              notification: (Notification.Builder) -> Unit = {}, lost: (String) -> Unit = {},
+              promoted: (ForegroundClaim) -> Unit = {}): ForegroundClaim? {
         val agent = agent()
         val refuse = { why: String -> Log.i("exact", "foreground service ${types.joinToString("|")}: refused: $why"); null }
         if (!declared(kind)) return refuse("the app's lines declare no $kind service")
+        types.firstOrNull { !declared(kind, it) }?.let { return refuse("the app's lines declare no $it type on the $kind service") }
         // The runner prefers a refusal under the agent: `prefer extension <extension>.foregroundService={"refused":…}`.
         if (agent) refusing?.let { why -> Claims.told(application, extension, kind, types, false, why); return refuse(why) }
-        val claim = ForegroundClaim(application, kind, types, origin, extension, notification, lost, agent)
+        if ("mediaProjection" in types && (permit as? ForegroundPermit.Consent)?.resultCode != Activity.RESULT_OK) {
+            return refuse("SecurityException: mediaProjection needs the consent's result")
+        }
+        val claim = ForegroundClaim(application, kind, types, origin, permit, extension, notification, lost, promoted, agent)
         if (agent) {
             Claims.told(application, extension, kind, types, true, null)
-            return claim.also { Claims.held += it }
+            Claims.held += claim
+            Claims.promoted(listOf(claim), types)
+            return claim
         }
         if ("microphone" in types && application.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             return refuse("SecurityException: RECORD_AUDIO is not granted")
         }
         val running = Claims.held.any { it.kind == kind && !it.agent }
-        if (!running && !Extensions.resumedNow && !permitted) return refuse("ForegroundServiceStartNotAllowedException: the app is not in front")
+        if (!running && !Extensions.resumedNow && permit == null) return refuse("ForegroundServiceStartNotAllowedException: the app is not in front")
         Claims.held += claim
         if (running) {
             Claims.changed(claim)
@@ -156,6 +200,20 @@ internal object Claims {
         application.packageManager.getServiceInfo(ComponentName(application, service(kind)), 0); true
     } catch (e: PackageManager.NameNotFoundException) { false }
 
+    /** Whether the manifest declares [kind]'s service with [type] in its `foregroundServiceType`. */
+    fun declared(application: Context, kind: String, type: String): Boolean = try {
+        val bit = bit(type)
+        bit != 0 && application.packageManager.getServiceInfo(ComponentName(application, service(kind)), 0).foregroundServiceType and bit == bit
+    } catch (e: PackageManager.NameNotFoundException) { false }
+
+    /** A type's `ServiceInfo` bit; 0 for one this host does not run. `microphone` is API 30's. */
+    private fun bit(type: String): Int = when (type) {
+        "phoneCall" -> ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+        "mediaProjection" -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        "microphone" -> if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+        else -> 0
+    }
+
     /** The purpose's text the build wrote beside the service: the notification's title and channel's name. */
     fun purpose(application: Context, kind: String): String = try {
         application.packageManager.getServiceInfo(ComponentName(application, service(kind)), PackageManager.GET_META_DATA)
@@ -170,13 +228,14 @@ internal object Claims {
         Exact.changed("exact-foreground-service:$body")
     }
 
-    /** The union of the live claims' types for [kind], as `startForeground`'s mask. */
-    private fun mask(kind: String): Int {
-        val types = held.filter { it.kind == kind && !it.agent }.flatMap { it.types }.toSet()
-        var mask = 0
-        if ("phoneCall" in types) mask = mask or ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-        if ("microphone" in types && Build.VERSION.SDK_INT >= 30) mask = mask or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        return mask
+    /** The union of the live claims' types for [kind]. */
+    private fun types(kind: String): Set<String> = held.filter { it.kind == kind && !it.agent }.flatMap { it.types }.toSet()
+
+    /** [claims]' `promoted`, on the main thread, for each whose types [types] now covers and that has not heard them. */
+    fun promoted(claims: List<ForegroundClaim>, types: Set<String>) {
+        val due = claims.filter { !it.released && types.containsAll(it.types) && it.told != it.types }
+        due.forEach { it.told = it.types }
+        if (due.isNotEmpty()) Handler(Looper.getMainLooper()).post { due.filter { !it.released }.forEach { it.promoted(it) } }
     }
 
     /** The service's notification: the oldest live claim's (D2), the module's parts first, then the claimant's (D4). */
@@ -213,8 +272,9 @@ internal object Claims {
 
     private fun promote(service: ForegroundService) {
         try {
-            if (Build.VERSION.SDK_INT >= 29) service.startForeground(ids.getValue(service.kind), notification(service), mask(service.kind))
-            else service.startForeground(ids.getValue(service.kind), notification(service))
+            val types = types(service.kind)
+            service.startForeground(ids.getValue(service.kind), notification(service), types.fold(0) { mask, type -> mask or bit(type) })
+            promoted(held.filter { it.kind == service.kind && !it.agent }, types)
         } catch (e: Exception) {
             // A `SecurityException` for a type whose permission or runtime grant is missing, or Android 12's
             // `ForegroundServiceStartNotAllowedException`: every claim of the kind is lost, and the capability degrades.
@@ -229,7 +289,7 @@ internal object Claims {
 
     /** A claim's types or notification changed. */
     fun changed(claim: ForegroundClaim) {
-        if (claim.agent) return
+        if (claim.agent) return promoted(listOf(claim), claim.types)
         services[claim.kind]?.let { promote(it) }
     }
 

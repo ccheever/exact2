@@ -163,9 +163,10 @@ pub(crate) fn derive(
     let (mut modes, mut tasks): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     // Android's permissions: the Canvas host on Android bakes as Linux.
     let mut android: Vec<&str> = Vec::new();
-    // The reader's foreground services the lines declare, each with the
-    // base locale's purpose text, its notification's title and channel
-    // name (LLP 1133.033 D2, D4).
+    // The reader's foreground services the lines declare, each with every
+    // type its lines give it and the base locale's purpose text of the first
+    // line naming it, its notification's title and channel name (LLP
+    // 1133.033 D2, D4).
     let mut services = Map::new();
     let keys_of = |device: &Device| match platform {
         "ios" => device.ios,
@@ -205,8 +206,15 @@ pub(crate) fn derive(
             }
             "linux" => {
                 android.extend(grant.device.android);
-                for kind in grant.device.android_services {
-                    services.insert((*kind).into(), json!(text(grant.purpose)));
+                for pair in grant.device.android_services {
+                    let (kind, kind_type) = pair.split_once(':').unwrap_or((pair, ""));
+                    let service = services
+                        .entry(kind)
+                        .or_insert_with(|| json!({ "purpose": text(grant.purpose), "types": [] }));
+                    let types = service["types"].as_array_mut().expect("a service's types");
+                    if !types.iter().any(|t| t == kind_type) {
+                        types.push(json!(kind_type));
+                    }
                 }
             }
             _ => {}
@@ -732,7 +740,7 @@ mod tests {
         );
         assert_eq!(
             android.reach["androidServices"],
-            json!({"capture": "Recording"})
+            json!({"capture": {"purpose": "Recording", "types": ["microphone"]}})
         );
         let mut mac = compat(grants);
         derive(&dir.0, "macos", None, &mut mac).unwrap();
@@ -752,6 +760,12 @@ mod tests {
         let mut development = compat(grants);
         derive(&dir.0, "ios", None, &mut development).unwrap();
         assert_eq!(development.reach["backgroundModes"], json!(["audio"]));
+        let mut android = compat(grants);
+        derive(&dir.0, "linux", None, &mut android).unwrap();
+        assert_eq!(
+            android.reach["androidServices"],
+            json!({"call": {"purpose": "Test calls.", "types": ["phoneCall", "microphone"]}})
+        );
         let mut production = compat(grants);
         production.embedded = json!({ "trust": "production" });
         let refused = derive(&dir.0, "ios", None, &mut production).unwrap_err();

@@ -83,17 +83,16 @@ android {
             val (name, last) = line.split(' ').let { it[0] to it.getOrNull(1)?.removePrefix("maxSdkVersion=") }
             "    <uses-permission android:name=\"$name\"${last?.let { " android:maxSdkVersion=\"$it\"" } ?: ""} />\n"
         }
-        // The reader's foreground services the lines declare (`-PforegroundServices`, `{kind: purpose text}`, LLP
-        // 1133.033 D2), each with every type it promotes as: a type the manifest lacks throws at `startForeground`. The
-        // purpose is the notification's title and its channel's name (D4).
-        val types = mapOf("capture" to "microphone", "call" to "phoneCall|microphone")
+        // The reader's foreground services the lines declare (`-PforegroundServices`, `{kind: {purpose, types}}`, LLP
+        // 1133.033 D2), each with every type its lines give it: a type the manifest lacks throws at `startForeground`.
+        // The purpose is the notification's title and its channel's name (D4).
         val escape = { t: String -> t.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;") }
         @Suppress("UNCHECKED_CAST")
-        val services = (providers.gradleProperty("foregroundServices").orNull?.let { JsonSlurper().parseText(it) } as Map<String, String>?).orEmpty()
-        val service = { kind: String, text: String ->
+        val services = (providers.gradleProperty("foregroundServices").orNull?.let { JsonSlurper().parseText(it) } as Map<String, Map<String, Any?>>?).orEmpty()
+        val service = { kind: String, declared: Map<String, Any?> ->
             "        <service android:name=\"dev.exact.canvas.ForegroundService\$${kind.replaceFirstChar { it.uppercase() }}\" android:exported=\"false\"\n" +
-                "            android:foregroundServiceType=\"${types.getValue(kind)}\">\n" +
-                "            <meta-data android:name=\"dev.exact.purpose\" android:value=\"${escape(text)}\" />\n        </service>\n"
+                "            android:foregroundServiceType=\"${(declared["types"] as List<*>).joinToString("|")}\">\n" +
+                "            <meta-data android:name=\"dev.exact.purpose\" android:value=\"${escape(declared["purpose"]?.toString() ?: "")}\" />\n        </service>\n"
         }
         // The services join the fragment's `<application>` when it has one: a manifest holds one.
         val manifestChildren = { fragment: String?, services: String ->
