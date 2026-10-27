@@ -133,7 +133,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,
     'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-hover-tinted')}, transparent); }`,
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
-    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-tinted')}, transparent); }`,
+    'button-pressed-tinted': `[data-button-style="bordered-tinted"]):is([data-pressed], [data-exact-open]):not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-tinted')}, transparent); }`,
     'button-pressed-alpha': [`{ background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-pressed-alpha')}, transparent),`, `& > :not(img), &::after { opacity: ${alpha('button-pressed-alpha')}; }`, `& > img { --exact-tint: color-mix(in srgb, currentColor ${percent('button-pressed-alpha')}, transparent); }`],
     'button-pressed-lighten': [`color-mix(in srgb, var(--exact-accent, AccentColor), #fff ${percent('button-pressed-lighten')})); background-image: none; }`, `{ background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, #fff ${percent('button-pressed-lighten')}, transparent); }`],
     'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
@@ -402,6 +402,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // own keeps it.
       const OWN = [[52, 199, 89, 1], '1'], [inks, heldInks] = (await highlight('translucent')).map((seen) => seen[4]);
       expect([at('symbols'), inks, heldInks]).toEqual([at('symbols'), [[inks[0][0], '1'], OWN, OWN], [[[...inks[0][0].slice(0, 3), 0.75], '1'], OWN, OWN]]);
+      // A button whose popover is open (menu-rows.js marks it) shows its press.
+      const shows = (id, mark) => page.evaluate(([id, mark]) => { const b = document.getElementById(id); b.toggleAttribute(mark, true); const seen = [css(id, 'backgroundImage'), css(id, 'backgroundColor')]; b.removeAttribute(mark); return seen; }, [id, mark]);
+      const open = await shows('bordered', 'data-exact-open');
+      expect([at('open'), open]).toEqual([at('open'), await shows('bordered', 'data-pressed')]);
+      expect([at('open'), open[0]]).not.toEqual([at('open'), await page.evaluate(() => css('bordered', 'backgroundImage'))]);
       // Released (the input glue marks it), a button eases out of its press over a quarter second: a filled button's
       // fill, a face, a symbol in the button's ink, a sheet's word and a wash; a symbol in a colour of its own has
       // nothing to ease.

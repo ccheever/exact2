@@ -6,7 +6,9 @@
 // what opened it: the button, or the node a context menu opened on, as the
 // menu's `beforetoggle` said (navigation.js `popoverSource`). A popover
 // written inside the menu stays nested by where it is (HTML), whatever its
-// source. Loaded after the first paint (glue.js), the JS target at boot.
+// source. It also marks the button that opened a popover while the popover
+// is open (below). Loaded after the first paint (glue.js), the JS target at
+// boot.
 import { popoverSource } from "./navigation.js";
 
 /** HTML's popover commands, and what each does. */
@@ -70,6 +72,30 @@ function menuRows() {
     // HTML would act on what the row names before its own press; this acts after it, on the popover it names then.
     e.preventDefault();
     setTimeout(() => act(row, menu, clicked));
+  }, true);
+  // A button stays pressed while the popover it opened is open (neutral.css reads the mark as it reads a press); not
+  // for a context menu, which the Mac opens on a button without highlighting it. Each popover keeps the button it
+  // marked: one hidden and shown again from another button in one task fires a single `toggle`, open to open. A button
+  // two open popovers marked keeps the mark until both close.
+  const marked = new Map();
+  const unmark = pop => {
+    const source = marked.get(pop);
+    marked.delete(pop);
+    if (source && ![...marked.values()].includes(source)) source.removeAttribute("data-exact-open");
+  };
+  // A popover removed while open closes with no `toggle` (HTML's removing steps hide it without events), so while any
+  // button is marked each frame looks for its popover gone.
+  const sweep = () => {
+    for (const pop of marked.keys()) if (!pop.isConnected || !pop.matches(":popover-open")) unmark(pop);
+    if (marked.size) requestAnimationFrame(sweep);
+  };
+  addEventListener("toggle", e => {
+    const pop = e.target, source = popoverSource(pop);
+    unmark(pop);
+    if (e.newState !== "open" || !source?.matches("button") || pop.matches('[style*="--exact-context-x"]')) return;
+    source.setAttribute("data-exact-open", "");
+    if (!marked.size) requestAnimationFrame(sweep);
+    marked.set(pop, source);
   }, true);
 }
 

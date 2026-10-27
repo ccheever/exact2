@@ -107,6 +107,45 @@ check('a menu row opens its popover from the menu\'s invoker, the menu closes an
   await until('open()', ['picker']);
 }), 60000);
 
+check('a button is marked open while the popover it opened is open, a submenu\'s row too', () => inChrome(async (evaluate, press, until) => {
+  const marked = `['opener', 'more', 'react'].filter(id => document.getElementById(id).hasAttribute('data-exact-open'))`;
+  await press('opener');
+  await until(marked, ['opener']);
+  await press('more');
+  await until(marked, ['opener', 'more']);
+  await press('plain');
+  await until(marked, []);
+  // The picker a row opens is the menu's invoker's, so the invoker stays marked as the menu gives way to it.
+  await press('opener');
+  await press('react');
+  await until('open()', ['picker']);
+  await until(marked, ['opener']);
+  await press('plain');
+  await until(marked, []);
+  // Shown again from another button in the same task, only that one is marked; and a context menu marks none.
+  await evaluate(`document.getElementById('menu').showPopover({ source: document.getElementById('opener') })`);
+  await until(marked, ['opener']);
+  await evaluate(`{ const m = document.getElementById('menu'); m.hidePopover(); m.showPopover({ source: document.getElementById('react') }); }`);
+  await until(marked, ['react']);
+  await evaluate(`{ const m = document.getElementById('menu'); m.hidePopover(); m.style.setProperty('--exact-context-x', '0px'); m.showPopover({ source: document.getElementById('opener') }); }`);
+  await until('open()', ['menu']);
+  expect(await evaluate(marked)).toEqual([]);
+  await evaluate(`{ const m = document.getElementById('menu'); m.hidePopover(); m.style.removeProperty('--exact-context-x'); }`);
+  // Two open popovers from one button: it stays marked until both close.
+  await evaluate(`document.body.insertAdjacentHTML('beforeend', '<div id="manual2" popover="manual">Manual 2</div>'); for (const id of ['manual', 'manual2']) document.getElementById(id).showPopover({ source: document.getElementById('opener') })`);
+  await until(marked, ['opener']);
+  await evaluate(`document.getElementById('manual').hidePopover()`);
+  await until('open()', []);
+  expect(await evaluate(marked)).toEqual(['opener']);
+  await evaluate(`document.getElementById('manual2').hidePopover()`);
+  await until(marked, []);
+  // A popover removed while open, which closes with no toggle.
+  await evaluate(`document.getElementById('picker').showPopover({ source: document.getElementById('opener') })`);
+  await until(marked, ['opener']);
+  await evaluate(`document.getElementById('picker').remove()`);
+  await until(marked, []);
+}), 60000);
+
 check('a commandfor row and a key\'s press take the rule too', () => inChrome(async (evaluate, press, until, enter) => {
   await press('opener');
   await until('open()', ['menu']);

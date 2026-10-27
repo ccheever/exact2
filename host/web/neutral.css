@@ -129,10 +129,12 @@
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) 8%, transparent); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
   } }
-  /* Each press ties its hover's specificity and wins by coming after it, so these stay below the hover block. */
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: var(--exact-tertiary-fill); }
-  #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"])[data-pressed] { background-color: var(--exact-secondary-fill); }
-  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed]:not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) 16%, transparent); }
+  /* Each press ties its hover's specificity and wins by coming after it, so these stay below the hover block. A
+     button shows its press while the popover it opened is open (`data-exact-open`, menu-rows.js), as a pop-up or
+     pull-down button stays highlighted while its menu is open on the Mac. */
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"]):is([data-pressed], [data-exact-open]) { background-color: transparent; background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: var(--exact-tertiary-fill); }
+  #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"]):is([data-pressed], [data-exact-open]) { background-color: var(--exact-secondary-fill); }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):is([data-pressed], [data-exact-open]):not(:disabled) { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, var(--exact-accent, AccentColor) 16%, transparent); }
   /* Held, a plain, borderless, filled or glass button shows UIKit's highlight, whatever its accent (measured on iOS 27):
      - Its face is at 75%, as `UIButton.Configuration` draws a highlighted button's ink. The face is the button's
        children, and the name a sheet's bar draws in place of a symbol (`::after`, below), so the focus ring keeps its
@@ -148,7 +150,7 @@
      whatever press its author wrote (NativeButtonsIOS.swift's `isHighlighted`; `authorsPress` in PressFeedback.swift
      gates only the dim of a pressable that is no control). A disabled button takes none, and a menu's or a chooser's
      row keeps its own look. */
-  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *) {
+  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]):is([data-pressed], [data-exact-open]):not(:disabled, :is([role="menu"], [data-exact-chooser]) *) {
     &:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background-color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 75%, transparent), color-mix(in srgb, var(--exact-accent, AccentColor), #fff 20%)); background-image: none; }
     &[data-button-style$="glass"] { background-image: linear-gradient(var(--exact-wash) 0 0); --exact-wash: color-mix(in srgb, #fff 20%, transparent); }
     & > :not(img), &::after { opacity: .75; }
