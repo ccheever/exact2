@@ -1150,7 +1150,13 @@ reads a source by its file name through `tests/support/app-files.ts`, so a file 
 
 `app.contract` keeps the window's resources, mutations and tasks, the state they read and
 the actions that write it or send (a child component may not own resources or assign root
-state); its view is `T3Window` in `src/shell/app-window.contract`, which owns the window's view-only
+state). Most of those members are written in members files beside their features
+(`src/<feature>/*-members.contract`, LLP 1091.002): each `members "./src/…"` line in `T3Code`
+stands for that file's `members T3Code` block, so the root stays under the line cap and compiles to
+the one-file plan. Members files load after the files the root's `use` lines name, so those lines
+still name what only the members read, which keeps the files' load order the one-file root's. A
+test that reads the root's text reads it spliced through `appText` (`tests/support/app-files.ts`).
+Its view is `T3Window` in `src/shell/app-window.contract`, which owns the window's view-only
 state (the sidebar's hover and drag, the title menu, the settings editors' menus, Add
 environment's fields) and lays out the components of `app-main.contract`,
 `app-settings.contract` and `app-overlays.contract` beside it; each takes the root names it reads as

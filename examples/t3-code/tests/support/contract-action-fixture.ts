@@ -9,7 +9,7 @@
 // `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
 // delivers them).
 import { readFileSync } from 'node:fs';
-import { appPath } from './app-files';
+import { appPath, appText } from './app-files';
 
 export type Env = Record<string, unknown>;
 type Node = { line: string; body: Node[] };
@@ -164,7 +164,7 @@ function uncommented(line: string): string {
 
 /** `component name` of `file` (next to this module): its state, its actions and its derives. */
 export function contractComponent(file: string, name: string) {
-  const source = readFileSync(appPath(file), 'utf8').split('\n');
+  const source = appText(file).split('\n');
   const from = source.indexOf(`component ${name}`);
   if (from < 0) throw new Error(`${file}: no component ${name}`);
   const to = source.findIndex((line, i) => i > from && line.startsWith('component '));
