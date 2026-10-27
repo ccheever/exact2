@@ -32,6 +32,7 @@ export function memoryAppFiles(files: Map<string, Uint8Array> = new Map()) {
     async writeFile(path: string, bytes: Uint8Array) { files.set(path, new Uint8Array(bytes)); },
     async copyFile(from: string, to: string) { const bytes = files.get(from); if (!bytes) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); files.set(to, bytes.slice()); },
     async mkdir() {},
+    async rm(path: string) { files.delete(path); },
   } });
   return files;
 }

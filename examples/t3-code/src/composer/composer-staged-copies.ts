@@ -10,6 +10,8 @@ const MAX_STAGED_BYTES = 50 * 1024 * 1024;
 
 interface CopyFiles {
   stat(path: string): Promise<{ size: number }>;
+  mkdir(path: string, options: { recursive: boolean }): Promise<unknown>;
+  writeFile(path: string, bytes: Uint8Array): Promise<unknown>;
   readdir(path: string): Promise<string[]>;
   rm(path: string): Promise<unknown>;
 }
@@ -35,6 +37,25 @@ export async function stagedUpload(file: { id: string; name: string; mimeType: s
     const { size } = await files().stat(path);
     return size > 0 && size <= MAX_STAGED_BYTES ? { bodyFrom: path, sizeBytes: size } : null;
   } catch { return null; }
+}
+
+/** Where a folded paste's text waits for its upload, removed once it is sent (`foldUpload`). */
+export const FOLD_UPLOADS = 'app:/tmp/composer-stage/folds';
+let foldUploads = 0;
+
+/**
+ * A folded paste's UTF-8 bytes written to an app file for the upload to send from its path: a body inline in the
+ * request is refused above 4 MiB on Apple (host/apple/src/executor_core.rs MAX_REQUEST), and base64 grows it by a third.
+ */
+export async function foldUpload(bytes: Uint8Array): Promise<{ bodyFrom: string; sizeBytes: number }> {
+  const fs = files(), path = `${FOLD_UPLOADS}/${++foldUploads}.txt`;
+  await fs.mkdir(FOLD_UPLOADS, { recursive: true });
+  await fs.writeFile(path, bytes);
+  return { bodyFrom: path, sizeBytes: bytes.byteLength };
+}
+
+export async function removeFoldUpload(path: string): Promise<void> {
+  await files().rm(path).catch(() => undefined);
 }
 
 /** A staged file's copy, under either name (an older build also left a typed link and a video poster, `drafts/<id>.png`). */

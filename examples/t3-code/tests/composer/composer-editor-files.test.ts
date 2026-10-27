@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { toasts } from '../../src/shell/toast';
+import { memoryAppFiles } from '../support/asset-server';
 import { observeComposer, acceptComposerEdit } from '../support/composer-field-fixture';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
@@ -101,6 +102,23 @@ describe('fold, chip and send', () => {
     // A retried send reuses the upload.
     await composerFileAttachments(client, native, prompt);
     expect(rpcs).toHaveLength(1);
+  });
+  test('a paste over 2 MiB uploads from an app file, removed once sent', async () => {
+    const { native, client, calls } = harness();
+    const written = new Map<string, number>();
+    const files = memoryAppFiles(new class extends Map<string, Uint8Array> {
+      override set(path: string, bytes: Uint8Array) { written.set(path, bytes.byteLength); return super.set(path, bytes); }
+    }());
+    const current = observeComposer(client, 'before ');
+    const size = 2 * 1024 * 1024 + 1;
+    await foldPaste(client, native, 'fold', { id: 6, snapshotOwner: current.snapshotOwner, fieldOwner: current.owner, value: current.value, text: 'x'.repeat(size), start: 7, end: 7 }, 'f3');
+    const prompt = `before ${String(calls.find(call => call.op === 'editorEdit')!.text)}`;
+    await composerFileAttachments(client, native, prompt);
+    const upload = calls.find(call => call.op === 'uploadAttachment')!;
+    expect(upload).toMatchObject({ bodyFrom: 'app:/tmp/composer-stage/folds/1.txt', sizeBytes: size, contentType: 'text/plain;charset=utf-8' });
+    expect(upload.base64).toBeUndefined();
+    expect(written.get('app:/tmp/composer-stage/folds/1.txt')).toBe(size);
+    expect([...files.keys()]).toEqual([]);
   });
   test('a refused paste is the reference\'s toast and stages nothing', async () => {
     const { native, client, calls } = harness();
