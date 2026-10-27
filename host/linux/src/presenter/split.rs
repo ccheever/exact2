@@ -153,8 +153,7 @@ fn current_row<D: DataSource>(runner: &Runner<D>, at: ViewId) -> Option<ViewId> 
             .str(PropId::AccessibilityCurrent)
             .is_some_and(|c| !matches!(c, "" | "false"));
         match (runner.press_writes_router(child), href) {
-            (Some(writes), _) if writes && current => return Some(child),
-            (None, Some(_)) if current => return Some(child),
+            (Some(_), _) | (None, Some(_)) if current => return Some(child),
             (None, None) => {
                 if let Some(row) = current_row(runner, child) {
                     return Some(row);
