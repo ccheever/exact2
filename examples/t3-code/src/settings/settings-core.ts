@@ -486,7 +486,7 @@ export function generalSections(client: T3Client, context: ServerContext, route 
       { ...select(prefs.sidebarProjectSortOrder, [['updated_at', 'Last user message'], ['created_at', 'Created at'], ['manual', 'Manual']]), width: 176, resetLabel: 'project order' }),
     serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Resume after usage limits', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
     serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze until limits reset', 'Snooze usage-limit stops until reset. Pair with resume to continue on wake.', 'switch', {}, false),
-    deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section (beta)', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
+    deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
     serverRow(context, 'compactIdleThreads', 'compact-idle-threads', 'Compact idle Claude threads (beta)', 'Compact long idle Claude threads just before their prompt cache expires, so coming back costs less.', 'switch', { resetLabel: 'compact idle Claude threads' }, false),
     ...(autoSettle ? [
       serverRow(context, 'sidebarAutoSettleOnMerge', 'auto-settle-merged-threads', 'Auto-settle merged threads', 'Settle a thread when its pull request merges. Closed pull requests still settle automatically.', 'switch', { resetLabel: 'auto-settle on merge' }),
