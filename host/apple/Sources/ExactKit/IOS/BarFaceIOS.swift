@@ -197,4 +197,15 @@ struct ChipFace: Equatable {
         }
     }
 }
+extension NavigationHost {
+    /// Whether two item lists are the same items, in order.
+    static func same(_ a: [UIBarButtonItem]?, _ b: [UIBarButtonItem]?) -> Bool {
+        (a ?? []).elementsEqual(b ?? []) { $0 === $1 }
+    }
+
+    /// The item a header's control is drawn as in a bar that shows, if it is one.
+    func shownBarItem(_ id: UInt32) -> UIBarButtonItem? {
+        controllers.values.lazy.filter { $0.viewIfLoaded?.window != nil }.compactMap { $0.barItemsMade[id]?.bar }.first
+    }
+}
 #endif
