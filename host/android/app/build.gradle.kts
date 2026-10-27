@@ -83,10 +83,30 @@ android {
             val (name, last) = line.split(' ').let { it[0] to it.getOrNull(1)?.removePrefix("maxSdkVersion=") }
             "    <uses-permission android:name=\"$name\"${last?.let { " android:maxSdkVersion=\"$it\"" } ?: ""} />\n"
         }
+        // The reader's foreground services the lines declare (`-PforegroundServices`, `{kind: purpose text}`, LLP
+        // 1133.033 D2), each with every type it promotes as: a type the manifest lacks throws at `startForeground`. The
+        // purpose is the notification's title and its channel's name (D4).
+        val types = mapOf("capture" to "microphone", "call" to "phoneCall|microphone")
+        val escape = { t: String -> t.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;") }
+        @Suppress("UNCHECKED_CAST")
+        val services = (providers.gradleProperty("foregroundServices").orNull?.let { JsonSlurper().parseText(it) } as Map<String, String>?).orEmpty()
+        val service = { kind: String, text: String ->
+            "        <service android:name=\"dev.exact.canvas.ForegroundService\$${kind.replaceFirstChar { it.uppercase() }}\" android:exported=\"false\"\n" +
+                "            android:foregroundServiceType=\"${types.getValue(kind)}\">\n" +
+                "            <meta-data android:name=\"dev.exact.purpose\" android:value=\"${escape(text)}\" />\n        </service>\n"
+        }
+        // The services join the fragment's `<application>` when it has one: a manifest holds one.
+        val manifestChildren = { fragment: String?, services: String ->
+            when {
+                services.isEmpty() -> fragment?.let { "$it\n" } ?: ""
+                fragment?.contains("    </application>") == true -> fragment.replace("    </application>", "$services    </application>") + "\n"
+                else -> (fragment?.let { "$it\n" } ?: "") + "    <application>\n$services    </application>\n"
+            }
+        }
         permissions.writeText("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n" +
             names.joinToString("") { permission(it) } +
             features.joinToString("") { "    <uses-feature android:name=\"android.hardware.$it\" android:required=\"false\" />\n" } +
-            (fragment?.let { "$it\n" } ?: "") + "</manifest>\n")
+            manifestChildren(fragment, services.entries.joinToString("") { service(it.key, it.value) }) + "</manifest>\n")
         sourceSets["release"].manifest.srcFile(permissions)
     }
     // The token names `bun exact.mjs tamber gen kotlin` wrote (LLP 1121 D12; never committed).

@@ -103,6 +103,9 @@ impl<D: DataSource> Runner<D> {
             for (state, calls) in self.played_json(extension).into_iter().flatten() {
                 entry[&state] = calls;
             }
+            if let Some(claims) = self.services_json(extension) {
+                entry["foregroundService"] = claims;
+            }
             // The canvases its inputs feed, and their leases (D6).
             if let Some(surfaces) = self.fed_json(extension) {
                 entry["surfaces"] = surfaces;

@@ -47,6 +47,14 @@ pub(crate) fn derive(
         }
     };
     privacy_policy(app_dir, platform, &devices)?;
+    // No call transport exists yet, so a call is a test call, and App Review
+    // reads one with no real calls beside it as no intended use of the
+    // `audio` mode (2.5.4): it stays in development builds (LLP 1133.033
+    // §13 question 4).
+    if compat.embedded["trust"] == "production" && devices.iter().any(|g| g.device.name == "calls")
+    {
+        return Err("grant-device: `device.calls` stays out of production builds until exact2 has a call transport: a call is a test call until then (LLP 1133.033 §13 question 4); bake with EXACT_UPDATE_TRUST=development, or leave the line out".into());
+    }
     let strings = if devices.iter().all(|g| !g.device.purpose) {
         None
     } else {
@@ -155,6 +163,10 @@ pub(crate) fn derive(
     let (mut modes, mut tasks): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     // Android's permissions: the Canvas host on Android bakes as Linux.
     let mut android: Vec<&str> = Vec::new();
+    // The reader's foreground services the lines declare, each with the
+    // base locale's purpose text, its notification's title and channel
+    // name (LLP 1133.033 D2, D4).
+    let mut services = Map::new();
     let keys_of = |device: &Device| match platform {
         "ios" => device.ios,
         "macos" => device.macos,
@@ -191,7 +203,12 @@ pub(crate) fn derive(
                 modes.extend(grant.device.ios_modes);
                 tasks.extend(grant.device.ios_tasks);
             }
-            "linux" => android.extend(grant.device.android),
+            "linux" => {
+                android.extend(grant.device.android);
+                for kind in grant.device.android_services {
+                    services.insert((*kind).into(), json!(text(grant.purpose)));
+                }
+            }
             _ => {}
         }
     }
@@ -297,6 +314,9 @@ pub(crate) fn derive(
     }
     if !shared.is_empty() {
         compat.reach["sharedKeys"] = Value::Object(shared);
+    }
+    if !services.is_empty() {
+        compat.reach["androidServices"] = Value::Object(services);
     }
     Ok(())
 }
@@ -687,6 +707,55 @@ mod tests {
         let mut mac = compat(grants);
         derive(&dir.0, "macos", None, &mut mac).unwrap();
         assert!(mac.reach.get("backgroundModes").is_none());
+    }
+
+    /// LLP 1133.033 D3: one line derives iOS's `audio` mode with the key the
+    /// capture reads, and Android's normal permissions with the `capture`
+    /// service named by its purpose's text.
+    #[test]
+    fn the_background_capture_line_derives_audio_and_the_capture_service() {
+        let dir = app(&[("en", r#"{"mic": "Records.", "bg": "Recording"}"#)]);
+        let grants = "device.microphone mic\ndevice.microphone-background bg";
+        let mut ios = compat(grants);
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
+        assert_eq!(ios.reach["backgroundModes"], json!(["audio"]));
+        assert_eq!(ios.reach["flags"], json!(["ExactCapturesInBackground"]));
+        let mut android = compat(grants);
+        derive(&dir.0, "linux", None, &mut android).unwrap();
+        assert_eq!(
+            android.reach["android"],
+            json!([
+                "android.permission.FOREGROUND_SERVICE",
+                "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+                "android.permission.RECORD_AUDIO"
+            ])
+        );
+        assert_eq!(
+            android.reach["androidServices"],
+            json!({"capture": "Recording"})
+        );
+        let mut mac = compat(grants);
+        derive(&dir.0, "macos", None, &mut mac).unwrap();
+        assert!(
+            mac.reach.get("backgroundModes").is_none()
+                && mac.reach.get("androidServices").is_none()
+        );
+        let mut alone = compat("device.microphone-background bg");
+        let refused = derive(&dir.0, "ios", None, &mut alone).unwrap_err();
+        assert!(refused.contains("grant-needs"), "{refused}");
+    }
+
+    #[test]
+    fn calls_stay_out_of_a_production_build() {
+        let dir = app(&[("en", r#"{"mic": "Records.", "calls": "Test calls."}"#)]);
+        let grants = "device.microphone mic\ndevice.calls calls";
+        let mut development = compat(grants);
+        derive(&dir.0, "ios", None, &mut development).unwrap();
+        assert_eq!(development.reach["backgroundModes"], json!(["audio"]));
+        let mut production = compat(grants);
+        production.embedded = json!({ "trust": "production" });
+        let refused = derive(&dir.0, "ios", None, &mut production).unwrap_err();
+        assert!(refused.contains("§13 question 4"), "{refused}");
     }
 
     #[test]

@@ -51,6 +51,7 @@ mod pictures;
 mod poll;
 mod presence;
 mod samples;
+mod services;
 mod spans;
 mod values;
 mod views;
@@ -62,6 +63,7 @@ pub use calls::CallHow;
 pub use declared::AppState;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
+pub(super) use services::CLAIMED;
 use std::sync::{Arc, Mutex};
 use values::{absent_is_none, fill, set_path};
 pub use wakes::WakeHow;
@@ -103,6 +105,8 @@ pub(super) struct Extensions {
     pub(super) events: events::Events,
     /// Wakes, running and to come (LLP 1133.017 D5).
     wakes: wakes::Wakes,
+    /// Foreground-service claims under the agent (LLP 1133.033 D21).
+    services: services::Services,
     /// Tool calls, running and to come (LLP 1133.023 D7).
     calls: calls::Calls,
     /// Each bound live source's Contract readers, by resource, with the

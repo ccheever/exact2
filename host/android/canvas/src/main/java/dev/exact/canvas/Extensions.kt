@@ -189,6 +189,10 @@ class ExtensionContext internal constructor(val application: Context, private va
     /** The page's canvases, whose input an extension may feed (LLP 1133.013 D6). */
     val surfaces = ExtensionSurfaces()
 
+    /** Claims on the host's foreground services, which keep a capability running while the app is hidden (LLP
+     * 1133.033 D2). */
+    val foregroundService = ForegroundServices(application, name) { agent }
+
     /**
      * The display's angle as the web's `screen.orientation.angle` (0, 90, 180, 270; LLP 1133.013 D12 item 4), from
      * `Display.getRotation`: [ExactExtension.orientation] is told each change.

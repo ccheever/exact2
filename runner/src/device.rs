@@ -25,8 +25,9 @@ pub struct Device {
     pub ios: &'static [&'static str],
     /// iOS `Info.plist` keys set to true.
     pub ios_flags: &'static [&'static str],
-    /// Android's runtime permissions (`<uses-permission>`), asked in one
-    /// request (LLP 1133.002 D6). One the platform retired at an API level
+    /// Android's permissions (`<uses-permission>`): the runtime ones a module
+    /// asks for in one request (LLP 1133.002 D6), and the normal ones granted
+    /// at install (a foreground service's, LLP 1133.033 D16). One the platform retired at an API level
     /// is written `<name> maxSdkVersion=<level>`, which the manifest
     /// declares as `android:maxSdkVersion` (LLP 1133.019 D4).
     pub android: &'static [&'static str],
@@ -68,6 +69,12 @@ pub struct Device {
     /// The `BGTaskScheduler` identifiers the row permits, each after the
     /// bundle id and a dot in `BGTaskSchedulerPermittedIdentifiers`.
     pub ios_tasks: &'static [&'static str],
+    /// The row another must stand beside (`grant-needs`, LLP 1133.033 D3):
+    /// a capture in the background is a capture first.
+    pub needs: Option<&'static str>,
+    /// The kinds of the Android reader's foreground services the row
+    /// declares in the manifest (`capture`, `call`; LLP 1133.033 D2).
+    pub android_services: &'static [&'static str],
 }
 
 /// What a row has unless it says otherwise.
@@ -89,6 +96,8 @@ const ROW: Device = Device {
     purpose: true,
     ios_modes: &[],
     ios_tasks: &[],
+    needs: None,
+    android_services: &[],
 };
 
 /// Every device grant. Adding a row is one entry here and no host code.
@@ -100,6 +109,47 @@ pub const DEVICES: &[Device] = &[
         hardened: Some("com.apple.security.device.audio-input"),
         web: Some("microphone"),
         android: &["android.permission.RECORD_AUDIO"],
+        ..ROW
+    },
+    // @ref LLP 1133.033 D3 — a microphone capture keeps running while the app
+    // is in the background. iOS keeps the process for the `audio` mode, and
+    // the capture reads `ExactCapturesInBackground`, since other lines derive
+    // `audio` too; Android runs it in the reader's `capture` service, whose
+    // notification's text is the purpose. A Mac and the web need nothing,
+    // and tvOS's recording cell is later.
+    Device {
+        name: "microphone-background",
+        ios_flags: &["ExactCapturesInBackground"],
+        ios_modes: &["audio"],
+        android: &[
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        ],
+        android_services: &["capture"],
+        needs: Some("microphone"),
+        tvos: false,
+        ..ROW
+    },
+    // @ref LLP 1133.033 D16 — `@exact/calls`. A call keeps the process for
+    // its active audio session on iOS (`audio`; the host's provider is made
+    // under this line), and on Android runs in the reader's `call` service,
+    // which needs `MANAGE_OWN_CALLS`; the purpose names the call
+    // notification's channel. Every Android permission here is normal but
+    // `USE_FULL_SCREEN_INTENT`, a special access the person can turn off.
+    // No call service on a Mac, the web or tvOS.
+    Device {
+        name: "calls",
+        ios_modes: &["audio"],
+        android: &[
+            "android.permission.MANAGE_OWN_CALLS",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+            "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+            "android.permission.USE_FULL_SCREEN_INTENT",
+        ],
+        android_services: &["call"],
+        needs: Some("microphone"),
+        tvos: false,
         ..ROW
     },
     // The camera, `@exact/camera`'s (LLP 1133.008 D6). Its Android features
@@ -455,6 +505,14 @@ pub fn device_grants(spec: &str) -> Result<Vec<DeviceGrant<'_>>, Vec<String>> {
         }
     }
     for g in &grants {
+        if let Some(needed) = g.device.needs {
+            if !grants.iter().any(|h| h.device.name == needed) {
+                errors.push(format!(
+                    "`device.{}` needs `device.{needed} <purposeKey>` beside it (grant-needs)",
+                    g.device.name
+                ));
+            }
+        }
         if let Some(wider) = g.device.narrows {
             if grants.iter().any(|h| h.device.name == wider) {
                 errors.push(format!(
@@ -608,6 +666,24 @@ mod tests {
             permissions_policy(""),
             "microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
         );
+    }
+
+    /// LLP 1133.033 D3: the background line stands beside the capture's own.
+    #[test]
+    fn a_capture_in_the_background_needs_the_microphone_line() {
+        let errors = device_grants("device.microphone-background purpose.bg").unwrap_err();
+        assert!(
+            errors[0].contains("needs `device.microphone <purposeKey>` beside it (grant-needs)"),
+            "{errors:?}"
+        );
+        let both =
+            device_grants("device.microphone purpose.mic\ndevice.microphone-background purpose.bg")
+                .unwrap();
+        let row = both[1].device;
+        assert_eq!(row.ios_modes, ["audio"]);
+        assert_eq!(row.ios_flags, ["ExactCapturesInBackground"]);
+        assert_eq!(row.android_services, ["capture"]);
+        assert!(row.web.is_none() && !row.tvos && row.macos.is_empty());
     }
 
     /// LLP 1133.013 D11: one line turns on the three sensors' features.

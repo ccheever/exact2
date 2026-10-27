@@ -209,6 +209,11 @@ impl<D: DataSource> Runner<D> {
                 self.raise_told_wake(wake);
                 continue;
             }
+            // A foreground-service claim under the agent (LLP 1133.033 D21).
+            if let Some(claim) = topic.strip_prefix(super::modules::CLAIMED) {
+                self.foreground_service_told(claim);
+                continue;
+            }
             match self.changed(&topic) {
                 Ok(Some(receipt)) => receipts.push(receipt),
                 Ok(None) => {}

@@ -536,3 +536,46 @@ fn a_call_waits_for_a_running_wake() {
     assert_eq!(calls[0]["outcome"], "ok", "{calls} {}", logs(&r));
     assert_eq!(calls[0]["certainty"], "applied");
 }
+
+/// LLP 1133.033 D21: Android's reader under the agent starts no foreground
+/// service and says each claim through the claimant's `changed`; the runner
+/// journals it and lists the claims held in the claimant's
+/// `state.extensions` entry until their release.
+#[test]
+fn a_foreground_service_claim_is_listed_while_held() {
+    let app = App::new("claim");
+    let mut r = boot(&app);
+    r.listen(std::sync::Arc::new(|| {}));
+    let told = |r: &Runner<Later>, claimed: bool, refused: Option<&str>| {
+        let mut body = serde_json::json!({ "extension": "tide", "kind": "capture", "types": ["microphone"], "claimed": claimed, "text": "Recording" });
+        if let Some(why) = refused {
+            body["refused"] = why.into();
+        }
+        r.native_slot()
+            .changed(&format!("exact-foreground-service:{body}"));
+    };
+    let claims = |r: &Runner<Later>| state(r)["extensions"]["tide"]["foregroundService"].clone();
+    told(&r, true, None);
+    r.apply_announced();
+    let held = claims(&r);
+    assert_eq!(held[0]["type"], "microphone", "{held}");
+    assert_eq!(
+        (held[0]["package"].as_str(), held[0]["text"].as_str()),
+        (Some("tide"), Some("Recording"))
+    );
+    assert!(
+        logs(&r).contains("foreground service microphone: claimed"),
+        "{}",
+        logs(&r)
+    );
+    told(&r, false, None);
+    r.apply_announced();
+    assert!(claims(&r).is_null(), "{}", claims(&r));
+    assert!(logs(&r).contains("foreground service microphone: released"));
+    told(&r, false, Some("ForegroundServiceStartNotAllowedException"));
+    r.apply_announced();
+    assert!(logs(&r).contains(
+        "foreground service microphone: refused: ForegroundServiceStartNotAllowedException"
+    ));
+    assert!(claims(&r).is_null());
+}
