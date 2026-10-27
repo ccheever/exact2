@@ -230,6 +230,18 @@ pub(super) fn failed_now(name: &str, why: &str) -> String {
     text!("resource {} failed: {}", name, why)
 }
 
+/// A resource a turn over its budget refused, asked again (`overrun.rs`).
+pub(super) fn overrun_reask(name: &str, why: &str, after_ms: f64, nth: usize, of: usize) -> String {
+    text!(
+        "resource {}: {}; asked again in {} ms ({} of {})",
+        name,
+        why,
+        after_ms as u64,
+        nth,
+        of
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

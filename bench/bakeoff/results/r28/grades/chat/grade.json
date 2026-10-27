@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Blue right / grey left bubbles, oldest at top (first message Jul 1), centred iMessage-style headings ('Wed, Jul 1 at 3:20 AM', 'Sunday 12:14 AM', 'Today 3:03 PM'). Opens at the newest message. Emoji-only messages show large with no bubble, as Messages does."},
+      {"n": 2, "status": "pass", "note": "Send works, thread stays at the bottom, composer clears, text is trimmed; Send is disabled for empty or whitespace-only text. Composer grows to several lines."},
+      {"n": 3, "status": "pass", "note": "Composer rides above the keyboard and the newest messages stay visible; dragging down into the keyboard dismisses it. When the composer grows it covers the last bubble until the next send."},
+      {"n": 4, "status": "pass", "note": "Animated three-dot bubble plus 'Sam is typing…' caption and a 'typing…' subtitle under the nav title; a canned reply or 👍 arrives about 2 s later, one per message."},
+      {"n": 5, "status": "pass", "note": "System context menu with Copy and Delete, and a correct lifted bubble preview. Copy reaches the pasteboard (paste confirmed); Delete removes the message and it stays deleted after relaunch."},
+      {"n": 6, "status": "pass", "note": "Scrolls and flings smoothly to the first message with no blank rows; a floating glass ↓ button (58 pt) appears when far up and returns to the newest message."},
+      {"n": 7, "status": "pass", "note": "Sent messages, Sam's replies and deletions all survive relaunch."}
+    ],
+    "bugs": [
+      "Typing a word and tapping Send at once can drop the tap (Send hadn't enabled yet), so 'one' + 'two' sent quickly became a single 'onetwo' message.",
+      "When the composer grows to three lines, the newest bubble (Sam's reply) slides under it and the thread doesn't scroll up to keep it in view."
+    ],
+    "tells": [
+      "Tapping the thread doesn't dismiss the keyboard (only an interactive drag does).",
+      "Bubbles have no tails; bubble corner radius stays fixed at the largest text size, so big bubbles look boxy.",
+      "Nav bar title doesn't grow with Dynamic Type (normal for system bars)."
+    ],
+    "scroll": "Feels native: glass nav bar and composer with content blurring under them, smooth momentum, no blank or popping rows during a fling, clean stop at the top.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Right / left bubbles, oldest at top, centred date headings where the day changes. Opens at the newest message. Headings always use the full form ('Oct 25, 2026 at 12:14 AM'), not Messages' relative 'Sunday' / 'Today' style; emoji-only messages sit inside a bubble."},
+      {"n": 2, "status": "pass", "note": "Send works, stays at the bottom, composer clears and trims; Send is disabled for empty or whitespace-only text. Multi-line composer grows and the thread shifts up so nothing is hidden."},
+      {"n": 3, "status": "pass", "note": "Composer stays above the keyboard and the newest messages stay visible; tapping the thread or dragging down dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "Grey dots bubble with 'Sam is typing…' beside it; reply arrives about 2 s later. Rapid back-to-back sends each got their own reply."},
+      {"n": 5, "status": "partial", "note": "Copy and Delete work (paste confirmed, delete persists). But for any multi-line bubble the context-menu preview is a blank white rounded rectangle; in dark mode a short Sam bubble's preview loses its fill."},
+      {"n": 6, "status": "pass", "note": "Scrolls smoothly to the first message; a small (35 pt) ↓ button appears when far up and jumps to the newest message."},
+      {"n": 7, "status": "pass", "note": "Sent messages, replies and deletions survive relaunch."}
+    ],
+    "bugs": [
+      "Long-pressing a multi-line message shows a blank white box as the menu preview instead of the bubble (reproduced on two different messages).",
+      "In dark mode the long-press preview of a received bubble is drawn black with an outline instead of its grey fill."
+    ],
+    "tells": [
+      "Nav bar is opaque white/black with a hard clip line; content doesn't scroll under a glass bar as it does in an iOS 26+ app, and the composer has no glass either.",
+      "Date headings use a verbose 'Oct 25, 2026 at 12:14 AM' format instead of Messages' relative style.",
+      "Emoji-only messages are wrapped in a bubble rather than shown large.",
+      "Jump-to-newest button is small (35 pt) and its look switches between plain and glass styles.",
+      "Bubbles have no tails; corner radius stays fixed at the largest text size, so big bubbles look boxy."
+    ],
+    "scroll": "Smooth and complete, with no blank rows or jumps during flings, but the hard-edged opaque bar makes it feel flatter than a native iOS 27 thread.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet every requirement, but A looks like an iOS 27 Messages thread: content scrolls under a glass nav bar and composer, date headings are relative, emoji-only messages show large, and the long-press preview is correct. B's long-press preview turns into a blank white box for multi-line messages, and its opaque bars and verbose dates look less native. A's dropped tap on a very fast send is minor next to that."
+}

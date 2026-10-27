@@ -43,7 +43,7 @@ fn a_turn_that_waits_without_working_is_within_its_budget() {
     let a = args("native-direct", "waited");
     match m.answer(&mut s, "work", &a) {
         Ok(answer) => assert_eq!(super::storage::finish(&mut m, &mut s, &a, answer), "waited"),
-        Err(DataError::Unavailable(e)) if e.contains("a turn may take") => return,
+        Err(DataError::Overrun(e)) if e.contains("a turn may take") => return,
         Err(e) => panic!("a waiting turn was refused: {e:?}"),
     }
     assert_eq!(m.overruns(), 0);
@@ -63,7 +63,7 @@ fn a_turn_that_waits_past_the_backstop_is_refused() {
     let mut m = module(&root, |_| Box::new(Waits::<1100>));
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     match m.answer(&mut s, "work", &args("native-direct", "too long")) {
-        Err(DataError::Unavailable(e)) => {
+        Err(DataError::Overrun(e)) => {
             assert!(e.contains("over the 1000 ms a turn may take"), "{e}")
         }
         other => panic!("expected the backstop's refusal, got {other:?}"),
@@ -80,7 +80,7 @@ fn a_turn_that_works_past_its_budget_is_refused() {
     assert_eq!(call(&mut m, &mut s, "busy", "1000"), "496491"); // (7 × 499500 mod 1000003)
                                                                 // Enough iterations for well over 100 ms of the module's own time on any machine.
     match m.answer(&mut s, "work", &args("busy", "30000000")) {
-        Err(DataError::Unavailable(e)) => assert!(
+        Err(DataError::Overrun(e)) => assert!(
             e.contains("over the 100 ms budget for one turn") && e.contains("scheduler.yield()"),
             "{e}"
         ),

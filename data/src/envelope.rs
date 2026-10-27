@@ -132,6 +132,8 @@ fn error_json(error: &DataError) -> Json {
         DataError::BadArguments(m) => ("BadArguments", m),
         DataError::DeferredAtBake(m) => ("DeferredAtBake", m),
         DataError::Unavailable(m) | DataError::Interface(m) => ("Unavailable", m),
+        // Transient: a peer that predates it reads it as `Unavailable` (`error_from`'s catch-all).
+        DataError::Overrun(m) => ("Overrun", m),
         // Its class travels with it (LLP 1109 D3).
         DataError::Failed(code, m, reason) => {
             return json!({"kind": "Failed", "code": code.name(), "message": m, "reason": reason});
@@ -146,6 +148,7 @@ fn error_from(error: &Json) -> DataError {
         Some("UnknownSource") => DataError::UnknownSource(message),
         Some("BadArguments") => DataError::BadArguments(message),
         Some("DeferredAtBake") => DataError::DeferredAtBake(message),
+        Some("Overrun") => DataError::Overrun(message),
         Some("Failed") => match error["code"].as_str().and_then(FailureCode::from_name) {
             Some(code) => {
                 let reason = error["reason"].as_str().unwrap_or("").to_string();
@@ -336,6 +339,24 @@ mod tests {
             Answer::Later(r) => assert_eq!(r, storage),
             _ => panic!("a storage yield"),
         }
+    }
+
+    /// A turn over its budget keeps its class across the envelope, so a
+    /// worker's or a mixed member's is asked again as an in-process one is;
+    /// a kind an older peer doesn't know reads as `Unavailable`.
+    #[test]
+    fn an_overrun_keeps_its_class_across_the_envelope() {
+        let why = "`r` took 180.0 ms of its own (CPU) time, over the 100 ms budget for one turn";
+        let back = error_from(&error_json(&DataError::Overrun(why.into())));
+        assert!(
+            matches!(back, DataError::Overrun(ref m) if m == why),
+            "{back:?}"
+        );
+        let older = error_from(&json!({"kind": "SomethingNewer", "message": why}));
+        assert!(
+            matches!(older, DataError::Unavailable(ref m) if m == why),
+            "{older:?}"
+        );
     }
 
     #[test]

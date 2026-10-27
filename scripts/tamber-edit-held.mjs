@@ -5,8 +5,10 @@
 // it), carrying `editedBy`, the last editor's client (the owner's own name when it edits its own), its review
 // renumbered and marked `kept` (its overrides were ticked) and `from` the old one. Answered as a recompute (`{recomputed, replaces, ...}`);
 // the old one's end is `proposal-dropped {reason: 'edited', replacedBy, editedBy}`. A server re-import is held as an
-// edit: the value given, not marked again; a held revert is not edited (it is planned from its commit). A plan that
+// edit: the value given, not marked again; its recorded choice (tamber-held-choice.mjs) carried, renumbered to what it keeps; a held revert is not edited (it is planned from its commit). A plan that
 // fails leaves the old one held as it was.
+
+import { carried, staleChoice } from './tamber-held-choice.mjs';
 
 /** The edit `request` makes of held proposal `p` (`{ops, review}`, the ops kept and the review for them), or a
  * refusal (`{status, error}`). */
@@ -33,7 +35,7 @@ export function edited(request, p) {
     ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
   };
   if (review) { delete review.dials; delete review.pins; }
-  return { ops, review };
+  return { ops, review, choice: carried(p.shown, kept) };
 }
 
 /** `edit-held` by a client at `scope`, over the server's held proposals. The proposal stays held, and counted in
@@ -46,13 +48,14 @@ export async function editHeld(request, scope, { expire, proposals, hold, announ
   if (!p || p.busy) return (!p && stale(id)) || { status: 404, error: { message: `no held proposal \`${id}\` (accepted, dropped, being accepted or edited, or expired)` } };
   // A revert is planned from its commit, never from operations a client changed: dropped and reverted again instead.
   if (p.shown.review?.revert !== undefined) return { status: 400, error: { message: 'a held revert is planned from its commit: drop it and revert again to change it' } };
-  const made = edited(request, p);
+  // (A `choiceAt` named, 1.18: the choice it carries the one the client saw, checked in the turn it is taken.)
+  const made = staleChoice(request, p, 'edit') ?? edited(request, p);
   if (made.error) return made;
   // Its guards stay its guards (not those it inferred); planned on the files as they are, as a re-hold is.
   const own = Object.fromEntries(Object.entries(p.guards).filter(([path]) => !(p.inferred ?? []).includes(path)));
   p.busy = true;
   let fresh;
-  try { fresh = await hold(p.client, made.ops, undefined, id, made.review, own, scope, undefined, p.restoring, request.client); } finally { p.busy = false; }
+  try { fresh = await hold(p.client, made.ops, undefined, id, made.review, own, scope, undefined, p.restoring, request.client, made.choice); } finally { p.busy = false; }
   if (!fresh.ok) return fresh;
   announce({ event: 'proposal-dropped', proposal: id, client: request.client, reason: 'edited', replacedBy: fresh.ok.proposal, editedBy: request.client });
   return { ok: { recomputed: true, replaces: id, ...fresh.ok } };

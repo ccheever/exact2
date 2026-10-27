@@ -325,7 +325,9 @@ impl<D: DataSource> Runner<D> {
     /// a call cannot be traced to the answer that made it.
     pub(in crate::runner) fn data_origin(&self) -> CallOrigin {
         let o = &self.extensions.origins;
+        // (a re-ask's wait runs nothing, `overrun.rs`)
         (self.pending.iter())
+            .filter(|p| p.reask_at.is_none())
             .filter_map(|p| o.tickets.get(&p.ticket).copied())
             .chain(self.tool_origin())
             .fold(o.now, CallOrigin::min)
@@ -350,6 +352,17 @@ impl<D: DataSource> Runner<D> {
         let o = &mut self.extensions.origins;
         let origin = o.thens.remove(&m).unwrap_or_default();
         (origin, o.then_ids.remove(&m).unwrap_or(0))
+    }
+
+    /// Request `to` carries on request `from`'s ask: its origin and invocation.
+    pub(in crate::runner) fn restamp(&mut self, from: u64, to: u64) {
+        let o = &mut self.extensions.origins;
+        if let Some(origin) = o.tickets.remove(&from) {
+            o.tickets.insert(to, origin);
+        }
+        if let Some(id) = o.ids.remove(&from) {
+            o.ids.insert(to, id);
+        }
     }
 
     /// Forget the origins of requests no longer in flight.

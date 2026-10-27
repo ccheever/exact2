@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Full day in time order, grouped by hour, with pinned hour headers. Each row shows the time, a coloured letter badge, destination, platform, and Delayed/Cancelled. 'Delayed N min' is plain grey secondary text and easy to miss; only Cancelled is red."},
+      {"n": 2, "status": "pass", "note": "Station button opens a sheet with a searchable list of 20 stations (bottom search field, native 'No Stations Found' empty state, checkmark on the current station). Picking one reloads the list near now. The list is in data order, not alphabetical."},
+      {"n": 3, "status": "fail", "note": "The list does not open at the next departure. At 15:41 it opened at 11:00–12:00 (Harbor), and at 15:45 it opened at 10:23 (Mill Creek). The first Now tap stops about an hour short (14:50); it takes a second tap to reach 15:45. After a station change it lands close to now."},
+      {"n": 4, "status": "pass", "note": "Native pull-down menu: All lines plus five lines with a checkmark. Filtering works."},
+      {"n": 5, "status": "pass", "note": "Past rows have greyed time and text, but badges and star buttons stay at full colour, so the dimming is subtle."},
+      {"n": 6, "status": "pass", "note": "Star toggles. The Saved tab lists saved departures by hour with the station shown, and has a native empty state. Saved items and the chosen station survive relaunch. No swipe-to-unsave."}
+    ],
+    "bugs": [
+      "List opens hours before the current time (11:00 or 10:23 when it is 15:41–15:45) instead of at the next departure.",
+      "Now button needs two taps: the first scroll stops about an hour early (shows 14:50 at the top while the next departure is 15:45)."
+    ],
+    "tells": [
+      "Pinned hour header has no opaque background: the scrolled row's text ('Platform 1', 'Delayed 11 min') shows through and overlaps the header label, which is very visible at large text.",
+      "Hour headers are always grey, so future-hour headings look the same as dimmed past rows.",
+      "Rows are tall three-line stacks (time+badge / destination / platform) with a lot of empty space on the right: about 101 pt per departure, so only about 5 fit on screen.",
+      "Station and filter controls sit in a fixed, non-scrolling block above the list instead of in the navigation bar or list header; there is no large title.",
+      "No swipe actions on saved rows; unsaving only works through the star.",
+      "Delayed status uses grey secondary text rather than a warning colour.",
+      "At the largest text size the star button scales to a huge glyph and crowds the badge."
+    ],
+    "scroll": "Scrolling is smooth: no blank rows or pop-in, flings reach the top cleanly, and headers pin and push correctly. However, pinned headers let row text show through underneath.",
+    "scores": {"features": 6, "platform": 7, "polish": 5, "overall": 5}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Full day grouped by hour with opaque pinned headers that also show a departure count ('7 DEPARTURES'). Each row has a large time, a coloured line badge, 'To' destination, platform, and status with an icon (orange 'Delayed 8 min', red 'Cancelled')."},
+      {"n": 2, "status": "pass", "note": "Big station title with a chevron opens a sheet with a grabber: an alphabetical list of 20 stations, a 'Search 20 stations' field and a 'No stations found' empty state. Picking one jumps to the next departure there."},
+      {"n": 3, "status": "partial", "note": "Now works on the first tap: it scrolls to the next departure and highlights it with an accent bar and tint, plus a 'Next at 15:45 · in 3 min' line. On every cold launch, though, the list opened at 17:00, skipping the next departures (15:45–16:59), so 'the list opens there' fails."},
+      {"n": 4, "status": "pass", "note": "Native menu with coloured dots for each line. Filtering works and the 'Next at' line updates for the chosen line."},
+      {"n": 5, "status": "pass", "note": "Past rows are clearly dimmed: time, text and badges all washed out."},
+      {"n": 6, "status": "pass", "note": "Star turns filled orange, and the Saved tab shows a count badge. The Saved list shows 'From <station>', has a swipe-to-Unsave action and an empty state. Saved items and the chosen station survive relaunch; the line filter resets to All."}
+    ],
+    "bugs": [
+      "On launch the list opens at 17:00, about 1–2 hours past the next departure (15:45/15:59), hiding the upcoming departures until Now is tapped."
+    ],
+    "tells": [
+      "Custom warm, branded look (cream background, rust accent, custom headers) rather than system grouped-list styling; Now is a tinted capsule with an arrow glyph.",
+      "Large fixed header (Departing from / huge station name / Next at / date / filter pill) never scrolls away. It takes about a third of the screen normally, and at the largest text size about 60%, leaving room for about one row.",
+      "The Saved tab copies the board header (eyebrow text, giant 'Saved departures' title duplicating the nav title, a filter pill, a Now button), and the title is exposed as a button that does nothing.",
+      "Uses the uppercase eyebrow labels ('DEPARTING FROM', 'YOUR DAILY CONNECTIONS') of a web or design-system look.",
+      "Title 'Timetable' is drawn as a custom leading label with an icon, not a system large title."
+    ],
+    "scroll": "Smooth: headers pin and push cleanly, nothing pops in, flings to the top land at 00:00 with no jumps. Opaque headers keep it tidy, but the short scroll viewport (fixed header) makes the list feel cramped.",
+    "scores": {"features": 8, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "B",
+  "why": "B handles more of the spec: Now scrolls correctly on the first tap and highlights the next train, past rows are clearly dimmed, delays are coloured, saved rows have swipe-to-unsave and a tab badge, and the station search is alphabetical. Its main flaw is opening an hour or two late. A is closer to stock iOS controls, but it opens hours early, needs two Now taps, and its pinned headers let row text show through underneath."
+}

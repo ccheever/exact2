@@ -498,6 +498,7 @@ impl DataSource for Module {
                 | DataError::UnknownSource(e)
                 | DataError::Interface(e)
                 | DataError::DeferredAtBake(e)
+                | DataError::Overrun(e)
                 | DataError::Failed(_, e, _),
             ) => exact_runner::DrawReply {
                 error: Some(e),

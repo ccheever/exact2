@@ -207,6 +207,32 @@ impl<D: DataSource> Runner<D> {
         self.advance_within(self.now_ms, false, false)
     }
 
+    /// [`Runner::land_then`] when the earliest work due is an answer's
+    /// `then`, a queue's `next` or a transport or MIDI answer; otherwise
+    /// nothing, so no timer due before it is overtaken. A host that runs
+    /// timer advances without waiting for them runs this while it waits, so
+    /// an answer and what its `then` does show in one frame (LLP 1016.001
+    /// D3, LLP 1072.000 §4 B).
+    pub fn land_then_first(&mut self) -> Advanced {
+        let then = self
+            .then_due
+            .iter()
+            .chain(&self.queues.next_due)
+            .chain([&self.transport.answer_due, &self.midi.answer_due])
+            .copied()
+            .filter(|ms| ms.is_finite())
+            .reduce(f64::min);
+        if then.is_none() || then != self.timer_due_ms() {
+            return Advanced {
+                receipts: Vec::new(),
+                now_ms: self.now_ms,
+                error: None,
+                stopped_on_request: false,
+            };
+        }
+        self.land_then()
+    }
+
     /// [`Self::advance_steps`] with the wakes (LLP 1133.017 D6): a wake's
     /// deadline within the advance expires it there, after the work due
     /// before it, and what the wakes can deliver is delivered after. No
@@ -309,7 +335,26 @@ impl<D: DataSource> Runner<D> {
                 .filter(|at| due.is_none_or(|(_, timer)| *at < timer));
             let due = due.filter(|(_, at)| ended.is_none() && before_wake(*at));
             let timer_at = due.map(|(_, at)| at).or(ended);
-            let ready = |at: f64| timer_at.is_none_or(|timer| at <= timer) && before_wake(at);
+            // A re-ask is a request's, not an authored timer's: it comes due
+            // while timers wait on an unseen wake or call, which owns it.
+            // Nor past a drop's hold deadline, which goes first, or waits
+            // with the timers.
+            // Every candidate is ordered by the earliest re-ask, even one a
+            // hold deadline keeps from going while the hold goes first. With
+            // the timers held the hold waits, and so does that re-ask, but
+            // nothing else waits on it: an unseen wake's `then` would keep
+            // the timers held until its expiry.
+            let hold = self.reorder_deadline().filter(|at| *at <= now_ms);
+            let earliest = self
+                .reask_due(now_ms)
+                .filter(|(_, at)| timer_at.is_none_or(|timer| *at <= timer) && before_wake(*at));
+            let reask = earliest.filter(|(_, at)| hold.is_none_or(|hold| *at < hold));
+            let order = if timers { earliest } else { reask };
+            let ready = |at: f64| {
+                timer_at.is_none_or(|timer| at <= timer)
+                    && before_wake(at)
+                    && order.is_none_or(|(_, reask)| at <= reask)
+            };
             // An answer's `then` goes before a timer due at the same time: the
             // answer landed first. A queue's `next` goes after the `then`s and
             // before the timers (LLP 1092 D3). `exactTransport`'s answer is a
@@ -482,6 +527,42 @@ impl<D: DataSource> Runner<D> {
                             stopped_on_request: false,
                         }
                     }
+                }
+                continue;
+            }
+            // A resource a turn over its budget refused is asked again at its
+            // time (`overrun.rs`), before a timer due then: its ask came first.
+            if let Some((t, at)) = reask {
+                if receipts.len() == TIMER_FIRE_LIMIT {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(RunnerError::TimerFireLimit {
+                            limit: TIMER_FIRE_LIMIT,
+                        }),
+                        stopped_on_request: false,
+                    };
+                }
+                self.now_ms = self.now_ms.max(at);
+                let ticket = self.next_ticket;
+                match self.scheduled(at, |r| r.reask(t)) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: Some(e),
+                            stopped_on_request: false,
+                        }
+                    }
+                }
+                if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    stopped_on_request = true;
+                    break;
                 }
                 continue;
             }

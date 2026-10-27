@@ -39,6 +39,14 @@ enum RequestEffect {
         request: Box<Request>,
         forced: bool,
     },
+    /// Refused by a turn over its budget: held to be asked again
+    /// (`overrun.rs`), as an ask in flight.
+    Wait {
+        args: Vec<Value>,
+        reasks: usize,
+        forced: bool,
+        why: String,
+    },
 }
 
 impl<D: DataSource> Runner<D> {
@@ -221,6 +229,12 @@ impl<D: DataSource> Runner<D> {
         // pass hands the host, and the pending flags as they will be —
         // published with the rest only when the pass succeeds.
         let mut force = std::mem::take(&mut self.refresh_next);
+        // What this settlement refreshes stays refreshed in every pass, though
+        // the first ask takes it out of `force` (a store reader asked again
+        // after a later resource wrote): a turn over its budget's wait, or a
+        // request, replaces the standing ask and starts a new streak
+        // (`overrun.rs`).
+        let refreshing = force.clone();
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
@@ -248,7 +262,9 @@ impl<D: DataSource> Runner<D> {
                         pending_res[i] = false;
                         awaiting[i] = false;
                     }
-                    RequestEffect::Later { .. } => pending_res[i] = true,
+                    RequestEffect::Later { .. } | RequestEffect::Wait { .. } => {
+                        pending_res[i] = true
+                    }
                 }
             }
             let mut settled_res = vec![false; states.len()];
@@ -408,6 +424,7 @@ impl<D: DataSource> Runner<D> {
                     // resource is device data just like a direct reader.
                     self.store_readers[i] |= store_dependent;
                     let forced = force.contains(&i);
+                    let refreshed = forced || refreshing.contains(&i);
                     // A stand-in a refused activation failed holds for a kept
                     // seed's identifying arguments, whatever its context
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
@@ -421,7 +438,9 @@ impl<D: DataSource> Runner<D> {
                     // request is in flight. Reuse follows the current ask;
                     // the standing value keeps its own provenance.
                     let asked_args = match &effects[i] {
-                        RequestEffect::Later { args, .. } => Some(args),
+                        RequestEffect::Later { args, .. } | RequestEffect::Wait { args, .. } => {
+                            Some(args)
+                        }
                         RequestEffect::Answered => None,
                         RequestEffect::None => self
                             .pending
@@ -613,15 +632,17 @@ impl<D: DataSource> Runner<D> {
                                 // reconciles after a write ended, which never
                                 // refuses publishing the end. A source's own
                                 // refusal otherwise still refuses the commit.
+                                // (a turn over its budget is asked again below, not failed)
                                 Err(e @ (RunnerError::Data { .. } | RunnerError::Shape { .. }))
-                                    if (reconciling
-                                        || matches!(
-                                            e,
-                                            RunnerError::Data {
-                                                error: DataError::Interface(_),
-                                                ..
-                                            }
-                                        ))
+                                    if !super::overrun::is_overrun(&e)
+                                        && (reconciling
+                                            || matches!(
+                                                e,
+                                                RunnerError::Data {
+                                                    error: DataError::Interface(_),
+                                                    ..
+                                                }
+                                            ))
                                         && !exact_plan::runner_owned_source(
                                             self.plan.str(row.source),
                                         )
@@ -729,6 +750,52 @@ impl<D: DataSource> Runner<D> {
                                     });
                                     kept
                                 }
+                                // A turn over its budget (`overrun.rs`): the
+                                // resource keeps what it shows and is held to be
+                                // asked again, an ask in flight; its streak
+                                // spent, it fails as any refusal does. The
+                                // asking commit stands (LLP 1027.000 D3).
+                                Err(e)
+                                    if super::overrun::is_overrun(&e)
+                                        && !self.streaming(i)
+                                        && (states[i].is_some()
+                                            || self.placeholder(i, &row, &resources).is_some()) =>
+                                {
+                                    let why = crate::failure::Failure::of(&e);
+                                    let kept = if let Some(state) = &states[i] {
+                                        placeholder = state.placeholder;
+                                        value_args = state.args.clone();
+                                        answered_for = state.answered_for.clone();
+                                        state.value.clone()
+                                    } else {
+                                        placeholder = true;
+                                        Held::new(
+                                            self.placeholder(i, &row, &resources).expect("checked"),
+                                        )
+                                    };
+                                    let reasks =
+                                        self.overrun_reasks(Target::Resource(i), &args, refreshed);
+                                    if super::overrun::reask_after(reasks).is_some() {
+                                        effects[i] = RequestEffect::Wait {
+                                            args: args.clone(),
+                                            reasks,
+                                            forced: refreshed,
+                                            why: why.message,
+                                        };
+                                        pending_res[i] = true;
+                                    } else {
+                                        effects[i] = RequestEffect::Answered;
+                                        pending_res[i] = false;
+                                        self.count_failure(i);
+                                        self.alert(super::lines::failed_now(
+                                            self.plan.str(row.name),
+                                            &why.message,
+                                        ));
+                                        self.failed_args[i] = Some(args.clone());
+                                        self.failed_why[i] = Some(why);
+                                    }
+                                    kept
+                                }
                                 Err(error) => return Err(error),
                                 Ok(Answer::Now(v)) => {
                                     generation = self.inspected_request(i);
@@ -780,7 +847,7 @@ impl<D: DataSource> Runner<D> {
                                     effects[i] = RequestEffect::Later {
                                         args: args.clone(),
                                         request: Box::new(request),
-                                        forced,
+                                        forced: refreshed,
                                     };
                                     pending_res[i] = true;
                                     kept
@@ -883,14 +950,20 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             for (i, effect) in std::mem::take(effects).into_iter().enumerate() {
-                if let RequestEffect::Later {
-                    args,
-                    request,
-                    forced,
-                } = effect
-                {
-                    let source = self.plan.str(self.plan.resources[i].source).to_string();
-                    self.enqueue(Target::Resource(i), source, args, *request, forced);
+                let source = self.plan.str(self.plan.resources[i].source).to_string();
+                match effect {
+                    RequestEffect::Later {
+                        args,
+                        request,
+                        forced,
+                    } => self.enqueue(Target::Resource(i), source, args, *request, forced),
+                    RequestEffect::Wait {
+                        args,
+                        reasks,
+                        forced,
+                        why,
+                    } => self.hold_reask(i, source, args, reasks, forced, &why),
+                    RequestEffect::None | RequestEffect::Answered => {}
                 }
             }
             // The flags follow the tickets and what awaits its source.

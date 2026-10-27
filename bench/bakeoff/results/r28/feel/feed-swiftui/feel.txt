@@ -1,0 +1,36 @@
+dev.bakeoff.feed.b2b5208: SwiftUI.HostingScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 17.22 s of motion
+  ok    hitch ratio (ms/s)                     4.9
+  tell  longest frame (ms)                     37.6
+  ok    main thread p95 (ms/frame)             3.6
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       503
+  ok    momentum hand-off (content/asked)      1.07
+  tell  flings that drop a frame at the lift   1/4
+  tell  offset jumps while decelerating        1
+  ok    edge bounce settle (s)                 0.8
+  ok    rubber band (overscroll/finger)        0.63
+  ok    rubber band settle (s)                 0.58
+  ok    status-bar scroll to top (s)           0.93
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              125.4
+  bad   scrub: longest frame (ms)              71.9
+  ok    scrub: blank samples (share)           0
+  n/a   scrub: blanks while held (share)       –
+  ok    carousel: hitch ratio (ms/s)           0
+  ok    carousel: longest frame (ms)           16.7
+  ok    carousel: tracking ratio               1.011
+  bad   carousel: deceleration τ (ms; .normal 500) 100
+  tell  carousel: momentum hand-off (content/asked) 1.41
+  ok    carousel: edge bounce settle (s)       0.28
+  ok    carousel: a mostly-horizontal drag (carousel/finger, list pt) 1.26, 0
+  ok    carousel: a mostly-vertical drag (list/finger, carousel pt) 0.95, 0
+  20 ok, 4 tell, 3 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 4.9):
+    slow-drag: 3 late frames (0 on a timer's tick), 50 ms late; app code 28 ms (in images 9) · SwiftUI 9 ms · text & drawing 3 ms; in the main queue 9 ms, display links and ports 7 ms
+    fling-6000: 1 late frame (0 on a timer's tick), 17 ms late; app code 15 ms (in images 5) · text & drawing 3 ms; in display links and ports 10 ms
+    v-diagonal: 1 late frame (0 on a timer's tick), 17 ms late; app code 18 ms (in images 8) · text & drawing 3 ms; in display links and ports 5 ms, the main queue 3 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 19 late frames (0 on a timer's tick), 502 ms late; app code 527 ms (in images 160) · SwiftUI 93 ms · text & drawing 23 ms; in display links and ports 181 ms, events 139 ms, the main queue 10 ms

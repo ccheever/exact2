@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first; bold sender, subject, two-line preview (also capped at 2 lines at largest text), date 'Oct 24' / time for today, blue unread dot. Unread rows don't bold the subject, so they stand out less."},
+      {"n": 2, "status": "pass", "note": "Trailing swipe shows Mail-style round Flag + Archive actions; leading full swipe toggles read/unread. Archived messages appear on a pushed Archive screen with its own filter and search."},
+      {"n": 3, "status": "pass", "note": "Flag button on every row, plus swipe and reader actions. All/Unread/Flagged segmented filter works; unflagging inside the Flagged filter removes the row."},
+      {"n": 4, "status": "pass", "note": "Tapping a row pushes a reader (subject, initials avatar, full date, body, mark-unread/flag/archive toolbar); unread count drops and the row leaves the Unread filter."},
+      {"n": 5, "status": "pass", "note": "Pull-to-refresh adds two unread made-up messages at the top (321 messages, unread +2)."},
+      {"n": 6, "status": "pass", "note": "'110 unread · 321 messages' in the list header, a count in the bottom toolbar, and the archive count on the button's accessibility value."},
+      {"n": 7, "status": "pass", "note": "Read, unread, flag and archive changes and the refreshed messages all survived relaunch."}
+    ],
+    "bugs": [
+      "Pluralisation: '1 messages' in the Archive header ('0 unread · 1 messages') and toolbar, and '1 messages' on the archive button's accessibility value.",
+      "The row flag button's accessibility label stays 'Flag message' when the message is already flagged."
+    ],
+    "tells": [
+      "The unread/total line and the All/Unread/Flagged segmented control sit in a grey band inside the list, which reads more like a web header than an iOS navigation bar or toolbar filter.",
+      "Dark mode: the inbox background is dark grey, not black, with a near-black band behind the filter, and the selected segment is darker than its track. The reader screen is pure black, so the two screens don't match.",
+      "The message count appears twice on the inbox (in the header and in the bottom toolbar).",
+      "At the largest text size the unread dot, the row flag icons and the reader's avatar initials stay small while the text grows, and the search field becomes a huge floating capsule that takes up much of the screen when scrolled.",
+      "The reader has an 'END OF MESSAGE' caption and a centred 'Message' title, which a hand-built mail app wouldn't have.",
+      "Unread rows only add a dot; the subject isn't bolded the way Mail bolds it."
+    ],
+    "scroll": "Smooth, with no blank rows or pop-in while dragging, flinging the full 320 rows to the end and back, or pulling past the top. Scroll position is kept after returning from the reader. The glass search bar and toolbar blur content under them correctly.",
+    "scores": {"features": 9, "platform": 6, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Newest first, with a Mail-like row: sender, time or weekday ('Saturday') or short date, subject, preview, and a blue dot plus bold subject for unread. At the largest text size the preview isn't capped at two lines and runs to 5 or more lines."},
+      {"n": 2, "status": "pass", "note": "Trailing swipe shows round Flag/Unflag + Archive; leading swipe toggles read/unread. Archive is a pushed screen with a '1 message' subtitle and its own filter."},
+      {"n": 3, "status": "pass", "note": "Flag/Unflag from swipe and from the reader; the flag shows on the row. A Filter pull-down menu (All Messages/Unread/Flagged) works, and its button shows the active filter. There's no one-tap flag control on the row."},
+      {"n": 4, "status": "pass", "note": "Reader with subject, sender, 'To: You', date ('Today at 3:15 PM') and body; flag/unread/archive actions sit in the nav bar. Opening a message marks it read."},
+      {"n": 5, "status": "pass", "note": "Pull-to-refresh adds two unread messages timestamped now at the top."},
+      {"n": 6, "status": "pass", "note": "The large title has a '109 unread' subtitle, which collapses into the inline title when you scroll."},
+      {"n": 7, "status": "pass", "note": "Read, flag and archive changes and the refreshed messages survived relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size, row previews aren't limited to two lines, so a single row fills most of the screen."
+    ],
+    "tells": [
+      "At the largest text size the unread-dot gutter scales up into a ~60 pt left indent, which squeezes sender names (e.g. hyphenated 'Mor-gan').",
+      "The reader's inline 'Message' title is left-aligned next to the back button instead of centred.",
+      "There's no search, which an iOS mail list would normally have in the navigation bar.",
+      "A swiped row turns into a grey rounded slab while its actions show (close to iOS 26, but noticeable)."
+    ],
+    "scroll": "Smooth through all 320 rows, with no blank rows or pop-in while flinging or pulling past the top. Scroll position is kept after returning from a message. The large title collapses to an inline title with the unread subtitle, the way a system nav bar does.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and scroll equally well. B looks more like Mail (system nav-bar filter menu, collapsing title with the unread subtitle, correct black dark mode), but it lacks search and doesn't cap previews at large text sizes. A adds search, a one-tap flag on every row, and a layout that adapts at large text, though it has a web-like filter band, an inconsistent dark mode and '1 messages' wording; on balance A is the one I'd rather use, narrowly."
+}

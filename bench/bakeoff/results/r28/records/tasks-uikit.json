@@ -1,0 +1,26 @@
+{
+  "spec": "tasks",
+  "arm": "uikit",
+  "model": "claude",
+  "appId": "dev.bakeoff.tasks.b546548",
+  "assignedId": "dev.bakeoff.tasks.b546548",
+  "appName": "Tasks",
+  "sim": "CEDFB9C9-FF04-4617-B156-94C56B83CA86",
+  "pin": "d7ed471d11",
+  "minutes": 7.62,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1232113,
+    "fresh": 85577,
+    "input": 1184966,
+    "cached": 1099389,
+    "output": 47147,
+    "cost": 1.8472658000000002,
+    "calls": 40,
+    "toolCalls": 25
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r28/built/tasks-uikit.app",
+  "notes": true,
+  "finished": "2026-10-27T20:46:37.620Z"
+}

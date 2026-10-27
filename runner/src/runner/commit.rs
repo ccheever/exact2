@@ -207,11 +207,18 @@ impl<D: DataSource> Runner<D> {
         self.refused_unsent.clear();
         // What a refused commit's gate step read is let go (LLP 1125 D2).
         self.transport.pending = None;
-        // After any restore: the source hears what is really in flight.
+        self.hear_forgotten();
+        self.sample();
+    }
+
+    /// After any restore, or a request let go outside a commit: the source
+    /// hears what is really in flight (a re-ask's wait is not, `overrun.rs`).
+    pub(super) fn hear_forgotten(&mut self) {
         if std::mem::take(&mut self.forgot) {
             let in_flight: Vec<InFlight<'_>> = self
                 .pending
                 .iter()
+                .filter(|p| p.reask_at.is_none())
                 .map(|p| InFlight {
                     target: p.target,
                     source: &p.source,
@@ -221,7 +228,6 @@ impl<D: DataSource> Runner<D> {
                 .collect();
             self.data.forgotten(&self.store, &in_flight);
         }
-        self.sample();
     }
 
     /// Run an action by name with `args` — what a test or an agent does.
@@ -815,6 +821,8 @@ impl<D: DataSource> Runner<D> {
                     && p.keepable.as_ref() == Some(&request)
             }) {
                 p.args = args;
+                // (new arguments: a new streak after a turn over its budget)
+                p.reasks = 0;
                 if let Target::Resource(i) = target {
                     p.inspection_generation =
                         self.ids.work.resources.get(i).map_or(0, |w| w.request);
@@ -827,6 +835,8 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
+        // A re-ask after a turn over its budget carries its streak on.
+        let reasks = self.overrun_reasks(target, &args, forced);
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.note_let_go(t, target);
@@ -875,6 +885,8 @@ impl<D: DataSource> Runner<D> {
             held: request.is_held(),
             long_poll: request.stream && request.long_poll.is_some(),
             replied: false,
+            reask_at: None,
+            reasks,
         });
         self.requests.push(RequestOut {
             ticket,
@@ -1179,6 +1191,11 @@ impl<D: DataSource> Runner<D> {
             }
             return self.message(pos, outcome, &summary);
         }
+        // A re-ask's wait was never sent (`overrun.rs`): only its invocation's end fails it.
+        if self.pending[pos].reask_at.is_some() {
+            return self.reask_answered(ticket, outcome, &summary);
+        }
+        self.overrun.replied = false;
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
@@ -1210,6 +1227,10 @@ impl<D: DataSource> Runner<D> {
             // of `pending`. Admission refusal alone cannot restart a source
             // whose earlier turns may have written.
             if self.holds(ticket) {
+                // Its own turn over its budget: asked again (`overrun.rs`).
+                if self.hold_overrun_reply(ticket, target, e) {
+                    return Ok(None);
+                }
                 return self.release_failed(ticket, target, crate::failure::Failure::of(e));
             }
         }
@@ -1319,6 +1340,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        self.overrun.replied = matches!(parsed, Err(DataError::Overrun(_)));
         let value = match parsed.map_err(|error| RunnerError::Data {
             resource: name.clone(),
             error,
@@ -1348,6 +1370,7 @@ impl<D: DataSource> Runner<D> {
                     next.origin = p.origin;
                     next.inspection_generation = p.inspection_generation;
                     next.write = p.write;
+                    next.reasks = p.reasks;
                 }
                 return self.update();
             }

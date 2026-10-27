@@ -645,7 +645,8 @@ macro_rules! host {
         }
 
         /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
-        /// the agent's jump, 2 an input's `then`s). Returns the batch's length.
+        /// the agent's jump, 2 an input's `then`s, 3 those `then`s only when
+        /// one is the earliest work due). Returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_advance(rt: u32, now_ms: f64, mode: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, mode), |n| n)

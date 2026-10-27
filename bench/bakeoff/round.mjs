@@ -87,6 +87,7 @@ async function feel() {
   mkdirSync(resolve(ROUND, 'feel'), { recursive: true });
   const [sim] = sims('bake-feel');
   const release = await hold(sim);
+  spawnSync('xcrun', ['simctl', 'boot', sim]); // a reboot shuts every simulator down; the probe needs it running
   for (const spec of specs) for (const arm of ['exact', pairs[spec].stack]) {
     const recPath = resolve(ROUND, 'records', `${spec}-${arm}.json`);
     if (!existsSync(recPath)) continue;

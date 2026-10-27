@@ -1,0 +1,11 @@
+{
+  "spec": "chat",
+  "key": {
+    "A": "swiftui",
+    "B": "exact"
+  },
+  "exit": 0,
+  "minutes": 9.67,
+  "shots": 36,
+  "graded": true
+}

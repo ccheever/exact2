@@ -1,0 +1,19 @@
+# Code review: a held proposal's choice (tamber/1.18), round 2 (grok)
+
+- **Family:** xAI. Grok 4.7 via `grok`, reasoning effort xhigh, no subagents, Edit and Write denied, a throwaway worktree at `07a949d4db`.
+- **Method:** one brief (sha256 `c303fcc2fbd6bc0135f0288c3925d45f0091dbb879cfc231863f52e156a1bb46`), shared by both reviewers, blind to the other review. The author (Claude, rt1) is not a reviewer.
+- **Transcription:** the final message, unedited.
+
+**Blocking**
+
+1. `apps/design-tool/choice.ts:95` — A `choose` already queued, or one whose items match `sent`, still completes after a newer record is sitting in `latest`. `settle` runs only in the tail's `finally` (`choice.ts:102`), and only when that promise is still `pending`, so the queued body runs first. It then `ask`s the items captured against the old base (`asked: [[1]]` after a foreign `[3]` at `choiceAt` 2) and sets `mine` to that answer (9). `settle` then sees `latest.at > mine` as false, leaves the base alone, and the other client's choice is gone. The same-items short-circuit returns `true` without sending (`asked` stays empty) even though the server's current choice is the newer record; `editImport` (`app.ts:1360`) has already snapshotted `was` and continues, so `edit-held` carries the other client's choice and this page's ticks are dropped. Fix: at the start of the send body, if `latest.at` is past both the base and `mine`, return `false` and do not call `ask`. Do the same after the answer if `latest.at` is past that `choiceAt`, and do not set `sent`. Return `true` only when this selection is still the newest record.
+
+2. `apps/design-tool/app.ts:1378` — While a `choose` is in flight, `fold` bakes each card's `on` before `settle` (`app.ts:421`). `sendChoices` takes `drop` before the `await`, so that result's `drop` is empty, then sets `again`. `reheld` re-reads from the cursor just folded; that cursor already names the held revision, the server omits `proposals`, and `fold` does not rebuild `held`. A later `sendChoices` can drop the flips, and the checkboxes fall back to the old `on` flags. `acceptImport` (`app.ts:1342`) waits out the same promise, then `chosen()` follows the rebased base and skips those flips, so Accept writes the other client's set while the card still shows this page's. Fix: after the `await`, rebuild `held` from `heldRaw` and only then call `drop`, and return those ids. If `flush` rebased the proposal or any of its flips in `picked` is `stale`, stop the accept and the edit until that rebuild is what the card shows.
+
+**Non-blocking**
+
+1. `apps/design-tool/app.ts:1302` — `acceptAll` still sends no `items`. On 1.18 that takes a recorded choice, and a non-import card never shows one (its boxes are local picks). Name every index on 1.18, as `acceptImport` does.
+2. `apps/design-tool/stub/tamber-stub.ts:422` — An itemless accept of an empty `choice` is treated as a partial recompute (`[]` is truthy). The server answers 400 and leaves the proposal held (`scripts/tamber-held-choice.mjs:37`).
+3. `scripts/design-tool-choice.test.mjs:28` — The in-flight test settles one `send` and checks `base()`. It does not queue a second `send`, and nothing asserts that `held`/`on` is rebuilt or that Accept refuses while the card is stale. The field drives finish one page before the next acts. Those runs are deterministic; they do not prove the overlap above.
+
+Scope matches `edit-held`: `propose` for one's own, `write` for another's (`scripts/tamber-pairing.mjs:83`), and a paired body's `client` is replaced by the token's name before dispatch (`scripts/tamber-server.mjs:554`). The door test covers own, another's, a forged owner name, and a write client. `startsChosen` applies only when `base()` is null; a recorded choice, including `[]`, is the card. A new epoch still resets inside `saw` before the new list is taken, and a late answer is ignored via `run`.

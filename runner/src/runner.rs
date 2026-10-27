@@ -81,6 +81,7 @@ mod kept_tests;
 mod lines;
 mod lists;
 mod media_session;
+mod overrun;
 mod page;
 mod perf;
 pub mod persist;
@@ -339,6 +340,10 @@ struct PendingReq {
     held: bool,
     long_poll: bool,
     replied: bool,
+    /// Never sent: when a resource an overrun refused is asked again (`overrun.rs`).
+    reask_at: Option<f64>,
+    /// The re-asks after a turn over its budget this ask's streak has made.
+    reasks: usize,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -360,9 +365,10 @@ impl PendingReq {
         self.stream.is_none_or(|s| s.messages == 0)
     }
 
-    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9).
+    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9),
+    /// not a re-ask's wait (no I/O: the agent's settle goes to its time, `overrun.rs`).
     fn waited(&self) -> bool {
-        self.in_flight() && !self.held && !self.replied
+        self.in_flight() && !self.held && !self.replied && self.reask_at.is_none()
     }
 }
 
@@ -454,6 +460,8 @@ pub struct Runner<D: DataSource> {
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
+    /// The re-ask being committed, and the reply being landed (`overrun.rs`).
+    overrun: overrun::Overrun,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -939,6 +947,7 @@ impl<D: DataSource> Runner<D> {
             forgot: false,
             failed_args: Vec::new(),
             failed_why: Vec::new(),
+            overrun: Default::default(),
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
             requests: Vec::new(),

@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of all 420 episodes, newest first. Each row shows the show, title, date and length, plus a Played/Unplayed indicator and show artwork."},
+      {"n": 2, "status": "pass", "note": "A native segmented control switches between All Episodes and Unplayed. The count updates (295 → 293 → 292), and an episode marked played inside the Unplayed filter leaves the list straight away."},
+      {"n": 3, "status": "pass", "note": "The Shows tab lists the 12 shows with artwork and episode and unplayed counts. Tapping one pushes that show's episodes, with its own All/Unplayed filter."},
+      {"n": 4, "status": "pass", "note": "The episode screen shows large art, the date, the length in minutes and the summary. Play marks the episode played, changes the button to 'Playing · Pause' and shows a Now Playing bar above the tab bar on every tab. Add to Up Next and Mark as Played buttons are also there."},
+      {"n": 5, "status": "pass", "note": "Native swipe actions (a full swipe from the left toggles played; swiping from the right shows Up Next) and a ⋯ menu on each row with Mark Played/Unplayed and Add to Up Next."},
+      {"n": 6, "status": "pass", "note": "Up Next has an Edit mode with native reorder handles and red minus delete controls, plus swipe-to-remove. It shows the number of episodes and the total minutes."},
+      {"n": 7, "status": "pass", "note": "Played state, Up Next membership and Up Next order all survived relaunching. The Now Playing state does not persist across a relaunch, which is acceptable."}
+    ],
+    "bugs": [],
+    "tells": [
+      "At the largest text size the status labels break inside words with no hyphen: 'Play/ed' and 'Queu/ed'.",
+      "The Now Playing bar is a flat full-width strip with a hairline, not the iOS 26+ tab-bar bottom accessory in Liquid Glass.",
+      "A marketing-style hero card ('GOOD STORIES. GREAT COMPANY.' / 'Find your next listen.') sits at the top of each tab, which reads more like a designed app than a stock one.",
+      "Each row has both a chevron and a ⋯ button, which is a little busy.",
+      "The show name appears twice in each row: once as the small caps label and again printed on the generated artwork."
+    ],
+    "scroll": "Smooth native collection-view scrolling. Slow drags, flings, flinging back to the top and pulling past the top all behaved normally, with no blank rows or jumps, and the scroll position was kept after pushing an episode and coming back.",
+    "scores": {"features": 10, "platform": 8, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "A plain list of all 420 episodes, newest first, showing the show, title, date, length and Played/Unplayed text. Each row also has inline Played and Up Next buttons."},
+      {"n": 2, "status": "partial", "note": "A round toolbar button toggles unplayed-only and the filtering works. But the button looks exactly the same when the filter is on or off, so you cannot see the list is filtered (its accessibility label does change)."},
+      {"n": 3, "status": "pass", "note": "The Shows screen lists the 12 shows with 'N episodes · M unplayed'. Tapping one pushes that show's episodes."},
+      {"n": 4, "status": "pass", "note": "The episode screen shows the summary, date, length, a Play button that becomes 'Stop Playing' with a 'Playing' label and marks the episode played, plus Add to Up Next / In Up Next and Mark Played/Unplayed. The playing state appears only on that screen; there is no mini player."},
+      {"n": 5, "status": "pass", "note": "Inline Unplayed/Played toggle buttons in every row work. There are no swipe actions or context menu."},
+      {"n": 6, "status": "pass", "note": "Up Next has numbered rows with up/down arrow buttons, a drag grip that works, and a minus remove button."},
+      {"n": 7, "status": "pass", "note": "Played state, Up Next membership and Up Next order all survived relaunching."}
+    ],
+    "bugs": [
+      "A horizontal swipe on any episode row, in the Library or in Up Next, opens the episode. The swipe is treated as a tap instead of revealing actions.",
+      "The filter button gives no visual sign that the unplayed-only filter is on."
+    ],
+    "tells": [
+      "No swipe actions, no context menu and no Edit mode for the queue. Reordering uses hand-made arrow buttons and an always-visible grip on every row instead of the system reorder and delete controls.",
+      "Every row has two big blue text buttons ('Unplayed', '+ Up Next') under it, which looks like a web page or form, not an iOS list cell.",
+      "The toggle labels describe the current state, not the action: an empty circle labelled 'Unplayed' is the button you tap to mark the episode played.",
+      "Every show gets the same purple waveform tile, so shows are told apart only by name.",
+      "The episode screen has weak hierarchy: the title is in body-bold, it uses an inline 'Episode' nav title, and there is a lot of empty space.",
+      "A small subtitle is squeezed under the large title, and it truncates at large text ('12 shows in your libr…').",
+      "The Library is a plain list while Shows is inset-grouped, so the screens are inconsistent.",
+      "Up Next rows show a stray position number ('1', '2', '3') on its own line above each row."
+    ],
+    "scroll": "Scrolling is smooth with momentum and the scroll position is kept after returning from an episode, but each tall row with its button strip makes the list feel like a scrolling web page.",
+    "scores": {"features": 8, "platform": 5, "polish": 5, "overall": 5}
+  },
+  "better": "A",
+  "why": "Both apps meet the spec and persist correctly, but A does it with native iOS behaviour: swipe actions, a ⋯ menu, a segmented filter, an Edit-mode queue with system reorder and delete controls, and a persistent Now Playing bar. B relies on inline button strips and hand-made arrow controls, turns a sideways swipe into a tap that opens the episode, gives no sign when its filter is on, and looks plainer overall. A's only clear flaw is mid-word breaks in two status labels at the largest text size."
+}

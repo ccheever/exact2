@@ -1,0 +1,41 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All seven sections are present. Account has an avatar header, editable name and email, and Sign Out, which asks to confirm and swaps to a Not Signed In / Sign In state. Reading has a slider with A/A end glyphs, five fonts, a Compact/Normal/Relaxed segmented control and a live preview. The appearance section is titled 'Theme' (System/Light/Dark/Sepia with swatches). Library has Sort By and two toggles. Notifications has a master toggle that reveals a time picker plus Reading Streak, New Releases and Recommendations. Storage shows used space with a books/cache bar and a confirmed Clear Cache that then disables. About has the version, Privacy and Terms screens, and Rate opens the system App Store review prompt."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push checkmark lists that pop back on selection. Theme is an inline checkmark list. The reminder time uses the compact system time picker popover. At the largest text size the line-spacing segmented control turns into a navigation picker."},
+      {"n": 3, "status": "pass", "note": "The preview changes immediately with the slider (18 to 27 pt), the font (Palatino) and the spacing (Relaxed). Sepia tints the preview card."},
+      {"n": 4, "status": "pass", "note": "After relaunch, name edit, size, font, spacing, theme, sort, both library toggles, notifications plus reminder time and cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "At the bottom of the page, with a confirmation popover. It restores reading, theme, library and notification defaults and keeps the account, which the dialog says it will."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Rows in the Font and Sort By pickers are drawn in the orange accent colour instead of the label colour, so they look like links rather than iOS Settings choices",
+      "At the largest text size the account avatar's initials collapse to '…' inside the circle",
+      "The appearance section is headed 'Theme' rather than 'Appearance' as the spec names it (cosmetic)",
+      "Storage usage bar and legend are custom-drawn (tasteful, but not a system control)"
+    ],
+    "scroll": "Native inset-grouped list: smooth drag, fling with momentum, rubber-band past the top, and large title collapsing into an inline title. Scroll position is kept after returning from pushed screens.",
+    "scores": {"features": 9, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present. Account has editable name and email, and Sign Out with an alert confirmation that becomes 'Sign In as …'. Reading has a slider, five fonts (Georgia, Palatino, Times New Roman, Helvetica Neue, Avenir Next), a Tight/Normal/Relaxed segmented control, a preview and a summary footer. Appearance has System/Light/Dark/Sepia. Library has Sort Order and two toggles. Notifications has a master toggle that reveals a time picker plus three toggles. Storage has Used/Books/Cache rows and Clear Cache with an alert that then disables. About has the version, Privacy and Terms screens, and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font and Sort Order push checkmark lists that stay open after selection, as iOS Settings does. Appearance is an inline checkmark list. The time uses the compact system picker popover."},
+      {"n": 3, "status": "pass", "note": "The preview and its footer ('Georgia, 18 pt, normal spacing.') update live with size, font and spacing."},
+      {"n": 4, "status": "pass", "note": "After relaunch, name, size, font, spacing, theme, sort, toggles, notification state, reminder time and cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "At the bottom, with Cancel/Reset confirmation. It restores defaults and keeps the account, as the footer says. Once, the accessibility tree briefly still showed the old spacing selected right after a reset; the screen showed Normal and a retest was clean."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Privacy Policy screen repeats its title: the navigation bar title plus a second 'Privacy Policy' heading in the body",
+      "Rate the App shows a hand-made 'Enjoying Paperback?' alert instead of the system StoreKit review prompt",
+      "Clear Cache row is tinted blue like a normal action, although its alert treats it as destructive (red)",
+      "At the largest text size the Line Spacing segmented control stays small while everything around it is huge (no adaptive layout)",
+      "Very plain stock styling with no accent or identity for a reading app (reads like a default template rather than a designed app)"
+    ],
+    "scroll": "Native inset-grouped list: smooth drag, momentum fling, rubber-band at the top, and the large title collapses correctly. Scroll position is kept when returning from pushed screens.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and both feel like real SwiftUI/UIKit settings screens, with no functional bugs found. A is more finished: an account header, a storage bar, the system App Store review prompt, a time-aware notification footer, a native confirmation popover, and a segmented control that turns into a picker at large text. B is a cleaner default, but it has the duplicated privacy title, a hand-made rating alert, and a segmented control that doesn't adapt at large text."
+}
