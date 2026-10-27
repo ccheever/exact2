@@ -198,7 +198,7 @@ describe('keyboard dispatch (resolveShortcutCommand)', () => {
 
 describe('source control and integrations (scoped rows)', () => {
   test('inheritance chain and summaries match SettingInheritance', async () => {
-    const { inheritance, scopedPatch, sourceControlRows, fetchInterval, fetchIntervalPatch, discoveryRows, toolVersion } = await import('../../src/settings/source-control-view');
+    const { inheritance, scopedPatch, sourceControlRows, branchNamingRows, discoveryRows, toolVersion } = await import('../../src/settings/source-control-view');
     const settings: Obj = { defaultAutoPull: true, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true },
       projectSettingsOverrides: { p1: { pullRequestMergeMethod: 'squash', defaultRuntimeMode: 'full-access' } } };
     expect(inheritance(settings, '', 'defaultAutoPull', 'Mac').summary).toBe('Set on the environment');
@@ -219,21 +219,25 @@ describe('source control and integrations (scoped rows)', () => {
     expect(scopedPatch({ textGenerationModelSelection: { instanceId: 'codex', model: 'gpt' } }, '', 'sourceControlWriterModelSelection', 'default')).toEqual({ sourceControlWriterModelSelection: { instanceId: 'codex', model: 'gpt' } });
     const rows = sourceControlRows(settings, '', 'Mac', [], true);
     expect(rows.repositories.map(row => [row.title, row.reset])).toEqual([['Automatically pull', 'key=defaultAutoPull&value=__default__'], ['Remove agent credits when merging', ''], ['Default merge method', '']]);
-    expect(rows.text.map(row => row.title)).toEqual(['Worktree branch naming', 'Branch prefix', 'Source control writing style', 'Follow change request templates', 'Source control writer model', 'Review guides (beta)']);
+    // SourceControlWritingSettingsSection: Writing & review, its templates and writer model under Advanced; the branch rows are Worktrees'.
+    expect([rows.writing.map(row => row.title), rows.writingAdvanced.map(row => row.title)]).toEqual([['Source control writing style', 'Review guides (beta)'],
+      ['Follow change request templates', 'Source control writer model']]);
+    expect([rows.writing[0]!.first, rows.writing[1]!.first, rows.writingAdvanced[0]!.first]).toEqual([true, false, true]);
     // The controls' accessible names and SettingResetButton labels of the reference.
     expect(rows.repositories.map(row => [row.control, row.resetLabel])).toEqual([['Default automatic pull', 'default automatic pull'], ['', 'agent credit removal'], ['Default pull request merge method', 'default merge method']]);
-    expect(rows.text.map(row => row.resetLabel)).toEqual(['branch naming', 'branch prefix', 'source control writing style', 'change request templates', '', '']);
-    const semantic = sourceControlRows({ ...settings, branchNamingMode: 'semantic' }, '', 'Mac', [], true).text;
+    expect([...rows.writing, ...rows.writingAdvanced].map(row => row.resetLabel)).toEqual(['source control writing style', '', 'change request templates', '']);
+    const branches = branchNamingRows(settings, '', 'Mac', true);
+    expect(branches.map(row => [row.title, row.resetLabel, row.first])).toEqual([['Worktree branch naming', 'branch naming', true], ['Branch prefix', 'branch prefix', false]]);
+    const semantic = branchNamingRows({ ...settings, branchNamingMode: 'semantic' }, '', 'Mac', true);
     expect(semantic[0]).toMatchObject({ title: 'Worktree branch naming', status: 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' });
     expect(semantic.some(row => row.kind === 'note')).toBe(false);
 
-    expect(sourceControlRows({ ...settings, branchNamingMode: 'custom' }, '', 'Mac', [], true).text[1]).toMatchObject({ title: 'Branch naming instructions', resetLabel: 'branch naming instructions' });
-    expect(fetchInterval({})).toMatchObject({ seconds: '30', canReset: false });
-    expect(fetchIntervalPatch({}, '45')).toEqual({ backgroundActivity: { schemaVersion: 1, profile: 'custom', baseProfile: 'balanced', overrides: { automaticGitFetchInterval: 45000 } } });
-    expect(fetchInterval(fetchIntervalPatch({}, '45'))).toMatchObject({ seconds: '45', canReset: true });
+    expect(branchNamingRows({ ...settings, branchNamingMode: 'custom' }, '', 'Mac', true)[1]).toMatchObject({ title: 'Branch naming instructions', resetLabel: 'branch naming instructions', kind: 'textarea' });
     const found = discoveryRows({ versionControlSystems: [{ kind: 'jj', label: 'Jujutsu', implemented: false, status: 'available', version: { _tag: 'None' }, installHint: 'x' }],
       sourceControlProviders: [{ kind: 'github', label: 'GitHub', status: 'available', version: { _tag: 'Some', value: 'gh 2' }, installHint: 'x', executable: 'gh', auth: { status: 'authenticated', account: { _tag: 'Some', value: 'secret-account' } } }] });
     expect(found.vcs[0]).toMatchObject({ comingSoon: true, summary: 'Support for Jujutsu is coming soon.', dot: 'muted' });
+    // Git has no fetch interval of its own (it is Background activity's), so no details toggle.
+    expect(discoveryRows({ versionControlSystems: [{ kind: 'git', label: 'Git', implemented: true, status: 'available', version: 'git 2' }] }).vcs[0]).toMatchObject({ details: false, enabled: true });
     expect(found.providers[0]).toMatchObject({ version: 'gh 2', summary: 'Authenticated', account: true, enabled: true });
     // RedactedText draws the same-shape placeholder until this item's own reveal.
     expect(found.providers[0]).toMatchObject({ accountValue: 'secret-account', accountPlaceholder: redactedPlaceholder('secret-account') });

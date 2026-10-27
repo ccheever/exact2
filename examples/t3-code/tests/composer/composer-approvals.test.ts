@@ -146,6 +146,7 @@ describe('composer during a pending approval', () => {
   });
   test('an approval held while the user typed stays pending, and the send follows the setting', async () => {
     const { client, native, command } = await waiting();
+    client.local.clientSettings.followUpBehavior = 'queue'; // follow-ups steer by default
     requestPresentation(client);
     noteComposerTyping(client, true);
     client.thread!.projection.runtimeRequests = [approval('a')];

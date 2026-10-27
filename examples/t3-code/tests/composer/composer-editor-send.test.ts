@@ -113,6 +113,7 @@ describe('send gestures through the server keybindings', () => {
   });
   test('⌥⌘↩ while the thread runs follows the follow-up behaviour (queue), then opens the fresh composer', async () => {
     const { client, native, command } = await opened();
+    client.local.clientSettings.followUpBehavior = 'queue'; // follow-ups steer by default
     running(client);
     await command('send', 'key:meta+alt', 'After this');
     expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', threadId: 't1', dispatchMode: { type: 'queue_after_active' } });
@@ -172,6 +173,7 @@ describe('a Send press carries its own pointer modifiers', () => {
   });
   test('the client takes a ⌘-click from the press', async () => {
     const { client, native, command } = await opened();
+    client.local.clientSettings.followUpBehavior = 'queue'; // a ⌘-click does the opposite of the setting, which steers by default
     running(client);
     await command('send', 'pointer:meta', 'Steer by click');
     expect(native.committed.at(-1)).toMatchObject({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });

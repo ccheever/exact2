@@ -112,6 +112,32 @@ describe('resource telemetry', () => {
     await telemetryCommand(t3, native, 'diag-retry', {});
     expect(toasts(t3).at(-1)).toMatchObject({ title: 'Could not restart resource monitor', description: 'monitor offline' });
   });
+  test('a successful Retry reads the timeline on screen again, clearing its stale error; a failed one does not', async () => {
+    const client = fake(), t3 = as(client);
+    const reads = () => client.requests.filter(([method]) => method === 'server.getResourceTelemetryHistory');
+    client.replies['server.getResourceTelemetryHistory'] = new Error('Resource monitor is not running.');
+    expect((await telemetryPage(t3, native, true, NOW, 0)).historyError).toBe('Resource monitor is not running.');
+    client.replies['server.getResourceTelemetryHistory'] = { buckets: [], topProcesses: [] };
+    // A later answer (a sample, the minute tick) keeps the visit's read and its error.
+    expect((await telemetryPage(t3, native, true, NOW + 1000, 0)).historyError).toBe('Resource monitor is not running.');
+    client.replies['server.retryResourceTelemetry'] = new Error('monitor offline');
+    await telemetryCommand(t3, native, 'diag-retry', {});
+    expect((await telemetryPage(t3, native, true, NOW + 2000, 0)).historyError).toBe('Resource monitor is not running.');
+    expect(reads().length).toBe(1);
+    client.replies['server.retryResourceTelemetry'] = { accepted: true };
+    await telemetryCommand(t3, native, 'diag-retry', {});
+    expect((await telemetryPage(t3, native, true, NOW + 3000, 0)).historyError).toBe('');
+    expect(reads().length).toBe(2);
+    // The window picked while a retry runs is the one read again.
+    client.replies['server.retryResourceTelemetry'] = { accepted: true };
+    const retry = telemetryCommand(t3, native, 'diag-retry', {});
+    telemetryLocal(t3, 'diag-window', '5m');
+    await retry;
+    await telemetryPage(t3, native, true, NOW + 4000, 0);
+    expect(reads().at(-1)).toEqual(['server.getResourceTelemetryHistory', { windowMs: 300_000, bucketMs: 15_000 }]);
+    await telemetryPage(t3, native, true, NOW + 5000, 0);
+    expect(reads().length).toBe(3);
+  });
 });
 
 describe('diagnostics tables', () => {

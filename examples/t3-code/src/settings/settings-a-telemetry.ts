@@ -2,7 +2,7 @@
 // Reference ResourceTelemetryDiagnostics.tsx (+ .logic.ts), resourceTelemetryState.ts
 // and DiagnosticsSettings.tsx's process signals. The snapshot is the
 // `subscribeResourceTelemetry` stream (one subscription while the page is open);
-// the timeline is `server.getResourceTelemetryHistory` (once per visit, window and Refresh); signals
+// the timeline is `server.getResourceTelemetryHistory` (once per visit, window, Refresh and restart); signals
 // go through `server.signalProcess`, SIGKILL only after a confirmation.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
@@ -76,11 +76,13 @@ export function dxFinish(table: DxTable): DxTable {
 
 // ── State: the subscription, the last snapshot, the timeline window, collapsed rows, signals ──
 type Telemetry = { id: string; generation: number; snapshot: Obj | null; error: string; window: string; collapsed: Set<string>; liveCollapsed: Set<string>;
-  history: { key: string; value: Obj | null; error: string } | null; signaling: Set<string>; kill: { pid: number; start: number; target: string } | null };
+  history: { key: string; value: Obj | null; error: string } | null; signaling: Set<string>; kill: { pid: number; start: number; target: string } | null;
+  /** Successful Retries: each makes every window's timeline stale (part of the history key). */
+  restarts: number };
 const states = new WeakMap<T3Client, Telemetry>();
 const stateOf = (client: T3Client): Telemetry => {
   let state = states.get(client);
-  if (!state) states.set(client, state = { id: '', generation: -1, snapshot: null, error: '', window: '15m', collapsed: new Set(), liveCollapsed: new Set(), history: null, signaling: new Set(), kill: null });
+  if (!state) states.set(client, state = { id: '', generation: -1, snapshot: null, error: '', window: '15m', collapsed: new Set(), liveCollapsed: new Set(), history: null, signaling: new Set(), kill: null, restarts: 0 });
   return state;
 };
 const generationOf = (client: T3Client) => num((client as unknown as { generation?: number }).generation, 0);
@@ -119,9 +121,9 @@ export async function telemetryTimeline(client: T3Client, native: Native | null 
   return active && native?.available && client.ready ? history(client, native, refresh) : null;
 }
 async function history(client: T3Client, native: Native, refresh: number): Promise<Telemetry['history']> {
-  const state = stateOf(client), window = WINDOWS[state.window] ?? WINDOWS['15m']!, key = `${generationOf(client)}|${state.window}|${refresh}`;
+  const state = stateOf(client), window = WINDOWS[state.window] ?? WINDOWS['15m']!, key = `${generationOf(client)}|${state.window}|${refresh}|${state.restarts}`;
   // resourceTelemetryHistory (staleTimeMs 5_000): Atom.swr revalidates when the page mounts, never on a re-render (a sample,
-  // a minute tick), so one read per visit, window and Refresh; closing the page drops it (syncTelemetry). A shared read: an
+  // a minute tick), so one read per visit, window, Refresh and restart; closing the page drops it (syncTelemetry). A shared read: an
   // answer asked again before its reply joins it (diagnostics-view.ts).
   if (state.history && state.history.key === key) return state.history;
   try { state.history = { key, value: await client.restAccess(native).read('server.getResourceTelemetryHistory', { windowMs: window[0], bucketMs: window[1] }), error: '' }; }
@@ -273,7 +275,14 @@ export const liveCollapsed = (client: T3Client) => stateOf(client).liveCollapsed
 export async function telemetryCommand(client: T3Client, native: Native, op: string, input: Record<string, string>): Promise<string> {
   const state = stateOf(client), access = client.restAccess(native);
   if (op === 'diag-retry') {
-    try { const result = await access.request('server.retryResourceTelemetry', {}, true); if (result.snapshot) state.snapshot = obj(result.snapshot); state.error = ''; }
+    try {
+      const result = await access.request('server.retryResourceTelemetry', {}, true);
+      if (result.snapshot) state.snapshot = obj(result.snapshot);
+      state.error = '';
+      // The window may have changed while the retry ran: every window's timeline is stale, so the next answer reads the
+      // one on screen again and a stale history error clears (a read still landing keeps its older key).
+      state.restarts++;
+    }
     catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not restart resource monitor', description: error instanceof Error ? error.message : 'The resource monitor retry failed.' }); }
     return '';
   }

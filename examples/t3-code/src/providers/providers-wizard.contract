@@ -53,6 +53,12 @@ shape AcpAgent
 shape ProviderWizard
   sessions: WizardSession[]
   drivers: WizardDriver[]
+  // The providers listed under Show more (a definition's `featured: false`).
+  moreDrivers: WizardDriver[]
+  // MultipleAccountsNote's provider name ("Codex", "Claude") while one is signed in, else "": for the chosen
+  // driver, and for Add ChatGPT account.
+  accountsNote: string
+  chatgptAccountsNote: string
   driver: string
   driverLabel: string
   label: string
@@ -91,6 +97,35 @@ component WizardStep
         else
           text `${number + 1}` font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(current == number ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #a1a1a1)")
       text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(current == number ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+
+// ProviderOptionGrid's radio: the provider's mark and name, the check once chosen.
+component WizardDriverOption
+  props
+    driver: WizardDriver
+    manual: bool
+    ui: action
+  view
+    button press=ui("driver", driver.id) role="radio" aria-checked=(driver.selected and not manual) aria-label=driver.label testId=`provider-driver-${driver.id}` width="calc(50% - 6px)" height="2.75rem" box-sizing="border-box" padding="0.75rem" gap="0.75rem" border-radius="0.5rem" border-style="solid" border-width=(driver.selected and not manual ? 2 : 1) border-color=(driver.selected and not manual ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#0000000d, #ffffff0d)") display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(driver.selected and not manual ? "light-dark(#1a4dd914, #366bf226)" : "light-dark(#ffffff, #ffffff08)")
+      DriverMark(driver=driver.id, size=16, initials=driver.label, icon="")
+      text driver.label flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1 text-align="left"
+      if driver.badge != ""
+        text driver.badge font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)"
+      if driver.selected and not manual
+        box width="1.25rem" height="1.25rem" border-radius="624.9375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#1b4ed8, #346bf1)"
+          PvIcon(name="check", size=14, color="#ffffff")
+
+// MultipleAccountsNote: Alert variant="info" role="note" (an info border and wash, the info glyph) over the muted line
+// and its FAQ link.
+component MultipleAccountsNote
+  props
+    name: string
+  view
+    row width="100%" box-sizing="border-box" padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.5rem" align-items="center" border-radius="0.75rem" border-style="solid" border-width=1 border-color="#2b7fff52" background-color="#2b7fff0a" role="note" testId="multiple-accounts-note"
+      box width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+        PvIcon(name="info", size=16, color="#2b7fff")
+      text flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+        text `We do not recommend managing multiple ${name} accounts in T3 Code. `
+        text "More info" href="https://github.com/pingdotgg/t3code/blob/main/docs/user/faq.md#can-i-add-a-bunch-of-accounts-for-one-provider" color="light-dark(#71717b, #a1a1a1)" text-decoration-line="underline"
 
 // AddProviderInstanceDialog.tsx: Provider → Identity → Config, or the ACP
 // Registry's Provider → Identity → Sign in. Config drafts are row state, so
@@ -136,6 +171,11 @@ component AddProviderDialog
   state accentOpen = false
   state accent = ""
   state signOutOpen = false
+  // Show more (closed on every opening): the providers that are not featured and the ACP Registry, which is
+  // searched while the fold is closed so it opens on results.
+  state showMore = false
+  action toggleMore
+    showMore = not showMore
   action askSignOut
     signOutOpen = true
   action confirmSignOut
@@ -195,15 +235,20 @@ component AddProviderDialog
                 text "Provider" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
                 row width="100%" gap="0.75rem" flex-wrap="wrap" role="radiogroup" aria-label="Provider"
                   for driver in wizard.drivers key=driver.id
-                    button press=ui("driver", driver.id) role="radio" aria-checked=(driver.selected and not manual) aria-label=driver.label testId=`provider-driver-${driver.id}` width="calc(50% - 6px)" height="2.75rem" box-sizing="border-box" padding="0.75rem" gap="0.75rem" border-radius="0.5rem" border-style="solid" border-width=(driver.selected and not manual ? 2 : 1) border-color=(driver.selected and not manual ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#0000000d, #ffffff0d)") display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(driver.selected and not manual ? "light-dark(#1a4dd914, #366bf226)" : "light-dark(#ffffff, #ffffff08)")
-                      DriverMark(driver=driver.id, size=16, initials=driver.label, icon="")
-                      text driver.label flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1 text-align="left"
-                      if driver.badge != ""
-                        text driver.badge font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)"
-                      if driver.selected and not manual
-                        box width="1.25rem" height="1.25rem" border-radius="624.9375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#1b4ed8, #346bf1)"
-                          PvIcon(name="check", size=14, color="#ffffff")
-              column width="100%" gap="1rem" padding-top="1rem"
+                    WizardDriverOption(driver=driver, manual=manual, ui=ui)
+                if wizard.accountsNote != ""
+                  MultipleAccountsNote(name=wizard.accountsNote)
+              // Show more: Button variant="ghost-muted" size="xs", its chevron turning over as the fold opens.
+              row width="100%" padding-top="0.5rem"
+                button press=toggleMore class=PvGhost aria-expanded=showMore testId="add-provider-show-more" id="add-provider-show-more" data-focus-stop="enabled"
+                  text (showMore ? "Show less" : "Show more") font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
+                  box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem" rotate=(showMore ? 180 : 0) transition="rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)"
+                    PvIcon(name="chevron", size=14, color="light-dark(#71717b, #a1a1a1)")
+            if shownStep == 0 and showMore
+              column width="100%" gap="1rem" padding-top="1rem" testId="add-provider-more"
+                row width="100%" gap="0.75rem" flex-wrap="wrap" role="radiogroup" aria-label="More providers"
+                  for driver in wizard.moreDrivers key=driver.id
+                    WizardDriverOption(driver=driver, manual=manual, ui=ui)
                 row width="100%" gap="0.75rem" align-items="center"
                   box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff12)"
                   text "Or choose from ACP Registry" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
@@ -214,7 +259,7 @@ component AddProviderDialog
                       column gap="0.125rem" flex=1 min-width=0
                         text "Enter manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
                         text "Enter an official registry ID and any local executable or auth override." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
-                      button press=ui("manual", "false") class=PvGhost height="1.5rem" testId="acp-search-registry"
+                      button press=ui("manual", "false") class=PvGhost height="1.5rem" testId="acp-search-registry" id="acp-search-registry" data-focus-stop="enabled"
                         text "Search registry" font-size="0.75rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
                     for session in wizard.sessions key=session.key
                       column width="100%" gap="0.25rem"
@@ -227,10 +272,10 @@ component AddProviderDialog
                         text "One literal argument per row, in launch order." font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)"
                         for arg, index in commandArgs key=index
                           row gap="0.5rem"
-                            input value=arg input=editArgument(index) aria-label=`Argument ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId=`new-provider-argument-${index}` id=`field-new-provider-argument-${index}` data-editable="yes"
+                            input value=arg input=editArgument(index) aria-label=`Argument ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId=`new-provider-argument-${index}` id=`field-new-provider-argument-${index}` data-editable="yes" data-focus-stop="enabled"
                             button press=removeArgument(index) class=PvIconButton aria-label=`Remove argument ${index + 1}` title=""
                               PvIcon(name="x", size=12, color="light-dark(#71717b, #a1a1a1)")
-                        button press=addArgument class=PvOutline testId="new-provider-add-argument"
+                        button press=addArgument class=PvOutline testId="new-provider-add-argument" id="new-provider-add-argument" data-focus-stop="enabled"
                           text "Add argument" font-size="0.8125rem"
                     if attempted and (localAcp ? f2 == "" : f1 == "")
                       text "Select an ACP or configure one manually." font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" role="alert"
@@ -239,8 +284,8 @@ component AddProviderDialog
                     row width="100%" gap="0.5rem" align-items="center"
                       row flex=1 min-width="10rem" height="1.75rem" box-sizing="border-box" padding-left="0.5rem" gap="0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff08)" align-items="center"
                         PvIcon(name="search", size=16, color="light-dark(#71717b, #a1a1a1)")
-                        input value=query input=ui("acp") placeholder="Search agents…" class=FieldPlaceholder aria-label="Search ACP Registry" disabled=busy flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" testId="acp-registry-search" autocorrect="off" id="field-acp-registry-search" data-editable="yes"
-                      button press=ui("manual", "true") class=PvGhost height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy testId="acp-enter-manually"
+                        input value=query input=ui("acp") submit=op("upkeep:registry-refresh", query, "", "", true) placeholder="Search agents…" class=FieldPlaceholder aria-label="Search ACP Registry" disabled=busy flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" testId="acp-registry-search" autocorrect="off" id="field-acp-registry-search" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
+                      button press=ui("manual", "true") class=PvGhost height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy testId="acp-enter-manually" id="acp-enter-manually" data-focus-stop=(busy ? "" : "enabled")
                         text "Enter manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
                     text acp.status font-size=1 color="#00000000" role="status" height=1 overflow="hidden"
                     if acp.error != "" or (error != "" and step == 0)
@@ -269,7 +314,7 @@ component AddProviderDialog
                                 if agent.link != ""
                                   link cursor="pointer" href=agent.link aria-label=`About ${agent.name}` width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" border-radius="0.5rem" testId=`acp-about-${agent.id}` title=""
                                     PvIcon(name="external", size=14, color="light-dark(#71717b, #a1a1a1)")
-                                button press=op("acp-prepare", "", agent.id, agent.name, true) class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" font-size="0.75rem" disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}`
+                                button press=op("acp-prepare", "", agent.id, agent.name, true) class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" font-size="0.75rem" disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}` id=`acp-add-${agent.id}` data-focus-stop=(agent.added or busy ? "" : "enabled")
                                   text (agent.added ? "Added" : "Add") font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
             if shownStep == 1
               column width="100%" gap="0.25rem" min-height=(isAcp ? "18rem" : "0px")
@@ -281,17 +326,17 @@ component AddProviderDialog
                     if agent.link != ""
                       text "Docs" href=agent.link font-size="0.6875rem" color="light-dark(#71717b, #a1a1a1)" aria-label=`Open documentation for ${agent.name} (${agent.id})`
                 WizardRow(title="Label", description="Shown in the provider list.", status="")
-                  input value=shownLabel input=ui("label") placeholder="e.g. Work" aria-label="Label" class=PvField width="14rem" testId="new-provider-name" autocorrect="off" id="field-new-provider-name" data-editable="yes"
+                  input value=shownLabel input=ui("label") placeholder="e.g. Work" aria-label="Label" class=PvField width="14rem" testId="new-provider-name" autocorrect="off" id="field-new-provider-name" data-editable="yes" data-focus-stop="enabled"
                 WizardRow(title="Instance ID", description="Letters, digits, '-', or '_'.", status=(attempted ? wizard.idError : ""))
-                  input value=shownId input=ui("id") placeholder=wizard.idPlaceholder aria-label="Instance ID" class=PvField width="14rem" testId="new-provider-id" autocorrect="off" id="field-new-provider-id" data-editable="yes"
+                  input value=shownId input=ui("id") placeholder=wizard.idPlaceholder aria-label="Instance ID" class=PvField width="14rem" testId="new-provider-id" autocorrect="off" id="field-new-provider-id" data-editable="yes" data-focus-stop="enabled"
                 WizardRow(title="Accent color", description="Optional marker shown in the picker.", status="")
                   row gap="0.5rem" align-items="center"
                     if accentOpen
-                      input value=accent input=editAccent aria-label="Custom hex accent color" class=PvField width="6.5rem" font-family="ui-monospace" font-size="0.75rem" testId="new-provider-accent-hex" autocorrect="off" id="field-new-provider-accent-hex" data-editable="yes"
-                      button press=clearAccent class=PvGhost height="1.75rem" testId="new-provider-accent-clear"
+                      input value=accent input=editAccent aria-label="Custom hex accent color" class=PvField width="6.5rem" font-family="ui-monospace" font-size="0.75rem" testId="new-provider-accent-hex" autocorrect="off" id="field-new-provider-accent-hex" data-editable="yes" data-focus-stop="enabled"
+                      button press=clearAccent class=PvGhost height="1.75rem" testId="new-provider-accent-clear" id="new-provider-accent-clear" data-focus-stop="enabled"
                         PvIcon(name="x", size=14, color="light-dark(#71717b, #a1a1a1)")
                         text "Clear color" font-size="0.75rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
-                    button press=toggleAccent class=PvIconButton width="1.75rem" height="1.75rem" background-color=(accent == "" ? "#00000000" : accent) aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${shownLabel == "" ? wizard.driverLabel : shownLabel}` aria-expanded=accentOpen testId="new-provider-accent" title=""
+                    button press=toggleAccent class=PvIconButton width="1.75rem" height="1.75rem" background-color=(accent == "" ? "#00000000" : accent) aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${shownLabel == "" ? wizard.driverLabel : shownLabel}` aria-expanded=accentOpen testId="new-provider-accent" title="" id="new-provider-accent" data-focus-stop="enabled"
                       if accent == ""
                         PvIcon(name="plus", size=16, color="light-dark(#71717b, #a1a1a1)")
             if shownStep == 2 and not isAcp
@@ -313,19 +358,19 @@ component AddProviderDialog
             button press=ui("close", "") class=(auth.signedIn ? PvPrimary : PvOutline) disabled=auth.active opacity=(auth.active ? 0.64 : 1) testId="wizard-finish" id="wizard-finish" data-focus-stop=(auth.active ? "" : "enabled")
               text (auth.signedIn ? "Done" : "Skip for now") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(auth.signedIn ? "#ffffff" : "light-dark(#18181b, #f5f5f5)")
           if wizard.created == ""
-            button press=ui(step == 0 ? "close" : "step", step == 0 ? "" : "back") class=(step == 0 ? PvGhost : PvOutline) height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy aria-keyshortcuts=(step == 0 ? "Escape" : "") testId=(step == 0 ? "close-add-provider" : "wizard-back")
+            button press=ui(step == 0 ? "close" : "step", step == 0 ? "" : "back") class=(step == 0 ? PvGhost : PvOutline) height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy aria-keyshortcuts=(step == 0 ? "Escape" : "") testId=(step == 0 ? "close-add-provider" : "wizard-back") id=(step == 0 ? "close-add-provider" : "wizard-back") data-focus-stop=(busy ? "" : "enabled")
               text (step == 0 ? "Cancel" : "Back") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(step == 0 ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
             if step == 0 and wizard.driver == "codex" and not manual
-              button press=ui("step", "next") class=PvOutline testId="configure-manually"
+              button press=ui("step", "next") class=PvOutline testId="configure-manually" id="configure-manually" data-focus-stop="enabled"
                 text "Configure manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
-              button press=ui("open", "chatgpt") class=PvPrimary disabled=busy testId="continue-with-chatgpt"
+              button press=ui("open", "chatgpt") class=PvPrimary disabled=busy testId="continue-with-chatgpt" id="continue-with-chatgpt" data-focus-stop=(busy ? "" : "enabled")
                 ProviderMark(driver="codex", size=16, color="#ffffff")
                 text "Continue with ChatGPT" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
             if (step == 0 and (wizard.driver != "codex" or manual)) or (step == 1 and not isAcp)
-              button press=ui("step", "next") class=PvPrimary disabled=busy testId="wizard-next"
+              button press=ui("step", "next") class=PvPrimary disabled=busy testId="wizard-next" id="wizard-next" data-focus-stop=(busy ? "" : "enabled")
                 text "Next" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
             if step == lastStep
-              button press=add(wizard.driver, shownLabel, shownId, accent, [f0, f1, f2, f3, f4], commandArgs) class=PvPrimary disabled=busy testId="create-provider"
+              button press=add(wizard.driver, shownLabel, shownId, accent, [f0, f1, f2, f3, f4], commandArgs) class=PvPrimary disabled=busy testId="create-provider" id="create-provider" data-focus-stop=(busy ? "" : "enabled")
                 text (busy ? "Adding..." : (isAcp and not localAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
         button id="close-add-provider-x" press=ui("close", "") class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x" title="" data-focus-stop=(busy ? "" : "enabled")
           PvIcon(name="x", size=16, color="light-dark(#71717b, #a1a1a1)")
@@ -368,7 +413,7 @@ component WizardFieldRow
             button press=set(field.index, option.value) role="radio" aria-checked=(value == option.value or (value == "" and option.selected)) class=PvOutline height="1.75rem" background-color=(value == option.value or (value == "" and option.selected) ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`new-provider-${field.key}-${option.value}`
               text option.label font-size="0.8125rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
       else
-        input value=value input=set(field.index) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width="14rem" testId=`new-provider-${field.key}` id=`field-new-provider-${field.key}` data-editable="yes"
+        input value=value input=set(field.index) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width="14rem" testId=`new-provider-${field.key}` id=`field-new-provider-${field.key}` data-editable="yes" data-focus-stop="enabled"
 
 style PvOverlay
   position="absolute" left=0 right=0 top=0 bottom=0
@@ -411,7 +456,7 @@ component UsageHubDialog
             input id="usage-hub-url" value=url input=editUrl submit=save(label, url, secret, true) placeholder="https://hub.example.ts.net:8318" aria-label="Hub URL" class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" width="100%" testId="usage-hub-url" autocorrect="off" data-focus-stop="enabled" data-editable="yes"
           column gap="0.375rem"
             text "Management key" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
-            input value=secret input=editSecret submit=save(label, url, secret, true) type="password" aria-label="Management key" class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" width="100%" testId="usage-hub-key" autocorrect="off" id="field-usage-hub-key" data-editable="yes"
+            input value=secret input=editSecret submit=save(label, url, secret, true) type="password" aria-label="Management key" class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" width="100%" testId="usage-hub-key" autocorrect="off" id="field-usage-hub-key" data-editable="yes" data-focus-stop="enabled"
           column gap="0.375rem"
             text "Label (optional)" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
             input id="usage-hub-label" value=label input=editLabel submit=save(label, url, secret, true) placeholder="Defaults to the hub's host name" aria-label="Label (optional)" class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" width="100%" testId="usage-hub-label" autocorrect="off" data-focus-stop="enabled" data-editable="yes"
@@ -497,14 +542,17 @@ component ChatGptAccountDialog
             for created in wizard.chatgpt key=created.key
               ChatGptAccountSetup(created=created, wide=true, busy=setupBusy, op=op, ui=ui)
           else
-            WizardRow(title="Account name", description="Shown in the provider list and model picker.", status=error)
-              input value=name input=editName submit=create(name, "", true) key=nameKeys id="chatgpt-account-name-field" placeholder="e.g. Personal or Work" aria-label="Account name" class=PvField width="14rem" disabled=busy autofocus=true testId="chatgpt-account-name" autocorrect="off" data-focus-stop=(busy ? "" : "enabled") data-editable="yes"
+            column width="100%" gap="0.75rem"
+              WizardRow(title="Account name", description="Shown in the provider list and model picker.", status=error)
+                input value=name input=editName submit=create(name, "", true) key=nameKeys id="chatgpt-account-name-field" placeholder="e.g. Personal or Work" aria-label="Account name" class=PvField width="14rem" disabled=busy autofocus=true testId="chatgpt-account-name" autocorrect="off" data-focus-stop=(busy ? "" : "enabled") data-editable="yes"
+              if wizard.chatgptAccountsNote != ""
+                MultipleAccountsNote(name=wizard.chatgptAccountsNote)
         row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end"
           if wizard.chatgpt.length > 0
-            button press=close class=PvOutline aria-keyshortcuts="Escape" testId="chatgpt-account-finish-later"
+            button press=close class=PvOutline aria-keyshortcuts="Escape" testId="chatgpt-account-finish-later" id="chatgpt-account-finish-later" data-focus-stop="enabled"
               text "Finish later" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
           else
-            button press=close class=PvOutline disabled=busy aria-keyshortcuts="Escape" testId="chatgpt-account-cancel"
+            button press=close class=PvOutline disabled=busy aria-keyshortcuts="Escape" testId="chatgpt-account-cancel" id="chatgpt-account-cancel" data-focus-stop=(busy ? "" : "enabled")
               text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
             box key=lastKeys tabindex=-1 display="flex"
               button press=create(name, "", true) id="chatgpt-account-continue-button" class=PvPrimary disabled=(busy or name.trim() == "") opacity=(busy or name.trim() == "" ? 0.64 : 1) testId="chatgpt-account-continue" data-focus-stop=((busy or name.trim() == "") ? "" : "enabled")

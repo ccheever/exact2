@@ -20,7 +20,7 @@ const group: ScopeGroup = { projectKey: 'logical-project', displayName: 'Project
   { environmentId: 'second', id: 'p2', workspaceRoot: '/two', physicalProjectKey: 'second:/two' },
 ] };
 const project = resolveSettingsScope({ project: group.projectKey }, [group], environments);
-const instructionsRow = (settings: Obj, projectId = '', writable = true) => sourceControlRows(settings, projectId, 'Local', [], writable).text.find(row => row.key === 'reviewGuideInstructions');
+const instructionsRow = (settings: Obj, projectId = '', writable = true) => sourceControlRows(settings, projectId, 'Local', [], writable).writing.find(row => row.key === 'reviewGuideInstructions');
 
 describe('review guide instructions settings', () => {
   test('trims surrounding whitespace, preserves multiline contents, and resets to an empty string', () => {
@@ -85,7 +85,7 @@ describe('review guide instructions settings', () => {
   test('keeps the guides enable flag environment-only in the UI and both patch paths', () => {
     expect(DEFAULTS.reviewGuidesEnabled).toBe(false);
     expect(isProjectScopedSettingKey('reviewGuidesEnabled')).toBe(false);
-    expect(sourceControlRows(first.serverConfig.settings, 'p1', 'First', [], true).text.find(row => row.key === 'reviewGuidesEnabled'))
+    expect(sourceControlRows(first.serverConfig.settings, 'p1', 'First', [], true).writing.find(row => row.key === 'reviewGuidesEnabled'))
       .toMatchObject({ checked: true, disabled: true });
     expect(() => scopedPatch({}, 'p1', 'reviewGuidesEnabled', 'true')).toThrow('environment-wide');
     expect(planScopedSettingsPatch(project, environments, { reviewGuidesEnabled: true }))

@@ -1,8 +1,9 @@
 import { notifyChatGptCreated } from './provider-created-callback';
 import { providerSettingsWritable, providerWritable } from './provider-permissions';
 // T3 Code 74541bab17 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
-// the provider-instance writes it offers. Every write reads fresh server
-// settings first and changes only the selected instance (atomic mutation).
+// the provider-instance writes it offers; the Add provider wizard and its ACP Registry search
+// follow 7c3b3b3605ef (AddProviderInstanceDialog, AcpRegistrySearchStep, MultipleAccountsNote).
+// Every write reads fresh server settings first and changes only the selected instance (atomic mutation).
 import { setupOf } from './provider-setup'; // the Account and Runtime rows
 import { providerAccount, providerWizardAuth } from './provider-auth';
 import { providerRuntime, configuredBinaryPath } from './provider-install';
@@ -17,7 +18,7 @@ import { buildProviderInstanceOverridePatch, projectProviderEnabled } from './pr
 import { modelPreferenceSource, runEnvironmentModelPrefOp } from './model-preferences';
 import { favoriteSlugs, groupModels, instancePrefs, MODEL_PREF_OPS } from './settings-b-models';
 import { DRIVERS, driverMeta, instanceEnabled, legacyProviders, sameValue, versionLabel, providerSummary, providerStatusKey, checkedLabel,
-  slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
+  slugifyLabel, validateInstanceId, deriveAvailableInstanceId, FIRST_CLASS_REGISTRY_AGENT_IDS, providerInstanceInitials, type Driver, type DriverField } from './providers-meta';
 import { letGo } from '../client/let-go';
 // The update popover, Update all, ACP management and the custom model
 // editor are providers-upkeep.ts (app.ts adds them to this page with `withUpkeep`).
@@ -72,7 +73,6 @@ export function providerRows(settings: Obj, live: Obj[], target = ''): Row[] {
 const hash = (text: string) => { let value = 5381; for (let i = 0; i < text.length; i++) value = ((value << 5) + value + text.charCodeAt(i)) | 0; return (value >>> 0).toString(36); };
 /** normalizeProviderAccentColor: a #rrggbb accent, else none. */
 const normalizedAccent = (value: unknown) => { const accent = str(value).trim(); return /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : ''; };
-const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join('') || '?';
 function rowStatus(row: Row, provider: Obj | undefined) {
   const enabled = instanceEnabled(row.instance);
   const effective = provider && { ...provider, enabled };
@@ -255,7 +255,7 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
       const override = scoped ? obj(obj(obj(settings.projectSettingsOverrides)[projectIds[0]!]).providerInstances)[row.id] : undefined;
       return { projectOverride: typeof obj(override).enabled === 'boolean', id: row.id, first: index === 0, name, driver: row.driver, enabled: status.enabled, selected: row.id === selected?.id, version: versionLabel(provider?.version),
         status: `${status.summary.headline}${status.needsAttention && status.inlineDetail ? ` · ${status.inlineDetail}` : ''}`,
-        dot: status.needsAttention ? status.statusKey : '', accent: normalizedAccent(row.instance.accentColor), badge: normalizedAccent(row.instance.accentColor) ? initials(name) : '', icon: instanceIconUrl(row.instance, row.driver) };
+        dot: status.needsAttention ? status.statusKey : '', accent: normalizedAccent(row.instance.accentColor), badge: normalizedAccent(row.instance.accentColor) ? providerInstanceInitials(name) : '', icon: instanceIconUrl(row.instance, row.driver) };
     }),
     editors: selected ? [editorFor(host, selected, live)] : [], emptyEditor: selected ? '' : targetMissing ? 'This provider instance is no longer available on this device.' : 'No providers configured.',
     healthSeconds: String(health.seconds), healthDown: String(Math.max(0, health.seconds - 30)), healthUp: String(health.seconds + 30), healthCustom: health.seconds !== health.preset, cursorUsage: settings.cursorKeychainUsageEnabled === true,
@@ -290,6 +290,15 @@ function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, labe
   return { meta, existing, shownLabel, instanceId, error: validateInstanceId(instanceId, existing) };
 }
 
+const wizardDrivers = (selected: string, featured: boolean) => DRIVERS.filter(driver => driver.id !== 'acpRegistry' && (driver.featured !== false) === featured)
+  .map(driver => ({ id: driver.id, label: driver.label, badge: driver.badgeLabel ?? '', selected: driver.id === selected }));
+const MULTIPLE_ACCOUNT_PROVIDERS: Record<string, string> = { codex: 'Codex', claudeAgent: 'Claude' };
+/** MultipleAccountsNote: the provider's name while adding a Claude or Codex account where one is already signed in, else ''. */
+function multipleAccountsNote(host: ProviderHost, driver: string): string {
+  const name = MULTIPLE_ACCOUNT_PROVIDERS[driver];
+  return name && liveProviders(host).some(provider => provider.driver === driver && obj(provider.auth).status === 'authenticated') ? name : '';
+}
+
 /** The Add provider wizard's derived identity and the selected driver's config fields. */
 export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string, dialog = '', target = '') {
   if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; chatgptCreated = null; }
@@ -299,7 +308,9 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
   return {
     created, auth: created ? [providerWizardAuth(created, liveProviders(host).find(provider => provider.instanceId === created), setupOf(host, created), environmentLabelOf(host))] : [],
     sessions: open ? [{ key: `wizard:${serial}` }] : [], prepared: prepared ? [prepared] : [],
-    drivers: DRIVERS.filter(driver => driver.id !== 'acpRegistry').map(driver => ({ id: driver.id, label: driver.label, badge: driver.id === 'muse' ? 'Beta' : '', selected: driver.id === identity.meta.id })),
+    // FEATURED_DRIVER_OPTIONS up front, MORE_DRIVER_OPTIONS under Show more; the ACP Registry is its own search.
+    drivers: wizardDrivers(identity.meta.id, true), moreDrivers: wizardDrivers(identity.meta.id, false),
+    accountsNote: open ? multipleAccountsNote(host, identity.meta.id) : '', chatgptAccountsNote: open ? multipleAccountsNote(host, 'codex') : '',
     driver: identity.meta.id, driverLabel: identity.meta.label, label: identity.shownLabel, instanceId: identity.instanceId, idError: identity.error,
     preview: identity.shownLabel.trim() || `${identity.meta.label} Workspace`, idPlaceholder: `${identity.meta.id}_work`,
     fields: identity.meta.fields.map((field, index) => ({ ...fieldRow('wizard', field, field.key === 'source' ? 'registry' : ''), index })),
@@ -324,20 +335,62 @@ export const chatgptDialogStreams = (open: boolean, serial: number) => open && c
 
 /** ACP_REGISTRY_MAX_AGENTS: the most agents a search answers with when it asks for them. */
 export const ACP_REGISTRY_MAX_AGENTS = 512;
-/** ACP Registry search (read scope); an empty query lists every compatible agent (a server answers 20 unless asked for more). */
-export async function acpRegistry(host: ProviderHost, native: Native | null | undefined, query: string, open: boolean, configured: string[]) {
+// searchAcpRegistry's query atoms: an answer is fresh for 5 minutes (staleTimeMs), so reopening Add provider shows it at
+// once, and is kept 5 minutes after the dialog stops asking for it (the idle TTL), shown while a stale one is asked again.
+const ACP_REGISTRY_FRESH_MS = 5 * 60_000;
+const ACP_REGISTRY_IDLE_MS = 5 * 60_000;
+type AcpSearch = { fetchedAt: number; usedAt: number; agents: Obj[] };
+const acpSearches = new WeakMap<object, { shown: string | null; answers: Map<string, AcpSearch> }>();
+function acpSearchesOf(host: ProviderHost, now: number) {
+  let searches = acpSearches.get(host);
+  if (!searches) acpSearches.set(host, searches = { shown: null, answers: new Map() });
+  for (const [key, answer] of searches.answers) if (key !== searches.shown && now - answer.usedAt > ACP_REGISTRY_IDLE_MS) searches.answers.delete(key);
+  return searches;
+}
+const acpSearchKey = (host: ProviderHost, query: string) => `${str(obj(host.config.environment).environmentId)}\n${query.trim().slice(0, 120)}`;
+/** Submitting the search again refreshes it (useAcpRegistrySearch's submit): its kept answer is asked again. */
+export function refreshAcpRegistry(host: ProviderHost, query: string): void { acpSearches.get(host)?.answers.delete(acpSearchKey(host, query)); }
+/** AcpRegistrySearchStep's results: the agents T3 Code ships first-class are left out, the configured ones marked added. */
+function acpRegistryView(answer: Obj[], configured: string[]) {
+  const agents: AcpAgent[] = answer.filter(agent => !FIRST_CLASS_REGISTRY_AGENT_IDS.has(str(agent.id))).map(agent => ({ id: str(agent.id), name: str(agent.name), description: str(agent.description),
+    link: str(agent.website) || str(agent.repository), icon: str(agent.icon), version: str(agent.version), distribution: str(agent.distribution),
+    iconUrl: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: 'acpRegistry', agentId: str(agent.id), iconUrl: str(agent.icon) || undefined }) ?? '',
+    added: configured.includes(str(agent.id)) }));
+  return { ready: true, error: '', agents, status: `${agents.length} compatible ${agents.length === 1 ? 'agent' : 'agents'} found.` };
+}
+/**
+ * ACP Registry search (read scope); an empty query lists every compatible agent (a server answers 20 unless asked for more).
+ * Closed, it answers what Add provider will open on: the unsearched list while one is kept, else nothing yet. `now` is the
+ * window's wall time (data sources have no Date.now()): providers-scope.ts passes the Providers page's.
+ */
+export async function acpRegistry(host: ProviderHost, native: Native | null | undefined, query: string, open: boolean, configured: string[], now = 0) {
   const empty = { ready: false, status: '', error: '', agents: [] as AcpAgent[] };
-  if (!open || !native?.available || !host.ready) return empty;
+  if (!native?.available || !host.ready) return empty;
+  const searches = acpSearchesOf(host, now), key = acpSearchKey(host, query);
+  if (!open) {
+    if (searches.shown !== null) { const left = searches.answers.get(searches.shown); if (left) left.usedAt = now; searches.shown = null; }
+    const kept = searches.answers.get(acpSearchKey(host, ''));
+    return kept ? acpRegistryView(kept.agents, configured) : empty;
+  }
+  searches.shown = key;
+  const kept = searches.answers.get(key);
+  if (kept && now - kept.fetchedAt < ACP_REGISTRY_FRESH_MS) {
+    kept.usedAt = now;
+    const view = acpRegistryView(kept.agents, configured);
+    acpLastAgents = view.agents;
+    return view;
+  }
   try {
     const submitted = query.trim().slice(0, 120);
     const result = await host.rpc(native, 'server.searchAcpRegistry', submitted ? { query: submitted } : { query: '', limit: ACP_REGISTRY_MAX_AGENTS });
-    const agents: AcpAgent[] = arr(result.agents).map(agent => ({ id: str(agent.id), name: str(agent.name), description: str(agent.description),
-      link: str(agent.website) || str(agent.repository), icon: str(agent.icon), version: str(agent.version), distribution: str(agent.distribution),
-      iconUrl: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: 'acpRegistry', agentId: str(agent.id), iconUrl: str(agent.icon) || undefined }) ?? '',
-      added: configured.includes(str(agent.id)) }));
-    acpLastAgents = agents;
-    return { ready: true, error: '', agents, status: `${agents.length} compatible ${agents.length === 1 ? 'agent' : 'agents'} found.` };
-  } catch (error) { return { ...empty, ready: true, error: error instanceof Error ? error.message : 'The ACP Registry search failed.' }; }
+    searches.answers.set(key, { fetchedAt: now, usedAt: now, agents: arr(result.agents) });
+    const view = acpRegistryView(arr(result.agents), configured);
+    acpLastAgents = view.agents;
+    return view;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'The ACP Registry search failed.';
+    return kept ? { ...acpRegistryView(kept.agents, configured), error: message } : { ...empty, ready: true, error: message };
+  }
 }
 
 async function freshSettings(host: ProviderHost, native: Native) { return host.rpc(native, 'server.getSettings', {}); }

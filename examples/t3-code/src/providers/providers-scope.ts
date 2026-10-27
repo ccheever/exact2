@@ -73,12 +73,17 @@ async function watchOn(owner: string, host: ProviderHost | null, native: Native,
   await watchProviderSetup(host, routedNative(host, native), owner, wanted);
 }
 
+// The newest wall time the Providers page saw (its clock argument), which times the ACP Registry's kept answers: Add
+// provider opens from that page, and data sources have no Date.now().
+let pageNow = 0;
+
 /**
  * The providerPage answer. args: selection, active, revision, clock, then the settings scope (machine,
  * project, checkout, legacy project id). Closed, the page is the focused environment's, as before.
  */
 export async function scopedProviderPage(client: T3Client, native: Native | null | undefined, args: unknown[]) {
   const selection = String(args[0] || ''), active = args[1] === true, now = Number(args[3]) || 0;
+  pageNow = Math.max(pageNow, now);
   const chosen = active ? providersEnvironment(client, String(args[4] ?? ''), String(args[5] ?? ''), String(args[6] ?? ''), String(args[7] ?? ''))
     : { environmentId: client.environmentId, message: '', projectIds: [] };
   const host = !active || chosen.environmentId ? providersHost(client, chosen.environmentId) : null;
@@ -102,7 +107,7 @@ export async function scopedProviderWizard(client: T3Client, native: Native | nu
 export function scopedAcpRegistry(client: T3Client, native: Native | null | undefined, args: unknown[]) {
   const host = providersHost(client, String(args[3] ?? ''));
   const configured = Object.values(obj(obj(host.config.settings).providerInstances)).filter(entry => obj(entry).driver === 'acpRegistry').map(entry => str(obj(obj(entry).config).agentId));
-  return acpRegistry(host, native?.available ? routedNative(host, native) : native, String(args[0] || ''), args[1] === true, configured);
+  return acpRegistry(host, native?.available ? routedNative(host, native) : native, String(args[0] || ''), args[1] === true, configured, pageNow);
 }
 
 /** Route commands to the page's synchronized environment; its RPC boundary checks each operation's permission. */
@@ -113,9 +118,9 @@ export function providersRoute(client: T3Client, environmentId: string): Provide
     requireWrite: () => { if (!host.ready) throw new ClientError('Reconnect before making changes.'); } };
 }
 
-/** The page's `upkeep:` ops (args[4] names its environment); Update all and the launch prompt cover every environment. */
+/** The page's `upkeep:` ops (args[4] names its environment); Update all covers every environment. */
 export async function scopedUpkeepOp(client: T3Client, native: Native, args: unknown[]): Promise<void> {
-  const op = String(args[0] || ''), host = op === 'upkeep:update-all' || op === 'upkeep:update-launch' ? client : providersHost(client, String(args[4] ?? ''));
+  const op = String(args[0] || ''), host = op === 'upkeep:update-all' ? client : providersHost(client, String(args[4] ?? ''));
   await providerUpkeepOp(host, routedNative(host, native), op, String(args[1] || ''), String(args[2] ?? ''), String(args[3] ?? ''));
 }
 

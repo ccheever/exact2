@@ -1,7 +1,7 @@
 // Settings shell + General route data.
-// Reference: T3 Code 74541bab17 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
-// settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx, apps/web/src/modelSelection.ts
-// and packages/shared/src/projectSettings.ts. Server rows read and write the connected
+// Reference: T3 Code 7c3b3b3605ef apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
+// WorktreesSettings,AdvancedSettings,settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx,
+// apps/web/src/modelSelection.ts and packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
 // reference ClientSettings, saved in this app's own preferences file.
 import { changeCliCommand } from './cli-command';
@@ -27,7 +27,7 @@ import type { DiffState } from '../diff/diff';
 import { notificationPermission, notificationPermissionMessage } from '../shell/shell-notify';
 import { type QrMark } from './settings-mobile-beta';
 import { CLIENT_VERSION } from '../connections/connections';
-import { primaryEnvironmentId } from '../connections/local-primary';
+import { isPrimaryEnvironment, primaryEnvironmentId } from '../connections/local-primary';
 import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, projectScopeMenuGroups, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
   settingsScopeProjectMachines, type ResolvedSettingsScope, type ScopeGroup } from './settings-scope';
 import { persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
@@ -49,7 +49,8 @@ export type CoreRow = {
   /** About → Mobile app's QR codes (settings-mobile-beta.ts); empty on every other row. */
   qr: QrMark[];
 };
-export type CoreSection = { id: string; title: string; collapsible: boolean; rows: CoreRow[]; toggle: boolean };
+/** A section's rows, and the power-user rows its Advanced fold holds (AdvancedSettings; empty draws no fold). */
+export type CoreSection = { id: string; title: string; collapsible: boolean; rows: CoreRow[]; toggle: boolean; advanced?: CoreRow[] };
 /** A scope menu option (SettingsScopeSentence ScopeOption): its name, the line under it that tells it apart, its mark and Offline. */
 export type ScopeChoice = { id: string; label: string; secondary: string; mark: string; ink: string; surface: string; member: string; selected: boolean; offline: boolean };
 
@@ -70,7 +71,7 @@ export const CLIENT_DEFAULTS = {
   diffFilesCollapsed: true, diffIgnoreWhitespace: true, diffLayout: 'stacked', environmentIdentificationMode: 'artwork', glassOpacity: 80,
   fontSizeInterface: 16, fontSizePrompt: 14, fontSizeCode: 13, fontSizeTerminal: 12, fontFamilyCode: '', fontFamilyComposer: '', fontFamilySans: '',
   fontFamilyTerminal: '', fontSmoothing: true, persistComposerContextStrip: false, contextWindowMeterEnabled: false, composerRichTextEnabled: true,
-  followUpBehavior: 'queue', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, legacySidebarEnabled: false, sidebarWorkingShelfEnabled: false,
+  followUpBehavior: 'steer', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, legacySidebarEnabled: false, sidebarWorkingShelfEnabled: true,
   wordWrap: true, browserLinkTarget: 'system', theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code', typographyAdvanced: false, confirmQuit: 'hold',
   sidebarProjectSortOrder: 'updated_at',
   // The legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
@@ -228,6 +229,11 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
     projectLabel: projectKey ? (group ? group.displayName : 'Unavailable project') : 'All projects', projectMark: marks.mark, projectInk: marks.ink, projectSurface: marks.surface,
     connective: machine || resolved.kind === 'checkout' ? 'on' : 'across', connected: connectedEnvironments.length > 0, environmentChoices, projectChoices,
     resolved, environments, selected, environmentIcon: current?.kind ?? '', groups };
+}
+/** SettingsScopeContext's `environment`: the scope's connected environment, the primary first (its setup links and Providers name it). */
+export function scopeRepresentative(scope: CoreScope) {
+  const connected = scope.selected.filter(environment => environment.connection.phase === 'connected' && environment.serverConfig !== null);
+  return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
 }
 /** ProjectFavicon draws the group's representative project, so its monogram is that project's title, not the group label. */
 const groupMarkName = (group: ScopeGroup) => str((group.memberProjects[0] as Obj | undefined)?.title) || group.displayName;
@@ -509,7 +515,13 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     deviceRow('diffFilesCollapsed', 'default-diff-file-state', 'Default diff file state', "Start with files expanded or collapsed when opening diffs or a pull request's Code tab.", 'select',
       { value: prefs.diffFilesCollapsed ? 'collapsed' : 'expanded', label: prefs.diffFilesCollapsed ? 'Collapsed' : 'Expanded', options: [option('expanded', 'Expanded', !prefs.diffFilesCollapsed), option('collapsed', 'Collapsed', prefs.diffFilesCollapsed)] }),
     deviceRow('diffLayout', 'diff-layout', 'Diff layout', 'Show diffs stacked or side by side. The toggle in the diff toolbar changes this too.', 'select', { ...select(prefs.diffLayout, [['stacked', 'Stacked'], ['split', 'Split']]) }),
+    // DiffColorsSettingsRow: the trigger's two dots, deletion then addition (reversed for blue and orange).
+    deviceRow('diffColorScheme', 'diff-color-scheme', 'Diff colors', 'Choose colors for additions and deletions, including change counts.', 'select',
+      { ...select(prefs.diffColorScheme, [['red-green', 'Red & green (default)'], ['blue-orange', 'Blue & orange']]), label: prefs.diffColorScheme === 'blue-orange' ? 'Blue & orange' : 'Red & green',
+        icon: prefs.diffColorScheme === 'blue-orange' ? 'dots-blue-orange' : 'dots-red-green', resetLabel: 'diff colors' }),
     deviceRow('proactivePanelsEnabled', 'proactive-panels', 'Proactive panels', 'Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines.', 'switch'),
+    deviceRow('pullRequestLinksOpenInApp', 'pull-request-links-open-in-app', 'Open pull requests in T3 Code', 'Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on your git host.', 'switch',
+      { resetLabel: 'open pull requests in T3 Code' }),
     deviceRow('showSkillsInSlashMenu', 'skills-in-slash-menu', 'Show skills in slash menu', 'Also include skills in the / command menu. Skills always appear when you type $.', 'switch'),
     deviceRow('composerRichTextEnabled', 'composer-rich-text', 'Rich text composer', 'Show formatted Markdown as you type.', 'switch'),
     deviceRow('composerCollapseOnScroll', 'composer-collapse', 'Collapse composer on scroll', 'Rest the composer of an existing thread into a single line when you scroll the conversation. Focus the composer or start typing to expand it again.', 'switch'),
@@ -544,7 +556,7 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   // AboutVersionTitle: this app's own release (APP_VERSION), not the connected server's.
   const about = aboutRows(client, CLIENT_VERSION); // settings-a-about.ts: the update button and Update track
   const diagnostics = [
-    coreRow('diagnostics', 'Diagnostics', envScope ? 'Inspect processes, resource use, and logs on this environment.' : 'Inspect processes, resource use, and logs on one environment at a time.', 'link', { label: 'View diagnostics', target: 'diagnostics', width: 0 }),
+    diagnosticsRow(envScope),
     coreRow('open-source-licenses', 'Open source licenses', 'Notices for dependencies, assets, and optional tools used by T3 Code.', 'link', { label: 'View licenses', target: 'open-source-licenses', width: 0 }),
   ];
   const legacy = [
@@ -552,27 +564,35 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     deviceRow('contextWindowMeterEnabled', 'legacy-context-window-indicator', 'Context window indicator (legacy)', 'Shows context window usage as a circular indicator in the composer.', 'switch', { resettable: false }),
     deviceRow('legacySidebarEnabled', 'legacy-sidebar', 'Sidebar (legacy)', 'Restore per-project thread trees instead of the default flat sidebar.', 'switch', { resettable: false }),
   ];
-  const section = (id: string, title: string, rows: CoreRow[], collapsible = false): CoreSection => ({ id, title, collapsible, rows, toggle: false });
   const rows = new Map([...newThreads, ...organization, ...behavior, ...projects, ...confirmations, ...textGeneration, ...about, ...diagnostics, ...legacy].map(row => [row.id, row]));
-  const pick = (id: string, title: string, ids: string[]) => section(id, title, ids.flatMap(rowId => rows.get(rowId) ?? []));
-  // Not where the reference puts them: Compact idle Claude threads is on its Providers page, and the Advanced folds
-  // (Show skills in slash menu, Response streaming, Submodules) are drawn open.
+  const pick = (id: string, title: string, ids: string[], advanced: string[] = []): CoreSection =>
+    ({ id, title, collapsible: false, toggle: false, rows: ids.flatMap(rowId => rows.get(rowId) ?? []), advanced: advanced.flatMap(rowId => rows.get(rowId) ?? []) });
+  // Not where the reference puts it: Compact idle Claude threads is on its Providers page. Worktrees' Creation and
+  // Maintenance's Diagnostics are drawn by the storage panel between its own sections (settings-data.ts worktreeRows).
   const pages: Record<string, CoreSection[]> = {
     general: [pick('notifications', 'Notifications', ['thread-notifications', 'in-app-notifications']), pick('sidebar', 'Sidebar', ['project-grouping', 'project-order', 'working-shelf']),
       pick('confirmations', 'Confirmations', ['unpin-confirmation', 'archive-confirmation', 'delete-confirmation', 'quit-confirmation']), pick('display', 'Display', ['time-format'])],
-    chat: [pick('composer', 'Composer', ['composer-rich-text', 'send-shortcut', 'composer-collapse', 'skills-in-slash-menu']), pick('follow-ups', 'Follow-ups', ['follow-up-behavior'])],
-    diffs: [pick('diffs', 'Diffs', ['diff-layout', 'hide-whitespace-changes', 'default-diff-file-state']), pick('pull-requests', 'Pull requests', ['proactive-panels'])],
+    chat: [pick('composer', 'Composer', ['composer-rich-text', 'send-shortcut', 'composer-collapse'], ['skills-in-slash-menu']), pick('follow-ups', 'Follow-ups', ['follow-up-behavior'])],
+    diffs: [pick('diffs', 'Diffs', ['diff-layout', 'hide-whitespace-changes', 'default-diff-file-state', 'diff-color-scheme']),
+      pick('pull-requests', 'Pull requests', ['proactive-panels', 'pull-request-links-open-in-app'])],
     threads: [pick('new-projects', 'New projects', ['add-project-starts-in']), pick('project-defaults', 'New threads', ['default-model', 'default-permissions', 'new-threads']),
       pick('usage-limits', 'Usage limits', ['auto-resume-limited-threads', 'snooze-limited-threads', 'compact-idle-threads']),
       pick('auto-settle', 'Auto-settle', ['auto-settle-merged-threads', 'auto-settle-inactive-threads', 'days-before-auto-settle', 'keep-threads-with-pr']),
-      pick('text-generation', 'Text generation', ['text-generation-model', 'response-streaming'])],
-    worktrees: [pick('worktree-creation', 'Creation', ['start-from-origin', 'worktree-submodules'])],
-    maintenance: [pick('updates', 'Updates', ['provider-update-checks', 'continue-threads-after-server-update']), pick('background', 'Background activity', ['background-activity']),
-      pick('diagnostics-section', 'Diagnostics', ['diagnostics'])],
+      pick('text-generation', 'Text generation', ['text-generation-model'], ['response-streaming'])],
+    worktrees: [pick('worktree-creation', 'Creation', ['start-from-origin'], ['worktree-submodules'])],
+    maintenance: [pick('updates', 'Updates', ['provider-update-checks', 'continue-threads-after-server-update']), pick('background', 'Background activity', ['background-activity'])],
     about: [pick('about', 'App', about.map(row => row.id)), pick('legal', 'Legal', ['open-source-licenses'])],
     labs: [pick('legacy-features', 'Legacy', ['legacy-plan-mode', 'legacy-context-window-indicator', 'legacy-sidebar'])],
   };
-  return (route ? pages[route] ?? [] : Object.values(pages).flat()).filter(entry => entry.rows.length > 0);
+  return (route ? pages[route] ?? [] : Object.values(pages).flat()).filter(entry => entry.rows.length > 0 || (entry.advanced ?? []).length > 0);
+}
+/** SettingsGroup's dividers: every row after a section's first, and every Advanced row after the fold's first (the fold
+ *  draws its own top border, AdvancedSettings' `border-t`). */
+export const dividedSection = (section: CoreSection): CoreSection => ({ ...section,
+  rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })), advanced: (section.advanced ?? []).map((row, index) => ({ ...row, divider: index > 0 })) });
+/** Maintenance's Diagnostics row: its own page for one environment at a time (isEnvironmentScope). */
+export function diagnosticsRow(envScope: boolean): CoreRow {
+  return coreRow('diagnostics', 'Diagnostics', envScope ? 'Inspect processes, resource use, and logs on this environment.' : 'Inspect processes, resource use, and logs on one environment at a time.', 'link', { label: 'View diagnostics', target: 'diagnostics', width: 0 });
 }
 
 // ── Reading and writing ───────────────────────────────────────────────────

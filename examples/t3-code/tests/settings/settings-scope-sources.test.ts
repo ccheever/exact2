@@ -11,7 +11,7 @@ import { settingsCore } from '../../src/settings/settings-core-view';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { scopeEnvironments, scopeProjectGroups } from '../../src/settings/settings-scope-sources';
 import { restCommand } from '../../src/settings/settings-rest-commands';
-import { archivedSettings, lastRunSummary, storageSettings } from '../../src/settings/settings-data';
+import { archivedSettings, lastRunSummary, storageSettings, worktreeRows } from '../../src/settings/settings-data';
 import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
 import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
@@ -111,6 +111,25 @@ describe('settings scope across environments', () => {
     expect(stale.available).toBe(false);
     expect(stale.error).toContain('checkout is no longer available');
   });
+  test('Worktrees and Maintenance group their rows as WorktreesSettings and MaintenanceSettingsPanel do', async () => {
+    const client = focused();
+    Object.assign(client, { generation: 1, shell: initialShell() });
+    const key = 'http://127.0.0.1:16104\nenv-storage-groups';
+    fleet.entries.set(key, entry(key, 'env-storage-groups', 'Server', { storageCleanup: { worktreeOnDelete: true } }));
+    const page = await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '');
+    // Creation: the location, Start from remote, Submodules under Advanced; Branches; then Cleanup's three rules with
+    // settled and unchanged worktrees and Keep worktrees with local changes under its Advanced fold.
+    expect([page.directorySupported, page.creation.map(row => [row.id, row.divider]), page.creationAdvanced.map(row => [row.id, row.divider])])
+      .toEqual([true, [['start-from-origin', true]], [['worktree-submodules', false]]]);
+    expect(page.branches.map(row => row.key)).toEqual(['branchNamingMode', 'branchNamePrefix']);
+    expect(page.worktrees.map(rule => [rule.key, rule.first])).toEqual([['worktreeOnDelete', true], ['worktreeOnMerge', false], ['worktreeAfterDays', false]]);
+    expect([page.worktreesAdvanced.map(rule => [rule.key, rule.first]), page.keepSupported]).toEqual([[['worktreeSettledAfterDays', true], ['worktreeUnchanged', false]], true]);
+    // Maintenance ends with Diagnostics, on the one selected environment.
+    expect(page.diagnostics.map(row => [row.id, row.kind, row.target, row.description])).toEqual([['diagnostics', 'link', 'diagnostics', 'Inspect processes, resource use, and logs on this environment.']]);
+    // A machine without settled cleanup keeps only unchanged worktrees under Advanced.
+    fleet.entries.set(key, { ...fleet.entries.get(key)!, config: { ...fleet.entries.get(key)!.config, environment: { environmentId: 'env-storage-groups', label: 'Server', capabilities: { ...capabilities, settledWorktreeCleanup: false } } } });
+    expect((await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '')).worktreesAdvanced.map(rule => rule.key)).toEqual(['worktreeUnchanged']);
+  });
   test('Storage keeps maintenance available on a supported machine while an older machine hides configuration', async () => {
     const client = focused();
     Object.assign(client, { scopes: [], generation: 1, shell: initialShell() });
@@ -173,11 +192,12 @@ describe('settings scope across environments', () => {
   test('checkouts of one project that disagree draw mixed for start-from-origin', async () => {
     const client = focused({ projectSettingsOverrides: { pa: { newWorktreesStartFromOrigin: false } } });
     fleet.entries.set(B, entry(B, 'env-b', 'Server', {}));
-    const core = await settingsCore(as(client), nativeFor(), '', 'github.com/acme/app', '', '', 'worktrees', '', true);
-    const start = core.sections.flatMap(section => section.rows).find(item => item.id === 'start-from-origin')!;
+    // Worktrees' Creation rows are the storage panel's, written as the core pages' are (`rest:core`).
+    const { creation } = await worktreeRows(as(client), nativeFor(), resolveScope(as(client), '', 'github.com/acme/app', ''), false);
+    const start = creation.find(item => item.id === 'start-from-origin')!;
     expect([start.mixed, start.inheritance]).toEqual([true, 'mixed']);
     const calls: Obj[] = [];
-    await applyCoreSetting(as(client), nativeFor(new Set(), calls), 'start-from-origin:||github.com/acme/app|', 'true');
+    await restCommand(as(client), nativeFor(new Set(), calls), { read: async () => null, write: async () => {} }, 'core', '', `id=${encodeURIComponent('start-from-origin:||github.com/acme/app|')}&value=true`);
     expect(client.writes).toEqual([{ patch: { projectSettingsOverrides: { pa: { newWorktreesStartFromOrigin: true } } } }]);
     expect(calls.filter(call => call.method === 'server.updateSettings').map(call => (call.payload as Obj).patch)).toEqual([{ projectSettingsOverrides: { 'p-env-b': { newWorktreesStartFromOrigin: true } } }]);
   });

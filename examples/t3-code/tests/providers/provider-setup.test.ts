@@ -266,6 +266,10 @@ describe('provider setup in the clone', () => {
     expect(fake.account()).toMatchObject({ description: 'Sign in on Remote Google device.', showStart: true, startLabel: 'Sign in', showCancel: false, url: '' });
     fake.emit('auth', authState({ phase: 'starting', authorizationUrl: null }));
     expect(fake.account()).toMatchObject({ description: 'Starting sign-in…', showCancel: true, showStart: false });
+    // A starting flow that names its trouble shows it (ProviderAuthenticationSection `auth.message ?? …`).
+    const slow = "Antigravity has not reached Google after 30 seconds. Check this machine's network connection. Broken IPv6 is a common cause.";
+    fake.emit('auth', authState({ phase: 'starting', authorizationUrl: null, message: slow }));
+    expect(fake.account()).toMatchObject({ description: slow, showCancel: true, showStart: false });
     fake.emit('auth', authState());
     expect(fake.account()).toMatchObject({ description: 'Finish signing in in your browser.', showCancel: true, callback: true, url: 'https://accounts.google.com/o/oauth2/v2/auth?state=test-only' });
     fake.emit('auth', authState({ phase: 'verifying', authorizationUrl: null }));
