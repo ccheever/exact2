@@ -561,8 +561,8 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   CFBundleShortVersionString: '0.1.0',
   LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0',
   NSHighResolutionCapable: true,
-  // Usage strings for the devices the app's grants name (LLP 1069.008).
-  ...usageKeys(reach),
+  ...usageKeys(reach), // usage strings for the devices the app's grants name (LLP 1069.008)
+  ...(app.manifest.host?.macos?.activationPolicy === 'accessory' ? { LSUIElement: true } : {}), // a menu-bar app (LLP 1133.025 D6)
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
   ...(app.manifest.display_override?.length ? { ExactDisplayOverride: app.manifest.display_override } : {}),
   ...transportSecurity(app.manifest.host?.macos),

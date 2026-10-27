@@ -48,6 +48,13 @@ pub struct Page {
     /// `document.visibilityState == "hidden"`: nothing of the page can be
     /// seen. A window behind another is still visible.
     pub hidden: bool,
+    /// Whether the app runs in the background, where the host says so
+    /// apart from `hidden` (LLP 1133.025 D11 item 7): a desktop host tells
+    /// `false` for a window that is not showing while the person is at the
+    /// machine (a menu-bar app, a window closed to the Dock), and `true`
+    /// only for a wake or a headless session. `None` where the host does
+    /// not tell them apart (iOS, Android, the web), which reads `hidden`.
+    pub background: Option<bool>,
     /// `navigator.onLine`: says as little as the web's; `true` promises no
     /// origin can be reached.
     pub on_line: bool,
@@ -99,6 +106,7 @@ impl Default for Page {
     fn default() -> Self {
         Self {
             hidden: false,
+            background: None,
             on_line: true,
             can_share: false,
             can_share_files: false,
@@ -121,12 +129,14 @@ impl Page {
     /// type, bit 7 about to be suspended, bit 8 shares files, bit 9 shares
     /// an element's picture, bit 10 put away (`persisted`), bits 11–12 the
     /// GPU tier (0 high, 1 mid, 2 low), bit 13 an `iframe`'s `partition`
-    /// honoured, bits 16–31 the restores; other bits
+    /// honoured, bit 14 the host tells `background` and bit 15 its value,
+    /// bits 16–31 the restores; other bits
     /// are ignored. Zero is visible, online, focused, no share sheet, no
     /// pickers, no navigation, never put away, a `high` GPU tier.
     pub fn from_bits(bits: u32) -> Self {
         Self {
             hidden: bits & 1 != 0,
+            background: (bits & (1 << 14) != 0).then_some(bits & (1 << 15) != 0),
             on_line: bits & 2 == 0,
             can_share: bits & 4 != 0,
             can_open_files: bits & 8 != 0,
@@ -156,7 +166,16 @@ impl Page {
             | (u32::from(self.persisted) << 10)
             | (u32::from(self.gpu_tier & 3) << 11)
             | (u32::from(self.iframe_partition) << 13)
+            | self.background.map_or(0, |b| 1 << 14 | u32::from(b) << 15)
             | (u32::from(self.restores) << 16)
+    }
+
+    /// Whether the app runs in the background: what the host told, else
+    /// whether the page is hidden. Admission's `"foreground"`, the package
+    /// context's `foreground` and the sampled sources' pause read it; Page
+    /// Visibility reads `hidden` (LLP 1133.025 D11 item 7).
+    pub fn in_background(self) -> bool {
+        self.background.unwrap_or(self.hidden)
     }
 
     /// The GPU tier's word: `low`, `mid` or `high`.
@@ -205,9 +224,14 @@ mod tests {
     #[test]
     fn bits_round_trip_and_zero_is_the_default() {
         assert_eq!(Page::from_bits(0), Page::default());
-        for bits in (0..2048).chain([1 << 16, 3 << 16 | 1024, 1 << 13, !0xC000]) {
+        for bits in (0..2048).chain([1 << 16, 3 << 16 | 1024, 1 << 13, !0xC000, !0x8000, !0]) {
             assert_eq!(Page::from_bits(bits).bits(), bits);
         }
+        // LLP 1133.025 D11 item 7: background follows hidden unless told.
+        assert!(Page::from_bits(1).in_background());
+        assert!(!Page::from_bits(1 | 1 << 14).in_background());
+        assert!(Page::from_bits(1 << 14 | 1 << 15).in_background());
+        assert!(!Page::from_bits(1 << 14 | 1 << 15).hidden);
         // Put away, then back once: bit 10 and the count above bit 16.
         let away = Page::from_bits(1024);
         assert!(away.persisted && away.restores == 0);

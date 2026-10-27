@@ -28,7 +28,8 @@
 //!   (`exactPage().visibilityState`), as the platform's background is; a
 //!   page the wake hid is shown again when it ends.
 //! - **Refused** in a commit of the wake's origin: the host commands that
-//!   open system UI or play sound, journaled `<name>: refused: during a wake`.
+//!   open system UI or play sound, and bare `focus()`, which shows the
+//!   window, journaled `<name>: refused: during a wake`.
 //!   A module name declared `"origin": "app"` and a permission request are
 //!   refused by admission (`admit.rs`).
 //! - **Told by an implementation.** A bound implementation the platform ran
@@ -141,6 +142,8 @@ pub(in crate::runner) struct Wakes {
     ended: Vec<Json>,
     /// The last wake that ended, for `state.wake`.
     last: Option<Json>,
+    /// Whether the page showed before the running wake hid it.
+    shown: bool,
 }
 
 impl<D: DataSource> Runner<D> {
@@ -260,7 +263,7 @@ impl<D: DataSource> Runner<D> {
                 let Some(mut next) = w.waiting.pop_front() else {
                     break;
                 };
-                next.hid = next.how.hidden && !self.page.hidden;
+                next.hid = next.how.hidden && !self.page.in_background();
                 let hide = next.hid;
                 self.extensions.wakes.current = Some(next);
                 if hide {
@@ -303,10 +306,18 @@ impl<D: DataSource> Runner<D> {
         (receipts, error)
     }
 
-    /// The page hidden for a wake, or shown again after it.
+    /// The page hidden for a wake and the app in the background, or both
+    /// as they were after it: a desktop page that was hidden in the
+    /// foreground (a menu-bar app's) stays hidden.
     fn wake_page(&mut self, hidden: bool) -> Result<Option<CommitReceipt>, RunnerError> {
         let mut page = self.page();
-        page.hidden = hidden;
+        if hidden {
+            self.extensions.wakes.shown = !page.hidden;
+            page.hidden = true;
+        } else {
+            page.hidden = !self.extensions.wakes.shown;
+        }
+        page.background = page.background.map(|_| hidden);
         self.set_page(page)
     }
 
@@ -566,7 +577,11 @@ impl<D: DataSource> Runner<D> {
         }
         let mut i = first;
         while i < self.commands.len() {
-            if REFUSED.contains(&self.commands[i].name.as_str()) {
+            // Bare `focus()` brings the window forward, which a wake never
+            // does (LLP 1133.025 D4); `focus(id)` is an element's.
+            let command = &self.commands[i];
+            let window = command.name == "focus" && command.args.is_empty();
+            if REFUSED.contains(&command.name.as_str()) || window {
                 let name = self.commands.remove(i).name;
                 self.log(format!("{name}: refused: during a wake"));
             } else {
@@ -606,7 +621,7 @@ impl<D: DataSource> Runner<D> {
         let how = WakeHow {
             id: hash | 1 << 63,
             cold: false,
-            hidden: self.page.hidden,
+            hidden: self.page.in_background(),
         };
         if let Err(e) = self.raise_wake(extension, event, &v["args"].to_string(), how) {
             self.log(e);

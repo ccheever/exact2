@@ -1183,7 +1183,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }
                     continue
                 }
-                if name == "focus" || name == "selectText" {
+                if (name == "focus" && !args.isEmpty) || name == "selectText" { // bare `focus()` is the window's: the delegate's (LLP 1133.025 §8)
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue
                 }

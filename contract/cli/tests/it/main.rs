@@ -50,6 +50,7 @@ mod corpus;
 mod dataset;
 mod delete_rows;
 mod delivery;
+mod desktop;
 mod diagnostic_edits;
 mod diagnostics;
 mod disabled_look;

@@ -43,6 +43,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 mod app_list;
+mod desktop;
 mod reach;
 mod region_list;
 mod update;
@@ -69,6 +70,9 @@ pub(in crate::runner) struct Declared {
     reach: reach::Reach,
     /// Each app-scoped list's revision this session last heard, by its key.
     seen: BTreeMap<String, u64>,
+    /// A launch the login item made (`--login`), and whether its
+    /// registration asked `hidden` (`desktop.rs`).
+    login_launch: Option<bool>,
 }
 
 /// One entry of a keyed list.
@@ -345,6 +349,11 @@ impl<D: DataSource> Runner<D> {
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let extension = self.plan.str(row.extension).to_owned();
+        // A call the platform answers with its own UI and nothing else
+        // (`openLoginItemSettings`): journaled.
+        if sub["journal"] == true {
+            self.log(format!("{declared}: {args}"));
+        }
         let mut fields = args.as_object().cloned().unwrap_or_default();
         fields.values_mut().for_each(whole);
         if sub["update"].is_object() {
@@ -674,6 +683,9 @@ impl<D: DataSource> Runner<D> {
             }
             // A cold call is the calls' (`calls.rs`).
             "launchEntry" if v["launch"] == "call" => None,
+            "launchEntry" if v["launch"] == "login" => {
+                Some(self.launch_login(v["entry"] == "hidden"))
+            }
             "launchEntry" => {
                 let entry = v["entry"]
                     .as_str()
@@ -751,6 +763,10 @@ impl<D: DataSource> Runner<D> {
         }
         // A registration's tap is a wake, and leaves it listed.
         let row = self.module_row(&entry.source);
+        if self.substitute(&row)["list"]["tap"]["keep"] == true {
+            let entry = entry.clone();
+            return self.tap_registration(&row, &entry);
+        }
         if self.substitute(&row)["list"]["tap"]["as"] == "wake" {
             return self.tap_wake(&state, at);
         }

@@ -424,6 +424,22 @@ pub const DEVICES: &[Device] = &[
         purpose: false,
         ..ROW
     },
+    // A login item and global shortcuts (LLP 1133.025 D10): nothing asks the
+    // person, so the lines name no purpose; each is the app's statement of
+    // what it may do, checked at bake. The installed Windows build's
+    // `desktop:StartupTask` derives from `login-item`. Desktop only.
+    Device {
+        name: "login-item",
+        purpose: false,
+        tvos: false,
+        ..ROW
+    },
+    Device {
+        name: "global-shortcuts",
+        purpose: false,
+        tvos: false,
+        ..ROW
+    },
     // App Attest and Play Integrity (LLP 1133.028 D6): nothing is shown or
     // asked. The entitlement's value, `development` or `production`, is the
     // build's to choose (`host/apple/build.mjs`); a Mac takes it only with a

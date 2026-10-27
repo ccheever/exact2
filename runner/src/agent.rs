@@ -791,8 +791,10 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     quote(page.navigation_type(), &mut s);
     let _ = write!(
         s,
-        ",\"persisted\":{},\"restores\":{}",
-        page.persisted, page.restores
+        ",\"persisted\":{},\"restores\":{},\"background\":{}",
+        page.persisted,
+        page.restores,
+        page.in_background()
     );
     s.push_str(",\"gpuTier\":");
     quote(page.gpu_tier(), &mut s);
@@ -917,6 +919,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     sound::state(runner, request, &mut s);
     crate::wakelock::state(runner, &mut s);
     crate::orientation::state(runner, &mut s);
+    crate::desktop::state(runner, &mut s);
     transport::state(runner, request, &mut s);
     // The store's names, never its values (LLP 1018 D5).
     s.push_str(",\"store\":[");

@@ -603,6 +603,20 @@ impl<D: DataSource> Runner<D> {
             {
                 Decision::Now(self.pin_shortcut(row, args))
             }
+            // A login item's registration and a global shortcut's (LLP
+            // 1133.025 §11, `declared/desktop.rs`).
+            Route::Substitute if self.desktop_form(row) => {
+                if !send && self.substitute(row)["shortcut"] == "register" {
+                    self.note_registration_reader(row, args);
+                }
+                Decision::Now(self.desktop_answer(row, args))
+            }
+            // A host that names its target after boot: what the first read
+            // registered goes with the answer it no longer has.
+            Route::Substitute if self.substitute(row)["shortcut"] == "register" => {
+                self.shortcut_released(row, None);
+                self.decide_timed(row, send, timeout, args)
+            }
             Route::Substitute => self.decide_timed(row, send, timeout, args),
         };
         // A name whose grants are per argument asks permission only for an
@@ -923,7 +937,7 @@ impl<D: DataSource> Runner<D> {
                 && origin == CallOrigin::App
                 && self.in_call()
         };
-        if applies && sub["foreground"] == true && self.page.hidden && !calling() {
+        if applies && sub["foreground"] == true && self.page.in_background() && !calling() {
             return Err("not in the foreground".into());
         }
         Ok(())

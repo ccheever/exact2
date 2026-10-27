@@ -1,0 +1,69 @@
+{
+  "kind": "interface",
+  "name": "@exact/global-shortcuts",
+  "version": "1.0.0",
+  "grants": ["device.global-shortcuts"],
+  "shapes": {
+    "GlobalShortcut": {
+      "id": "string",
+      "keys": "string",
+      "registered": "bool",
+      "reason": "option<enum<in-use|reserved|not-allowed|invalid>>"
+    },
+    "GlobalShortcutCheck": {
+      "keys": "string",
+      "registered": "bool",
+      "reason": "option<enum<in-use|reserved|not-allowed|invalid>>"
+    },
+    "GlobalShortcutStatus": {
+      "available": "bool",
+      "apple": "option<AppleGlobalShortcutStatus>"
+    },
+    "GlobalShortcutEvent": {
+      "id": "string",
+      "keys": "string"
+    }
+  },
+  "names": [
+    {
+      "source": "globalShortcut",
+      "live": true,
+      "origin": "app",
+      "grants": ["device.global-shortcuts"],
+      "options": { "id": "string", "keys": "string" },
+      "answers": "GlobalShortcut",
+      "substitute": {
+        "shortcut": "register",
+        "partial": true,
+        "list": {
+          "state": "globalShortcuts",
+          "key": "id",
+          "tap": { "event": "globalshortcut", "keep": true, "args": ["id", { "id": "id", "keys": "keys" }] }
+        },
+        "unsupported": ["web", "linux", "ios", "android", "tvos", "terminal"]
+      }
+    },
+    {
+      "send": "checkGlobalShortcut",
+      "origin": "app",
+      "grants": ["device.global-shortcuts"],
+      "options": { "keys": "string" },
+      "answers": "GlobalShortcutCheck",
+      "substitute": {
+        "shortcut": "check",
+        "unsupported": ["web", "linux", "ios", "android", "tvos", "terminal"]
+      }
+    },
+    {
+      "source": "globalShortcutStatus",
+      "live": true,
+      "answers": "GlobalShortcutStatus",
+      "sync": { "name": "globalShortcutStatusSync", "from": "read" },
+      "substitute": {
+        "default": { "available": true },
+        "unsupported": ["web", "linux", "ios", "android", "tvos", "terminal"]
+      }
+    },
+    { "event": "globalshortcut", "on": "root", "raised": "activation", "args": ["string", "GlobalShortcutEvent"], "hold": 16 }
+  ]
+}

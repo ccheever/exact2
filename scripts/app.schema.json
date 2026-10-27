@@ -778,6 +778,10 @@
               "description": "The oldest macOS the app runs on, as \"14.0\"; never below 14.0.",
               "type": "string"
             },
+            "activationPolicy": {
+              "enum": ["regular", "accessory"],
+              "description": "\"accessory\": a menu-bar app (LLP 1133.025 D6), written as LSUIElement: no Dock tile and no menu bar of its own, and every launch opens no window; a `-exact-menu=\"status\"` button is how the person reaches it, and `focus()` shows its window. Absent: regular."
+            },
             "optimize": {
               "enum": ["speed", "size"],
               "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
@@ -883,7 +887,8 @@
                 "width": { "type": "number", "minimum": 1, "maximum": 16384 },
                 "height": { "type": "number", "minimum": 1, "maximum": 16384 },
                 "minWidth": { "type": "number", "minimum": 1, "maximum": 16384 },
-                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 }
+                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "keepRunning": { "type": "boolean", "description": "Closing the window hides it while a `-exact-menu=\"status\"` button is placed in the notification area, as a tray app's does (LLP 1133.025 D4); with none placed, closing ends the app. Absent: false." }
               },
               "additionalProperties": false
             }

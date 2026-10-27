@@ -444,6 +444,7 @@ shape Viewport
 // write, sent as the official client sends it).
 shape Page
   visibilityState: string
+  hasFocus: bool
 
 shape Time
   epochAtZero: number

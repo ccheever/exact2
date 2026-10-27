@@ -759,6 +759,10 @@ impl<D: DataSource> Runner<D> {
                 object.insert(field.clone(), known);
             }
         }
+        // A login item's status with the app's registration (LLP 1133.025 §11).
+        if sub["login"] == "status" {
+            value = self.login_status(value);
+        }
         Some(value)
     }
 

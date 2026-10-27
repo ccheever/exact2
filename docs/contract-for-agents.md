@@ -2669,6 +2669,21 @@ Other standard items remain; other hosts ignore removal. View has Actual Size
 `setRootFontSize` included, and leave `px` as it is. See the grammar’s “The
 Mac’s menu bar”.
 
+Two more presentations of a button reach past the window
+([LLP 1133.025](../llp/1133.025-desktop.rfc.md) D4, D5). `dock` beside a menu
+id, or alone, also files the button in the app's Dock menu:
+`-exact-menu="file dock"` is New Conversation in File and in the Dock menu.
+`-exact-menu="status"`, alone, makes the button the app's status item: a menu
+bar item on macOS, a notification-area icon on Windows. Its text or
+`aria-label` is the item's title and tooltip, one `img` or `svg` child its
+image (a template image on macOS), and its `popovertarget` menu the item's
+menu; a click on macOS opens that menu, or runs `press` when there is none.
+On those two hosts the button takes no room in the page; elsewhere it is an
+ordinary button. An accessory app's status menu ends with the host's Quit,
+which `-exact-menu-remove="status-quit"` removes. Bare `focus()` brings the
+window forward, showing it if it was hidden; the agent lists the items as
+`state.statusItems` and `state.dockMenu`.
+
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
 `Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`. `frame` reads the last layout's border box

@@ -57,7 +57,7 @@ impl<D: DataSource> Runner<D> {
         for extension in &answering {
             self.tell_preferred(extension);
         }
-        if self.page.hidden {
+        if self.page.in_background() {
             self.tell_foreground();
         }
         self.publish_sync();
@@ -325,7 +325,7 @@ impl<D: DataSource> Runner<D> {
             .map(|m| self.plan.str(m.extension))
             .collect();
         for extension in told {
-            let body = json!({ "extension": extension, "foreground": !self.page.hidden });
+            let body = json!({ "extension": extension, "foreground": !self.page.in_background() });
             handler(body.to_string().into_bytes(), Reply::new(|_| {}));
         }
     }
@@ -348,12 +348,7 @@ impl<D: DataSource> Runner<D> {
     /// group data code asks for is released only with the whole name.
     pub(in crate::runner) fn release_idle(&mut self) {
         let live: Vec<String> = self.extensions.live.iter().cloned().collect();
-        let handler = self.native_slot().handler();
-        let release = |body: Json| {
-            if let Some(handler) = &handler {
-                handler(body.to_string().into_bytes(), Reply::new(|_| {}));
-            }
-        };
+        let mut released: Vec<Json> = Vec::new();
         for key in live {
             let Some((extension, name)) = key.split_once('.') else {
                 continue;
@@ -363,7 +358,7 @@ impl<D: DataSource> Runner<D> {
                 self.extensions.readers.remove(&key);
                 self.extensions.groups.remove(&key);
                 self.log(format!("release {key}: no reader is left"));
-                release(json!({ "extension": extension, "release": name }));
+                released.push(json!({ "extension": extension, "release": name }));
                 continue;
             }
             if self.asking(&key) {
@@ -379,7 +374,30 @@ impl<D: DataSource> Runner<D> {
             for group in gone {
                 self.log(format!("release {key} {group}: no reader asks with it"));
                 let args: Json = serde_json::from_str(&group).unwrap_or_default();
-                release(json!({ "extension": extension, "release": name, "args": args }));
+                released.push(json!({ "extension": extension, "release": name, "args": args }));
+            }
+        }
+        let handler = self.native_slot().handler();
+        for body in released {
+            let key = format!(
+                "{}.{}",
+                body["extension"].as_str().unwrap_or_default(),
+                body["release"].as_str().unwrap_or_default()
+            );
+            let row = (self.plan.modules.iter())
+                .find(|m| self.key(m) == key)
+                .cloned();
+            // A registration the substitute answers is unlisted rather than
+            // told (`declared/desktop.rs`).
+            match row {
+                Some(row) if self.route(&row) == Route::Substitute => {
+                    self.shortcut_released(&row, body.get("args"));
+                }
+                _ => {
+                    if let Some(handler) = &handler {
+                        handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+                    }
+                }
             }
         }
     }

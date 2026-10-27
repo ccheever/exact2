@@ -842,8 +842,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       }
       if (d.forward) return viaImplementation(row, given, reader, { name, origin }).then(json => { disposeDropped(row, json, name, n); if (reader) sampled.answered(row, reader, json); return answer(row, json); });
       if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet, origin }) : null, given);
-      // A send refused now fails its mutation, as on native, rather than the action that sent it.
-      return row.send && errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
+      // A name refused now fails its mutation or resource, as on native, rather than the action that sent it or the
+      // commit that read it: a source absent on the web shows its `else` (LLP 1133.025 D14).
+      return errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
     };
   }
   // `allow` sets the status fields the app's grant line names (its approximate grant reads `approximate`).

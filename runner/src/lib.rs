@@ -50,6 +50,7 @@ mod conform;
 pub mod decorations;
 pub mod delivery;
 pub mod design;
+pub mod desktop;
 pub mod device;
 pub mod failure;
 pub mod file_pickers;

@@ -255,7 +255,7 @@ final class MenuHost: NSObject {
     /// the event's listeners (a handler may retarget it, or give it one).
     func command(_ source: NodeView, fromNativeMenu: Bool = false, bubbled: Bool = false) -> (() -> Void)? {
         guard let presenter, source.isButton, !source.disabled, !(bubbled ? source.authoredInert : source.inert),
-              fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter.toolbar.contains(source),
+              fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter.toolbar.contains(source) || presenter.statusItems.places(source),
               popoverInvocation(source) != nil || source.handlers.contains("press") else { return nil }
         return { [weak self, weak source] in
             guard let self, let source else { return }
@@ -279,7 +279,7 @@ final class MenuHost: NSObject {
         let bubbled = bubbled && presenter.dialogs.isBehindModal(source)
         return live(source) && live(pop) && presenter.hosts(source.window) && !source.disabled
             && !(bubbled ? source.authoredInert : source.inert) && (!bubbled || !pop.inert)
-            && (!requiringTarget || opens(source, pop)) && (!hidden(source) || presenter.toolbar.contains(source))
+            && (!requiringTarget || opens(source, pop)) && (!hidden(source) || presenter.toolbar.contains(source) || presenter.statusItems.places(source))
     }
     /// A choice awaiting its turn is checked as each batch lands and as a
     /// popover is presented again: one a change has invalidated is
@@ -764,7 +764,7 @@ final class MenuHost: NSObject {
     func fill(_ menu: InvokerMenu) {
         menu.removeAllItems()
         guard let presenter, let source = menu.source, live(source), !source.inert, !source.disabled,
-              presenter.toolbar.contains(source) else { return }
+              presenter.toolbar.contains(source) || presenter.statusItems.places(source) else { return }
         if source.handlers.contains("press") {
             presenter.commitPendingEdit()
             presenter.onPress?(source.id)
@@ -790,6 +790,7 @@ final class MenuHost: NSObject {
             built.removeItem(item)
             menu.addItem(item)
         }
+        if presenter.statusItems.places(source) { presenter.statusItems.endMenu(menu) }
     }
     private func menuItem(of row: NodeView, action: Selector?) -> NSMenuItem {
         let item = AccessibleMenuItem(title: title(of: row), action: action, keyEquivalent: "")

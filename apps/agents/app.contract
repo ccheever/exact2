@@ -201,7 +201,7 @@ component Agents
             header display="flex" align-items="center" gap=8 padding="8px 16px"
               text "Agents" role="heading" aria-level=1 flex=1
               input type="search" value=query input=search placeholder="Search" testId="search"
-              button press=openNew aria-label="New Conversation" aria-keyshortcuts="Meta+N" -exact-menu="file" testId="new"
+              button press=openNew aria-label="New Conversation" aria-keyshortcuts="Meta+N" -exact-menu="file dock" testId="new"
                 image "symbol:compose"
             column flex=1 min-height=0 position="relative" display="flex" flex-direction="column"
               list id="chats" appearance="auto" listStyle="plain" flex=1 min-height=0 testId="chat-list"

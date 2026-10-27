@@ -1,0 +1,62 @@
+{
+  "kind": "interface",
+  "name": "@exact/login-item",
+  "version": "1.0.0",
+  "grants": ["device.login-item"],
+  "shapes": {
+    "LoginItemStatus": {
+      "available": "bool",
+      "state": "enum<enabled|disabled|requires-approval|unknown>",
+      "hidden": "bool",
+      "launchedAtLogin": "bool",
+      "apple": "option<AppleLoginItemStatus>",
+      "windows": "option<WindowsLoginItemStatus>"
+    }
+  },
+  "names": [
+    {
+      "source": "loginItemStatus",
+      "live": true,
+      "answers": "LoginItemStatus",
+      "sync": { "name": "loginItemStatusSync", "from": "read" },
+      "substitute": {
+        "login": "status",
+        "partial": true,
+        "default": { "available": true, "state": "disabled", "hidden": false, "launchedAtLogin": false },
+        "unsupported": ["web", "linux", "ios", "android", "tvos", "terminal"]
+      }
+    },
+    {
+      "send": "registerLoginItem",
+      "origin": "app",
+      "grants": ["device.login-item"],
+      "options": { "hidden": "option<bool>" },
+      "answers": "LoginItemStatus",
+      "substitute": {
+        "login": "register",
+        "unsupported": ["web", "linux", "ios", "android", "tvos", "terminal"]
+      }
+    },
+    {
+      "send": "unregisterLoginItem",
+      "origin": "app",
+      "grants": ["device.login-item"],
+      "options": {},
+      "answers": "LoginItemStatus",
+      "substitute": {
+        "login": "unregister",
+        "unsupported": ["web", "linux", "ios", "android", "tvos", "terminal"]
+      }
+    },
+    {
+      "send": "openLoginItemSettings",
+      "origin": "app",
+      "options": {},
+      "answers": null,
+      "substitute": {
+        "journal": true,
+        "unsupported": ["web", "linux", "ios", "android", "tvos", "terminal"]
+      }
+    }
+  ]
+}

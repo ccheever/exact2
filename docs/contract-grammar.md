@@ -2221,7 +2221,8 @@ the virtual clock).
   `merge-all-windows`, `back` (Go ▸ Back), `develop` (the Develop menu),
   `paste-and-match-style`, `find`, `spelling-and-grammar`, `substitutions`,
   `transformations`, `app-help` (Help ▸ *App* Help), `actual-size`, `zoom-in`
-  and `zoom-out`. A removed submenu (`find`) takes its items' chords with it,
+  and `zoom-out`, and `status-quit` (the host's Quit ending a status item's
+  menu, LLP 1133.025 D7). A removed submenu (`find`) takes its items' chords with it,
   and an app command that would stand in there follows Select All instead.
   Empty removes nothing; duplicates are harmless. Unknown ids, expressions and
   non-root use fail with `lower-menu-remove`, which names the accepted set.
@@ -2229,6 +2230,21 @@ the virtual clock).
   active window. It never removes an app button; `develop` takes the Develop
   menu off the bar and leaves its chords (Save Trace's ⌥⌘T among them);
   other hosts ignore it ([LLP 1021 §5.3](../llp/1021-menus.rfc.md#53-contract-extensions-to-the-mac-menu-bar-2026-10-12)).
+
+  The Dock menu and the status item ([LLP 1133.025](../llp/1133.025-desktop.rfc.md)
+  D4, D5): `dock` beside one menu id, or alone, files the button in the Dock
+  menu too, above AppKit's own items, in declaration order, from the key
+  window's session. `-exact-menu="status"` stands alone (with another id it
+  fails `lower-menu-status`) and presents the button as the app's
+  `NSStatusItem` on macOS and its notification-area icon on Windows, taking
+  its place in the page; its `popovertarget` menu is the item's menu. A click
+  on macOS opens the menu when there is one and runs `press` when there is
+  none; on Windows the left button runs `press` (or opens the menu with no
+  `press`) and the right one opens the menu. With
+  `host.macos.activationPolicy: "accessory"` the app has no Dock tile and
+  opens no window at launch. Bare `focus()` is the window's, as the web's
+  `window.focus()`: it shows the session's window if hidden, brings it
+  forward and activates the app; `focus(id)` stays an element's.
 
   View holds Actual Size ⌘0, Zoom In ⌘+ (⌘= too) and Zoom Out ⌘-, as Safari's
   and Preview's View does, stepping through Safari's zoom levels (50% to 300%)

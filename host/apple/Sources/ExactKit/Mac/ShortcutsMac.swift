@@ -379,7 +379,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         for view in nodes() {
             // A platform alternative does not create a second menu item.
             let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) })
-            let placement = view.props["menuPlacement"]
+            // One menu id; `dock` beside it is the Dock menu's, and a status
+            // item is no menu's (LLP 1133.025 D4, D5: StatusItemsMac.swift).
+            let ids = (view.props["menuPlacement"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+            if ids.contains("status") { continue }
+            let placement = ids.first { $0 != "dock" }
             guard shortcut != nil || placement != nil || presenter?.toolbar.contains(view) == true else { continue }
             live.insert(view.id)
             let item = items[view.id] ?? AccessibleMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")

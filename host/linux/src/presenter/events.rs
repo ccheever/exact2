@@ -274,6 +274,10 @@ impl<D: DataSource> Presenter<D> {
     /// `focus(id)` selects a surface row or a live, eligible page node.
     /// A refusal goes to the journal, as it does on the web host.
     pub(crate) fn focus_command(&mut self, args: &[exact_plan::Value]) -> Option<ViewId> {
+        // Bare `focus()` is the window's (LLP 1133.025 §8), which is shown.
+        if args.is_empty() {
+            return None;
+        }
         let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
             eprintln!("exact: focus requires an element id");
             return None;
