@@ -340,6 +340,12 @@ struct PendingReq {
     held: bool,
     long_poll: bool,
     replied: bool,
+    /// Held by the runner, never sent: a resource a turn over its budget
+    /// refused waits here to be asked again at this time (`overrun.rs`), read
+    /// as this ask in flight; infinite once asked and not yet answered.
+    reask_at: Option<f64>,
+    /// The re-asks after a turn over its budget this ask's streak has made.
+    reasks: usize,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -362,8 +368,9 @@ impl PendingReq {
     }
 
     /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9).
+    /// A re-ask's wait is no I/O: the agent's settle goes to its time instead (`overrun.rs`).
     fn waited(&self) -> bool {
-        self.in_flight() && !self.held && !self.replied
+        self.in_flight() && !self.held && !self.replied && self.reask_at.is_none()
     }
 }
 
@@ -455,8 +462,11 @@ pub struct Runner<D: DataSource> {
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
-    /// Each resource's re-ask after a turn over its budget (`overrun.rs`).
-    overruns: Vec<Option<overrun::Wait>>,
+    /// The re-ask after a turn over its budget being committed (`overrun.rs`):
+    /// its resource, and the re-asks its streak has made with it.
+    overrun_reasking: Option<(usize, usize)>,
+    /// The reply being landed was refused by its own turn over its budget.
+    overran_reply: bool,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -942,7 +952,8 @@ impl<D: DataSource> Runner<D> {
             forgot: false,
             failed_args: Vec::new(),
             failed_why: Vec::new(),
-            overruns: Vec::new(),
+            overrun_reasking: None,
+            overran_reply: false,
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
             requests: Vec::new(),
@@ -1061,7 +1072,6 @@ impl<D: DataSource> Runner<D> {
         runner.failed_args = vec![None; runner.plan.resources.len()];
         runner.overlays = vec![None; runner.plan.resources.len()];
         runner.failed_why = vec![None; runner.plan.resources.len()];
-        runner.overruns = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
         runner.queues = queue::Queues::new(runner.plan.mutations.len());
         // A carried boot never takes compiled data: it was baked for the

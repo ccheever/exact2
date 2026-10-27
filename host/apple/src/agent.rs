@@ -19,13 +19,17 @@ impl<D: DataSource> Host<D> {
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last
     /// transition in flight ends, milliseconds, `null` when quiescent — from
-    /// the engine, which is what the presenter's `clock` advances to.
+    /// the engine (and a resource's re-ask), which is what the presenter's
+    /// `clock` advances to.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
             let engine = self.engine.settle_time().map(|t| t * 1000.0);
             return match engine
                 .into_iter()
                 .chain(self.runner.text_axes_settle_ms())
+                // A re-ask after a turn over its budget: no I/O to wait on, so
+                // the clock goes to it (exact-runner's `overrun.rs`).
+                .chain(self.runner.reask_due_ms())
                 .reduce(f64::max)
             {
                 Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),

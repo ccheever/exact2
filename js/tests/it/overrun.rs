@@ -9,7 +9,7 @@ use super::storage::{Root, APP, GRANTS, HBC};
 use exact_js::{Module, Placement};
 use exact_kernel::Kernel;
 use exact_plan::{Plan, Value};
-use exact_runner::{DataError, DataSource, Dispatch, Reply, Runner, Work};
+use exact_runner::{DataError, DataSource, Dispatch, Reply, Runner, Store, Work};
 
 /// The resource, with a placeholder when `stand_in` (a worker's answers come later, and so would a
 /// placeholder's: it has none).
@@ -42,12 +42,14 @@ fn module(root: &Root) -> Module {
 }
 
 /// Every request the runner hands out run through its source's dispatch, the
-/// reply fulfilled, until none is left.
-fn drive<D: DataSource>(r: &mut Runner<D>) {
+/// reply fulfilled, until none is left; what each reply that crossed a turn's
+/// envelope decodes to on the runner's side, in order.
+fn drive<D: DataSource>(r: &mut Runner<D>) -> Vec<String> {
+    let mut decoded = Vec::new();
     for _ in 0..20 {
         let requests = r.take_requests();
         if requests.is_empty() {
-            return;
+            return decoded;
         }
         for request in requests {
             let token = request.request.continuation.expect("a turn's continuation");
@@ -63,9 +65,20 @@ fn drive<D: DataSource>(r: &mut Runner<D>) {
                 }
                 _ => panic!("a turn to run"),
             };
+            if exact_data::envelope::is_turn(&outcome) {
+                let mut store = Store::new(GRANTS, []);
+                let reply =
+                    exact_data::envelope::apply(outcome.clone(), &mut store, &mut Vec::new());
+                decoded.push(match reply {
+                    Err(DataError::Overrun(_)) => "Overrun".to_string(),
+                    Err(e) => format!("{e:?}"),
+                    Ok(_) => "an answer".to_string(),
+                });
+            }
             r.fulfill(request.ticket, outcome).unwrap();
         }
     }
+    decoded
 }
 
 fn text<D: DataSource>(r: &Runner<D>) -> String {
@@ -75,9 +88,12 @@ fn text<D: DataSource>(r: &Runner<D>) -> String {
     }
 }
 
-/// Booted, its first answer over budget, then asked again at 250 ms.
-fn asks_again<D: DataSource>(mut r: Runner<D>, hop: &str) {
-    drive(&mut r);
+/// Booted, its first answer over budget, then asked again at 250 ms. Over an
+/// envelope (`crosses`), the refusal decodes as `Overrun` on the far side.
+fn asks_again<D: DataSource>(mut r: Runner<D>, hop: &str, crosses: bool) {
+    let decoded = drive(&mut r);
+    let want: &[&str] = if crosses { &["Overrun"] } else { &[] };
+    assert_eq!(decoded, want, "{hop}: what crossed the envelope");
     let journal: Vec<String> = r.journal().map(str::to_owned).collect();
     assert!(
         journal
@@ -95,7 +111,9 @@ fn asks_again<D: DataSource>(mut r: Runner<D>, hop: &str) {
     );
     let t0 = r.now_ms();
     r.advance(t0 + 250.).unwrap();
-    drive(&mut r);
+    let decoded = drive(&mut r);
+    let want: &[&str] = if crosses { &["an answer"] } else { &[] };
+    assert_eq!(decoded, want, "{hop}: the re-ask's reply");
     assert_eq!(text(&r), "answered", "{hop}: asked again, and answered");
     assert!(r.failed_resources().is_empty(), "{hop}");
     assert_eq!(r.timer_due_ms(), None, "{hop}: nothing left to ask");
@@ -109,7 +127,7 @@ fn an_overrun_is_asked_again_in_process() {
     m.bind(&plan);
     m.activate().unwrap();
     let r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
-    asks_again(r, "in process");
+    asks_again(r, "in process", false);
 }
 
 #[test]
@@ -120,10 +138,12 @@ fn an_overrun_is_asked_again_from_a_worker() {
     m.bind(&plan);
     m.activate().unwrap();
     let r = Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
-    asks_again(r, "worker");
+    asks_again(r, "worker", true);
 }
 
-/// A Rust child for the mixed composer: it answers nothing here.
+/// A Rust child for the mixed composer: it answers nothing here, but keeps a
+/// secret the module keeps too, on a worker, so the two are one ordered set and
+/// the module's `Main` turns cross the composer's envelope.
 struct Quiet;
 impl DataSource for Quiet {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -132,14 +152,20 @@ impl DataSource for Quiet {
     fn app_id(&self) -> &str {
         APP
     }
+    fn grants(&self) -> &str {
+        "secret.keep session\n"
+    }
 }
 
 #[test]
 fn an_overrun_is_asked_again_behind_the_mixed_composer() {
     let root = Root::new();
-    let plan = plan();
+    // (the set's placement is a worker's: a worker's answers come later, and so would a
+    // placeholder's)
+    let plan = plan_with(false);
+    let quiet = exact_data::Placed::new(Quiet, Placement::Worker);
     let mut mixed =
-        exact_data::Mixed::new(module(&root).placed(Placement::Main), Quiet, &["work"], &[])
+        exact_data::Mixed::new(module(&root).placed(Placement::Main), quiet, &["work"], &[])
             .unwrap();
     mixed.bind(&plan);
     mixed.activate().unwrap();
@@ -151,7 +177,7 @@ fn an_overrun_is_asked_again_behind_the_mixed_composer() {
         "/",
     )
     .unwrap();
-    asks_again(r, "mixed");
+    asks_again(r, "mixed", true);
 }
 
 /// A mutation's turn over its budget is never asked again (LLP 1041 D2: its

@@ -484,6 +484,45 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
+            // A resource a turn over its budget refused is asked again at its
+            // time (`overrun.rs`), before a timer due then: its ask came first.
+            if let Some((t, at)) = self
+                .reask_due(now_ms)
+                .filter(|(_, at)| timers && ready(*at))
+            {
+                if receipts.len() == TIMER_FIRE_LIMIT {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(RunnerError::TimerFireLimit {
+                            limit: TIMER_FIRE_LIMIT,
+                        }),
+                        stopped_on_request: false,
+                    };
+                }
+                self.now_ms = self.now_ms.max(at);
+                let ticket = self.next_ticket;
+                match self.scheduled(at, |r| r.reask(t)) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: Some(e),
+                            stopped_on_request: false,
+                        }
+                    }
+                }
+                if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    stopped_on_request = true;
+                    break;
+                }
+                continue;
+            }
             // A drop's hold ends at its deadline (LLP 1094 D8), before a
             // timer due at the same time: the drop came first.
             if let Some(at) = self
@@ -703,24 +742,6 @@ impl<D: DataSource> Runner<D> {
         if !stopped_on_request {
             match self.poll() {
                 Ok(polled) => receipts.extend(polled.into_iter().map(|receipt| Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                })),
-                Err(error) => {
-                    return Advanced {
-                        receipts,
-                        now_ms: self.now_ms,
-                        error: Some(error),
-                        stopped_on_request: false,
-                    }
-                }
-            }
-        }
-        // A resource a turn over its budget refused, asked again at its time
-        // (`overrun.rs`).
-        if !stopped_on_request {
-            match self.reask_overruns() {
-                Ok(asked) => receipts.extend(asked.map(|receipt| Timed {
                     at_ms: self.now_ms,
                     receipt,
                 })),

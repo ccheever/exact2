@@ -650,12 +650,19 @@ impl<D: DataSource> Host<D> {
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last spring
-    /// in flight ends, milliseconds, `null` when none — from the engine here.
+    /// in flight ends, milliseconds, `null` when none — from the engine here,
+    /// and a resource's re-ask.
     /// CSS transitions are the browser's; the glue folds their end times in.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
-            return match self.springs.settle_time() {
-                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
+            // A re-ask after a turn over its budget: no I/O to wait on, so the
+            // clock goes to it (exact-runner's `overrun.rs`).
+            return match (self.springs.settle_time().map(|t| t * 1000.0))
+                .into_iter()
+                .chain(self.runner.reask_due_ms())
+                .reduce(f64::max)
+            {
+                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
                 None => "{\"settle\":null}".to_string(),
             };
         }

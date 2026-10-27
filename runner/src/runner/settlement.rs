@@ -39,6 +39,13 @@ enum RequestEffect {
         request: Box<Request>,
         forced: bool,
     },
+    /// Refused by a turn over its budget: held to be asked again
+    /// (`overrun.rs`), as an ask in flight.
+    Wait {
+        args: Vec<Value>,
+        reasks: usize,
+        why: String,
+    },
 }
 
 impl<D: DataSource> Runner<D> {
@@ -248,7 +255,9 @@ impl<D: DataSource> Runner<D> {
                         pending_res[i] = false;
                         awaiting[i] = false;
                     }
-                    RequestEffect::Later { .. } => pending_res[i] = true,
+                    RequestEffect::Later { .. } | RequestEffect::Wait { .. } => {
+                        pending_res[i] = true
+                    }
                 }
             }
             let mut settled_res = vec![false; states.len()];
@@ -403,8 +412,6 @@ impl<D: DataSource> Runner<D> {
                         args = kept;
                     }
                     resource_args[i] = args.clone();
-                    // A re-ask waiting for other arguments is stale (`overrun.rs`).
-                    self.overrun_args(i, &args);
                     // Store provenance follows the values used to form a
                     // resource query, including through derives. Such a
                     // resource is device data just like a direct reader.
@@ -423,7 +430,9 @@ impl<D: DataSource> Runner<D> {
                     // request is in flight. Reuse follows the current ask;
                     // the standing value keeps its own provenance.
                     let asked_args = match &effects[i] {
-                        RequestEffect::Later { args, .. } => Some(args),
+                        RequestEffect::Later { args, .. } | RequestEffect::Wait { args, .. } => {
+                            Some(args)
+                        }
                         RequestEffect::Answered => None,
                         RequestEffect::None => self
                             .pending
@@ -639,7 +648,6 @@ impl<D: DataSource> Runner<D> {
                                     ));
                                     self.failed_args[i] = Some(args.clone());
                                     self.failed_why[i] = Some(failure);
-                                    self.overrun_ends(i);
                                     force.retain(|forced| *forced != i);
                                     // Its newest ask is answered, by a failure: no
                                     // answer is on the way (LLP 1054.000.002 D4)
@@ -727,7 +735,6 @@ impl<D: DataSource> Runner<D> {
                                     self.count_failure(i);
                                     self.alert(super::lines::failed_now(&resource, &why));
                                     self.failed_args[i] = Some(args.clone());
-                                    self.overrun_ends(i);
                                     self.failed_why[i] = Some(crate::failure::Failure {
                                         code,
                                         message: why,
@@ -736,10 +743,10 @@ impl<D: DataSource> Runner<D> {
                                     kept
                                 }
                                 // A turn over its budget (`overrun.rs`): the
-                                // resource keeps what it shows, reads as an ask
-                                // in flight, and is asked again shortly; its
-                                // streak spent, it fails as any refusal does.
-                                // The asking commit stands (LLP 1027.000 D3).
+                                // resource keeps what it shows and is held to be
+                                // asked again, an ask in flight; its streak
+                                // spent, it fails as any refusal does. The
+                                // asking commit stands (LLP 1027.000 D3).
                                 Err(e)
                                     if super::overrun::is_overrun(&e)
                                         && !self.streaming(i)
@@ -758,10 +765,16 @@ impl<D: DataSource> Runner<D> {
                                             self.placeholder(i, &row, &resources).expect("checked"),
                                         )
                                     };
-                                    effects[i] = RequestEffect::Answered;
-                                    if self.overran(i, &args, &why.message) {
+                                    let reasks = self.overrun_streak(i, &args, forced);
+                                    if super::overrun::reask_after(reasks).is_some() {
+                                        effects[i] = RequestEffect::Wait {
+                                            args: args.clone(),
+                                            reasks,
+                                            why: why.message,
+                                        };
                                         pending_res[i] = true;
                                     } else {
+                                        effects[i] = RequestEffect::Answered;
                                         pending_res[i] = false;
                                         self.count_failure(i);
                                         self.alert(super::lines::failed_now(
@@ -775,7 +788,6 @@ impl<D: DataSource> Runner<D> {
                                 }
                                 Err(error) => return Err(error),
                                 Ok(Answer::Now(v)) => {
-                                    self.overrun_ends(i);
                                     generation = self.inspected_request(i);
                                     if pending_res[i] || self.streaming(i) {
                                         // Newer arguments answered now: the older
@@ -928,14 +940,17 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             for (i, effect) in std::mem::take(effects).into_iter().enumerate() {
-                if let RequestEffect::Later {
-                    args,
-                    request,
-                    forced,
-                } = effect
-                {
-                    let source = self.plan.str(self.plan.resources[i].source).to_string();
-                    self.enqueue(Target::Resource(i), source, args, *request, forced);
+                let source = self.plan.str(self.plan.resources[i].source).to_string();
+                match effect {
+                    RequestEffect::Later {
+                        args,
+                        request,
+                        forced,
+                    } => self.enqueue(Target::Resource(i), source, args, *request, forced),
+                    RequestEffect::Wait { args, reasks, why } => {
+                        self.hold_reask(i, source, args, reasks, &why)
+                    }
+                    RequestEffect::None | RequestEffect::Answered => {}
                 }
             }
             // The flags follow the tickets and what awaits its source.

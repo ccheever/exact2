@@ -1,29 +1,32 @@
 //! A resource a turn over its budget refused (`DataError::Overrun`, exact-js's
 //! own time or its wall backstop) is asked again, twice at most, before it
 //! fails as any refused resource does (LLP 1027 as amended 2026-10-27; theme2's
-//! 18:06 ruling). The refusal is the machine's load as much as the source's:
-//! under load one stood a resource on a stale value until the app's own 10 s
-//! redial (Excord's gateway, x2-perf4's evidence). While it waits the resource
-//! reads exactly as during an ordinary ask in flight: `pending`, its last value,
-//! no failure. A mutation is never asked again (LLP 1041 D2), nor a stream's
-//! message; an argument change, a refresh or a success ends the streak.
-use super::{lines, CommitReceipt, DataError, DataSource, Runner, RunnerError, Target};
+//! 18:06 ruling and the 18:55 redesign). The refusal is the machine's load as
+//! much as the source's: under load one stood a resource on a stale value until
+//! the app's own 10 s redial (Excord's gateway, x2-perf4's evidence).
+//!
+//! The wait is a request the runner holds and never sends (`reask_at`): the
+//! resource's ask in flight, so it reads exactly as one (`pending`, its last
+//! value, no failure), settlement reuses it as one (a commit that doesn't ask
+//! the resource again burns no try), and it keeps its ask's origin and
+//! invocation. It comes due in the runner's own deadline order and is asked
+//! again as a commit of that ask; the streak counts each re-ask as it is made.
+//! A mutation is never asked again (LLP 1041 D2), nor a stream's message; an
+//! argument change, a refresh or an answer ends the streak, as each replaces
+//! or answers the ask.
+use super::{lines, CommitReceipt, DataError, DataSource, PendingReq, Runner, RunnerError, Target};
+use crate::failure::Failure;
+use crate::Outcome;
 use exact_plan::Value;
 
 /// How long after each refusal the resource is asked again: spaced, so a spike
 /// of load that refused it has passed (an idle tick under load can come at
 /// once and refuse it again).
-pub(super) const REASK_MS: [f64; 2] = [250.0, 1000.0];
+const REASK_MS: [f64; 2] = [250.0, 1000.0];
 
-/// A resource's re-ask after a turn over its budget.
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct Wait {
-    /// The arguments it was refused for: asked again only for these.
-    args: Vec<Value>,
-    /// Re-asks scheduled in this streak.
-    tries: usize,
-    /// When it is asked again; infinite once asked, waiting for its answer.
-    due_ms: f64,
+/// The delay before the re-ask after `reasks` in a streak; none once spent.
+pub(super) fn reask_after(reasks: usize) -> Option<f64> {
+    REASK_MS.get(reasks).copied()
 }
 
 /// Whether `error` is a turn over its budget.
@@ -38,129 +41,235 @@ pub(super) fn is_overrun(error: &RunnerError) -> bool {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// Resource `i`, asked for `args`, was refused by a turn over its budget:
-    /// its re-ask scheduled, `true`; or, its streak spent, none, `false`, and
-    /// the caller fails it as any refusal.
-    pub(super) fn overran(&mut self, i: usize, args: &[Value], why: &str) -> bool {
-        let tries = match &self.overruns[i] {
-            Some(w) if w.args == args => w.tries,
+    /// The re-asks made in the streak of resource `i`'s ask for `args` a turn
+    /// over its budget just refused: the re-ask's own when this commit is one;
+    /// none for a forced ask (a refresh starts anew); else those of the ask in
+    /// flight for these arguments (a store reader asked again under it).
+    pub(super) fn overrun_streak(&self, i: usize, args: &[Value], forced: bool) -> usize {
+        match self.overrun_reasking {
+            Some((r, reasks)) if r == i => reasks,
+            _ if forced => 0,
+            _ => (self.pending.iter())
+                .find(|p| p.target == Target::Resource(i) && p.args == args)
+                .map_or(0, |p| p.reasks),
+        }
+    }
+
+    /// The streak a request of `target` sent now carries: a re-ask's, in its
+    /// commit.
+    pub(super) fn overrun_reasks(&self, target: Target) -> usize {
+        match (target, self.overrun_reasking) {
+            (Target::Resource(i), Some((r, reasks))) if i == r => reasks,
             _ => 0,
-        };
-        let Some(&after) = REASK_MS.get(tries) else {
-            self.overruns[i] = None;
+        }
+    }
+
+    /// Hold resource `i`'s ask for `args`, refused by a turn over its budget,
+    /// to be asked again (settlement's publish). The same wait as the one
+    /// standing keeps it: its time, its ticket and so its stamps. Otherwise it
+    /// replaces the ask in flight, under a ticket of this commit's origin and
+    /// invocation (a re-ask's commit is its ask's).
+    pub(super) fn hold_reask(
+        &mut self,
+        i: usize,
+        source: String,
+        args: Vec<Value>,
+        reasks: usize,
+        why: &str,
+    ) {
+        let target = Target::Resource(i);
+        if (self.pending.iter()).any(|p| {
+            p.target == target && p.reask_at.is_some() && p.args == args && p.reasks == reasks
+        }) {
+            return;
+        }
+        let after = REASK_MS[reasks];
+        self.forget_ticket(target);
+        let ticket = self.next_ticket;
+        self.next_ticket += 1;
+        self.note_asked(target, ticket);
+        self.pending.push(PendingReq {
+            inspection_generation: self.inspected_request(i),
+            refusal: None,
+            refused: false,
+            ticket,
+            target,
+            source,
+            args,
+            continuation: None,
+            keepable: None,
+            stream: None,
+            grant: None,
+            ask_again: false,
+            origin: self.writes.tick(),
+            write: None,
+            held: false,
+            long_poll: false,
+            replied: false,
+            reask_at: Some(self.now_ms + after),
+            reasks,
+        });
+        self.said_reask(i, why, after, reasks);
+    }
+
+    fn said_reask(&mut self, i: usize, why: &str, after: f64, reasks: usize) {
+        let name = self.plan.str(self.plan.resources[i].name).to_string();
+        let line = lines::overrun_reask(&name, why, after, reasks + 1, REASK_MS.len());
+        self.log(line);
+    }
+
+    /// Request `ticket`'s reply was refused by its own turn over its budget
+    /// (`error` names its resource, not one settled after it): held to be
+    /// asked again under a new ticket carrying the ask's origin and invocation
+    /// (the host's is let go), `true`. A mutation's, a stream's, another
+    /// resource's turn, or a spent streak: `false`, and the caller releases it
+    /// as failed.
+    pub(super) fn hold_overrun_reply(
+        &mut self,
+        ticket: u64,
+        target: Target,
+        error: &RunnerError,
+    ) -> bool {
+        let own = std::mem::take(&mut self.overran_reply);
+        let Target::Resource(i) = target else {
             return false;
         };
-        self.overruns[i] = Some(Wait {
-            args: args.to_vec(),
-            tries: tries + 1,
-            due_ms: self.now_ms + after,
-        });
-        let name = self.plan.str(self.plan.resources[i].name).to_string();
-        self.log(lines::overrun_reask(
-            &name,
-            why,
-            after,
-            tries + 1,
-            REASK_MS.len(),
-        ));
+        let name = self.target_name(target);
+        let named = matches!(
+            error,
+            RunnerError::Data { resource, error: DataError::Overrun(_) } if *resource == name
+        );
+        if !own || !named || self.streaming(i) {
+            return false;
+        }
+        let Some(pos) =
+            (self.pending.iter()).position(|p| p.ticket == ticket && p.stream.is_none())
+        else {
+            return false;
+        };
+        let reasks = self.pending[pos].reasks;
+        let Some(after) = reask_after(reasks) else {
+            return false;
+        };
+        let (wait, at) = (self.next_ticket, self.now_ms + after);
+        self.next_ticket += 1;
+        let p = &mut self.pending[pos];
+        p.ticket = wait;
+        p.reask_at = Some(at);
+        p.continuation = None;
+        p.keepable = None;
+        p.grant = None;
+        p.held = false;
+        p.long_poll = false;
+        p.replied = false;
+        p.refusal = None;
+        p.refused = false;
+        self.restamp(ticket, wait);
+        // The source's turn is over: it hears so now, with no commit to come.
+        self.forgot = true;
+        self.hear_forgotten();
+        self.log(lines::forgot(ticket, &name));
+        self.said_reask(i, &Failure::of(error).message, after, reasks);
         true
     }
 
-    /// Whether resource `i` waits for a re-ask (it reads as pending).
-    pub(super) fn overrun_waits(&self, i: usize) -> bool {
-        self.overruns.get(i).is_some_and(Option::is_some)
+    /// The earliest re-ask due by `by`: its wait's ticket and time.
+    pub(super) fn reask_due(&self, by: f64) -> Option<(u64, f64)> {
+        (self.pending.iter())
+            .filter_map(|p| Some((p.ticket, p.reask_at?)))
+            .filter(|(_, at)| *at <= by)
+            .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
     }
 
-    /// Resource `i` answered, or is asked anew: its streak ends.
-    pub(super) fn overrun_ends(&mut self, i: usize) {
-        if let Some(w) = self.overruns.get_mut(i) {
-            *w = None;
-        }
-    }
-
-    /// Resource `i` is asked for `args`: a wait for other arguments is stale.
-    pub(super) fn overrun_args(&mut self, i: usize, args: &[Value]) {
-        if self.overruns[i].as_ref().is_some_and(|w| w.args != args) {
-            self.overruns[i] = None;
-        }
-    }
-
-    /// The next re-ask, for the host's wake (`timer_due_ms`).
-    pub(super) fn overrun_due_ms(&self) -> Option<f64> {
-        self.overruns
-            .iter()
-            .flatten()
-            .map(|w| w.due_ms)
-            .filter(|ms| ms.is_finite())
+    /// When the next re-ask after a turn over its budget is due: the host's
+    /// wake (`timer_due_ms`), and where the agent's `settle` goes, the wait
+    /// being no I/O to wait on ([`Runner::has_pending`] leaves it out).
+    pub fn reask_due_ms(&self) -> Option<f64> {
+        (self.pending.iter())
+            .filter_map(|p| p.reask_at)
+            .filter(|at| at.is_finite())
             .reduce(f64::min)
     }
 
-    /// The re-asks due by now, in one commit; a resource whose arguments the
-    /// last settlement no longer asks (changed, or not settled at all) is
-    /// dropped with no ask.
-    pub(super) fn reask_overruns(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
-        let (mut which, mut dropped) = (Vec::new(), false);
-        for i in 0..self.overruns.len() {
-            let Some(w) = &self.overruns[i] else { continue };
-            if w.due_ms > self.now_ms {
-                continue;
+    /// Ask again, forced, the resource wait `ticket` holds, as a commit of its
+    /// ask's origin and invocation; the re-ask counts in its streak as it is
+    /// made. A refused commit's rollback restores the wait intact, and it is
+    /// due again after the next delay, that re-ask counted; its streak spent,
+    /// the resource fails as on a third turn over its budget.
+    pub(super) fn reask(&mut self, ticket: u64) -> Result<CommitReceipt, RunnerError> {
+        let p = (self.pending.iter())
+            .find(|p| p.ticket == ticket)
+            .expect("a wait due");
+        let (Target::Resource(i), reasks) = (p.target, p.reasks) else {
+            unreachable!("only a resource waits to be asked again")
+        };
+        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
+        let result = self.as_invocation(origin, id, |r| {
+            let before = r.overrun_reasking.replace((i, reasks + 1));
+            let result = r.commit_again(vec![i], "a turn over its budget, asked again");
+            r.overrun_reasking = before;
+            result
+        });
+        let refused = match &result {
+            Err(e) => Some(Failure::of(e).message),
+            // Stood without asking it (a source not ready): its forced ask
+            // replaces the wait at the first settlement that can.
+            Ok(_) if self.refresh_next.contains(&i) => {
+                if let Some(p) = self.pending.iter_mut().find(|p| p.ticket == ticket) {
+                    p.reask_at = Some(f64::INFINITY);
+                }
+                None
             }
-            let current = self.settled.as_ref().and_then(|s| s.resource_args.get(i));
-            if current != Some(&w.args) {
-                self.overruns[i] = None;
-                dropped = true;
-                continue;
+            // Stood after a refusal that failed what it owed.
+            Ok(_) => Some("its commit was refused".to_string()),
+        };
+        let Some(why) = refused.filter(|_| self.pending.iter().any(|p| p.ticket == ticket)) else {
+            return result;
+        };
+        match reask_after(reasks + 1) {
+            Some(after) => {
+                let at = self.now_ms + after;
+                if let Some(p) = self.pending.iter_mut().find(|p| p.ticket == ticket) {
+                    p.reasks = reasks + 1;
+                    p.reask_at = Some(at);
+                }
+                let why = format!("asked again, its commit was refused: {why}");
+                self.said_reask(i, &why, after, reasks + 1);
             }
-            if let Some(w) = self.overruns[i].as_mut() {
-                w.due_ms = f64::INFINITY;
+            None => {
+                let failure = Failure::error(format!(
+                    "asked again after a turn over its budget, its commit was refused: {why}"
+                ));
+                let released = self.release_failed(ticket, Target::Resource(i), failure);
+                if result.is_ok() {
+                    return released.map(|r| r.expect("release_failed commits"));
+                }
             }
-            self.force_refresh(i);
-            which.push(i);
         }
-        if which.is_empty() && !dropped {
-            return Ok(None);
-        }
-        // (a dropped wait leaves `pending`, and the view hears it in this commit too)
-        self.sync_pending_flags();
-        self.commit_again(which, "a turn over its budget, asked again")
-            .map(Some)
+        result
     }
 
-    /// The reply to `ticket`, resource `i`'s, was refused by a turn over its
-    /// budget: its re-ask scheduled and the request let go, `Some`; or its
-    /// streak spent, `None`, and the caller releases it as failed.
-    pub(super) fn release_overrun(
+    /// A reply to a re-ask's wait, which was never sent: its invocation ended
+    /// (a wake's deadline fails every request it owns), and the resource fails
+    /// as its ask would have; anything else is dropped.
+    pub(super) fn reask_answered(
         &mut self,
         ticket: u64,
-        i: usize,
-        why: &str,
-    ) -> Option<Result<Option<CommitReceipt>, RunnerError>> {
-        if self.streaming(i) {
-            return None;
-        }
-        let args = self
-            .pending
-            .iter()
-            .find(|p| p.ticket == ticket)?
-            .args
-            .clone();
-        if !self.overran(i, &args, why) {
-            return None;
-        }
-        self.pending.retain(|p| p.ticket != ticket);
-        self.forgot = true;
-        self.sync_pending_flags();
-        Some(
-            self.commit_again(Vec::new(), "a turn over its budget")
-                .map(Some),
-        )
-    }
-
-    /// Whether `target`'s reply error is a resource's turn over its budget.
-    pub(super) fn overran_reply(target: Target, error: &RunnerError) -> Option<usize> {
-        match target {
-            Target::Resource(i) if is_overrun(error) => Some(i),
-            _ => None,
+        outcome: Outcome,
+        summary: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let target = (self.pending.iter())
+            .find(|p| p.ticket == ticket)
+            .expect("a wait")
+            .target;
+        match outcome {
+            Outcome::Failed { message, .. } => {
+                self.release_failed(ticket, target, Failure::error(message))
+            }
+            _ => {
+                self.log(lines::dropped(ticket, summary));
+                Ok(None)
+            }
         }
     }
 }

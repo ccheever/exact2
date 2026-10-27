@@ -250,7 +250,9 @@ struct Busy(bool);
 impl DataSource for Busy {
     fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
         if args[0] == Value::Number(2.) && std::mem::take(&mut self.0) {
-            return Err(DataError::Overrun("took 180.0 ms, over the 100 ms budget for one turn".into()));
+            return Err(DataError::Overrun(
+                "took 180.0 ms, over the 100 ms budget for one turn".into(),
+            ));
         }
         Ok(args[0].clone())
     }

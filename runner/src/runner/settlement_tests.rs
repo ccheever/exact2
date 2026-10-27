@@ -843,7 +843,7 @@ fn an_overrun_first_turn_leaves_the_action_standing_and_asks_again_at_250_ms() {
     r.advance(t0 + 250.).unwrap();
     assert_eq!(rows(&r), Some(records(3)), "asked again, and answered");
     assert!(!r.pending_res[0]);
-    assert!(r.overruns[0].is_none());
+    assert_eq!(r.reask_due_ms(), None);
     assert_eq!(r.timer_due_ms(), None);
 }
 
@@ -890,7 +890,7 @@ fn an_argument_change_during_the_wait_fires_no_stale_reask() {
     r.data().value = records(4);
     r.act("change", vec![Value::Number(2.)]).unwrap();
     assert_eq!(r.resource("rows").cloned(), Some(records(4)));
-    assert!(r.overruns[0].is_none());
+    assert_eq!(r.reask_due_ms(), None);
     assert!(!r.pending_res[0]);
     let asked = r.data().queries;
     r.advance(t0 + 5_000.).unwrap();
@@ -930,7 +930,7 @@ fn an_overrun_reply_asks_again_with_a_new_request() {
     assert_eq!(again.len(), 1, "asked again");
     r.fulfill(again[0].ticket, reply()).unwrap();
     assert!(!r.pending_res[0]);
-    assert!(r.overruns[0].is_none());
+    assert_eq!(r.reask_due_ms(), None);
 }
 
 // Round 1's findings on the first build (theme2's 18:55 condition (a)): each
@@ -991,7 +991,10 @@ fn a_refused_reask_is_not_left_pending_forever() {
     r.data().refuse = None;
     r.data().value = records(3);
     r.data().bad_guard = true;
-    assert!(r.advance(t0 + 250.).is_err(), "the re-ask's commit is refused");
+    assert!(
+        r.advance(t0 + 250.).is_err(),
+        "the re-ask's commit is refused"
+    );
     assert!(r.pending_res[0], "still waiting, as an ask in flight");
     assert!(r.timer_due_ms().is_some(), "and due again");
     r.data().bad_guard = false;
