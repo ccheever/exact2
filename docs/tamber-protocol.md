@@ -1689,7 +1689,9 @@ The tool drives no input into an app; a command changes only what `prefer` would
   status it has. A current one is joined to the source map of the plan it names
   (the dev loop's `app.plan.map.json`, verified by that digest) and published as the `selection`
   event: `source` `{file, line, col, end_col, component, chain, library?}` (the component call sites above
-  it; `library` *1.15*, stage 12 D4, LLP 1139 D5: `{identity, part}` on a node of an exported library
+  it, as the page's own walk up its tree takes them (*1.18*, stage 15 D3): entry `i` is where a `select` of `up: i + 1`
+  lands, a slot's host one of them with `slot: true`, named by its own call, a component that renders only another
+  none; a copy is still its call-site chain (`copies`); `library` *1.15*, stage 12 D4, LLP 1139 D5: `{identity, part}` on a node of an exported library
   component's own view, its declaring identity (`@scope/pkg/file.contract#Name`) and the part it is
   named as, or null, joined from the map since `part=` never reaches a host, beside
   `component`, the bare name the map gives (the declared one, which two packages can share; an alias

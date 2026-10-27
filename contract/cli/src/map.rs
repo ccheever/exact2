@@ -120,6 +120,56 @@ impl SourceMap {
         .unwrap();
     }
 
+    /// Site `site`'s chain as the page's walk up its own tree takes it (host/web-js/inspect-dev.js `selectUp`):
+    /// from the node, each plan ancestor whose instance is one not yet seen is a step. Each step is
+    /// `(call, at, slot)`: a lexical ancestor `at` is reached through the call of its child on the way
+    /// (`call`), as the map's `chain` writes it; any other instance is a slot's host, named by its own call.
+    /// None when the steps are the chain itself (no fill on the way, no instance without elements).
+    fn steps(&self, site: usize) -> Option<Vec<(u32, u32, bool)>> {
+        let (nodes, instances) = (&self.sites.nodes, &self.sites.instances);
+        let node = &nodes[site];
+        let mut lexical = Vec::new();
+        let mut at = node.instance;
+        while let Some(parent) = instances[at as usize].parent {
+            lexical.push((at, parent, false));
+            at = parent;
+        }
+        // (A copy is its call-site chain, as `copies` keys it: one call expanded twice, a fill shown twice, is one copy.)
+        let key = |mut i: u32| {
+            let mut spans = Vec::new();
+            while let Some(parent) = instances[i as usize].parent {
+                spans.push(instances[i as usize].span);
+                i = parent;
+            }
+            spans
+        };
+        let (mut seen, mut from, mut steps) = (vec![key(node.instance)], node.instance, Vec::new());
+        let mut up = node.parent;
+        while let Some(p) = up {
+            let x = nodes[p as usize].instance;
+            let k = key(x);
+            if !seen.contains(&k) {
+                seen.push(k);
+                // The child of `x` on `from`'s lexical chain, if `x` is a lexical ancestor of it.
+                let mut child = from;
+                let lexical_step = loop {
+                    match instances[child as usize].parent {
+                        Some(parent) if parent == x => break Some(child),
+                        Some(parent) => child = parent,
+                        None => break None,
+                    }
+                };
+                steps.push(match lexical_step {
+                    Some(call) => (call, x, false),
+                    None => (x, x, true),
+                });
+                from = x;
+            }
+            up = nodes[p as usize].parent;
+        }
+        (steps != lexical).then_some(steps)
+    }
+
     fn declarations(&self, out: &mut Vec<u8>, declarations: &[Declared]) {
         out.push(b'{');
         for (i, declaration) in declarations.iter().enumerate() {
@@ -284,12 +334,32 @@ impl SourceMap {
                 out.push(b'}');
                 instance = parent as usize;
             }
+            out.push(b']');
+            // The chain as a page's walk up its tree meets it, where that differs: a slot's host is a step, a
+            // component that only renders another none (stage 15 D3).
+            if let Some(steps) = self.steps(i) {
+                out.extend_from_slice(b",\"steps\":[");
+                for (k, (call, at, slot)) in steps.into_iter().enumerate() {
+                    if k != 0 {
+                        out.push(b',');
+                    }
+                    out.push(b'{');
+                    self.at(&mut out, self.sites.instances[call as usize].span);
+                    out.extend_from_slice(b",\"component\":");
+                    quote(&mut out, &self.sites.instances[at as usize].component);
+                    if slot {
+                        out.extend_from_slice(b",\"slot\":true");
+                    }
+                    out.push(b'}');
+                }
+                out.push(b']');
+            }
             if let Some(reason) = node.button.as_ref().and_then(|b| b.bare_reason.as_deref()) {
-                out.extend_from_slice(b"],\"bare_reason\":");
+                out.extend_from_slice(b",\"bare_reason\":");
                 quote(&mut out, reason);
                 out.extend_from_slice(b",\"bindings\":[");
             } else {
-                out.extend_from_slice(b"],\"bindings\":[");
+                out.extend_from_slice(b",\"bindings\":[");
             }
             // Each row once (theme2's 02:46 and 03:18 rulings): its base
             // value's origin and place where a base row writes it (none

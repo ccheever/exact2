@@ -429,7 +429,9 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // alias the app imports it by is in neither); absent outside one (a slot's fill is the caller's).
   const libraryOf = n => (typeof n?.library === 'string' ? { identity: n.library, part: typeof n.part === 'string' ? n.part : null } : null);
   const library = libraryOf(node);
-  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [], ...(library ? { library } : {}) };
+  // Its chain as the page's walk up its tree takes it (the map's `steps`, a slot's host a step with `slot: true`, tamber/1.18,
+  // stage 15 D3), else the call-site chain; a copy is still keyed by the call-site chain (`copiesOf`, `key`).
+  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.steps ?? node.chain ?? [], ...(library ? { library } : {}) };
   // A source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
   const copiesOf = n => Math.max(1, new Set(sitesAt(map, n).filter(i => same(map.nodes[i], n)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
@@ -441,7 +443,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
     // (the held node's own library and part, where it is of a library component's view)
     const ownerLibrary = owner === node ? library : libraryOf(owner);
-    const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [], ...(ownerLibrary ? { library: ownerLibrary } : {}) };
+    const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.steps ?? owner.chain ?? [], ...(ownerLibrary ? { library: ownerLibrary } : {}) };
     // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
     const heldHere = Number.isSafeInteger(base.held.site) && !!owner;
     base.held = { ...base.held, rows: (base.held.rows ?? []).map((r, i) => {

@@ -14,6 +14,9 @@ shape ChainLink
   up: number
   // The component the call site is in (the copy a press of it means to select), as the server joined it.
   component: string
+  // A slot's host (`slot: true`, tamber/1.18, stage 15 D3): the step lands on the component holding the node in its
+  // slot, named by its own call.
+  slot: bool
 
 // A move of the selection up the chain (`inspect` `select`): sent, or why not.
 shape SelectUp

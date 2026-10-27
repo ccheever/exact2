@@ -128,7 +128,7 @@ export function selectionView(s: Selected | null, stale: string, read: Axis[] | 
     // pass's #5, #6.)
     pageStale: s.pageStale ?? '',
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !read ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
-    source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: at(x), up: i + 1, component: String(x?.component ?? '') })), component: String(e.source?.component ?? ''), movedUp: Number.isSafeInteger(e.moved?.up) ? e.moved.up : -1, movedStepped: Number.isSafeInteger(e.moved?.stepped) ? e.moved.stepped : -1, modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
+    source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: x?.slot === true ? `${x.component}'s slot (${String(x.file).split('/').pop()}:${x.line})` : at(x), up: i + 1, component: String(x?.component ?? ''), slot: x?.slot === true })), component: String(e.source?.component ?? ''), movedUp: Number.isSafeInteger(e.moved?.up) ? e.moved.up : -1, movedStepped: Number.isSafeInteger(e.moved?.stepped) ? e.moved.stepped : -1, modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
     // A node of an exported library component's own view (stage 12 D4, LLP 1139 D5): the component by its declaring
     // identity, the part this node is or none, and its parts as the server lists them, this one and the slot's marked.
     ...libraryOf(e.source?.library, partsOf),

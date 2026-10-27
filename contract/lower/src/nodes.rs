@@ -965,6 +965,7 @@ impl Lowerer<'_> {
             let mut site = sites::node_site(
                 *span,
                 *instance,
+                parent.map(|p| p.0),
                 button,
                 &bindings,
                 origins.as_deref().expect("site origins"),
