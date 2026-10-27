@@ -130,9 +130,8 @@ pub fn rust_hatch_entry(
 /// `exact_hatches()`, the install `canvas_jni!` hands the host (the app's
 /// Rust hatches, `modules/android/*.rs` or `modules/linux/*.rs`, with the
 /// reader's Kotlin ones told beside them; the reader's alone when the app
-/// has no Rust ones; none when it gives `android` no word); and `uses.txt`,
-/// the plan's capabilities by name, one a line, which the APK's build reads
-/// (a plan with a date or time control links Compose Material 3).
+/// has no Rust ones; none when it gives `android` no word); and what
+/// [`android_reach`] writes.
 pub fn android_entry(
     app_root: &Path,
     manifest: &Manifest,
@@ -160,6 +159,19 @@ pub fn android_entry(
         }
     };
     std::fs::write(out_dir.join("hatches.rs"), text).map_err(|e| e.to_string())?;
+    android_reach(app_root, plan, out_dir)
+}
+
+/// What the APK's build reads beside an Android plan, from an app's
+/// Android crate or a game's bake: `uses.txt`, the plan's capabilities by
+/// name, one a line (a plan with a date or time control links Compose
+/// Material 3), and `permissions.txt`, the Android permissions its grant
+/// lines and module names derive beyond the compatibility id's reach.
+pub fn android_reach(
+    app_root: &Path,
+    plan: &exact_plan::Plan,
+    out_dir: &Path,
+) -> Result<(), String> {
     let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
     std::fs::write(out_dir.join("uses.txt"), uses.join("\n")).map_err(|e| e.to_string())?;
     // The grant ceiling of the compatibility id the build script wrote

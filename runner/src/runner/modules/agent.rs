@@ -364,15 +364,23 @@ impl<D: DataSource> Runner<D> {
     /// `row`'s declared `fill`, where `value` leaves a path out. A filler
     /// `"now"` is the agent clock's date; `{"table", "by"}` is the entry of
     /// the declaration's `tables.<table>` that the filled object's field
-    /// `by` names, filled after the plain fillers so `by` can be one.
+    /// `by` names, filled after the plain fillers so `by` can be one. A
+    /// table filler with `"on"`, a list of targets, fills only there: a
+    /// platform's record (a gamepad's `apple`) on that platform's hosts.
     pub(super) fn fill_all(&self, row: &ModulesRow, value: &mut Json) {
         let sub = self.substitute(row);
         let now = json!(self.time.epoch_at_zero + self.now_ms);
+        let target = self.host_target();
+        let here = |f: &Json| {
+            f["on"]
+                .as_array()
+                .is_none_or(|on| on.iter().any(|t| t == target))
+        };
         let fills = sub["fill"].as_object().cloned().unwrap_or_default();
         for tabled in [false, true] {
             for (path, filler) in fills
                 .iter()
-                .filter(|(_, f)| f["table"].is_string() == tabled)
+                .filter(|(_, f)| f["table"].is_string() == tabled && here(f))
             {
                 let made = |object: &Map<String, Json>| match filler {
                     f if f == "now" => Some(now.clone()),

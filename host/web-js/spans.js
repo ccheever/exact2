@@ -115,11 +115,13 @@ export function spans(m) {
 
 /** Set each `path` of a declared `fill` where `v` leaves it out: `"now"` is `now()`; `{table, by}` the entry of the
  * substitute's `tables.<table>` that the filled object's field `by` names, filled after the plain fillers so `by`
- * can be one; a part `list[]` fills each entry of that list. */
+ * can be one; a part `list[]` fills each entry of that list. A table filler with `on`, a list of targets, fills only
+ * on those, as the runner's `fill_all` does. */
 export function fillAll(sub, v, now) {
   const fills = Object.entries(sub.fill ?? {}), tabled = f => f && typeof f === "object" && typeof f.table === "string";
+  const here = f => !Array.isArray(f?.on) || f.on.includes("web");
   for (const pass of [false, true]) {
-    for (const [path, filler] of fills.filter(([, f]) => tabled(f) === pass)) {
+    for (const [path, filler] of fills.filter(([, f]) => tabled(f) === pass && here(f))) {
       fillWith(v, path.split("."), object => filler === "now" ? now() : pass ? structuredClone(sub.tables?.[filler.table]?.[object?.[filler.by]]) : structuredClone(filler));
     }
   }

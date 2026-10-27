@@ -101,7 +101,7 @@ impl App {
         for file in ["package.json", "exact.json"] {
             std::fs::copy(source.join(file), package.join(file)).unwrap();
         }
-        for platform in ["web", "linux", "windows"] {
+        for platform in ["apple", "android", "web", "linux", "windows"] {
             std::fs::create_dir_all(package.join(platform)).unwrap();
             std::fs::copy(
                 source.join(platform).join("exact.json"),

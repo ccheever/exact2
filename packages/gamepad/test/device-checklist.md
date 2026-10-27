@@ -3,8 +3,8 @@
 What a person checks with real pads, which no drive here can: an agent
 never touches a controller attached to the machine it runs on (LLP
 1133.022 §21). The drives under the agent use the declared substitute and,
-on Linux and Windows, a test build's injected pad (`EXACT_AGENT_PADS`);
-these steps are the hardware half.
+on Linux, Windows, Apple and Android, a drive's injected pad
+(`EXACT_AGENT_PADS`); these steps are the hardware half.
 
 You need a DualSense (PS5) and an Xbox Wireless Controller, each paired
 over Bluetooth or plugged in by USB, and the Beacons game
@@ -48,10 +48,10 @@ step's result and the OS version.
 | Linux (desktop or the NucBox) | yes: evdev `FF_RUMBLE`, the registry in `host/linux/src/pads.rs` | yes, where `/dev/input/event*` opens read-write (the `input` group) | no: `setLight` answers `NotSupportedError` | A pad opened read-only lists no effects; check that `effects` is empty then. |
 | Windows (x64, ARM64) | yes: XInput, `host/windows/src/pads.rs` | yes, on an XInput pad (the Xbox pad) | no | The DualSense is not an XInput pad: it lists no pad on Windows. |
 | Web (Chrome, Edge) | yes: `web/index.js` | yes, through `vibrationActuator` | no | Safari and Firefox list no effects. |
-| macOS, iOS, iPadOS, tvOS | not yet (`GCController`, Core Haptics) | — | — | Runs under the substitute until the Swift implementation lands. |
-| Android | not yet (`InputDevice`, `VibratorManager`) | — | — | Runs under the substitute until the Kotlin implementation lands. |
+| macOS, iOS, iPadOS, tvOS | yes: `apple/Gamepad.swift` over `GCController`, the slot table shared with the canvas (`ExactPads`) | yes, through each handle's Core Haptics engine (`GCDeviceHaptics`); the DualSense's triggers take `trigger-rumble` | yes on the DualSense and DualShock 4 (`GCDeviceLight`); the colour before the app's first write comes back on `setLight()`, at the background and when the session ends | The prompt shows the button's SF Symbol beside its name (step 2). An Xbox pad lists `dual-rumble` only. |
+| Android, Android TV | yes: `android/Gamepad.kt` over the process's `Pads` and `InputDevice` | yes, through the device's `VibratorManager` (Android 12 and later; one vibrator below it); the app's manifest carries `VIBRATE` | where the device has an RGB light (`LightsManager`, Android 12 and later); closing the session gives it back | Also check step 9 with Developer options' "Don't keep activities" on: the pad keeps its index and the prompt its word when the activity is made again. |
 
-On Linux, also check `bun scripts/agent.mjs linux state`'s
+On Linux and macOS, also check `bun scripts/agent.mjs <linux|macos> state`'s
 `extensions.gamepad` while playing: the pads listed have the right
 `family`, and each effect is listed with `origin: app` and `result`
 `complete`.

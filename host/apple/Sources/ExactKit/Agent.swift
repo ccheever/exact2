@@ -807,13 +807,17 @@ public final class Agent {
         // run loop drains here. One bound for the whole call (LLP 1012 §2),
         // not one per round: a request that never answers ends the call at
         // twenty seconds, not sixteen times that.
+        // A reply can wait on the session clock instead: a package's
+        // `context.after` (a gamepad effect's span) is set, so the clock goes
+        // to it rather than the wall waiting for the reply.
         let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
-        if settle { waitForReplies(until: deadline) }
+        let hatches = session.natives.hatchClock
+        if settle { waitForReplies(until: deadline, orAfter: true) }
         // Settle ends motion: every leaf held mid-fling is made (LLP 1068 §5.1).
         if settle { presenter.leaves.settle() }
         waitForImages()
         var target = req["to"] as? Double
-        if settle { target = max(from, self.settle() ?? from) }
+        if settle { target = max(from, self.settle() ?? from, pendingCount() > 0 ? hatches.nextAfter ?? from : from) }
         guard var to = target, to.isFinite else { return ["malformed": true, "error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
@@ -887,7 +891,8 @@ public final class Agent {
             if pendingCount() > 0 {
                 rounds += 1
                 if rounds >= 16 || Date() >= deadline { return reply(landed, false, reason: "requests") }
-                waitForReplies(until: deadline)
+                if let after = hatches.nextAfter { to = max(landed, after); continue }
+                waitForReplies(until: deadline, orAfter: true)
                 continue
             }
             let next = max(landed, self.settle() ?? landed, world.settleAt ?? landed)
@@ -1136,12 +1141,6 @@ public final class Agent {
     /// `clock settle`'s bound on requests in flight: a network's worth.
     static let settleBound: TimeInterval = 20
 
-    /// Pump the executor's queue until no request is in flight, or until
-    /// the call's deadline (`settled: false` past it), false then. The wake's
-    /// own pump is a main-queue block, and this runs inside one — so the
-    /// queue is drained here directly, the run loop turning in between for
-    /// the executor's thread to make progress.
-    @discardableResult
     /// Run until no polled module source's ask is in flight, or the deadline.
     func waitForPolls(until deadline: Date) {
         while session.agent("{\"op\":\"polls\"}").contains("\"asking\":true"), Date() < deadline {
@@ -1150,8 +1149,16 @@ public final class Agent {
         }
     }
 
-    func waitForReplies(until deadline: Date) -> Bool {
+    /// Pump the executor's queue until no request is in flight, or until
+    /// the call's deadline (`settled: false` past it), false then. The wake's
+    /// own pump is a main-queue block, and this runs inside one — so the
+    /// queue is drained here directly, the run loop turning in between for
+    /// the executor's thread to make progress. `orAfter`: false as soon as a
+    /// hatch `after` is set, which the reply may be waiting on.
+    @discardableResult
+    func waitForReplies(until deadline: Date, orAfter: Bool = false) -> Bool {
         while pendingCount() > 0 {
+            if orAfter && session.natives.hatchClock.nextAfter != nil { return false }
             if Date() >= deadline { return false }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
             session.apply(session.runtime.pump(now: session.now()))

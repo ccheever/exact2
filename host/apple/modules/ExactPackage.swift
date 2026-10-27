@@ -107,6 +107,10 @@ public final class ExactPackageContext {
     public let shortcuts = ExactShortcutStore()
     /// The host's content index mirror (LLP 1133.023 D4, D15 item 2).
     public let contentIndex = ExactContentIndexStore()
+    /// The process's pad slots (LLP 1133.022 D10 item 1); nil on a host
+    /// older than them, where a pad module reads no pads (item 4).
+    public let pads: ExactPads?
+    private let afterFn: (Double, @escaping () -> Void) -> () -> Void
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
@@ -120,13 +124,26 @@ public final class ExactPackageContext {
                 activation: @escaping (String, [Any], String?) -> [AnyHashable: Any] = { _, _, _ in [:] },
                 wake: @escaping (String, [Any], String, @escaping (String) -> Void) -> Void = { _, _, _, _ in },
                 wakes: ExactWakes = ExactWakes { _, _ in },
-                transfers: ExactTransfers = ExactTransfers { _, _ in nil }) {
+                transfers: ExactTransfers = ExactTransfers { _, _ in nil },
+                pads: ExactPads? = nil,
+                after: @escaping (Double, @escaping () -> Void) -> () -> Void = { ms, body in
+                    let work = DispatchWorkItem(block: body)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: work)
+                    return work.cancel
+                }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; viewFn = view; invokeFn = invoke
         emitFn = emit; activationFn = activation; wakeFn = wake; self.wakes = wakes; self.transfers = transfers
+        self.pads = pads; afterFn = after
     }
+
+    /// `body` once, `ms` later on the session's clock: the agent's under the
+    /// agent, where a seek runs it at its own instant, so a drive repeats.
+    /// Call what it returns to cancel it first. Main thread.
+    @discardableResult
+    public func after(_ ms: Double, _ body: @escaping () -> Void) -> () -> Void { afterFn(ms, body) }
 
     /// Raise the interface's wake event `name` with `args` for the platform
     /// object `id` (LLP 1133.017 D8): the events of one id are one wake, run
@@ -599,6 +616,63 @@ public final class ExactTracks {
     public func observe(_ id: String, _ observer: ExactTrackConsumer) throws -> ExactSubscription {
         guard let entry = entries[id], let owner = entry.owner else { throw ExactTrackError("NotFoundError") }
         return try owner.observe(id, observer)
+    }
+}
+
+// MARK: pads (LLP 1133.022 D4, D10 item 1)
+
+/// The process's one pad slot table: by index, the pad's controller object
+/// (`GCController`) or `NSNull`. A canvas's pads (ExactSurfaces'
+/// `CanvasPads`, which cannot import this module) and a pad module both
+/// number pads from it, so an index names one pad to each. It lives in the
+/// main thread's dictionary, which the host and the app's module share; a
+/// pad that connects takes the slot it holds, else the lowest free one, and
+/// one that goes frees it. Main thread.
+public final class ExactPads {
+    /// Under the agent, bound or not: a pad module lists only `injected`, and
+    /// never reads or moves a pad attached to the machine.
+    public let driven: Bool
+    /// The drive's pads (`EXACT_AGENT_PADS`, a JSON list), each `{index, id,
+    /// category, vendor, pressed}`: empty outside the agent. Their motors
+    /// and light are a recorder (LLP 1133.022 §10).
+    public let injected: [[String: Any]]
+    /// The slot table's key in `Thread.main.threadDictionary`.
+    public static let key = "exact.pads"
+    /// GameController's own limit is lower; this bounds a misbehaving source.
+    public static let most = 16
+    public init(driven: Bool = false, injected: [[String: Any]] = []) { self.driven = driven; self.injected = driven ? injected : [] }
+
+    private static var table: NSMutableArray {
+        let d = Thread.main.threadDictionary
+        if let t = d[key] as? NSMutableArray { return t }
+        let t = NSMutableArray()
+        d[key] = t
+        return t
+    }
+
+    /// `pad`'s slot, if it holds one.
+    public func index(of pad: AnyObject) -> Int? {
+        let t = Self.table
+        return (0..<t.count).first { t[$0] as AnyObject === pad }
+    }
+    /// `pad`'s slot: the one it holds, else `at` when free, else the lowest
+    /// free one; nil when all are taken.
+    public func take(_ pad: AnyObject, at wanted: Int? = nil) -> Int? {
+        if let held = index(of: pad) { return held }
+        let t = Self.table
+        let free = (0..<t.count).filter { t[$0] is NSNull }
+        let index = wanted.flatMap { w in w >= t.count || t[w] is NSNull ? w : nil } ?? free.first ?? t.count
+        guard index < Self.most else { return nil }
+        while t.count <= index { t.add(NSNull()) }
+        t[index] = pad
+        return index
+    }
+    /// `pad` leaves its slot: the slot it held.
+    @discardableResult
+    public func free(_ pad: AnyObject) -> Int? {
+        guard let index = index(of: pad) else { return nil }
+        Self.table[index] = NSNull()
+        return index
     }
 }
 

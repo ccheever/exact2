@@ -202,6 +202,19 @@ class ExtensionContext internal constructor(val application: Context, private va
     /** The readers of [topic] are asked again (LLP 1016.002). */
     fun changed(topic: String) = Exact.changed(topic)
 
+    /**
+     * Raise the interface's event [event] with [args] (LLP 1133.004 D6): delivered in order, once, with the device's
+     * origin. Its one channel to the runner is [changed], as on Apple (`exact-event:`,
+     * `runner/src/runner/modules/events.rs`); the sequence number keeps two alike from coalescing. Main thread.
+     */
+    fun emit(event: String, args: JSONArray) {
+        Extensions.emitted += 1
+        changed("exact-event:" + JSONObject().put("extension", name).put("event", event).put("args", args).put("seq", Extensions.emitted))
+    }
+
+    /** The process's pads (LLP 1133.022 D10 item 1), which a world canvas reads too. */
+    val pads = ExtensionPads(application)
+
     /** Each [wake]'s `ended`, by id, until the runner tells its outcome. */
     internal val ended = HashMap<String, (String) -> Unit>()
 
@@ -265,6 +278,20 @@ class ExtensionContext internal constructor(val application: Context, private va
     }
 }
 
+/** The process's gamepads as a module reads them ([ExtensionContext.pads]): each by its slot, the index a world
+ * canvas knows it by. Main thread. */
+class ExtensionPads internal constructor(private val application: Context) {
+    /** The connected pads by index, with their identities. */
+    fun list(): List<Pair<Int, PadDevice>> = Pads.attach(application).list()
+    /** The pad whose button last went down; null when none has been used since it connected. */
+    val current: Int? get() = Pads.current.takeIf { it >= 0 }
+    /** Pad [index]'s latest standard reading: 17 buttons, then 4 axes; null for no pad. */
+    fun reading(index: Int): FloatArray? = Pads.values(index)
+    /** [f] is told each change: a pad came or went, or another is in use. Its [owner] ends it with [unwatch]. */
+    fun watch(owner: Any, f: () -> Unit) { Pads.attach(application).watch(owner, f) }
+    fun unwatch(owner: Any) = Pads.unwatch(owner)
+}
+
 /** The page's canvases, as an extension feeds them ([ExtensionContext.surfaces]). */
 class ExtensionSurfaces internal constructor() {
     /**
@@ -314,6 +341,8 @@ internal object Extensions {
     private val made = HashMap<String, ExactExtension>()
     /** The one session's track table. */
     val tracks = Tracks()
+    /** The events raised so far ([ExtensionContext.emit]). */
+    var emitted = 0
     private var application: Context? = null
     private var foreground = false
     private var asking = false

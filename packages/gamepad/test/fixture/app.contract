@@ -24,6 +24,8 @@ component Fixture
     send stopped = resetEffects()
   action amber
     setLight(color="#e8ad61")
+  action unlit
+    setLight()
   view
     column gap=8 padding=16 gamepadconnected=connected gamepaddisconnected=disconnected
       text `${pads.available} ${pads.gamepads.length} ${inUse(pads)}` testId="list"
@@ -53,3 +55,5 @@ component Fixture
         text "Stop"
       button press=amber testId="amber"
         text "Amber"
+      button press=unlit testId="unlit"
+        text "Unlit"
