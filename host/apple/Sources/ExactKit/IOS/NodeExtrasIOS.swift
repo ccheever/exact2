@@ -476,9 +476,9 @@ extension NodeView {
     var fieldInk: UIColor {
         showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
     }
-    /// `ownColor` as this node draws it now, or nil.
+    /// The colour this node's author wrote for row `key`, with the tint undimmed, for UIKit to draw
+    /// with (TintDimmingIOS.swift); nil where the author wrote none
     func ownUIColor(_ key: String) -> UIColor? {
-        // As written, never greyed: its callers hand it to UIKit (TintDimmingIOS.swift)
         ownColor(key) == nil ? nil : undimmedCGColor(key).map { UIColor(cgColor: $0) }
     }
 }

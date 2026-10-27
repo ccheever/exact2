@@ -87,7 +87,12 @@ extension NodeView {
     /// mode (D10) — hierarchical in the tint, a palette, or multicolor.
     /// `face`: as a native control's face draws it, without the page's ink.
     func symbolConfiguration(_ base: SymbolConfig, face: Bool = false) -> SymbolConfig {
+        #if os(iOS) || os(tvOS)
+        // Take a face's colours undimmed: UIKit keeps the image a control is given as made (TintDimmingIOS.swift)
+        let tint = face ? undimmedInheritedTint : drawnSymbolInk ?? inheritedTint
+        #else
         let tint = (face ? nil : drawnSymbolInk) ?? inheritedTint
+        #endif
         let base = symbolShape(base)
         switch style["symbol_rendering"]?.string {
         case "hierarchical": return base.applying(SymbolConfig(hierarchicalColor: tint))
@@ -95,6 +100,7 @@ extension NodeView {
         case "palette":
             let colors = (style["symbol_palette"]?.array ?? []).compactMap { c -> PlatformColor? in
                 #if os(iOS) || os(tvOS)
+                if face { return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: undimmedTint(for: c)).map(TextEngine.color) }
                 return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: c, key: "symbol_palette"))
                     .map { TextEngine.color(dimmedWithTint($0, key: "symbol_palette")) }
                 #else

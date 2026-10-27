@@ -121,9 +121,13 @@ extension NodeView {
         style[key].flatMap { $0.cgColor(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: undimmedTint(for: $0)) }
     }
 
-    private func undimmedTint(for row: BatchValue) -> UIColor? {
+    /// The tint row `row` resolves `@tint` by for a colour Exact hands UIKit (`undimmedChannels`)
+    func undimmedTint(for row: BatchValue) -> UIColor? {
         row.namesTint ? (tintAdjustmentMode == .dimmed ? restingTint : viewTint) : nil
     }
+
+    /// The tint this node inherits, undimmed: what a face UIKit draws takes (`symbolConfiguration`)
+    var undimmedInheritedTint: UIColor { tintAdjustmentMode == .dimmed ? restingTint : tintColor }
 
     /// The paragraph's runs as it paints them now: every run greyed while it dims its paint, and
     /// outside a control a link's where the paragraph names the tint (`tinted`), as UIKit greys a

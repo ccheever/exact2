@@ -28,6 +28,23 @@ final class NativeBarDetailsIOSTests: XCTestCase {
                        "an inherited tint leaves the tablist's accent")
     }
 
+    /// The selected tab's own tint reaches the tab bar as written while UIKit dims tints: UIKit dims
+    /// the bar itself, and keeps the tint once the dimming ends
+    func testTheSelectedTabsOwnTintIsAsWrittenWhileDimmed() throws {
+        let p = Presenter(), list = NodeView(id: 1, kind: "view", presenter: p)
+        let tab = NodeView(id: 2, kind: "button", presenter: p)
+        tab.applyStyle(["tint_color": [[255, 0, 0, 255], [0, 255, 0, 255]], "written": ["tint_color"]])
+        list.addSubview(tab)
+        let nav = p.navigation, controller = UITabBarController()
+        nav.tabController = controller
+        nav.tabItemsSource = (NavigationTabs(tablist: list, tabs: [tab], panels: []), [])
+        nav.routerTab = 0
+        list.tintAdjustmentMode = .dimmed
+        nav.tint(list)
+        XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), .red)
+        XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), .green)
+    }
+
     func testAnOwnTintEqualToTheAccentReplacesItsLiveResolver() throws {
         let p = Presenter(), list = NodeView(id: 1, kind: "view", presenter: p)
         let tab = NodeView(id: 2, kind: "button", presenter: p)
@@ -49,6 +66,38 @@ final class NativeBarDetailsIOSTests: XCTestCase {
         list.applyStyle(["accent_color": [255, 0, 0, 255], "written": ["accent_color"]])
         XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), .red,
                        "clearing an own tint reinstalls the live accent resolver even at equal channels")
+    }
+
+    /// A seal beside a pressable title is drawn in its colour as written while UIKit dims tints: the
+    /// title's text keeps it once the dimming ends
+    func testAHeadingRowsSealBesideAPressableTitleIsAsWrittenWhileDimmed() throws {
+        let p = Presenter()
+        let header = NodeView(id: 1, kind: "view", presenter: p)
+        let row = NodeView(id: 2, kind: "view", presenter: p)
+        let heading = NodeView(id: 3, kind: "text", presenter: p)
+        let seal = NodeView(id: 4, kind: "image", presenter: p)
+        header.handlers = ["press"]
+        row.applyStyle(["display": "flex", "flex_direction": "row"])
+        heading.props = ["text": "Verified"]
+        seal.props = ["imageSource": "symbol:checkmark.seal.fill", "symbolName": "checkmark.seal.fill"]
+        seal.applyStyle(["tint_color": [[255, 0, 0, 255], [0, 255, 0, 255]], "written": ["tint_color"]])
+        header.addSubview(row); row.addSubview(heading); row.addSubview(seal)
+        header.tintAdjustmentMode = .dimmed
+        XCTAssertTrue(seal.dimsItsPaint, "the seal is on a dimmed control's face")
+        let group = try XCTUnwrap(HeaderTitle(header: header, heading: heading, tap: nil, apart: []))
+        let view = HeaderTitleView(host: p.navigation)
+        view.title.textColor = .label
+        view.update(group, title: "Verified")
+        let title = try XCTUnwrap(view.title.attributedText)
+        var count = 0
+        title.enumerateAttribute(.attachment, in: NSRange(location: 0, length: title.length)) { value, range, _ in
+            guard value is NSTextAttachment else { return }
+            count += 1
+            let ink = title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+            XCTAssertEqual(ink?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), .red)
+            XCTAssertEqual(ink?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), .green)
+        }
+        XCTAssertEqual(count, 1)
     }
 
     func testAHeadingRowsSealIsDrawnBesideTheTitle() throws {
