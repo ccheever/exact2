@@ -22,7 +22,8 @@
 // usage: bun packages/photos/test/apple.mjs [ios] [macos] [--sim <udid>] [--fill]
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { loadedDylibs } from '../../../host/apple/link.mjs';
 import { checker, makeFixture, pkg, root, run, texts, until } from './fixture.mjs';
 
 const argv = process.argv.slice(2), sim = argv.includes('--sim') ? argv[argv.indexOf('--sim') + 1] : process.env.EXACT_SIM;
@@ -59,6 +60,9 @@ for (const host of hosts.length ? hosts : ['ios', 'macos']) {
   check(where, 'Info.plist carries the read key with its purpose', plist.NSPhotoLibraryUsageDescription === 'The conformance suite reads the library.', JSON.stringify(plist.NSPhotoLibraryUsageDescription));
   if (host === 'ios') {
     check(where, 'and the add key, and suppresses the limited-access alert', plist.NSPhotoLibraryAddUsageDescription === 'The conformance suite adds a photo.' && plist.PHPhotoLibraryPreventAutomaticLimitedAccessAlert === true, JSON.stringify(plist));
+    const module = join(dirname(join(app, 'target', plistAt)), 'Frameworks/libexact_modules.dylib');
+    check(where, 'the module links PhotosUI, which supplies the limited-picker category',
+      loadedDylibs(module).some(name => name.endsWith('/PhotosUI.framework/PhotosUI')), module);
   }
 
   if (host === 'macos') {

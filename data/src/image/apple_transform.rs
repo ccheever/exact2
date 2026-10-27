@@ -104,27 +104,43 @@ const ALPHA_PREMULTIPLIED_LAST: u32 = 1;
 const FLOAT_COMPONENTS: u32 = 1 << 8;
 const BYTE_ORDER_16_LITTLE: u32 = 1 << 12;
 
-/// ImageIO's gain-map requests, which are macOS 15 and iOS 18 (exact2's
-/// minimums are 14 and 17), looked up rather than linked.
+/// Gain-map requests and headroom APIs, available on macOS 15 and iOS 18
+/// (exact2's minimums are 14 and 17), looked up rather than linked.
 struct GainMap {
     encode_request: CFTypeRef,
     to_gain_map: CFTypeRef,
     to_sdr: CFTypeRef,
     iso: CFTypeRef,
+    headroom: unsafe extern "C" fn(CFTypeRef) -> f32,
+    set_headroom: unsafe extern "C" fn(CFTypeRef, f32) -> bool,
 }
 
 fn gain_map() -> Option<GainMap> {
-    let key = |name: &[u8]| {
-        // SAFETY: `name` is NUL-terminated; a found symbol is a CFStringRef
-        // constant that lives as long as the process.
+    let symbol = |name: &[u8]| {
+        // SAFETY: `name` is NUL-terminated; the symbol lives for the process.
         let at = unsafe { dlsym(RTLD_DEFAULT, name.as_ptr().cast()) };
-        (!at.is_null()).then(|| unsafe { *(at as *const CFTypeRef) })
+        (!at.is_null()).then_some(at)
+    };
+    let key = |name: &[u8]| {
+        // SAFETY: each requested key is a CFStringRef constant.
+        symbol(name).map(|at| unsafe { *(at as *const CFTypeRef) })
     };
     Some(GainMap {
         encode_request: key(b"kCGImageDestinationEncodeRequest\0")?,
         to_gain_map: key(b"kCGImageDestinationEncodeToISOGainmap\0")?,
         to_sdr: key(b"kCGImageDestinationEncodeToSDR\0")?,
         iso: key(b"kCGImageAuxiliaryDataTypeISOGainMap\0")?,
+        // SAFETY: these macOS 15 / iOS 18 symbols have the declared signatures.
+        headroom: unsafe {
+            std::mem::transmute::<*mut c_void, unsafe extern "C" fn(CFTypeRef) -> f32>(symbol(
+                b"CGImageGetContentHeadroom\0",
+            )?)
+        },
+        set_headroom: unsafe {
+            std::mem::transmute::<*mut c_void, unsafe extern "C" fn(CFTypeRef, f32) -> bool>(
+                symbol(b"CGContextSetEDRTargetHeadroom\0")?,
+            )
+        },
     })
 }
 
@@ -339,6 +355,15 @@ pub(super) fn render(
             info,
         )
     })?;
+    if surface == Surface::Half {
+        let hdr = gain_map()?;
+        // A bitmap without headroom metadata encodes as SDR even when its
+        // floating-point pixels exceed reference white. Keep the source range.
+        // SAFETY: both objects are live and the function signatures match.
+        if !unsafe { (hdr.set_headroom)(context.get(), (hdr.headroom)(image)) } {
+            return None;
+        }
+    }
     // Core Graphics draws an image right way up into its rect with y up:
     // the image's own flip, then the map, then the output's flip.
     let ctm = Affine {

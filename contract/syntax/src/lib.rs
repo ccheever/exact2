@@ -167,6 +167,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     "showOpenFilePicker",
     "showDirectoryPicker",
     "showSaveFilePicker",
+    // @ref LLP 1069.010.000 D7 — `requestPermission(id, path, mode)`: a kept
+    // document's access asked for again under a press; `change` at `id`.
+    "requestPermission",
     // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
     "scrollIntoView",
     // @ref LLP 1101.004 R3 — `Element.scrollBy(x, y)` by the scroller's

@@ -1209,6 +1209,15 @@ component A
     button press=go
       text "a"
 ---
+== type-permission-argument
+# `requestPermission` takes (id, path, mode), mode "read" or "readwrite" (LLP 1069.010.000 D7).
+component A
+  action go
+    requestPermission("asked", "doc:/1/notes.md", "write")
+  view
+    button press=go
+      text "a"
+---
 == type-save-file-argument
 # `saveFile` takes (id, from, suggestedName), three strings (LLP 1069.010 D3).
 component A

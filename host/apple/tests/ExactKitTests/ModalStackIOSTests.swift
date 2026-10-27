@@ -67,6 +67,11 @@ final class ModalStackIOSTests: XCTestCase {
         Array(sequence(first: host?.presentedViewController, next: { $0?.presentedViewController }).compactMap { $0 })
     }
 
+    private func stateSlots(_ session: ExactSession) throws -> [String: Any] {
+        let state = try JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any]
+        return try XCTUnwrap(state?["slots"] as? [String: Any])
+    }
+
     /// Exercise UIKit's animated Back transition; the smoke also taps its actual control.
     func testBackUsesThePresentedStackAndKeepsTheBackgroundStack() throws {
         guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
@@ -109,8 +114,7 @@ final class ModalStackIOSTests: XCTestCase {
         let restoredScroll = try XCTUnwrap(try node(session, "long-scroll").scroll)
         XCTAssertEqual(restoredScroll.contentOffset.y, offset.y, accuracy: 0.5)
         XCTAssertEqual(primary.viewControllers, background)
-        let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any])
-        XCTAssertEqual((state["slots"] as? [String: Any])?["query"] as? String, "Secondary draft")
+        XCTAssertEqual(try stateSlots(session)["query"] as? String, "Secondary draft")
         _ = secondary.popViewController(animated: true)
         XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true)
         until("the sheet returns to its root") { secondary.viewControllers.count == 1 && p.navigation.selectedKey == sheetKey && !agent.nativeInFlight() }
@@ -175,8 +179,7 @@ final class ModalStackIOSTests: XCTestCase {
             }
             XCTAssertEqual(session.presenter.navigation.selectedKey, (nav.topViewController as? RouteController)?.key)
             XCTAssertFalse(field.isFirstResponder)
-            let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any])
-            let slots = try XCTUnwrap(state["slots"] as? [String: Any])
+            let slots = try stateSlots(session)
             XCTAssertEqual(slots["searchBlurs"] as? Int, 1)
             XCTAssertEqual(slots["searchChanges"] as? Int, 1)
             XCTAssertEqual(slots["committedQuery"] as? String, query)
@@ -188,34 +191,66 @@ final class ModalStackIOSTests: XCTestCase {
         guard hostedWindowScene() != nil else {
             throw missing("scene", "native search cancellation uses UIKit's presented controls")
         }
-        let session = try fixture("cancel-header-search", plan: "EXACT_PUSHED_TITLE_PLAN", fullScreen: true)
-        let agent = Agent(session: session)
-        try press(session, "home-open-seek")
-        XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true)
-        let item = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController?.navigationItem)
-        let search = try XCTUnwrap(item.searchController), field = search.searchBar.searchTextField
-        until("the search field takes focus") { field.isFirstResponder }
-        let input = try node(session, "seek-search")
-        field.insertText("cancel-query")
-        until("the app hears the query") { input.props["value"] == "cancel-query" }
-        until("search presentation settles") { search.isActive && !search.isBeingPresented && search.transitionCoordinator == nil }
-        func buttons(in view: UIView) -> [UIButton] {
-            ((view as? UIButton).map { [$0] } ?? []) + view.subviews.flatMap { buttons(in: $0) }
+        // Duo's inner-display Close dismisses the controller without the bar's Cancel action;
+        // the bar's Cancel action is checked on the primary stack.
+        let cases: [(submitted: Bool, presented: Bool, cancelButton: Bool)] = [
+            (false, false, false), (false, false, true), (false, true, false),
+            (true, false, false), (true, false, true), (true, true, false),
+        ]
+        for (submitted, presented, cancelButton) in cases {
+            let variant = "submitted \(submitted), presented \(presented), cancel button \(cancelButton)"
+            let session = try fixture("cancel-header-search-\(submitted)-\(presented)-\(cancelButton)", plan: "EXACT_PUSHED_TITLE_PLAN", fullScreen: true)
+            defer { session.destroy(); window?.isHidden = true }
+            let agent = Agent(session: session)
+            if presented {
+                try press(session, "home-open-sheet")
+                XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true, variant)
+            }
+            try press(session, presented ? "sheet-open-seek" : "home-open-seek")
+            XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true, variant)
+            let navigation = try XCTUnwrap(presented ? session.presenter.navigation.modalNavigation : session.presenter.navigation.primaryNavigation, variant)
+            let item = try XCTUnwrap(navigation.topViewController?.navigationItem, variant)
+            let search = try XCTUnwrap(item.searchController, variant), field = search.searchBar.searchTextField
+            until("the search field takes focus (\(variant))") { field.isFirstResponder }
+            let input = try node(session, "seek-search")
+            field.insertText("cancel-query")
+            until("the app hears the query (\(variant))") { input.props["value"] == "cancel-query" }
+            until("search presentation settles (\(variant))") { search.isActive && !search.isBeingPresented && search.transitionCoordinator == nil }
+            if submitted {
+                search.searchBar.delegate?.searchBarSearchButtonClicked?(search.searchBar)
+                until("Search ends editing without closing the search (\(variant))") { !field.isFirstResponder }
+                XCTAssertTrue(search.isActive, variant)
+                XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true, variant)
+            }
+            let before = try stateSlots(session)
+            let blurs = try XCTUnwrap(before["searchBlurs"] as? Int), changes = try XCTUnwrap(before["searchChanges"] as? Int)
+            XCTAssertEqual(before["searching"] as? Bool, !submitted, variant)
+            if cancelButton {
+                func buttons(in view: UIView) -> [UIButton] {
+                    ((view as? UIButton).map { [$0] } ?? []) + view.subviews.flatMap { buttons(in: $0) }
+                }
+                let controls = buttons(in: try XCTUnwrap(window))
+                // UIKit's registered cancellation action; its projected button has alpha zero on Duo
+                let cancel = controls.filter { button in button.allTargets.contains { ($0 as AnyObject) === search.searchBar } }
+                XCTAssertEqual(cancel.count, 1, "UIKit exposes one control owned by this search (\(variant))")
+                guard cancel.count == 1 else { return }
+                XCTAssertNotNil(cancel[0].actions(forTarget: search.searchBar, forControlEvent: .touchUpInside), variant)
+                cancel[0].sendActions(for: .touchUpInside)
+            } else {
+                search.isActive = false
+            }
+            until("UIKit dismisses the search (\(variant))") { !search.isActive && !search.isBeingDismissed && !field.isFirstResponder }
+            XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true, variant)
+            XCTAssertEqual(input.props["value"], "", variant)
+            XCTAssertEqual(search.searchBar.text ?? "", "", variant)
+            XCTAssertTrue(item.hidesSearchBarWhenScrolling, variant)
+            XCTAssertEqual(session.routerOp?["url"] as? String, "/seek", variant)
+            XCTAssertNotNil(navigation.view.window, "closing search keeps its navigation stack on screen (\(variant))")
+            let slots = try stateSlots(session)
+            XCTAssertEqual(slots["searchBlurs"] as? Int, blurs + (submitted ? 0 : 1), "\(variant), before: \(blurs)")
+            XCTAssertEqual(slots["searchChanges"] as? Int, changes + 1, "\(variant), before: \(changes)")
+            XCTAssertEqual(slots["committedQuery"] as? String, "", variant)
         }
-        let window = try XCTUnwrap(window)
-        let controls = buttons(in: window)
-        // Exercise UIKit's registered cancellation action; its projected button has alpha zero on Duo
-        let cancel = controls.filter { button in button.allTargets.contains { ($0 as AnyObject) === search.searchBar } }
-        XCTAssertEqual(cancel.count, 1, "UIKit exposes one control owned by this search")
-        guard cancel.count == 1 else { return }
-        XCTAssertNotNil(cancel[0].actions(forTarget: search.searchBar, forControlEvent: .touchUpInside))
-        cancel[0].sendActions(for: .touchUpInside)
-        until("UIKit dismisses the search") { !search.isActive && !search.isBeingDismissed && !field.isFirstResponder }
-        XCTAssertEqual(agent.clock(["settle": true])["settled"] as? Bool, true)
-        XCTAssertEqual(input.props["value"], "")
-        XCTAssertEqual(search.searchBar.text ?? "", "")
-        XCTAssertTrue(item.hidesSearchBarWhenScrolling)
-        XCTAssertEqual(session.routerOp?["url"] as? String, "/seek")
     }
 
     func testBackHistoryUsesTheChosenDestinationInThePresentedStack() throws {

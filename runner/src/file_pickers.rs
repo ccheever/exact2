@@ -192,6 +192,9 @@ pub fn arm<D: DataSource>(
 /// what the person chose there, as `type @t` or `tap @t cancel` would.
 pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
     let command = field_str(json, "command").unwrap_or_default();
+    if command == "requestPermission" {
+        return permission(runner, json);
+    }
     let Some(kind) = Kind::of(&command) else {
         return crate::agent::error(&format!("{command} is not a picker"));
     };
@@ -237,6 +240,43 @@ pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
     }
 }
 
+/// `requestPermission(id, path, mode)` (LLP 1069.010.000 D7): `{"command":
+/// "requestPermission","id":…,"path":…,"mode":…}`. A path that is not a
+/// `doc:` path, a mode that is neither `read` nor `readwrite`, or an
+/// unknown element is refused into the journal (`{"refused":"…"}`); else
+/// `{"view":N,"path":…,"mode":…}`, and the host asks (the web, under the
+/// press's activation) or answers (a native host: `granted` for a document
+/// that resolves), as `change` on the view.
+fn permission<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
+    let id = field_str(json, "id").unwrap_or_default();
+    let path = field_str(json, "path").unwrap_or_default();
+    let mode = field_str(json, "mode").unwrap_or_default();
+    let view = runner
+        .kernel()
+        .find_by_id(&id)
+        .into_iter()
+        .find_map(|key| runner.kernel().node_by_key(key).map(|n| n.id));
+    let refused = if !path.starts_with("doc:/") {
+        "path is not a doc:/ path".to_owned()
+    } else if mode != "read" && mode != "readwrite" {
+        "mode is \"read\" or \"readwrite\"".to_owned()
+    } else if let Some(view) = view {
+        let mut s = format!("{{\"view\":{view},\"path\":");
+        quote(&path, &mut s);
+        s.push_str(",\"mode\":");
+        quote(&mode, &mut s);
+        s.push('}');
+        return s;
+    } else {
+        format!("no element with id \"{id}\"")
+    };
+    runner.log(format!("requestPermission: refused: {refused}"));
+    let mut s = String::from("{\"refused\":");
+    quote(&refused, &mut s);
+    s.push('}');
+    s
+}
+
 /// The paths of a `type @t` answer: one per line, each absolute.
 pub fn answer_paths(value: &str) -> Vec<&str> {
     value
@@ -249,6 +289,48 @@ pub fn answer_paths(value: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_permission_names_a_document_a_mode_and_an_element() {
+        let plan = contract::compile(
+            "component App\n  view\n    column\n      input id=\"asked\" display=\"none\"\n",
+        )
+        .unwrap();
+        struct NoData;
+        impl DataSource for NoData {
+            fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, crate::DataError> {
+                Err(crate::DataError::UnknownSource(source.into()))
+            }
+        }
+        let kernel = exact_kernel::Kernel::with_monospace();
+        let mut runner = Runner::boot(plan, NoData, kernel, Default::default(), "/").unwrap();
+        let ask = |runner: &mut Runner<NoData>, id: &str, path: &str, mode: &str| {
+            request(
+                runner,
+                &format!(
+                    r#"{{"command":"requestPermission","id":"{id}","path":"{path}","mode":"{mode}"}}"#
+                ),
+            )
+        };
+        let asked = ask(&mut runner, "asked", "doc:/3/notes", "readwrite");
+        assert!(asked.starts_with(r#"{"view":"#), "{asked}");
+        assert!(
+            asked.ends_with(r#","path":"doc:/3/notes","mode":"readwrite"}"#),
+            "{asked}"
+        );
+        assert_eq!(
+            ask(&mut runner, "asked", "app:/data/x", "read"),
+            r#"{"refused":"path is not a doc:/ path"}"#
+        );
+        assert_eq!(
+            ask(&mut runner, "asked", "doc:/3/notes", "write"),
+            r#"{"refused":"mode is \"read\" or \"readwrite\""}"#
+        );
+        assert_eq!(
+            ask(&mut runner, "absent", "doc:/3/notes", "read"),
+            r#"{"refused":"no element with id \"absent\""}"#
+        );
+    }
 
     #[test]
     fn each_picker_takes_its_own_arguments() {

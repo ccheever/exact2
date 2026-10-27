@@ -113,8 +113,11 @@ final class IframePartitionTests: XCTestCase {
         window.orderFrontRegardless()
         windows.append(window)
         #else
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
-        window.addSubview(web)
+        let window = hostedWindowScene().map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.addSubview(web)
         window.isHidden = false
         windows.append(window)
         #endif
@@ -131,30 +134,29 @@ final class IframePartitionTests: XCTestCase {
     override func tearDown() { windows.forEach { $0.isHidden = true }; windows = [] }
     #endif
 
-    /// One server for the class: a listener let go and made again on the same port may find it still taken.
     nonisolated(unsafe) private static var server: FramePages?
+    private var baseURL: String { "http://127.0.0.1:\(Self.server!.port)" }
     override func setUpWithError() throws {
         #if os(macOS)
         _ = NSApplication.shared
         #endif
-        if Self.server == nil { Self.server = try FramePages(port: 16584) }
+        if Self.server == nil { Self.server = try FramePages() }
     }
 
     private func events(_ seen: Seen) -> [String] { seen.records.map(\.event) }
 
     func testNavigationEventsCommandsAndTheirRecords() throws {
         let arm = try arm(), seen = Seen()
-        let base = "http://127.0.0.1:16584"
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-a"], src: "\(base)/a")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-a"], src: "\(baseURL)/a")
         defer { arm.destroy(handle) }
         assertLoaded(seen, ["navigate", "currententrychange", "navigatesuccess"])
         let first = try XCTUnwrap(seen.records.last?.record)
-        XCTAssertEqual(first["url"] as? String, "\(base)/a")
+        XCTAssertEqual(first["url"] as? String, "\(baseURL)/a")
         XCTAssertEqual(first["title"] as? String, "Page A")
         XCTAssertEqual(first["loading"] as? Bool, false)
         XCTAssertEqual(first["partitioned"] as? Bool, true)
-        XCTAssertEqual(first["icons"] as? [String], ["\(base)/a.png", "\(base)/favicon.ico"])
-        XCTAssertEqual(seen.records[0].record["destination"] as? String, "\(base)/a")
+        XCTAssertEqual(first["icons"] as? [String], ["\(baseURL)/a.png", "\(baseURL)/favicon.ico"])
+        XCTAssertEqual(seen.records[0].record["destination"] as? String, "\(baseURL)/a")
         XCTAssertEqual(seen.records[0].record["loading"] as? Bool, true)
         XCTAssertEqual(Set(seen.records.map { $0.record["navigationId"] as? Int }).count, 1, "one navigation's events share an id")
         XCTAssertEqual(seen.loads, 1, "`load` still fires for every document")
@@ -162,12 +164,12 @@ final class IframePartitionTests: XCTestCase {
         XCTAssertNotEqual(web.configuration.websiteDataStore, WKWebsiteDataStore.default())
 
         // A server redirect: `navigate` again with the same id and the new destination.
-        step(seen) { json(["op": "navigate", "url": "\(base)/redirect"], arm.command, handle) }
+        step(seen) { json(["op": "navigate", "url": "\(baseURL)/redirect"], arm.command, handle) }
         assertLoaded(seen, ["navigate", "navigate", "currententrychange", "navigatesuccess"])
         guard seen.records.count >= 2 else { return }
-        XCTAssertEqual(seen.records[1].record["destination"] as? String, "\(base)/b")
+        XCTAssertEqual(seen.records[1].record["destination"] as? String, "\(baseURL)/b")
         XCTAssertEqual(seen.records[1].record["navigationId"] as? Int, seen.records[0].record["navigationId"] as? Int)
-        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(base)/b")
+        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(baseURL)/b")
         XCTAssertEqual(seen.records.last?.record["title"] as? String, "Page B")
         XCTAssertEqual(seen.records.last?.record["canGoBack"] as? Bool, true)
 
@@ -176,7 +178,7 @@ final class IframePartitionTests: XCTestCase {
         spin { self.events(seen).contains("navigatesuccess") }
         XCTAssertEqual(events(seen), ["navigate", "currententrychange", "navigatesuccess"], "\(seen.records)")
         XCTAssertEqual(seen.records.last?.record["navigationType"] as? String, "push")
-        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(base)/b#pushed")
+        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(baseURL)/b#pushed")
 
         // A title change with no navigation: `currententrychange` alone.
         step(seen) { web.evaluateJavaScript("document.title = 'Retitled'") { _, _ in } }
@@ -189,7 +191,7 @@ final class IframePartitionTests: XCTestCase {
         step(seen) { json(["op": "traverseHistory", "delta": -1], arm.command, handle) }
         spin { self.events(seen).contains("navigatesuccess") }
         XCTAssertEqual(seen.records.last?.record["navigationType"] as? String, "traverse", "\(seen.records)")
-        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(base)/b")
+        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(baseURL)/b")
         step(seen) { web.evaluateJavaScript("location.assign('/a')") { _, _ in } }
         spin { self.events(seen).contains("navigatesuccess") }
         XCTAssertEqual(seen.records.first?.record["navigationType"] as? String, "push", "\(seen.records)")
@@ -212,7 +214,7 @@ final class IframePartitionTests: XCTestCase {
         step(seen) { json(["op": "traverseHistory", "delta": -4], arm.command, handle) }
         spin { self.events(seen).contains("navigatesuccess") }
         XCTAssertEqual(seen.records.last?.record["navigationType"] as? String, "traverse")
-        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(base)/a")
+        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(baseURL)/a")
 
         // No such entry: InvalidStateError, nothing else.
         step(seen) { json(["op": "traverseHistory", "delta": -5], arm.command, handle) }
@@ -226,7 +228,7 @@ final class IframePartitionTests: XCTestCase {
         XCTAssertEqual(seen.records.first?.record["navigationType"] as? String, "reload")
 
         // `stopLoading` of a page that never answers: AbortError, and nothing follows.
-        step(seen) { json(["op": "navigate", "url": "\(base)/slow"], arm.command, handle) }
+        step(seen) { json(["op": "navigate", "url": "\(baseURL)/slow"], arm.command, handle) }
         spin { self.events(seen).contains("navigate") }
         json(["op": "stopLoading"], arm.command, handle)
         pause(1)
@@ -235,9 +237,9 @@ final class IframePartitionTests: XCTestCase {
         XCTAssertEqual(seen.records.last?.record["loading"] as? Bool, false)
 
         // A superseded navigation ends with AbortError before the new one's `navigate`.
-        step(seen) { json(["op": "navigate", "url": "\(base)/slow"], arm.command, handle) }
+        step(seen) { json(["op": "navigate", "url": "\(baseURL)/slow"], arm.command, handle) }
         spin { self.events(seen).contains("navigate") }
-        json(["op": "navigate", "url": "\(base)/a"], arm.command, handle)
+        json(["op": "navigate", "url": "\(baseURL)/a"], arm.command, handle)
         spin { self.events(seen).contains("navigatesuccess") }
         XCTAssertEqual(Array(events(seen).prefix(3)), ["navigate", "navigateerror", "navigate"], "\(seen.records)")
         XCTAssertEqual(seen.records.dropFirst().first?.record["error"] as? String, "AbortError")
@@ -252,10 +254,9 @@ final class IframePartitionTests: XCTestCase {
 
     func testPartitionsKeepTheirOwnStorageAndClear() throws {
         let arm = try arm(), one = Seen(), two = Seen(), again = Seen()
-        let base = "http://127.0.0.1:16584"
-        let (a, webA) = mount(arm, one, configuration: ["partition": "memory-one"], src: "\(base)/a")
+        let (a, webA) = mount(arm, one, configuration: ["partition": "memory-one"], src: "\(baseURL)/a")
         defer { arm.destroy(a) }
-        let (b, webB) = mount(arm, two, configuration: ["partition": "memory-two"], src: "\(base)/a")
+        let (b, webB) = mount(arm, two, configuration: ["partition": "memory-two"], src: "\(baseURL)/a")
         defer { arm.destroy(b) }
         spin { self.events(one).contains("navigatesuccess") && self.events(two).contains("navigatesuccess") }
         var stored: Any?
@@ -265,7 +266,7 @@ final class IframePartitionTests: XCTestCase {
         spin { stored != nil }
         XCTAssert(stored is NSNull, "another partition does not see the first's storage: \(String(describing: stored))")
         // The same name shares the store.
-        let (c, webC) = mount(arm, again, configuration: ["partition": "memory-one"], src: "\(base)/a")
+        let (c, webC) = mount(arm, again, configuration: ["partition": "memory-one"], src: "\(baseURL)/a")
         defer { arm.destroy(c) }
         spin { self.events(again).contains("navigatesuccess") }
         stored = nil
@@ -291,7 +292,7 @@ final class IframePartitionTests: XCTestCase {
         XCTAssertEqual(seen.cleared, "")
         // A page open in the partition may keep data (D4); a fresh document reads the cleared store.
         let fresh = Seen()
-        let (d, webD) = mount(arm, fresh, configuration: ["partition": "memory-one"], src: "\(base)/b")
+        let (d, webD) = mount(arm, fresh, configuration: ["partition": "memory-one"], src: "\(baseURL)/b")
         defer { arm.destroy(d) }
         spin { self.events(fresh).contains("navigatesuccess") }
         stored = nil
@@ -305,8 +306,8 @@ final class IframePartitionTests: XCTestCase {
         for (configuration, src, sandbox, error) in [
             (["partition": "memory-r"], "app:/data/page.html", nil, "NotSupportedError"),
             (["partition": "memory-r"], "/deck/index.html", nil, "NotSupportedError"),
-            (["partition": "memory-r"], "http://127.0.0.1:16584/a", "allow-scripts", "NotSupportedError"),
-            (["partition": "bad name"], "http://127.0.0.1:16584/a", nil, "SyntaxError"),
+            (["partition": "memory-r"], "\(baseURL)/a", "allow-scripts", "NotSupportedError"),
+            (["partition": "bad name"], "\(baseURL)/a", nil, "SyntaxError"),
         ] as [([String: Any], String, String?, String)] {
             let seen = Seen()
             let (handle, web) = mount(arm, seen, configuration: configuration, src: src, sandbox: sandbox)
@@ -324,7 +325,7 @@ final class IframePartitionTests: XCTestCase {
     /// itself, and the `about:blank` shown in its place reports nothing.
     func testARefusalMidNavigationReportsNothingOfTheBlankPage() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-mid"], src: "http://127.0.0.1:16584/slow")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-mid"], src: "\(baseURL)/slow")
         defer { arm.destroy(handle) }
         spin { self.events(seen).contains("navigate") }
         send("allow-scripts", arm.setSandbox, handle)
@@ -339,7 +340,7 @@ final class IframePartitionTests: XCTestCase {
 
     func testAnUnpartitionedFrameRefusesTheCommands() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, _) = mount(arm, seen, configuration: [:], src: "http://127.0.0.1:16584/a")
+        let (handle, _) = mount(arm, seen, configuration: [:], src: "\(baseURL)/a")
         defer { arm.destroy(handle) }
         json(["op": "reload"], arm.command, handle)
         spin { !seen.records.isEmpty }
@@ -382,7 +383,7 @@ final class IframePartitionTests: XCTestCase {
     /// A partitioned frame changing its partition gets a new web view, in the new store.
     func testAChangedPartitionReplacesTheWebView() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, first) = mount(arm, seen, configuration: ["partition": "memory-x"], src: "http://127.0.0.1:16584/a")
+        let (handle, first) = mount(arm, seen, configuration: ["partition": "memory-x"], src: "\(baseURL)/a")
         defer { arm.destroy(handle) }
         spin { self.events(seen).contains("navigatesuccess") }
         seen.records = []
@@ -391,14 +392,14 @@ final class IframePartitionTests: XCTestCase {
         XCTAssertFalse(first === second)
         second.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
         spin { self.events(seen).contains("navigatesuccess") }
-        XCTAssertEqual(seen.records.last?.record["url"] as? String, "http://127.0.0.1:16584/a")
+        XCTAssertEqual(seen.records.last?.record["url"] as? String, "\(baseURL)/a")
         XCTAssertNotEqual(first.configuration.websiteDataStore, second.configuration.websiteDataStore)
     }
 
     /// Three recoveries after 250, 500 and 1,000 ms; the fourth death in 30 s ends it (D2, Astra r3).
     func testAFourthCrashIn30SecondsStopsRecovering() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-crash"], src: "http://127.0.0.1:16584/a")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-crash"], src: "\(baseURL)/a")
         defer { arm.destroy(handle) }
         spin { self.events(seen).contains("navigatesuccess") }
         let pid = { (web.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value ?? 0 }
@@ -433,7 +434,7 @@ final class IframePartitionTests: XCTestCase {
     /// `alpha` paints nothing on iOS; the arm sets neither.)
     func testAHiddenFramePaintsWhenAsked() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-hidden"], src: "http://127.0.0.1:16584/b")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-hidden"], src: "\(baseURL)/b")
         defer { arm.destroy(handle) }
         spin { self.events(seen).contains("navigatesuccess") }
         #if os(macOS)
@@ -482,7 +483,7 @@ final class IframePartitionTests: XCTestCase {
     /// own `window.postMessage` reaches its own listeners (D1).
     func testAPartitionedFrameHasNoBridge() throws {
         let arm = try arm(), seen = Seen()
-        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-p"], src: "http://127.0.0.1:16584/a")
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-p"], src: "\(baseURL)/a")
         defer { arm.destroy(handle) }
         spin { self.events(seen).contains("navigatesuccess") }
         var heard: Any?
@@ -497,25 +498,31 @@ final class IframePartitionTests: XCTestCase {
     }
 }
 
+/// A ready listener on 127.0.0.1 that hands each connection to `serve`.
+/// Port 0 lets the system choose.
+func loopbackListener(port: UInt16 = 0, _ serve: @escaping (NWConnection) -> Void) throws -> NWListener {
+    let parameters = NWParameters.tcp
+    parameters.allowLocalEndpointReuse = true
+    parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
+    let listener = try NWListener(using: parameters)
+    listener.newConnectionHandler = serve
+    var state: NWListener.State = .setup
+    listener.stateUpdateHandler = { state = $0 }
+    listener.start(queue: .main)
+    let deadline = Date(timeIntervalSinceNow: 5)
+    while Date() < deadline { if case .ready = state { return listener }; RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+    throw NSError(domain: "loopbackListener", code: 1, userInfo: [NSLocalizedDescriptionKey: "no listener on 127.0.0.1:\(port == 0 ? "any port" : "\(port)"): \(state)"])
+}
+
 /// Fixed pages on a loopback port: `/a` (a title and an icon), `/b`,
 /// `/redirect` (302 to `/b`) and `/slow`, which never answers.
 final class FramePages {
-    private let listener: NWListener
+    private var listener: NWListener!
     private var held: [NWConnection] = []
 
-    init(port: UInt16) throws {
-        let parameters = NWParameters.tcp
-        parameters.allowLocalEndpointReuse = true
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
-        listener = try NWListener(using: parameters)
-        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
-        var state: NWListener.State = .setup
-        listener.stateUpdateHandler = { state = $0 }
-        listener.start(queue: .main)
-        let deadline = Date(timeIntervalSinceNow: 5)
-        while Date() < deadline { if case .ready = state { return }; RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
-        throw NSError(domain: "IframePartitionTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "port \(port) did not listen: \(state)"])
-    }
+    var port: UInt16 { listener.port!.rawValue }
+
+    init(port: UInt16 = 0) throws { listener = try loopbackListener(port: port) { [weak self] in self?.serve($0) } }
 
     private func serve(_ connection: NWConnection) {
         connection.start(queue: .main)

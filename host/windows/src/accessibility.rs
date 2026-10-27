@@ -20,6 +20,7 @@ use winit::{
 
 pub(super) enum Event {
     Wake,
+    ModalWake,
     Access(accesskit_winit::Event),
 }
 impl From<accesskit_winit::Event> for Event {

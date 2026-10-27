@@ -9,6 +9,7 @@ use contract_syntax::{
 use std::collections::{BTreeMap, BTreeSet};
 
 mod midi;
+mod permission;
 mod sounds;
 
 /// Whether a roster parameter admits `t`. The roster table spells three
@@ -987,6 +988,9 @@ pub(super) fn check_command(
     }
     if name == "showNotification" || name == "closeNotification" {
         return notification_args(name, args, scope, shapes, span);
+    }
+    if name == "requestPermission" {
+        return permission::args(args, scope, shapes, span);
     }
     if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
         return picker_args(name, args, scope, shapes, span);

@@ -39,7 +39,7 @@ pub fn angles(g: [f64; 3], n: [f64; 3]) -> (f64, f64) {
             0.0
         }
     };
-    let roll = along(g, 0) - along(n, 0);
+    let roll = -(along(g, 0) - along(n, 0));
     let pitch = along(g, 1) - along(n, 1);
     (roll.round() + 0.0, pitch.round() + 0.0)
 }
@@ -65,7 +65,7 @@ mod tests {
     fn the_readout_is_the_tilt_from_the_level() {
         assert_eq!(label(LEVEL, LEVEL), "0° · 0°");
         assert_eq!(label([0.0, 4.9, 8.49], LEVEL), "0° · 30° forward");
-        assert_eq!(label([3.0, 4.9, 7.9], [0.0, 4.9, 8.49]), "18° right · 0°");
-        assert_eq!(label([-3.0, -4.9, 7.9], LEVEL), "18° left · 30° back");
+        assert_eq!(label([3.0, 4.9, 7.9], [0.0, 4.9, 8.49]), "18° left · 0°");
+        assert_eq!(label([-3.0, -4.9, 7.9], LEVEL), "18° right · 30° back");
     }
 }

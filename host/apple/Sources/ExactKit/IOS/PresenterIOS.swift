@@ -55,6 +55,8 @@ package final class Presenter {
     package let root = PlainView(frame: .zero)
     /// The viewport over it: the window's content, scrolling like a browser's.
     package let viewport: ScrollView = Viewport(frame: .zero)
+    /// The document's mount while a native container owns the screen (`hostDocument`).
+    package let documentMount = DocumentMount()
     package var views: [UInt32: NodeView] = [:]
     lazy var focusEvents = FocusEvents(self)
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
@@ -181,11 +183,13 @@ package final class Presenter {
     var hasKeyboardEditor: Bool { keyboardEditor != nil }
 
     /// A route's content or its projected search field currently owns text input.
-    func ownsKeyboard(in container: UIView) -> Bool {
+    func ownsKeyboard(in container: UIView) -> Bool { edits(in: container) || editsInBar(of: container) }
+    /// Whether the keyboard's editor is in `container`'s content.
+    func edits(in container: UIView) -> Bool { keyboardEditor?.isDescendant(of: container) == true }
+    /// Whether the keyboard's editor is the search field of the bar over `container`'s route.
+    func editsInBar(of container: UIView) -> Bool {
         guard let editor = keyboardEditor else { return false }
-        if editor.isDescendant(of: container) { return true }
-        let route = ViewPresentation.controller(for: container) as? RouteController
-        return route?.search?.field?.headerField === editor
+        return (ViewPresentation.controller(for: container) as? RouteController)?.search?.field?.headerField === editor
     }
     /// The docked keyboard's occupied geometry in its owning container.
     package func keyboardGuideTop(in container: UIView) -> CGFloat? {
@@ -240,7 +244,7 @@ package final class Presenter {
 
     var interactiveKeyboardDrag: Bool {
         let drags = { (sv: UIScrollView) in sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging) }
-        return drags(viewport) || views.values.contains { node in node.scrollView.map(drags) ?? false }
+        return drags(viewport) || scrollers.contains { views[$0]?.scrollView.map(drags) ?? false }
             || navigation.primaryRoutes.contains { $0.contentViewport.map(drags) ?? false }
     }
 
@@ -270,7 +274,7 @@ package final class Presenter {
 
     func setKeyboardInset(_ overlap: CGFloat) {
         keyboardInset = overlap
-        let amount = keyboardPolicy == "resizes-visual" && !navigation.pinsPrimaryViewport ? overlap : 0
+        let amount = keyboardPolicy == "resizes-visual" && !documentFixed ? overlap : 0
         keyboardViewportInset.apply(amount, to: viewport)
     }
 

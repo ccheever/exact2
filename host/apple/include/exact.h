@@ -939,8 +939,9 @@ uint32_t exact_presence(ExactRuntime rt, size_t len);
  * the runtime's thread, synchronously; answered with done(reply, status,
  * bytes, len) before it returns: status 0 done, 1 not found or not capable,
  * below 0 failed with a message. op 1 add {"service","account","policy"}
- * with the value; 2 delete {"service","account"}; 3 the accounts under
- * {"service"}, a JSON array; 4 delete every item under {"service"}; 5
+ * with the value; 2 delete {"service","account"}; 3 whether the indexed
+ * {"service","account"} exists, without authenticating; 4 delete every item
+ * under {"service"}; 5
  * whether this build keeps locked items. Never shows the person anything. */
 typedef void (*ExactPresenceReplyFn)(void *reply, int32_t status, const uint8_t *bytes, size_t len);
 typedef void (*ExactPresenceKeychainFn)(uint32_t op, const uint8_t *json, size_t len, const uint8_t *value, size_t value_len, void *reply, ExactPresenceReplyFn done);

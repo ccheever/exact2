@@ -48,10 +48,10 @@ struct PressPath {
 }
 
 extension Presenter {
-    /// Whether `view` is mounted in this session: in its viewport, or in a
+    /// Whether `view` is mounted in this session: in its document, or in a
     /// presentation beside it.
     func mounts(_ view: UIView) -> Bool {
-        view.isDescendant(of: viewport) || surface(containing: view).map { $0.kind != .document } == true
+        inDocument(view) || surface(containing: view).map { $0.kind != .document } == true
     }
 
     /// Where a finger reaches `view`, in viewport points (the viewport's
@@ -69,7 +69,7 @@ extension Presenter {
     /// Ends editing wherever the session is mounted; whether any editor resigned.
     @discardableResult
     package func endEditing() -> Bool {
-        presentations(includingRetiring: true).reduce(viewport.endEditing(true)) { $1.endEditing(true) || $0 }
+        presentations(includingRetiring: true).reduce(documentHost.endEditing(true)) { $1.endEditing(true) || $0 }
     }
 
     /// The next view reached by a touch or its listeners: the superview,
@@ -150,10 +150,13 @@ extension Presenter {
         return views.values.first(where: { $0.headerField === native }) ?? NodeView.innermost(native)
     }
 
-    /// A native module's input may fill a large wrapper: reveal its caret,
-    /// not that wrapper's far edge. The input keeps its own internal scrolling.
+    /// The keys' reveal of the field being edited (`revealEditorAsTheKeysMove`,
+    /// `revealSettledEditor`). A native module's input may fill a large
+    /// wrapper: reveal its caret, not that wrapper's far edge. The input keeps
+    /// its own internal scrolling.
     func revealFocusedEditor() {
-        guard let editor else { return }
+        // While a finger drags the keyboard away, the offset is the finger's
+        guard let editor, !interactiveKeyboardDrag else { return }
         if editor.field == nil, editor.textArea == nil,
            let native = FirstResponder.current as? UIView, let input = native as? UITextInput,
            let end = input.selectedTextRange?.end, let view = input.textInputView {
@@ -244,7 +247,10 @@ final class OwnerBlocks {
             block.size.height = max(0, min(block.height, end - block.minY))
             return block
         }
-        guard presenter.ownsKeyboard(in: view) else { return block }
+        // Only an editor in the content shortens it. A search field in the
+        // bar is UIKit's: the content keeps its layout and takes the keys as
+        // safe area (`RouteController.fitContentViewport`).
+        guard presenter.edits(in: view) else { return block }
         #if !os(tvOS)
         if let sheet = presenter.modals.coordinateView, view.isDescendant(of: sheet),
            let top = presenter.keyboardGuideTop(in: sheet) {

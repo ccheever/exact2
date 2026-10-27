@@ -20,7 +20,7 @@ extension Agent {
         guard !points.isEmpty else { return ["malformed": true, "error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
         #if os(iOS) || os(tvOS)
         let view = presenter.viewport
-        let layer = view.layer
+        let layer = presenter.documentHost.layer // in the viewport's place (`DocumentMountIOS.swift`)
         #else
         let view = presenter.navigation.split.agentRoot
         guard let layer = view.layer else { return ["error": "the session's view has no layer"] }
