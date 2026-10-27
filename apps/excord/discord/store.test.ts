@@ -774,6 +774,16 @@ test('versions invalidate only affected channels and sidebar-visible changes', (
   expect(channelVersion(s, cid)).toBe(a);
 });
 
+test('a known user\'s new name moves the identity revision; a new user or the same name does not', () => {
+  const s = seeded();
+  const before = s.identityRevision;
+  send(s, '101', { author: { id: '3', username: 'newcomer' } });
+  send(s, '102');
+  expect(s.identityRevision).toBe(before);
+  send(s, '103', { author: { ...other, global_name: 'Friendly' } });
+  expect(s.identityRevision).toBe(before + 1);
+});
+
 test('a thousand real-shaped MESSAGE_CREATEs append within 500 ms', () => {
   const s = seeded('0');
   let seed = 0x512a291;

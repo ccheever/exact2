@@ -104,6 +104,8 @@ export interface Store {
   // guild's or one a new list id started over, repeats a revision a reader saw.
   memberRevision: number;
   sidebarRevision: number;
+  // Moves when a known user's name, picture or kind changes, which the DM list shows.
+  identityRevision: number;
   sequence: number;
 }
 interface Changes { channels: Set<string>; sidebar: boolean }
@@ -112,7 +114,7 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), memberLists: new Map(), memberRevision: 0, sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), memberLists: new Map(), memberRevision: 0, sidebarRevision: 0, identityRevision: 0, sequence: 0,
   };
 }
 
@@ -272,6 +274,7 @@ function rememberUser(s: Store, user: DiscordObject | undefined): void {
   if (!user?.id) return;
   const known = s.users.get(user.id);
   if (known && SHOWN.every(key => !(key in user) || known[key] === user[key])) return;
+  if (known) s.identityRevision++;
   s.users.set(user.id, { ...known, ...user } as User);
 }
 
@@ -1164,6 +1167,12 @@ export function dms(s: Store): Channel[] {
   return [...s.channelMap.values()].filter(channel => channel.type === 1 || channel.type === 3)
     .sort((a, b) => cmpId(b.last_message_id ?? '0', a.last_message_id ?? '0') || cmpId(a.id, b.id))
     .map(value => withRecipients(s, value));
+}
+
+/** Whether a channel is a DM or a group DM. */
+export function isDirect(s: Store, channelId: string): boolean {
+  const type = s.channelMap.get(channelId)?.type;
+  return type === 1 || type === 3;
 }
 
 /** Read one normalized channel, including resolved DM recipients when present. */

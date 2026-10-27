@@ -319,7 +319,7 @@ test('4. the viewed channel subscribes its guild again after a non-resumable rec
 
 test('5. snapshots have fixed keys and only the viewed channel supplies history versions', async () => {
   const app = await rig.app(), peer = await app.dial();
-  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'channel', 'version', 'history', 'members', 'retryIn', 'attempt'].sort();
+  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'dmList', 'channelList', 'elsewhere', 'channel', 'version', 'history', 'members', 'retryIn', 'attempt'].sort();
   expect(Object.keys(peer.snapshots.at(-1)!).sort()).toEqual(keys);
   const channel = rig.fixture.world.generalChannelId;
   const other = rig.fixture.world.guilds[0].channels.find(value => value.id !== channel)!.id;
@@ -330,15 +330,51 @@ test('5. snapshots have fixed keys and only the viewed channel supplies history 
   expect(await app.ask('inject', [other, 'message', '', EPOCH + 1000])).toEqual({ ok: true, error: '' });
   await rig.drain();
   const elsewhere = peer.snapshots.at(-1)!;
-  expect(elsewhere.sidebar).toBeGreaterThan(before.sidebar);
+  expect(elsewhere.channelList).toBeGreaterThan(before.channelList);
+  expect(elsewhere.elsewhere).toBeGreaterThan(before.elsewhere);
+  expect(elsewhere.dmList).toBe(before.dmList);
   expect(elsewhere.version).toBe(before.version);
   expect(elsewhere.history).toBe(before.history);
+  // Typing shows only on screen, so no list moves for it.
+  expect(await app.ask('inject', [other, 'typing', '', EPOCH + 1500])).toEqual({ ok: true, error: '' });
+  await rig.drain();
+  const typed = peer.snapshots.at(-1)!;
+  expect(typed.elsewhere).toBeGreaterThan(elsewhere.elsewhere);
+  expect([typed.sidebar, typed.dmList, typed.channelList]).toEqual([elsewhere.sidebar, elsewhere.dmList, elsewhere.channelList]);
   expect(await app.ask('inject', [channel, 'message', '', EPOCH + 2000])).toEqual({ ok: true, error: '' });
   await rig.drain();
   const here = peer.snapshots.at(-1)!;
   expect(here.history).toBeGreaterThan(elsewhere.history);
   expect(here.version).toBeGreaterThan(elsewhere.version);
   for (const snapshot of peer.snapshots) expect(Object.keys(snapshot).sort()).toEqual(keys);
+});
+
+test('5b. a page off screen moves the lists only when it changes what they show', async () => {
+  const app = await rig.app(), peer = await app.dial();
+  const channel = rig.fixture.world.generalChannelId;
+  const other = rig.fixture.world.guilds[0].channels.find(value => value.id !== channel)!.id;
+  await app.ask('viewChannel', [channel]); await rig.drain();
+  expect(await app.ask('loadPage', [other, 'latest', ''])).toEqual({ ok: true, error: '' });
+  expect(await app.ask('markRead', [other])).toMatchObject({ ok: true });
+  const newest = BigInt(rig.fixture.world.messages[other].at(-1)!.id);
+  const after = Number((newest >> 22n) + 1420070400000n) + 1000;
+  expect(await app.ask('inject', [other, 'message', '', after])).toEqual({ ok: true, error: '' });
+  await rig.drain();
+  await rig.control('heartbeat-request', {});
+  const before = peer.snapshots.at(-1)!;
+  expect(await app.ask('loadPage', [other, 'latest', ''])).toEqual({ ok: true, error: '' });
+  await rig.control('heartbeat-request', {});
+  const paged = peer.snapshots.at(-1)!;
+  expect(paged.elsewhere).toBeGreaterThan(before.elsewhere);
+  expect([paged.sidebar, paged.dmList, paged.channelList]).toEqual([before.sidebar, before.dmList, before.channelList]);
+  // The unread message is gone from the server without a gateway event: the page that finds it gone
+  // clears the unread, which the lists show.
+  rig.fixture.world.messages[other].pop();
+  expect(await app.ask('loadPage', [other, 'latest', ''])).toEqual({ ok: true, error: '' });
+  await rig.control('heartbeat-request', {});
+  const cleared = peer.snapshots.at(-1)!;
+  expect(cleared.sidebar).toBeGreaterThan(paged.sidebar);
+  expect(cleared.channelList).toBeGreaterThan(paged.channelList);
 });
 
 test('6. a newer page ask is refused without aborting the page already in flight', async () => {

@@ -286,7 +286,12 @@ shape Gateway
   queued: number
   seq: number
   fixture: bool
+  // The lists' versions (`live.ts`): the server list and rail, the direct messages, the servers'
+  // channel lists, and any channel but the one on screen.
   sidebar: number
+  dmList: number
+  channelList: number
+  elsewhere: number
   channel: string
   version: number
   history: number

@@ -1,0 +1,43 @@
+surfaces: macos
+agent: Claude Code (Claude Opus 5.5)
+task: the Mac transcript dropping frames as it scrolls, on a real account
+
+### Rough
+
+- On the fixture the end of the transcript scrolled and bounced cleanly; on Charlie's
+  account it jerked. A ⌥⌘T trace from his MacBook showed two causes. Of 82 missed frames,
+  67 followed scroll events that moved the content, each about 10 ms of main-thread work
+  with no change to the tree; the fixture's rows cost about 0.3 ms, so this waits on a
+  fixture account as heavy as his (QUEUE). Another 8 followed a gateway update that
+  re-asked the server list, the rail, the direct messages, the channel list and the
+  deep-linked channel, losing 13 to 22 ms that no runner phase claims: the data module's
+  own time. That happened 214 times in 283 seconds, and each left the view as it was.
+- The lists shared one version, which moved with any change in any channel but the one on
+  screen: a typing indicator, a reaction or a message anywhere on the account. The
+  fixture's account is one quiet server, so the stall never showed there.
+- Each list now has its own version: the server list and rail move with what they show
+  (unread and mentions, names, order), the DM list and the channel lists also move with a
+  message or read in a channel they list, and typing elsewhere moves none of them. Twelve
+  events in another channel (six typing, six messages) asked 60 list queries before and 6
+  after.
+
+### Lean in
+
+- The trace named the work by plan site once it was joined to a plan of the same contract
+  (`agent.mjs trace <file> --plan`). The journal's `query` lines between scroll lines
+  showed which resources re-asked, which a summary of the late frames alone did not.
+
+### Needed
+
+- A late frame's unattributed time names no cause; the data module's calls were found
+  only by reading the journal lines around it.
+- Under the agent no frame is presented, so a fixture drive measures what work runs, not
+  how long it takes.
+
+### Checkpoints
+
+- macOS, the fixture: six typing indicators and six messages in #help with #general open
+  ask the channel list six times, and nothing else.
+- web: `app.test.contract` 80 of 80, `routing.test.contract` 4 of 4; `bun test` in
+  `apps/excord`, 656 pass.
+- Not seen yet: Charlie's account on his MacBook, which is where the jerk was.

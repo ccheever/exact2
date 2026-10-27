@@ -179,7 +179,7 @@ component Excord
   derive mentionTotal = dmMentions + sum(guilds.map(g => g.mentions))
   derive pageTitle = locked ? "Excord" : `${mentionTotal > 0 ? `(${mentionTotal}) ` : guilds.map(g => g.unread).includes(true) or dmUnread ? "• " : ""}Excord${reading and chan.name != "" ? ` | ${chan.guild != "" ? "#" : "@"}${chan.name}` : ""}`
   derive guild = dmsShown ? Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) }
-  resource categories = loadChannels(guild.id, gw.sidebar) as shape Category[] else empty()
+  resource categories = loadChannels(guild.id, gw.channelList) as shape Category[] else empty()
   // The server's channels, never another's: a load that failed keeps the last server's answer.
   derive here = categories.filter(g => g.channels.map(c => c.guild).includes(guild.id))
   derive channels = here.map(g => g.channels).flat()
@@ -190,15 +190,16 @@ component Excord
   derive listed = dmsShown ? dms : channels
   derive remembered = draftOf(lastChannels, dmsShown ? "@me" : guild.id)
   derive resumeChannel = listed.map(c => c.id).includes(remembered) ? remembered : match first(listed) { case some(c) => c.id, case none => "" }
-  resource dms = loadDms(gw.sidebar) as shape Channel[] else empty()
+  resource dms = loadDms(gw.dmList) as shape Channel[] else empty()
   // Keep the directory visible through refreshes and reconnects. A new account waits
   // for its complete READY (large accounts arrive in slices) and the lists it starts.
   derive directoryLoaded = gw.me != "" and directoryFor == gw.me
   derive directoryFailed = failed(guilds) or failed(categories) or failed(dms)
   // The snapshot carries the versions of the channel on screen; until it names the
-  // one just opened, the lists' version stands in, which moves with its changes too.
-  derive chanVersion = gw.channel == open ? gw.version : gw.sidebar
-  derive histVersion = gw.channel == open ? gw.history : gw.sidebar
+  // one just opened, the version of other channels stands in, which moves with its changes too.
+  // It is negated so that the two counters never give the same key.
+  derive chanVersion = gw.channel == open ? gw.version : -1 - gw.elsewhere
+  derive histVersion = gw.channel == open ? gw.history : -1 - gw.elsewhere
   resource chan = loadChannel(open, chanVersion) as shape Channel else empty()
   // Slow history (the fixture's): the window is asked with the anchor and version as of
   // the last pump, every 150 ms of the test clock, as a real store's page takes a while.
@@ -227,7 +228,9 @@ component Excord
   mutation recorded as shape Ack then identifyNow
   mutation identified as shape Ack
   mutation typed as shape Ack
-  mutation joined as shape Ack
+  // The lists' versions leave out the channel on screen (`live.ts`), so its row is read again when
+  // another takes its place.
+  mutation joined as shape Ack refreshes categories, dms
   // A token kept re-asks the session and the gateway, which then connects with it.
   mutation signedIn as shape Ack refreshes session, gateway then afterSignIn
   mutation signedOut as shape Ack refreshes session, gateway, guilds, rail, categories, dms, chan, win
@@ -427,7 +430,8 @@ component Excord
   action openChannel(id: string)
     closePicker()
     intent = intent + 1
-    let c = channelOf(channels.concat(dms).concat(targets.map(t => t.channel)), id)
+    // The lists leave the channel being viewed as it was when it opened (`live.ts`); `chan` is its current row.
+    let c = id == open and chan.id == id ? chan : channelOf(channels.concat(dms).concat(targets.map(t => t.channel)), id)
     let p = placeOf(places, id)
     // A split opens one channel over another: the one left keeps its place and draft, and is read
     // as `leaving` reads it (its `viewChannel` is this one's below).

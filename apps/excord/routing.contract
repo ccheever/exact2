@@ -160,7 +160,7 @@ members Excord
       else
         nav = replace(nav, path("channel", id))
         wantId = id
-  resource wantChan = loadChannel(wanting ? wantId : "", gw.sidebar) as shape Channel else empty()
+  resource wantChan = loadChannel(wanting ? wantId : "", wanting ? gw.elsewhere : 0) as shape Channel else empty()
   task wantGuild when wanting and not wantServer and wantChan.id == wantId and (wantChan.name != "" or wantChan.direct)
     after(1, selectWant)
   action selectWant
