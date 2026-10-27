@@ -7,8 +7,7 @@ import XCTest
 /// §2): a dot beside a label, or a label in the author's font, is the bar
 /// item's drawn image; a plain label is UIKit's title, the platform's.
 final class BarFaceIOSTests: XCTestCase {
-    private func button(_ children: [[String: Any]]) -> (Presenter, NodeView) {
-        let p = Presenter()
+    private func button(_ children: [[String: Any]], in p: Presenter = Presenter()) -> (Presenter, NodeView) {
         var ops: [[String: Any]] = [
             ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "props": [:], "style": ["text_color": [0, 0, 0, 255]]],
             ["op": "create", "id": 2, "kind": "view", "handlers": [], "props": [:], "style": ["column_gap": 5]]]
@@ -189,6 +188,59 @@ final class BarFaceIOSTests: XCTestCase {
         heavy.rows.title = ["font_weight": .number(650)]
         p.apply(facesBatch())
         XCTAssertNotEqual(HeaderShape.Item(buttons[1]).source, shape[1].source, "and so does a new weight in the same face")
+    }
+
+    /// An unchanged chip item is drawn again for each projection before iOS
+    /// 26, where its picture is in the bar's tint, which the item does not
+    /// hold; from iOS 26, drawn in the label colour, it is kept as drawn. A
+    /// chip whose face changes is drawn again. A session's presenter, whose
+    /// text engine draws the face.
+    func testAKeptChipItemIsDrawnAgainOnlyInTheBarsTint() throws {
+        let session = ExactApp.shared.makeSession(label: "kept-chip")
+        defer { session.destroy() }
+        let (p, node) = button([dot, label(["written": ["text_color"]])], in: session.presenter)
+        let header = NodeView(id: 100, kind: "view", presenter: p)
+        header.props["semanticTag"] = "header"
+        header.container.addSubview(node)
+        let route = RouteController(header)
+        XCTAssertNotNil(HeaderShape.Item(node).chip)
+        let item = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(node)], route).first)
+        let first = try XCTUnwrap(item.image)
+        let kept = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(node)], route).first)
+        XCTAssertTrue(kept === item, "the item is changed in place")
+        if #available(iOS 26.0, *) { XCTAssertTrue(kept.image === first, "its face kept as drawn") }
+        else { XCTAssertFalse(kept.image === first, "its face drawn again in the tint") }
+        let shown = try XCTUnwrap(kept.image)
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["background_color": [255, 59, 48, 255], "width": 14, "height": 6]]]))
+        let recoloured = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(node)], route).first)
+        XCTAssertTrue(recoloured === item)
+        XCTAssertFalse(recoloured.image === shown, "a new dot colour: its face drawn again")
+    }
+
+    /// A kept item whose author removes its font has UIKit's again, in
+    /// every state, and is still the same item.
+    func testAKeptItemLosesARemovedFont() throws {
+        let p = Presenter()
+        defer { p.reset() }
+        var done = ButtonFace()
+        done.title = "Done"
+        done.rows.title = ["font_size": .number(12)]
+        p.buttonFace = { _ in done }
+        let header = NodeView(id: 100, kind: "view", presenter: p)
+        header.props["semanticTag"] = "header"
+        let button = NodeView(id: 1, kind: "control", presenter: p)
+        button.props["type"] = "button"
+        header.container.addSubview(button)
+        let route = RouteController(header)
+        let item = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(button)], route).first)
+        XCTAssertEqual((item.titleTextAttributes(for: .normal)?[.font] as? UIFont)?.pointSize, 12)
+        done.rows.title = [:]
+        p.apply(facesBatch())
+        let kept = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(button)], route).first)
+        XCTAssertTrue(kept === item, "the item is changed in place")
+        for state: UIControl.State in [.normal, .highlighted, .disabled, .selected, .focused] {
+            XCTAssertNil(kept.titleTextAttributes(for: state)?[.font], "state \(state.rawValue)")
+        }
     }
 
     /// Under Bold Text an authored weight is the kernel's, stepped already
