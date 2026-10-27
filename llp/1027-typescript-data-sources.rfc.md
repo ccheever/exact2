@@ -1689,9 +1689,20 @@ restart, backup, deletion, and transactional restore. Snapback2 remains deferred
   backstop of ten budgets for a turn that waits rather than works, and a
   heap bound on the runtime (Hermes `RuntimeConfig` has the heap's), the
   LLP 1026 D5 fuel-and-limits shape by the engine's own means; a turn over
-  budget is `Unavailable` and the last value stays on screen. (Amended
-  2026-10-27: under CPU load a wall-clock budget refused turns the machine
-  had merely descheduled.)
+  budget is refused as an overrun (`DataError::Overrun`, envelope kind
+  `Overrun`, which an older peer reads as `Unavailable`). A resource an
+  overrun refused keeps its last value and is asked again at 250 ms, then
+  1 s; a third overrun in that streak fails it as any refusal does. Until
+  then the runner holds the ask, never sent: it reads as the ask in flight
+  (`pending`, no failure), keeps that ask's origin and invocation, and comes
+  due in the runner's deadline order. A commit that doesn't ask the
+  resource again leaves the wait as it is; new arguments or a refresh
+  replace it and start a new streak. The agent's `settle` goes to its time;
+  a render completes past it, its checkpoint listing the resource for the
+  client to ask. A mutation's or a stream message's overrun is never asked
+  again. (Amended 2026-10-27, twice: under CPU load a wall-clock budget
+  refused turns the machine had merely descheduled, and a resource an
+  overrun refused stood stale until something else asked it.)
 - **Not before first pixel, never in Contract, never touching the tree**
   — §7.
 

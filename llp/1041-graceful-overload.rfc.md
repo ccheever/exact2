@@ -83,6 +83,8 @@ must produce a terminal outcome or remain visibly pending. Reject new durable
 work before executing an effect when capacity is unavailable, or use an
 explicit durable queue owned by the application. Never silently drop writes,
 truncate a supposedly complete result, or retry a non-idempotent mutation.
+The one automatic retry is a resource's read refused by its turn budget (LLP
+1027): asked again twice at most, spaced 250 ms and 1 s; never a mutation.
 
 Initial queue/byte/turn limits are implementation choices to measure, not
 universal constants invented here. Report the selected limits with each run.
