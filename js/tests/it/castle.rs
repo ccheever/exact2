@@ -1280,7 +1280,7 @@ fn a_resumed_capture_over_budget_retires_the_call_and_keeps_later_answers_clean(
     m.set_budget_ms(0.0);
     let result = m.parse(&mut s, "login", &args, response(200, &body));
     assert!(
-        matches!(result, Err(DataError::Unavailable(ref message)) if message.contains("over the 0 ms budget"))
+        matches!(result, Err(DataError::Overrun(ref message)) if message.contains("over the 0 ms budget"))
     );
     assert_eq!(m.overruns(), 1);
     assert_eq!(m.in_flight(), 0);

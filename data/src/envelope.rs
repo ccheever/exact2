@@ -341,6 +341,24 @@ mod tests {
         }
     }
 
+    /// A turn over its budget keeps its class across the envelope, so a
+    /// worker's or a mixed member's is asked again as an in-process one is;
+    /// a kind an older peer doesn't know reads as `Unavailable`.
+    #[test]
+    fn an_overrun_keeps_its_class_across_the_envelope() {
+        let why = "`r` took 180.0 ms of its own (CPU) time, over the 100 ms budget for one turn";
+        let back = error_from(&error_json(&DataError::Overrun(why.into())));
+        assert!(
+            matches!(back, DataError::Overrun(ref m) if m == why),
+            "{back:?}"
+        );
+        let older = error_from(&json!({"kind": "SomethingNewer", "message": why}));
+        assert!(
+            matches!(older, DataError::Unavailable(ref m) if m == why),
+            "{older:?}"
+        );
+    }
+
     #[test]
     fn a_worker_stream_is_neither_a_socket_nor_a_byte_stream() {
         let request = Request {

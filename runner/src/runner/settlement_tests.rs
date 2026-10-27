@@ -121,6 +121,8 @@ struct Data {
     write_on_parse: bool,
     read_store: bool,
     fail_parse: bool,
+    /// What a reply's parse refuses with, when set (`overrun.rs`'s tests).
+    parse_error: Option<DataError>,
     refuse: Option<DataError>,
     adopted: Vec<(String, Vec<Value>, Value)>,
 }
@@ -138,6 +140,7 @@ impl Data {
             write_on_parse: false,
             read_store: false,
             fail_parse: false,
+            parse_error: None,
             refuse: None,
             adopted: Vec::new(),
         }
@@ -187,6 +190,9 @@ impl DataSource for Data {
     ) -> Result<Answer, DataError> {
         if self.write_on_parse {
             store.set("token", "candidate")?;
+        }
+        if let Some(e) = &self.parse_error {
+            return Err(e.clone());
         }
         if self.fail_parse {
             return Err(DataError::Unavailable(
@@ -784,4 +790,131 @@ fn sources_that_keep_what_is_kept_settle() {
     );
     assert_eq!(writes[0].name, "token");
     assert_eq!(writes[0].value.as_deref(), Some(&b"guarded"[..]));
+}
+
+fn overrun() -> DataError {
+    DataError::Overrun(
+        "`rows` took 180.0 ms of its own (CPU) time, over the 100 ms budget for one turn".into(),
+    )
+}
+
+/// A turn over its budget in the first turn of an action's commit (theme2's
+/// 18:06 ruling): the action stands, the resource keeps its value and reads as
+/// an ask in flight (pending, no failure), and is asked again at 250 ms on the
+/// runner's own clock.
+#[test]
+fn an_overrun_first_turn_leaves_the_action_standing_and_asks_again_at_250_ms() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    let rows = |r: &Runner<Data>| r.resource("rows").cloned();
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)])
+        .expect("the action stands");
+    assert_eq!(r.slot("revision"), Some(&Value::Number(1.)));
+    assert_eq!(rows(&r), Some(records(2)), "it keeps what it shows");
+    assert!(r.pending_res[0], "it reads as an ask in flight");
+    assert!(r.failed_resources().is_empty(), "no failure shows");
+    assert_eq!(r.failed_args[0], None);
+    assert!(r
+        .journal()
+        .any(|l| l.contains("resource rows:") && l.contains("asked again in 250 ms (1 of 2)")));
+    let (t0, asked) = (r.now_ms(), r.data().queries);
+    assert_eq!(r.timer_due_ms(), Some(t0 + 250.));
+    r.data().refuse = None;
+    r.data().value = records(3);
+    r.advance(t0 + 249.).unwrap();
+    assert_eq!(r.data().queries, asked, "not before its time");
+    r.advance(t0 + 250.).unwrap();
+    assert_eq!(rows(&r), Some(records(3)), "asked again, and answered");
+    assert!(!r.pending_res[0]);
+    assert!(r.overruns[0].is_none());
+    assert_eq!(r.timer_due_ms(), None);
+}
+
+/// Three turns over budget in a row for the same arguments: asked again at 250
+/// ms and at 1 s, then failed exactly as any refused resource, and not asked
+/// again by itself.
+#[test]
+fn a_third_overrun_fails_the_resource_as_today() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let t0 = r.now_ms();
+    r.advance(t0 + 250.).unwrap();
+    assert!(r
+        .journal()
+        .any(|l| l.contains("asked again in 1000 ms (2 of 2)")));
+    assert!(r.pending_res[0] && r.failed_resources().is_empty());
+    r.advance(t0 + 1250.).unwrap();
+    assert!(!r.pending_res[0]);
+    assert_eq!(r.failed_args[0], Some(vec![Value::Number(1.)]));
+    assert!(r.failed_resources()[0].1.contains("over the 100 ms budget"));
+    assert!(r.journal().any(|l| l.contains("resource rows failed:")));
+    let asked = r.data().queries;
+    r.advance(t0 + 60_000.).unwrap();
+    assert_eq!(r.data().queries, asked, "not asked again by itself");
+    assert_eq!(r.timer_due_ms(), None);
+}
+
+/// Arguments that change during the wait ask for the new ones at once; the
+/// wait for the old ones is dropped, with no stale re-ask at its time.
+#[test]
+fn an_argument_change_during_the_wait_fires_no_stale_reask() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let t0 = r.now_ms();
+    r.data().refuse = None;
+    r.data().value = records(4);
+    r.act("change", vec![Value::Number(2.)]).unwrap();
+    assert_eq!(r.resource("rows").cloned(), Some(records(4)));
+    assert!(r.overruns[0].is_none());
+    assert!(!r.pending_res[0]);
+    let asked = r.data().queries;
+    r.advance(t0 + 5_000.).unwrap();
+    assert_eq!(r.data().queries, asked, "no stale re-ask");
+}
+
+/// A reply refused by a turn over its budget (the reply path, and every
+/// worker or ordered source's) lets its request go, keeps the resource pending
+/// with its value, and asks again at 250 ms with a new request.
+#[test]
+fn an_overrun_reply_asks_again_with_a_new_request() {
+    let mut data = Data::new(records(1));
+    data.later = true;
+    let mut r = boot(plan(TypeKind::Number, None, false, false), data);
+    let first = r.take_requests();
+    assert_eq!(first.len(), 1);
+    r.data().parse_error = Some(overrun());
+    let reply = || {
+        Outcome::Response(crate::Response {
+            status: 200,
+            headers: vec![],
+            body: vec![],
+        })
+    };
+    r.fulfill(first[0].ticket, reply()).unwrap();
+    assert!(!r.holds(first[0].ticket), "the request is let go");
+    assert!(r.pending_res[0], "but the resource reads as pending");
+    assert!(r.failed_resources().is_empty());
+    assert!(
+        r.take_requests().is_empty(),
+        "nothing asked before its time"
+    );
+    let t0 = r.now_ms();
+    r.data().parse_error = None;
+    r.advance(t0 + 250.).unwrap();
+    let again = r.take_requests();
+    assert_eq!(again.len(), 1, "asked again");
+    r.fulfill(again[0].ticket, reply()).unwrap();
+    assert!(!r.pending_res[0]);
+    assert!(r.overruns[0].is_none());
 }

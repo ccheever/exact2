@@ -1125,9 +1125,7 @@ impl Module {
             source,
             &mut self.logs,
         ) {
-            return Err(DataError::Overrun(format!(
-                "`{source}`'s overlay {why}"
-            )));
+            return Err(DataError::Overrun(format!("`{source}`'s overlay {why}")));
         }
         let reply: Json = serde_json::from_str(&text)
             .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay: {e}")))?;
