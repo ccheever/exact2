@@ -918,12 +918,13 @@ component DesignTool
   action importPicked(files: Picked[])
     if not pending(imported) and files.length > 0
       send imported = importFiles(client, importKind, files.map(f => f.path).join("\n"), files.map(f => f.name).join("\n"))
-  action acceptImportNow(proposal: string)
+  // (`gen`, the card's `choiceGen` as shown: an accept or edit of a card not yet built again asks for another look)
+  action acceptImportNow(proposal: string, gen: number)
     if not pending(written)
-      send written = acceptImport(client, proposal, picked.join(";"))
-  action editImportValue(proposal: string, index: number, mode: number, v: string)
+      send written = acceptImport(client, proposal, picked.join(";"), gen)
+  action editImportValue(proposal: string, index: number, mode: number, gen: number, v: string)
     if not pending(written)
-      send written = editImport(client, proposal, index, mode, v, picked.join(";"))
+      send written = editImport(client, proposal, index, mode, gen, v, picked.join(";"))
   // A mapped token's id is picked when it differs from where it began (in, unless the server's choice leaves it out).
   action toggleLeaveOut(id: string, on: bool, checked: bool)
     picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)

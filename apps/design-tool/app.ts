@@ -425,6 +425,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
       proposal: String(p.proposal), client: String(p.client ?? ''), editedBy: String(p.editedBy ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
       tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], title: heldTitle((p.ops ?? []).map((o: { op: unknown }) => o.op), (p.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file ?? ''), token: String(c.token) })), designFile), replaces: String(p.replaces ?? ''),
       items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
+      choiceGen: heldChoice.gen(String(p.proposal)),
       ...reviewOf(p),
     }));
   }
@@ -1332,20 +1333,20 @@ const sources: Sources = {
     }
     return { ok: true, error: '', proposal: ok.proposal, note: `Held for review as ${ok.proposal}.`, ...none };
   },
-  acceptImport: async ([client, proposal, picked]) => {
+  acceptImport: async ([client, proposal, picked, shownGen]) => {
     const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
     if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
     // What the card shows now is what is accepted: its own choose landed first (its choiceAt current), and another
     // client's choice meanwhile asks for another look rather than being accepted unseen.
     const moved = { ...stacks(false, 'Another client changed what this import has chosen: review it, then accept.', ''), note: '' };
-    if (!heldChoice.inStep(proposal, picked)) return moved; // (the card not yet showing it)
+    if (!heldChoice.inStep(proposal, picked, shownGen)) return moved; // (the card not yet showing it)
     const seen = heldChoice.gen(proposal), items = chosen(proposal, picked);
     if (!(await heldChoice.flush(proposal)) || heldChoice.gen(proposal) !== seen) return moved;
     if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
     // (on 1.18 its items always named, all of them included: never the server's choice by default, which may be older)
     return sources.acceptHeld([client, proposal, items.length === ops.length && !byChoice ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
   },
-  editImport: async ([client, proposal, index, mode, value, picked]) => {
+  editImport: async ([client, proposal, index, mode, shownGen, value, picked]) => {
     // A mapped token's value in one mode changed before accepting: the import held again whole, with the edit, the old
     // one dropped, every role override still offered and the card's choice carried: on 1.18 recorded first, so the
     // server carries it (choice.ts); before, by the page's flips on the new one (#6).
@@ -1357,14 +1358,18 @@ const sources: Sources = {
     if (mode === 0) op.value = value.trim();
     else if (op.whens?.[mode - 1]) op.whens[mode - 1].value = value.trim();
     else return { ...stacks(false, `No such mode in \`${proposal}\`.`, ''), note: '', carried: [] };
-    const was = new Set(chosen(proposal, picked));
+    // (On 1.18, the card as shown: built from the base as it is now, its choice recorded first, and still it after.)
+    const moved = { ...stacks(false, 'Another client changed what this import has chosen: review it, then edit.', ''), note: '', carried: [] };
+    if (byChoice && !heldChoice.inStep(proposal, picked, shownGen)) return moved;
+    const seen = heldChoice.gen(proposal), was = new Set(chosen(proposal, picked));
     if (!was.has(index)) return { ...stacks(false, `${op.name} is left out of the import: tick it to edit it.`, ''), note: '', carried: [] };
     const tokens = Number(r.tokens ?? 0);
     const review = { ...r, kept: false, from: proposal };
-    // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step.)
-    if (byChoice && !heldChoice.inStep(proposal, picked)) return { ...stacks(false, 'Another client changed what this import has chosen: review it, then edit.', ''), note: '', carried: [] };
+    // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step. A
+    // 1.18 one is named the choiceAt the choose answered, so another client's choice meanwhile is refused, not carried.)
     if (byChoice && !(await heldChoice.send(proposal, [...was].sort((a, b) => a - b), askChoose(client, proposal)))) return { ...stacks(false, 'The choice could not be recorded on the design server, so the edit was not sent: try again.', ''), note: '', carried: [] };
-    const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim() } : { method: 'propose', hold: true, client, ops, review }, WRITE_WAIT, heldToken || undefined);
+    if (byChoice && heldChoice.gen(proposal) !== seen) return moved;
+    const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim(), ...(byChoice ? { choiceAt: heldChoice.at(proposal) } : {}) } : { method: 'propose', hold: true, client, ops, review }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget(made.used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };

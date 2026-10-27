@@ -2,7 +2,7 @@
 // serve`): `choose` recorded on the proposal and announced, every refusal, `accept` taking the choice when it names no
 // `items` (a recompute when part, the whole when all), an explicit `items` winning, an accept that saw an older choice
 // refused naming who chose since while one's own choice never stales one's own accept, `edit-held` carrying the
-// choice, and a recompute's proposal having none.
+// choice and refused alike when it names an older one, and a recompute's proposal having none.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
@@ -142,10 +142,16 @@ test('an accept that saw an older choice is refused naming who chose since; one\
   await post({ method: 'drop', client: 'agent:codex', proposal: unchecked.ok.proposal });
 }, 60_000);
 
-test('edit-held carries the choice: all of it with no items, the kept ones renumbered with items', async () => {
+test('edit-held carries the choice: all of it with no items, the kept ones renumbered with items; one that saw an older choice is refused', async () => {
   const id = await hold();
+  const seen = await post({ method: 'choose', client: 'design-tool:Bo', proposal: id, items: [1] });
   await post({ method: 'choose', client: 'design-tool:Ada', proposal: id, items: [0, 2] });
-  const whole = await post({ method: 'edit-held', client: 'design-tool:Bo', proposal: id, index: 1, value: '#0a0a0a' });
+  // Bo saw its own choice, Ada chose since: the edit is refused naming her choice, and the proposal is left held.
+  const stale = await post({ method: 'edit-held', client: 'design-tool:Bo', proposal: id, index: 1, value: '#0a0a0a', choiceAt: seen.ok.choiceAt });
+  expect([stale.status, stale.error.stale, stale.error.choice, stale.error.choiceBy, stale.error.choiceAt]).toEqual([409, true, [0, 2], 'design-tool:Ada', 2]);
+  expect((await heldList()).find(p => p.proposal === id)).toMatchObject({ choice: [0, 2], choiceAt: 2 });
+  expect((await post({ method: 'edit-held', client: 'design-tool:Bo', proposal: id, index: 1, value: '#0a0a0a', choiceAt: -1 })).status).toBe(400);
+  const whole = await post({ method: 'edit-held', client: 'design-tool:Bo', proposal: id, index: 1, value: '#0a0a0a', choiceAt: 2 });
   expect(whole.ok).toMatchObject({ choice: [0, 2], choiceBy: 'design-tool:Ada', choiceAt: 1, editedBy: 'design-tool:Bo' });
   expect((await heldList()).find(p => p.proposal === whole.ok.proposal)).toMatchObject({ choice: [0, 2] });
   const part = await post({ method: 'edit-held', client: 'design-tool:Bo', proposal: whole.ok.proposal, index: 2, value: '#0b0b0b', items: [1, 2] });

@@ -5,8 +5,8 @@
 // it and only records it: it writes and plans nothing. An `accept` with no `items` takes the choice (a recompute when
 // it is part, the whole when it is all); one that names the `choiceAt` it saw is refused 409 `{stale, choice,
 // choiceBy, choiceAt}` when another choice came since, so no client accepts a choice it hasn't seen. `edit-held`
-// carries the choice to the proposal it holds (tamber-edit-held.mjs); a recompute's new proposal has none, all of it
-// being chosen.
+// may name it too, refused alike, and carries the choice to the proposal it holds (tamber-edit-held.mjs); a
+// recompute's new proposal has none, all of it being chosen.
 
 /** `items`, sorted with no duplicates, if it lists indices of `count` operations; else null. */
 const indices = (items, count) =>
@@ -25,14 +25,21 @@ export function choose(request, { expire, proposals, stale, bump, announce }) {
   return { ok: { proposal: id, choice, choiceBy: request.client, choiceAt: p.shown.choiceAt } };
 }
 
+/** A refusal when `request` names a `choiceAt` that isn't held proposal `p`'s (another client's choice since: 409
+ * stale, so it can `verb` again once it has seen it), or one that isn't a whole number; else null. */
+export function staleChoice(request, p, verb) {
+  const { choice, choiceBy = null, choiceAt = 0 } = p.shown;
+  if (request.choiceAt === undefined) return null;
+  if (!Number.isSafeInteger(request.choiceAt) || request.choiceAt < 0) return { status: 400, error: { message: '`choiceAt` is the proposal\'s choice as last seen, a whole number' } };
+  if (request.choiceAt === choiceAt) return null;
+  return { status: 409, error: { message: `held proposal \`${request.proposal}\`'s choice was changed${choiceBy ? ` by ${choiceBy}` : ''} since: review it, then ${verb}`, stale: true, choice: choice ?? null, choiceBy, choiceAt } };
+}
+
 /** What an `accept` of held proposal `p` takes: `{items}` (undefined for the whole), or a refusal. `choiceAt`, when
  * the request names one, must be the record's: another client's choice since is 409 stale. */
 export function accepted(request, p) {
-  const { choice, choiceBy = null, choiceAt = 0 } = p.shown;
-  if (request.choiceAt !== undefined && (!Number.isSafeInteger(request.choiceAt) || request.choiceAt < 0)) return { status: 400, error: { message: '`choiceAt` is the proposal\'s choice as last seen, a whole number' } };
-  if (request.choiceAt !== undefined && request.choiceAt !== choiceAt) {
-    return { status: 409, error: { message: `held proposal \`${request.proposal}\`'s choice was changed${choiceBy ? ` by ${choiceBy}` : ''} since: review it, then accept`, stale: true, choice: choice ?? null, choiceBy, choiceAt } };
-  }
+  const { choice } = p.shown, refused = staleChoice(request, p, 'accept');
+  if (refused) return refused;
   if (request.items !== undefined || !choice) return { items: request.items };
   if (!choice.length) return { status: 400, error: { message: `nothing is chosen in held proposal \`${request.proposal}\`: choose some of it, or drop it` } };
   return { items: choice.length < p.ops.length ? choice : undefined };

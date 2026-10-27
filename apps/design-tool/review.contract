@@ -57,7 +57,7 @@ component Proposals
                     if md.dark != ""
                       view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
                     text md.label font="-exact-caption2" color="-exact-secondary-label"
-                    input value=md.value change=editImportValue(h.proposal, m.index, md.mode) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` flex=1 min-width="12rem" font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
+                    input value=md.value change=editImportValue(h.proposal, m.index, md.mode, h.choiceGen) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` flex=1 min-width="12rem" font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
             text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
             for o in h.offers key=o.role
               row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
@@ -70,7 +70,7 @@ component Proposals
             for u in h.unmapped key=u.key
               text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
             row gap=8
-              button press=acceptImportNow(h.proposal) disabled=(writing or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
+              button press=acceptImportNow(h.proposal, h.choiceGen) disabled=(writing or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
                 text "Accept"
               button press=dropProposal(h.proposal) disabled=(writing or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
                 text "Drop"

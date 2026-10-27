@@ -210,8 +210,8 @@ on macOS and Linux.
   And a held proposal's **choice** (the design tool's third hands-on pass #6's follow-up): **`choose`** `{client,
   proposal, items}` records which of its operations are chosen, on the proposal (`choice`, `choiceBy`, `choiceAt`),
   so a reload or another client sees it; an `accept` with no `items` takes it, one naming an older `choiceAt` answers
-  409 `{stale: true, choice, choiceBy, choiceAt}` (the check is optional), and `edit-held` carries it (see Held
-  proposals).
+  409 `{stale: true, choice, choiceBy, choiceAt}` (the check is optional), and `edit-held` carries it, refused alike
+  when it names an older `choiceAt` (see Held proposals).
 
 ## Where it runs
 
@@ -1113,9 +1113,10 @@ operations are chosen, and answers `{proposal, choice, choiceBy, choiceAt}`. It 
   choiceAt}` and takes nothing out, so a client never accepts a choice it hasn't seen; a client's own `choose` answers
   the `choiceAt` to send. The check is optional: an `accept` naming no `choiceAt` is not checked, as before 1.18.
 - `edit-held` carries the choice to the proposal it holds (the chosen operations it keeps, renumbered; `choiceAt` 1);
-  a recompute at `accept` holds only chosen operations, so its proposal has no choice.
+  a recompute at `accept` holds only chosen operations, so its proposal has no choice. It may name a `choiceAt` as an
+  `accept` does, checked alike, so the choice it carries is one the client has seen; naming none is not checked.
 
-**`edit-held`** `{proposal, client, index, when?, value, items?}` (*1.17*) changes one value of a held proposal and
+**`edit-held`** `{proposal, client, index, when?, value, items?, choiceAt?}` (*1.17*; `choiceAt` *1.18*) changes one value of a held proposal and
 holds it again in its place, sending no ops:
 - `index` names an `add-token` or `set-token` among its operations. `when`, from 1, names one of an `add-token`'s
   `whens` branches (a `set-token` writes its value alone); with none, its own value. `value` is the new value (trimmed, not empty). `items`, as `accept`'s,

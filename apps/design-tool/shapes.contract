@@ -185,6 +185,9 @@ shape Held
   title: string
   replaces: string
   items: HeldItem[]
+  // How many times another client's choice has moved its base on this page
+  // (choice.ts `gen`) as it was built: an accept or edit names it.
+  choiceGen: number
   // An import's ("" for any other proposal).
   importer: string
   mapped: Mapped[]

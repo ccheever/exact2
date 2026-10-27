@@ -105,18 +105,20 @@ test('round 2: obsolete flips said until dropped; a lost answer sends again; a p
   expect(heldChoice.gen('r')).toBe(2);
 });
 
-test('round 3: a card is in step only once built from its moved base with its obsolete flips gone; a partly chosen override is off, as shown', () => {
+test('round 3: a card is in step only as the page shows it built from its moved base, its obsolete flips gone; a partly chosen override is off, as shown', () => {
   heldChoice.saw([{ proposal: 's', choice: [0], choiceAt: 1 }], 'e6');
   heldChoice.takeShown();
-  expect(heldChoice.inStep('s', 's:1')).toBe(true);
+  const built = heldChoice.gen('s');
+  expect(heldChoice.inStep('s', 's:1', built)).toBe(true);
   heldChoice.saw([{ proposal: 's', choice: [0, 1], choiceAt: 2 }], 'e6');
-  // (the cards still show the old base, and picked still has a flip over it)
-  expect(heldChoice.inStep('s', 's:1')).toBe(false);
+  // (the page still shows the card built before, and picked still has a flip over it)
+  expect(heldChoice.inStep('s', 's:1', built)).toBe(false);
   heldChoice.takeShown();
-  expect(heldChoice.inStep('s', 's:1')).toBe(false);
+  expect(heldChoice.inStep('s', '', built)).toBe(false); // (built again, but not yet on the page)
+  expect(heldChoice.inStep('s', 's:1', heldChoice.gen('s'))).toBe(false);
   expect(heldChoice.drop(['s:1'])).toEqual(['s:1']);
   expect(heldChoice.drop([])).toEqual([]);
-  expect(heldChoice.inStep('s', '')).toBe(true);
+  expect(heldChoice.inStep('s', '', heldChoice.gen('s'))).toBe(true);
   // Override [2,3] with only 2 in the base: off, as its box shows it, so neither is chosen.
   heldChoice.saw([{ proposal: 't', choice: [0, 2], choiceAt: 1 }], 'e6');
   expect(card('', 't')).toEqual([0]);

@@ -453,6 +453,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'edit-held' && longPolls) {
         const old = held.find(h => h.proposal === request.proposal);
         if (!old) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        if (request.choiceAt !== undefined && request.choiceAt !== (old.choiceAt ?? 0)) return send({ error: { message: `held proposal \`${old.proposal}\`'s choice was changed by ${old.choiceBy} since: review it, then edit`, stale: true, choice: old.choice, choiceBy: old.choiceBy, choiceAt: old.choiceAt } }, 409);
         const ops = old.ops.map((o: any) => ({ ...o, op: { ...o.op, whens: o.op.whens?.map((w: any) => ({ ...w })) } }));
         const at = ops[request.index]?.op;
         if (request.when) at.whens[request.when - 1].value = request.value; else at.value = request.value;
