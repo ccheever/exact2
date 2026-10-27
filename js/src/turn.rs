@@ -53,7 +53,45 @@ impl TurnClock {
     }
 }
 
+impl TurnClock {
+    /// What the turn took against `budget_ms` (`Took::over`); a turn within it that still held a
+    /// thread the UI waits on (`main_thread`: `Main` placement) past the budget on the wall clock
+    /// is said in `journal`, beside the slow-load line, never refused (theme2's 15:57 ruling: a
+    /// refusal after the fact shortens no freeze).
+    pub(crate) fn judge(
+        &self,
+        budget_ms: f64,
+        deadline: bool,
+        main_thread: bool,
+        source: &str,
+        journal: &mut Vec<String>,
+    ) -> Option<String> {
+        let took = self.took();
+        let over = took.over(budget_ms, deadline);
+        if over.is_none() {
+            journal.extend(took.held(main_thread, deadline, source, budget_ms));
+        }
+        over
+    }
+}
+
 impl Took {
+    /// The journal's line for a turn within its budget that held a thread the UI waits on past it.
+    fn held(
+        &self,
+        main_thread: bool,
+        deadline: bool,
+        source: &str,
+        budget_ms: f64,
+    ) -> Option<String> {
+        (main_thread && !deadline && self.wall_ms > budget_ms).then(|| {
+            format!(
+                "a data turn held the UI thread {:.0} ms ({:.0} ms of its own): `{source}`",
+                self.wall_ms, self.own_ms
+            )
+        })
+    }
+
     /// Why the turn is over `budget_ms`, or `None` when it is within it: its own time past the
     /// budget, or its wall time past the backstop. `deadline`: the budget is the time left to a
     /// snapshot's deadline, which is wall time, and is held as wall time.
@@ -66,7 +104,8 @@ impl Took {
                 )
             });
         }
-        if self.own_ms > budget_ms {
+        // (a zero budget refuses any turn in its own words: a coarse CPU clock can read 0)
+        if self.own_ms > budget_ms || (budget_ms <= 0.0 && self.wall_ms > 0.0) {
             let clock = if self.cpu {
                 format!(
                     "{:.1} ms of its own (CPU) time ({:.1} ms of wall)",
@@ -160,6 +199,11 @@ mod tests {
         // A snapshot's deadline is wall time.
         assert!(took(10.0, 300.0).over(250.0, true).is_some());
         assert!(took(10.0, 200.0).over(250.0, true).is_none());
+        // A zero budget refuses in its own words even when a coarse clock reads no CPU.
+        assert!(took(0.0, 3.0)
+            .over(0.0, false)
+            .unwrap()
+            .contains("over the 0 ms budget for one turn"));
         // An unlimited budget never refuses.
         assert!(took(1e6, 1e7).over(f64::INFINITY, false).is_none());
     }
@@ -173,14 +217,38 @@ mod tests {
         if slept.cpu {
             assert!(slept.own_ms < 30.0, "{} ms of CPU asleep", slept.own_ms);
         }
+        // Work until the clock reads 20 ms of its own, however long the machine takes to give it.
         let clock = TurnClock::start();
         let mut x = 0u64;
-        while clock.took().wall_ms < 40.0 {
+        while clock.took().cpu && clock.took().own_ms < 20.0 && clock.took().wall_ms < 30_000.0 {
             x = std::hint::black_box(x.wrapping_mul(6364136223846793005).wrapping_add(1));
         }
         let worked = clock.took();
         if worked.cpu {
-            assert!(worked.own_ms > 5.0, "{} ms of CPU busy", worked.own_ms);
+            assert!(
+                worked.own_ms >= 20.0,
+                "{} ms of CPU in {} ms of wall",
+                worked.own_ms,
+                worked.wall_ms
+            );
         }
+    }
+
+    #[test]
+    fn a_turn_held_past_its_budget_is_said_only_where_the_ui_waits() {
+        let held = took(20.0, 180.0);
+        assert_eq!(
+            held.held(true, false, "work", 100.0).unwrap(),
+            "a data turn held the UI thread 180 ms (20 ms of its own): `work`"
+        );
+        assert!(
+            held.held(false, false, "work", 100.0).is_none(),
+            "a worker's turn holds no UI"
+        );
+        assert!(
+            held.held(true, true, "work", 100.0).is_none(),
+            "a snapshot has its deadline"
+        );
+        assert!(took(20.0, 60.0).held(true, false, "work", 100.0).is_none());
     }
 }
