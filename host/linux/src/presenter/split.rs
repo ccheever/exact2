@@ -291,12 +291,26 @@ impl<D: DataSource> Presenter<D> {
             .find(|id| linked(**id).is_some() || actions.contains_key(id))
             .copied()
             .or_else(|| routes.first().copied());
-        let row = base.and_then(|id| {
-            linked(id).or_else(|| {
-                let row = actions.get(&id)?.row?;
-                kernel.node_by_key(row).map(|n| n.id)
+        let row = base
+            .and_then(|id| {
+                linked(id).or_else(|| {
+                    let row = actions.get(&id)?.row?;
+                    kernel.node_by_key(row).map(|n| n.id)
+                })
             })
-        });
+            .or_else(|| {
+                // A detail the app opened itself (at launch, after Back) has
+                // no row a press pushed: its row is the one the app says is
+                // current (ARIA reads `""` as `false`).
+                let list = rule.list.filter(|_| detail.is_some())?;
+                kernel
+                    .preorder_where(&[list], |_, p| {
+                        p.str(PropId::AccessibilityCurrent)
+                            .is_some_and(|c| !matches!(c, "" | "false"))
+                    })
+                    .into_iter()
+                    .find(|id| owner(self.host.runner(), list, *id) == Some(*id))
+            });
         let placeholder = detail
             .is_none()
             .then(|| {

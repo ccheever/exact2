@@ -450,7 +450,7 @@ export const navigation = {
           route.style.setProperty("--exact-split", column ? `${split}px` : "");
           appBarBack(nav, routes, index, split > 0, active || covered); if (stack === at && index === selected) freshPath(route);
         }
-        let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null; if (!row && detail > 0) row = found.rows.find(r => !["false", null].includes(r.el.getAttribute("aria-current")))?.el ?? null;
+        let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null; if (!row && detail > 0) row = found.rows.find(r => !["false", "", null].includes(r.el.getAttribute("aria-current")))?.el ?? null;
         for (const el of routes[0]?.querySelectorAll("[data-exact-split-row]") ?? []) if (el !== row) el.removeAttribute("data-exact-split-row");
         row?.toggleAttribute("data-exact-split-row", true);
         // @ref LLP 1116.006 D2 — a split showing no detail fills the detail pane, as an iPad's split view does: the platform's placeholder (the shell draws `data-exact-split-empty`), or the author's, a box of the root route marked `navigationSplit="placeholder"` (which the lowerer hides everywhere else), at the pane's width.

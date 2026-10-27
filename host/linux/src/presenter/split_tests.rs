@@ -236,6 +236,27 @@ fn author_opt_out_width_and_minimum_detail() {
 }
 
 #[test]
+fn a_detail_no_row_pushed_marks_the_row_the_app_says_is_current() {
+    let source = APP
+        .replace("SPLIT", "auto")
+        .replace(
+            "button press=open(\"b\") height=48 testId=\"b\"",
+            "button press=open(\"b\") height=48 testId=\"b\" aria-current=(top(nav).name == \"item\" ? \"page\" : \"false\")",
+        )
+        .replace(
+            "            box navigationSplit=\"placeholder\"",
+            "            button press=open(\"b\") testId=\"elsewhere\"\n              text \"Open Beta\"\n            box navigationSplit=\"placeholder\"",
+        );
+    let mut p = boot_source(1200., &source);
+    assert_eq!(split(&p).row, None);
+    tap(&mut p, "elsewhere");
+    assert_eq!(split(&p).row, Some(id(&p, "b")));
+    // A row's press names its detail's row, whatever the app says is current.
+    tap(&mut p, "a");
+    assert_eq!(split(&p).row, Some(id(&p, "a")));
+}
+
+#[test]
 fn modal_keeps_list_visible_inert_and_uses_window() {
     let mut p = boot(1200., "auto");
     tap(&mut p, "a");
