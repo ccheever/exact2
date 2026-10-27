@@ -623,6 +623,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 self.appearance
                     .install(handle.hwnd.get(), self.proxy.clone());
                 self.modal.install(handle.hwnd.get(), self.proxy.clone());
+                if let Err(error) = self.clicks.install(handle.hwnd.get()) {
+                    self.fail(events, error);
+                    return;
+                }
             }
         }
         match app::boot_presenter::<D>(&mut self.config, viewport) {
@@ -734,6 +738,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             self.show_edit_menu();
             return;
         }
+        let button_position = match &event {
+            WindowEvent::MouseInput { state, button, .. } => self.clicks.position(*state, *button),
+            _ => None,
+        };
         let Some(p) = &mut self.presenter else { return };
         p.advance(self.started.elapsed().as_secs_f64() * 1000.);
         // The input's time: where the advance left the clock, a live runner's
@@ -792,6 +800,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                let (x, y) = if let Some((px, py)) = button_position {
+                    self.pointer = (px as f32 / self.scale as f32, py as f32 / self.scale as f32);
+                    self.pointer_inside = self.window.as_ref().is_some_and(|window| {
+                        let size = window.inner_size();
+                        px >= 0 && py >= 0 && (px as u32) < size.width && (py as u32) < size.height
+                    });
+                    self.pointer
+                } else {
+                    (x, y)
+                };
                 let down = state == ElementState::Pressed;
                 if down {
                     self.caret.activity(Instant::now());
