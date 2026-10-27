@@ -187,7 +187,6 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             return 1;
         }
     };
-    // After the loop's OleInitialize made this thread an STA.
     crate::jump_list::set_from_compat(compat);
     let proxy = event_loop.create_proxy();
     let wake = proxy.clone();

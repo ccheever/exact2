@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, toNamespacedPath } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { findings } from '../host/apple/feel/analyze.mjs';
 import { chromium } from './agent-launch.mjs';
@@ -581,6 +581,8 @@ test('Excord declares its transcript fixture without a database', async () => {
   assert.deepEqual(readManifest(dir, 'excord').server, { database: false });
   const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
   const selected = backendOriginSelection(dir, {});
+  assert.deepEqual(backendOriginSelection(toNamespacedPath(dir), {}), selected);
+  assert.deepEqual(appServer(toNamespacedPath(dir), {}), appServer(dir, {}));
   assert.deepEqual(appServer(dir, {}), {
     entry: 'fixture/server.ts', args: ['--world', 'transcript', '--reset-on-identify'], database: false,
     url: selected.origin, port: Number(new URL(selected.origin).port), why: null, refusal: null, fixture: true,

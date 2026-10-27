@@ -9,7 +9,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { builtinModules, createRequire } from 'node:module';
-import { resolve, relative, dirname, basename, join, sep, isAbsolute } from 'node:path';
+import { resolve, relative, dirname, basename, join, sep, isAbsolute, toNamespacedPath } from 'node:path';
 
 function httpOrigin(value, label) {
   let url; try { url=new URL(value); } catch { throw new Error(`${label}: expected an http(s) origin`); }
@@ -39,7 +39,8 @@ export function fixtureBackendSelection(app, env=process.env) {
   const literal=/\bconst\s+origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(code)?.[1];
   if (!literal || !loopback(literal)) return null;
   const args=argv.slice(entry+1), at=args.indexOf('--port'), given=at<0 ? env.PORT : args[at+1];
-  const port=given===undefined ? 4790+parseInt(createHash('sha256').update(realpathSync(app)).digest('hex').slice(0,8),16)%1000 : Number(given);
+  // Rust canonicalizes Windows paths with a namespace prefix; server drives must hash the same spelling.
+  const port=given===undefined ? 4790+parseInt(createHash('sha256').update(toNamespacedPath(realpathSync(app))).digest('hex').slice(0,8),16)%1000 : Number(given);
   if (!Number.isInteger(port) || port<1 || port>65535) throw new Error(`${at<0 ? 'PORT' : 'commands.server --port'}: a fixture port must be an integer from 1 to 65535`);
   const origin=new URL(literal); origin.port=String(port);
   return { origin:httpOrigin(origin.href,'fixture origin'), source:given===undefined ? 'checkout fixture port' : at<0 ? 'PORT' : 'commands.server --port' };

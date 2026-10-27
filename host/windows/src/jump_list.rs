@@ -20,7 +20,8 @@ use windows::Win32::Storage::EnhancedStorage::PKEY_Title;
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 #[cfg(windows)]
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+    COINIT_APARTMENTTHREADED,
 };
 #[cfg(windows)]
 use windows::Win32::System::Variant::VT_LPWSTR;
@@ -108,20 +109,43 @@ pub(crate) fn set_from_compat(compat: &str) {
 fn set(tasks: &[Task]) -> windows::core::Result<()> {
     let exe = std::env::current_exe().map_err(|_| windows::core::Error::from_thread())?;
     let exe = HSTRING::from(exe.as_os_str());
-    unsafe {
-        // winit's event loop made this thread an STA, so this answers S_FALSE; it is here for a caller before one.
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+    with_list(|list| set_list(list, tasks, &exe))
+}
+
+#[cfg(windows)]
+fn with_list(
+    apply: impl FnOnce(&ICustomDestinationList) -> windows::core::Result<()>,
+) -> windows::core::Result<()> {
+    unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()? };
+    let result = (|| unsafe {
         let list: ICustomDestinationList =
             CoCreateInstance(&DestinationList, None, CLSCTX_INPROC_SERVER)?;
+        apply(&list)
+    })();
+    unsafe { CoUninitialize() };
+    result
+}
+
+#[cfg(windows)]
+fn set_list(
+    list: &ICustomDestinationList,
+    tasks: &[Task],
+    exe: &HSTRING,
+) -> windows::core::Result<()> {
+    unsafe {
         let mut slots = 0u32;
         let _removed: IObjectArray = list.BeginList(&mut slots)?;
+        // AddUserTasks requires at least one item. Committing without it clears old tasks.
+        if tasks.is_empty() {
+            return list.CommitList();
+        }
         let collection: IObjectCollection =
             CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
         for task in tasks {
             let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
-            link.SetPath(&exe)?;
+            link.SetPath(exe)?;
             link.SetArguments(&HSTRING::from(argument(&task.location)))?;
-            link.SetIconLocation(&exe, 0)?;
+            link.SetIconLocation(exe, 0)?;
             let store: IPropertyStore = link.cast()?;
             store.SetValue(&PKEY_Title, &title(&task.title)?)?;
             store.Commit()?;
@@ -150,6 +174,33 @@ fn title(text: &str) -> windows::core::Result<PROPVARIANT> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn empty_and_populated_task_lists_commit() {
+        with_list(|list| {
+            let exe = HSTRING::from(std::env::current_exe().unwrap().as_os_str());
+            let app = HSTRING::from(format!("Exact.JumpListTest.{}", std::process::id()));
+            unsafe {
+                list.SetAppID(&app)?;
+                let result = (|| {
+                    set_list(list, &[], &exe)?;
+                    set_list(
+                        list,
+                        &[Task {
+                            title: "Open test item".into(),
+                            location: "/item/1?from=jump".into(),
+                        }],
+                        &exe,
+                    )?;
+                    set_list(list, &[], &exe)
+                })();
+                let _ = list.AbortList();
+                result.and(list.DeleteList(&app))
+            }
+        })
+        .unwrap();
+    }
 
     #[test]
     fn the_manifests_items_with_an_app_path_are_the_tasks() {
