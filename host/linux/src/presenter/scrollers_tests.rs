@@ -424,3 +424,79 @@ fn native_intersect_samples_after_resize_handlers() {
     assert_eq!(p.host.runner().slot("count"), Some(&Value::Number(1.0)));
     assert_eq!(p.host.runner().slot("ratio"), Some(&Value::Number(1.0)));
 }
+
+/// The agent's tap and a sticky box (theme2's 14:49 ruling): a row whose middle the scroller's sticky dock or header
+/// covers is scrolled into the band the box leaves before the tap, and pressed; one in the clear moves nothing; a dock
+/// taller than the band it would leave scrolls nothing, and the tap refuses as before.
+#[test]
+fn a_tap_scrolls_its_target_clear_of_a_sticky_box_of_its_own_scroller() {
+    let rows = (1..=20)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut p = boot(&format!(
+        r#"component App
+  state pressed = ""
+  action press(name: string)
+    pressed = name
+  view
+    column testId="root" width=320
+      scroll testId="port" height=400
+        column testId="header" position="sticky" top=0 height=60 z-index=2
+          text "Header"
+        for i in [{rows}] key=i
+          button testId=`row-${{i}}` press=press(`row-${{i}}`) height=50 width="100%"
+            text `Row ${{i}}`
+        column testId="dock" position="sticky" bottom=0 height=100 z-index=2
+          text "Dock"
+"#
+    ));
+    let pressed = |p: &Presenter<()>| {
+        p.host
+            .runner()
+            .slot("pressed")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let port = id(&p, "port");
+    // Row 7's middle (60 + 6 * 50 + 25 = 385) lies under the dock (300..400): scrolled clear, then pressed.
+    let row = id(&p, "row-7");
+    let revealed = p.reveal(row).unwrap();
+    assert!(revealed.contains("\"scrolled\":true"), "{revealed}");
+    settle(&mut p);
+    p.tap(row).unwrap();
+    settle(&mut p);
+    assert_eq!(pressed(&p), "row-7");
+    // A row in the clear (its middle between the header and the dock): nothing moves.
+    let ids: Vec<ViewId> = (1..=20).map(|i| id(&p, &format!("row-{i}"))).collect();
+    let clear = ids
+        .into_iter()
+        .find(|&r| {
+            p.box_of(r)
+                .is_some_and(|b| (80.0..280.0).contains(&(b.rect.1 + b.rect.3 / 2.0)))
+        })
+        .expect("a row in the clear");
+    let at = p.scroll_of(port);
+    let revealed = p.reveal(clear).unwrap();
+    assert!(revealed.contains("\"scrolled\":false"), "{revealed}");
+    assert_eq!(p.scroll_of(port), at);
+    // Under the header, the port scrolled down a way first: scrolled clear the other way.
+    p.scroll_to(port, (0.0, 300.0));
+    settle(&mut p);
+    let ids: Vec<ViewId> = (1..=20).map(|i| id(&p, &format!("row-{i}"))).collect();
+    let under = ids
+        .into_iter()
+        .find(|&r| {
+            p.box_of(r)
+                .is_some_and(|b| (0.0..60.0).contains(&(b.rect.1 + b.rect.3 / 2.0)))
+        })
+        .expect("a row under the header");
+    let before = p.scroll_of(port).1;
+    assert!(p.reveal(under).unwrap().contains("\"scrolled\":true"));
+    settle(&mut p);
+    assert!(p.scroll_of(port).1 < before);
+    p.tap(under).unwrap();
+    settle(&mut p);
+    assert_ne!(pressed(&p), "row-7");
+}

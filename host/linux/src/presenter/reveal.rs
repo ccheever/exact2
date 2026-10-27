@@ -41,9 +41,15 @@ impl<D: DataSource> Presenter<D> {
         let from = middle(&b);
         let (vw, vh) = self.display.viewport().unwrap_or(self.viewport);
         if inside(from, (0.0, 0.0, vw, vh)) && b.clip.is_none_or(|c| inside(from, c)) {
-            return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
+            // In view, but perhaps under a sticky box of its own scroller: scrolled clear of it, as a person would.
+            if !self.clear_of_sticky(id, from) {
+                return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
+            }
+        } else {
+            self.scroll_into(id, false, true, delta);
+            let at = self.box_of(id).map_or(from, |b| middle(&b));
+            self.clear_of_sticky(id, at);
         }
-        self.scroll_into(id, false, true, delta);
         let to = self.box_of(id).map_or(from, |b| middle(&b));
         Ok(format!(
             "{{\"revealed\":{id},\"scrolled\":{},\"from\":[{},{}],\"to\":[{},{}]}}",
@@ -53,6 +59,65 @@ impl<D: DataSource> Presenter<D> {
             num(r2(to.0)),
             num(r2(to.1))
         ))
+    }
+
+    /// A target whose middle (`at`) a sticky box of its own scroller covers, as the tap's own hit test finds it (the
+    /// design tool's edit dock; theme2's 14:49 ruling): that scroller (or the page) scrolled so the middle lands in the
+    /// band of its port the box leaves. Never a box that holds the target, nor one of another scroller or the top
+    /// layer, which no scroll takes away: the tap still refuses there. Whether it scrolled.
+    fn clear_of_sticky(&mut self, id: ViewId, at: (f32, f32)) -> bool {
+        let Some(hit) = self.hit(at.0, at.1) else {
+            return false;
+        };
+        if hit == id || self.is_inside(hit, id) {
+            return false;
+        }
+        let kernel = self.host.kernel();
+        let mut cover = Some(hit);
+        let constraint = loop {
+            let Some(c) = cover else { return false };
+            let Some(node) = kernel.node(c) else {
+                return false;
+            };
+            if node.layout_position() == exact_kernel::PositionType::Sticky {
+                break kernel.sticky_constraint(node.key);
+            }
+            cover = node.parent;
+        };
+        let (Some(cover), Some(constraint)) = (cover, constraint) else {
+            return false;
+        };
+        let scroller = self.scroll_parent(id);
+        if self.is_inside(id, cover) || scroller != Some(constraint.scroller) {
+            return false;
+        }
+        let (_, vh) = self.display.viewport().unwrap_or(self.viewport);
+        let port = scroller
+            .and_then(|s| self.box_of(s))
+            .map_or((0.0, vh), |b| (b.rect.1, b.rect.1 + b.rect.3));
+        let port = (port.0.max(0.0), port.1.min(vh));
+        let Some(c) = self.box_of(cover) else {
+            return false;
+        };
+        // The band above a box in the port's lower half, below one in its upper half.
+        let (top, bottom) = if c.rect.1 > (port.0 + port.1) / 2.0 {
+            (port.0, c.rect.1)
+        } else {
+            (c.rect.1 + c.rect.3, port.1)
+        };
+        if bottom <= top {
+            return false;
+        }
+        if scroller.is_none() {
+            return false;
+        }
+        // (Its own scroller is the innermost `scroll_into` moves, first: only that one, by the band's offset.)
+        let (first, dy) = (std::cell::Cell::new(true), at.1 - (top + bottom) / 2.0);
+        let before = self.box_of(id).map(|b| b.rect.1);
+        self.scroll_into(id, false, true, |_, _| {
+            (0.0, if first.replace(false) { dy } else { 0.0 })
+        });
+        self.box_of(id).map(|b| b.rect.1) != before
     }
 
     /// An app's `scrollIntoView("element-id", block=, inline=)`: the node

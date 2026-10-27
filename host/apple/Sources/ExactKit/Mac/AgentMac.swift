@@ -423,14 +423,14 @@ extension Agent {
         let from = box(v)
         var scrolled = false
         for case let clip as NSClipView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) {
-            let frame = v.convert(v.bounds, to: clip), port = clip.bounds
+            let frame = v.convert(v.bounds, to: clip), bounds = clip.bounds, port = clearPort(clip, of: v)
             let mid = CGPoint(x: frame.midX, y: frame.midY)
             if port.contains(mid) { continue }
-            var origin = port.origin
-            if mid.y < port.minY || mid.y >= port.maxY { origin.y = mid.y - port.height / 2 }
+            var origin = bounds.origin
+            if mid.y < port.minY || mid.y >= port.maxY { origin.y = bounds.minY + mid.y - port.midY }
             if mid.x < port.minX || mid.x >= port.maxX { origin.x = frame.maxX > port.maxX ? frame.maxX - port.width : frame.minX }
-            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: port.size)).origin
-            if to == port.origin { continue }
+            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: bounds.size)).origin
+            if to == bounds.origin { continue }
             clip.scroll(to: to)
             (clip.superview as? NSScrollView)?.reflectScrolledClipView(clip)
             scrolled = true
@@ -440,6 +440,29 @@ extension Agent {
         let to = box(v)
         return ["revealed": Int(v.id), "scrolled": true,
                 "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    }
+
+    /// `clip`'s bounds, less each sticky box of its document a click at its middle lands on that doesn't hold `v` (the
+    /// design tool's edit dock; theme2's 14:49 ruling): the band it leaves, above one in the lower half, below one in
+    /// the upper, as a person scrolls a row out from under it. Never a popover, which no scroll takes away.
+    private func clearPort(_ clip: NSClipView, of v: NSView) -> CGRect {
+        var port = clip.bounds
+        func walk(_ u: NSView) {
+            for s in u.subviews where !s.isHidden && s.alphaValue > 0 {
+                if let n = s as? NodeView, n.layoutPosition == "sticky", n.props["popover"] == nil, !v.isDescendant(of: n) {
+                    let mid = NSPoint(x: n.bounds.midX, y: n.bounds.midY)
+                    guard let up = n.superview, n.hitTest(n.convert(mid, to: up)) != nil else { continue }
+                    let r = n.convert(n.bounds, to: clip).intersection(port)
+                    guard !r.isNull, r.height > 0, r.width > 0 else { continue }
+                    if r.midY < port.midY { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
+                    else { port.size.height = max(0, r.minY - port.minY) }
+                    continue
+                }
+                if !(s is NSScrollView) { walk(s) }
+            }
+        }
+        if let doc = clip.documentView { walk(doc) }
+        return port
     }
 
     /// A contact held across requests (LLP 1035.003 D1): the mouse button

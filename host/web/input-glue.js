@@ -950,9 +950,37 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
-  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+  if (["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
+  if (!seen) {
+    (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    return { revealed: id, scrolled: true, from: [x, y], to: clear(el, middle) ?? middle() };
+  }
+  const to = clear(el, middle);
+  return to ? { revealed: id, scrolled: true, from: [x, y], to } : { revealed: id, scrolled: false };
+}
+
+// A target whose middle a sticky or fixed box covers (the design tool's edit dock), as the tap's own hit-test finds it:
+// its scroller (or the page) scrolled so the middle lands in the band of its port the box leaves, as a person scrolls a
+// row out from under a docked bar. Only a box in the target's own scroller, or the page's fixed one, and never one in
+// the top layer (a popover, a modal), which no scroll takes away: the tap still refuses there. The middle it moved to,
+// or null when nothing covered it or nothing could move.
+function clear(el, middle) {
+  const [x, y] = middle(), hit = (el.getRootNode() ?? document).elementFromPoint(x, y);
+  if (!hit || el === hit || el.contains(hit)) return null;
+  const pinned = a => { const p = getComputedStyle(a).position; return p === "sticky" || p === "fixed"; };
+  let cover = hit;
+  while (cover && cover.id !== "exact-root" && !pinned(cover)) cover = cover.parentElement;
+  if (!cover || cover.id === "exact-root" || cover.contains(el) || cover.closest(":popover-open, dialog[open], :modal")) return null;
+  const scroller = a => { for (let s = a.parentElement; s; s = s.parentElement) { const cs = getComputedStyle(s); if (/(auto|scroll)/.test(cs.overflowY) && s.scrollHeight > s.clientHeight) return s; } return document.scrollingElement; };
+  const port = scroller(el), fixed = getComputedStyle(cover).position === "fixed";
+  if (!fixed && scroller(cover) !== port) return null;
+  const page = port === document.scrollingElement, r = page ? { top: 0, bottom: innerHeight } : port.getBoundingClientRect(), c = cover.getBoundingClientRect();
+  // The band above a box in the port's lower half, below one in its upper half.
+  const [top, bottom] = c.top > (r.top + r.bottom) / 2 ? [r.top, c.top] : [c.bottom, r.bottom];
+  if (bottom <= top) return null;
+  const before = port.scrollTop;
+  port.scrollBy({ top: y - (top + bottom) / 2, behavior: "instant" });
+  return port.scrollTop === before ? null : middle();
 }
 
 // A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts

@@ -44,12 +44,12 @@ extension Agent {
     /// One pass of `reveal`: the list first, then each enclosing scroller.
     /// Whether anything scrolled.
     private func scrollIn(_ v: NodeView) -> Bool {
-        var scrolled = presenter.groupedLists?.reveal(v.id, port: visiblePort) ?? false
+        var scrolled = presenter.groupedLists?.reveal(v.id, port: { self.visiblePort($0) }) ?? false
         guard v.window != nil else { return scrolled }
         // A hidden scroller (the authored one under a grouped list) shows nothing where it scrolls.
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled && !sv.isHidden {
             let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
-            let port = visiblePort(sv)
+            let port = visiblePort(sv, for: v)
             var o = sv.contentOffset
             if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
             // Inline, only as far as it takes from the side its middle is on; a
@@ -64,6 +64,23 @@ extension Agent {
             if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
         }
         return scrolled
+    }
+
+    /// The sticky boxes laid out in `sv` (not in a scroller inside it) that take a finger at their middle, none holding
+    /// `v`: what the tap's own hit test would land on over the target.
+    private func stickies(in sv: UIScrollView, holding v: UIView) -> [NodeView] {
+        var found: [NodeView] = []
+        func walk(_ u: UIView) {
+            for s in u.subviews where !s.isHidden && s.alpha > 0 {
+                if let n = s as? NodeView, n.layoutPosition == "sticky", n.props["popover"] == nil, !v.isDescendant(of: n) {
+                    if n.isUserInteractionEnabled, n.hitTest(CGPoint(x: n.bounds.midX, y: n.bounds.midY), with: nil) != nil { found.append(n) }
+                    continue
+                }
+                if !(s is UIScrollView) { walk(s) }
+            }
+        }
+        walk(sv)
+        return found
     }
 
     /// After a scroll, the target's box at rest, for at most half a second:
@@ -92,10 +109,14 @@ extension Agent {
     /// viewport's own end (`resizes-content`) or inset (`resizes-visual`)
     /// and `overlays-content`, which insets nothing, all count it
     /// (LLP 1086.000.000 D2).
-    func visiblePort(_ sv: UIScrollView) -> CGRect {
+    /// With a target (`v`, the agent's `reveal`), also clear of each sticky box of `sv`'s content that a finger at its
+    /// middle lands on and that doesn't hold `v` (the design tool's edit dock; theme2's 14:49 ruling): a person scrolls
+    /// a row out from under it. Never a popover or a top-layer box, which no scroll takes away.
+    func visiblePort(_ sv: UIScrollView, for v: UIView? = nil) -> CGRect {
         var port = sv.pageBounds.inset(by: sv.adjustedContentInset)
         guard let window = sv.window else { return port }
         var covers = bars(over: sv).map { $0.convert($0.bounds, to: nil) }
+        if let v { covers += stickies(in: sv, holding: v).map { $0.convert($0.bounds, to: nil) } }
         if let top = keyboardTopInWindow() {
             covers.append(CGRect(x: window.bounds.minX, y: top, width: window.bounds.width, height: max(0, window.bounds.maxY - top)))
         }
