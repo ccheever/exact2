@@ -4932,6 +4932,11 @@
       "mail",
       "envelope",
       "M3 6h18v12H3V6Zm0 0 9 7 9-7"
+    ],
+    [
+      "emoji",
+      "face.smiling",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM8.5 14.5s1.3 1.8 3.5 1.8 3.5-1.8 3.5-1.8M9 9.5h.01M15 9.5h.01"
     ]
   ],
   "symbolAliases": [
@@ -5166,6 +5171,18 @@
     [
       "sliders",
       "adjust"
+    ],
+    [
+      "mood",
+      "emoji"
+    ],
+    [
+      "sentiment-satisfied",
+      "emoji"
+    ],
+    [
+      "smiley",
+      "emoji"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path keeps to about the box's 20-unit live area, which the web draws an em across, as an SF Symbol's glyph is (the neutral look's `symbol-scale`). The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
