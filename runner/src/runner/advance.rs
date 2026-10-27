@@ -716,6 +716,24 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        // A resource a turn over its budget refused, asked again at its time
+        // (`overrun.rs`).
+        if !stopped_on_request {
+            match self.reask_overruns() {
+                Ok(asked) => receipts.extend(asked.map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                })),
+                Err(error) => {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(error),
+                        stopped_on_request: false,
+                    }
+                }
+            }
+        }
         if !receipts.is_empty() {
             let line = super::lines::advanced(
                 receipts.len(),

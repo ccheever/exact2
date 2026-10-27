@@ -24,6 +24,7 @@ pub(super) struct Checkpoint {
     watching: Vec<Vec<String>>,
     failed_args: Vec<Option<Vec<Value>>>,
     failed_why: Vec<Option<crate::failure::Failure>>,
+    overruns: Vec<Option<super::overrun::Wait>>,
     failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
     writes: super::writes::Writes,
@@ -88,6 +89,7 @@ impl<D: DataSource> Runner<D> {
             watching: self.watching.clone(),
             failed_args: self.failed_args.clone(),
             failed_why: self.failed_why.clone(),
+            overruns: self.overruns.clone(),
             failed_mut: self.failed_mut.clone(),
             refresh_next: self.refresh_next.clone(),
             writes: self.writes.clone(),
@@ -161,6 +163,7 @@ impl<D: DataSource> Runner<D> {
                 self.failed_args = c.failed_args;
                 self.ids.work.resources = c.resource_inspection;
                 self.failed_why = c.failed_why;
+                self.overruns = c.overruns;
                 self.failed_mut = c.failed_mut;
                 self.refresh_next = c.refresh_next;
                 // Ids stay unique: a rolled-back send's id is never reused.
@@ -547,6 +550,8 @@ impl<D: DataSource> Runner<D> {
         // (`fulfill`). A send still in flight asks nothing: its write shows
         // through the overlay.
         for r in outcome.refreshes.iter() {
+            // (a refresh asks anew: a turn-over-budget streak ends)
+            self.overrun_ends(*r as usize);
             self.force_refresh(*r as usize);
         }
         for m in &landed_now {
@@ -904,6 +909,11 @@ impl<D: DataSource> Runner<D> {
         for (i, awaiting) in self.awaiting.iter().enumerate() {
             self.pending_res[i] |= *awaiting;
         }
+        // So is one waiting to be asked again after a turn over its budget:
+        // it reads as an ordinary ask in flight (`overrun.rs`).
+        for i in 0..self.pending_res.len() {
+            self.pending_res[i] |= self.overrun_waits(i);
+        }
         for (m, _, _) in &self.unsent {
             self.pending_mut[*m] = true;
         }
@@ -1210,6 +1220,14 @@ impl<D: DataSource> Runner<D> {
             // of `pending`. Admission refusal alone cannot restart a source
             // whose earlier turns may have written.
             if self.holds(ticket) {
+                // A resource's turn over its budget is asked again (`overrun.rs`).
+                if let Some(i) = Self::overran_reply(target, e) {
+                    if let Some(released) =
+                        self.release_overrun(ticket, i, &crate::failure::Failure::of(e).message)
+                    {
+                        return released;
+                    }
+                }
                 return self.release_failed(ticket, target, crate::failure::Failure::of(e));
             }
         }
@@ -1371,6 +1389,7 @@ impl<D: DataSource> Runner<D> {
                 self.revalidated(i, shown.as_ref(), &value);
                 self.stale[i] = false;
                 self.failed_args[i] = None;
+                self.overrun_ends(i);
                 self.keep_answer(i, &p.args, &value);
                 if p.ask_again {
                     self.log(super::lines::asked_again(p.ticket, &name));

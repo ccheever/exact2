@@ -184,7 +184,7 @@ const TOOL: &str = "tool:";
 
 /// A turn of an answer over its budget: the message names the repair.
 fn over_budget(source: &str, why: &str) -> DataError {
-    DataError::Unavailable(format!(
+    DataError::Overrun(format!(
         "`{source}` {why}; \
          a long loop can `await scheduler.yield()` every few thousand items to go on in a new turn"
     ))
@@ -1125,7 +1125,7 @@ impl Module {
             source,
             &mut self.logs,
         ) {
-            return Err(DataError::Unavailable(format!(
+            return Err(DataError::Overrun(format!(
                 "`{source}`'s overlay {why}"
             )));
         }
@@ -1397,7 +1397,7 @@ impl Module {
         }
         if let Some(why) = over {
             self.overruns += 1;
-            return Err(DataError::Unavailable(format!("`{source}` {why}")));
+            return Err(DataError::Overrun(format!("`{source}` {why}")));
         }
         match result? {
             Step::Done(r) => r.map(Answer::Now),

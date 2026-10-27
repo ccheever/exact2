@@ -403,6 +403,8 @@ impl<D: DataSource> Runner<D> {
                         args = kept;
                     }
                     resource_args[i] = args.clone();
+                    // A re-ask waiting for other arguments is stale (`overrun.rs`).
+                    self.overrun_args(i, &args);
                     // Store provenance follows the values used to form a
                     // resource query, including through derives. Such a
                     // resource is device data just like a direct reader.
@@ -613,15 +615,17 @@ impl<D: DataSource> Runner<D> {
                                 // reconciles after a write ended, which never
                                 // refuses publishing the end. A source's own
                                 // refusal otherwise still refuses the commit.
+                                // (a turn over its budget is asked again below, not failed)
                                 Err(e @ (RunnerError::Data { .. } | RunnerError::Shape { .. }))
-                                    if (reconciling
-                                        || matches!(
-                                            e,
-                                            RunnerError::Data {
-                                                error: DataError::Interface(_),
-                                                ..
-                                            }
-                                        ))
+                                    if !super::overrun::is_overrun(&e)
+                                        && (reconciling
+                                            || matches!(
+                                                e,
+                                                RunnerError::Data {
+                                                    error: DataError::Interface(_),
+                                                    ..
+                                                }
+                                            ))
                                         && !exact_plan::runner_owned_source(
                                             self.plan.str(row.source),
                                         )
@@ -635,6 +639,7 @@ impl<D: DataSource> Runner<D> {
                                     ));
                                     self.failed_args[i] = Some(args.clone());
                                     self.failed_why[i] = Some(failure);
+                                    self.overrun_ends(i);
                                     force.retain(|forced| *forced != i);
                                     // Its newest ask is answered, by a failure: no
                                     // answer is on the way (LLP 1054.000.002 D4)
@@ -722,6 +727,7 @@ impl<D: DataSource> Runner<D> {
                                     self.count_failure(i);
                                     self.alert(super::lines::failed_now(&resource, &why));
                                     self.failed_args[i] = Some(args.clone());
+                                    self.overrun_ends(i);
                                     self.failed_why[i] = Some(crate::failure::Failure {
                                         code,
                                         message: why,
@@ -729,8 +735,47 @@ impl<D: DataSource> Runner<D> {
                                     });
                                     kept
                                 }
+                                // A turn over its budget (`overrun.rs`): the
+                                // resource keeps what it shows, reads as an ask
+                                // in flight, and is asked again shortly; its
+                                // streak spent, it fails as any refusal does.
+                                // The asking commit stands (LLP 1027.000 D3).
+                                Err(e)
+                                    if super::overrun::is_overrun(&e)
+                                        && !self.streaming(i)
+                                        && (states[i].is_some()
+                                            || self.placeholder(i, &row, &resources).is_some()) =>
+                                {
+                                    let why = crate::failure::Failure::of(&e);
+                                    let kept = if let Some(state) = &states[i] {
+                                        placeholder = state.placeholder;
+                                        value_args = state.args.clone();
+                                        answered_for = state.answered_for.clone();
+                                        state.value.clone()
+                                    } else {
+                                        placeholder = true;
+                                        Held::new(
+                                            self.placeholder(i, &row, &resources).expect("checked"),
+                                        )
+                                    };
+                                    effects[i] = RequestEffect::Answered;
+                                    if self.overran(i, &args, &why.message) {
+                                        pending_res[i] = true;
+                                    } else {
+                                        pending_res[i] = false;
+                                        self.count_failure(i);
+                                        self.alert(super::lines::failed_now(
+                                            self.plan.str(row.name),
+                                            &why.message,
+                                        ));
+                                        self.failed_args[i] = Some(args.clone());
+                                        self.failed_why[i] = Some(why);
+                                    }
+                                    kept
+                                }
                                 Err(error) => return Err(error),
                                 Ok(Answer::Now(v)) => {
+                                    self.overrun_ends(i);
                                     generation = self.inspected_request(i);
                                     if pending_res[i] || self.streaming(i) {
                                         // Newer arguments answered now: the older

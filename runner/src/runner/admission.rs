@@ -64,6 +64,7 @@ impl<D: DataSource> Runner<D> {
         for &i in owed {
             self.inspect_request(i);
             self.failed_args[i] = self.resources[i].as_ref().map(|s| s.args.clone());
+            self.overrun_ends(i);
             let failure = Failure::error(format!(
                 "the commit that asked it again was refused: {why:?}"
             ));
@@ -179,6 +180,8 @@ impl<D: DataSource> Runner<D> {
                 // another ask independently of that answer's store revision.
                 self.failed_args[i] = failed_args;
                 self.failed_why[i] = Some(why);
+                // (failed: no re-ask after a turn over its budget waits for it)
+                self.overrun_ends(i);
                 self.count_failure(i);
                 // Unless a watched topic changed while it was in flight: the
                 // answer may differ now, so it is asked once more, forced

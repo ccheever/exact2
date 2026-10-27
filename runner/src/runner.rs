@@ -81,6 +81,7 @@ mod kept_tests;
 mod lines;
 mod lists;
 mod media_session;
+mod overrun;
 mod page;
 mod perf;
 pub mod persist;
@@ -454,6 +455,8 @@ pub struct Runner<D: DataSource> {
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
+    /// Each resource's re-ask after a turn over its budget (`overrun.rs`).
+    overruns: Vec<Option<overrun::Wait>>,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -939,6 +942,7 @@ impl<D: DataSource> Runner<D> {
             forgot: false,
             failed_args: Vec::new(),
             failed_why: Vec::new(),
+            overruns: Vec::new(),
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
             requests: Vec::new(),
@@ -1057,6 +1061,7 @@ impl<D: DataSource> Runner<D> {
         runner.failed_args = vec![None; runner.plan.resources.len()];
         runner.overlays = vec![None; runner.plan.resources.len()];
         runner.failed_why = vec![None; runner.plan.resources.len()];
+        runner.overruns = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
         runner.queues = queue::Queues::new(runner.plan.mutations.len());
         // A carried boot never takes compiled data: it was baked for the
