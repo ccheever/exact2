@@ -122,11 +122,11 @@ final class FrameSampler: NSObject {
     final class Recording {
         var records: [Record] = []
         var dropped = 0
-        /// The scrollers the recording followed, by when it took each, its
-        /// name, one of its own for each scroller, and its offset then: as a
-        /// person took it, before it moved; when it `moved` with no finger,
+        /// The scrollers the recording followed, in the order it took them:
+        /// each one's name, its own in the recording, and its offset then: as
+        /// a person took it, before it moved; when it `moved` with no finger,
         /// already past where it began.
-        struct Taken { let t: Double, name: String; var from: Double? = nil, moved = false }
+        struct Taken { let name: String; var from: Double? = nil, moved = false }
         var scrollers: [Taken] = []
         #if canImport(UIKit)
         weak var scroller: UIScrollView?
@@ -389,7 +389,7 @@ final class FrameSampler: NSObject {
             recording.given.insert(name)
             return name
         }()
-        recording.scrollers.append(Recording.Taken(t: (CACurrentMediaTime() - ExactEnv.t0) * 1000, name: name, from: person ? scroll.scrollSample.0 : nil, moved: !person))
+        recording.scrollers.append(Recording.Taken(name: name, from: person ? scroll.scrollSample.0 : nil, moved: !person))
     }
 
     private func recordedScroll() -> (Double, String)? { recording?.scroller?.scrollSample }

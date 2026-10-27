@@ -126,7 +126,7 @@ final class FrameSamplerTests: XCTestCase {
     /// names its phase.
     func testARecordingReportsEachScrollPhaseAndItsLateFrames() throws {
         let recording = FrameSampler.Recording()
-        recording.scrollers = [.init(t: 10, name: "list", from: -4)]
+        recording.scrollers = [.init(name: "list", from: -4)]
         let p = 1000.0 / 120
         func frame(_ t: Double, _ interval: Double, _ phase: String?, _ y: Double = 0, overrun: Double = 0) {
             var r = FrameSampler.Record(t: t, interval: interval, missed: max(0, Int((interval / p).rounded()) - 1), seq: nil, batches: 0, apply: 0)
@@ -206,13 +206,30 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), Data("second".utf8))
     }
 
+    /// A scroller that moves less than a point a frame with no finger on it
+    /// (a slow animation) is moving in every frame its offset changes.
+    func testASlowMoveIsMovingInEveryFrame() throws {
+        let recording = FrameSampler.Recording()
+        recording.scrollers = [.init(name: "list", from: 0)]
+        let p = 1000.0 / 120
+        for (i, y) in [0, 0.33, 0.67, 1.0, 1.0].enumerated() {
+            var r = FrameSampler.Record(t: Double(i + 1) * p, interval: p, missed: 0, seq: nil, batches: 0, apply: 0)
+            r.period = p; r.scroll = (y, "-"); r.taken = 0
+            recording.keep(r)
+        }
+        let segments = try XCTUnwrap(FrameSampler.report(recording, identity: [:])["segments"] as? [[String: Any]])
+        XCTAssertEqual(segments.map { $0["phase"] as? String }, ["rest", "moving", "rest"])
+        XCTAssertEqual(segments[1]["frames"] as? Int, 3)
+        XCTAssertEqual(segments[1]["scrolledPt"] as? Double, 1)
+    }
+
     /// A scroller the recording took as it moved with no finger on it (the
     /// app's own scroll, the first `scrollViewDidScroll` already past where it
     /// began) is moving in its first frame, with no distance, since the
     /// recording never saw where it began.
     func testAScrollerTakenAsItMovedIsMovingFromItsFirstFrame() throws {
         let recording = FrameSampler.Recording()
-        recording.scrollers = [.init(t: 5, name: "page", moved: true)]
+        recording.scrollers = [.init(name: "page", moved: true)]
         let p = 1000.0 / 120
         for (i, y) in [nil, 40, 40].enumerated() {
             var r = FrameSampler.Record(t: Double(i + 1) * p, interval: p, missed: 0, seq: nil, batches: 0, apply: 0)
@@ -230,7 +247,7 @@ final class FrameSamplerTests: XCTestCase {
     /// segments kept.
     func testACompactReportFitsItsBudgetWithTheLongestLateFramesFirst() throws {
         let recording = FrameSampler.Recording()
-        recording.scrollers = [.init(t: 0, name: "list")]
+        recording.scrollers = [.init(name: "list")]
         let p = 1000.0 / 120
         for i in 0..<300 {
             let interval = i % 3 == 0 ? p * Double(2 + i % 4) : p
@@ -249,6 +266,8 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertFalse(late.isEmpty)
         let intervals = late.compactMap { $0[2] as? Double }
         XCTAssertEqual(intervals, intervals.sorted(by: >))
+        let columns = try XCTUnwrap(compact["lateColumns"] as? [String])
+        XCTAssertEqual(late.first?[try XCTUnwrap(columns.firstIndex(of: "scroller"))] as? String, "list", "each late frame names its scroller")
         XCTAssertGreaterThan(FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: 8000).count, data.count)
         let unsaved = try XCTUnwrap(try JSONSerialization.jsonObject(with: FrameSampler.compact(report, file: nil, bytes: 1, maxBytes: 4000)) as? [String: Any])
         XCTAssertEqual(unsaved["full"] as? String, "not saved")
@@ -259,7 +278,7 @@ final class FrameSamplerTests: XCTestCase {
     /// segments that fit, the worst first.
     func testACompactReportKeepsToABudgetTooSmallForAllOfIt() throws {
         let recording = FrameSampler.Recording()
-        recording.scrollers = [.init(t: 0, name: "list")]
+        recording.scrollers = [.init(name: "list")]
         let p = 1000.0 / 120
         for i in 0..<400 {
             let interval = i % 7 == 0 ? p * 2 : p
@@ -334,12 +353,26 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
         let sampler = try XCTUnwrap(session.sampler)
         sampler.stop()
+        // The boot's batches go to a frame of their own first
+        let p = 1.0 / 60, t = ExactEnv.t0 + 90
+        sampler.observe(now: t, target: t + p)
+        sampler.observe(now: t + p, target: t + 2 * p)
+        #if canImport(UIKit)
         let segments = { (sampler.reply()["lifetime"] as? [String: Int])?["segments"] }
         let before = segments()
+        #endif
         session.presenter.onCommand = { [unowned session] _, _, _ in session.sampler = nil }
         session.apply(wireBatch([["op": "command", "name": "stopTrace_EXPERIMENTAL", "args": []]]))
         XCTAssertNil(session.sampler)
+        #if canImport(UIKit)
         XCTAssertEqual(segments(), before, "its display link stays stopped")
+        #endif
+        // The batch never reached it: no frame it samples after the boot's has one
+        sampler.observe(now: t + 2 * p, target: t + 3 * p)
+        sampler.observe(now: t + 3 * p, target: t + 4 * p)
+        let after = try XCTUnwrap(sampler.reply(all: true)["records"] as? [[String: Any]]).filter { ($0["t"] as? Double ?? 0) > (t + p - ExactEnv.t0) * 1000 + 0.01 }
+        XCTAssertFalse(after.isEmpty)
+        XCTAssertEqual(after.map { $0["batches"] as? Int }, after.map { _ in 0 })
     }
 
     /// A production bake's sampler goes with its recording, and the host

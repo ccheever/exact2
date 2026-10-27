@@ -3,7 +3,8 @@
 // frames Save Trace keeps (LLP 1079 D3–D5), from one press to the next, in any
 // build, a production bake included, put on the clipboard as compact JSON an
 // agent reads whole, or cut to a size a conversation takes
-// (`stopTrace_EXPERIMENTAL(maxBytes)`). On iOS a person's scroll of an
+// (`stopTrace_EXPERIMENTAL(maxBytes)`); tvOS, with no clipboard, only saves
+// the file. On iOS a person's scroll of an
 // element's scroller, a route's page or the document is a drag
 // (UIScrollView's `isDragging`) and a glide (`isDecelerating`), each its own
 // segment, with an estimate of the hitch time ratio Apple's scroll metrics
@@ -48,9 +49,9 @@ extension ExactSession {
         if !app.sessions.contains(where: { $0.sampler != nil }) { HostPhases.shared.on = false }
     }
 
-    /// End the recording, save its trace and put it on the clipboard, cut to
-    /// `maxBytes` when given; what was copied, or nil when no recording was
-    /// running.
+    /// End the recording, save its trace and put it on the clipboard (on
+    /// tvOS, which has none, only save it), cut to `maxBytes` when given;
+    /// what was copied, or nil when no recording was running.
     @discardableResult public func stopTrace(maxBytes: Int? = nil) -> String? {
         guard let sampler, let recording = sampler.endRecording() else {
             log("stopTrace_EXPERIMENTAL refused: no recording is running")
@@ -136,8 +137,10 @@ extension FrameSampler {
         let records = recording.records
         let phaseName = ["t": "drag", "d": "glide", "b": "bounce", "-": "rest"]
         // Each frame's scroller, and its phase: one at rest by its flags whose
-        // offset moved since the frame before is moving, as is the first
-        // frame on a scroller the recording took as it moved
+        // offset changed at all since the frame before is moving (a still
+        // scroller's committed offset does not change, and a slow one moves
+        // less than a point a frame), as is the first frame on a scroller the
+        // recording took as it moved
         let taken = records.map { r in r.taken.map { recording.scrollers[$0] } }
         let scrollers = taken.map { $0?.name ?? "" }
         let phases = records.indices.map { i -> String in
@@ -145,7 +148,7 @@ extension FrameSampler {
             guard p == "rest", let now = r.scroll?.0 else { return p }
             // Against the frame before on the same scroller; with none, this is the first the recording saw of it
             guard i > 0, scrollers[i] == scrollers[i - 1], let then = records[i - 1].scroll?.0 else { return taken[i]?.moved == true ? "moving" : p }
-            return abs(now - then) > 0.5 ? "moving" : p
+            return now != then ? "moving" : p
         }
         // Count hitch time only for a frame the display showed again, so the display link's jitter adds none
         func lateness(_ r: Record) -> Double { r.missed > 0 ? max(0, r.interval - r.period) : 0 }
@@ -228,7 +231,7 @@ extension FrameSampler {
 extension FrameSampler {
     static let compactTotals = ["frames", "ms", "missed", "lateFrames", "hitchMsPerS", "worstIntervalMs", "meanMainMs", "maxMainMs"]
     static let compactSegments = ["phase", "scroller", "from", "ms", "frames", "missed", "lateFrames", "hitchMsPerS", "worstIntervalMs", "meanMainMs", "maxMainMs", "scrolledPt"]
-    static let compactLate = ["t", "phase", "interval", "period", "missed", "overrun", "main", "batches", "apply", "unattributed", "phases", "hatches", "phasesCoverage", "coverage"]
+    static let compactLate = ["t", "phase", "interval", "period", "missed", "overrun", "main", "batches", "apply", "unattributed", "phases", "hatches", "phasesCoverage", "coverage", "scroller"]
 
     /// `report` in at most `maxBytes` of JSON, for a conversation that limits
     /// a message: its totals and segments as rows under their columns, the
