@@ -16,6 +16,11 @@ task: the channel list beside the chat on Windows, against the web
   samples with plain bilinear filtering. In progress.
 - The private channel's lock overlaps its hash at 1x; Discord cuts the hash under the lock.
   Left as is: it reads at 2x.
+- On iPhone in dark mode the composer's emoji face is a filled disc, not the outline the web
+  and Windows draw. That is UIKit's own: SF Symbols draws `face.smiling` filled in a dark
+  image view (and AppKit does too), so a hand-built app shows the same face. A fix that
+  pinned the outline was built and not landed, since the role's glyph is the platform's
+  (LLP 1115).
 
 ### Lean in
 
