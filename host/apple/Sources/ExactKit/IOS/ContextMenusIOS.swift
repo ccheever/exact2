@@ -453,7 +453,18 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
         let radius = shown.layer.cornerRadius
         if radius > 0, parameters.visiblePath == nil { parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: radius) }
-        return UITargetedPreview(view: shown, parameters: parameters)
+        // Over the window, so an ancestor that scrolls sideways does not clip
+        // the card as it grows; its transform is the view's with each
+        // ancestor's scale and rotation, and converting the centre takes the
+        // translations.
+        guard let window = shown.window, let superview = shown.superview else { return UITargetedPreview(view: shown, parameters: parameters) }
+        var transform = shown.transform
+        for ancestor in sequence(first: superview, next: { $0.superview }) where ancestor !== window {
+            let t = ancestor.transform
+            transform = transform.concatenating(CGAffineTransform(a: t.a, b: t.b, c: t.c, d: t.d, tx: 0, ty: 0))
+        }
+        let target = UIPreviewTarget(container: window, center: superview.convert(shown.center, to: window), transform: transform)
+        return UITargetedPreview(view: shown, parameters: parameters, target: target)
     }
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configuration: UIContextMenuConfiguration, highlightPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
         targeted(configuration)

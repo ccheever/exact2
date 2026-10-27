@@ -65,8 +65,15 @@ final class ContextMenuIOSTests: XCTestCase {
 
         let configuration = try XCTUnwrap(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: 10, y: 10)))
         XCTAssertEqual(text(try node(session, "peeks")), "peeks 0", "nothing fires before the menu is shown")
-        XCTAssertTrue(host.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: configuration)?.view === peek,
-                      "UIKit lifts the node itself")
+        peek.transform = CGAffineTransform(scaleX: 0.96, y: 0.96) // a press's scale, say
+        let parent = try XCTUnwrap(peek.superview)
+        parent.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+        let lifted = try XCTUnwrap(host.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: configuration))
+        peek.transform = .identity
+        parent.transform = .identity
+        XCTAssertTrue(lifted.view === peek, "UIKit lifts the node itself")
+        XCTAssertTrue(lifted.target.container === peek.window, "over the window, so a strip that scrolls sideways does not clip it")
+        XCTAssertEqual(lifted.target.transform, CGAffineTransform(scaleX: 0.48, y: 0.48), "with the view's transform and its parent's scale")
         let owner = try XCTUnwrap(host.open)
         let controller = try XCTUnwrap(host.lift(owner))
         let menu = try XCTUnwrap(host.menu(owner))
