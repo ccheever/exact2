@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Three-across grid of HSL squares with centred emoji, newest first, full-bleed edge to edge with 2pt hairline gaps."},
+      {"n": 2, "status": "pass", "note": "System pull-down menu ('Boards' header, checkmark) with All plus ten boards; count updates (Coast = 64)."},
+      {"n": 3, "status": "pass", "note": "Push to large view showing title, board and date; swiping left/right pages through neighbours within the current filter ('2 of 64'), and there are prev/next chevrons too."},
+      {"n": 4, "status": "pass", "note": "Heart button in the nav bar likes and unlikes; the Liked tab uses the same grid with heart badges, its own filter and its own Select."},
+      {"n": 5, "status": "pass", "note": "Select → tap tiles (check circles), 'N selected' title, Select All, Like and Delete bar above the tab bar; Delete asks for confirmation with a system alert."},
+      {"n": 6, "status": "pass", "note": "After relaunch: 598 tiles, the bulk likes and single likes/unlikes were kept (Liked 66)."}
+    ],
+    "bugs": [],
+    "tells": [
+      "No large title: 'Moodboard' is a small inline nav title from the start, and the header never collapses.",
+      "The filter row and count stay fixed while the grid scrolls in its own inner box clipped at y≈166, so tiles never slide under the translucent nav bar the way a full-screen iOS scroll view's do. Feels web-like.",
+      "Select-mode Like/Delete is a hand-made strip of tinted buttons sitting above the floating tab bar, not a system bottom toolbar.",
+      "Tiles are exposed to accessibility as switches rather than buttons/images.",
+      "Detail screen at the largest text size: the pager row ('112 of 598') runs underneath the tab bar.",
+      "Emoji symbols scale with Dynamic Type and nearly fill the tiles at the largest size."
+    ],
+    "scroll": "Smooth: slow drags, flings and fling-back show no blank or popping rows, it bounces at the ends, and scroll position is kept after visiting a tile. But only the inner grid scrolls, under a pinned header.",
+    "scores": {"features": 9, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Three-across grid of rounded HSL squares with centred emoji, newest first ('Newest first' label), filling the width with 10pt margins."},
+      {"n": 2, "status": "pass", "note": "Capsule button opens a system menu with All boards plus ten boards; count updates (Coast = 64)."},
+      {"n": 3, "status": "pass", "note": "Push to 'In focus' view showing board, title and 'Added' date; horizontal paging swipes to neighbours ('3 of 600'), with prev/next chevrons."},
+      {"n": 4, "status": "pass", "note": "Big Like/Liked button on the detail; Liked tab ('The good ones.') shows the same grid with heart badges, a filter and Select. The ••• menu also offers Delete tile."},
+      {"n": 5, "status": "pass", "note": "Select mode shows check circles and an accent outline, a bottom tray with 'N selected', Select all, Like and Delete; Delete uses a system alert ('Delete 2 Tiles')."},
+      {"n": 6, "status": "pass", "note": "After relaunch: 598 tiles, likes kept (Liked 65), unlike kept."}
+    ],
+    "bugs": [
+      "At the largest text size the select-mode tray covers about half the screen and leaves roughly one row of the grid visible, so tiles are hard to pick; its Like/Delete buttons lose their labels and become bare icons."
+    ],
+    "tells": [
+      "Custom serif 'Moodboard' heading with a subtitle and a small-caps 'YOUR COLLECTION' eyebrow in the nav bar instead of a system large title. Branded rather than stock.",
+      "Detail nav title is a generic 'In focus' instead of the tile's name.",
+      "The Liked tab icon is a filled heart even when the tab isn't selected.",
+      "Select-mode action tray is a custom tinted gradient panel with pill buttons, not a system toolbar.",
+      "Warm off-white custom background and brick-red accent everywhere instead of system colours, although dark mode adapts properly."
+    ],
+    "scroll": "Feels like a native full-screen scroll view: content slides under the blurred nav bar, the board filter pins, flings show no blank or popping rows, it bounces at both ends, and scroll position is kept after visiting a tile.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 7}
+  },
+  "better": "B",
+  "why": "Both apps meet all six requirements and both persist likes and deletions. B scrolls like a real iOS scroll view (content goes under the translucent bar and the header scrolls away), has a more finished detail screen and adds delete from the detail view. A's pinned header over an inner scroll box and its hand-made action strip feel more web-like. B's heavily branded styling and its cramped select tray at the largest text size keep it from scoring higher on platform."
+}

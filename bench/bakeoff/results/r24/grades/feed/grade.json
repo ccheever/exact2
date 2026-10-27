@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "One long feed, newest first. Each post shows author, handle and relative time; text appears in full (multi-line posts are not truncated). Images are full width at their own aspect ratio with rounded corners. Carousels scroll sideways, snap card by card, and each card shows its title under the image."},
+      {"n": 2, "status": "pass", "note": "The heart toggles on and off and the count goes up and down (872↔873); when liked it fills red. The reply count is shown in the feed and as 'N replies' in the post view."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a Post screen where the image runs edge to edge (larger than in the feed). Tapping an image in the feed, in the post view or on a carousel card opens a black full-screen viewer, which a swipe down closes."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top. A refresh button in the navigation bar does the same."},
+      {"n": 5, "status": "pass", "note": "The compose button opens a sheet with Cancel and Post. Post stays disabled for empty or whitespace-only text. The new post appears at the top as 'You @you Just now'."},
+      {"n": 6, "status": "pass", "note": "A like, the refreshed posts and the composed post all survived a relaunch."}
+    ],
+    "bugs": [
+      "A horizontal drag across a post's text opens that post, as if it were a tap (the same happens in B)."
+    ],
+    "tells": [
+      "In dark mode, the disabled Post button in the compose sheet looks almost the same as an enabled one.",
+      "When the large title collapses, the inline 'Feed' title and its subtitle sit over the scrolled content under the glass edge, and the subtitle is hard to read over text.",
+      "At the largest text size the header stacks vertically with a huge avatar circle. It reads fine but uses a lot of space.",
+      "The refresh button in the navigation bar repeats pull to refresh, which is unusual for an iOS feed."
+    ],
+    "scroll": "Native scroll physics with momentum, a rubber band at the top and a scroll-edge blur under the glass navigation bar. I saw no blank rows, images popping in or jumps while dragging or flinging, and the scroll position is kept when coming back from a post.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "One feed, newest first, with each post on a rounded white card. Author, handle and relative time are shown; text appears in full; images are full width at their own aspect ratio with rounded corners. Carousels are labelled 'COLLECTION · N' and scroll sideways, with each card an image and a title."},
+      {"n": 2, "status": "pass", "note": "The heart toggles and the count changes (872↔873), filling red when liked. The reply count is shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a Post screen. The image there is only slightly larger than in the feed (378 pt wide against 338 pt). Feed images, post images and carousel cards open a full-screen viewer with a caption and 'Pinch to zoom', which a swipe down closes."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top. Repeated refreshes reuse the same made-up text, so 'Nora Chen' showed up twice with an identical post."},
+      {"n": 5, "status": "pass", "note": "The compose sheet has Cancel and Post, with Post disabled for empty or whitespace-only text. The new post appears at the top and a 'Posted to your feed' toast confirms it."},
+      {"n": 6, "status": "pass", "note": "A like, the refreshed posts and the composed post all survived a relaunch."}
+    ],
+    "bugs": [
+      "A horizontal drag across a post opens that post, as if it were a tap (the same happens in A).",
+      "Repeated pull to refresh can add duplicate made-up posts with the same author and the same text."
+    ],
+    "tells": [
+      "There is no large title. The bar is a custom leaf icon plus a serif 'Feed' title, and a 'Life, lately.' heading sits in the scroll content instead.",
+      "The navigation bar cuts the content off with a hard edge instead of the system scroll-edge blur.",
+      "At the largest text size the like and reply icons, the avatar initials and the 'Feed' title stay small while the text around them grows very large.",
+      "At the largest text size handles break mid-word ('@no-' / 'rachen').",
+      "Carousel cards do not snap, so they stop part-way with titles cut off ('ed Lentils'), and the images are cropped to fixed card shapes.",
+      "In the post view the image is barely larger than in the feed.",
+      "The cream background, serif headings and letter-spaced section label give it a styled, web-magazine look rather than a stock iOS one."
+    ],
+    "scroll": "Smooth native scrolling with momentum and rubber banding. I saw no blank rows or images popping in, and the scroll position is kept when coming back from a post; content is cut off abruptly under the custom navigation bar.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements and keep likes and posts across a relaunch. A looks and behaves like a stock iOS app: a collapsing large title with the glass scroll edge, carousels that snap, an edge-to-edge image in the post view, and icons that grow with Dynamic Type. B is attractive but more custom (no large title, a hard-clipped navigation bar, carousels that don't snap), and at the largest text size its icons don't scale and handles break mid-word."
+}

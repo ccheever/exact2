@@ -1,0 +1,26 @@
+{
+  "spec": "feed",
+  "arm": "swiftui",
+  "model": "gpt",
+  "appId": "dev.bakeoff.feed.be6fbdb",
+  "assignedId": "dev.bakeoff.feed.be6fbdb",
+  "appName": "Feed",
+  "sim": "EF198926-1958-489D-A7A4-9196E454DD3A",
+  "pin": "8dbafe148f",
+  "minutes": 10.98,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1722255,
+    "fresh": 75831,
+    "input": 1700023,
+    "cached": 1624192,
+    "output": 22232,
+    "cost": null,
+    "calls": 7,
+    "toolCalls": 25
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r24/built/feed-swiftui.app",
+  "notes": true,
+  "finished": "2026-10-27T01:35:47.588Z"
+}

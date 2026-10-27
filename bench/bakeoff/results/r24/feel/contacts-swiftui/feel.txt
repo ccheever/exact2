@@ -1,0 +1,22 @@
+dev.bakeoff.contacts.b1ea203: SwiftUI.UpdateCoalescingCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 14.52 s of motion
+  ok    hitch ratio (ms/s)                     3.4
+  ok    longest frame (ms)                     33.3
+  ok    main thread p95 (ms/frame)             6.02
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       502
+  ok    momentum hand-off (content/asked)      1.05
+  tell  flings that drop a frame at the lift   1/4
+  tell  offset jumps while decelerating        1
+  ok    edge bounce settle (s)                 0.82
+  ok    rubber band (overscroll/finger)        0.48
+  ok    rubber band settle (s)                 0.55
+  ok    status-bar scroll to top (s)           0.93
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  14 ok, 2 tell, 0 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 3.4):
+    fling-6000: 1 late frame (0 on a timer's tick), 17 ms late; app code 25 ms (in UIKit 15) · SwiftUI 3 ms · text & drawing 3 ms; in display links and ports 18 ms, events 5 ms, the main queue 3 ms
+    fling-partway: 1 late frame (0 on a timer's tick), 17 ms late; app code 21 ms (in UIKit 13); in display links and ports 21 ms
+    status-bar: 1 late frame (0 on a timer's tick), 17 ms late; app code 23 ms (in SwiftUI 11) · SwiftUI 6 ms; in display links and ports 23 ms

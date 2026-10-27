@@ -1,0 +1,118 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Inset-grouped Lists screen with Today (21) and All (135) at the top, then six coloured lists with open counts. Counts update after completing, adding and deleting."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Open tasks come first, then a 'Completed (9)' header that collapses and expands, with its state exposed to accessibility. Tapping the circle completes a task and moves it into Completed; the menu also offers 'Hide Completed'."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "The New Task sheet has title (focused on open), notes, a Due Date switch that reveals an inline graphical calendar, Priority and List pull-down menus, and Add is disabled until there is a title. Tapping a task opens a matching Details sheet; title, date and priority edits were saved."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Overdue dates show a red '! Overdue · Sat, Oct 17'. High priority shows an orange '!!!' and an orange checkbox ring."
+      },
+      {
+        "n": 5,
+        "status": "partial",
+        "note": "Swipe to delete is the system swipe action (trash icon) and works. Reorder is only available after More > Edit Tasks, which shows system grabbers. The drag saves the correct order, but the list then shows the wrong rows: one task appeared twice and another vanished. This happened twice, and the screen stayed wrong until the app was relaunched."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "'Add List' opens an alert with a text field. Swiping a list row offers Rename (alert with a clear button) and Delete; deleting a list that has tasks asks for confirmation and gives the task count. Rename and Delete are also in the list's More menu."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Completions, edits, added and deleted tasks, the new order, and created, renamed and deleted lists all survived relaunching."
+      }
+    ],
+    "bugs": [
+      "After reordering by drag in Edit Tasks, the list shows stale rows: one task appears twice and another disappears until the app is relaunched. The saved order is correct. Reproduced twice.",
+      "A newly created list is added to the bottom of My Lists while the built-in lists are in alphabetical order, so the order is inconsistent."
+    ],
+    "tells": [
+      "The task checkbox buttons are announced as 'Circle' or 'selected' instead of 'Complete <task>'. The cell labels are good.",
+      "Reordering is hidden behind More > Edit Tasks; there is no long-press-to-drag on rows.",
+      "At the largest text size, notes in the list truncate ('See the email fro…'), and the huge bottom 'New Task' toolbar button covers the rows.",
+      "The 'New Task' plus glyph is drawn black or white instead of in the tint colour; only the label is tinted."
+    ],
+    "scroll": "The All list (about 135 rows) scrolls smoothly on slow drags and flings, with no blank or late-appearing rows. It has a proper blurred scroll-edge under the nav bar, the large title collapses correctly, and it rubber-bands past the top.",
+    "scores": {
+      "features": 8,
+      "platform": 8,
+      "polish": 7,
+      "overall": 7
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Inset-grouped Lists screen with Today (21) and All (135), then the six lists with counts, kept in data order. The lists have no icons or colours. Counts update correctly."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Open tasks come first, then a 'Completed · 10' header with a chevron that collapses and expands the section. Tapping the circle completes or reopens a task (switch labelled 'Complete <title>' / 'Reopen <title>')."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "The New Task sheet has a focused title field, notes, a Due Date switch with a compact date picker, Priority and List menus, and Add is disabled until there is a title. Tapping a task opens Details with a checkmark Save; title, date and priority edits were saved."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Overdue dates show a red '! Overdue · Oct 17, 2026'. High priority shows a red '!!!'; low and medium show grey '!' and '!!'."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Every row has a grab handle that reorders by drag directly, and the new order shows at once and persists. Swiping left shows a Delete button that works."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "The + button opens a New List sheet. Touch and hold opens a context menu with Rename (a sheet) and Delete. Rows also swipe to Delete, and deleting always asks for confirmation ('This deletes the list and all of its tasks')."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Completion, edits, reorder, list creation, rename and deletion all survived relaunching."
+      }
+    ],
+    "bugs": [
+      "No functional bugs found."
+    ],
+    "tells": [
+      "Weak scroll-edge effect: once the large title collapses, rows slide under the inline title and toolbar buttons and visibly overlap 'Trip' or 'All' instead of passing under a blurred bar.",
+      "Permanent drag grabbers on every task row, which is not how iOS lists show reordering (Reminders hides them; system lists show them only in edit mode).",
+      "The swipe Delete action is a short text-only pill that does not fill the row height.",
+      "The Due Date switch and the Completed header have no accessibility label or button trait (the header is a plain element with no expanded or collapsed state).",
+      "The rename list field has no clear button, and renaming is discoverable only through a 'Touch and hold' footer hint.",
+      "The checkbox circles stay small at the largest text size, and the edit sheet's title truncates on one line ('Write the plu…').",
+      "My Lists rows have no icons or colours, so the screen looks plainer than Reminders."
+    ],
+    "scroll": "The All list (grouped by list) scrolls smoothly on drags and flings, with no blank rows. Scroll position is kept after opening and closing a task. The only flaw is content showing through the nav bar's weak edge effect.",
+    "scores": {
+      "features": 9,
+      "platform": 7,
+      "polish": 7,
+      "overall": 6
+    }
+  },
+  "better": "A",
+  "why": "Both cover the whole spec and persist everything. B's drag-to-reorder works directly and correctly, while A's reorder sits behind Edit Tasks and leaves duplicated or missing rows on screen until relaunch. A looks and behaves more like a hand-built iOS app: system swipe actions, a proper scroll-edge blur, coloured list icons and a native inline calendar. B has rows overlapping the nav title, permanent grabbers and hand-drawn swipe buttons. On balance A is closer to shippable, though its reorder display bug is the most serious single defect in either app."
+}

@@ -1,0 +1,42 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of all 160 recipes with a '160 recipes' header. Each row shows title, category, time ('1 hr 5 min') and star rating, with a disclosure chevron."},
+      {"n": 2, "status": "pass", "note": "The Category pull-down menu lists All Categories plus all nine categories with a checkmark. Search matches titles and ingredients (e.g. 'basil' finds Creamy Tomato Salmon) and combines with the category ('Desserts · 11 recipes'). No-match state: 'Nothing in Desserts matches “choc”' with a Show All Recipes button."},
+      {"n": 3, "status": "pass", "note": "Native Sort By menu: Name A to Z, Time quickest first, Rating highest first, with a checkmark. All three orders are correct, and the chosen sort survives a relaunch."},
+      {"n": 4, "status": "pass", "note": "Grouped rows for time, servings, rating and category; ingredients with the quantity in its own column; numbered steps. The UIStepper scales amounts with vulgar fractions (4½, ½), stops at 1 (minus disabled), shows a 'Reset to N servings' button and the footer 'Amounts scaled from the original 2 servings'."},
+      {"n": 5, "status": "pass", "note": "The heart button in the nav bar toggles (its label becomes 'Remove from Favorites'). The Favorites tab lists saved recipes with a 'Swipe left to remove' hint and a working swipe-to-Delete. Helpful empty state (heart icon, 'No Favorites Yet', explanation, Browse Recipes button)."},
+      {"n": 6, "status": "pass", "note": "A favorite was still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The category filter is hidden behind an unlabelled line-icon menu button. The button doesn't change when a filter is active, so the only sign of the filter is the small section header.",
+      "At the largest text size the ingredient quantity column keeps a wide fixed width, so names are squeezed into half the row and wrap awkwardly ('tsp / spinach', 'mush-/rooms').",
+      "The detail screen shows servings twice: a static 'Serves 2 servings' row that doesn't follow the stepper, and a separate Servings stepper row.",
+      "Blue system tint with orange stars: correct but generic. The swipe action is labelled 'Delete' when the action is removing a favorite."
+    ],
+    "scroll": "Smooth, native-feeling list: slow drags and flings showed no blank or popping rows, the large title collapses properly, and scroll position is kept after pushing a recipe and switching tabs.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list of all 160 recipes. Each row has a coloured SF Symbol for its category, the title, and 'Category · time · ★ rating'. A large-title subtitle reads '160 recipes · by name'."},
+      {"n": 2, "status": "pass", "note": "A horizontal chip bar shows All plus all nine categories, the selected one filled orange. Search covers titles and ingredients and combines with the chip ('basil' within Desserts). No-match state with a Show All Categories button."},
+      {"n": 3, "status": "pass", "note": "Native Sort By menu (Name, Time, Rating) with a checkmark. Orders are correct, the subtitle shows the current sort, and the sort survives a relaunch."},
+      {"n": 4, "status": "pass", "note": "Header card with the category, the title, and time/servings/rating stats. Bulleted ingredients and numbered steps in orange circles. The stepper scales amounts with fractions (3½, 1¾, 2⅝, ⅞) and stops at 1, and the footer updates to 'Amounts scaled from the original N servings'."},
+      {"n": 5, "status": "pass", "note": "The heart in the nav bar fills red when saved. The Favorites tab shows a 'N saved recipe' subtitle and a swipe action labelled 'Remove' with a broken-heart icon. Helpful empty state with a Browse Recipes button that switches tabs."},
+      {"n": 6, "status": "pass", "note": "A favorite was still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The category chip bar is a custom control rather than a system one. Once the chosen chip scrolls out of view, nothing visible shows the active filter except the small subtitle.",
+      "At the largest text size the subtitle under the large title truncates ('160 recipes · by rati…').",
+      "The detail screen shows servings twice: the header card's static servings value and the stepper row.",
+      "The unselected Favorites tab icon is a solid black filled heart, which is heavy next to the orange-tinted selected tab."
+    ],
+    "scroll": "Smooth and native: flings ran cleanly with no blank or popping rows, the search field stays pinned under the collapsed title, and scroll position is kept after visiting a recipe and switching tabs.",
+    "scores": {"features": 9, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement with native lists, menus, steppers, swipe actions and empty states, and neither had functional bugs. B makes the category filter visible and one tap away, gives rows category icons and a consistent accent colour, and its detail screen holds up better at the largest text size. A hides the filter behind an icon menu with no active-state indicator, and at large text its quantity column squeezes the ingredient names."
+}

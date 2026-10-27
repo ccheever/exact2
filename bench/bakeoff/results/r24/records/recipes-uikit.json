@@ -1,0 +1,26 @@
+{
+  "spec": "recipes",
+  "arm": "uikit",
+  "model": "claude",
+  "appId": "dev.bakeoff.recipes.be12fe2",
+  "assignedId": "dev.bakeoff.recipes.be12fe2",
+  "appName": "Recipes",
+  "sim": "498D6D1F-C21C-4B31-90F4-5D857216E256",
+  "pin": "8dbafe148f",
+  "minutes": 8.87,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1837804,
+    "fresh": 73377,
+    "input": 1799852,
+    "cached": 1726475,
+    "output": 37952,
+    "cost": 1.6910630000000002,
+    "calls": 63,
+    "toolCalls": 39
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r24/built/recipes-uikit.app",
+  "notes": true,
+  "finished": "2026-10-27T00:34:18.171Z"
+}

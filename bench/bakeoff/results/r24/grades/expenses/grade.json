@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day; each group header reads 'Oct 25, 2026 · $222.02'. It is a plain date with no Today/Yesterday."},
+      {"n": 2, "status": "pass", "note": "Summary card at the top: 'October 2026 / $5,269.70 / Spent this month'. It updates after add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with amount, merchant, a category menu holding the 7 categories, date defaulting to today, and note. Save stays disabled with the hint 'Enter an amount greater than zero' until the amount is positive."},
+      {"n": 4, "status": "partial", "note": "Tap-to-edit and swipe-to-Delete both work on a fresh launch. But after adding or editing an expense, the list mishandles touches until relaunch: row taps are ignored, and a horizontal swipe opens the editor instead of showing Delete."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists the month's spending largest first with '29.0% of this month'. Tapping one pushes a filtered, day-grouped list with its total and share."},
+      {"n": 6, "status": "pass", "note": "Amounts shown as $1,544.59. An added expense, an edit and a delete all survived relaunch."}
+    ],
+    "bugs": [
+      "After saving a new or edited expense, list rows stop responding to taps (tried twice with waits). After a cancelled edit, a horizontal swipe on a row opens the edit sheet instead of revealing Delete. Only relaunching the app fixes it.",
+      "No 'discard changes?' confirmation: Cancel on a filled-in form drops the input silently."
+    ],
+    "tells": [
+      "Transaction rows have almost no vertical padding: the merchant sits against the top edge of the row and the note line touches the separator or the card's bottom edge.",
+      "During a swipe, the row turns into a grey rounded pill and the merchant and category text disappear, leaving only the amount. This is not how a UITableView/List swipe looks.",
+      "Category row icons are not in a fixed-width column, so the titles start at different x positions (Bills, Transport, Dining are each indented differently).",
+      "Main screen uses a small inline title, not a large title; category rows have no disclosure chevrons, so it isn't obvious they can be tapped.",
+      "Rows have no category icon or colour and three stacked text lines, so the list looks plain and web-like.",
+      "Merchant field has only a placeholder and no label; the validation hint floats above the form, outside any section."
+    ],
+    "scroll": "Slow drags, flings and the fling back to the top were smooth, with no blank or popping rows, and scroll position was kept when switching tabs. Touch handling on the list breaks after editing (see bugs).",
+    "scores": {"features": 7, "platform": 6, "polish": 5, "overall": 5}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day, with section headers 'Today', 'Yesterday', 'Saturday, Oct 24' and the day total on the right; also shows a '240 total' count."},
+      {"n": 2, "status": "pass", "note": "Dark summary card: 'October 2026 / This month $5,269.70', a daily bar sparkline and '86 expenses this month'. It updates live."},
+      {"n": 3, "status": "pass", "note": "Sheet with a large $ amount field, merchant, a pushed category picker (7 categories with icons and a checkmark), date defaulting to today, and a multi-line note. Saving 0 shows a red inline error 'Enter a positive amount with up to 2 decimal places' and doesn't save. Cancel with changes asks 'Discard changes?'. Future dates can be picked."},
+      {"n": 4, "status": "pass", "note": "Tap opens an 'Edit expense' sheet with values filled in; saving updates the list and totals. Swipe left shows a red Delete action that deletes the row and updates totals and counts."},
+      {"n": 5, "status": "pass", "note": "Categories shows the month total, a stacked colour bar, and rows sorted largest first with '29.0% · 16 expenses' and a progress bar. Tapping pushes a filtered list with large title 'Bills', its total and the day groups."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. The add, edit (12.50 → 99.00) and delete all survived relaunch."}
+    ],
+    "bugs": [
+      "Edit sheet shows a stored amount as '12.5' instead of '12.50'.",
+      "The date picker allows future dates, so an expense can be dated after today."
+    ],
+    "tells": [
+      "Keyboard accessory 'Done' is a floating green capsule that overlaps the bottom of the Date row and the 'NOTE · OPTIONAL' header.",
+      "A green brand tint replaces the system accent on Save, the tab bar and the progress bars; with the dark hero card, it looks more like a designed fintech app than a stock one, though still native.",
+      "At the largest text size the summary card drops the sparkline, and the transaction header stacks 'TRANSACTIONS' over '240 total'. Text wraps without clipping."
+    ],
+    "scroll": "Smooth slow drags and flings over 240 rows, with no blank or popping rows. The large title collapses into the inline bar with the soft scroll-edge blur, and switching tabs kept the scroll position.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps cover the whole spec with the same numbers, but B adds a discard confirmation, inline validation, relative day headers, category icons and a richer Categories screen, all in proper large-title native lists. A's list stops handling taps and swipes correctly after an add or edit until you relaunch, and its rows are cramped, with a strange swipe appearance and misaligned category icons."
+}

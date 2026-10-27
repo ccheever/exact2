@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, newest first. Each row shows show, title, date · minutes and Played/Unplayed text. The large title has a count subtitle under it."},
+      {"n": 2, "status": "pass", "note": "An 'Unplayed only' UISwitch-style row filters the list and is remembered across relaunch. One tap while the list was animating did not register."},
+      {"n": 3, "status": "pass", "note": "Shows tab lists all 12 shows with initials tiles and 'N episodes · M unplayed' counts that update. Tapping a show pushes that show's episodes, with its own Unplayed-only switch."},
+      {"n": 4, "status": "pass", "note": "Detail shows show, title, date, length, summary and a full-width Play button. Play turns into Pause, the status reads 'Playing', and the episode is marked played. Very plain: there is no artwork and no playing indicator anywhere else."},
+      {"n": 5, "status": "pass", "note": "Each row has a circle/check button that toggles played in place. There are no swipe actions; a horizontal swipe on a row opens the episode instead."},
+      {"n": 6, "status": "partial", "note": "A '+' on rows and on the detail screen adds to Up Next. Removing works through a Remove button or swipe-to-delete. Reordering is only through Earlier/Later buttons in every row: no drag handles and no Edit mode."},
+      {"n": 7, "status": "pass", "note": "Played state, Up Next contents and order all survived relaunch."}
+    ],
+    "bugs": [
+      "A horizontal swipe on an episode row opens the episode instead of showing swipe actions or doing nothing.",
+      "A right-swipe from mid-screen on the detail screen left a stuck half-transition for a moment: the page was shifted and scaled, with the previous list showing through.",
+      "One tap on the Unplayed-only switch right after marking an episode was dropped."
+    ],
+    "tells": [
+      "Up Next reorders with 'Earlier'/'Later' text buttons and a 'Remove' button in every row, where iOS uses an Edit mode with drag handles. Each row is about 210 pt tall.",
+      "The list exposes elements as 'Link's with an extra horizontal scroll bar, which reads like web content.",
+      "No leading or trailing swipe actions on episode rows.",
+      "Mark-played and add-to-queue are bare blue glyph buttons stacked on the right of every row, which looks busy and unlike a system list.",
+      "At the largest text size, Shows rows break words mid-word ('Co / m- / mon Gro / und', 'epis / odes', 'un- / played') because the initials tile does not shrink.",
+      "At the largest text size, the row's played-circle glyph is clipped top and bottom, and the large-title subtitle truncates.",
+      "When the bar collapses, the inline title and its subtitle sit over the scrolling rows with little separation, so the two overlap visually.",
+      "The back button on the show screen is not exposed to accessibility.",
+      "Grey initials squares stand in for show artwork; the app is generic, with no identity.",
+      "The detail screen is a stack of grouped cells: the title is not emphasised and there is no artwork."
+    ],
+    "scroll": "Smooth through 420 rows with no blank or popping rows, and scroll position is kept when switching tabs. Flinging and dragging felt like a normal list, though the collapsed nav-bar title overlaps the content behind it.",
+    "scores": {"features": 7, "platform": 5, "polish": 4, "overall": 5}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first list with generated show artwork, a show name eyebrow, title, date · minutes and an Unplayed/Played indicator. Pulling down reveals a search field."},
+      {"n": 2, "status": "pass", "note": "An All episodes / Unplayed segmented control filters the list and updates the count. At the largest text size it adapts to an 'Unplayed only' switch."},
+      {"n": 3, "status": "pass", "note": "Shows tab: 12 shows with artwork, episode and unplayed counts. Tapping one pushes a large-title show page with a header and its own filter."},
+      {"n": 4, "status": "pass", "note": "Detail has large artwork, a serif title, the full date, minutes, summary, Play episode and Add to Up Next. Play marks the episode played, turns into Pause, shows 'Playing · simulated playback', and brings up a Now Playing mini-player with pause and close."},
+      {"n": 5, "status": "pass", "note": "A row '…' menu (native UIMenu: Play, Mark played/unplayed, Add/Remove Up Next) plus native leading swipe (Mark played) and trailing swipe (Add to Up Next)."},
+      {"n": 6, "status": "pass", "note": "Up Next has an Edit button that shows delete controls and reorder handles; dragging a handle reordered rows. Swipe to remove works, and there is a total-minutes header."},
+      {"n": 7, "status": "pass", "note": "Played state, queue contents, reorder and removal all survived relaunch. Playback state is not restored, which is reasonable."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Rows carry both a disclosure chevron and a '…' button side by side, which is redundant.",
+      "The played-status glyph and its 'Unplayed'/'Played' label have an odd wide gap and indent.",
+      "The 'Stay curious.' marketing hero with a decorative serif and waveform takes up the top of the main screen; it looks editorial rather than system.",
+      "The mini-player is a flat full-width bar above the tab bar instead of the iOS 26+ tab-bar bottom accessory, and content is cut off hard under it.",
+      "Inconsistent fonts: a serif detail title against SF everywhere else."
+    ],
+    "scroll": "Native-feeling list: slow drags and flings were smooth with no blank or late rows, the section header pins under the bar, and the scroll position held across tab switches.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "B covers every requirement with native iOS mechanisms: UIMenu row actions, leading and trailing swipe actions, Edit-mode drag reordering, and a segmented filter. It adds a now-playing mini-player and adapts cleanly to the largest text size. A works functionally, but it reorders with Earlier/Later buttons, has no swipe actions, and a row swipe opens the episode. At large text it breaks words mid-word and clips glyphs, so it reads as a generic, partly web-like build."
+}

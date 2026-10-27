@@ -1,0 +1,13 @@
+Inbox is finished, built, installed, and launched on simulator `C2188CC6-FBE9-409A-92A8-ABD89AC2C432`, with bundle ID `dev.bakeoff.inbox.b95f5f3`.
+
+All required features are implemented. The original 320-message dataset is imported into the offline data module and also shipped unchanged as `assets/mail.json`. Read, flagged, archived, and locally received messages are saved with atomic file writes. Mutations are serialized so rapid actions and refreshes cannot overwrite one another. Archive also supports moving messages back into Inbox. Search and native context menus are included.
+
+The hardest parts were native swipe geometry and accessibility text layout. Sender and date share a line at ordinary sizes and wrap onto separate lines at larger sizes. Preview space accommodates two lines at ordinary sizes and grows with accessibility text rather than clipping. Native search temporarily covers toolbar items while active, which required adjusting a test to match actual iPhone behavior.
+
+I looked up Exact's list-detail pattern, swipe actions, native menus, file grants, date formatting, icon tokens, refresh controls, and simulator driving commands. Exact's data module cannot read the clock directly, so refresh receives its timestamp from the view. New IDs and timestamps remain unique and newest even across rapid repeated refreshes.
+
+The supplied records contain previews but no separate body or email addresses. The reading screen therefore shows the complete supplied preview as the message content, with sender, subject, and date. The Inbox unread count excludes archived messages; Archive has its own unread count. Every refresh creates two new unread messages in Inbox.
+
+Final validation: `bun exact.mjs verify ios` was clean. Nine end-to-end tests passed, light and dark checks had no findings, and all eleven checked screens fit the largest accessibility size (53-point body text). Real simulator touches separately confirmed a full read/unread swipe, a full archive swipe, and pull-to-refresh adding exactly two messages. Relaunch tests verified saved state and refreshed messages. The scrolling report found nothing for the app to fix; timing was not judged on the busy host, and it separately reported Exact's own scrolling-physics differences.
+
+Nothing required remains unfinished. Building would have been faster with pre-authorized shared compiler-cache access, all assets finalized before starting the background native build, and a ready-made mail-row example showing adaptive sender/date layout and real swipe/pull test commands. A local authoring diary is kept under `.exact/diary/`; no feedback was sent.

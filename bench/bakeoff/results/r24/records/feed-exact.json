@@ -1,0 +1,26 @@
+{
+  "spec": "feed",
+  "arm": "exact",
+  "model": "gpt",
+  "appId": "dev.bakeoff.feed.baab765",
+  "assignedId": "dev.bakeoff.feed.baab765",
+  "appName": "Feed",
+  "sim": "C2188CC6-FBE9-409A-92A8-ABD89AC2C432",
+  "pin": "8dbafe148f",
+  "minutes": 19.27,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 9482154,
+    "fresh": 110603,
+    "input": 9444875,
+    "cached": 9334272,
+    "output": 37279,
+    "cost": null,
+    "calls": 14,
+    "toolCalls": 82
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r24/built/feed-exact.app",
+  "notes": true,
+  "finished": "2026-10-27T01:44:28.028Z"
+}

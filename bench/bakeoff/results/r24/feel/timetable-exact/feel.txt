@@ -1,0 +1,29 @@
+dev.bakeoff.timetable.b4e680d: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 21.72 s of motion
+  ok    hitch ratio (ms/s)                     4
+  tell  longest frame (ms)                     35.5
+  ok    main thread p95 (ms/frame)             1.66
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       503
+  ok    momentum hand-off (content/asked)      1.05
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.78
+  ok    rubber band (overscroll/finger)        0.47
+  ok    rubber band settle (s)                 0.55
+  ok    status-bar scroll to top (s)           0.96
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  tell  scrub: hitch ratio (ms/s)              8.7
+  tell  scrub: longest frame (ms)              37.6
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  17 ok, 3 tell, 0 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 3.2):
+    status-bar: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 14 ms (in Core Animation 7); in display links and ports 7 ms
+    tap-decelerating: 1 late frame (0 on a timer's tick), 19 ms late; Exact host 18 ms (in Core Animation 5); in display links and ports 5 ms
+    scrub-top: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 17 ms (in UIKit 10); in display links and ports 7 ms
+    scrub-reveal: 2 late frames (0 on a timer's tick), 35 ms late; Exact host 16 ms (in Core Animation 5); in display links and ports 13 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 2 late frames (0 on a timer's tick), 33 ms late; Exact host 20 ms (in Core Animation 8); in events 8 ms

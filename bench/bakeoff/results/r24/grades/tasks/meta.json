@@ -1,0 +1,11 @@
+{
+  "spec": "tasks",
+  "key": {
+    "A": "uikit",
+    "B": "exact"
+  },
+  "exit": 0,
+  "minutes": 12.05,
+  "shots": 61,
+  "graded": true
+}
