@@ -21,6 +21,12 @@ task: the channel list beside the chat on Windows, against the web
 - Opening Excord on a channel ringed its "# general" heading, where the route had moved the
   focus. Chrome rings a script's focus before any input, so the web does too; WinUI draws
   no focus visual until a key, so Windows no longer does.
+- On a desktop the composer sat 6 px above the window's edge, cramped beside Discord's
+  desktop app, and its + sat 4 px left of the avatars. With a fine pointer it now has
+  16 px below and beside it; touch keeps the tighter fit over the home indicator.
+- Back is a chevron and More a circled ellipsis on Windows, where WinUI draws an arrow and
+  three bare dots (in progress: a platform glyph for a symbol role, as Android's LLP 1115.001
+  D14 already rules).
 - The private channel's lock overlaps its hash at 1x; Discord cuts the hash under the lock.
   Left as is: it reads at 2x.
 - On iPhone in dark mode the composer's emoji face is a filled disc, not the outline the web
