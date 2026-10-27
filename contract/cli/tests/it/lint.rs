@@ -75,6 +75,143 @@ fn an_elements_state_part_is_linted_as_lowering_folds_it() {
     }
 }
 
+/// The lint runs on the unexpanded file when an earlier pass refuses. A
+/// shorthand arm that is a child's prop is lowering's to judge once
+/// expansion puts the caller's value in; the lint judges the other arms, a
+/// derive by its body, and `font`'s type tokens across them as lowering does.
+#[test]
+fn a_shorthand_read_from_a_name_is_left_to_lowering() {
+    let src = |extra: &str| {
+        format!(
+            "component App\n  state kind = \"heading\"\n  view\n    column\n      Runs(kind=kind)\n{extra}\
+             component Runs\n  props\n    kind: string\n  derive face = kind == \"heading\" ? \"-exact-title2\" : \"-exact-body\"\n  view\n    \
+             Run(face=face, edge=\"1px solid red\")\n\
+             component Run\n  props\n    face: string\n    edge: string\n  derive own = face == \"-exact-body\" ? \"-exact-footnote\" : \"-exact-body\"\n  view\n    \
+             text \"a\" font=face border=edge\n    text \"b\" font=own\n    text \"c\" font=(WHICH ? \"-exact-caption1\" : \"-exact-caption2\")\n    \
+             text \"d\" font=(WHICH ? \"-exact-body\" : \"twelve\")\n    text \"e\" border=`${{edge}} red`\n"
+        )
+        .replace("WHICH", "face == \"x\"")
+    };
+    let lint = |source: &str| {
+        contract_lower::lint(&contract_syntax::parse(source).unwrap())
+            .into_iter()
+            .map(|e| (e.id, e.span.line))
+            .collect::<Vec<_>>()
+    };
+    // Only the literal that is no shorthand, and the computed string, which
+    // no expansion makes literal.
+    let refused = [("lower-css-shorthand", 21), ("lower-css-shorthand", 22)];
+    assert_eq!(lint(&src("")), refused);
+    // With an unrelated type error: that error and the same two.
+    let found = compile_all("shorthand-name", &src("      text missingName\n"));
+    let ids: Vec<(&str, u32)> = found
+        .iter()
+        .map(|(id, line, _)| (id.as_str(), *line))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("type-unknown-name", 6),
+            ("lower-css-shorthand", 22),
+            ("lower-css-shorthand", 23)
+        ],
+        "{found:#?}"
+    );
+    // Without the two, it compiles.
+    let fine = src("")
+        .replace(
+            "    text \"d\" font=(face == \"x\" ? \"-exact-body\" : \"twelve\")\n",
+            "",
+        )
+        .replace("    text \"e\" border=`${edge} red`\n", "");
+    contract::compile(&fine).unwrap_or_else(|e| panic!("{e}"));
+    // Type tokens across the known arms, a prop's arm left out and a
+    // derive's body in its place.
+    let design =
+        "tamber t\n\ntheme\n  type.a = 700 1rem Georgia\n  type.b: type = 1rem\n  space.md = 8px\n";
+    let lint_designed = |view: &str| {
+        let source = format!(
+            "component App\n  view\n    Run(face=\"type.a\", on=true)\ncomponent Run\n  props\n    face: string\n    on: bool\n  state title = \"-exact-body\"\n  derive good = on ? face : \"-exact-body\"\n  derive bad = on ? \"twelve\" : good\n  view\n    {view}\n"
+        );
+        let mut file = contract_syntax::parse(&source).unwrap();
+        file.design = Some(contract_syntax::DesignSource {
+            path: "app.tamber".into(),
+            home: "app.tamber".into(),
+            text: design.into(),
+            source_id: 1,
+            bindable: false,
+            package: None,
+            root: None,
+        });
+        contract_lower::lint(&file)
+            .into_iter()
+            .map(|e| e.id)
+            .collect::<Vec<_>>()
+    };
+    let font = |value: &str| format!("text \"x\" font={value}");
+    for (view, refused) in [
+        (font("(on ? face : \"type.a\")"), None),
+        (font("good"), None),
+        (font("bad"), Some("lower-css-shorthand")),
+        // A name no expansion replaces (a state's, a binder's, though it
+        // shadows a prop) is no literal at any stage.
+        (
+            font("(on ? \"-exact-body\" : title)"),
+            Some("lower-css-shorthand"),
+        ),
+        (
+            font("(match pick { case some(face) => face, case none => \"-exact-body\" })"),
+            Some("lower-css-shorthand"),
+        ),
+        (
+            format!("for face in faces key=face\n      {}", font("face")),
+            Some("lower-css-shorthand"),
+        ),
+        (
+            font("(on ? \"type.a\" : \"type.b\")"),
+            Some("tamber-type-longhands"),
+        ),
+        (
+            font("(on ? \"type.a\" : \"bold 12px serif\")"),
+            Some("tamber-kind"),
+        ),
+        (
+            font("(on ? \"-exact-body\" : \"space.md\")"),
+            Some("lower-css-shorthand"),
+        ),
+    ] {
+        assert_eq!(lint_designed(&view), Vec::from_iter(refused), "{view}");
+    }
+    // A chain of derives each reading the last twice is read within a budget,
+    // and a derive read in its own body is the type pass's to refuse.
+    let chain: String = (1..40)
+        .map(|i| format!("  derive d{i} = on ? d{} : d{}\n", i - 1, i - 1))
+        .collect();
+    let source = format!(
+        "component App\n  view\n    Run(on=true)\ncomponent Run\n  props\n    on: bool\n  derive d0 = on ? \"-exact-body\" : d0\n{chain}  view\n    text \"x\" font=d39\n"
+    );
+    let found = contract_lower::lint(&contract_syntax::parse(&source).unwrap());
+    assert!(found.is_empty(), "{found:?}");
+    // A platform token written unquoted reads as a minus and a name: said so.
+    let unknown = |value: &str| {
+        contract::compile(&format!(
+            "component A\n  view\n    text \"a\" color={value}\n"
+        ))
+        .unwrap_err()
+    };
+    let e = unknown("-exact-label");
+    assert_eq!(e.id, "type-unknown-name");
+    assert!(e.message.contains("write `\"-exact-label\"`"), "{e}");
+    // From the minus through the name.
+    assert_eq!((e.span.col, e.span.end_col), (20, 32), "{e:?}");
+    // Not where a shorter name is in scope: a subtraction missing its spaces.
+    let e = contract::compile(
+        "component A\n  state exact-a = 1\n  view\n    text \"a\" opacity=-exact-a-exact-b\n",
+    )
+    .unwrap_err();
+    assert!(e.message.contains("subtraction"), "{e}");
+}
+
 /// What a React Native port writes first is refused with what to write
 /// (the euxy port, 2026-10-17: 19 of 50 compiles refused).
 #[test]

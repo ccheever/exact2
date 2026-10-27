@@ -951,6 +951,9 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             }
         }
         Expr::Unary(op, inner, span) => {
+            if let Some(e) = calls::unquoted_token(*op, inner, scope, *span) {
+                return Err(e);
+            }
             let t = infer(inner, scope, shapes)?;
             if t == Ty::Unknown {
                 return Ok(Ty::Unknown);
