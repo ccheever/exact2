@@ -26,6 +26,7 @@ use SwitchRow from "./parts.contract"
 use BackButton from "./parts.contract"
 use Bubble from "./parts.contract"
 use HomeBar from "./parts.contract"
+use getBattery, powerState, BatteryManager, PowerState from "@exact/device"
 
 font "Exposure Sans"
   400 = "assets/ExposureSansOriginal10-Regular.ttf"
@@ -87,6 +88,7 @@ theme
   banner="light-dark(#ffffff, #1c1c20)" // the reply banner
   toast="light-dark(#0b0b0cd9, #f5f5f7e6)" // a word from the system
   bannerShadow="rgba(0, 0, 0, 0.35)" // the reply banner's shadow
+  saver="light-dark(#ffcc00, #ffd60a)" // the battery's fill in Low Power Mode: systemYellow
   // The three faces (LLP 1121 stage 6 C).
   textFace="\"Exposure Sans\"" // reading text
   liltFace="\"Exciting Lilt\"" // titles, times, a notice's sender
@@ -136,6 +138,13 @@ component Expose
   derive weatherRevision = nowMs == 0 ? 0 : 1 + floor(nowMs / 600000)
   resource weather = weather(weatherRevision) as shape Weather
   resource library = library() as shape Library
+  // The device's battery; `level` -1 until it answers, or where it cannot.
+  resource battery = getBattery() as shape BatteryManager else empty(level=-1)
+  resource power = powerState() as shape PowerState else empty()
+  derive known = battery.level >= 0
+  derive fill = known ? round(battery.level * 35) / 2 : 17.5
+  derive charging = known and battery.charging
+  derive saving = known and power.lowPowerMode
 
   mutation reply as shape Turn refreshes chat, inbox
   mutation cleared as shape Turn refreshes chat, inbox
@@ -299,7 +308,7 @@ component Expose
       // ---------------------------------------------------------------- home
       if screen == "home"
         column testId="home-screen" color-scheme="dark" flex=1 min-height=0 box-sizing="border-box" color="paper" background-color="ink" background-image="linear-gradient(180deg, homeDusk 0%, ink 40%, night 100%)" padding-top="env(safe-area-inset-top)"
-          StatusBar(time=clock.time, tone="paper", wifi=wifi, airplane=airplane, press=lock)
+          StatusBar(time=clock.time, tone="paper", wifi=wifi, airplane=airplane, fill=fill, charging=charging, saving=saving, press=lock)
           scroll flex=1 min-height=0
             column padding-left=22 padding-right=22 padding-top=10 gap=22
               row gap=14
@@ -356,7 +365,7 @@ component Expose
       if screen == "messages"
         if thread == ""
           column testId="inbox-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
-            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, press=lock)
+            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, fill=fill, charging=charging, saving=saving, press=lock)
             row height=44 align-items="center" justify-content="space-between" padding-left=16 padding-right=16 flex-shrink=0
               button appearance="none" press=go("home") testId="inbox-home" height=44 display="flex" flex-direction="row" align-items="center"
                 text "Edit" font-size=17 color="fore"
@@ -384,7 +393,7 @@ component Expose
             HomeBar(tone="statusInk", press=go("home"))
         else
           column testId="thread-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
-            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, press=lock)
+            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, fill=fill, charging=charging, saving=saving, press=lock)
             row height=66 align-items="center" padding-left=8 padding-right=8 flex-shrink=0 class=Hairline
               button press=closeThread testId="thread-back" width=76 height=44 display="flex" flex-direction="row" align-items="center" gap=4
                 svg viewBox="0 0 24 24" width=26 height=26
@@ -438,7 +447,7 @@ component Expose
       if screen == "reader"
         if article == ""
           column testId="reader-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
-            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, press=lock)
+            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, fill=fill, charging=charging, saving=saving, press=lock)
             scroll flex=1 min-height=0
               column padding-left=20 padding-right=20 padding-top=8 padding-bottom=24 gap=18
                 row align-items="baseline" justify-content="space-between"
@@ -465,7 +474,7 @@ component Expose
             HomeBar(tone="statusInk", press=go("home"))
         else
           column testId="article-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
-            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, press=lock)
+            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, fill=fill, charging=charging, saving=saving, press=lock)
             row height=44 align-items="center" justify-content="space-between" padding-left=8 padding-right=16 flex-shrink=0
               BackButton(id="reader", label="Reader", press=closeArticle)
               button press=askAbout(article) testId="ask-expose" aria-label="Ask Expose about this article" -exact-press-scale=0.95 height=32 padding-left=12 padding-right=12 border-radius=16 background-color="fore" display="flex" flex-direction="row" align-items="center" gap=6
@@ -498,7 +507,7 @@ component Expose
       if screen == "settings"
         if page == ""
           column testId="settings-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
-            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, press=lock)
+            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, fill=fill, charging=charging, saving=saving, press=lock)
             scroll flex=1 min-height=0
               column padding-left=16 padding-right=16 padding-bottom=24
                 text "Settings" class=Title margin-top=4 margin-bottom=12
@@ -515,7 +524,7 @@ component Expose
                   SwitchRow(id="wifi", glyph="W", title="Wi-Fi", on=wifi, last=false, scale=scale, set=setWifi)
                   SwitchRow(id="bluetooth", glyph="B", title="Bluetooth", on=bluetooth, last=false, scale=scale, set=setBluetooth)
                   SettingsRow(id="cellular", glyph="C", title="Cellular", value="Expose Lab", last=false, scale=scale, press=nope("Cellular"))
-                  SettingsRow(id="battery", glyph="94", title="Battery", value="94%", last=true, scale=scale, press=nope("Battery"))
+                  SettingsRow(id="battery", glyph=(known ? `${round(battery.level * 100)}` : ""), title="Battery", value=(known ? `${round(battery.level * 100)}%` : ""), last=true, scale=scale, press=nope("Battery"))
                 column margin-top=22 class=Card
                   SettingsRow(id="intelligence", glyph="E", title="Intelligence", value=intelligence.modelName, last=false, scale=scale, press=openPage("intelligence"))
                   SettingsRow(id="display", glyph="Aa", title="Display & Text Size", value=(appearance == "dark" ? "Dark" : appearance == "light" ? "Light" : "Auto"), last=false, scale=scale, press=openPage("display"))
@@ -534,7 +543,7 @@ component Expose
             HomeBar(tone="statusInk", press=go("home"))
         else
           column testId=`page-${page}` class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
-            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, press=lock)
+            StatusBar(time=clock.time, tone="statusInk", wifi=wifi, airplane=airplane, fill=fill, charging=charging, saving=saving, press=lock)
             row height=44 align-items="center" padding-left=8 padding-right=8 flex-shrink=0
               BackButton(id="settings", label="Settings", press=closePage)
               text (page == "intelligence" ? "Intelligence" : page == "display" ? "Display & Text Size" : "About") flex=1 text-align="center" font-family="liltFace" font-weight=700 font-size=17 line-clamp=1

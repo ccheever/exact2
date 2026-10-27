@@ -119,12 +119,17 @@ keyframes drop
   to opacity=1 translate="0px 0px"
 
 // The status bar: the time, then signal, Wi-Fi and battery drawn as marks.
+// The battery's fill is `fill` of its 17.5-point width; a bolt shows while
+// charging, and the fill is yellow in Low Power Mode, as on an iPhone.
 component StatusBar
   props
     time: string
     tone: string
     wifi: bool
     airplane: bool
+    fill: number
+    charging: bool
+    saving: bool
     press: action
   view
     row width="100%" box-sizing="border-box" height=30 align-items="center" justify-content="space-between" padding-left=28 padding-right=24 flex-shrink=0
@@ -142,10 +147,12 @@ component StatusBar
             rect x=15 y=0 width=3 height=12 rx=0.8 fill=tone
           svg viewBox="0 0 24 24" width=17 height=17
             path d="M12 20.5a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2zm-4.2-4.6a6 6 0 0 1 8.4 0l-1.6 1.6a3.7 3.7 0 0 0-5.2 0l-1.6-1.6zm-3.4-3.4a10.8 10.8 0 0 1 15.2 0l-1.6 1.6a8.5 8.5 0 0 0-12 0l-1.6-1.6zM1 9.1a15.6 15.6 0 0 1 22 0l-1.6 1.6a13.3 13.3 0 0 0-18.8 0L1 9.1z" fill=tone opacity=(wifi ? 1 : 0.3)
-        svg viewBox="0 0 28 13" width=27 height=13
+        svg viewBox="0 0 28 13" width=27 height=13 testId="battery-mark"
           rect x=0.5 y=0.5 width=23 height=12 rx=3.5 fill="none" stroke=tone stroke-width=1 opacity=0.45
-          rect x=2.5 y=2.5 width=17.5 height=8 rx=2 fill=tone
+          rect x=2.5 y=2.5 width=fill height=8 rx=2 fill=(saving ? "saver" : tone)
           path d="M25.5 4.5v4a2 2 0 0 0 0-4z" fill=tone opacity=0.45
+          if charging
+            path d="M12.6 1.6 7.4 7.3h3.4l-1 4.1 5.2-5.7h-3.4z" fill="reverse" stroke=tone stroke-width=0.8 stroke-linejoin="round"
 
 // A home-screen tile: a mark set in Exciting on a gray tile, and a label.
 component AppTile

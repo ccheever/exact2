@@ -9,6 +9,9 @@ use getCurrentPosition, geolocationStatus, GeolocationPosition, GeolocationStatu
 // The platform's geocoder names the followed position's city (LLP 1133.021
 // §13); where there is none (the web, Linux) it stays "Current location".
 use reverseGeocode, geocodingStatus, Place as GeoPlace, GeocodingStatus from "@exact/geocoding"
+// @ref LLP 1133.031 §10 — the sky rests in Low Power Mode or a serious
+// thermal state, and the refresh waits while the person saves power or data.
+use powerState, connection, PowerState, NetworkInformation from "@exact/device"
 
 routes nav
   tab home "/" render=build
@@ -112,7 +115,8 @@ component Weatherlight
   state searching = false
   state query = ""
   state submitted = ""
-  state animated = true
+  // "", "play" or "pause": the person's choice, once pressed, over the device's.
+  state skyChoice = ""
   // Following the person's position; `locating` counts asks and choices, so
   // a position that answers after a city was chosen (`asked` behind it) is
   // ignored.
@@ -130,6 +134,12 @@ component Weatherlight
   mutation named as shape GeoPlace[] then labelled
   resource places = places(submitted) as shape Places
   resource viewport = exactViewport() as shape Viewport
+  resource power = powerState() as shape PowerState else empty()
+  resource network = connection() as shape NetworkInformation else empty(type="unknown")
+  derive hot = match power.thermalState { case some(t) => t == "serious" or t == "critical", case none => false }
+  derive resting = power.lowPowerMode or hot
+  derive animated = skyChoice == "play" or (skyChoice == "" and not resting)
+  derive saving = power.lowPowerMode or network.saveData
   derive wide = viewport.width >= 1100 and viewport.width > viewport.height
   derive tv = viewport.pointer == "none"
   derive locationError = asked == locating ? match failure(located) { case some(f) => f.code, case none => "" } : ""
@@ -217,12 +227,13 @@ component Weatherlight
     hoursLeft = e.scrollLeft > 1
     hoursRight = e.scrollWidth - e.scrollLeft - e.clientWidth > 1
   action toggleMotion
-    animated = not animated
+    skyChoice = animated ? "pause" : "play"
   // Refresh every ten minutes by the clock, not by counting ticks, which a
-  // suspension skips
+  // suspension skips; every thirty while saving. The first forecast is
+  // fetched at once whatever the device says.
   action tick
     let now = performanceNow()
-    if now - refreshedAt >= 600000
+    if revision == 0 or now - refreshedAt >= (saving ? 1800000 : 600000)
       revision = revision + 1
       refreshedAt = now
   task updates mount
