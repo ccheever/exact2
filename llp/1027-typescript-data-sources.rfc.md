@@ -1684,10 +1684,14 @@ restart, backup, deletion, and transactional restore. Snapback2 remains deferred
   module *describes* the request instead). The bundler resolves; the
   fixture judges.
 - **Size and time:** the module runs under the executor's budgets — a
-  wall-clock bound per call and a heap bound on the runtime (Hermes
-  `RuntimeConfig` has both), the LLP 1026 D5 fuel-and-limits shape by
-  the engine's own means; a call over budget is `Unavailable` and the
-  last value stays on screen.
+  bound per turn on the module's own time (the calling thread's CPU clock
+  where the platform keeps one, else the wall clock), with a wall-clock
+  backstop of ten budgets for a turn that waits rather than works, and a
+  heap bound on the runtime (Hermes `RuntimeConfig` has the heap's), the
+  LLP 1026 D5 fuel-and-limits shape by the engine's own means; a turn over
+  budget is `Unavailable` and the last value stays on screen. (Amended
+  2026-10-27: under CPU load a wall-clock budget refused turns the machine
+  had merely descheduled.)
 - **Not before first pixel, never in Contract, never touching the tree**
   — §7.
 
@@ -1813,7 +1817,9 @@ reads only).
   store-reading resource is the observable cost.
 - **Per call:** microseconds to tens of microseconds, per resource
   change, never per frame (§5). The 100 ms per-call budget is a runtime
-  promise about a device. The bake's module (`js/bake`, after `Module::inspect`) is not held
+  promise about a device, measured in the calling thread's CPU time with a
+  1 s wall backstop (2026-10-27), so a loaded machine does not refuse a
+  turn's own small work. The bake's module (`js/bake`, after `Module::inspect`) is not held
   to it (2026-10-03): a heavily loaded build Mac failed the Signal Clone's
   bake at 104.8 ms and passed on retry. A build fails on the source, not on
   the machine's load. A runaway call hangs the bake as it did before; the
