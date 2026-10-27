@@ -231,7 +231,8 @@ component ModelPicker
                   CmpIcon(name="search", size=16, color="light-dark(#71717a8c, #a1a1a18c)", weight=1.75)
                 if query == ""
                   text "Search models..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #a1a1a1)" aria-hidden=true
-                input id="model-search" testId="model-search" value=query input=search key=searchKey focus=searchFocus blur=searchBlur aria-label="Search models" flex=1 min-width=0 height="1.625rem" padding-left="1.125rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" spellcheck="false" data-editable="yes"
+                // ComboboxSearchInput draws no focus ring: focus turns the underline blue instead.
+                input id="model-search" testId="model-search" value=query input=search key=searchKey focus=searchFocus blur=searchBlur aria-label="Search models" flex=1 min-width=0 height="1.625rem" padding-left="1.125rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" spellcheck="false" outline="none" data-editable="yes"
             scroll flex=(count > 0 ? 1 : 0) min-height=0 width="100%" padding-top=(count > 0 ? "0.625rem" : "0px") padding-bottom=(count > 0 ? "0.625rem" : "0px") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" testId="model-list"
               column gap="0.125rem" width="100%" role="listbox"
                 for row in catalog.models key=row.key
