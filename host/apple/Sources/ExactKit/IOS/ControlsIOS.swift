@@ -295,7 +295,9 @@ final class ControlHost: NSObject {
                 assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
                 assign(control, \.accessibilityIdentifier, owner.props["testId"])
             }
-            var natural = naturalSize(control, owner)
+            // A native button's box is its frame (below): its natural size is
+            // the kernel's, from the measurement, and asked here of none.
+            var natural = control is NativeButtonIOS ? .zero : naturalSize(control, owner)
             let box = control is NativeButtonIOS ? owner.bounds : owner.contentBox()
             #if os(iOS)
             // A select its box holds narrower than its widest option wraps its

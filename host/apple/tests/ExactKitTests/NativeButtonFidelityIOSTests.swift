@@ -198,6 +198,36 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             }
         }
     }
+    /// A count's button answers from the first count measured for its face
+    /// (`ButtonMeasureCache.numeral`), as its configured button measures.
+    func testACountsButtonAnswersAsItsConfiguredButtonMeasures() throws {
+        let session = try fixture(); defer { session.destroy() }
+        let cache = session.buttonMeasurements
+        let traits = session.presenter.viewport.traitCollection
+        func face(_ title: String, _ symbol: String?, style: String) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["button": true, "title": title, "symbol": symbol ?? NSNull(),
+                                                        "label": "Like, \(title)", "ios": style] as [String: Any])
+        }
+        for (symbol, style) in [("heart", "plain"), (nil, "bordered"), ("message", "filled")] as [(String?, String)] {
+            for kind in [UInt8(2), 1, 0] {
+                _ = cache.answer(face: try face("7", symbol, style: style), widthKind: kind, width: 300)
+                let misses = cache.misses
+                for title in ["0", "1", "4", "11", "12", "19", "88", "100", "111", "999", "1000", "1,234", "41111", "3.5"] {
+                    let data = try face(title, symbol, style: style)
+                    let answered = cache.answer(face: data, widthKind: kind, width: 300)
+                    let measured = cache.measure(ButtonFace(json: data), widthKind: kind, width: 300, traits: traits)
+                    XCTAssertEqual(answered.width, measured.width, accuracy: 0.001, "\(title) \(symbol ?? "-") \(style) \(kind)")
+                    XCTAssertEqual(answered.height, measured.height, accuracy: 0.001, "\(title) \(symbol ?? "-") \(style) \(kind)")
+                }
+                XCTAssertEqual(cache.misses, misses, "no count after the first configures a button")
+            }
+        }
+        // A definite offer the count would not fit is measured.
+        _ = cache.answer(face: try face("7", "heart", style: "plain"), widthKind: 0, width: 60)
+        let misses = cache.misses
+        _ = cache.answer(face: try face("123456789", "heart", style: "plain"), widthKind: 0, width: 60)
+        XCTAssertEqual(cache.misses, misses + 1)
+    }
     // Independent use of UIKit's public system-spacing API for the reference column.
     func testMinContentUsesUnbreakableRunsAndTheNativeChrome() throws {
         let session = try fixture(); defer { session.destroy() }

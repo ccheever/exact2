@@ -46,16 +46,71 @@ final class ButtonMeasureCache: @unchecked Sendable {
         lock.lock()
         let key = Key(face: data, widthKind: widthKind, width: width, traits: .init(traits))
         if let exact = entries[key] { lock.unlock(); return exact }
+        let numeral = Self.numeral(data).map { (key: Key(face: $0.face, widthKind: widthKind, width: width, traits: key.traits), title: $0.title) }
+        if let numeral, let known = numerals[numeral.key], let measured = known.answer(numeral.title, widthKind: widthKind, width: width) {
+            entries[key] = measured
+            lock.unlock()
+            return measured
+        }
         misses += 1
         lock.unlock()
         return Owner.shared.callMain {
             lock.lock(); let current = traits; lock.unlock()
             let now = Key(face: data, widthKind: widthKind, width: width, traits: .init(current))
-            var measured = measure(ButtonFace(json: data), widthKind: widthKind, width: CGFloat(width), traits: current, probe: data)
-            lock.lock(); entries[now] = measured; lock.unlock()
+            var title: NSAttributedString?
+            var measured = measure(ButtonFace(json: data), widthKind: widthKind, width: CGFloat(width), traits: current, probe: data, title: &title)
+            lock.lock()
+            entries[now] = measured
+            if let numeral, now == key, let title { numerals[numeral.key] = Numeral(measured, title: title, scale: max(1, current.displayScale)) }
+            lock.unlock()
             measured.provisional = now == key ? 0 : 1
             return measured
         }
+    }
+
+    /// A count's button (a like's, a reply's) measured once for its face:
+    /// its title is digits, on one line it cannot break, so another count's
+    /// button is that one wider or narrower by the difference of the two
+    /// titles' ink, as UIKit lays its label out at its text's width rounded
+    /// up to the pixel. Measured in the title's own attributes, off the main
+    /// thread: every count is a new face, and each asked a configured button
+    /// on main (a feed's posts, ~1 ms each).
+    private struct Numeral {
+        let measured: ExactButtonMeasure
+        let title: NSAttributedString
+        let scale: CGFloat
+        let ink: CGFloat
+        init(_ measured: ExactButtonMeasure, title: NSAttributedString, scale: CGFloat) {
+            self.measured = measured; self.title = title; self.scale = scale
+            ink = Self.ink(title, scale: scale)
+        }
+        static func ink(_ title: NSAttributedString, scale: CGFloat) -> CGFloat {
+            let width = title.boundingRect(with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
+                                           options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).width
+            return ceil(width * scale) / scale
+        }
+        func answer(_ text: String, widthKind: UInt8, width: Float) -> ExactButtonMeasure? {
+            guard title.length > 0 else { return nil }
+            let other = NSMutableAttributedString(attributedString: title)
+            other.replaceCharacters(in: NSRange(location: 0, length: other.length), with: text)
+            var result = measured
+            result.width += Float(Self.ink(other, scale: scale) - ink)
+            // A definite offer it would not fit is measured, wrapped or not.
+            if widthKind == 0 && result.width > width { return nil }
+            return result
+        }
+    }
+    private var numerals: [Key: Numeral] = [:]
+    /// A face whose title is a count (digits, with `,` or `.`), keyed
+    /// without its title or its label, which measures nothing.
+    static func numeral(_ data: Data) -> (face: Data, title: String)? {
+        guard var o = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let title = o["title"] as? String,
+              title.contains(where: \.isASCIIDigit), title.allSatisfy({ $0.isASCIIDigit || $0 == "," || $0 == "." }),
+              (o["subtitle"] as? String)?.isEmpty ?? true else { return nil }
+        o["title"] = "#"
+        o["label"] = nil
+        guard let face = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]) else { return nil }
+        return (face, title)
     }
     /// The configured buttons a run of measurements shares, by face. A layout
     /// asks one face for its max-content, min-content and definite widths in
@@ -95,9 +150,15 @@ final class ButtonMeasureCache: @unchecked Sendable {
     /// `probe` names the face's bytes, whose configured button later
     /// measurements in this main turn reuse; without it the button is fresh.
     func measure(_ face: ButtonFace, widthKind: UInt8, width: CGFloat, traits: UITraitCollection, probe key: Data? = nil) -> ExactButtonMeasure {
+        var title: NSAttributedString?
+        return measure(face, widthKind: widthKind, width: width, traits: traits, probe: key, title: &title)
+    }
+    /// `title`: the configured title as its label lays it out.
+    func measure(_ face: ButtonFace, widthKind: UInt8, width: CGFloat, traits: UITraitCollection, probe key: Data?, title: inout NSAttributedString?) -> ExactButtonMeasure {
         HostPhases.shared.count(.nativeControlMeasurements)
         precondition(Thread.isMainThread)
         var result = ExactButtonMeasure()
+        var shown: NSAttributedString?
         traits.performAsCurrent {
             let (button, configured) = probe(face, key: key, traits: traits)
             defer { if key == nil { button.removeFromSuperview() } }
@@ -127,6 +188,7 @@ final class ButtonMeasureCache: @unchecked Sendable {
             let offeredWidth = widthKind == 0 ? max(0, width) : minimumWidth ?? CGFloat.greatestFiniteMagnitude
             button.layoutIfNeeded()
             let size = button.sizeThatFits(CGSize(width: offeredWidth, height: .greatestFiniteMagnitude))
+            shown = button.titleLabel?.attributedText
             let scale = max(1, traits.displayScale)
             // A content width carries one device pixel more than the title
             // needs. The box is drawn between its edges rounded to the pixel
@@ -138,8 +200,13 @@ final class ButtonMeasureCache: @unchecked Sendable {
             result = ExactButtonMeasure(width: Float((ceil(max(0, minimumWidth ?? size.width) * scale) / scale) + slack),
                 height: Float(ceil(max(0, size.height) * scale) / scale), provisional: 0)
         }
+        title = shown
         return result
     }
+}
+
+private extension Character {
+    var isASCIIDigit: Bool { isASCII && isWholeNumber }
 }
 
 extension TextEngine {
