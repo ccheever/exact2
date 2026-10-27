@@ -57,6 +57,7 @@ mod document;
 mod entropy;
 mod fetch_faults;
 mod first;
+mod fixed_beside;
 mod flex_on_block;
 mod flow;
 mod fmt;

@@ -89,6 +89,12 @@ on that edge, and no host view between them clips. An edge with no
 children between S and C's edge is **open**.
 S takes this LLP when at least one edge is banded and every other edge is banded or open.
 
+The same holds a level up (2026-10-26, bake-off r24's chat): a box between S and C whose
+shown in-flow siblings on that side are control bars is banded there when it spans its
+parent and takes what they leave (`flexGrows`, sent for every growing column item), as a
+thread wrapped with its floating button sits over a composer; the bars of every level are
+S's on that edge.
+
 An edge is **open** only where S reaches its parent's content edge there (nothing, no
 padding or border, between them, as `bottomScroller` requires today) and P reaches C's.
 For a page, C must itself meet the page area's edge, with nothing between S and the

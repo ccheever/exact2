@@ -308,7 +308,10 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// does the same with a table view in a scroll view). So the viewport's
     /// top effect shows only while that scroller is scrolled from its top,
     /// as UIKit's does over a list that is the controller's own: no effect
-    /// over a list at rest.
+    /// over a list at rest. Its style stays `automatic`: the rows blurred and
+    /// faded under the whole bar to a line at its foot, as a UIKit or SwiftUI
+    /// list or scroll view draws them there (iOS 27, measured), where `soft`
+    /// left them legible under the title.
     private func followTopEdge(_ scrollView: UIScrollView?) {
         topEdgeWatch = nil
         guard #available(iOS 26.0, tvOS 26.0, *), let page = contentViewport else { return }
