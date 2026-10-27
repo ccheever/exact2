@@ -442,7 +442,7 @@ extension Agent {
                 "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
     }
 
-    /// `clip`'s bounds, less the sticky box of its document a click at `v`'s middle lands on, by the window's own hit
+    /// `clip`'s bounds, less the sticky (or fixed) box of its document a click at `v`'s middle lands on, by the window's own hit
     /// test (as the tap's), that doesn't hold `v` (the design tool's edit dock; theme2's 14:49 ruling): the band it
     /// leaves, above one in the lower half, below one in the upper, as a person scrolls a row out from under it. Never
     /// a popover's, nor one of a scroller inside `clip`.
@@ -454,7 +454,7 @@ extension Agent {
         var up: NSView? = hit, cover: NodeView?
         while let u = up, u !== clip {
             if u is NSScrollView { return port }
-            if let n = u as? NodeView, n.layoutPosition == "sticky" { cover = n; break }
+            if let n = u as? NodeView, ["sticky", "fixed"].contains(n.layoutPosition) { cover = n; break }
             up = u.superview
         }
         guard let n = cover, n.props["popover"] == nil, !v.isDescendant(of: n) else { return port }

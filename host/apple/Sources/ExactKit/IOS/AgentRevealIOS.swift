@@ -68,7 +68,7 @@ extension Agent {
         return scrolled
     }
 
-    /// The sticky box of `sv`'s content a finger at `v`'s middle lands on, by the window's own hit test (as the tap's):
+    /// The sticky (or fixed) box of `sv`'s content a finger at `v`'s middle lands on, by the window's own hit test (as the tap's):
     /// none holding `v`, none a popover's, none of a scroller inside `sv`.
     private func stickyCover(over v: UIView, in sv: UIScrollView) -> NodeView? {
         guard let window = v.window else { return nil }
@@ -77,7 +77,7 @@ extension Agent {
         var up: UIView? = hit
         while let u = up, u !== sv {
             if u is UIScrollView { return nil }
-            if let n = u as? NodeView, n.layoutPosition == "sticky" {
+            if let n = u as? NodeView, ["sticky", "fixed"].contains(n.layoutPosition) {
                 return n.props["popover"] == nil && !v.isDescendant(of: n) ? n : nil
             }
             up = u.superview
