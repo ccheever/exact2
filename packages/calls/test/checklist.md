@@ -7,12 +7,13 @@ the device, the OS version and what happened beside each step when you
 run it. Use a test phone, never a personal one.
 
 **What is built.** The foreground service on Android and the background
-line on iOS (§12 stages 0 and 3), so the recorder's steps run now. Calls
-are the declared substitute on every target: the call is the module's own
-state, with no system screen (`callsStatus().systemUI` is false). CallKit
-(stage 2), Core-Telecom (stage 4) and Media Session's call actions (stage
-1) are not built, so the steps below wait for them; they are written here so
-the person running them knows what to look for when they land.
+line on iOS (§12 stages 0 and 3), so the recorder's steps run now. The
+call is the module's own state on every target, with no system screen
+(`callsStatus().systemUI` is false); on the web Media Session's call
+actions are its controls (stage 1, step 5 below). CallKit (stage 2) and
+Core-Telecom (stage 4) are not built, so steps 1 to 4 wait for them; they
+are written here so the person running them knows what to look for when
+they land.
 
 ## The recorder
 
@@ -22,7 +23,7 @@ minutes, the Android notification, `dumpsys`, and the same without the
 line) and 10 (a take the Task Manager stopped, recovered at the next
 launch).
 
-## Calls (wait for stages 1, 2 and 4)
+## Calls (steps 1 to 4 wait for stages 2 and 4)
 
 Harmony's **Make a Test Call**, under You, on an iPhone and a Mac; the
 package's fixture on an Android phone (`packages/calls/test/fixture`,
@@ -43,3 +44,11 @@ when it lands).
    the lock screen; with full-screen intents turned off for the app in
    Settings, a heads-up notification instead. Answer from the
    notification: the take records with the app hidden.
+5. **The browser's call controls (Chrome on a Mac).** Make a test call
+   in Harmony's web build and, during the take, open Chrome's media
+   controls (the toolbar's media button). Chrome shows the call actions in
+   a Picture-in-Picture window, which Harmony does not open (D19), so
+   record what the media controls show. Where a microphone or hang-up
+   button shows, the microphone mutes the call ("Muted" shows) and hang-up
+   stops the take with nothing played. `bun packages/calls/test/web.mjs
+   chromium` drives the same handlers without the browser's buttons.

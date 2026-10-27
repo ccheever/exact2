@@ -2,8 +2,9 @@
   "name": "@exact/calls",
   "version": "1.0.0",
   "private": true,
-  "description": "An app's voice or video call: its declared substitute keeps the call as the module's own state on every target, until CallKit, Core-Telecom and Media Session's call actions are bound (LLP 1133.033).",
+  "description": "An app's voice or video call: the module keeps the call as its own state; on the web Media Session's call actions are its controls, and elsewhere the declared substitute keeps it until CallKit and Core-Telecom are bound (LLP 1133.033).",
   "exports": {
-    ".": "./exact.json"
+    ".": "./exact.json",
+    "./web": "./web/exact.json"
   }
 }

@@ -383,7 +383,39 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
           if (!e.isTrusted) return say(`${extension}.${name}: an untrusted ${type} raises nothing`);
           try { globalThis.focus?.(); } catch {}
           if (navigate) navigateRoot(locationOf(navigate)); else raise(`${extension}.${name}`, args, "app");
-        }) };
+        }),
+        // An implementation that keeps the declared list (LLP 1133.033 D19: the web's call is the module's own state):
+        // `declared(name, args)` is the substitute's answer, after the admission the call already passed; `listed(state,
+        // seen)` tells `seen` the list's entries (`{ref, fields}`) now and at each change.
+        declared: (name, args) => {
+          const row = byKey.get(`${extension}.${name}`);
+          if (!row) return { error: "NotSupportedError" };
+          return row.send ? applyEffect(row, args ?? {}) : valueOf(row);
+        },
+        listed: (state, seen) => {
+          const tell = () => seen((lists.get(state) ?? []).map(e => ({ ref: e.ref, fields: { ...e.fields } })));
+          watchers.set(state, [...(watchers.get(state) ?? []), tell]);
+          tell();
+        },
+        // A Media Session action (W3C Media Session, `setActionHandler`): the browser calls it only for the person's
+        // press on its own controls, so the handler set here is a person's act. When it fires, `pick()` names the entry
+        // and the declared choice it takes (`[ref, choice]`), applied as `tap @ref <choice>` is. `pick` null clears it.
+        // False where the browser has no such action.
+        mediaAction: (action, pick) => {
+          const ms = typeof navigator === "object" ? navigator.mediaSession : undefined;
+          if (!ms?.setActionHandler) return false;
+          try {
+            ms.setActionHandler(action, pick ? () => {
+              const [ref, choice] = pick() ?? [];
+              const entry = [...lists.values()].flat().find(e => e.ref === ref);
+              if (!entry) return say(`${extension}: media session ${action}: no entry`);
+              const done = up.choose(entry, choice);
+              if (done?.error) say(`${extension}: media session ${action}: ${done.error}`);
+            } : null);
+          } catch { return false; }
+          say(`${extension}: media session ${action} ${pick ? "set" : "cleared"}`);
+          return true;
+        } };
       const impl = m.implementation?.(context) ?? null;
       if (clock.agent) impl?.preferred?.(preferredOf(extension));
       ready.set(extension, impl);
@@ -396,6 +428,10 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // the page is up, so the send's handler runs in the input event's dispatch, where a browser's gesture holds.
   const gestures = new Set([...byKey.values()].filter(r => r.send && r.sub.gesture && route(r) === "real").map(extensionOf));
   if (gestures.size) setTimeout(() => { for (const extension of gestures) instance(extension); });
+  // A list the person acts on from the platform's controls (`tap.choices`, LLP 1133.033 D19): its implementation is
+  // loaded with the page, under the agent too, so the controls follow the list from its first entry.
+  const chosen = new Set([...byKey.values()].filter(r => r.sub.list?.tap?.choices && bound[extensionOf(r)]).map(extensionOf));
+  if (chosen.size) setTimeout(() => { for (const extension of chosen) instance(extension); });
   packageViews(views, chunk, instance);
   // A package's `img` scheme (LLP 1133.019 D11 item 1): admitted as the runner's `modules/pictures.rs` admits it on
   // target `web` — the app declares one of its grant lines, an implementation is bound, and under the agent its
@@ -552,7 +588,12 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   for (const row of byKey.values()) if (row.send && row.sub.effect) Hosts[row.source] = Object.assign((from, record) => { effect(row, object(record, row.options) ?? {}, from); }, { origin: true });
   const delivered = e => { const at = e.row.sub.list.at, t = at ? e.fields[at] : null; return t == null || t <= now(); };
   // A source declared `"listed"` answers from a list: asked again when it changes.
-  const listedChanged = state => { const keys = [...byKey.values()].filter(r => r.sub.listed?.state === state).map(r => r.key); if (keys.length) reask(keys); };
+  const watchers = new Map();
+  const listedChanged = state => {
+    for (const tell of watchers.get(state) ?? []) tell();
+    const keys = [...byKey.values()].filter(r => r.sub.listed?.state === state).map(r => r.key);
+    if (keys.length) reask(keys);
+  };
   wk = wakes({ events, say, value, lists, changed: listedChanged, toEpoch: ms => reportTime(ms)[0] + ms,
     onLine: () => (globalThis.exact?.page?.read?.().online ?? globalThis.navigator?.onLine) !== false,
     run: f => { const before = origin; origin = "wake"; try { f(); } finally { origin = before; } } });
