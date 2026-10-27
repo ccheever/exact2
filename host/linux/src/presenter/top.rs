@@ -824,6 +824,12 @@ impl<D: DataSource> Presenter<D> {
         true
     }
 
+    /// Whether a surface of the top layer (a popover's, a menu's) is open over the page: nothing under it is the
+    /// agent's to scroll clear of a sticky box (`clear_of_sticky`).
+    pub(super) fn surface_open(&self) -> bool {
+        self.top.open.is_some()
+    }
+
     /// Whether `id` is a row of the open surface, by its authored node: it
     /// shows in the surface's window, so the agent's `reveal` has nothing
     /// to scroll into view before a tap on it.

@@ -502,7 +502,8 @@ fn a_tap_scrolls_its_target_clear_of_a_sticky_box_of_its_own_scroller() {
 }
 
 /// The same through a row's own box (a target wrapped in a column that clips, as a card does) and under a dock taller
-/// than half the port: the target is scrolled into the band above the dock (Astra's round 1).
+/// than half the port, a header across from it: the target is scrolled into the band between them, never under the
+/// header (Astra's rounds 1 and 2).
 #[test]
 fn a_tap_scrolls_a_wrapped_target_above_a_tall_sticky_dock() {
     let rows = (1..=20)
@@ -517,6 +518,8 @@ fn a_tap_scrolls_a_wrapped_target_above_a_tall_sticky_dock() {
   view
     column testId="root" width=320
       scroll testId="port" height=400
+        column testId="header" position="sticky" top=0 height=100 z-index=2
+          text "Header"
         for i in [{rows}] key=i
           column testId=`card-${{i}}` overflow="hidden" border-radius=8
             button testId=`row-${{i}}` press=press(`row-${{i}}`) height=50 width="100%"
@@ -533,14 +536,56 @@ fn a_tap_scrolls_a_wrapped_target_above_a_tall_sticky_dock() {
             .unwrap_or_default()
             .to_string()
     };
-    // Row 5's middle (4 * 50 + 25 = 225) lies under the dock (160..400): scrolled into the band above it, then pressed.
+    // Row 5's middle (100 + 4 * 50 + 25 = 325) lies under the dock (160..400): scrolled into the band between the header
+    // and the dock (100..160), then pressed.
     let row = id(&p, "row-5");
     let revealed = p.reveal(row).unwrap();
     assert!(revealed.contains("\"scrolled\":true"), "{revealed}");
     settle(&mut p);
     let mid = p.box_of(row).map(|b| b.rect.1 + b.rect.3 / 2.0).unwrap();
-    assert!((0.0..160.0).contains(&mid), "{mid}");
+    assert!((100.0..160.0).contains(&mid), "{mid}");
     p.tap(row).unwrap();
     settle(&mut p);
     assert_eq!(pressed(&p), "row-5");
+}
+
+/// A sticky box of the page itself (no scroll element: its constraint scroller is the root): a row under it is
+/// scrolled clear by the page (Grok's round 2).
+#[test]
+fn a_tap_scrolls_the_page_clear_of_its_own_sticky_header() {
+    let rows = (1..=20)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut p = boot(&format!(
+        r#"component App
+  state pressed = ""
+  action press(name: string)
+    pressed = name
+  view
+    column testId="root" width=320
+      column testId="header" position="sticky" top=0 height=60 z-index=2
+        text "Header"
+      for i in [{rows}] key=i
+        button testId=`row-${{i}}` press=press(`row-${{i}}`) height=50 width="100%"
+          text `Row ${{i}}`
+"#
+    ));
+    // The page scrolled down to row 15, then the row whose middle the header covers.
+    p.reveal(id(&p, "row-15")).unwrap();
+    settle(&mut p);
+    let ids: Vec<ViewId> = (1..=20).map(|i| id(&p, &format!("row-{i}"))).collect();
+    let under = ids
+        .into_iter()
+        .find(|&r| {
+            p.box_of(r)
+                .is_some_and(|b| (0.0..60.0).contains(&(b.rect.1 + b.rect.3 / 2.0)))
+        })
+        .expect("a row under the page's header");
+    let revealed = p.reveal(under).unwrap();
+    assert!(revealed.contains("\"scrolled\":true"), "{revealed}");
+    settle(&mut p);
+    let mid = p.box_of(under).map(|b| b.rect.1 + b.rect.3 / 2.0).unwrap();
+    assert!(mid >= 60.0, "{mid}");
+    p.tap(under).unwrap();
 }

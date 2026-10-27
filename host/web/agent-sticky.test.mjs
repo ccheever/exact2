@@ -74,11 +74,12 @@ const drive = async (session) => {
   const t3 = await session.tap(ghosted);
   expect(t3.scrolled).toBeUndefined();
   expect(await pressed()).toBe(ghosted);
-  // A popover over a row in the clear: no scroll takes it away, and the tap refuses, naming what covers it.
+  // A popover over a row in the clear, opened from inside the dock (Astra's round 2): no scroll takes it away, and the
+  // tap refuses, naming what covers it.
   const clearRow = await rowIn(100, 200);
   await session.carrier.evaluate(`(() => { const r = document.querySelector('[data-testid="${clearRow}"]').getBoundingClientRect(), p = document.createElement('div');
     p.id = 'sticky-test-popover'; p.setAttribute('popover', 'manual'); p.style.cssText = 'position:fixed;margin:0;inset:auto;left:' + r.left + 'px;top:' + (r.top - 10) + 'px;width:' + r.width + 'px;height:' + (r.height + 20) + 'px';
-    document.body.append(p); p.showPopover(); })()`);
+    document.querySelector('[data-testid="dock"]').append(p); p.showPopover(); })()`);
   const top = await scrollTop();
   await expect(session.tap(clearRow)).rejects.toThrow(/covers its middle/);
   expect(await scrollTop()).toBe(top);
@@ -89,9 +90,19 @@ const drive = async (session) => {
   expect(tall).not.toBe(null);
   expect((await session.tap(tall)).scrolled).toBeDefined();
   expect(await pressed()).toBe(tall);
+  // A header across from it (100 px) narrows the band to the 60 px between them: the row lands there, not under it.
+  await session.carrier.evaluate(`document.querySelector('[data-testid="header"]').style.height = '100px'`);
+  const between = await rowIn(300, 400);
+  expect(between).not.toBe(null);
+  expect((await session.tap(between)).scrolled).toBeDefined();
+  expect(await pressed()).toBe(between);
+  const landed = await session.carrier.evaluate(`(() => { const port = document.querySelector('[data-testid="port"]').getBoundingClientRect(), b = document.querySelector('[data-testid="${between}"]').getBoundingClientRect(); return (b.top + b.bottom) / 2 - port.top; })()`);
+  expect(landed >= 100 && landed < 160).toBe(true);
   // A dock taller than the band it would leave: nothing to scroll it clear into, so the tap refuses.
   await session.carrier.evaluate(`document.querySelector('[data-testid="dock"]').style.height = '340px'`);
+  const still = await scrollTop();
   await expect(session.tap(await rowIn(300, 400))).rejects.toThrow(/covers its middle/);
+  expect(await scrollTop()).toBe(still);
 };
 
 // (The JS page; the wasm page's glue.js calls the same `reveal`, from input-glue.js.)

@@ -68,21 +68,21 @@ extension Agent {
         return scrolled
     }
 
-    /// The sticky (or fixed) box of `sv`'s content a finger at `v`'s middle lands on, by the window's own hit test (as the tap's):
-    /// none holding `v`, none a popover's, none of a scroller inside `sv`.
-    private func stickyCover(over v: UIView, in sv: UIScrollView) -> NodeView? {
-        guard let window = v.window else { return nil }
-        let mid = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
-        guard let hit = window.hitTest(mid, with: nil), hit !== v, !hit.isDescendant(of: v) else { return nil }
-        var up: UIView? = hit
+    /// The sticky (or fixed) box of `sv`'s content a finger at `at` (in the window) lands in, by the window's own hit
+    /// test (as the tap's): none holding `v`, none of a scroller inside `sv`, none in a popover.
+    private func stickyCover(at: CGPoint, over v: UIView, in sv: UIScrollView) -> NodeView? {
+        guard let hit = v.window?.hitTest(at, with: nil), hit !== v, !hit.isDescendant(of: v) else { return nil }
+        var up: UIView? = hit, found: NodeView?
         while let u = up, u !== sv {
             if u is UIScrollView { return nil }
-            if let n = u as? NodeView, ["sticky", "fixed"].contains(n.layoutPosition) {
-                return n.props["popover"] == nil && !v.isDescendant(of: n) ? n : nil
+            if let n = u as? NodeView {
+                if n.props["popover"] != nil { return nil }
+                if found == nil, ["sticky", "fixed"].contains(n.layoutPosition) { found = n }
             }
             up = u.superview
         }
-        return nil
+        guard up === sv, let found, !v.isDescendant(of: found) else { return nil }
+        return found
     }
 
     /// After a scroll, the target's box at rest, for at most half a second:
@@ -118,7 +118,6 @@ extension Agent {
         var port = sv.pageBounds.inset(by: sv.adjustedContentInset)
         guard let window = sv.window else { return port }
         var covers = bars(over: sv).map { $0.convert($0.bounds, to: nil) }
-        if let v, let cover = stickyCover(over: v, in: sv) { covers.append(cover.convert(cover.bounds, to: nil)) }
         if let top = keyboardTopInWindow() {
             covers.append(CGRect(x: window.bounds.minX, y: top, width: window.bounds.width, height: max(0, window.bounds.maxY - top)))
         }
@@ -128,6 +127,20 @@ extension Agent {
             // One in the port's upper half starts it below; one lower ends it above.
             if r.midY < port.midY { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
             else { port.size.height = max(0, r.minY - port.minY) }
+        }
+        // The target's covers: the sticky box at its middle, then each one at the middle of the band that leaves (a
+        // header across from a dock), by the window's hit test, as the tap's.
+        if let v {
+            let x = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: sv).x, mid = port.midY
+            var at = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
+            for _ in 0..<4 {
+                guard port.height > 0, let cover = stickyCover(at: at, over: v, in: sv) else { break }
+                let r = cover.convert(cover.bounds, to: sv).intersection(port)
+                guard !r.isNull, r.height > 0 else { break }
+                if r.midY < mid { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
+                else { port.size.height = max(0, r.minY - port.minY) }
+                at = sv.convert(CGPoint(x: x, y: port.midY), to: nil)
+            }
         }
         return port
     }

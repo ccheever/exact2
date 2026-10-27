@@ -102,52 +102,90 @@ impl<D: DataSource> Presenter<D> {
     /// band of its port the box leaves. Never a box that holds the target, nor one of another scroller or the top
     /// layer, which no scroll takes away: the tap still refuses there. Whether it scrolled.
     fn clear_of_sticky(&mut self, id: ViewId, at: (f32, f32)) -> bool {
-        let Some(hit) = self.hit(at.0, at.1) else {
+        // (An open surface of the top layer, a popover or an alert, is over the page: no scroll clears it.)
+        if self.surface_open() || self.alert.is_some() {
+            return false;
+        }
+        let Some((cover, scroller)) = self.sticky_at(id, at) else {
             return false;
         };
-        if hit == id || self.is_inside(hit, id) {
+        let (_, vh) = self.display.viewport().unwrap_or(self.viewport);
+        // The port, what of it the window shows (the page's own, for the root).
+        let is_root = self
+            .host
+            .kernel()
+            .node(scroller)
+            .is_some_and(|n| n.parent.is_none());
+        let port = if is_root { None } else { self.box_of(scroller) }.map_or((0.0, vh), |b| {
+            (b.rect.1.max(0.0), (b.rect.1 + b.rect.3).min(vh))
+        });
+        let (mut top, mut bottom) = port;
+        let mid = (top + bottom) / 2.0;
+        // Less each cover: the band above one whose middle is in the port's lower half, below one in its upper; its
+        // middle hit-tested again, a second box there (a header across from a dock) narrows it too.
+        let mut next = Some(cover);
+        for _ in 0..4 {
+            let Some(c) = next.and_then(|c| self.box_of(c)) else {
+                break;
+            };
+            if c.rect.1 + c.rect.3 / 2.0 > mid {
+                bottom = bottom.min(c.rect.1);
+            } else {
+                top = top.max(c.rect.1 + c.rect.3);
+            }
+            if bottom <= top {
+                return false;
+            }
+            next = self
+                .sticky_at(id, (at.0, (top + bottom) / 2.0))
+                .filter(|&(_, s)| s == scroller)
+                .map(|(c, _)| c);
+        }
+        let dy = at.1 - (top + bottom) / 2.0;
+        if is_root {
+            self.scroll_page_by(dy)
+        } else {
+            self.scroll_by(scroller, dy)
+        }
+    }
+
+    /// The page scrolled by `dy` points, within its travel, as `scroll_into`'s page step: whether it moved.
+    fn scroll_page_by(&mut self, dy: f32) -> bool {
+        let (vw, vh) = self.display.viewport().unwrap_or(self.viewport);
+        let doc = self.document();
+        let max = ((doc.0 - vw).max(0.0), (doc.1 - vh).max(0.0));
+        let next = (self.page.0, (self.page.1 + dy).clamp(0.0, max.1));
+        let moved = self.anchor_input(PAGE, self.page, dy, next);
+        if next == self.page && moved.is_none_or(|dy| dy == 0.) {
             return false;
+        }
+        self.page = next;
+        self.dirty = true;
+        if let Some(error) = self.refresh_transform_geometry() {
+            self.host.log(error);
+        }
+        true
+    }
+
+    /// The sticky box a hit at `at` lands in, and its scroller, as the kernel's sticky constraint names it, holding
+    /// `id`; none for a hit on `id` itself, a box holding it, or one of the top layer (whose sticky is none).
+    fn sticky_at(&mut self, id: ViewId, at: (f32, f32)) -> Option<(ViewId, ViewId)> {
+        let hit = self.hit(at.0, at.1)?;
+        if hit == id || self.is_inside(hit, id) {
+            return None;
         }
         let kernel = self.host.kernel();
         let mut cover = Some(hit);
         let constraint = loop {
-            let Some(c) = cover else { return false };
-            let Some(node) = kernel.node(c) else {
-                return false;
-            };
+            let node = kernel.node(cover?)?;
             if node.layout_position() == exact_kernel::PositionType::Sticky {
-                break kernel.sticky_constraint(node.key);
+                break kernel.sticky_constraint(node.key)?;
             }
             cover = node.parent;
         };
-        let (Some(cover), Some(constraint)) = (cover, constraint) else {
-            return false;
-        };
-        // Its scroller, as the kernel's sticky constraint names it, holding the target (the page's is no scroller
-        // here: none moves).
-        let scroller = constraint.scroller;
-        if self.is_inside(id, cover)
-            || !self.is_inside(id, scroller)
-            || kernel.node(scroller).is_none_or(|n| n.parent.is_none())
-        {
-            return false;
-        }
-        let (_, vh) = self.display.viewport().unwrap_or(self.viewport);
-        let (Some(port), Some(c)) = (self.box_of(scroller), self.box_of(cover)) else {
-            return false;
-        };
-        // What of the port the window shows; the band above a box whose middle is in its lower half, below one in its
-        // upper.
-        let port = (port.rect.1.max(0.0), (port.rect.1 + port.rect.3).min(vh));
-        let (top, bottom) = if c.rect.1 + c.rect.3 / 2.0 > (port.0 + port.1) / 2.0 {
-            (port.0, c.rect.1.min(port.1))
-        } else {
-            ((c.rect.1 + c.rect.3).max(port.0), port.1)
-        };
-        if bottom <= top {
-            return false;
-        }
-        self.scroll_by(scroller, at.1 - (top + bottom) / 2.0)
+        let cover = cover?;
+        (!self.is_inside(id, cover) && self.is_inside(id, constraint.scroller))
+            .then_some((cover, constraint.scroller))
     }
 
     /// An app's `scrollIntoView("element-id", block=, inline=)`: the node
