@@ -423,7 +423,8 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // Its chain as the page's walk up its tree takes it (the map's `walks` of `walk_steps`, by the node's `walk`, a slot's host a step with
   // `slot: true`, tamber/1.18, stage 15 D3), else the call-site chain; a copy is still keyed by the call-site chain
   // (`copiesOf`, `key`).
-  const walked = n => (Number.isSafeInteger(n?.walk) && Array.isArray(map.walks?.[n.walk]) ? map.walks[n.walk].map(i => map.walk_steps?.[i]).filter(Boolean) : n?.chain) ?? [];
+  // (Only for a page that walks by `copies`, 1.17's: an older one still moves by call-site levels, `levelsUp`.)
+  const walked = n => (build?.capabilities?.includes('copies') && Number.isSafeInteger(n?.walk) && Array.isArray(map.walks?.[n.walk]) ? map.walks[n.walk].map(i => map.walk_steps?.[i]).filter(Boolean) : n?.chain) ?? [];
   // An `:active` row is written in its part (LLP 1121 D8): its file counts too, and the held node's; each file its walk names (a
   // slot's host's call) too.
   const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...walked(n).map(c => c.file), ...(n.bindings ?? []).flatMap(b => [b.at, ...(b.states ?? []).map(p => p.at)].flatMap(at => at ? [at.file] : []))] : [];

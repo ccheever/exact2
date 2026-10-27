@@ -1043,15 +1043,17 @@ test("a selection's chain is its walk where the map writes one (a slot's host, t
       // An App fill forwarded through Panel into Frame's slot: no call-site chain, a walk to Frame.
       { file: app, line: 6, col: 9, end_col: 13, component: 'App', chain: [], walk: 0, bindings: [] },
     ], walk_steps: [host], walks: [[0]] };
-    const selected = { node: 7, site: 1, instance: [], tuple: {}, rows: [] };
-    const s = join({ id: 'web-1' }, selected, map);
+    const selected = { node: 7, site: 1, instance: [], tuple: {}, rows: [] }, walks = { id: 'web-1', capabilities: ['inspect', 'copies'] };
+    const s = join(walks, selected, map);
     expect(s.readOnly).toBe(null);
     expect(s.source.chain).toEqual([host]);
+    // A page before 1.17's copies moves by call-site levels: its chain is the call-site chain.
+    expect(join({ id: 'web-1', capabilities: ['inspect'] }, selected, map).source.chain).toEqual([]);
     // A map before the walks (or a walk index it lacks): the call-site chain.
-    expect(join({ id: 'web-1' }, selected, { ...map, walks: undefined }).source.chain).toEqual([]);
-    expect(join({ id: 'web-1' }, selected, { ...map, nodes: [map.nodes[0], { ...map.nodes[1], walk: 9 }] }).source.chain).toEqual([]);
+    expect(join(walks, selected, { ...map, walks: undefined }).source.chain).toEqual([]);
+    expect(join(walks, selected, { ...map, nodes: [map.nodes[0], { ...map.nodes[1], walk: 9 }] }).source.chain).toEqual([]);
     // The host's file moved since this build: read-only, though no call-site chain names it.
     writeFileSync(panel, 'panel, edited');
-    expect(join({ id: 'web-1' }, selected, map).readOnly).toContain('panel.contract changed since this build');
+    expect(join(walks, selected, map).readOnly).toContain('panel.contract changed since this build');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
