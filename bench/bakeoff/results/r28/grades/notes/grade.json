@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, sorted newest first. Each row shows the title and then a date line (time / Yesterday / weekday / short date) followed by a one-line preview."},
+      {"n": 2, "status": "pass", "note": "Search field in the nav bar under the large title filters title and body live, shows an 'N Results' count and a proper 'No Results for …' empty state."},
+      {"n": 3, "status": "pass", "note": "Editor has a multiline title and body that autosave. The edited note jumped to the top of Notes with today's time and the scroll position was kept. Shows a Done checkmark while editing."},
+      {"n": 4, "status": "pass", "note": "Compose button opens a new note with the keyboard up. Backing out of an empty note leaves the count at 90, and a note with text is kept (91)."},
+      {"n": 5, "status": "pass", "note": "Swipe left gives Delete, a full swipe right pins, and long-press opens a context menu with Pin/Unpin Note and Delete. All of these persisted."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' in the bottom toolbar, as in Apple Notes. It updates on create and delete and becomes 'N Results' while searching."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins, unpins and deletes all survived a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "At the largest text size the editor breaks a long word mid-word ('recommendat/ions') in the title and body. This is plain text-view wrapping, but it still breaks inside a word.",
+      "At the largest text size the '90 Notes' toolbar count does not grow with Dynamic Type, and row previews wrap to two lines on some rows but not others.",
+      "When scrolled, the floating search field sits over the list content and the text underneath shows through a little busily."
+    ],
+    "scroll": "Feels like a real UITableView: slow drags track the finger, flings decelerate naturally with no blank or popping rows, and it rubber-bands at the top. Scroll position is kept when coming back from the editor.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, newest first, with title, a relative/short date and a one-line preview. Long titles wrap to two lines."},
+      {"n": 2, "status": "pass", "note": "Bottom search field (iOS 26 toolbar style) filters title and body as you type, with a 'No Results' empty state. It shows no result count."},
+      {"n": 3, "status": "pass", "note": "Body edits autosave and the note moves to the top of Notes with today's time. The date header reads 'Today at …'."},
+      {"n": 4, "status": "pass", "note": "Compose opens a new note with the keyboard up. An empty note is discarded and a note with text is kept."},
+      {"n": 5, "status": "partial", "note": "Swipe left gives Delete, and long-press opens a context menu with Pin/Unpin Note and Delete. There is no leading swipe to pin: a rightward drag on a row opened the note instead. All changes persisted."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' appears as a subtitle under the large title and in the inline title, and it updates. It is hidden while searching."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins, unpins and deletes all survived a relaunch."}
+    ],
+    "bugs": [
+      "A rightward swipe on a row opens the note instead of offering a pin action. (One earlier tap on a row near the bottom search bar also did nothing.)"
+    ],
+    "tells": [
+      "The title in the editor is a single-line text field: at the largest text size a long title truncates to 'Ideas for the…' and the user cannot see the whole title while editing it.",
+      "No Done button to dismiss the keyboard while editing.",
+      "The 'No Results' empty-state title is regular weight rather than the bold system ContentUnavailableView title.",
+      "At the largest text size the editor breaks a long word mid-word ('recommendatio/ns'), the same as A.",
+      "Each list row is exposed as one big Button inside a cell rather than as a normal table cell, and the nav bar exposes an odd 'ExactKit.Route' identifier. Only VoiceOver users would notice either."
+    ],
+    "scroll": "Smooth and native-feeling: drags track the finger, flings decelerate with no blank or popping rows, there is top rubber-banding, and position is kept after editing. Rows are slightly taller than A's.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both apps meet nearly every requirement and scroll like native lists. A is a closer match to Apple Notes: it pins with a swipe as well as from the long-press menu, has a multiline title, a Done button and a result count. B has no swipe-to-pin, its single-line title truncates at large text, and a few details (the empty-state weight, no Done button) are slightly off."
+}

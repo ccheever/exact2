@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across grid with 2pt gaps and square centre-cropped thumbnails, oldest at the top. Opens at the newest at the bottom, with full 'Saturday, Oct 24' / 'Yesterday' day headings and a '1,500 Photos' footer. Large 'Library' title when scrolled to the top."},
+      {"n": 2, "status": "pass", "note": "Opens full screen on black at the photo's aspect ratio. Swipe left and right both page between photos with the neighbour peeking in. Dragging down closes it."},
+      {"n": 3, "status": "pass", "note": "Heart button in the viewer toggles Favorite/Unfavorite; a white heart badge appears and disappears on the grid thumbnail."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title and a 'My Albums' section: 8 albums in a 2-column grid, each with a rounded cover, name and count. Counts update after deletes (they sum to 1,498). An album opens a grid with Back and Select."},
+      {"n": 5, "status": "pass", "note": "Select mode puts check badges on thumbnails, an 'N Photos Selected' title and Cancel. A bottom bar has batch Favorite and Delete; Delete shows a system confirmation alert ('Delete 2 Photos'). Both actions work."},
+      {"n": 6, "status": "pass", "note": "After relaunch, favorites and unfavorites are kept, deleted photos stay gone and the count reads 1,498."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The select-mode bottom bar is a flat, opaque grey strip drawn by hand where iOS 27 would show a Liquid Glass toolbar. It also repeats 'N Photos Selected', which is already the navigation title.",
+      "The viewer is a custom black overlay with no navigation bar or toolbar. Its close, heart and trash buttons are dark circles drawn by hand, not system glass bar buttons, and the background stays black in light mode where Photos uses white.",
+      "At the largest text size the grid's heart badge grows to roughly a third of a thumbnail. In the viewer the date wraps to 'Oct 26, / 2026' in huge type and the round buttons swell.",
+      "No 'Select All' in select mode.",
+      "The '1,500 Photos' footer is bold primary-colour text; Photos shows it as secondary grey."
+    ],
+    "scroll": "Smooth through 1,500 photos: slow drags, repeated flings and the trip back to the top showed no blank tiles, pop-in or jumps, and the large title appears at the top. Scroll position is kept across tab switches and after closing the viewer.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across grid with thin gaps and square crops, oldest at the top, opening at the newest at the bottom. Day headings are Photos-style ('Yesterday', 'Wednesday', 'Tue, Oct 20'), with a grey photo count at the bottom."},
+      {"n": 2, "status": "partial", "note": "Opens full screen at the photo's aspect ratio. Swiping left goes to the next photo and dragging down closes it, but any rightward swipe (fast swipe or slow drag, even after moving forward) closes the viewer instead of going back to the previous photo."},
+      {"n": 3, "status": "pass", "note": "The heart in the viewer's glass toolbar toggles favorite and unfavorite; a heart badge shows on the grid thumbnail."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title and 8 albums in a 2-column grid with cover, name and count. Counts update after deletes. An album opens its own grid with Back and Select."},
+      {"n": 5, "status": "pass", "note": "Select mode has a Select All button, an 'N Photos Selected' title and a prominent blue Cancel, with batch favorite and delete in a glass toolbar. Delete asks for confirmation in a popover anchored to the trash button, as Photos does. Both actions work and the count updates immediately."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions are kept after relaunch (1,497 photos)."}
+    ],
+    "bugs": [
+      "Swiping right in the full-screen viewer closes the viewer instead of showing the previous photo, so you can only page forward."
+    ],
+    "tells": [
+      "At the largest text size the photo-count footer ('1,497 Photos') sits underneath the select-mode toolbar's heart and trash buttons and overlaps them.",
+      "At the largest text size there is a large empty gap above day headings ('Sunday' row, then blank space before 'Yesterday').",
+      "Entering select mode hides the tab bar and the grid shifts up by about 50pt, so taps aimed at the previous layout land on different photos.",
+      "The filled favorite heart in the viewer toolbar is black, not white or tinted."
+    ],
+    "scroll": "Smooth: collection-view scrolling with no blank cells or pop-in under flings and slow drags, an inline title at the top, and scroll position kept across tab switches and after closing the viewer.",
+    "scores": {"features": 7, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet nearly every requirement with smooth, stable grids. B looks more like a stock iOS 27 app: glass toolbars in the viewer and select mode, Select All, a confirmation popover on the trash button, and Photos-style day headings. But B's viewer closes on any rightward swipe, so you can't page back to the previous photo, which breaks a core requirement. A's viewer and select bar are drawn by hand and look less native, but everything works, so A is the one I'd rather ship."
+}

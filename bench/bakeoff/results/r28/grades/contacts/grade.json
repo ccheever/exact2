@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All contacts sorted by last name (Abbott, Abbott, Abbott, Adeyemi…), lettered sections with pinned headers, and a working A–Z index (with a ★ entry) that jumps to the right letter."},
+      {"n": 2, "status": "pass", "note": "Filters live by company ('willow'), phone ('389-8378'), email and name. The clear button and Close restore the full list, and the index shrinks to only the letters that match. A 'No Results for …' empty state shows."},
+      {"n": 3, "status": "pass", "note": "Details show avatar, name, company, Call/Email buttons, tinted phone and email rows with ↗ affordances, and the birthday when known (hidden when absent)."},
+      {"n": 4, "status": "pass", "note": "Add/Remove from Favorites on details. Favorites show as a horizontal avatar strip at the top of the list with a count, and a star appears on the row. Persists."},
+      {"n": 5, "status": "pass", "note": "Add/Edit sheet with labelled fields. Save is disabled for blank or whitespace-only names and when both names are cleared during edit. Return moves to the next field, and input is trimmed on save."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete on rows and a Delete Contact button on details, both with a confirmation."},
+      {"n": 7, "status": "pass", "note": "Favorite, edit and deletions survived relaunch, and the search text is not wrongly restored."}
+    ],
+    "bugs": [
+      "Delete-contact confirmation popover on the details screen is anchored to the top of the screen, pointing at the name, not at the Delete button the user tapped."
+    ],
+    "tells": [
+      "Swipe-to-delete action is teal (app tint) instead of the system destructive red.",
+      "The main list opens with the large title already collapsed to an inline 'Contacts'; the large title only appears when you pull down.",
+      "About 60pt of empty white space under the favorites carousel before the 'A' section.",
+      "At the largest text size the section index overlaps the favorites carousel, cutting off names ('Fel… Adey…'), and the carousel avatars stay small while the names are huge.",
+      "Strong custom teal/mint branding (gradient initials avatars, tinted Call/Email pills): polished, but more styled than a stock iOS app.",
+      "In the add form the live avatar preview shows only 'Q' when the first name has leading spaces."
+    ],
+    "scroll": "Smooth with no blank rows or pop-in. Section headers pin with a blur under the nav bar, flings carry good momentum, pull-past-top bounces and reveals the large title, and scroll position is kept when returning from details.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Sorted by last name with letter sections and a blue system-style A–Z index (with ★) that jumps correctly. Section headers do not stay pinned, so after a jump or scroll the current letter is not visible."},
+      {"n": 2, "status": "pass", "note": "Bottom search bar filters by company, phone (formatted or digits only), email and name. The clear button and the 'Clear Search' empty-state button restore the list."},
+      {"n": 3, "status": "pass", "note": "Stock-Contacts-like details: avatar, name, company, blue phone and email links, birthday. No Call/Email quick-action buttons."},
+      {"n": 4, "status": "pass", "note": "Add/Remove from Favorites with a star. Favorites form a plain section at the top of the list. Persists."},
+      {"n": 5, "status": "pass", "note": "New/Edit Contact sheet. Done is disabled for empty or whitespace-only names, with a hint. Names are trimmed and edits apply."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete on rows (red 'Delete Contact', deletes immediately) and Delete Contact on details with an alert."},
+      {"n": 7, "status": "pass", "note": "Favorite, add/edit and deletions survived relaunch."}
+    ],
+    "bugs": [
+      "The search query persists across relaunch: the app reopened with the old query, the list said 'No Contacts Found' and the title subtitle read '0 contacts', which looks like the directory is empty.",
+      "When a row is swiped open for delete, its name disappears; only the chevron is left on a grey pill."
+    ],
+    "tells": [
+      "The large title never collapses on scroll: 'Contacts' plus the count stay fixed at full size and the list is hard-clipped beneath them, with no scroll-edge effect.",
+      "The list stops above the bottom search bar instead of scrolling under it.",
+      "Section headers are not sticky: grey full-width bands scroll away, unlike a plain UITableView or List.",
+      "Section header bands have a web-like look: flat grey full-width bars with extra spacing, especially in search results.",
+      "Fling momentum feels lighter than a native list: repeated hard flings cover fewer rows than expected."
+    ],
+    "scroll": "No blank rows or pop-in and position is kept on return, but the fixed large header with hard clipping, non-sticky section headers and slightly short fling momentum make it feel less like a native iPhone list.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both meet every requirement, but A's list behaves like a real iOS list: pinned section headers, a collapsing large title, content scrolling under the bars, and smooth momentum. Its details screen and forms are more finished. B looks closer to stock Contacts at a glance, but its frozen header, non-sticky sections, swipe row that loses its label, and search query restored on relaunch ('0 contacts') feel less like a native app; A's flaws are mostly cosmetic (teal swipe action, misplaced popover, carousel gap)."
+}

@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen: Today (22) and All (135) at the top, then My Lists, each with a coloured icon and its open count. Counts update after adding and deleting."},
+      {"n": 2, "status": "pass", "note": "Open tasks come first, then a 'Completed (n)' section header with a chevron that collapses and expands it. Tapping the circle completes a task (red filled check, strikethrough) or reopens it, and the task returns to its original position."},
+      {"n": 3, "status": "partial", "note": "Add sheet (title, notes, list, priority) and the edit sheet opened by tapping a row both work; title, notes and priority edits save. But turning on the Due Date switch freezes the app every time (2 of 2 tries, in both the New Task and Edit Task sheets). The switch stops mid-animation and nothing responds again until the app is killed, so a due date can never be set."},
+      {"n": 4, "status": "pass", "note": "Overdue dates show in red with a red '!' badge and 'Overdue'. High priority shows a red '!!!' and low priority a grey '!'. Today groups tasks under an 'Overdue' header."},
+      {"n": 5, "status": "partial", "note": "Swipe to delete is the native trailing Delete action and the delete persists. Reorder is hidden behind ⋯ > Reorder Tasks, which shows grab handles, but dragging a handle (tried at 3 speeds) never moved a row."},
+      {"n": 6, "status": "pass", "note": "Add List alert creates a list (empty state: 'No Tasks'). ⋯ > Rename List… and Delete List… (with a confirmation alert) both work."},
+      {"n": 7, "status": "pass", "note": "After relaunch the added task, the completed and reopened task, the edit, the deletion and the renamed or deleted lists all persisted."}
+    ],
+    "bugs": [
+      "Turning on the Due Date switch in New Task or Edit Task freezes the whole app: the switch stops mid-animation, Cancel and every other control stop responding, and the app has to be killed (the unsaved task is lost). Reproduced every time.",
+      "Dragging the reorder handles in Reorder Tasks mode never moves a row, so tasks cannot be reordered.",
+      "An empty list shows 'All tasks are completed.' above the 'No Tasks' empty state, which contradict each other."
+    ],
+    "tells": [
+      "Reordering needs a trip into the ⋯ menu ('Reorder Tasks') instead of the usual Edit mode or drag-to-reorder.",
+      "The disclosure chevrons are exposed to accessibility as disabled buttons named 'chevron'."
+    ],
+    "scroll": "The 180-task All list (grouped by list, with coloured section headers) scrolls smoothly when dragged slowly, flung and flung back. No blank or popping rows; content passes under the bar with the system blur, and the large title collapses correctly.",
+    "scores": {"features": 5, "platform": 8, "polish": 6, "overall": 5}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen with Today (22), All (135) and My Lists with counts; counts update after changes. Every list has the same orange icon."},
+      {"n": 2, "status": "pass", "note": "Open tasks first, then 'Completed (n)' with a Show/Hide text button; collapsed by default. Tapping the circle completes a task (blue check, greyed out) or reopens it."},
+      {"n": 3, "status": "fail", "note": "Adding works: title, notes, a due-date switch with the native compact calendar picker, priority segments and a list picker. But tapping any task to edit it crashes the app straight to the Home Screen (3 of 3 tries, from a list and from All), so editing is impossible."},
+      {"n": 4, "status": "pass", "note": "Overdue dates show in red with an 'Overdue ·' prefix; high priority shows a red '!!!'. Low priority is not marked."},
+      {"n": 5, "status": "pass", "note": "Each row's always-visible grip reorders by dragging, and the new order persists. Swiping left shows a Delete action that works."},
+      {"n": 6, "status": "pass", "note": "+ opens a New List alert; the ⋯ menu has Rename List and Delete List (with a confirmation alert); all of them work."},
+      {"n": 7, "status": "pass", "note": "The new task, the deletion, the reorder, the renamed list and the deleted list all survived a relaunch."}
+    ],
+    "bugs": [
+      "Tapping any task row (to edit it) crashes the app immediately. Reproduced from a list and from All, every time.",
+      "On Today, the ⋯ menu disappears and only + is shown, which is inconsistent with the list screens (minor)."
+    ],
+    "tells": [
+      "Reorder grips (≡) are shown on every row all the time; iOS shows them only in Edit mode.",
+      "The swipe action is drawn by hand: a small floating red trash pill with a 'Delete' caption under it, not the full-height system swipe button. The row's separator also disappears while it is open.",
+      "Every list has the same orange icon, so lists cannot be told apart by colour.",
+      "The task list is a plain white list with a separator line above the first row, and the last open row's separator runs edge to edge. It does not look like a standard plain or inset List.",
+      "The Completed section uses a 'Show'/'Hide' text button where a disclosure chevron is expected.",
+      "All is one flat, unsorted list mixing tasks from every list, with no section per list.",
+      "In the compact date picker, the selected day is a black circle instead of the accent colour."
+    ],
+    "scroll": "Lists scroll smoothly when dragged slowly, flung and flung back to the top. No blank rows or popping, and the large title collapses normally.",
+    "scores": {"features": 5, "platform": 6, "polish": 5, "overall": 4}
+  },
+  "better": "A",
+  "why": "Each app has one showstopper in requirement 3: A freezes when you set a due date, and B crashes whenever you tap a task to edit it. B's crash is worse because tapping a row is the most common thing a user does, and it leaves no way to edit anything. A is also the more convincing iPhone app: colour-coded inset-grouped lists, system swipe actions, a disclosure-style Completed section and lists grouped by section in All. B has always-on grips, a hand-drawn swipe button and identical orange list icons. B's working drag-to-reorder doesn't make up for that."
+}

@@ -1,0 +1,26 @@
+{
+  "spec": "settings",
+  "arm": "exact",
+  "model": "claude",
+  "appId": "dev.bakeoff.settings.b64569a",
+  "assignedId": "dev.bakeoff.settings.b64569a",
+  "appName": "Settings",
+  "sim": "C2188CC6-FBE9-409A-92A8-ABD89AC2C432",
+  "pin": "d7ed471d11",
+  "minutes": 13.54,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 4808627,
+    "fresh": 95220,
+    "input": 4777580,
+    "cached": 4682360,
+    "output": 31047,
+    "cost": 2.3186679999999997,
+    "calls": 118,
+    "toolCalls": 69
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r28/built/settings-exact.app",
+  "notes": true,
+  "finished": "2026-10-27T20:53:36.211Z"
+}

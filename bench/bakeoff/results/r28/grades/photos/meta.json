@@ -1,0 +1,11 @@
+{
+  "spec": "photos",
+  "key": {
+    "A": "exact",
+    "B": "uikit"
+  },
+  "exit": 0,
+  "minutes": 13.67,
+  "shots": 54,
+  "graded": true
+}

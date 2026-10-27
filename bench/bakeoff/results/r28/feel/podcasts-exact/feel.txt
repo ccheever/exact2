@@ -1,0 +1,27 @@
+dev.bakeoff.podcasts.b6eb7f7: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 22.17 s of motion
+  ok    hitch ratio (ms/s)                     1.5
+  ok    longest frame (ms)                     33.3
+  ok    main thread p95 (ms/frame)             5.23
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       501
+  ok    momentum hand-off (content/asked)      1.06
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.78
+  ok    rubber band (overscroll/finger)        0.48
+  ok    rubber band settle (s)                 0.54
+  ok    status-bar scroll to top (s)           0.51
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              95
+  bad   scrub: longest frame (ms)              82.9
+  bad   scrub: blank samples (share)           0.455
+  ok    scrub: blanks while held (share)       0
+  17 ok, 0 tell, 3 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 1.5):
+    slow-drag: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 21 ms (in UIKit 14); in the main queue 14 ms, display links and ports 7 ms
+    fling-for-tap: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 19 ms (in UIKit 8); in display links and ports 16 ms, events 3 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 10 late frames (0 on a timer's tick), 306 ms late; Exact host 455 ms (in UIKit 305) · Exact runtime (main waits on exact.owner) 32 ms · Exact host (main waits on exact.owner) 26 ms; in display links and ports 283 ms, events 177 ms, the main queue 69 ms

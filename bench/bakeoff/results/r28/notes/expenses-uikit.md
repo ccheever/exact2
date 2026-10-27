@@ -1,0 +1,11 @@
+Expenses is finished, built, installed, and launched on simulator CEDFB9C9-FF04-4617-B156-94C56B83CA86 with bundle ID dev.bakeoff.expenses.b728daa. The final build excludes the QA harness. Its saved history exactly matches the supplied 240 transactions, and Resources/transactions.json ships in the app bundle.
+
+The app uses programmatic UIKit with Activity and Categories tabs, daily groups and totals, a current-month summary, an add/edit sheet, swipe deletion, seven-category selection, a date picker, optional multiline notes, and atomic local JSON persistence. Currency calculations use Decimal. Empty saved histories remain empty instead of being seeded again.
+
+The hardest parts were sizing table headers and rows at the largest accessibility text size, avoiding double scaling of weighted fonts, focusing an offscreen note field from the keyboard’s Next action, and maintaining dark-mode button contrast. Large navigation titles rendered inconsistently on the simulator runtime, so the finished app uses native compact navigation titles.
+
+I read README.md, the build script, the supplied data, and simctl’s UI/IO help. No web research was needed. Choices made without clarification: dates use the device’s local Gregorian calendar; amounts allow at most two decimal places and must be positive; merchant is required; new expenses initially select Dining; category details start with this month and provide an All time option.
+
+Validation used only the assigned simulator. Simulator-only checks covered seed integrity, the exact October total ($5,269.70 across 86 expenses), currency formatting, invalid and fractional amounts, calendar/DST boundaries, category ordering and totals, monthly/all-time filters, add/edit/delete round trips, persistence across process relaunches, category-picker callbacks, empty states, corrupted-file preservation, and keyboard focus. Screenshots were inspected in light mode and in dark mode at the largest accessibility size. The checks invoke UIKit/controller actions programmatically rather than synthesizing touch gestures. Test sources are in Tests/ and screenshots are in Screenshots/.
+
+No known requested functionality remains unfinished. A supplied touch-driving test runner would have made end-to-end simulator verification faster. The lightweight Swift compiler build was otherwise sufficient.

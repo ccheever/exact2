@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and % change since open. Change is green when up and red when down, in light and dark mode."},
+      {"n": 2, "status": "pass", "note": "About 20 rows change each second and update in place. When sorted by price or change the list re-sorts live, so a row can move under a finger: a tap aimed at HMX opened RZC because the two had just swapped places."},
+      {"n": 3, "status": "pass", "note": "Native sort menu (Symbol A–Z, Price high→low, Change high→low) with a checkmark on the current choice. Picking a sort jumps to the top of the list. Native bottom search matches symbol or name ('cedar' → 16, 'zex' → 3) and has a proper 'No Matching Tickers' empty state. There is no way to reverse the sort direction."},
+      {"n": 4, "status": "pass", "note": "A star on each row toggles My List. The segmented All/My List control works and its count updates (3 tickers)."},
+      {"n": 5, "status": "pass", "note": "Detail screen shows name, a large price, change since open, open, volume and a live line chart with min/max labels and an 'n of 60 prices' count. The star in the nav bar works. History is collected from app launch, so the chart starts with only a few points."},
+      {"n": 6, "status": "pass", "note": "My List, the chosen sort and even the All/My List segment survive a relaunch."}
+    ],
+    "bugs": [
+      "In the accessibility tree the segmented control still reports 'All' as selected after switching to My List (the screen itself shows the right segment).",
+      "Live re-sorting by price or change moves rows under the finger, so a tap can open the wrong ticker."
+    ],
+    "tells": [
+      "The segmented control sits inside its own white inset-grouped card instead of in the nav bar or header.",
+      "The header strings are run together with no separator: '260 tickers · Price · High to low Simulated live · Updates every second'. At the largest text size this caption takes up most of the first screen.",
+      "At the largest text size the price line in each row is pushed left of the symbol and name column, and the star glyph becomes very large.",
+      "The stars are exposed as Switches, which is fine for accessibility but unusual."
+    ],
+    "scroll": "A real collection view with an inset-grouped look. Slow drags and flings are smooth, there are no blank rows, the large title collapses into an inline title with material behind it, and pulling past the top bounces normally. Rows only jump when a live price/change sort reorders them.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 listed with symbol, name, price and a % change pill tinted green or red. Each row also has a decorative letter avatar."},
+      {"n": 2, "status": "pass", "note": "Prices tick in place about every second. Live re-sorting under price or change sort happens here too."},
+      {"n": 3, "status": "partial", "note": "Native sort menu with icons, the same three options and checkmark, and native search with an empty state. But changing the sort does not return to the top: going from Change to Symbol left the list at the ZE… tickers, and going to Change left it mid-list following AR. The '260 stocks' count does not change while searching (the section header does say '16 RESULTS')."},
+      {"n": 4, "status": "pass", "note": "The star toggles My List and the segmented control works."},
+      {"n": 5, "status": "pass", "note": "Detail screen shows the price, a change pill, open, volume and currency, plus a live area chart with low/high and a 'n of 60 samples' count. The star works. History is collected from launch."},
+      {"n": 6, "status": "pass", "note": "My List and the sort survive a relaunch. The All/My List segment resets to All, which the spec does not require it to keep."}
+    ],
+    "bugs": [
+      "Changing the sort keeps the scroll anchored to the previous row, so the list lands mid-way or at the end instead of at the top. With a live sort the view then keeps drifting.",
+      "The VoiceOver row label reads 'down +2.83% since open': a 'down' word next to a plus sign, and the sign disagrees with the -2.83% shown on screen.",
+      "The '260 stocks' count in the header ignores the search filter.",
+      "Off-screen rows are all exposed to accessibility at the same frame, with every one of the 260 rows stacked at the top of the table."
+    ],
+    "tells": [
+      "The large title, 'LIVE SIMULATION' line, count and segmented control form a fixed header that never scrolls or collapses. The list scrolls in a clipped box below it with a hard edge and no nav-bar material. At the largest text size the header takes about 55% of the screen.",
+      "The letter avatar tiles are decorative filler: every ticker on a screen shows the same initial ('A', 'A', 'A').",
+      "Rows are 84 pt tall with a lot of padding, so only about 6 tickers fit on screen. It feels like a web card list rather than a dense iOS list.",
+      "The filled star is a custom brown-gold in light mode rather than the system yellow, and the dark mode uses a custom navy-black background instead of system black.",
+      "Separators are inset from an odd leading point (past the avatar), and the section header text is small caps in a custom style."
+    ],
+    "scroll": "Drags and flings are smooth with no blank rows. But the list scrolls inside a fixed region under a non-collapsing header with a hard clip edge, and changing the sort strands you mid-list and the view drifts with the anchored row.",
+    "scores": {"features": 7, "platform": 5, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet the spec with native menus, search and live charts. A behaves like a real iOS list: the large title collapses, rows are dense, picking a sort jumps to the top, and it remembers even the selected segment. B's fixed, non-collapsing header with a clipped list, its decorative cards and avatars, and the bug where changing the sort leaves you mid-list or at the end make it feel less native and more frustrating to use."
+}
