@@ -511,7 +511,7 @@ test('missing process start times block live owners but release after same-boot 
   }
 });
 
-test('confirmed same-host restart retires only the audited native operation and preserves unknown history', async () => {
+test('confirmed same-host restart retires only the audited execution and preserves unknown history', async () => {
   const f = fixture(); await f.start(); const c = f.c(f.main);
   const current = processIdentity(process.pid); expect(current?.bootId).toBeTruthy();
   await f.c(f.a).recordOutput(f.ta.id, f.ta.thread, 'target/retained', 1);
@@ -552,7 +552,9 @@ test('confirmed same-host restart retires only the audited native operation and 
     ['unrecorded identity', (s, a) => { a.processes.push({ ...child, pid: 2147483644 }); }],
     ['false lifetime claim', (s, a) => { a.noUnrecordedDescendants = true; }],
     ['noncoordinator', (s, a) => { a.auditorThreadId = f.ta.thread; }],
-    ['nonnative operation', s => { const l = s.leases['native-build']; delete s.leases['native-build']; s.leases['process:old'] = { ...l, kind: 'process' }; }],
+    ['mismatched process key', s => { const l = s.leases['native-build']; delete s.leases['native-build']; s.leases['process:old'] = { ...l, kind: 'process' }; }],
+    ['mismatched native kind', s => { s.leases['native-build'].kind = 'process'; }],
+    ['publishing lease', s => { const l = s.leases['native-build']; delete s.leases['native-build']; s.leases['publish:old'] = { ...l, kind: 'publish' }; }],
     ['ordinary audit remains closed', (s, a) => { delete a.newBootBoundary; }],
     ['mismatched task', (s, a) => { a.taskId = f.tb.id; }],
   ];
@@ -577,6 +579,27 @@ test('confirmed same-host restart retires only the audited native operation and 
   expected.tasks[f.ta.id].processes = expected.tasks[f.ta.id].processes.filter(p => p.operation !== operation);
   expected.events.push(released);
   expect(after).toEqual(expected);
+
+  const processBaseline = structuredClone(baseline);
+  const processLease = { ...processBaseline.leases['native-build'], kind: 'process' };
+  delete processBaseline.leases['native-build'];
+  processBaseline.leases[`process:${operation}`] = processLease;
+  const sameBootProcess = structuredClone(processBaseline), sameBootAudit = structuredClone(accepted);
+  sameBootProcess.leases[`process:${operation}`].guard.bootId = current.bootId;
+  sameBootAudit.newBootBoundary.fromBootId = current.bootId;
+  writeFileSync(stateFile, JSON.stringify(sameBootProcess));
+  const sameBootBytes = readFileSync(stateFile, 'utf8');
+  await expect(c.auditRun(f.ta.id, 'coordinator', sameBootAudit)).rejects.toThrow('confirmed same-host restart');
+  expect(readFileSync(stateFile, 'utf8')).toBe(sameBootBytes);
+  writeFileSync(stateFile, JSON.stringify(processBaseline));
+  const processReleased = await c.auditRun(f.ta.id, 'coordinator', accepted);
+  expect(processReleased).toMatchObject({ operation, held: false, historicalLifetime: 'unknown',
+    releaseBasis: 'confirmed-same-host-restart', audit: accepted });
+  const processExpected = structuredClone(processBaseline);
+  delete processExpected.leases[`process:${operation}`];
+  processExpected.tasks[f.ta.id].processes = processExpected.tasks[f.ta.id].processes.filter(p => p.operation !== operation);
+  processExpected.events.push(processReleased);
+  expect(await c.status()).toEqual(processExpected);
 });
 
 test('port and storage receipts collide across processes and release for reuse', async () => {

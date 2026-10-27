@@ -319,7 +319,9 @@ export class Coordination {
         this.coordinator(s, thread);
         const boundary = audit.newBootBoundary;
         const previousBoot = lease.guard?.bootId;
-        if (key !== 'native-build' || lease.kind !== 'native-build' || lease.phase !== 'awaiting-audit' || task.pending.length ||
+        const matchingLease = (key === 'native-build' && lease.kind === 'native-build') ||
+          (key === `process:${audit.operation}` && lease.kind === 'process');
+        if (!matchingLease || lease.phase !== 'awaiting-audit' || task.pending.length ||
             !bootId || !previousBoot || previousBoot === bootId || boundary.fromBootId !== previousBoot || boundary.toBootId !== bootId ||
             boundary.host !== hostname() || lease.guard.host !== boundary.host || boundary.sameHostRestartConfirmed !== true ||
             typeof boundary.confirmationReference !== 'string' || !boundary.confirmationReference.trim() || audit.noUnrecordedDescendants !== false) {
