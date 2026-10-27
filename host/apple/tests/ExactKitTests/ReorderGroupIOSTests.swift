@@ -71,6 +71,32 @@ final class ReorderGroupIOSTests: XCTestCase {
         return (p, p.views[3]!)
     }
 
+    /// At its last pixel read back a ULP off the grid's value (UIKit hands
+    /// 5/3 back as 1.6666666666666665), a scroller can scroll no further
+    /// toward that edge, so autoscroll passes to its ancestor (PixelGrid.same;
+    /// Astra's audit on the smooth-correction livelock).
+    func testAScrollerAtItsLastPixelReadBackOffTheGridCannotScrollOn() throws {
+        let (p, _) = fixture(ReorderGroupRecorder(), nested: true)
+        let inner = try XCTUnwrap(p.views[1]?.scroll)
+        inner.traitOverrides.displayScale = 3
+        inner.updateTraitsIfNeeded()
+        inner.contentInsetAdjustmentBehavior = .never
+        inner.contentInset = .zero
+        // A grid offset UIKit reads back off the grid (the precondition, shown here), made the last one.
+        var last: CGFloat?
+        for k in 1...600 {
+            let y = 100 + CGFloat(k) / 3
+            inner.contentSize.height = inner.bounds.height + y
+            inner.contentOffset.y = PixelGrid.offset(CGPoint(x: 0, y: y), in: inner).y
+            if inner.contentOffset.y != PixelGrid.offset(CGPoint(x: 0, y: y), in: inner).y { last = y; break }
+        }
+        let y = try XCTUnwrap(last, "a last pixel UIKit reads back off the grid")
+        let candidate = ReorderScroller(scroll: inner, vertical: true, rect: .zero)
+        XCTAssertFalse(candidate.canScroll(toward: 1), "at its last pixel (\(y), read back \(inner.contentOffset.y))")
+        XCTAssertTrue(candidate.canScroll(toward: -1))
+        window?.isHidden = true
+    }
+
     func testAutoscrollPassesAFractionalInnerLimitToItsAncestor() throws {
         for scale in [2, 3] as [CGFloat] {
             let (p, grip) = fixture(ReorderGroupRecorder(), nested: true)
