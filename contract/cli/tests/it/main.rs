@@ -11,6 +11,7 @@ mod announce;
 mod app_action_snapshots;
 mod app_chat_consumer;
 mod app_command_palette;
+mod app_inline_shortcuts;
 mod aria;
 mod at;
 mod auth;
