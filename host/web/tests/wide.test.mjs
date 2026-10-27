@@ -314,6 +314,19 @@ check('turning a split off clears its selected mark and stale row ownership cann
   });
 }, 60000);
 
+check('a detail no row pushed marks the row the app says is current', () => {
+  const body = `<div data-exact-list><button id="row-a" data-exact-on="press" data-exact-router-press="true">A${chevron}</button>
+    <button id="row-b" data-exact-on="press" data-exact-router-press="true" aria-current="page">B${chevron}</button></div>`;
+  return inChrome(page(ruleStack(body)), async evaluate => {
+    const marks = `[...document.querySelectorAll('[data-exact-split-row]')].map(e => e.id)`;
+    expect(await evaluate(`push(2, '/item/b'); ${marks}`)).toEqual(['row-b']);
+    // A row's press names its detail's row, whatever the app says is current.
+    expect(await evaluate(`{ const row = document.getElementById('row-a'); row.addEventListener('click', () => push(2, '/item/a', [[1, '/'], [2, '/item/a']]), {once:true}); row.click(); } ${marks}`)).toEqual(['row-a']);
+    // With no detail shown no row is marked.
+    expect(await evaluate(`select(1); ${marks}`)).toEqual([]);
+  });
+}, 60000);
+
 check('check advises on a bottom tab bar and an unsplit pushing list at a desktop width, and on neither at a phone\'s', () => {
   const positioned = BAR.replace('style="display:flex;flex-direction:row"', 'style="display:flex;flex-direction:row;position:absolute;left:0;right:0;bottom:0"');
   const html = page(tabs(positioned).replaceAll(chevron, '').replace('id="r1" style="position:absolute', 'id="r1" style="position:relative')) + `<script type="module">

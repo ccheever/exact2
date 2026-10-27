@@ -1227,7 +1227,7 @@ component Excord
             column navigationSplit="placeholder" align-items="center" justify-content="center" gap=12 padding=24 testId="no-channel"
               image "symbol:messages" font-size=40 color="-exact-tertiary-label"
               text (dmsShown ? "Choose a conversation" : "Choose a channel") font="-exact-title3" color="-exact-secondary-label"
-            DirectoryList(gw=gw, dmsShown=dmsShown, guild=guild, dmUnread=dmUnread, dmMentions=dmMentions, rail=rail, openFolders=openFolders, directoryLoaded=directoryLoaded, directoryFailed=directoryFailed, recentDms=recentDms, dms=dms, here=here, channelsFailed=failed(categories), pickServer=pickServer, toggleFolder=toggleFolder, openChannel=openChannel, moreDms=moreDms, retryChannels=retryChannels)
+            DirectoryList(gw=gw, dmsShown=dmsShown, guild=guild, dmUnread=dmUnread, dmMentions=dmMentions, rail=rail, openFolders=openFolders, directoryLoaded=directoryLoaded, directoryFailed=directoryFailed, recentDms=recentDms, dms=dms, here=here, current=(screen == "channel" ? open : ""), channelsFailed=failed(categories), pickServer=pickServer, toggleFolder=toggleFolder, openChannel=openChannel, moreDms=moreDms, retryChannels=retryChannels)
         else if e.name == "photo"
           column navigationKey=`${e.id}` navigationPresentation="fullscreen" navigationSource=`photo-${e.params.photo}` position="absolute" inset=0 class=ViewerRoute animation=(viewZoom == 1 ? "viewerFade 1s linear both" : "none")
             if viewing != "" and not locked

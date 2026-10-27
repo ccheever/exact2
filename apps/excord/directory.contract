@@ -16,6 +16,8 @@ component DirectoryList
     recentDms: Channel[]
     dms: Channel[]
     here: Category[]
+    // The channel open beside the list, which a split marks.
+    current: string
     channelsFailed: bool
     pickServer: action
     toggleFolder: action
@@ -57,7 +59,7 @@ component DirectoryList
         else if dmsShown
           section
             for c in recentDms key=c.id
-              button press=openChannel(c.id) testId=`dm-${c.id}` aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
+              button press=openChannel(c.id) testId=`dm-${c.id}` aria-current=(c.id == current ? "page" : "false") aria-label=`${c.name}${c.unread > 0 ? ", unread" : ""}`
                 row gap=12 align-items="center" flex=1 min-width=0
                   if c.avatar != ""
                     image c.avatar width=32 height=32 border-radius=16 object-fit="cover" flex-shrink=0 background-color="-exact-tertiary-fill" aria-hidden=true
@@ -84,7 +86,7 @@ component DirectoryList
             if g.name == ""
               section
                 for c in g.channels key=c.id
-                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.private ? ", private channel" : ""}${c.unread > 0 ? ", unread" : ""}`
+                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-current=(c.id == current ? "page" : "false") aria-label=`${c.name}${c.private ? ", private channel" : ""}${c.unread > 0 ? ", unread" : ""}`
                     row gap=8 align-items="center" flex=1 min-width=0
                       ChannelMark(locked=c.private)
                       text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
@@ -96,7 +98,7 @@ component DirectoryList
                 header
                   text g.name
                 for c in g.channels key=c.id
-                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-label=`${c.name}${c.private ? ", private channel" : ""}${c.unread > 0 ? ", unread" : ""}`
+                  button press=openChannel(c.id) testId=`channel-${c.name}` aria-current=(c.id == current ? "page" : "false") aria-label=`${c.name}${c.private ? ", private channel" : ""}${c.unread > 0 ? ", unread" : ""}`
                     row gap=8 align-items="center" flex=1 min-width=0
                       ChannelMark(locked=c.private)
                       text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1

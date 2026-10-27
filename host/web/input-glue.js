@@ -125,6 +125,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
+    touched = true; // any key, Tab included: a route's focus shows the ring to a keyboard's user (`arrive`, below)
     if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
     if (event.isComposing || event.keyCode === 229 || event.key === "Process" || !ready() || event.defaultPrevented) return; // an input method's key, WebKit's committing Enter included (rt.js `onKey`)
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
@@ -619,15 +620,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // (so a route that arrives with no press never takes the focus from where a person put it), but for one still in a
   // leaving element (`[data-exiting]`: a sheet sliding away or a presence view leaving), which is no one's. Another
   // tab's stack is no arrival (the focus stays on its tab), nor is the first sight of a page. Nothing scrolls, and the
-  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's (`focusVisible` says
-  // which, where the engine takes it). The stack is read from the attributes navigation.js projects from.
-  let shown = null, pressed = null;
+  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's, and none before the
+  // person has pressed a key or the pointer, as for a page's first route (`focusVisible` says which, where the engine
+  // takes it). The stack is read from the attributes navigation.js projects from.
+  let shown = null, pressed = null, touched = false;
   const origins = new WeakMap();
   // The press is noted as it begins (the pointer going down; Enter or Space, in the keys' listener above), before the
   // click any listener navigates by: a link to a route is followed from the document's capture phase (above, and the
   // JS target's router.js), so its commit arrives before a listener here would hear that click. A click with neither
   // before it (a script's, the agent's) is noted as it is heard.
-  const note = (e, key) => { if (root.contains(e.target)) pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
+  const note = (e, key) => { if (!root.contains(e.target)) return; touched = true; pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
   document.addEventListener("pointerdown", e => note(e, false), true);
   document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
   const lands = el => !!el?.isConnected && !inertAncestor(el) && el.getClientRects().length > 0 && !el.matches(":disabled");
@@ -660,7 +662,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
     const to = lands(origin) ? origin : titleOf(top) ?? top;
     if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
-    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
+    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : touched ? {} : { focusVisible: false }) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
   };
   return {
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
