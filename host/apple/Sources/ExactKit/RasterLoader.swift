@@ -1151,7 +1151,7 @@ final class RasterLoader {
             facts["bitsPerComponent"] = image.bitsPerComponent
             facts["bytesPerPixel"] = image.bitsPerPixel / 8
             if let raster = interest.view?.raster?.image, raster.isHDR { facts["headroom"] = raster.headroom }
-            if let layer = interest.view?.imageLayer {
+            if let layer = interest.view?.imageContentLayer {
                 var shown = layer.dynamicRangeFacts
                 shown["current"] = (layer.contents as AnyObject?) === image
                 facts["layer"] = shown
