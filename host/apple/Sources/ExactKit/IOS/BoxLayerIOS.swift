@@ -83,6 +83,7 @@ extension NodeView {
             l.contentsGravity = .resize
             let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
             if (l.contents as AnyObject?) !== frame { l.contents = frame }
+            l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
             l.cornerRadius = 0
             l.masksToBounds = false
             return
@@ -126,6 +127,7 @@ extension NodeView {
         if whole.frame != fitted { whole.frame = fitted }
         CATransaction.setDisableActions(true)
         l.contents = nil
+        l.applyDynamicRange(hdr: false, headroom: 0, limit: nil)
         l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
         whole.contentsGravity = .resize
         if (whole.contents as AnyObject?) !== pixels { whole.contents = pixels }
