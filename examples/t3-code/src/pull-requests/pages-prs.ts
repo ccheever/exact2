@@ -2,7 +2,7 @@ import { sourceControlHostName } from '../shared/source-control-hosts';
 import { sharedPullRequestSummary } from './pages-pr-shared';
 // The Pull Requests page: pullRequests.list / listStats /
 // detail / activity, grouped, sorted and presented as the reference page does.
-// Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
+// Sources: T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
 // and components/pullRequest/{pullRequestList.logic,pullRequestListPreferences,
 // PullRequestListFilters,PullRequestListRow,pullRequestPresentation,
 // pullRequestIcons,PullRequestDetailPanel,PullRequestListEmptyState}.tsx.
@@ -13,17 +13,18 @@ import { pagesPrefs } from '../pages/pages-prefs';
 import { projectIdentity } from '../client/presentation';
 import type { T3Client } from '../client/client';
 import { letGo } from '../client/let-go';
-import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
+import { holdPullRequestRefreshes, interactionResumes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, rememberListAnswer, viewRefreshedAt } from './pages-pr-refresh';
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // the panel's onActed
 import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, flushQuickInvalidations } from './pages-pr-quick';
 import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // several servers' rows
-import { environmentQueries, filterKeyOf, foldAnswers, largestPullRequestReadCount, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
+import { environmentQueries, filterKeyOf, foldAnswers, largestPullRequestReadCount, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, restoredPullRequestList, statsBatches, type ListTarget } from './pages-pr-paging';
 import { openOnHostLabel } from '../shared/context-menus'; // the number's menu label
 import { isScratchProject, scratchRoot } from '../pages/pages-home';
 import { projectScopes } from '../sidebar/sidebar-view'; // the project filter's order
 import { prEnvironments, readsPullRequests, type PrEnvironment } from './pages-pr-environments'; // the Server filter
 import { pullRequestHost } from '../palette/palette-linkpr';
 import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns } from './pr-change-breakdown';
+import { shownDiffStat } from './pages-pr-detail';
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -328,8 +329,12 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
     }
     const answers: [string, Obj][] = [];
     for (const target of round.targets) {
-      try { answers.push([target.environmentId, await client.rpc(native, 'pullRequests.list', target.environmentId === client.environmentId ? target.input : { ...target.input, environmentId: target.environmentId })]); }
-      catch (error) { if (letGo(error)) throw error; cached.error ||= failure(error); }
+      try {
+        const answer = await client.rpc(native, 'pullRequests.list', target.environmentId === client.environmentId ? target.input : { ...target.input, environmentId: target.environmentId });
+        answers.push([target.environmentId, answer]);
+        // Each server's first-page answer is kept for the next start (written with the preferences).
+        rememberListAnswer(client, target, answer);
+      } catch (error) { if (letGo(error)) throw error; cached.error ||= failure(error); }
     }
     const merged = foldAnswers(client, answers);
     if (!merged) throw new Error(cached.error || 'Pull requests could not be read.');
@@ -437,7 +442,13 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   const round = listTargets(client, question, queries);
   const key = JSON.stringify([round.targets, input.refresh]);
   noteShowing(client, false);
-  if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live.due) {
+  // A start with nothing read yet shows the answers kept for this question first (restoredPullRequestList), then reads.
+  const restored = cached ? null : restoredPullRequestList(client, round.targets);
+  if (restored) {
+    cached = { key: '', scope: round.key, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: restored as unknown as Obj, error: '', stats: new Map() };
+    lists.set(client, cached);
+    try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
+  } else if (!cached || cached.key !== key || cached.epoch !== pullRequestRefreshEpoch(client) || cached.relist !== listRelist(client) || live.due) {
     // A longer page or the next slice of rows already shown: the footer's spinner first, then the read (the wake asks again).
     if (cached?.result?.truncated === true && cached.scope === round.key && cached.key !== key && growingShown.get(client) !== key) {
       growingShown.set(client, key);
@@ -462,8 +473,15 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
       try { cached = await read; } finally { if (inflight.get(client)?.read === read) inflight.delete(client); }
     }
   }
-  // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters.
-  const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries).map(entry => ({ ...entry, ...sharedPullRequestSummary(client, entry, entry, str(entry.environmentId) || client.environmentId) })), prefs.state) } : null;
+  // withDiffStat over the panel's summary: a row the list could not measure takes the +/- of the pull request open beside it.
+  const panelStat = input.selected ? shownDiffStat(client, input.selected) : null;
+  const panelRow = panelStat ? arr(cached.result?.entries).find(entry => rowRef(entry) === input.selected && !measured(entry)) : undefined;
+  if (panelStat && panelRow) cached.stats.set(entryKey(panelRow), { ...panelStat });
+  // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters. A row keeps
+  // the checks its own list read reported (PullRequestRow draws the list's entry); the newest checks read is the panel's,
+  // the tab's and the sidebar badge's.
+  const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries).map(entry => ({ ...entry,
+    ...sharedPullRequestSummary(client, entry, entry, str(entry.environmentId) || client.environmentId), checksState: entry.checksState })), prefs.state) } : null;
   const presented = presentList(view, answered, answered ? '' : cached.error, cached.stats, prefs, query, input.now, input.selected);
   // The list footer (Load more, Loading more, Narrow your search) and a failed read over shown rows.
   Object.assign(presented, pagingFooter(client, round.key, cached.result?.truncated === true, arr(answered?.entries).length, false, false));

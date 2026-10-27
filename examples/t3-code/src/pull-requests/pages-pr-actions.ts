@@ -5,7 +5,7 @@
 // confirmations in place (Close with comment's too), the out-of-date base branch's popover (Update branch / Update with rebase),
 // "Approve workflows to run", one runner for all ten actions with the reference's toasts and
 // failure hints, and the overrides the panel writes onto the Pull Requests list as an action goes.
-// Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3) apps/web/src/components/pullRequest/PullRequestDetailPanel.tsx
+// Sources: T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3) apps/web/src/components/pullRequest/PullRequestDetailPanel.tsx
 // (perform/finishAction, PullRequestBaseFreshnessWarning, the header and menu matrix), useInlineActionConfirm.ts,
 // pullRequestDetail.logic.ts (ported in pr-row-logic.ts), pullRequestList.logic.ts
 // (pullRequestOverrideAfterAction, applyPullRequestOverrides, settlePullRequestOverrides: ported here
@@ -25,8 +25,9 @@ import { letGo } from '../client/let-go';
 import { pagesPrefs } from '../pages/pages-prefs';
 import { composerNow } from '../composer/composer-controls';
 import { prState } from '../details/pr-row-actions';
+import { termView, terminologyOf, type Terminology } from '../details/git-logic';
 import {
-  canDeletePullRequestBranch, ACTION_FAILURE, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
+  canDeletePullRequestBranch, PULL_REQUEST_ACTIONS, PULL_REQUEST_MERGE_METHOD_LABELS, actionFailureLabels, actionHint, actionPayload, allowedMergeMethods, allowsSinglePullRequestMerge,
   pullRequestActionMenuHasGroup, pullRequestActionNeedsHostRefresh, readableFailure, resolveBaseFreshness, resolvePullRequestMergeMethod, resolvePullRequestPrimaryControl,
   type MergeMethod, type PrimaryControl, type UpdateMethod,
 } from '../details/pr-row-logic';
@@ -122,6 +123,13 @@ const can = (detail: Obj, action: string) => names(obj(detail.capabilities).acti
 /** The panel the menu speaks for: its key, its reference, the detail on screen and how to read it again. */
 export type PanelContext = { key: string; selected: string; reference: Obj; detail: Obj | null; listEntry: Obj | null; refresh: (fromHost: boolean) => void };
 
+/** PullRequestDetailPanel's terminology: the host of the detail on screen (or its summary), of the list's row, else of the project's repository. */
+export function panelTerminology(client: T3Client, projectId: string, detail: Obj | null, listEntry: Obj | null): Terminology {
+  const project = client.shell.projects.find(entry => entry.id === projectId);
+  return terminologyOf(str(detail?.provider) || str(listEntry?.provider) || str(obj(project?.repositoryIdentity).provider) || undefined);
+}
+const contextTerm = (client: T3Client, ctx: PanelContext) => panelTerminology(client, str(ctx.reference.projectId), ctx.detail, ctx.listEntry);
+
 /** The merge method the panel would use now (resolvePullRequestMergeMethod over the allowed ones). */
 export function selectedMethod(client: T3Client, ctx: { key: string; detail: Obj | null; reference: Obj }): MergeMethod {
   const state = actionState(client), detail = ctx.detail ?? {};
@@ -147,15 +155,19 @@ export function emptyActions() {
     // The armed confirmation: its control and action ('' for none) and the serial its 3 s lapse names.
     armedControl: '', armedAction: '', armedSerial: 0,
     stack: emptyStack(),
+    // The host's words: "Close merge request", "Copy MR number".
+    term: termView(terminologyOf(undefined)),
   };
 }
 export type PrActionsView = ReturnType<typeof emptyActions>;
-type PresentInput = PanelContext & { checksState: string | null; checksStale: boolean; refreshing: boolean; threadLinks: Obj[] };
+/** `tab`: the tab the panel shows, where the Summary's controls live ('' or absent where it is not known). */
+type PresentInput = PanelContext & { checksState: string | null; checksStale: boolean; refreshing: boolean; threadLinks: Obj[]; tab?: string };
 
 export function presentActions(client: T3Client, input: PresentInput): PrActionsView {
-  const view = emptyActions(), detail = input.detail;
+  const view = emptyActions(), detail = input.detail, term = contextTerm(client, input);
+  view.term = termView(term);
   view.refreshing = input.refreshing;
-  view.moreLabel = input.refreshing ? 'Refreshing pull request' : 'More pull request actions';
+  view.moreLabel = input.refreshing ? `Refreshing ${term.singular}` : `More ${term.singular} actions`;
   if (!detail) return view;
   const state = actionState(client), pendingAction = state.pending?.key === input.key ? state.pending.action : '';
   const actionPending = state.pending !== null;
@@ -175,6 +187,21 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
     canMerge: single && can(detail, 'merge'), canMarkReady: can(detail, 'ready'), canEnableAutoMerge: single && can(detail, 'enable-auto-merge') });
   view.pending = actionPending; view.open = open;
   view.primary = primary ?? '';
+  // The menu's action group (showsDraftToggle, showsAutoMerge, showsMergeNow, showsMergeMethods).
+  const showsDraftToggle = open && can(detail, draft ? 'ready' : 'draft') && !(draft && primary === 'ready');
+  const showsAutoMerge = single && open && ((autoMergeArmed && can(detail, 'disable-auto-merge'))
+    || (!autoMergeArmed && primary !== 'enable-auto-merge' && !draft && !conflicting && can(detail, 'enable-auto-merge') && allowed.length > 0));
+  const showsMergeNow = single && open && (primary === 'enable-auto-merge' || primary === 'auto-merge-armed') && can(detail, 'merge') && !draft && !conflicting && allowed.length > 0;
+  const showsMergeMethods = open && can(detail, 'merge') && !draft && !conflicting && allowed.length > 1;
+  const showsApproveWorkflows = workflows > 0 && !input.checksStale && can(detail, 'approve-workflows');
+  // useInlineActionConfirm: an arming does not outlive its control. It goes with another pull request, a primary
+  // action that changed, a More row that left the menu, and the approval once its bar is gone (another tab). The menu
+  // and the composer letting go of theirs as they close is their popovers' `toggle=`.
+  const menuRow: Record<string, boolean> = { merge: showsMergeNow, 'enable-auto-merge': showsAutoMerge && !(autoMergeArmed && can(detail, 'disable-auto-merge')),
+    close: open && can(detail, 'close'), revert: detail.state === 'merged' && can(detail, 'revert') };
+  const held = state.confirm;
+  if (held && (held.key !== input.key || (held.control === 'primary' && held.action !== primary) || (held.control === 'menu' && !menuRow[held.action])
+    || (held.control === 'approve' && (!showsApproveWorkflows || (!!input.tab && input.tab !== 'summary'))))) state.confirm = null;
   // isArmed follows the action wherever it was armed; a press confirms only on the control that armed it.
   const armed = state.confirm?.key === input.key ? state.confirm : null;
   const isArmed = (action: ConfirmAction) => armed?.action === action;
@@ -196,12 +223,6 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   // Said where the Merge button is: the merge is already asked for, and the host is holding it.
   if (autoMergeArmed && primary !== 'auto-merge-armed') view.armedLabel = armedLabel;
   view.armedTip = `${armedLabel}: the host will merge this on its own once its requirements are met`;
-  // The menu's action group (showsDraftToggle, showsAutoMerge, showsMergeNow, showsMergeMethods).
-  const showsDraftToggle = open && can(detail, draft ? 'ready' : 'draft') && !(draft && primary === 'ready');
-  const showsAutoMerge = single && open && ((autoMergeArmed && can(detail, 'disable-auto-merge'))
-    || (!autoMergeArmed && primary !== 'enable-auto-merge' && !draft && !conflicting && can(detail, 'enable-auto-merge') && allowed.length > 0));
-  const showsMergeNow = single && open && (primary === 'enable-auto-merge' || primary === 'auto-merge-armed') && can(detail, 'merge') && !draft && !conflicting && allowed.length > 0;
-  const showsMergeMethods = open && can(detail, 'merge') && !draft && !conflicting && allowed.length > 1;
   view.draftToggle = showsDraftToggle ? (draft ? 'ready' : 'draft') : '';
   view.mergeNow = showsMergeNow;
   view.mergeNowLabel = isArmed('merge') ? 'Confirm merge?' : 'Merge now';
@@ -211,7 +232,7 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   view.methodsSeparator = showsMergeMethods && (showsDraftToggle || showsMergeNow || showsAutoMerge);
   view.groupSeparator = open && pullRequestActionMenuHasGroup(showsDraftToggle, showsAutoMerge || showsMergeNow, showsMergeMethods);
   view.closeItem = open && can(detail, 'close');
-  view.closeLabel = isArmed('close') ? 'Confirm close?' : 'Close pull request';
+  view.closeLabel = isArmed('close') ? 'Confirm close?' : `Close ${term.singular}`;
   view.revertLabel = isArmed('revert') ? 'Confirm revert?' : 'Revert changes';
   view.reopenItem = detail.state === 'closed' && can(detail, 'reopen');
   view.revertItem = detail.state === 'merged' && can(detail, 'revert');
@@ -227,7 +248,7 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
     view.freshness = true; view.freshnessSummary = `This branch is out-of-date with ${base}${behind}.`;
     view.freshnessMethods = freshness.methods.map(item => ({ key: item, value: `update-branch:${item}`, label: item === 'rebase' ? 'Update with rebase' : 'Update branch' }));
   }
-  view.approveWorkflows = workflows > 0 && !input.checksStale && can(detail, 'approve-workflows');
+  view.approveWorkflows = showsApproveWorkflows;
   view.approveLabel = pendingAction === 'approve-workflows' ? 'Approving...' : isArmed('approve-workflows') ? 'Confirm approve?' : 'Approve workflows to run';
   if (state.deleteBranchConfirm === input.key) Object.assign(view, { dialogOpen: true, dialogTitle: `Delete branch ${str(detail.headBranch)}?`,
     dialogDescription: `This deletes ${str(detail.headBranch)} from ${str(detail.headRepositoryNameWithOwner, str(detail.repository))}. Local branches and worktrees are not changed.`,
@@ -304,7 +325,7 @@ export async function performAction(client: T3Client, native: Native, ctx: Panel
  * comment landed (Close/Reopen with comment, pages-pr-writes.ts). '' when it landed.
  */
 export async function finishAction(client: T3Client, native: Native, ctx: PanelContext, action: string, method?: MergeMethod, updateMethod?: UpdateMethod): Promise<string> {
-  const state = actionState(client);
+  const state = actionState(client), term = contextTerm(client, ctx).singular;
   if (state.confirm?.key === ctx.key) state.confirm = null;
   if (state.deleteBranchConfirm === ctx.key) state.deleteBranchConfirm = '';
   noteActed(client, ctx.listEntry, action, 'sent');
@@ -315,13 +336,14 @@ export async function finishAction(client: T3Client, native: Native, ctx: PanelC
     state.pending = null;
     if (letGo(error)) throw error;
     // The host's own sentence, because it is the only thing that says why; the hint for what was asked.
-    pushToast(client, { kind: 'error', title: ACTION_FAILURE[action] ?? 'Could not update this pull request', description: readableFailure(error, actionHint(action, updateMethod)) });
+    pushToast(client, { kind: 'error', title: actionFailureLabels(term)[action] ?? `Could not update this ${term}`, description: readableFailure(error, actionHint(action, term, updateMethod)) });
     noteActed(client, ctx.listEntry, action, 'failed');
     return error instanceof Error ? error.message : 'The host refused it.';
   }
   state.pending = null;
-  // Reverting opens another pull request; every other action shows its answer in the panel itself.
-  if (action === 'revert') pushToast(client, { kind: 'success', title: 'Revert pull request opened' });
+  // Reverting opens another pull request and a deleted branch leaves the panel as it was; every other action shows its answer in the panel itself.
+  if (action === 'revert') pushToast(client, { kind: 'success', title: `Revert ${term} opened` });
+  if (action === 'delete-branch') pushToast(client, { kind: 'success', title: 'Branch deleted' });
   // An update moves the head and approved workflows are data the detail omits: around the server's cache.
   ctx.refresh(pullRequestActionNeedsHostRefresh(action));
   markStackDue(client, ctx.key);

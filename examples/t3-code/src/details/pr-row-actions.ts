@@ -1,5 +1,5 @@
 // What the details card's pull request row does against the host
-// (MIT reference, see LICENSE-T3, upstream 9c161462c9):
+// (MIT reference, see LICENSE-T3, upstream 7c3b3b3605ef):
 // - ThreadDetailsPrRow's detail and checks reads (useEnvironmentQuery, one read
 //   in flight per reference, a 10-minute refresh while the pull request is open);
 // - usePullRequestActionRunner: Ready and Merge through `pullRequests.runAction`,
@@ -19,7 +19,8 @@ import { ensureDraftThreadId, withHandoffThread } from '../composer/draft-thread
 import { contextReferences } from '../composer/composer-editor-menu';
 import { rememberReviewCommentRecord } from '../composer/composer-editor';
 import { appendInlineContextReference, chipLink, chipRecord, handoffReviewComments, setReviewCommentLinks, stripPullRequestHandoffReferences, type HandoffComment } from '../pull-requests/pages-pr-handoffs-logic';
-import { ACTION_FAILURE, ACTION_HINT, ACTION_SUCCESS, OFF_HEAD_CHECKOUT_TOAST, actionPayload, checkoutFailureDescription, fixChecksPrompt, handoffPrompt, preparePayload, readableFailure, resolveConflictsPrompt, type MergeMethod } from './pr-row-logic';
+import { actionFailureHints, actionFailureLabels, actionPayload, actionSuccessLabels, checkoutFailureDescription, checksRefreshIntervalMs, fixChecksPrompt, handoffPrompt, offHeadCheckoutToast, preparePayload, readableFailure, resolveConflictsPrompt, resolvePullRequestDetailChecks, type MergeMethod } from './pr-row-logic';
+import { terminologyForUrl, terminologyOf, type Terminology } from './git-logic';
 import { letGo } from '../client/let-go';
 
 type Entry = { at: number; checksAt: number; detail: Obj | null; error: string; reading: boolean };
@@ -70,13 +71,13 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
     if (known && cached.detail) cached.detail = { ...cached.detail, ...known };
     const open = cached.detail?.state === 'open';
     const fresh = cached.error ? !now || now - cached.at < RETRY_MS : !open || !now || now - cached.at < REFRESH_MS;
-    // usePullRequestChecksRefresh: the checks alone, every 45 s while runs are pending (or none reported), else 60 s.
+    // usePullRequestChecksRefresh: the checks alone, every 45 s while runs are pending (or none reported), else 60 s;
+    // the answer, newer than the detail it lands on, takes over only the state and the checks.
     if (fresh && open && now && cached.detail && caps(client).pullRequestChecks === true) {
-      const checks = arr(cached.detail.checks), busy = !checks.length || checks.some(check => check.status === 'pending' || check.status === 'action-required');
-      if (now - cached.checksAt >= (busy ? 45_000 : 60_000)) {
+      if (now - cached.checksAt >= checksRefreshIntervalMs(arr(cached.detail.checks))) {
         cached.checksAt = now;
         const update = await client.rpc(native, 'pullRequests.checks', normalRef(reference)).catch(() => null);
-        if (update && Array.isArray(obj(update).checks) && cached.detail) cached.detail = { ...cached.detail, ...obj(update) };
+        if (update && cached.detail) cached.detail = resolvePullRequestDetailChecks(cached.detail, obj(update), true);
         return cached.detail;
       }
     }
@@ -89,7 +90,7 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
     let merged = obj(await client.rpc(native, 'pullRequests.detail', { ...ref, allowStale: false }));
     if (caps(client).pullRequestChecks === true && num(merged.number) > 0) {
       const checks = await client.rpc(native, 'pullRequests.checks', ref).catch((error: unknown) => { if (letGo(error)) throw error; return null; });
-      if (checks && typeof checks === 'object' && Array.isArray(obj(checks).checks)) merged = { ...merged, ...obj(checks) };
+      if (checks && typeof checks === 'object') merged = resolvePullRequestDetailChecks(merged, obj(checks), true) ?? merged;
     }
     entry.detail = num(merged.number) > 0 ? merged : null;
   } catch (error) {
@@ -113,9 +114,15 @@ export function forgetDetails(client: T3Client, reference?: Obj): void {
   if (reference) state.details.delete(refKey(client, reference)); else state.details.clear();
 }
 
+/** ThreadDetailsPrRow's terminology: the host of the detail read, else of the project's repository. */
+export function rowTerminology(client: T3Client, reference: Obj, detail: Obj | null = peekDetail(client, reference)): Terminology {
+  const project = client.shell.projects.find(entry => entry.id === str(reference.projectId));
+  return terminologyOf(str(detail?.provider) || str(obj(project?.repositoryIdentity).provider) || undefined);
+}
+
 /** usePullRequestActionRunner.perform: one host action, toasted the reference's way, then a fresh read. */
 export async function performAction(client: T3Client, native: Native, reference: Obj, action: 'merge' | 'ready', method?: MergeMethod): Promise<string> {
-  const state = prState(client), key = refKey(client, reference);
+  const state = prState(client), key = refKey(client, reference), term = rowTerminology(client, reference).singular;
   if (state.acting.has(key)) return '';
   state.acting.add(key);
   try {
@@ -123,10 +130,10 @@ export async function performAction(client: T3Client, native: Native, reference:
   } catch (error) {
     if (letGo(error)) throw error;
     // The host's own sentence, because it is the only thing that says why.
-    pushToast(client, { kind: 'error', title: ACTION_FAILURE[action]!, description: readableFailure(error, ACTION_HINT[action]!) });
+    pushToast(client, { kind: 'error', title: actionFailureLabels(term)[action]!, description: readableFailure(error, actionFailureHints(term)[action]!) });
     return '';
   } finally { state.acting.delete(key); }
-  pushToast(client, { kind: 'success', title: ACTION_SUCCESS[action]! });
+  pushToast(client, { kind: 'success', title: actionSuccessLabels(term)[action]! });
   forgetDetails(client, reference);
   return '';
 }
@@ -136,11 +143,12 @@ export const isActing = (client: T3Client, reference: Obj | null) => !!reference
 /** The Merge AlertDialog opens on the row's Merge and closes on Cancel, Escape or its own Merge. */
 export function askMerge(client: T3Client, reference: Obj, number: number, method: MergeMethod): void { prState(client).confirm = { reference: normalRef(reference), number, method }; }
 export function closeMerge(client: T3Client): void { prState(client).confirm = null; }
-export type MergeAsk = { open: boolean; number: number; description: string; target: string; pending: boolean };
+export type MergeAsk = { open: boolean; number: number; title: string; description: string; target: string; pending: boolean };
 export function mergeAsk(client: T3Client): MergeAsk {
   const confirm = prState(client).confirm;
-  if (!confirm) return { open: false, number: 0, description: '', target: '', pending: false };
-  return { open: true, number: confirm.number, description: `This merges #${confirm.number} using ${confirm.method}.`, target: JSON.stringify({ ...confirm.reference, method: confirm.method }), pending: isActing(client, confirm.reference) };
+  if (!confirm) return { open: false, number: 0, title: '', description: '', target: '', pending: false };
+  return { open: true, number: confirm.number, title: `Merge ${rowTerminology(client, confirm.reference).singular}?`, description: `This merges #${confirm.number} using ${confirm.method}.`,
+    target: JSON.stringify({ ...confirm.reference, method: confirm.method }), pending: isActing(client, confirm.reference) };
 }
 export async function confirmMerge(client: T3Client, native: Native, target: string): Promise<string> {
   const parsed = obj(JSON.parse(target || '{}'));
@@ -201,8 +209,13 @@ async function wakeHandoff(native: Native): Promise<void> {
   for (const topic of ['t3.pr', 't3.notify']) { try { await native.later({ op: 'wake', topic }); } catch (error) { if (letGo(error)) throw error; } }
 }
 
-/** startAsk: a question about the change, which needs a thread and nothing else. True when a thread was opened. */
-export async function askInThread(client: T3Client, native: Native, kind: string, task: HandoffTask, projectId: string): Promise<boolean> {
+/** The question's toast: the question is in the composer, or (an empty prompt) the change request is, for the reader to ask. */
+export const askedDescription = (task: HandoffTask, term: Terminology) => (task.prompt.length > 0
+  ? 'The question is in the composer. Read it over, then send.' : `The ${term.singular} is in the composer. Type your question, then send.`);
+
+/** startAsk: a question about the change (`detail`: its project and URL), which needs a thread and nothing else. True when a thread was opened. */
+export async function askInThread(client: T3Client, native: Native, kind: string, task: HandoffTask, detail: Obj): Promise<boolean> {
+  const projectId = str(detail.projectId);
   const state = prState(client);
   if (state.handoff) return false;
   state.handoff = kind;
@@ -210,9 +223,8 @@ export async function askInThread(client: T3Client, native: Native, kind: string
   try { await wakeHandoff(native); opened = await openThreadWithTask(client, native, projectId, task); }
   finally { state.handoff = ''; }
   if (!opened) { pushToast(client, NO_THREAD); return false; }
-  // "Ask" leaves the composer empty on purpose: the chips are what landed.
-  pushToast(client, { kind: 'success', title: 'Asked in a thread', description: task.prompt.length > 0
-    ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' });
+  // "Ask" leaves the composer empty on purpose: the chips are what landed. Prompt links hand over a URL alone, so the URL names the host.
+  pushToast(client, { kind: 'success', title: 'Asked in a thread', description: askedDescription(task, terminologyForUrl(str(detail.url))) });
   return true;
 }
 
@@ -231,7 +243,7 @@ export async function beginCheckoutHandoff(client: T3Client, native: Native, kin
   if (state.handoff) return false;
   state.handoff = kind;
   // The menu closes on the press, so this is the only thing answering for the checkout; a loading toast never expires.
-  const loading = pushToast(client, { kind: 'loading', title: 'Preparing the pull request checkout...', key: TOAST_KEY });
+  const loading = pushToast(client, { kind: 'loading', title: `Preparing the ${terminologyForUrl(str(detail.url)).singular} checkout...`, key: TOAST_KEY });
   let begun = false;
   try {
     await wakeHandoff(native);
@@ -256,13 +268,14 @@ export async function finishCheckoutHandoff(client: T3Client, native: Native): P
   if (!next) return '';
   state.next = null;
   const { task, detail, mode, draftKey, threadId, loading } = next;
+  const term = terminologyForUrl(str(detail.url));
   try {
     let prepared: Obj;
     try { prepared = obj(await client.rpc(native, 'git.preparePullRequestThread', withHandoffThread(preparePayload(detail, mode), threadId), true)); }
     catch (error) {
       if (letGo(error)) { dismissToast(client, loading); throw error; } // let-go.ts: no failure toast
       // The server says what to do about it (that the branch is already checked out, say), else the hint.
-      pushToast(client, { kind: 'error', title: 'Could not prepare the pull request checkout', description: checkoutFailureDescription(error), key: TOAST_KEY });
+      pushToast(client, { kind: 'error', title: `Could not prepare the ${term.singular} checkout`, description: checkoutFailureDescription(error), key: TOAST_KEY });
       return '';
     }
     const branch = str(prepared.branch), worktreePath = str(prepared.worktreePath);
@@ -274,14 +287,14 @@ export async function finishCheckoutHandoff(client: T3Client, native: Native): P
     // newThread(projectRef, { branch, worktreePath, envMode }): the same draft, now on the checkout; a local one runs where the repository is.
     (client.local.composerControls.contexts ??= {})[draftKey] = { envMode: worktreePath ? 'worktree' : 'local', branch, worktreePath };
     const stale = prepared.isOnPullRequestHead === false;
-    const staleToast = { ...OFF_HEAD_CHECKOUT_TOAST, key: TOAST_KEY };
+    const staleToast = { ...offHeadCheckoutToast(term), key: TOAST_KEY };
     if (!task) {
       pushToast(client, stale ? staleToast : { kind: 'success', title: mode === 'local' ? 'Checked out here' : 'Checked out', key: TOAST_KEY,
-        description: mode === 'local' ? "This repository is on the pull request's branch, with a thread open on it." : 'The pull request is in its own worktree, with a thread open on it.' });
+        description: mode === 'local' ? `This repository is on the ${term.singular}'s branch, with a thread open on it.` : `The ${term.singular} is in its own worktree, with a thread open on it.` });
       return '';
     }
     writeTaskToDraft(client, draftKey, task);
-    pushToast(client, stale ? staleToast : { kind: 'success', title: 'Checkout ready', description: 'The task is in the composer — read it over, then send.', key: TOAST_KEY });
+    pushToast(client, stale ? staleToast : { kind: 'success', title: 'Checkout ready', description: 'The task is in the composer. Read it over, then send.', key: TOAST_KEY });
     return '';
   } finally { state.handoff = ''; }
 }

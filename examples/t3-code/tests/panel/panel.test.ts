@@ -5,9 +5,9 @@
 import { frames } from '../../src/browser/browser-frames';
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
-import { closeSurfaceIn, openFileIn, syncDiff, panelState, surfaceLocal, surfaceStore, availability, panelView, workspacePath, type PanelState } from '../../src/panel/panel-surfaces';
+import { closeSurfaceIn, openFileIn, syncDiff, panelKey, panelState, surfaceLocal, surfaceStore, availability, panelView, workspacePath, type PanelState } from '../../src/panel/panel-surfaces';
 import { draftThreadId } from '../../src/composer/draft-thread-id';
-import { deviceThreadId } from '../../src/device/device-session';
+import { deviceThreadId, miniDeviceOf, selectDeviceTarget } from '../../src/device/device-session';
 import { toasts } from '../../src/shell/toast';
 import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths, setMarkdownTaskChecked } from '../../src/panel/files-surface';
 import { resolveChains, listLines, prsView, prCommandPayload } from '../../src/panel/linked-prs';
@@ -73,6 +73,9 @@ describe('rightPanelStore rules', () => {
     expect(workspacePath('/repo', '/repo/')).toEqual({ path: '.', line: 0 });
     expect(workspacePath('/etc/hosts', '/repo')).toEqual({ path: '/etc/hosts', line: 0 });
     expect(workspacePath('docs/guide.md', '/repo', 4)).toEqual({ path: 'docs/guide.md', line: 4 });
+    // workspaceRelativeFilePath (regression #16354): a `..` that leaves the root is a host path, not a workspace path.
+    expect(workspacePath('/repo/project/../other/notes.md', '/repo/project')).toEqual({ path: '/repo/project/../other/notes.md', line: 0 });
+    expect(workspacePath('/repo/project/docs/a/../b.md', '/repo/project')).toEqual({ path: 'docs/a/../b.md', line: 0 });
   });
   test('the Diff tab follows the client diff panel, which other controls open and close', () => {
     const state = panel();
@@ -440,6 +443,27 @@ describe('Device setup', () => {
     expect(draftThreadId(client)).toBe('cmd-0');
     expect(deviceThreadId(client)).toBe('cmd-0');
     expect(surfaceStore(client).deviceSetup).toBe('env:cmd-0');
+  });
+  test('closing the panel floats its device only while the thread\'s session on it is live (floatDeviceSurface)', async () => {
+    const { client } = fakeClient();
+    const iphone = { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' };
+    const devices = (sessions: unknown[]) => deviceStateEvent(client, { subscriptionId: '1-7', key: DEVICE_STATE_KEY, value: { hosts: [{ id: 'local', label: 'This machine', kind: 'local', platforms: [] }],
+      hostStatus: 'ready', hostStatuses: { local: { status: 'ready' } }, devices: [], sessions, onboardingCompleted: true, agentAccessEnabled: false } });
+    const closeOnDevice = async () => {
+      const state = panelState(client);
+      state.surfaces = [{ id: 'device', kind: 'device', path: '', line: 0, reveal: 0 }]; state.active = 'device'; state.visible = true;
+      selectDeviceTarget(client, panelKey(client), iphone);
+      await surfaceLocal(client, native, 'hide', '', '');
+      return state.visible;
+    };
+    await watchDevice(client, native);
+    // A session another thread holds, or one on another device, has nothing of this tab's to stream.
+    devices([{ threadId: 't2', hostId: 'local', deviceId: 'IPHONE' }, { threadId: 't1', hostId: 'local', deviceId: 'PIXEL' }]);
+    expect(await closeOnDevice()).toBe(false);
+    expect(miniDeviceOf(client, 't1')).toBeUndefined();
+    devices([{ threadId: 't1', hostId: 'local', deviceId: 'IPHONE' }]);
+    expect(await closeOnDevice()).toBe(false);
+    expect(miniDeviceOf(client, 't1')).toMatchObject({ hostId: 'local', deviceId: 'IPHONE' });
   });
 });
 

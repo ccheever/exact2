@@ -287,6 +287,24 @@ describe('file header counts', () => {
   });
 });
 
+describe('a file\'s Copy path shows while the pointer is over any of its rows (diffs-container:hover)', () => {
+  test('a row names its file as the pointer enters it, once; the list forgets it as the pointer leaves', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const row = contractComponent('diff-rows.contract', 'DiffRow'), named: string[] = [];
+    const scope = (hoveredPath: string) => ({ item: { kind: 'line', path: 'src/a.ts' }, hoveredPath, hoverPath: (path: string) => named.push(path) });
+    row.call('rowHover', row.state(), scope(''), [true]);
+    row.call('rowHover', row.state(), scope('src/a.ts'), [true]);
+    row.call('rowHover', row.state(), scope('src/a.ts'), [false]);
+    expect(named).toEqual(['src/a.ts']);
+    const body = contractComponent('diff.contract', 'DiffPanelBody'), state = { hoveredFile: '' };
+    body.call('hoverFile', state, {}, ['src/a.ts']);
+    body.call('listHover', state, {}, [true]);
+    expect(state.hoveredFile).toBe('src/a.ts');
+    body.call('listHover', state, {}, [false]);
+    expect(state.hoveredFile).toBe('');
+  });
+});
+
 describe('⌘↩ in a line comment draft', () => {
   test("while the draft's textarea holds the focus the composer's Send declares no chord", async () => {
     const { client, command, calls } = harness();

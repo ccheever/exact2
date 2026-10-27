@@ -8,6 +8,7 @@
 import { quickRow, queueQuickAction } from '../pull-requests/pages-pr-quick';
 import { insertContext } from '../composer/composer-editor';
 import { providerOfUrl } from './pr-surface';
+import { changeRequestHostKind, hostLabelForUrl, terminologyOf } from '../details/git-logic';
 import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
@@ -24,7 +25,7 @@ export type LinkedRow = {
   checks: string; checksLabel: string; review: string; reviewLabel: string; additions: string; deletions: string; breakdown: PrBreakdown;
   author: string; avatar: string; initial: string; head: string; base: string; age: string; stackSize: number; stackLabel: string;
   sourceLabel: string; unlinkLabel: string; canWatch: boolean; context: string;
-  speed: ReturnType<typeof quickRow>['speed']; speedPending: boolean;
+  speed: ReturnType<typeof quickRow>['speed']; speedPending: boolean; quickLabel: string;
 };
 export type PrsView = { supported: boolean; rows: LinkedRow[]; footer: string; canWatch: boolean };
 
@@ -134,8 +135,10 @@ export function prsView(client: T3Client, now: number): PrsView {
       breakdown: projectId ? presentChangeBreakdown(client, linkBreakdown(projectId, link)) : emptyBreakdown(),
       author: snapshot?.author ? login : '', avatar: str(author.avatarUrl), initial: login.slice(0, 1).toUpperCase(), head: str(snapshot?.headBranch), base: str(snapshot?.baseBranch),
       age: snapshot ? relativeLabel(snapshot.updatedAt, now) : '', stackSize: stack?.size ?? 0,
-      stackLabel: stack ? (stack.kind === 'native' ? `GitHub stack of ${stack.size}: merging a layer lands the ones below it.` : `${stack.size} pull requests chained by base branch.`) : '',
-      ...((row) => ({ speed: row.speed, speedPending: row.speedPending }))(quickRow(client, { ...snapshot, projectId: str(thread(client)?.projectId), host: str(link.host), repository: str(link.repository), number: num(link.number), provider: providerOfUrl(str(link.url)), stack: link.stack })),
+      // The link's host by its URL; one no host claims says "change requests" (UNKNOWN_SOURCE_CONTROL_CLIENT).
+      stackLabel: stack ? (stack.kind === 'native' ? `${hostLabelForUrl(str(link.url))} stack of ${stack.size}: merging a layer lands the ones below it.`
+        : `${stack.size} ${terminologyOf(changeRequestHostKind(str(link.url)) || 'unknown').plural} chained by base branch.`) : '',
+      ...((row) => ({ speed: row.speed, speedPending: row.speedPending, quickLabel: row.quickLabel }))(quickRow(client, { ...snapshot, projectId: str(thread(client)?.projectId), host: str(link.host), repository: str(link.repository), number: num(link.number), provider: providerOfUrl(str(link.url)), stack: link.stack })),
       context: JSON.stringify({ number: num(link.number), title: str(snapshot?.title), url: str(link.url), headBranch: str(snapshot?.headBranch), baseBranch: str(snapshot?.baseBranch), state: str(snapshot?.state, 'open'), isDraft: snapshot?.isDraft === true }),
       sourceLabel: `${SOURCE_LABELS[str(link.source)] ?? 'Linked'} · ${relativeLabel(link.linkedAt, now)}`,
       unlinkLabel: link.source === 'stack' ? 'Dismiss from thread' : 'Unlink from thread', canWatch: canWatch && open,

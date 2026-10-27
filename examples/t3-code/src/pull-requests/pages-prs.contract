@@ -60,6 +60,7 @@ shape PrRow
   // The Shift quick actions, the stack trigger and the checks popover's headline.
   speed: PrSpeedAction[]
   speedPending: bool
+  quickLabel: string
   stackLabel: string
   stackAria: string
   stackTip: string
@@ -254,6 +255,14 @@ component PrList
     if not sweepSuppress
       act(op, value)
     sweepSuppress = false
+  // usePullRequestQueryFilters submitQuery: Enter or a paste searches at once rather than after the typing pause
+  // (`control("query")` applies the text as the pause would).
+  action typed(text: string, e: InputEvent)
+    search(text)
+    if e.inputType == "insertFromPaste"
+      control("query", text)
+  action submitted
+    control("query", query)
   // The controls row: wide, the search flexes and the buttons end at the
   // content edge; narrow, the buttons wrap greedily under the search. Each
   // menu names its reference alignment as a `position-area` and flips near
@@ -274,7 +283,7 @@ component PrList
           row width="100%" flex-wrap="wrap" align-items="center" gap="0.5rem" padding-bottom=1 box-sizing="border-box"
             row height="2.125rem" flex-grow=1 flex-shrink=1 flex-basis=(narrow ? "100%" : "0px") min-width=0 box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
               PgIcon(name="search", size=16, color="light-dark(#18181b, #f5f5f5)")
-              input value=query input=search submit=search(query) placeholder="Search pull requests, or label:bug" class=FieldPlaceholder aria-label="Search pull requests" autocorrect="off" spellcheck="false" testId="pull-requests-search" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" id="pull-requests-search" data-editable="yes"
+              input value=query input=typed submit=submitted placeholder="Search pull requests, or label:bug" class=FieldPlaceholder aria-label="Search pull requests" autocorrect="off" spellcheck="false" testId="pull-requests-search" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" id="pull-requests-search" data-editable="yes"
             PrSortMenu(page=page, scheme=scheme, control=control)
             PrFiltersMenu(page=page, scheme=scheme, control=control)
             PrHostMenu(page=page, scheme=scheme, control=control)
@@ -849,7 +858,7 @@ component PrRowButton
             text row.age font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)" flex-shrink=0
       // PullRequestSpeedActions: `display: visible || actionPending ? flex : none`.
       if row.speed.length > 0 and (prSpeedMode or row.speedPending)
-        PrQuickActions(actions=row.speed, number=row.number, pending=row.speedPending, act=act, sweepDown=sweepDown, sweepMove=sweepMove, sweepUp=sweepUp)
+        PrQuickActions(actions=row.speed, number=row.number, label=row.quickLabel, pending=row.speedPending, act=act, sweepDown=sweepDown, sweepMove=sweepMove, sweepUp=sweepUp)
 
 // PullRequestListGhost: seven placeholder rows while the first answer is out, under the caption PullRequestsPage
 // gives it.

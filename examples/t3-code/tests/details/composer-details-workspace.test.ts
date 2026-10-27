@@ -29,6 +29,17 @@ describe('the details Workspace row', () => {
     expect(await details()).toMatchObject({ envMode: 'local', folderName: 'repo', folderLabel: '' });
   });
 
+  test('the run row\'s glyphs name the machine and the folder; a draft with nothing to commit, push or diff shows no Git action or Changes', async () => {
+    const { client, native, command } = await connected();
+    const details = () => shellDetails(client, native, true, '', false);
+    expect((await details()).git).toMatchObject({ runTip: 'This device', workspaceTip: '/repo', quiet: true });
+    setFanout(client, [{ instanceId: 'codex', model: 'model-a', options: [] }, { instanceId: 'claude', model: 'model-b', options: [] }]);
+    expect((await details()).git.workspaceTip).toBe('Each model starts in its own worktree.');
+    setFanout(client, null);
+    await command('cclocal:env-mode', '', 'worktree');
+    expect((await details()).git.workspaceTip).toBe('New worktree');
+  });
+
   test('an unstarted server thread is a select; New worktree starts its first message in one', async () => {
     const native = new Fake(), disk = storage(), client = new T3Client();
     const record = (native.details.t1!.projection as Obj).thread as Obj;

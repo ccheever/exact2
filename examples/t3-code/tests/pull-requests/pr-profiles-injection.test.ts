@@ -116,7 +116,7 @@ describe('host failures and delays (injected; real GitHub does not fail or stall
     const view = await settled(client, { selected, refresh: 2, now: 0 });
     expect([view.error, view.number, view.commentsLabel]).toEqual(['', 7, 'Comments (0)']);
     // The failure says so (PullRequestActivityUnavailableState), not "No comments yet."
-    expect([view.activityError, view.summary.activityError, view.timeline.comments]).toEqual(['GitHub rate limit', 'GitHub rate limit', '—']);
+    expect([view.activityError, view.summary.activityError, view.timeline.comments]).toEqual(['GitHub rate limit', 'GitHub rate limit', '-']);
   });
   test('a refused write toasts the reference\'s title with GitHub\'s reason and returns it to the form', async () => {
     const { client } = fakeClient({ 'pullRequests.runAction': () => { throw new Error('Pull request is not mergeable: the base branch policy prohibits the merge'); } });
