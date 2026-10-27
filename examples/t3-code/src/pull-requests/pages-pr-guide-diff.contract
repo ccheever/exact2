@@ -7,6 +7,7 @@ use ChatDocument, CodeHighlight, MarkdownEnv from "../timeline/markdown.contract
 use PgIcon from "../shared/pages-icons.contract"
 use DiffGlyph from "../diff/diff-glyphs.contract"
 use diffInk from "../appearance/settings-appearance-look.contract"
+use diffChangeInk from "../diff/diff-rows.contract"
 
 shape GuideRowNote
   key: string
@@ -92,7 +93,7 @@ component GuideDiffs
                   text "Open in Code"
               else
                 if not card.missing
-                  DiffGlyph(name=card.status, size=16, color=(card.status == "deleted" ? diffInk(scheme, "del") : card.status == "added" ? diffInk(scheme, "add") : "#009fff"))
+                  DiffGlyph(name=card.status, size=16, color=diffChangeInk(scheme, card.status))
                 text card.path flex=1 min-width=0 font-size="0.75rem" line-height="1rem" text-overflow="ellipsis" white-space="nowrap"
                 row align-items="center" gap="0.5rem" flex-shrink=0
                   if not card.missing

@@ -6,7 +6,7 @@ export type ProviderKind = 'codex' | 'claude' | 'grok' | 'cursor' | 'opencode' |
 export const PROVIDER_ORDER: ProviderKind[] = ['codex', 'claude', 'grok', 'cursor', 'opencode', 'antigravity', 'pi'];
 /** Label, series colour (light, dark) and the driver whose mark it shows. */
 export const PROVIDERS: Record<ProviderKind, { label: string; color: [string, string]; driver: string }> = {
-  codex: { label: 'Codex', color: ['#27272a', '#f5f5f5'], driver: 'codex' },
+  codex: { label: 'Codex', color: ['#18181b', '#f5f5f5'], driver: 'codex' },
   claude: { label: 'Claude Code', color: ['#d97757', '#d97757'], driver: 'claudeAgent' },
   grok: { label: 'Grok Build', color: ['#636365', '#b3b3b3'], driver: 'grok' },
   cursor: { label: 'Cursor', color: ['#8b8b8b', '#8b8b8b'], driver: 'cursor' },

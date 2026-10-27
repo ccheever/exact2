@@ -37,7 +37,7 @@ test('a row carries its address, state, conflict, checks and label chips', () =>
   expect(row.labels[0]).toEqual({ key: 'bug', name: 'bug', background: 'light-dark(#d73a4a14, #d73a4a1f)', ink: 'light-dark(#5b2c31, #e8a1a8)' });
   expect(row.labels[1]!.background).toBe('light-dark(#f4f4f5, #ffffff0f)');
   expect(presentRow(entry(60), 0, row.ref).selected).toBe(true);
-  expect(labelChip('x', '').ink).toBe('light-dark(#27272a, #f5f5f5)');
+  expect(labelChip('x', '').ink).toBe('light-dark(#18181b, #f5f5f5)');
 });
 
 test('the list view answers groups, facets, hosts and its empty states', () => {

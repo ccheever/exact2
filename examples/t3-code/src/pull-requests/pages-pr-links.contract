@@ -44,8 +44,8 @@ shape PrPreviewView
   initial: string
   opened: string
 
-fn plInk(): string = "light-dark(#27272a, #f5f5f5)"
-fn plMuted(): string = "light-dark(#71717b, #818181)"
+fn plInk(): string = "light-dark(#18181b, #f5f5f5)"
+fn plMuted(): string = "light-dark(#71717b, #a1a1a1)"
 fn plAccent(): string = "light-dark(#f4f4f5, #ffffff0a)"
 fn plTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
 fn plIcon(lifecycle: string): string = lifecycle == "draft" ? "git-pull-request-draft" : lifecycle == "closed" ? "git-pull-request-closed" : lifecycle == "merged" ? "git-merge" : "git-pull-request-arrow"
@@ -96,7 +96,7 @@ component PrLinkPreviewCard
     if preview.phase == "content"
       // PreviewCardPopup has no role in the reference (Base UI's PreviewCard popup), so the card is no dialog: since main
       // #457 a `role="dialog"` box is AXApplicationDialog.
-      column width="20rem" padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" animation=(still ? "none" : "plCardIn 150ms ease-out both") testId="pull-request-link-preview"
+      column width="20rem" padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" animation=(still ? "none" : "plCardIn 150ms ease-out both") testId="pull-request-link-preview"
         row min-width=0 align-items="center" gap="0.375rem"
           text preview.repository min-width=0 line-clamp=1 font-size="0.625rem" line-height="0.875rem" color=plMuted()
           text preview.number flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color=plMuted()
@@ -115,7 +115,7 @@ component PrLinkPreviewCard
           text "·" flex-shrink=0 font-size="0.75rem" line-height="1rem" color=plMuted() aria-hidden=true
           text preview.opened flex-shrink=0 white-space="nowrap" font-size="0.75rem" line-height="1rem" color=plMuted()
     if preview.phase == "error"
-      column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId="pull-request-link-preview-url"
+      column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId="pull-request-link-preview-url"
         text href font-size="0.75rem" line-height="1rem" color=plInk()
 
 // The list's footer (_chat.pull-requests.tsx): a read that failed over rows still shown ("… Showing the last pull
@@ -145,7 +145,7 @@ component PrListFooter
     if listError != ""
       row width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="space-between" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#f59e0b4d, #f59e0b4d)" background-color="light-dark(#fffbeb, #f59e0b14)" role="alert" testId="pull-requests-list-error"
         text listError flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=plInk()
-        button press=reload hover=hoverRetry testId="pull-requests-list-retry" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(retryOver ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        button press=reload hover=hoverRetry testId="pull-requests-list-retry" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(retryOver ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
           text "Retry" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=plInk()
     if footer != ""
       row width="100%" justify-content="center" padding-top="0.75rem" padding-bottom="0.75rem" testId="pull-requests-list-footer"
@@ -155,7 +155,7 @@ component PrListFooter
               PgIcon(name="loader-circle", size=14, color=plMuted())
             text footerText font-size="0.75rem" line-height="1rem" color=plMuted()
         if footer == "more"
-          button press=control("load-more", "") hover=hover disabled=loadDisabled testId="pull-requests-load-more" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not loadDisabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(loadDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+          button press=control("load-more", "") hover=hover disabled=loadDisabled testId="pull-requests-load-more" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color=(over and not loadDisabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(loadDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
             text footerText font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=plInk()
         if footer == "narrow"
           text footerText font-size="0.75rem" line-height="1rem" color=plMuted()
@@ -176,7 +176,7 @@ component PrdActOnItems
     idPrefix: string
   view
     if items.length > 0
-      box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+      box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
       column width="100%" role="group" aria-label="Act on"
         for item in items key=item.key
           PrdActOnItem(keysId=keysId, item=item, disabled=disabled, press=act("act-on", item.key), idPrefix=idPrefix)
@@ -197,6 +197,6 @@ component PrdActOnItem
   action focused(on: bool)
     lit = on
   view
-    button id=`${idPrefix}${item.key}` press=press hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitemradio" aria-checked=item.selected testId=`${idPrefix}${item.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit and not disabled ? plAccent() : item.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button id=`${idPrefix}${item.key}` press=press hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitemradio" aria-checked=item.selected testId=`${idPrefix}${item.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(lit and not disabled ? plAccent() : item.selected ? "light-dark(#18181b14, #f5f5f514)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       CnMachineIcon(kind=item.machine, size=14, color=plInk())
       text item.label font-size="0.875rem" line-height="1.25rem" color=plInk() flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
