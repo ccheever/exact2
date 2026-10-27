@@ -1009,7 +1009,7 @@ impl<'a> Lowerer<'a> {
                     n => n,
                 };
                 let row_depth = std::mem::replace(&mut self.row_depth, below);
-                let site_parent = std::mem::replace(&mut self.site_parent, Some(step.id.0));
+                let site_parent = self.site_parent.replace(step.id.0);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
