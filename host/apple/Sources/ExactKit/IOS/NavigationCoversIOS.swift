@@ -36,6 +36,16 @@ extension NavigationHost {
                      left: edges ? max(0, safe.left - env.left) : 0)
     }
 
+    /// Whether `sv` is pulled past where its title's inset rests (`origin`),
+    /// as to refresh. UIKit grows the scroller's safe area with the pull, and
+    /// with the refresh control's room while it shows, and gives it back as
+    /// the list returns: neither is the bar's inset, where CSS scrollTop 0
+    /// rests, and a hand-built list lays out nothing for it. Reported, each
+    /// frame of a pull laid the page out again.
+    static func stretched(_ sv: UIScrollView, origin: CGFloat) -> Bool {
+        origin > 0 && sv.contentOffset.y < -origin - 0.5
+    }
+
     /// What Exact's containers cover of each route — its controller's safe
     /// area past the insets the kernel already has as `env()`: a shown bar's
     /// top, and every edge while the containers take the whole view for a
@@ -82,7 +92,9 @@ extension NavigationHost {
                 #else
                 let inline = c.navigationItem.largeTitleDisplayMode != .always || barless
                 #endif
-                if inline {
+                if Self.stretched(sv, origin: node.scrollOrigin) {
+                    // Pulled past its top, as to refresh: no title's inset.
+                } else if inline {
                     // An inline title does not collapse: its inset is the one it has.
                     node.scrollOrigin = inset; node.scrollCollapsed = inset
                 } else if nav?.transitionCoordinator == nil {
@@ -120,7 +132,9 @@ extension NavigationHost {
                     // read alone, it would leave it there for good.
                     let reach = node === c.edgeScroll ? c.bottomClearance : 0
                     // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).
-                    let top = max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top), bottom = max(0, max(safe.bottom, reach) - node.pageBand.bottom)
+                    let title = node === c.collapseScroll ? node.scrollOrigin : 0
+                    let stretched = title > 0 && node.scrollView.map { Self.stretched($0, origin: title) } == true
+                    let top = max(0, max(stretched ? min(safe.top, title) : safe.top, title) - node.pageBand.top), bottom = max(0, max(safe.bottom, reach) - node.pageBand.bottom)
                     if top > 0 || bottom > 0 { wanted[node.id] = .inset(top: top, bottom: bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
