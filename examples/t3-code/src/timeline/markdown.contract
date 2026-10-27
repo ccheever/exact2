@@ -99,7 +99,9 @@ shape CodeHighlight
 // A class ends in "+i" where the pierre theme sets italic (shiki-highlight.ts).
 fn synColor(cls: string): string = synInk(cls.endsWith("+i") ? cls.slice(0, -2) : cls)
 fn synSlant(cls: string): string = cls.endsWith("+i") ? "italic" : "normal"
-fn synInk(cls: string): string = ["kw", "decl", "type", "fn", "var", "const"].includes(cls) ? (cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : "light-dark(#d5901c, #ffab16)") : ["param", "pyparam", "flag", "interp", "bold", "str", "esc", "num"].includes(cls) ? (cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : "light-dark(#1ca1c7, #68cdf2)") : ["nul", "op", "builtin", "punct", "com", "key", "tag", "heading", "attr"].includes(cls) ? (cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : "light-dark(#18a46c, #60d199)") : ["regex", "deco"].includes(cls) ? (cls == "regex" ? "light-dark(#17a5af, #64d1db)" : "light-dark(#1a85d4, #69b1ff)") : "light-dark(#0a0a0a, #fafafa)"
+// .chat-markdown strong is 600 (3816296021); the parser's bold runs are capped there.
+fn runWeight(weight: number): number = weight > 600 ? 600 : weight
+fn synInk(cls: string): string = ["kw", "decl", "type", "fn", "var", "const"].includes(cls) ? (cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : "light-dark(#d5901c, #ffab16)") : ["param", "pyparam", "flag", "interp", "bold", "str", "esc", "num"].includes(cls) ? (cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : "light-dark(#1ca1c7, #68cdf2)") : ["nul", "op", "builtin", "punct", "com", "key", "tag", "heading", "attr"].includes(cls) ? (cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : "light-dark(#18a46c, #60d199)") : ["regex", "deco"].includes(cls) ? (cls == "regex" ? "light-dark(#17a5af, #64d1db)" : "light-dark(#1a85d4, #69b1ff)") : "light-dark(#000000, #fafafa)"
 
 shape TranscriptMarkdown
   documents: ChatDocument[]
@@ -185,7 +187,7 @@ component ChatMarkdown
     code: CodeHighlight[]
     env: MarkdownEnv
   view
-    EnvBlocks(document=document, local=local, code=code, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, env=env)
+    EnvBlocks(document=document, local=local, code=code, prose="light-dark(#18181bcc, #f5f5f5cc)", fit=false, env=env)
 
 // An answer or plan in the transcript: its settled Mermaid fences draw as
 // diagrams, painted for the colour scheme.
@@ -280,7 +282,7 @@ component AnswerMarkdown
   derive markStart = citeMarked ? (citeAt >= 0 ? citeAt : citeStream(document.blocks, code).indexOf(citeQuote)) : -1
   view
     column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys
-      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected, markStart=markStart, markEnd=(markStart < 0 ? -1 : markStart + citeQuote.length))
+      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#18181bcc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected, markStart=markStart, markEnd=(markStart < 0 ? -1 : markStart + citeQuote.length))
 
 // UserMessageBody: the same Markdown in the message's own ink, single
 // newlines kept as line breaks and context references drawn as chips.
@@ -445,7 +447,7 @@ component BlockBody
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
       else
         column id=headingNode(scope, block) width="100%"
-          text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 overflow-wrap="anywhere" color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+          text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 overflow-wrap="anywhere" color=(block.depth == 6 ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
             ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, ms=ms, me=me)
     if block.kind == "item"
       row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
@@ -453,18 +455,18 @@ component BlockBody
           TaskCheckbox(block=block, local=local)
         if block.task == "" and block.marker == "•"
           box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
-            box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#27272acc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#27272acc, #f5f5f5cc)")
+            box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#18181bcc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#18181bcc, #f5f5f5cc)")
         if block.task == "" and block.marker != "•"
-          text block.marker width=(block.gutter > 0 ? `${block.gutter}ch` : "1.25rem") flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#27272acc, #f5f5f5cc)"
+          text block.marker width=(block.gutter > 0 ? `${block.gutter}ch` : "1.25rem") flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#18181bcc, #f5f5f5cc)"
         if block.flow
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
         else
           text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" overflow-wrap="anywhere" color=prose
             ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
     if block.kind == "rule"
-      box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+      box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
     if block.kind == "table-row"
-      row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+      row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
         for cell in block.cells key=cell.id
           text flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.75rem" line-height=1.625 color=prose
             ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400), ms=-1, me=-1)
@@ -479,10 +481,10 @@ component BlockBody
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     if block.kind == "quote"
       if block.flow
-        box width="100%" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
-          FlowRuns(runs=block.runs, color="light-dark(#71717b, #818181)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
+        box width="100%" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
+          FlowRuns(runs=block.runs, color="light-dark(#71717b, #a1a1a1)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
       else
-        text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="1.421875rem" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+        text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" line-height="1.421875rem" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
           ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
     if not ["heading", "item", "rule", "table-row", "table", "image", "quote"].includes(block.kind) and block.flow
       FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
@@ -548,28 +550,28 @@ component ChatRuns
   view
     for run in runs key=run.id
       if run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-        text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" font-family="ui-monospace" font-size="0.74375rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
           FindParts(parts=run.findParts)
       if run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
-        text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.74375rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
           FindParts(parts=run.findParts)
       if not run.mono
         // A mailto, irc or xmpp link or a fragment leaves its right-click to the shell, as the anchor's onContextMenu does.
         if (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-          text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
+          text href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" font-size=size font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
             FindParts(parts=run.findParts)
         if (run.kind == "link" or run.kind == "link-start") and run.href != "" and not webLink(run.href)
-          text href=run.href press=open(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
+          text href=run.href press=open(run.href) font-size=size font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
             FindParts(parts=run.findParts)
         if (run.kind == "link" or run.kind == "link-start") and run.href == ""
-          text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
+          text font-size=size font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)" text-decoration-line=(run.strike ? "line-through" : "none")
             FindParts(parts=run.findParts)
         if run.kind != "link" and run.kind != "link-start"
           if ms < 0
-            text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none")
+            text font-size=size font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none")
               FindParts(parts=run.findParts)
           else
-            text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none")
+            text font-size=size font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none")
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
 
 // The cited text's highlight while its comment is open (AssistantCitationSource.tsx
@@ -659,7 +661,7 @@ component FlowRuns
         // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
         if run.mono and not inlineFile(run, chips) and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
           box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#fafafa, #ffffff08)") color="light-dark(#27272a, #f5f5f5)"
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#18181b1a, #f5f5f51a)") color="light-dark(#18181b, #f5f5f5)"
               FindParts(parts=run.findParts)
         if inlineFile(run, chips)
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
@@ -692,16 +694,16 @@ component FlowRuns
         // A pull request link in a pull request's text (its chip names the card's target).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0)
           for chip in chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
-            PrLinkRun(run=run, chip=chip, local=local, size=size, weight=(run.weight > weight ? run.weight : weight))
+            PrLinkRun(run=run, chip=chip, local=local, size=size, weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight))
         // Prose, an emptied anchor's text, and a mailto, irc or xmpp link's later words: no href of their own, so a click
         // follows nothing (the link node above is the link); a link's words keep its pointer (an emptied anchor has no
         // `label`, and an `<a>` with no href shows none).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))
           if ms < 0
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               FindParts(parts=run.findParts)
           else
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
 
 // A link's word or code span in a line (FlowRuns), link-coloured; `top` is a code span's offset from the line's top.
@@ -713,10 +715,10 @@ component LinkRunWords
     top: string
   view
     if not run.mono
-      text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
+      text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
         FindParts(parts=run.findParts)
     else
-      text margin-top=top font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)" text-decoration-line=(run.strike ? "line-through" : "none")
+      text margin-top=top font-family="ui-monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)" text-decoration-line=(run.strike ? "line-through" : "none")
         FindParts(parts=run.findParts)
 
 // Whether a run starts its link: the run before it is not the same link's word or image.
@@ -771,7 +773,7 @@ component PrLinkRun
 // into the foreground; "" for runs that are not context chips.
 fn chipAccent(kind: string): string = ["context-file", "context-video", "context-thread", "context-review-comment"].includes(kind) ? (kind == "context-file" ? "#0090cd" : kind == "context-video" ? "#d06217" : kind == "context-thread" ? "#009c96" : "#8a70dd") : ["context-terminal", "context-element", "context-image", "context-skill"].includes(kind) ? (kind == "context-terminal" ? "#009f6e" : kind == "context-element" ? "#b87501" : kind == "context-image" ? "#d55665" : "#b261be") : ["context-citation", "context-other"].includes(kind) ? (kind == "context-citation" ? "#4684e5" : "#71717b") : ""
 fn chipBorder(kind: string): string = ["context-file", "context-video", "context-thread"].includes(kind) ? (kind == "context-file" ? "light-dark(#a8c8e0, #0090cd61)" : kind == "context-video" ? "light-dark(#e2b9a7, #d0621761)" : "light-dark(#a6cccb, #009c9661)") : ["context-review-comment", "context-terminal", "context-element"].includes(kind) ? (kind == "context-review-comment" ? "light-dark(#c3bde6, #8a70dd61)" : kind == "context-terminal" ? "light-dark(#a9cdbd, #009f6e61)" : "light-dark(#d7bfa6, #b8750161)") : ["context-image", "context-skill", "context-citation"].includes(kind) ? (kind == "context-image" ? "light-dark(#e4b6b9, #d5566561)" : kind == "context-skill" ? "light-dark(#d4b8da, #b261be61)" : "light-dark(#aec5e9, #4684e561)") : "light-dark(#e4e4e7b3, #ffffff14)"
-fn chipInk(kind: string): string = ["context-file", "context-video", "context-thread"].includes(kind) ? (kind == "context-file" ? "light-dark(#2b3d4a, #cadfed)" : kind == "context-video" ? "light-dark(#4a352d, #f0d5c8)" : "light-dark(#2a3f40, #c9e2df)") : ["context-review-comment", "context-terminal", "context-element"].includes(kind) ? (kind == "context-review-comment" ? "light-dark(#3b374e, #dcd8f2)" : kind == "context-terminal" ? "light-dark(#2c3f38, #cbe2d6)" : "light-dark(#44382c, #e9d9c7)") : ["context-image", "context-skill", "context-citation"].includes(kind) ? (kind == "context-image" ? "light-dark(#4b3337, #f2d3d4)" : kind == "context-skill" ? "light-dark(#433448, #e7d5ea)" : "light-dark(#2f3b4f, #ceddf4)") : "light-dark(#27272a, #f5f5f5)"
+fn chipInk(kind: string): string = ["context-file", "context-video", "context-thread"].includes(kind) ? (kind == "context-file" ? "light-dark(#2b3d4a, #cadfed)" : kind == "context-video" ? "light-dark(#4a352d, #f0d5c8)" : "light-dark(#2a3f40, #c9e2df)") : ["context-review-comment", "context-terminal", "context-element"].includes(kind) ? (kind == "context-review-comment" ? "light-dark(#3b374e, #dcd8f2)" : kind == "context-terminal" ? "light-dark(#2c3f38, #cbe2d6)" : "light-dark(#44382c, #e9d9c7)") : ["context-image", "context-skill", "context-citation"].includes(kind) ? (kind == "context-image" ? "light-dark(#4b3337, #f2d3d4)" : kind == "context-skill" ? "light-dark(#433448, #e7d5ea)" : "light-dark(#2f3b4f, #ceddf4)") : "light-dark(#18181b, #f5f5f5)"
 fn chipIcon(kind: string): string = ["context-thread", "context-review-comment", "context-terminal"].includes(kind) ? (kind == "context-thread" ? "messages-square" : kind == "context-review-comment" ? "message-circle" : "square-terminal") : ["context-element", "context-image", "context-video"].includes(kind) ? (kind == "context-element" ? "mouse-pointer-click" : kind == "context-image" ? "image" : "film") : ["context-skill", "context-citation"].includes(kind) ? (kind == "context-skill" ? "skill" : "quote") : "circle-dashed"
 // A resolved chip's accent family (ContextChip `kind`).
 fn chipFamily(kind: string): string = ["citation", "file", "video"].includes(kind) ? (kind == "citation" ? "context-citation" : kind == "file" ? "context-file" : "context-video") : ["image", "skill", "thread"].includes(kind) ? (kind == "image" ? "context-image" : kind == "skill" ? "context-skill" : "context-thread") : ["terminal", "element", "review"].includes(kind) ? (kind == "terminal" ? "context-terminal" : kind == "element" ? "context-element" : "context-review-comment") : "context-other"
@@ -783,7 +785,7 @@ component ContextChipBox
     run: ChatRun
   view
     row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1
-      row height="1.0625rem" max-width="15rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(run.kind) background-color=`${chipAccent(run.kind)}1c` testId=`context-chip-${run.id}`
+      row height="1.0625rem" max-width="15rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder(run.kind) background-color=`${chipAccent(run.kind)}1c` testId=`context-chip-${run.id}`
         if run.kind == "context-file"
           FileTypeIcon(token=run.icon, size=14)
         else
@@ -806,9 +808,9 @@ component FileChipFace
     label: string
     icon: string
   view
-    row height="1.0625rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#a9cad4, #39a1b861)" background-color="#0096af1c" testId=`file-chip-${run.id}`
+    row height="1.0625rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#a9cad4, #39a1b861)" background-color="#0096af1c" testId=`file-chip-${run.id}`
       if icon == "folder"
-        TimelineIcon(name="folder", size=14, color="light-dark(#71717a, #818181)")
+        TimelineIcon(name="folder", size=14, color="light-dark(#71717a, #a1a1a1)")
       else
         FileTypeIcon(token=icon, size=14)
       text font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color="light-dark(#2c3e45, #cbe0e6)" text-decoration-line=(run.strike ? "line-through" : "none")
@@ -858,9 +860,9 @@ component ResolvedChip
       if chip.kind == "unresolved"
         Tip(label=chip.tip, side="top", align="center", offset=21)
           // ContextChip.tsx's `border border-dashed` (state unresolved): a 1 px dashed border in the border-box, as the other chips' solid one.
-          row height="1.0625rem" max-width="15rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" border-width=1 border-style="dashed" border-color="light-dark(#e4e4e7, #ffffff12)" background-color="light-dark(#f4f4f566, #ffffff04)" aria-label=`Unavailable context, ${chip.label}` testId=`context-chip-${run.id}`
-            TimelineIcon(name="circle-dashed", size=14, color="light-dark(#27272a, #f5f5f5)")
-            text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+          row height="1.0625rem" max-width="15rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.25rem" border-width=1 border-style="dashed" border-color="light-dark(#e4e4e7, #ffffff12)" background-color="light-dark(#f4f4f566, #ffffff04)" aria-label=`Unavailable context, ${chip.label}` testId=`context-chip-${run.id}`
+            TimelineIcon(name="circle-dashed", size=14, color="light-dark(#18181b, #f5f5f5)")
+            text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color="light-dark(#18181b, #f5f5f5)"
       if chip.kind == "terminal"
         TerminalContextChip(run=run, chip=chip)
       if chip.kind == "pr"
@@ -868,7 +870,7 @@ component ResolvedChip
       if chip.kind == "citation"
         CitationContextChip(run=run, chip=chip, local=local)
       if chip.kind == "element" or chip.kind == "review"
-        button press=toggle aria-label=`${chip.label}. Show details` aria-expanded=open testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c` id=`context-chip-${run.id}`
+        button press=toggle aria-label=`${chip.label}. Show details` aria-expanded=open testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c` id=`context-chip-${run.id}`
           TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
           text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
         if open
@@ -892,7 +894,7 @@ component PrContextChip
   action hover(over: bool)
     hovered = over
   view
-    button press=local("chip-pr", chip.target, "") hover=hover aria-label=chip.tip testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=prChipColour(chip.detail, 3) background-color=prChipColour(chip.detail, hovered ? 2 : 1) id=`context-chip-${run.id}` title=""
+    button press=local("chip-pr", chip.target, "") hover=hover aria-label=chip.tip testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=prChipColour(chip.detail, 3) background-color=prChipColour(chip.detail, hovered ? 2 : 1) id=`context-chip-${run.id}` title=""
       EditorMenuIcon(name=(chip.detail == "draft" ? "git-pull-request-draft" : chip.detail == "merged" ? "git-merge" : chip.detail == "closed" ? "git-pull-request-closed" : "git-pull-request"), color=prChipColour(chip.detail, 0), size=14)
       text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=prChipColour(chip.detail, 0)
 // AssistantCitationChip outside the composer (T3 Code 9c161462c9, MIT; see LICENSE-T3): a ContextChipPopover, width "lg"
@@ -910,7 +912,7 @@ component CitationContextChip
     hovered = over
   derive popupId = `citation-context-${chip.owner}-${chip.id}-${run.id}`
   view
-    button popovertarget=popupId hover=hover aria-label=`Quoted assistant text: ${chip.label}. Show details` testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder("context-citation") background-color=`${chipAccent("context-citation")}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}` title=""
+    button popovertarget=popupId hover=hover aria-label=`Quoted assistant text: ${chip.label}. Show details` testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder("context-citation") background-color=`${chipAccent("context-citation")}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}` title=""
       TimelineIcon(name="quote", size=14, color=chipInk("context-citation"))
       text min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk("context-citation") text-decoration-line=(run.strike ? "line-through" : "none")
         if run.findParts.map((part) => part.text).join("") == chip.label
@@ -918,16 +920,16 @@ component CitationContextChip
         else
           text chip.label
     column id=popupId popover="auto" position-try-fallbacks="flip-block" position="absolute" position-area="top" margin-bottom="0.25rem" width="24rem" max-width="100vw" testId="citation-context-popover"
-      column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=`Quoted assistant text: ${chip.label}`
+      column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=`Quoted assistant text: ${chip.label}`
         column width="100%" padding="0.25rem" box-sizing="border-box" gap="0.75rem" align-items="flex-start"
           scroll width="100%" max-height="16rem" min-height=0 testId="citation-context-quote"
             column width="100%" gap="0.75rem"
-              text chip.tip width="100%" padding-left="0.75rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#71717b, #818181)"
+              text chip.tip width="100%" padding-left="0.75rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#71717b, #a1a1a1)"
               if chip.size != ""
-                text chip.size width="100%" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#27272a, #f5f5f5)" testId="citation-context-comment"
-          button press=local("chip-citation", chip.target, chip.detail) popovertarget=popupId popovertargetaction="hide" disabled=(chip.target == "") testId="citation-context-source" display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 title=""
-            TimelineIcon(name="arrow-up-right", size=16, color="light-dark(#27272a, #f5f5f5)")
-            text "Go to source" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+                text chip.size width="100%" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="break-word" color="light-dark(#18181b, #f5f5f5)" testId="citation-context-comment"
+          button press=local("chip-citation", chip.target, chip.detail) popovertarget=popupId popovertargetaction="hide" disabled=(chip.target == "") testId="citation-context-source" display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 title=""
+            TimelineIcon(name="arrow-up-right", size=16, color="light-dark(#18181b, #f5f5f5)")
+            text "Go to source" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
 // The original button-triggered ContextChipPopover. Auto popovers use the host's
 // top layer: scrolling ancestors cannot clip them; Escape and outside clicks
 // dismiss them, and keyboard activation returns focus to the invoking chip.
@@ -937,19 +939,19 @@ component TerminalContextChip
     chip: ChipView
   derive popupId = `terminal-context-${chip.owner}-${chip.id}-${run.id}`
   view
-    button popovertarget=popupId aria-label=`Terminal excerpt, ${chip.label}. Show details` testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder("context-terminal") background-color="#009f6e1c" id=`context-chip-${run.id}`
+    button popovertarget=popupId aria-label=`Terminal excerpt, ${chip.label}. Show details` testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder("context-terminal") background-color="#009f6e1c" id=`context-chip-${run.id}`
       TimelineIcon(name="square-terminal", size=14, color=chipInk("context-terminal"))
       text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk("context-terminal")
     // PopoverPopup side="top" (contextChipParts.tsx): centred 4 pt above the chip, below it when the top does not fit.
     column id=popupId popover="auto" position-try-fallbacks="flip-block" position="absolute" position-area="top" margin-bottom="0.25rem" width="24rem" max-width="100vw" testId="terminal-context-popover"
-      column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=`Terminal excerpt, ${chip.label}`
-        column width="100%" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)" overflow="hidden"
+      column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=`Terminal excerpt, ${chip.label}`
+        column width="100%" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)" overflow="hidden"
           row width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)"
             TimelineIcon(name="square-terminal", size=16, color="#009f6e")
-            text chip.tip flex=1 min-width=0 font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
-            text chip.size font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
+            text chip.tip flex=1 min-width=0 font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#18181b, #f5f5f5)"
+            text chip.size font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
           scroll width="100%" max-height="20rem" background-color="light-dark(#f4f4f5, #ffffff0a)"
-            text chip.detail aria-label="Captured terminal output" tabindex=0 padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.125rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+            text chip.detail aria-label="Captured terminal output" tabindex=0 padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.125rem" white-space="pre" color="light-dark(#18181b, #f5f5f5)"
 
 // FileChip / ImageChipButton / ThreadContextChip / a skill chip: glyph or
 // thumbnail, the (middle-truncated) name and, for attachments, the size.
@@ -979,10 +981,10 @@ component AttachmentChipBody
     // A sent file attachment opens its preview beside the thread (ChatView openFileAttachment).
     // A sent video's chip opens it in the media dialog (onExpandVideo).
     if chip.kind == "image" or (chip.kind == "thread" or chip.kind == "file" or chip.kind == "video") and chip.target != ""
-      button press=local((chip.kind == "image" or chip.kind == "video" ? "image-open" : chip.kind == "file" ? "surface-linked-attachment" : "chip-thread"), chip.target, (chip.kind == "image" or chip.kind == "file" or chip.kind == "video" ? chip.owner : chip.detail)) hover=hover aria-label=(chip.kind == "image" ? chip.tip : chip.kind == "file" or chip.kind == "video" ? `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}` : `Thread, ${chip.label}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}` title=""
+      button press=local((chip.kind == "image" or chip.kind == "video" ? "image-open" : chip.kind == "file" ? "surface-linked-attachment" : "chip-thread"), chip.target, (chip.kind == "image" or chip.kind == "file" or chip.kind == "video" ? chip.owner : chip.detail)) hover=hover aria-label=(chip.kind == "image" ? chip.tip : chip.kind == "file" or chip.kind == "video" ? `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}` : `Thread, ${chip.label}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}` title=""
         ChipFace(run=run, chip=chip, urls=urls)
     else
-      row aria-label=(chip.kind == "skill" ? `Skill, ${chip.label}` : chip.kind == "thread" ? `Thread, ${chip.label}` : `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c`
+      row aria-label=(chip.kind == "skill" ? `Skill, ${chip.label}` : chip.kind == "thread" ? `Thread, ${chip.label}` : `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c`
         ChipFace(run=run, chip=chip, urls=urls)
 
 component ChipFace
@@ -1023,7 +1025,7 @@ component TintedImageChip
   action hover(over: bool)
     hovered = over
   view
-    button press=local("image-open", chip.target, chip.owner) hover=hover aria-label=chip.tip testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=entry.border background-color=(hovered ? entry.hover : entry.fill) id=`context-chip-${run.id}`
+    button press=local("image-open", chip.target, chip.owner) hover=hover aria-label=chip.tip testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color=entry.border background-color=(hovered ? entry.hover : entry.fill) id=`context-chip-${run.id}`
       image entry.url aria-hidden=true width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.25rem" object-fit="cover"
       text chip.label min-width=0 max-width="18rem" line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=entry.ink
       text chip.size flex-shrink=0 font-size="0.625rem" font-weight=500 line-height="0.875rem" white-space="pre" color=entry.ink
@@ -1035,9 +1037,9 @@ component ChipDetails
     chip: ChipView
     close: action
   view
-    column position="absolute" left=0 bottom="1.625rem" width="20rem" max-height="17.5rem" padding="0.75rem" gap="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" z-index=60 role="dialog" aria-label=chip.label testId="context-chip-details"
-      text chip.tip font-size="0.75rem" font-weight=500 line-height="1rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
-      text chip.detail font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
+    column position="absolute" left=0 bottom="1.625rem" width="20rem" max-height="17.5rem" padding="0.75rem" gap="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" z-index=60 role="dialog" aria-label=chip.label testId="context-chip-details"
+      text chip.tip font-size="0.75rem" font-weight=500 line-height="1rem" line-clamp=1 color="light-dark(#18181b, #f5f5f5)"
+      text chip.detail font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
 
 // chat-markdown-codeblock: a 10pt bordered card, a header with the language and
 // the wrap/copy toolbar, and 13pt code on 17.875pt lines.
@@ -1066,7 +1068,7 @@ component CodeBlock
   action toggleWrap
     flipped = not flipped
   view
-    column width="100%" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fafafa, #ffffff08)" overflow="hidden"
+    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color="light-dark(#fafafa, #ffffff08)" overflow="hidden"
       row width="100%" height="1.875rem" padding-top="0.375rem" padding-right="0.375rem" padding-left="0.75rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem"
         row min-width=0 height="1.5rem" align-items="center" gap="0.375rem"
           if code.filter((hl) => hl.code == block.text and hl.icon != "").length > 0
@@ -1074,36 +1076,36 @@ component CodeBlock
               FileTypeIcon(token=hl.icon, size=14)
           else
             // extractFenceLanguage: a fence with no language is "text".
-            text (block.href != "" ? block.href : "text") font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
+            text (block.href != "" ? block.href : "text") font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#18181bb8, #f5f5f5b8)" line-clamp=1
         row gap="0.125rem" align-items="center"
           Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
             button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-              Icon(name="text-wrap", size=12, color="light-dark(#27272a, #f5f5f5)")
+              Icon(name="text-wrap", size=12, color="light-dark(#18181b, #f5f5f5)")
           if canRun
             Tip(label="Run in terminal", side="top", align="center", offset=28)
               button press=local("run-terminal", block.id, block.text) aria-label="Run in terminal" testId=`run-terminal-${block.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-                Icon(name="play", size=12, color="light-dark(#27272a, #f5f5f5)")
+                Icon(name="play", size=12, color="light-dark(#18181b, #f5f5f5)")
           Tip(label="Copy code", side="top", align="center", offset=28)
             CopyCodeButton(block=block, local=local, copied=(copiedText == block.text ? copiedNonce : 0))
       if code.filter((hl) => hl.code == block.text).length == 0
         if wrap
           if ms < 0
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
               FindParts(parts=block.findParts)
           else
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
               MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             if ms < 0
-              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
                 FindParts(parts=block.findParts)
             else
-              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
                 MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
       for hl in code.filter((hl) => hl.code == block.text) key=hl.id
         if wrap
-          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
             for token in hl.tokens key=token.id
               if ms < 0
                 text color=synColor(token.cls) font-style=synSlant(token.cls)
@@ -1113,7 +1115,7 @@ component CodeBlock
                   MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
               for token in hl.tokens key=token.id
                 if ms < 0
                   text color=synColor(token.cls) font-style=synSlant(token.cls)
@@ -1148,23 +1150,23 @@ component MermaidBlock
     flipped = not flipped
   view
     if showCode
-      column width="100%" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fafafa, #ffffff08)" overflow="hidden"
+      column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color="light-dark(#fafafa, #ffffff08)" overflow="hidden"
         row width="100%" height="1.875rem" padding-top="0.375rem" padding-right="0.375rem" padding-left="0.75rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem"
           row min-width=0 height="1.5rem" align-items="center" gap="0.375rem"
-            text block.href font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
+            text block.href font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#18181bb8, #f5f5f5b8)" line-clamp=1
           row gap="0.125rem" align-items="center" role="toolbar" aria-label="Code block actions"
             Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
               button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-                Icon(name="text-wrap", size=12, color="light-dark(#27272a, #f5f5f5)")
+                Icon(name="text-wrap", size=12, color="light-dark(#18181b, #f5f5f5)")
             Tip(label="Show diagram", side="top", align="center", offset=28)
               DiagramToggle(label="Show diagram", icon="workflow", press=toggleCode)
             Tip(label="Copy code", side="top", align="center", offset=28)
               CopyCodeButton(block=block, local=local, copied=copied)
         if wrap
-          text block.text width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+          text block.text width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
-            text block.text padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+            text block.text padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
     else
       // The transparent border and the header's padding match the code frame, so the actions stay in place when
       // switching views.
@@ -1180,15 +1182,15 @@ component MermaidBlock
               text `Unable to render diagram: ${frame.message}` min-width=0 font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#fb2c36, #fb414a)" role="alert"
               if frame.retryable
                 button press=local("diagram-retry", scheme, block.text) testId=`mermaid-retry-${block.id}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-                  text "Retry" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
-            text block.text width="100%" margin-top="0.5rem" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" font-family="ui-monospace" font-size=12 line-height="16px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+                  text "Retry" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
+            text block.text width="100%" margin-top="0.5rem" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafa, #ffffff08)" font-family="ui-monospace" font-size=12 line-height="16px" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"
         else
           box position="relative" width="100%"
             MermaidFrameView(src=(scheme == "dark" ? diagram.srcDark : diagram.srcLight), frame=frame, width=0, height=0, placeholder=block.text, local=local, testId=`mermaid-frame-${block.id}`)
             if frame.diagram == "rendered"
               // MermaidDiagram's button: the whole lane wide and as tall as the diagram, so a press beside a narrow
               // diagram expands it too.
-              button press=local("diagram-open", block.id, block.text) aria-label="Expand diagram" testId=`mermaid-expand-${block.id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" title="" id=`mermaid-expand-${block.id}`
+              button press=local("diagram-open", block.id, block.text) aria-label="Expand diagram" testId=`mermaid-expand-${block.id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" title="" id=`mermaid-expand-${block.id}`
 
 // An icon-xs ghost-muted button: muted until hovered, then an accent fill.
 component DiagramToggle
@@ -1201,7 +1203,7 @@ component DiagramToggle
     hovered = over
   view
     button press=press hover=hover aria-label=label width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-      TimelineIcon(name=icon, size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      TimelineIcon(name=icon, size=12, color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
 
 // MarkdownCodeBlock's copy button: MorphIcon Copy ↔ Check (#123): the check from a copy until
 // the root clears it 1.2 s later (codeCopyDone, app.contract), both ways on morphicons' spring (shell-morph.contract).
@@ -1218,7 +1220,7 @@ component CopyCodeButton
     hovered = over
   view
     button press=local("copy-code", block.id, block.text) hover=hover aria-label="Copy code" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-      MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=still)
+      MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=2, still=still)
 
 // MarkdownTable (ChatMarkdown.tsx; MIT, see LICENSE-T3): a full-width table of
 // 12pt cells that scrolls sideways past its content width; cells keep one line
@@ -1259,7 +1261,7 @@ component MarkdownTable
       scroll width=(fit ? "auto" : "100%") max-width="100%" overflow-x="scroll" overflow-y="hidden"
         column width=(fit ? "auto" : "100%") role="table"
           for tableRow in block.rows key=tableRow.id
-            row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" role="row"
+            row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" role="row"
               for cell in tableRow.cells key=`${cell.id}\t${cell.runs.map((part) => part.text).join("")}`
                 for column in block.columns.filter((entry) => entry.id == cell.id) key=column.id
                   TableCell(cell=cell, column=column, header=tableRow.header, expanded=expanded, fitLane=fitLane, prose=prose, chips=chips, urls=urls, local=local, nodePrefix=`${block.id}-${tableRow.id}-${cell.id}`, clipped=noteClipped)
@@ -1311,17 +1313,17 @@ component TableCell
           row resize=naturalSized width="auto" flex-shrink=0
             CellSizer(runs=cell.runs, weight=(header ? 600 : 400), color=prose, chips=chips, urls=urls, natural=true)
         else
-          text resize=naturalSized font-size="0.75rem" line-height=1.625 white-space="nowrap" flex-shrink=0
+          text resize=naturalSized font-size="0.875rem" line-height=1.625 white-space="nowrap" flex-shrink=0
             ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
       if cellBoxes(cell.runs)
         // A code span keeps its bordered box (inline spans paint backgrounds only); an image is its picture.
         CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=(header or not expanded), justify=(column.align == "center" ? "center" : column.align == "right" ? "flex-end" : "flex-start"), chips=chips, urls=urls, local=local, nodePrefix=nodePrefix)
       if not cellBoxes(cell.runs) and ((header and not fitLane) or not expanded)
         // One line, cut with an ellipsis at the column's edge (text-overflow: ellipsis).
-        text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 line-clamp=1 color=prose text-align=column.align
+        text width=0 min-width="100%" font-size="0.875rem" line-height=1.625 line-clamp=1 color=prose text-align=column.align
           ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
       if not cellBoxes(cell.runs) and not ((header and not fitLane) or not expanded)
-        text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 overflow-wrap=(fitLane ? "break-word" : "anywhere") color=prose text-align=column.align
+        text width=0 min-width="100%" font-size="0.875rem" line-height=1.625 overflow-wrap=(fitLane ? "break-word" : "anywhere") color=prose text-align=column.align
           ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
       box height=0 overflow="hidden" aria-hidden=true
         if column.capped and not fitLane
@@ -1329,7 +1331,7 @@ component TableCell
         if (fitLane or not column.capped) and cellBoxes(column.sizer)
           CellSizer(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, chips=chips, urls=urls, natural=false)
         if (fitLane or not column.capped) and not cellBoxes(column.sizer)
-          text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 white-space=(fitLane ? "normal" : "nowrap") opacity=0
+          text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.875rem" line-height=1.625 white-space=(fitLane ? "normal" : "nowrap") opacity=0
             ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400), ms=-1, me=-1)
 
 // tableHasClippedCells, per cell: its unwrapped content (`natural`) is wider than the cell's content box
@@ -1341,7 +1343,7 @@ fn cellClipped(natural: number, box: number): bool = natural > box + 1
 fn cellBoxes(runs: ChatRun[]): bool = runs.filter((part) => part.mono or part.kind == "file" or part.kind == "media" or chipAccent(part.kind) != "").length > 0
 
 // A cell holding code spans, chips or images: its runs side by side, each code span 12pt SF
-// Mono in its 1pt-bordered, 5.6pt-padded box on the cell's 19.5pt line, an image inline (ChatMarkdownImage, not standalone).
+// Mono in its 1pt-bordered, 4.2pt-padded box on the cell's 22.75pt line, an image inline (ChatMarkdownImage, not standalone).
 component CellRuns
   props
     runs: ChatRun[]
@@ -1355,13 +1357,13 @@ component CellRuns
     nodePrefix: string
   view
     // It fills its cell as TableCell's text does.
-    row width=0 min-width="100%" max-width="6250rem" min-height="1.21875rem" flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible")
+    row width=0 min-width="100%" max-width="6250rem" min-height="1.421875rem" flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible")
       for run in runs key=run.id
         if inlineFile(run, chips)
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
             InlineFileChip(run=run, chip=chip, local=local)
         if run.mono and not inlineFile(run, chips)
-          text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+          text flex-shrink=0 font-family="ui-monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)"
             FindParts(parts=run.findParts)
         if not run.mono and run.kind == "file"
           FileChip(run=run)
@@ -1371,7 +1373,7 @@ component CellRuns
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
             MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)
-          text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=color
+          text min-width=0 font-size="0.875rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=color
             FindParts(parts=run.findParts)
 
 // A column's sizing cell (the widest cell's runs, unseen, asking for their width capped at 24rem): an image is the same
@@ -1385,13 +1387,13 @@ component CellSizer
     urls: AttachmentUrl[]
     natural: bool
   view
-    row width="auto" min-width=0 max-width=(natural ? "6250rem" : "22.5rem") min-height="1.21875rem" flex-wrap="nowrap" align-items="center" overflow="hidden" opacity=0
+    row width="auto" min-width=0 max-width=(natural ? "6250rem" : "22.5rem") min-height="1.421875rem" flex-wrap="nowrap" align-items="center" overflow="hidden" opacity=0
       for run in runs key=run.id
         if inlineFile(run, chips)
           for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
             FileChipFace(run=run, label=chip.label, icon=chip.icon)
         if run.mono and not inlineFile(run, chips)
-          text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-width=1 border-style="solid" text-decoration-line=(run.strike ? "line-through" : "none")
+          text flex-shrink=0 font-family="ui-monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-width=1 border-style="solid" text-decoration-line=(run.strike ? "line-through" : "none")
             FindParts(parts=run.findParts)
         if not run.mono and run.kind == "file"
           FileChip(run=run)
@@ -1405,7 +1407,7 @@ component CellSizer
               for entry in urls.filter((entry) => entry.id == chip.target and entry.url != "") key=entry.id
                 image entry.url aria-hidden=true flex-shrink=0 max-width="22.5rem" max-height="30rem" object-fit="contain"
         if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked").length > 0)
-          text min-width=0 font-size="0.75rem" line-height=1.625 white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color text-decoration-line=(run.strike ? "line-through" : "none")
+          text min-width=0 font-size="0.875rem" line-height=1.625 white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant color=color text-decoration-line=(run.strike ? "line-through" : "none")
             FindParts(parts=run.findParts)
 
 // The footer's icon-xs buttons: ghost-muted, or "secondary" while pressed.
@@ -1422,7 +1424,7 @@ component TableIconButton
   view
     button press=press hover=hover aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fafafa, #ffffff08)" : hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       // ChatMarkdown's table toggle: MorphIcon Maximize2↔Minimize2 (morphicons' morph, shell-morph.contract).
-      MorphMaximize(on=(icon == "minimize"), size=12, color=(pressed or hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=false)
+      MorphMaximize(on=(icon == "minimize"), size=12, color=(pressed or hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=2, still=false)
 
 component TableCopyButton
   inject
@@ -1455,7 +1457,7 @@ component TableCopyButton
         pressFirst()
   view
     button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-      MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=still)
+      MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered or open ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=2, still=still)
 
 component TableMenuItem
   props
@@ -1473,5 +1475,5 @@ component TableMenuItem
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-label=label testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" line-clamp=1
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-label=label testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" flex=1 min-width=0 text-align="left" line-clamp=1

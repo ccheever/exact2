@@ -16,8 +16,8 @@ const client = (overrides: object = {}) => ({ config: { providers: [provider('ex
 describe('composer placeholder and phase', () => {
   test('follows the served build chain', () => {
     const base = { connected: true, approval: false, question: false, choiceOnly: false, projectRequired: false, providerUnavailable: false, phase: 'ready' };
-    expect(composerPlaceholder(base)).toBe('Ask anything, @tag files/folders, $use skills, or / for commands');
-    expect(composerPlaceholder({ ...base, phase: 'disconnected' })).toBe('Ask for changes, send follow-ups, or attach images');
+    expect(composerPlaceholder(base)).toBe('Ask anything. @ files, $ skills, / commands');
+    expect(composerPlaceholder({ ...base, phase: 'disconnected' })).toBe('Ask anything. @ files, $ skills, / commands');
     expect(composerPlaceholder({ ...base, approval: true })).toBe('Send a message to decline and redirect the agent');
     expect(composerPlaceholder({ ...base, question: true, choiceOnly: true })).toBe('Choose an option above');
     expect(composerPlaceholder({ ...base, question: true })).toBe('Type your own answer, or leave this blank to use the selected option');

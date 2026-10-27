@@ -12,19 +12,20 @@ const anchors = { 'm-model-sm': [0, 93.22], 'm-traits-sm': [0, 52.89], 'm-runtim
 const base = { model: 'GPT-5.6-Luna', traits: 'Medium', traitsIcon: false, runtime: 'Full access', plan: '', measure: measuredLabels({ anchors }) };
 
 describe('composer labels compact at the reference widths (resolveRestingComposerControlsLayout)', () => {
-  test('blocks: picker 143.22 at -10, traits 99.89, mode 142.05 / icon-only 63, gaps 4', () => {
-    // natural 143.22 + 4 + 99.89 + 4 + 142.05 = 393.16; mode icon-only 314.11; both icon-only 277.22.
+  test('blocks: picker 141.22 at -8, traits 86.89, mode 129.05 / icon-only 50, no gaps', () => {
+    // Since 3816296021 the blocks have no separators and the row no gap: natural 141.22 + 86.89 + 129.05 = 357.16;
+    // mode icon-only 278.11; both icon-only 241.22.
     // The reference's host is this footer's controls row plus the 8pt gap before the actions.
-    expect(footerLayout({ ...base, host: 393.16 - 8 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 393.1 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 314.11 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 314 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
+    expect(footerLayout({ ...base, host: 357.16 - 8 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
+    expect(footerLayout({ ...base, host: 357.1 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
+    expect(footerLayout({ ...base, host: 278.11 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
+    expect(footerLayout({ ...base, host: 278 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
   });
   test('the Files panel at 1280: the reference keeps "Medium" with "Full access" as its icon (host 336)', () => {
     expect(footerLayout({ ...base, host: 336 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
   });
   test('a promotion back to labels needs a point of slack over the last layout', () => {
-    const host = 393.16 - 8 + 0.5;
+    const host = 357.16 - 8 + 0.5;
     expect(footerLayout({ ...base, host })).toMatchObject({ runtimeIconOnly: false });
     expect(footerLayout({ ...base, host, previous: { sm: 1, xs: 0 } })).toMatchObject({ runtimeIconOnly: true });
     expect(footerLayout({ ...base, host: host + 1, previous: { sm: 1, xs: 0 } })).toMatchObject({ runtimeIconOnly: false });

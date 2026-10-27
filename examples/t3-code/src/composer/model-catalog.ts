@@ -1,6 +1,6 @@
 // T3's model picker catalog: ModelPickerContent.tsx (rail, filtering, legacy
 // section), modelOrdering.ts, and modelPickerSearch.ts and shared searchRanking.ts
-// as of 74541bab17.
+// as of 74541bab17; row lines and the tallest tab's height from c3888da8b4 and 5a38e6b859.
 // Browsing and searching never change the composer's selection; only a chosen
 // row commits one (`command("model", …)`).
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -191,16 +191,19 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const rest = selected === 'favorites' ? items.filter(item => item.favorite) : items.filter(item => item.providerId === selected);
   const restLegacy = selected !== 'favorites' ? rest.filter(inLegacy).length : 0;
   const ordered: Array<Item | null> = legacy.length ? [...list.filter(item => !inLegacy(item)), null, ...legacy] : list;
+  // Inside one provider's tab the provider line would repeat the selected rail icon on every row, so a row shows
+  // it only where rows mix providers (a search, Favorites) or for its sub-provider (ModelPickerContent rowsMixProviders).
+  const twoLine = (item: Item) => searching || selected === 'favorites' || !!item.subProvider;
   // Several models chosen for a new thread (composer-controls-fanout.ts): each chosen row is selected and checked.
   const fan = target ? null : fanoutSelections(client as unknown as T3Client);
   const fanKeys = new Set((fan ?? []).map(selection => `${selection.instanceId}:${selection.model}`));
   const row = (item: Item, index: number, kind: string) => ({ key: `${item.providerId}:${item.id}`, kind, id: item.id, providerId: item.providerId,
-    name: display(item), label: providerRowLabel(item.providerName, item.subProvider), driver: item.driver,
+    name: display(item), label: providerRowLabel(item.providerName, item.subProvider), driver: item.driver, twoLine: twoLine(item),
     favorite: item.favorite, selected: fan ? fanKeys.has(`${item.providerId}:${item.id}`) : item.providerId === current.providerId && item.id === current.modelId, isNew: item.isNew,
     index, highlighted: false, expanded: false, checked: !!fan && fanKeys.has(`${item.providerId}:${item.id}`), reason: target?.reason(item.providerId, item.id) ?? '', jump: '', jumpKey: '' });
   const rows = ordered.map((item, index) => item === null
     ? { key: `legacy:${selected}`, kind: 'legacy', id: '', providerId: selected, name: 'Legacy models', label: `${legacy.length} models`,
-      driver: '', favorite: false, selected: false, isNew: false, index, highlighted: false, expanded: false, checked: false, reason: '', jump: '', jumpKey: '' }
+      driver: '', twoLine: true, favorite: false, selected: false, isNew: false, index, highlighted: false, expanded: false, checked: false, reason: '', jump: '', jumpKey: '' }
     : row(item, index, legacy.length && inLegacy(item) ? 'legacy-model' : 'model'));
   // The rail's instance badges count only its own (enabled) entries, as ModelPickerSidebar does.
   // Locked-out instances follow the compatible ones, disabled.
@@ -214,12 +217,29 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
     selectable: (pickerReady(provider) || (setup && shouldOfferModelPickerSetup(provider, pickerOptions(provider)))) && matchesLock(provider, lock),
     label: railLabel(provider, !matchesLock(provider, lock)), selected: str(provider.instanceId) === selected, ...badge(provider, enabled) }));
   const at = rail.findIndex(entry => entry.selected);
+  // tallestTabUnits (5a38e6b859), in points: the list of the tallest tab (Favorites, or an instance's current
+  // models and its collapsed Legacy row) at 32pt one-line and 48pt two-line rows, 2pt apart, so switching tabs
+  // never resizes the popup under the pointer.
+  const tabHeights = new Map<string, number>(), withLegacy = new Set<string>();
+  const addRow = (tab: string, two: boolean) => { const previous = tabHeights.get(tab); tabHeights.set(tab, (previous === undefined ? 0 : previous + 2) + (two ? 48 : 32)); };
+  for (const item of items) {
+    if (item.favorite) addRow('favorites', true);
+    if (item.legacy && !item.favorite) withLegacy.add(item.providerId);
+    else addRow(item.providerId, !!item.subProvider);
+  }
+  for (const tab of withLegacy) addRow(tab, true);
+  const rowLines = (entries: Item[]) => entries.filter(item => selected === 'favorites' || !!item.subProvider).length;
   // expandedLegacyInstances starts with the active instance when its model is a legacy one it has not favorited.
   const legacyDefault = selected === current.providerId && legacy.some(item => item.id === current.modelId);
   const updateRequired = (searching ? providers.filter(provider => matchesLock(provider, lock)) : providers.filter(provider => provider.instanceId === selected))
     .flatMap(provider => { const message = formatProviderUpdateRequiredNotice(provider, query); return message ? [{ id: str(provider.instanceId), message }] : []; });
   return { favoriteWritable: client.settingsWritable ?? providerSettingsWritable(client), updateRequired, environmentId: str(obj(client.config.environment).environmentId), searching, provider: selected, favoritesSelected: selected === 'favorites', count: rows.length, legacyCount: legacy.length, legacyDefault,
     restCount: rest.length + (restLegacy ? 1 : 0), restLegacyCount: restLegacy,
+    // Two-line rows (the Legacy header among them), of the rows drawn and of the unsearched view's, each with its
+    // Legacy section's share, which counts only while that section is open; the tallest tab's list height.
+    twoLineCount: rows.filter(entry => entry.twoLine).length, legacyTwoLineCount: rows.filter(entry => entry.kind === 'legacy-model' && entry.twoLine).length,
+    restTwoLineCount: rowLines(rest) + (restLegacy ? 1 : 0), restLegacyTwoLineCount: selected === 'favorites' ? 0 : rowLines(rest.filter(inLegacy)),
+    tallest: Math.max(0, ...tabHeights.values()),
     highlight: -1, highlightKind: '', highlightId: '', highlightProvider: '', models: rows, providers: rail,
     railIndex: selected === 'favorites' ? 0 : at < 0 ? -1 : at + 1,
     setup: setup ? pickerSetupEntries(enabled.filter(provider => matchesLock(provider, lock)), selected, searching, list.length) : [],

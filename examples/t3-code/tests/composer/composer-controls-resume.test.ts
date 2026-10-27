@@ -123,7 +123,7 @@ describe('cache-aware Compact chip', () => {
     const { client, command } = await claudeThread({ idle: 6, ttl: 300_000 });
     expect(snapshot(client, NOW).composer).toMatchObject({ compactTokens: '235k', compactKeepFull: false, compactSend: true, sendLabel: 'Compact and send' });
     expect(resume(client)).toBeUndefined();
-    client.presentation.anchors = { 'compact:Compact:235k': [0, 157] };
+    client.presentation.anchors = { 'compact:Compact next': [0, 157] };
     expect(snapshot(client, NOW).composer.compactWidth).toBe(157);
     await command('cclocal:compact-full');
     expect(snapshot(client, NOW).composer).toMatchObject({ compactKeepFull: true, compactSend: false, sendLabel: 'Submit message' });

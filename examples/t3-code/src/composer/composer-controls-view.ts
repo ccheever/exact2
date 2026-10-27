@@ -60,21 +60,20 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
   const width = (text: string, small: boolean, kind: ProbeKind) => labelWidth(text, small, kind, input.measure, textWidth);
   const steps = (small: boolean) => {
     // Block widths from the toolbar's own geometry (composer-controls.contract), matching the
-    // reference's measured blocks: a block is its separator (1pt + 2pt margins, then the row gap: 9 at "sm",
-    // 5 in the resting row, which has no gap) and its trigger. "sm" triggers pad 11+11 with 6pt gaps, 16pt
+    // reference's measured blocks. Since 3816296021 a block is its trigger alone: no separators, and
+    // the controls row has no gap. "sm" triggers pad 9+9 (px-2 and the 1pt border) with 6pt gaps, 16pt
     // icons and a 10pt chevron; "xs" ones pad 7+7 with 4pt gaps, 12pt icons and an 8pt chevron.
-    // The picker sits at margin-left -10 and, resting, at most 168pt wide (ProviderModelPicker max-w-42);
-    // its minimum is the trigger's min-width (48 / 40) less that margin.
-    const picker = small ? Math.min(158, 34 + width(input.model, true, 'model')) : 50 + width(input.model, false, 'model');
-    const separator = small ? 5 : 9;
+    // The picker sits at margin-left -8 (resting -10) and, resting, at most 168pt wide (ProviderModelPicker
+    // max-w-42); its minimum is the trigger's min-width (48 / 40) less that margin.
+    const picker = small ? Math.min(158, 34 + width(input.model, true, 'model')) : 48 + width(input.model, false, 'model');
     const traits = !input.traits && !input.traitsIcon ? 0
-      : separator + (small ? 26 : 38) + (input.traitsIcon ? (small ? 16 : 22) : 0) + (input.traits ? width(input.traits, small, 'traits') : 0);
-    const traitsIcon = !traits ? 0 : separator + (small ? 38 : 54);
+      : (small ? 26 : 34) + (input.traitsIcon ? (small ? 16 : 22) : 0) + (input.traits ? width(input.traits, small, 'traits') : 0);
+    const traitsIcon = !traits ? 0 : small ? 38 : 50;
     // The plan toggle's glyph: PencilRuler 16pt while planning, Bot 18pt otherwise ("sm"); 12pt resting.
     const planGlyph = small ? 12 : input.plan === 'Plan' ? 16 : 18;
-    const plan = input.plan ? separator + (small ? 14 : 22) + planGlyph + (small ? 4 : 6) + width(input.plan, small, 'plan') : 0;
-    const mode = separator + (small ? 42 : 60) + width(input.runtime, small, 'runtime') + plan;
-    const modeIcon = separator + (small ? 38 : 54) + (input.plan ? separator + (small ? 14 : 22) + planGlyph : 0);
+    const plan = input.plan ? (small ? 14 : 18) + planGlyph + (small ? 4 : 6) + width(input.plan, small, 'plan') : 0;
+    const mode = (small ? 42 : 56) + width(input.runtime, small, 'runtime') + plan;
+    const modeIcon = (small ? 38 : 50) + (input.plan ? (small ? 14 : 18) + planGlyph : 0);
     // The reference's expanded footer has no gap before its actions (gap-2 sm:gap-0), so its controls
     // host is 8pt wider than this footer's controls row (gap=8); the resting row is measured as it is.
     const host = input.host > 0 ? input.host + (small ? 0 : 8) : 0;
@@ -82,9 +81,9 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
     const previousStep = (small ? input.previous?.xs : input.previous?.sm) ?? 0;
     const previous = { hiddenCount: Math.max(0, previousStep - blocks.length), iconOnlyCount: Math.min(previousStep, blocks.length),
       visible: !(small ? input.previous?.xsHidden : input.previous?.smHidden) };
-    // The "…" trigger: an icon-only control (16pt glyph padded 11+11, resting 12pt padded 7+7).
-    const layout = host > 0 ? resolveRestingComposerControlsLayout({ gap: small ? 0 : 4, naturalFixedWidth: picker, minimumFixedWidth: small ? 30 : 38,
-      blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: small ? 26 : 38, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
+    // The "…" trigger: an icon-only control (16pt glyph padded 9+9, resting 12pt padded 7+7).
+    const layout = host > 0 ? resolveRestingComposerControlsLayout({ gap: 0, naturalFixedWidth: picker, minimumFixedWidth: small ? 30 : 40,
+      blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: small ? 26 : 34, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
     const iconOnly = layout.iconOnlyCount ?? 0, hidden = layout.hiddenCount;
     return { iconMode: iconOnly >= 1, iconTraits: !!traits && iconOnly >= 2, modeHidden: hidden >= 1, traitsHidden: !!traits && hidden >= 2,
       hidden: !layout.visible, step: iconOnly + hidden };
@@ -136,16 +135,17 @@ export function primaryAction(client: T3Client, phase: string) {
 
 /**
  * The Compact chip beside Send (ComposerPrimaryActions compactTokens): a stale Claude session's token count, on
- * ("Compact", the send compacts first) or off ("Full", the next send keeps the history). It hides while a queued
- * message is edited, and the contract hides it where Resume thread replaces Send. `compactWidth` is the chip's
- * width (h-8 rounded-full border px-2.5 gap-1.5, a 14pt glyph and 12pt labels), which the resting card reserves.
+ * ("Compact next", the send compacts first) or off ("Keep full", the next send keeps the history); the count is in
+ * the tooltip. It hides while a queued message is edited, and the contract hides it where Resume thread replaces
+ * Send. `compactWidth` is the chip's width (px-2 gap-1.5, a 16pt glyph and a 14pt medium label), which the resting
+ * card reserves.
  */
 export function compactChip(client: T3Client, now: number, editingQueued: boolean) {
   const tokens = editingQueued ? null : resumeCompactionTokens(client, now, contextSnapshot(client.projection));
   if (tokens === null) return { compactTokens: '', compactKeepFull: false, compactTip: '', compactSend: false, compactWidth: 0 };
-  const count = formatTokens(tokens), keep = keepsFullHistory(client), word = keep ? 'Full' : 'Compact';
-  const anchor = obj(client.presentation.anchors)[`compact:${word}:${count}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
-  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(22 + 14 + 6 + textWidth(word, true) + 6 + textWidth(count.replace(/\d/g, '0'), true)),
+  const count = formatTokens(tokens), keep = keepsFullHistory(client), label = keep ? 'Keep full' : 'Compact next';
+  const anchor = obj(client.presentation.anchors)[`compact:${label}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
+  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(16 + 16 + 6 + textWidth(label)),
     compactTip: keep ? `Next send keeps all ${count} tokens.\nClick to compact first` : `Next send compacts ${count} tokens first.\nClick to keep full history` };
 }
 

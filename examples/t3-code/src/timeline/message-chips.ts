@@ -299,7 +299,7 @@ export function imageChipInks(accent: string): { fill: string; hover: string; bo
   const rgb = accent.trim().split(/\s+/).map(Number);
   if (rgb.length !== 3 || rgb.some(value => !Number.isFinite(value) || value < 0 || value > 255)) return null;
   const hex = hexOf(oklab(rgb));
-  return { fill: `${hex}1c`, hover: `${hex}2b`, border: `light-dark(${mix(rgb, '#e4e4e7', 0.34)}, ${hex}61)`, ink: `light-dark(${mix(rgb, '#27272a', 0.22)}, ${mix(rgb, '#f5f5f5', 0.22)})` };
+  return { fill: `${hex}1c`, hover: `${hex}2b`, border: `light-dark(${mix(rgb, '#e4e4e7', 0.34)}, ${hex}61)`, ink: `light-dark(${mix(rgb, '#18181b', 0.22)}, ${mix(rgb, '#f5f5f5', 0.22)})` };
 }
 
 // Ported from T3 Code 1e2ecbd975 SkillInlineText.tsx and providerSkills.ts (MIT).
