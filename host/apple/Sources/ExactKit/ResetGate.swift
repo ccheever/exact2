@@ -36,7 +36,7 @@ enum ResetGate {
         "advance(now:untilRequest:)": (.advance, "a timer due over the teardown is the new tree's: it advances once its tree is in"),
         "tick(now:frame:)": (.advance, "a frame's tick is the clock's: the new runtime's due work advances once its tree is in"),
         "frame(now:wall:)": (.advance, "a display frame is the clock's, as a tick is"),
-        "covers(_:)": (.covers, "the old tree's covers clearing is moot, but the new tree's bar covers its content: they are told again"),
+        "covers(_:owners:)": (.covers, "the old tree's covers clearing is moot, but the new tree's bar covers its content: they are told again"),
         "view(_:)": (.fit, "a resize the teardown set off (a keyboard it ended) is the window's: the view fits again"),
         "resize(width:height:)": (.fit, "the AppKit view's size, as `view` is the UIKit one's: it fits again"),
         "insets(top:right:bottom:left:)": (.fit, "the AppKit view's insets, told with its size: it fits again"),

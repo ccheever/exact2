@@ -33,12 +33,14 @@ pub use calc::Comparison;
 use handles::calc_handle;
 pub(crate) use handles::{calc_handle_in, resolve_calc, tree_handle, LayoutEnv};
 pub mod env;
+pub mod owner;
 pub use env::link as link_segments;
 pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, Region, SegmentVar, TitleBarVar};
 /// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
 /// `color()`) into every colour row's grammar: native hosts and the compiler
 /// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
 pub use exact_motion::color::css::link_wide as link_wide_colors;
+pub use owner::{OwnerValues, OwnerVar};
 mod viewport;
 pub use viewport::ViewportUnit;
 pub mod cells;
@@ -89,6 +91,9 @@ pub enum Dimension {
     /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
     /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
     Segment(SegmentVar, u8, u8, f32),
+    /// A content owner's value plus points (LLP 1123 D9): `var(--exact-…)`,
+    /// resolved against the environment of the owner the node lies in.
+    Owner(OwnerVar, f32),
     /// A percentage of a viewport dimension, resolved at layout.
     Viewport(ViewportUnit, f32),
     /// A math function the other forms do not hold exactly: its simplified
@@ -108,7 +113,8 @@ impl Dimension {
             | Dimension::Viewport(_, v)
             | Dimension::Env(_, v)
             | Dimension::Region(_, _, v)
-            | Dimension::Segment(_, _, _, v) => v.is_finite(),
+            | Dimension::Segment(_, _, _, v)
+            | Dimension::Owner(_, v) => v.is_finite(),
             Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
         }
     }
@@ -152,12 +158,15 @@ impl Dimension {
                 f64::from(unit.basis(env)) * f64::from(n) / 100.0,
             )),
             Dimension::Segment(var, x, y, plus) => env::resolve(var, x, y, plus, env),
+            Dimension::Owner(var, plus) => var.value(env).map_or(Dimension::Auto, |base| {
+                Dimension::Points(calc::narrow(base + f64::from(plus)))
+            }),
             Dimension::Compare(c) if c.undefined(env) => Dimension::Auto,
             Dimension::Compare(c) => match c.substituted(env) {
                 // A tree needs a basis only where it reads a percentage
-                Some(Dimension::Compare(t)) if t == c => {
-                    c.value(env, None).map_or(self, Dimension::Points)
-                }
+                Some(Dimension::Compare(t)) if t == c => c
+                    .value(env, None)
+                    .map_or_else(|| Dimension::Compare(c.bound(env)), Dimension::Points),
                 // A text substituted is the row's value it reads as
                 Some(d) => d.resolve(env),
                 None => Dimension::Auto,
@@ -186,6 +195,7 @@ impl Dimension {
     fn undefined_segment(self, env: &Env) -> bool {
         match self {
             Dimension::Segment(_, x, y, _) => env.segment(x, y).is_none(),
+            Dimension::Owner(var, _) => var.value(env).is_none(),
             Dimension::Compare(c) => c.undefined(env),
             _ => false,
         }
@@ -495,6 +505,7 @@ impl StyleValue<'_> {
                 Ok(Some(d)) => Ok(Some(d)),
                 Ok(None) => env::parse(t).map_err(|refusal| StyleValueError::BadEnv { style, refusal }),
             }?
+            .or_else(|| owner::parse(t).map(|var| Dimension::Owner(var, 0.0)))
             .or_else(|| viewport::parse(t))
                 .or_else(|| {
                     parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
@@ -1364,7 +1375,7 @@ impl StyleProps {
 pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .effective_style(slot)
-        .to_taffy(arena.node_type(slot), arena.env());
+        .to_taffy(arena.node_type(slot), arena.env_for(slot));
     arena.alert_layout(slot, &mut s);
     // HTML's button layout, which Exact's reset of a `<button>` keeps: its
     // automatic inline size is shrink-to-fit, and a block button's content

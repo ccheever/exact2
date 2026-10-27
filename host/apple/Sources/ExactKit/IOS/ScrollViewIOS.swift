@@ -402,6 +402,48 @@ extension NodeView {
     }
 
 
+    /// Whether `fitScroll`, or a list's `CollectionHost.fit`, holds back a
+    /// new content size `size`: while a scroll to the top (`scrollsToTop`)
+    /// has the offset above the scroller's top, as it has under a collapsed
+    /// large title on its way to the open title's inset
+    /// (`NavigationHost.scrollToTop`, the status bar's tap). UIKit puts an
+    /// offset there back at the top when the content size changes, and the
+    /// title stops partly open, as when a `cqh` length (LLP 1123 D12) resizes
+    /// the content while the title opens. A size held waits for the offset to
+    /// come back in range, or for a drag (`releaseSize`), even once the scroll
+    /// to the top has ended.
+    func holdsSize(_ sv: UIScrollView, for size: CGSize) -> Bool {
+        let held = size != sv.contentSize && (toTopBegan != nil || heldSize != nil) && sv.contentOffset.y < -sv.adjustedContentInset.top - 0.5 && !sv.isTracking
+        heldSize = held ? size : nil
+        return held
+    }
+
+    /// The size held back (`holdsSize`) is set once nothing holds it, and at
+    /// once as a drag begins (`dragging`), when the offset is the finger's.
+    func releaseSize(dragging: Bool = false) {
+        guard let size = heldSize, let sv = scroll else { return }
+        if dragging { heldSize = nil } else if holdsSize(sv, for: size) { return }
+        if sv.contentSize != size { sv.contentSize = size }
+    }
+
+    /// A scroll to the top begins on the scroller (`holdsSize`). It ends with
+    /// its animation (`scrollViewDidEndScrollingAnimation` for a tab's,
+    /// `scrollViewDidScrollToTop` for the status bar's) or as a drag begins,
+    /// and a second after it began at the latest, should UIKit report no end;
+    /// another scroll to the top meanwhile has its own second.
+    func scrollsToTop() {
+        let began = CACurrentMediaTime()
+        toTopBegan = began
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in if self?.toTopBegan == began { self?.endScrollToTop() } }
+    }
+
+    /// The scroll to the top is over: what it held back is set, at once as a
+    /// drag begins, else once the offset is back in range.
+    func endScrollToTop(dragging: Bool = false) {
+        toTopBegan = nil
+        releaseSize(dragging: dragging)
+    }
+
     func applyPendingScroll() {
         defer { pendingScrollTop = nil; pendingScrollLeft = nil }
         guard let sv = scrollView else { return }

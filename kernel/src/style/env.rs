@@ -331,6 +331,15 @@ pub struct Env {
     /// is hidden (a window in full screen, or one whose toolbar fills the
     /// title bar).
     pub titlebar_area: Option<Rect>,
+    /// The values of the content owner a node lies in (LLP 1123 D9), for the
+    /// environment a node's rows resolve against; `None` for the document's
+    /// own, outside every owner. `env()` never reads them.
+    pub owner: Option<std::sync::Arc<super::owner::OwnerValues>>,
+    /// The width and height of the nearest content owner's content root,
+    /// the container units' basis (LLP 1123 D12); `None` outside every
+    /// owner. Unlike `owner` it holds through a top-layer root, as CSS keeps
+    /// a dialog's query container.
+    pub container: Option<(f32, f32)>,
 }
 
 impl Default for Env {
@@ -360,6 +369,8 @@ impl Env {
             screen: None,
             regions: None,
             titlebar_area: None,
+            owner: None,
+            container: None,
         }
     }
 
@@ -781,6 +792,7 @@ pub fn uses_env(style: &crate::StyleProps) -> bool {
                 Dimension::Env(..)
                     | Dimension::Region(..)
                     | Dimension::Segment(..)
+                    | Dimension::Owner(..)
                     | Dimension::Viewport(..)
                     | Dimension::Compare(..)
             )

@@ -16,6 +16,7 @@ pub(crate) mod button;
 pub(crate) mod control_text;
 pub(crate) mod defaults;
 mod inline_image;
+mod owners;
 pub mod text_style;
 
 use taffy::NodeId;
@@ -114,6 +115,11 @@ pub struct NodeArena {
     /// route nodes at most, so a list by slot rather than a column (and not a
     /// map, whose code every web core would carry).
     covers: Vec<(u32, crate::kernel::HostCover)>,
+    /// The content owners a host published values for (LLP 1123 D9), by their root's slot:
+    /// each with the environment its subtree's rows resolve against (the document's, carrying
+    /// its values) and the one a top-layer box in it does, which carries only its container
+    /// (D12). A few owners at most, as the covers.
+    owners: Vec<(u32, Env, Env)>,
     /// The margins the platform's own list gives a grouped list's cards and
     /// cells, by the list's slot: a few lists at most, as the covers.
     grouped_margins: Vec<(u32, crate::grouped::GroupedMargins)>,
@@ -196,6 +202,7 @@ impl Clone for NodeArena {
             nonzero_insets: self.nonzero_insets.clone(),
             intrinsic: self.intrinsic.clone(),
             covers: self.covers.clone(),
+            owners: self.owners.clone(),
             grouped_margins: self.grouped_margins.clone(),
             list_margins: self.list_margins.clone(),
             alert_prefixes: self.alert_prefixes.clone(),
@@ -249,9 +256,11 @@ impl NodeArena {
     /// Set the environment. The engine styles that read it are the
     /// kernel's to re-derive (`Kernel::set_env`).
     pub fn set_env(&mut self, env: Env) {
+        self.rebase_owners(&env);
         self.env = env;
         self.refresh_control_styles();
     }
+
     /// Forget every allocation while retaining each slot's generation.
     ///
     /// Resetting the kernel must not make a pre-reset [`NodeKey`] valid for a
@@ -291,6 +300,7 @@ impl NodeArena {
         self.nonzero_insets.clear();
         self.intrinsic.clear();
         self.covers.clear();
+        self.owners.clear();
         self.grouped_margins.clear();
         self.list_margins.clear();
         self.alert_prefixes.clear();
@@ -944,6 +954,7 @@ impl NodeArena {
         self.set_inset(slot, None);
         self.intrinsic.remove(&slot);
         self.covers.retain(|(s, _)| *s != slot);
+        self.owners.retain(|(s, _, _)| *s != slot);
         self.grouped_margins.retain(|(s, _)| *s != slot);
         self.list_margins.retain(|(s, _)| *s != slot);
         self.alert_prefixes.remove(slot);

@@ -191,6 +191,10 @@ impl<'a> Reader<'a> {
             14..=23 => {
                 Dimension::Viewport(crate::style::ViewportUnit::ALL[(kind - 14) as usize], value)
             }
+            27..=32 => Dimension::Viewport(
+                crate::style::ViewportUnit::ALL[(kind - 27 + 10) as usize],
+                value,
+            ),
             // A layout region's inset (LLP 1123 D10): its region and edge follow.
             25 => {
                 let (region, edge) = (self.u8()?, self.u8()?);
@@ -201,6 +205,15 @@ impl<'a> Reader<'a> {
                     (Some(region), Some(edge)) => Dimension::Region(region, edge, value),
                     _ => return Err(DecodeError::UnknownDimensionKind(kind)),
                 }
+            }
+            // A content owner's value (LLP 1123 D9): its four bytes follow.
+            26 => {
+                let bytes = [self.u8()?, self.u8()?, self.u8()?, self.u8()?];
+                Dimension::Owner(
+                    crate::style::OwnerVar::from_bytes(bytes)
+                        .ok_or(DecodeError::UnknownDimensionKind(kind))?,
+                    value,
+                )
             }
             // The leading `f32` is zero; the tree follows.
             24 if value.to_bits() == 0 => {
@@ -522,7 +535,9 @@ impl Writer {
                 self.f32(0.0);
             }
             Dimension::Viewport(unit, v) => {
-                self.u8(14 + unit as u8);
+                // The container units (LLP 1123 D12) follow the owner's kind.
+                let unit = unit as u8;
+                self.u8(if unit < 10 { 14 + unit } else { 27 + unit - 10 });
                 self.f32(v);
             }
             Dimension::Points(v) => {
@@ -544,6 +559,13 @@ impl Writer {
                 self.f32(v);
                 self.u8(x);
                 self.u8(y);
+            }
+            Dimension::Owner(var, v) => {
+                self.u8(26);
+                self.f32(v);
+                for b in var.bytes() {
+                    self.u8(b);
+                }
             }
             Dimension::Percent(v) => {
                 self.u8(2);
@@ -729,7 +751,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0x801cc97ab220b335);
+        assert_eq!(SCHEMA_DIGEST, 0x0e36c186916150d9);
     }
 
     #[test]
@@ -785,10 +807,10 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[26u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[33u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(26))
+            Err(DecodeError::UnknownDimensionKind(33))
         );
     }
 

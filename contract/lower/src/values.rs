@@ -417,11 +417,12 @@ fn style_value(
                     span,
                 );
             }
-            // @ref LLP 1081 D5 — `--exact-*` names are the web host's own.
-            if v.to_ascii_lowercase().contains("--exact-") {
+            // @ref LLP 1081 D5 — host-private `--exact-*` names are the web
+            // host's own; a content owner's values (LLP 1123 D9) are read.
+            if host_private(v) {
                 return err(
                     "lower-attr-value",
-                    format!("`--exact-*` names are the host's own; write the author's `-exact-` name: `{}=\"{v}\"`", a.name),
+                    format!("`--exact-*` names other than a content owner's values (`var(--exact-safe-area-inset-top)`, LLP 1123 D9) are the host's own; write the author's `-exact-` name: `{}=\"{v}\"`", a.name),
                     span,
                 );
             }
@@ -1343,3 +1344,14 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
 }
 #[cfg(test)]
 mod tests;
+
+/// Whether `v` names an `--exact-*` property anywhere but as a content
+/// owner's value read alone by `var()` (LLP 1123 D9).
+fn host_private(v: &str) -> bool {
+    let lower = v.to_ascii_lowercase();
+    lower.match_indices("--exact-").any(|(at, _)| {
+        let read = lower[..at].trim_end().ends_with("var(");
+        let name = lower[at..].split([')', ',', ' ']).next().unwrap_or("");
+        !(read && exact_kernel::OwnerVar::from_name(name).is_some())
+    })
+}

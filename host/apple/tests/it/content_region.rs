@@ -899,3 +899,49 @@ fn a_popover_under_a_native_region_stays_in_it_and_publishes() {
         "half the owner's 600"
     );
 }
+
+/// A native region's nodes cross with the styles their content owner
+/// resolves (LLP 1123 D12): a radius of 10% of the owner's 300, not of the
+/// window's 800.
+#[test]
+fn a_native_regions_nodes_cross_with_their_owners_container_units() {
+    let source = r##"component App
+  view
+    column width="100%" height="100%"
+      view id="owner" testId="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+        view id="content" width="100%" height="100%"
+          box testId="card" width=40 height=40 border-radius="10cqh"
+        text "Preparing" id="pending"
+"##;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, mut history) = Host::boot_native_region(
+        &plan,
+        Data,
+        Box::new(MonospaceMeasurer::default()),
+        600.,
+        800.,
+        registration(),
+        exact_apple::content_region::NativeProjectionLimits::default(),
+    )
+    .unwrap();
+    let values = exact_kernel::OwnerValues {
+        cols: 1,
+        rows: 1,
+        size: (600.0, 300.0),
+        ..Default::default()
+    };
+    history.push_str(&host.set_claims(&exact_apple::Claims {
+        owners: &[(projection_id(&host, "owner"), Some(values))],
+        ..Default::default()
+    }));
+    projection_complete(&mut host, &mut history);
+    assert!(host.region_publication_id().is_some(), "{history}");
+    let card = projection_id(&host, "card");
+    let radius = format!("\"id\":{card},");
+    let last = history
+        .split("{\"op\":")
+        .filter(|op| op.contains(&radius) && op.contains("border_radius_top_left"))
+        .last()
+        .unwrap_or_else(|| panic!("{history}"));
+    assert!(last.contains("\"border_radius_top_left\":30,"), "{last}");
+}

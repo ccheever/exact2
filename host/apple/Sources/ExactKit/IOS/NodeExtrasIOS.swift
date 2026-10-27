@@ -153,6 +153,9 @@ final class NodeExtras {
     var followingEndAnimated = false
     var anchoredScrollTop: CGFloat?
     var retainedScrollTop: CGFloat?
+    /// A content size a scroll to the top holds back (`holdsSize`), and when the one that runs began.
+    var heldSize: CGSize?
+    var toTopBegan: CFTimeInterval?
     var materialKind: String?
     var materialInteractive: Bool = false
     var hiddenBeforePlacement = false
@@ -365,6 +368,8 @@ extension NodeView {
     var followsEndAfterInteraction: Bool { get { extras?.followsEndAfterInteraction ?? false } set { if newValue || extras != nil { more.followsEndAfterInteraction = newValue } } }
     var anchoredScrollTop: CGFloat? { get { extras?.anchoredScrollTop } set { if newValue != nil || extras != nil { more.anchoredScrollTop = newValue } } }
     var retainedScrollTop: CGFloat? { get { extras?.retainedScrollTop } set { if newValue != nil || extras != nil { more.retainedScrollTop = newValue } } }
+    var heldSize: CGSize? { get { extras?.heldSize } set { if newValue != nil || extras != nil { more.heldSize = newValue } } }
+    var toTopBegan: CFTimeInterval? { get { extras?.toTopBegan } set { if newValue != nil || extras != nil { more.toTopBegan = newValue } } }
     var materialKind: String? { get { extras?.materialKind } set { if newValue != nil || extras != nil { more.materialKind = newValue } } }
     var glassGroupView: GlassGroupView? { get { extras?.glassGroupView } set { if newValue != nil || extras != nil { more.glassGroupView = newValue } } }
     var glassSlot: GlassSlot? { get { extras?.glassSlot } set { if newValue != nil || extras != nil { more.glassSlot = newValue } } }

@@ -161,8 +161,9 @@ package final class Presenter {
     var insets = UIEdgeInsets.zero
     /// The layout regions the kernel was given (LLP 1123 D10), `nil` for none.
     var regions: [CGFloat]?
-    /// The posture and the viewport segments last told (LLP 1078 D5), for `layout.env`.
-    var fold = ViewportFold.flat
+    /// The posture and the viewport segments last told (LLP 1078 D5), for
+    /// `layout.env`. A change moves each route's own (LLP 1123 D9).
+    var fold = ViewportFold.flat { didSet { if fold != oldValue { navigation.coversChanged() } } }
     /// Whether the device has a fold — UIKit 27.1 reported a division region
     /// or a hinge — in which case `prefer posture`/`segments` is refused:
     /// the device decides (LLP 1078 D7).
@@ -702,8 +703,9 @@ package final class Presenter {
         }
     }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
-    /// What native containers cover of boxes (LLP 1075.003 §3.5).
-    var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// What native containers cover of boxes (LLP 1075.003 §3.5), and
+    /// content owners' values (LLP 1123 D9), told under one layout.
+    var onCovers: (([(UInt32, HostCover?)], [(UInt32, OwnerValues?)]) -> Void)?
     /// In `reset`: host state its views would move with no runtime to tell stays as it was (FocusEvents' focus,
     /// OwnersIOS' blocks, ExactView `fit`'s geometry; ResetGate).
     private(set) var resetting = false

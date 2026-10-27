@@ -37,6 +37,7 @@ pub(crate) mod refusal {
     pub(crate) const DEPTH: &str =
         "calc(), min(), max() and clamp() nest at most 32 deep in one length, parentheses included";
     pub(crate) const SIZE: &str = "one length holds at most 32 values";
+    pub(crate) const OWNER_NAME: &str = "var() in a length names a content owner's value: --exact-safe-area-inset-<edge>, --exact-<region>-inset-<edge> or --exact-viewport-segment-<field>-<x>-<y> (LLP 1123 D9)";
     pub(crate) const FALLBACK: &str =
         "an env() with a fallback is read once substituted, by the property it is a value of";
     pub(crate) const RELATIVE_FALLBACK: &str =
@@ -327,6 +328,8 @@ impl Calc {
                 match name.as_str() {
                     // `env()` substitutes a length: no level of the calculation
                     "env" if !self.grid => p.parse_nested_block(|p| self.env(p, depth)),
+                    // A content owner's value (LLP 1123 D9) substitutes a length too
+                    "var" if !self.grid => p.parse_nested_block(|p| self.var(p)),
                     "calc" => {
                         let depth = self.deeper(p, depth)?;
                         p.parse_nested_block(|p| self.whole(p, depth))
@@ -467,6 +470,23 @@ impl Calc {
         Ok((node, ty))
     }
 
+    /// `var(--exact-…)`: a content owner's value (LLP 1123 D9). One with a
+    /// fallback makes the whole value a substitution ([`substitutes`]).
+    fn var<'i>(&mut self, p: &mut Parser<'i, '_>) -> Parsed<'i, (Node, Ty)> {
+        self.count(p)?;
+        let name = match p.next() {
+            Ok(Token::Ident(name)) => name.to_string(),
+            _ => return why(p, refusal::SYNTAX),
+        };
+        let Some(var) = crate::style::OwnerVar::from_name(&name) else {
+            return why(p, refusal::OWNER_NAME);
+        };
+        if p.next().is_ok() {
+            return why(p, refusal::FALLBACK);
+        }
+        Ok((Node::Env(EnvTerm::Owner(var)), Ty::Length))
+    }
+
     /// `env(<name> <index>*)`: the variable. One with a fallback makes the
     /// whole value a substitution, which a row holds as written and reads
     /// only once substituted ([`substitutes`]), never a tree.
@@ -496,11 +516,16 @@ pub(crate) fn substitutes(text: &str) -> Result<bool, Refused> {
         let syntax = || Fail::Why(refusal::SYNTAX);
         while let Ok(token) = p.next_including_whitespace_and_comments() {
             match token.clone() {
-                Token::Function(name) if name.eq_ignore_ascii_case("env") => {
+                Token::Function(name)
+                    if name.eq_ignore_ascii_case("env") || name.eq_ignore_ascii_case("var") =>
+                {
+                    let parts = if name.eq_ignore_ascii_case("env") {
+                        env_parts
+                    } else {
+                        var_parts
+                    };
                     let (_, fallback) = p
-                        .parse_nested_block(|p| {
-                            env_parts(p, depth).map_err(|f| p.new_custom_error(f))
-                        })
+                        .parse_nested_block(|p| parts(p, depth).map_err(|f| p.new_custom_error(f)))
                         .map_err(fail)?;
                     *found |= fallback.is_some();
                 }
@@ -582,19 +607,41 @@ pub(super) fn env_parts(
             _ => return Err(Fail::Why(refusal::NOT_A_LENGTH)),
         },
     };
-    let fallback = match p.next() {
-        Err(_) => None,
+    Ok((term, fallback(p, depth)?))
+}
+
+/// `var(--exact-…)`'s parts, as [`env_parts`]: a content owner's value
+/// (LLP 1123 D9) and its fallback's tokens, if it has one.
+pub(super) fn var_parts(
+    p: &mut Parser<'_, '_>,
+    depth: usize,
+) -> Result<(EnvTerm, Option<String>), Fail> {
+    let name = p
+        .parse_until_before(Delimiter::Comma, |p| {
+            let name = p.expect_ident()?.to_string();
+            p.expect_exhausted()?;
+            Ok::<_, ParseError<'_, ()>>(name)
+        })
+        .map_err(|_| Fail::Why(refusal::SYNTAX))?;
+    let var = crate::style::OwnerVar::from_name(&name).ok_or(Fail::Why(refusal::OWNER_NAME))?;
+    Ok((EnvTerm::Owner(var), fallback(p, depth)?))
+}
+
+/// What follows a variable's name: nothing, or a comma and its fallback,
+/// whose tokens are returned as written.
+fn fallback(p: &mut Parser<'_, '_>, depth: usize) -> Result<Option<String>, Fail> {
+    match p.next() {
+        Err(_) => Ok(None),
         Ok(Token::Comma) => {
             let start = p.position();
             declaration_value(p, depth, true)?;
             let tokens = p
                 .slice_from(start)
                 .trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
-            Some(tokens.to_string())
+            Ok(Some(tokens.to_string()))
         }
-        Ok(_) => return Err(Fail::Why(refusal::SYNTAX)),
-    };
-    Ok((term, fallback))
+        Ok(_) => Err(Fail::Why(refusal::SYNTAX)),
+    }
 }
 
 /// Read a `<declaration-value>` to the end of its block (CSS Syntax 3
@@ -617,13 +664,20 @@ fn declaration_value(p: &mut Parser<'_, '_>, depth: usize, top: bool) -> Result<
             | Token::CloseParenthesis
             | Token::CloseSquareBracket
             | Token::CloseCurlyBracket => return Err(syntax()),
-            // A fallback's own `env()` names a variable too
-            Token::Function(name) if name.eq_ignore_ascii_case("env") => {
+            // A fallback's own `env()` or `var()` names a variable too
+            Token::Function(name)
+                if name.eq_ignore_ascii_case("env") || name.eq_ignore_ascii_case("var") =>
+            {
                 if depth == MAX_DEPTH {
                     return Err(syntax());
                 }
+                let parts = if name.eq_ignore_ascii_case("env") {
+                    env_parts
+                } else {
+                    var_parts
+                };
                 p.parse_nested_block(|p| {
-                    env_parts(p, depth + 1)
+                    parts(p, depth + 1)
                         .map(|_| ())
                         .map_err(|f| p.new_custom_error(f))
                 })

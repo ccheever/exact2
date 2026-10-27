@@ -77,6 +77,17 @@ enum HostCover: Equatable {
     case gutter(right: CGFloat, bottom: CGFloat)
 }
 
+/// A content owner's values (LLP 1123 D9), in its content root's points:
+/// the safe area left there (top, right, bottom, left), D10's twenty region
+/// insets (`nil`: each is the safe area), the segments a fold makes of the
+/// content root, and its size, which container units read (D12).
+struct OwnerValues: Equatable {
+    var safe: [CGFloat]
+    var regions: [CGFloat]?
+    var fold: ViewportFold
+    var size: CGSize
+}
+
 /// The module's hatch entries (NativeModule.swift reads them from its table).
 typealias HatchConnectFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?) -> Void
 typealias HatchNavigationFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> UInt32

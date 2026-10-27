@@ -51,6 +51,7 @@ extension NodeView {
     /// the one frame of rows any jump costs, and UIKit glides the rest, which
     /// the pump leads as it does any scroll.
     @objc package func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        if scrollView === self.scrollView { scrollsToTop() }
         guard scrollView === self.scrollView, let collections = presenter?.collections,
               let entry = collections.entries[id], !entry.snapshot.horizontal else { return true }
         let top = -scrollView.adjustedContentInset.top, glide = scrollView.bounds.height * 2
@@ -58,6 +59,11 @@ extension NodeView {
         collections.userIntent(id)
         scrollView.setContentOffset(PixelGrid.offset(CGPoint(x: scrollView.contentOffset.x, y: top + glide), in: scrollView), animated: false)
         return true
+    }
+
+    /// The status bar's scroll to the top is over (`scrollsToTop`).
+    @objc package func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
+        if scrollView === self.scrollView { endScrollToTop() }
     }
 }
 #endif

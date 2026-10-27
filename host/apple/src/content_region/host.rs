@@ -406,7 +406,7 @@ impl<D: DataSource> Host<D> {
                 .node_by_key(arena.key(slot))
                 .ok_or("native removed node")?;
             let props = props_for(&node);
-            let (style, _) = style::style_json_for(&node, &self.runner.kernel().env());
+            let (style, _) = style::style_json_for(&node, arena.env_for(slot));
             let children = arena
                 .children(slot)
                 .iter()

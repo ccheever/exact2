@@ -43,6 +43,7 @@ mod content_region_host;
 mod control_text_tests;
 #[path = "covers.rs"]
 mod covers;
+pub use covers::Claims;
 #[path = "first_frame.rs"]
 mod first_frame;
 #[cfg(test)]

@@ -429,7 +429,7 @@ final class ContentOwnersIOSTests: XCTestCase {
         let cover = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
         let edges = { (safe: UIEdgeInsets, presented: Bool, whole: Bool, reached: CGFloat) in
             NavigationHost.routeEdges(safe: safe, document: cover, presented: presented, whole: whole, covered: !presented && !whole,
-                                      collapses: false, reached: reached)
+                                      reached: reached)
         }
         XCTAssertEqual(edges(UIEdgeInsets(top: 44, left: 0, bottom: 0, right: 0), true, true, 0),
                        .init(top: 44, right: 0, bottom: 0, left: 0), "a floating sheet's inline bar")
@@ -441,7 +441,7 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), false, false, 83),
                        .init(top: 44, right: 0, bottom: 49, left: 0), "a covered page's route still clears the tab bar, which its env() does not hold")
         XCTAssertEqual(NavigationHost.routeEdges(safe: UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), document: .zero, presented: false, whole: true,
-                                                 collapses: false, reached: 83),
+                                                 reached: 83),
                        .init(top: 106, right: 0, bottom: 83, left: 0), "the whole view's route: the bar and the status bar")
     }
 

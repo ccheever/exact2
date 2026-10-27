@@ -48,20 +48,16 @@ fn horizontal_padding_and_native_card_margins_each_reduce_the_row_once() {
                     [16.0, 16.0]
                 };
                 for card in [[0.0, 0.0], uneven, [0.0, 0.0]] {
-                    let batch = host.set_claims(
-                        &[],
-                        &[],
-                        &[],
-                        &[(
+                    let batch = host.set_claims(&exact_apple::Claims {
+                        margins: &[(
                             list,
                             Some(GroupedMargins {
                                 card,
                                 cell: [16.0, 16.0],
                             }),
                         )],
-                        &[],
-                        &[],
-                    );
+                        ..Default::default()
+                    });
                     let batch: serde_json::Value = serde_json::from_str(&batch).unwrap();
                     assert!(batch["error"].is_null(), "{batch}");
                     let frame = host.runner().kernel().node(row).unwrap().frame;

@@ -16,7 +16,7 @@ final class HostCoversMacTests: XCTestCase {
         p.apply(wireBatch([["op": "create", "id": 1, "kind": "view"], ["op": "roots", "ids": [1]]]))
         for covered in [true, false] {
             let delivered = expectation(description: "the current cover reaches the runtime outside its callback")
-            p.onCovers = { changes in
+            p.onCovers = { changes, _ in
                 XCTAssertFalse(Owner.shared.isServingMain)
                 XCTAssertEqual(changes.map { "\($0.0):\($0.1 == .whole ? "whole" : "none")" }, [covered ? "1:whole" : "1:none"])
                 delivered.fulfill()
@@ -81,7 +81,7 @@ final class HostCoversMacTests: XCTestCase {
         _ = NSApplication.shared
         let p = Presenter()
         var told: [[String]] = []
-        p.onCovers = { told.append($0.map { "\($0.0):\($0.1 == .whole ? "whole" : "none")" }) }
+        p.onCovers = { covers, _ in told.append(covers.map { "\($0.0):\($0.1 == .whole ? "whole" : "none")" }) }
         var inBatch: (() -> Void)?
         // Called while a batch that changes the root's `viewportFit` is being applied.
         p.onViewportFit = { XCTAssertTrue(p.isApplying); inBatch?() }

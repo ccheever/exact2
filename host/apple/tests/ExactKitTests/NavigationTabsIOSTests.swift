@@ -261,9 +261,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         let p = session.presenter, view = try XCTUnwrap(session.view)
         let deliver = p.onCovers
         var deliveries = 0
-        p.onCovers = { changes in
+        p.onCovers = { changes, owners in
             deliveries += 1
-            deliver?(changes)
+            deliver?(changes, owners)
         }
         defer { p.onCovers = deliver }
         for appearance in ["none", "auto", "none"] {

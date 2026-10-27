@@ -49,7 +49,7 @@ final class HostCovers {
         for id in wanted.keys.sorted() where delivered[id] != wanted[id] { changes.append((id, wanted[id])) }
         for id in delivered.keys.sorted() where wanted[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         delivered = wanted
-        if !changes.isEmpty { presenter.onCovers?(changes) }
+        if !changes.isEmpty { presenter.onCovers?(changes, []) }
     }
 
     /// A restart: the new runner knows no cover, and each presentation

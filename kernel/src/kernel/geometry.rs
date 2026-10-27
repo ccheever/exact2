@@ -291,10 +291,11 @@ impl Kernel {
                 let parent = tree_ref.layout(p);
                 parent.size.width - parent.border.left - parent.border.right
             });
-        let mut minimum = style.min_width.at_basis(self.arena.env(), basis).max(0.0);
+        let env = self.arena.env_for(slot);
+        let mut minimum = style.min_width.at_basis(env, basis).max(0.0);
         if style.box_sizing == crate::generated::BoxSizing::ContentBox {
             let (left, _, right, _) = self.resolved_padding(key).unwrap_or_default();
-            let [_, br, _, bl] = style.border_widths_in(self.arena.env());
+            let [_, br, _, bl] = style.border_widths_in(env);
             minimum += left + right + bl + br;
         }
         let box_ = [
@@ -327,7 +328,8 @@ impl Kernel {
             return 0.0;
         }
         let (_, top, _, bottom) = self.resolved_padding(node.key).unwrap_or_default();
-        let [border_top, _, border_bottom, _] = style.border_widths_in(self.arena.env());
+        let [border_top, _, border_bottom, _] =
+            style.border_widths_in(self.arena.env_for(node.key.index));
         let room = node.frame.height - top - bottom - border_top - border_bottom;
         // The measured extent counts the top padding before the lines, and
         // the bottom one after them in a box that clips or scrolls (Taffy's leaf).
@@ -398,7 +400,7 @@ impl Kernel {
     pub fn laid_margins(&self, id: crate::ViewId) -> Option<[f32; 4]> {
         use crate::style::cells::{COLUMN, ROW};
         let node = self.node(id)?;
-        let (env, s) = (self.arena.env(), node.style);
+        let (env, s) = (self.arena.env_for(node.key.index), node.style);
         let [t, r, b, l] = [
             (s.margin_top, ROW),
             (s.margin_right, COLUMN),

@@ -67,10 +67,10 @@ final class RestartListIOSTests: XCTestCase {
         var clears = 0, clearsInReset = 0, appliedInClears = 0, coversAfter = 0
         let reported = session.presenter.onCovers
         defer { session.presenter.onCovers = reported }
-        session.presenter.onCovers = { [weak session] covers in
+        session.presenter.onCovers = { [weak session] covers, owners in
             guard let session else { return }
             let before = session.appliedBatches
-            reported?(covers)
+            reported?(covers, owners)
             if !session.runtime.held, !session.presenter.resetting, covers.contains(where: { $0.1 != nil }) { coversAfter += 1 }
             guard !covers.isEmpty, covers.allSatisfy({ $0.1 == nil }) else { return }
             clears += 1
@@ -86,7 +86,7 @@ final class RestartListIOSTests: XCTestCase {
         // listed, and the replay ran once, in order, after the committed batch.
         guard case let .reset(entered, held)? = seen.first else { return XCTFail("no reset seen: \(seen)") }
         XCTAssertEqual(entered, 0, "a call reached the runtime inside the reset")
-        XCTAssertTrue(held.contains("covers(_:)"), "\(held)")
+        XCTAssertTrue(held.contains("covers(_:owners:)"), "\(held)")
         let listed = Set(ResetGate.replayed.keys).union(ResetGate.dropped.keys)
         XCTAssertEqual(held.filter { !listed.contains($0) }, [], "a held call ResetGate doesn't list")
         XCTAssertEqual(seen.dropFirst().map { if case let .replayed(r, _) = $0 { r } else { [] } }, [ResetGate.replays(held)], "replayed once, after")

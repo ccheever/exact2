@@ -73,6 +73,6 @@ pub mod style;
 pub mod svg_image;
 pub mod textflow;
 
-pub use host::{Host, HostError};
+pub use host::{Claims, Host, HostError};
 
 pub mod time;

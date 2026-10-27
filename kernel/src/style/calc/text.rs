@@ -118,6 +118,12 @@ fn tree(n: &Node, out: &mut String) {
 
 /// `env()` without a fallback, as CSS writes it.
 pub(super) fn env(term: EnvTerm, out: &mut String) {
+    if let EnvTerm::Owner(var) = term {
+        out.push_str("var(");
+        out.push_str(&var.name());
+        out.push(')');
+        return;
+    }
     out.push_str("env(");
     match term {
         EnvTerm::Inset(edge) => {
@@ -136,6 +142,7 @@ pub(super) fn env(term: EnvTerm, out: &mut String) {
             out.push_str(super::super::env::TitleBarVar::PREFIX);
             out.push_str(var.name());
         }
+        EnvTerm::Owner(_) => unreachable!("written above"),
     }
     out.push(')');
 }

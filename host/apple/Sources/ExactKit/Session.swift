@@ -736,7 +736,8 @@ public final class ExactSession {
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.intrinsics(sizes)) } }
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout as an intrinsic
         // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
-        presenter.onCovers = { [unowned self] covers in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers(covers)) } }
+        // An owner's values change with each frame of a keyboard; where no row reads them the batch changes nothing (LLP 1123 D9).
+        presenter.onCovers = { [unowned self] covers, owners in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers(covers, owners: owners)) } }
         #if os(iOS) || os(tvOS)
         natives.onHatchesConnected = { [weak self] in
             self?.presenter.navigation.replayHatches()
@@ -1289,21 +1290,14 @@ public final class ExactSession {
         change.segments = fold?.rects
         guard booted, state != .destroyed, !change.isEmpty else { return }
         if let screen = change.screen { screenSize = screen }
+        // The routes are told their own segments first (LLP 1123 D9), so the batch lays them out once
+        let before = presenter.fold
+        if let fold { presenter.fold = fold }
         let batch = runtime.view(change)
-        if let fold, batch.error == nil { presenter.fold = fold }
+        if batch.error != nil { presenter.fold = before }
         apply(batch)
     }
     private(set) var screenSize: CGSize? // the screen last told, for the agent's synthetic segments
-    /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
-    /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.
-    /// Returns the batch's error, when the runtime refused the grid; the fold is kept only when it took it.
-    @discardableResult func segments(_ fold: ViewportFold) -> String? {
-        guard booted, state != .destroyed else { return nil }
-        let batch = runtime.segments(fold)
-        if batch.error == nil { presenter.fold = fold }
-        apply(batch)
-        return batch.error
-    }
     /// The view's appearance, for paint motion's `light-dark()` (LLP 1062).
     /// The platform's colours are reported first: before the first scheme
     /// that fills the kernel's table without motion, so nothing eases from a

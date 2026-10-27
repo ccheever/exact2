@@ -355,7 +355,7 @@ fn forms_outside_the_grammar_are_refused_by_name() {
         ("max(env(safe-area-inset-top) - 20px, 0)", "zero too"),
         ("max(1rem, env(safe-area-inset-bottom))", "rem and em"),
         ("max(env(safe-area-inset-middle), 1px)", "env() names"),
-        ("max(var(--inset), 1px)", "the functions are"),
+        ("max(var(--inset), 1px)", "names a content owner's value"),
         ("max(attr(x), 1px)", "the functions are"),
         ("max(1px, auto)", "take px"),
         (

@@ -3483,13 +3483,20 @@ The insets are the document's: on the web the browser's, and on a native host th
 device's under `viewport-fit="cover"` and 0 under `auto`, even on iOS when a root
 `tablist` or navigation stack takes the whole screen; there a box at the root that
 pads with them stays under the status bar
-([pitfall](agent-pitfalls.md#native-presentation-and-navigation-ios)).
+([pitfall](agent-pitfalls.md#native-presentation-and-navigation-ios)). A route has
+its own, measured from where its content starts below its bar:
+`var(--exact-safe-area-inset-<edge>)`, `var(--exact-<region>-inset-<edge>)` for the
+layout regions, and `var(--exact-viewport-segment-<field>-<x>-<y>)` for a fold's
+segments (LLP 1123 D9). Write those inside a route; lowering names an `env()` there
+(`lower-env-in-owner`). The container units `cqw`, `cqh`, `cqi`, `cqb`, `cqmin` and
+`cqmax` are a percent of a route's content box at any depth (`100cqh` is the route's
+content height), and of the small viewport outside every route (LLP 1123 D12).
 Sizes, padding and radii clamp negative results to zero; margins and insets keep
 them. `env(titlebar-area-x|y|width|height)` is the title bar beside a Mac window's
 traffic lights under `viewport-fit="cover"` (in the tall title row an app without routes
 gets from `"display_override": ["window-controls-overlay"]` in `app.json`) and is undefined
 elsewhere, so give it a fallback (`contract vocab titlebar-area`). Unsupported: `rem`/`em`, a unitless number where a length goes
-(write `0px`, not `0`), `var()`, more than 32 values or 32 levels (LLP 1001 §2,
+(write `0px`, not `0`), `var()` of anything but a route's values, more than 32 values or 32 levels (LLP 1001 §2,
 "Comparisons").
 
 `translate` takes one or two lengths, each in px or a percentage of the box's own

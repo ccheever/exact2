@@ -954,6 +954,18 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
                 out.push_str("px)");
             }
         }
+        // A content owner's value (LLP 1123 D9): the custom property the
+        // host sets on the root and on each owner.
+        Dimension::Owner(var, plus) => {
+            out.push_str(if plus == 0.0 { "var(" } else { "calc(var(" });
+            out.push_str(&var.name());
+            out.push(')');
+            if plus != 0.0 {
+                out.push_str(if plus < 0.0 { " - " } else { " + " });
+                num_into(out, plus.abs());
+                out.push_str("px)");
+            }
+        }
         // The browser resolves the segment itself too (LLP 1078 D6): the
         // text is CSS-ENV-1's, untouched.
         Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),

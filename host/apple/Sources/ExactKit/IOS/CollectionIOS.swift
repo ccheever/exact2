@@ -199,7 +199,9 @@ extension CollectionHost {
         } else {
             let bottom = node.layoutBounds.height - content.maxY
             let height = max(node.scrollFloor(scroll), PixelGrid.length(max(CGFloat(extent) + content.minY + bottom, node.content.height), from: node.grid?.origin ?? .zero, vertical: true, scale: presenter?.gridScale ?? 1))
-            if scroll.contentSize.height != height { scroll.contentSize.height = height }
+            // A scroll to the top holds it back as it holds a scroller's
+            let size = CGSize(width: scroll.contentSize.width, height: height)
+            if !node.holdsSize(scroll, for: size), scroll.contentSize != size { scroll.contentSize = size }
         }
     }
     /// A smooth correction's target that arrived while one was animating.

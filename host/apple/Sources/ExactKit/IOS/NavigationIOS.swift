@@ -410,6 +410,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var covers: [UInt32: HostCover] = [:]
     /// The covers the kernel was last told (`deliverCovers`).
     var delivered: [UInt32: HostCover] = [:]
+    /// Each shown route's values as a content owner (LLP 1123 D9), and
+    /// those the kernel was last told.
+    var ownerValues: [UInt32: OwnerValues] = [:]
+    var deliveredOwners: [UInt32: OwnerValues] = [:]
     /// Whether this boot's first batch looked for the tablist the boot
     /// covered (`adoptBootCover`); every boot covers its own.
     private(set) var bootCoverSeen = false
@@ -1371,11 +1375,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         for c in controllers.values { end(c) }
         retireTabs()
         if let primaryNavigation { retireStack(primaryNavigation) }
-        if !covers.isEmpty || !delivered.isEmpty {
+        if !covers.isEmpty || !delivered.isEmpty || !deliveredOwners.isEmpty {
             let cleared = Set(covers.keys).union(delivered.keys).filter { presenter.views[$0] != nil }
+            let owners = deliveredOwners.keys.filter { presenter.views[$0] != nil }
             covers = [:]
             delivered = [:]
-            if !cleared.isEmpty { presenter.onCovers?(cleared.map { ($0, nil) }) }
+            ownerValues = [:]
+            deliveredOwners = [:]
+            if !cleared.isEmpty || !owners.isEmpty { presenter.onCovers?(cleared.map { ($0, nil) }, owners.map { ($0, nil) }) }
         }
         primaryNavigation?.delegate = nil
         primaryNavigation?.willMove(toParent: nil)

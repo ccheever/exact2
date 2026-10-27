@@ -61,6 +61,13 @@ fn node_out(n: &Node, w: &mut Writer) {
                 // A layout region's inset (LLP 1123 D10): 16 + region × 4 + edge
                 EnvTerm::Region(region, edge) => w.u8(16 + *region as u8 * 4 + *edge as u8),
                 EnvTerm::TitleBar(var) => w.u8(36 + *var as u8),
+                // A content owner's value (LLP 1123 D9): 40, then its four bytes.
+                EnvTerm::Owner(var) => {
+                    w.u8(40);
+                    for b in var.bytes() {
+                        w.u8(b);
+                    }
+                }
             }
         }
         Node::Sum(c) | Node::Product(c) | Node::Min(c) | Node::Max(c) => {
@@ -186,6 +193,12 @@ fn node(r: &mut Reader<'_>, level: usize, nodes: &mut usize) -> Option<Node> {
                     Edge::from_index((tag - 16) % 4)?,
                 ),
                 tag @ 36..=39 => EnvTerm::TitleBar(TitleBarVar::from_index(tag - 36)?),
+                40 => EnvTerm::Owner(crate::style::OwnerVar::from_bytes([
+                    r.u8().ok()?,
+                    r.u8().ok()?,
+                    r.u8().ok()?,
+                    r.u8().ok()?,
+                ])?),
                 _ => return None,
             };
             Node::Env(term)

@@ -36,6 +36,15 @@ struct ViewportFold: Equatable {
         return fold
     }
 
+    /// The fold whose segments are `rects`, the parts of a grid's segments
+    /// a box inside it holds (LLP 1123 D9), when they make a whole grid;
+    /// flat otherwise.
+    static func grid(_ rects: [CGRect]) -> ViewportFold {
+        let cols = Set(rects.map(\.minX)).count, rows = Set(rects.map(\.minY)).count
+        guard rects.count > 1, cols * rows == rects.count else { return .flat }
+        return ViewportFold(posture: "folded", cols: cols, rows: rows, rects: rects.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) })
+    }
+
     /// `layout.env`'s four names (LLP 1012 §1; LLP 1078 D7).
     var env: [String: Any] {
         ["device-posture": posture, "horizontal-viewport-segments": cols, "vertical-viewport-segments": rows,
@@ -100,5 +109,21 @@ enum Segments {
         var out: [CGRect] = []
         for y in 0..<rows { for x in 0..<cols { out.append(CGRect(x: CGFloat(x) * (w + gap), y: CGFloat(y) * (h + gap), width: w, height: h)) } }
         return out
+    }
+}
+
+extension ExactSession {
+    /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
+    /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.
+    /// Returns the batch's error, when the runtime refused the grid; the fold is kept only when it took it.
+    @discardableResult func segments(_ fold: ViewportFold) -> String? {
+        guard booted, state != .destroyed else { return nil }
+        // The routes are told their own segments first (LLP 1123 D9), so the batch lays them out once
+        let before = presenter.fold
+        presenter.fold = fold
+        let batch = runtime.segments(fold)
+        if batch.error != nil { presenter.fold = before }
+        apply(batch)
+        return batch.error
     }
 }

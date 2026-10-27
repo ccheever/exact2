@@ -108,6 +108,61 @@ impl Kernel {
         self.replace_env(next)
     }
 
+    /// Publish the values of the content owner rooted at `view` (LLP 1123
+    /// D9), or take them back (`None`): its safe area, layout regions and
+    /// segments in its content root's coordinates, and the content root's
+    /// size. Its subtree's `var(--exact-…)` lengths and container units
+    /// (D12) read them; `env()` never does. Re-derives and dirties exactly
+    /// the nodes under it whose style reads the environment, and says
+    /// whether any did. Refuses a non-finite value, a negative size or a
+    /// segment count that is not `cols × rows`.
+    pub fn set_owner_values(
+        &mut self,
+        view: ViewId,
+        values: Option<crate::style::OwnerValues>,
+    ) -> Result<bool, KernelError> {
+        let root = self
+            .arena
+            .slot_of(view)
+            .ok_or(LayoutError::UnknownView(view))?;
+        if values.as_ref().is_some_and(|v| !v.is_valid()) {
+            return Err(LayoutError::InvalidEnv.into());
+        }
+        if !self.arena.set_owner(root, values) {
+            return Ok(false);
+        }
+        // The owner's subtree alone: values that change with every frame of
+        // a keyboard cost nothing where no row reads them.
+        let (mut users, mut stack) = (Vec::new(), vec![root]);
+        while let Some(slot) = stack.pop() {
+            if uses_env(self.arena.style(slot)) {
+                users.push(slot);
+            }
+            stack.extend_from_slice(self.arena.children(slot));
+        }
+        if users.is_empty() {
+            return Ok(false);
+        }
+        if let Some(r) = &mut self.region {
+            r.invalidate();
+        }
+        for slot in &users {
+            if let (Some(node), Some(layout)) =
+                (self.arena.taffy(*slot), self.layout.as_deref_mut())
+            {
+                layout.restyle(&self.arena, *slot, node);
+                layout.mark_dirty(node);
+            }
+            self.arena.flags_mut(*slot).insert(NodeFlags::STYLE_DIRTY);
+            // An image in a paragraph's text is measured with its paragraph
+            self.inline_image_resized(*slot);
+        }
+        if let Some(tree) = self.layout.as_deref_mut().and_then(|l| l.tree()) {
+            tree.forget_memo();
+        }
+        Ok(true)
+    }
+
     /// Lay borders out as a terminal does: a drawn side is one cell (LLP
     /// 1101.001 P13). The terminal host sets it on its own kernel before
     /// the tree is built; it is this kernel's alone.

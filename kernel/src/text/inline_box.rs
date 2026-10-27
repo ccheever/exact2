@@ -144,7 +144,7 @@ pub(crate) fn inline_image(arena: &NodeArena, slot: u32) -> InlineImage {
     );
     let size = (w + inset_w, h + inset_h);
     let s = arena.style(slot);
-    let shift = match s.rare.baseline_shift.resolve(arena.env()) {
+    let shift = match s.rare.baseline_shift.resolve(arena.env_for(slot)) {
         crate::Dimension::Points(v) if v.is_finite() => v,
         _ => 0.0,
     };

@@ -252,7 +252,9 @@ pub struct Shape {
 /// the engine's also holds a native field's chrome.
 pub fn content_box(kernel: &Kernel, node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
     let (pl, pt, pr, pb) = kernel.resolved_padding(node.key).unwrap_or_default();
-    let [bt, br, bb, bl] = node.style.border_widths_in(kernel.arena().env());
+    let [bt, br, bb, bl] = node
+        .style
+        .border_widths_in(kernel.arena().env_for(node.key.index));
     let (left, top) = (pl + bl, pt + bt);
     let w = node.frame.width - left - pr - br;
     let h = node.frame.height - top - pb - bb;
@@ -277,12 +279,12 @@ pub fn resolve(
         Some(v) => Viewport {
             width: v.width,
             height: v.height,
-            env: kernel.arena().env(),
+            env: kernel.arena().env_for(node.key.index),
         },
         None => Viewport {
             width: content.2,
             height: content.3,
-            env: kernel.arena().env(),
+            env: kernel.arena().env_for(node.key.index),
         },
     };
     let clip =

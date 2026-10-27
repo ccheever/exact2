@@ -124,9 +124,13 @@ extension Runtime {
     /// What native containers cover of boxes (LLP 1075.003 §3.5), under one
     /// layout: `edges` add to a box's padding; `whole` lays it out as
     /// `display: none`; nil clears.
-    func covers(_ covers: [(UInt32, HostCover?)]) -> Batch {
+    func covers(_ covers: [(UInt32, HostCover?)], owners: [(UInt32, OwnerValues?)] = []) -> Batch {
         return on {
-            var bytes = Data(capacity: covers.count * 24)
+            var bytes = Data(capacity: covers.count * 24 + owners.count * 188)
+            func append(_ words: [UInt32]) {
+                for word in words { withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) } }
+            }
+            func floats(_ values: [CGFloat]) -> [UInt32] { values.map { Float($0).bitPattern } }
             for (view, cover) in covers {
                 let (kind, edges): (UInt32, [CGFloat]) = switch cover {
                 case .none: (0, [0, 0, 0, 0])
@@ -135,9 +139,17 @@ extension Runtime {
                 case .inset(let top, let bottom)?: (3, [top, 0, bottom, 0])
                 case .gutter(let right, let bottom)?: (12, [0, right, bottom, 0])
                 }
-                for word in [view, kind] + edges.map({ Float($0).bitPattern }) {
-                    withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
-                }
+                append([view, kind] + floats(edges))
+            }
+            // Kind 16, a content owner's values; 17 takes them back (exact.h).
+            for (view, values) in owners {
+                guard let v = values else { append([view, 17, 0, 0, 0, 0]); continue }
+                let rects = v.fold.cols * v.fold.rows > 1 ? v.fold.rects : []
+                let segments = rects.prefix(4).flatMap { [$0.minX, $0.minY, $0.width, $0.height] }
+                let regions = v.regions.flatMap { $0.count == 20 ? $0 : nil }
+                append([view, 16] + floats(v.safe) + floats([v.size.width, v.size.height]) + [UInt32(v.fold.cols), UInt32(v.fold.rows)]
+                       + floats(segments + Array(repeating: 0, count: 16 - segments.count))
+                       + [regions == nil ? 0 : 1] + floats(regions ?? Array(repeating: 0, count: 20)))
             }
             return read(exact_host_covers(rt, write(bytes)))
         }

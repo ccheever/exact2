@@ -21,8 +21,11 @@ use crate::id::{NodeFlags, NodeKey, ViewId};
 use crate::layout::LayoutMirror;
 use crate::selector::SelectorIndex;
 use crate::wire::Op;
+mod children;
 mod defaults;
 mod text_style;
+pub(crate) use children::restyle_environment_readers;
+use children::sync_children;
 
 /// The deepest a node may sit below the top of its tree (a root is 0). Layout
 /// recurses once per level: a release build uses up to ~3.5 KiB of stack a
@@ -730,7 +733,7 @@ pub(crate) fn continue_document(
                     view_box_changed(arena, layout, slot, *prop, receipt);
                     // A first `value` makes a `progress` the bar (LLP 1116 D8).
                     receipt.layout_invalidated |=
-                        crate::style::top_layer::prop_changed(arena, layout, slot, *prop);
+                        crate::style::top_layer::prop_changed(arena, layout, slot, *prop, touched);
                     if matches!(
                         prop,
                         PropId::Type | PropId::AccessibilityRole | PropId::Href
@@ -769,8 +772,9 @@ pub(crate) fn continue_document(
                         }
                         arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
                         view_box_changed(arena, layout, slot, *prop, receipt);
-                        receipt.layout_invalidated |=
-                            crate::style::top_layer::prop_changed(arena, layout, slot, *prop);
+                        receipt.layout_invalidated |= crate::style::top_layer::prop_changed(
+                            arena, layout, slot, *prop, touched,
+                        );
                         if matches!(
                             prop,
                             PropId::Type | PropId::AccessibilityRole | PropId::Href | PropId::Value
@@ -916,14 +920,14 @@ pub(crate) fn continue_document(
                         #[cfg(test)]
                         count(arena.children(p).len(), 0);
                         arena.prune_children(p);
-                        sync_children(arena, layout, p);
+                        sync_children(arena, layout, p, touched);
                         crate::kernel::cover_children_changed(arena, layout, p, touched);
                         arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(p));
                         defaults::changed(arena, layout, p, context, touched, receipt);
                     }
                     arena.set_children(slot, new);
-                    sync_children(arena, layout, slot);
+                    sync_children(arena, layout, slot, touched);
                     crate::kernel::cover_children_changed(arena, layout, slot, touched);
                     // A box into or out of a grouped list takes or sheds the platform's margins.
                     for (n, was) in reached {
@@ -1010,7 +1014,7 @@ pub(crate) fn continue_document(
     }
 
     relative::resolve(arena, layout, touched, receipt);
-    sync_text_nodes(arena, layout, text_nodes);
+    sync_text_nodes(arena, layout, text_nodes, touched);
 
     Ok(())
 }
@@ -1067,7 +1071,12 @@ pub(crate) fn finish_document(arena: &NodeArena, commit: DocumentCommit) -> Comm
 /// boxes (an image created with one sheds it there). A promoted run gets its
 /// computed style; a paragraph moved into another releases its engine node.
 /// Keys discard destroyed generations, including slots reused in this batch.
-fn sync_text_nodes(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, nodes: Vec<NodeKey>) {
+fn sync_text_nodes(
+    arena: &mut NodeArena,
+    layout: &mut dyn LayoutMirror,
+    nodes: Vec<NodeKey>,
+    touched: &mut Vec<NodeKey>,
+) {
     let mut parents = IdSet::default();
     for key in nodes {
         let Some(slot) = arena.resolve(key) else {
@@ -1089,7 +1098,7 @@ fn sync_text_nodes(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, nodes: 
     // Every new handle exists before any parent is linked. Sync each parent
     // once, so mounting a paragraph per list row remains linear in its rows.
     for parent in parents {
-        sync_children(arena, layout, parent);
+        sync_children(arena, layout, parent, touched);
     }
 }
 
@@ -1140,33 +1149,6 @@ fn leaving_with(arena: &NodeArena, slot: u32) -> Option<&exact_motion::Animation
     Some(&arena.style(own).rare.exit_animation).filter(|a| !a.0.is_empty())
 }
 
-/// Push the arena's child list for `parent` into the layout engine. A `Text`
-/// parent's children are inline runs: they are measured with it, not laid out.
-fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) {
-    let Some(node) = arena.taffy(parent) else {
-        return;
-    };
-    let _entries = layout.sync_children(arena, parent, node);
-    // An alert's defaults read its children: whether it is grouped or a part
-    // box empty (its own and, for its actions' margin, its siblings'), and a
-    // row's place among them (arena/alert.rs)
-    if arena.neutral_alert(parent) || arena.alert_group(parent) {
-        layout.restyle(arena, parent, node);
-        let siblings = match arena.parent(parent) {
-            Some(alert) if arena.alert_group(parent) => arena.children(alert),
-            _ => &[],
-        };
-        for child in arena.children(parent).iter().chain(siblings) {
-            if let Some(node) = arena.taffy(*child) {
-                layout.restyle(arena, *child, node);
-                layout.mark_dirty(node);
-            }
-        }
-    }
-    #[cfg(test)]
-    count(_entries, 0);
-}
-
 /// A run of `DestroyView`s detaches lazily. Each op records its parent once
 /// and its subtree's engine nodes and `testId`s; [`Detach::flush`] — before
 /// any other op reads the tree, and when the batch ends — prunes every
@@ -1211,7 +1193,7 @@ impl Detach {
                 #[cfg(test)]
                 count(arena.children(parent).len(), 0);
                 arena.prune_children(parent);
-                sync_children(arena, layout, parent);
+                sync_children(arena, layout, parent, touched);
                 crate::kernel::cover_children_changed(arena, layout, parent, touched);
                 defaults::changed(arena, layout, parent, context, touched, receipt);
             }
@@ -1377,10 +1359,11 @@ fn style_changed(
         }
         // CSS `order` (feed F19) is the engine's child order in a flex or
         // grid container: an item's moves it, a container's `display`
-        // decides whether its ordered children are reordered.
+        // decides whether its ordered children are reordered. A reorder
+        // moves no child into another content owner, so it touches none.
         if mask.has(crate::StyleId::Order) {
             if let Some(p) = arena.parent(slot) {
-                sync_children(arena, layout, p);
+                sync_children(arena, layout, p, &mut Vec::new());
             }
         }
         if mask.has(crate::StyleId::Display)
@@ -1389,7 +1372,7 @@ fn style_changed(
                 .iter()
                 .any(|&c| arena.style(c).order != 0)
         {
-            sync_children(arena, layout, slot);
+            sync_children(arena, layout, slot, &mut Vec::new());
         }
         // What a cover takes of the box's parent or covered box (`cover::style_changed`).
         crate::kernel::cover_style_changed(arena, layout, slot, &mask);

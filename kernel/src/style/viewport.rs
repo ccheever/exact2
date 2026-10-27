@@ -25,11 +25,24 @@ pub enum ViewportUnit {
     Dvw,
     /// Dynamic viewport height.
     Dvh,
+    /// Container width (LLP 1123 D12): the content owner's, else the small viewport's.
+    Cqw,
+    /// Container height.
+    Cqh,
+    /// Container inline size: its width, in a horizontal writing mode.
+    Cqi,
+    /// Container block size: its height.
+    Cqb,
+    /// The smaller container dimension.
+    Cqmin,
+    /// The larger container dimension.
+    Cqmax,
 }
 
 impl ViewportUnit {
-    /// Every supported unit, in wire order (kinds 14–23).
-    pub const ALL: [Self; 10] = [
+    /// Every supported unit: the viewport's in wire order (kinds 14–23),
+    /// then the container's (kinds 27–32).
+    pub const ALL: [Self; 16] = [
         Self::Vw,
         Self::Vh,
         Self::Vmin,
@@ -40,12 +53,24 @@ impl ViewportUnit {
         Self::Lvh,
         Self::Dvw,
         Self::Dvh,
+        Self::Cqw,
+        Self::Cqh,
+        Self::Cqi,
+        Self::Cqb,
+        Self::Cqmin,
+        Self::Cqmax,
     ];
+
+    /// Whether it is a container unit, which an owner's size sets.
+    pub fn is_container(self) -> bool {
+        self as u8 >= Self::Cqw as u8
+    }
 
     /// The CSS suffix.
     pub fn name(self) -> &'static str {
         [
-            "vw", "vh", "vmin", "vmax", "svw", "svh", "lvw", "lvh", "dvw", "dvh",
+            "vw", "vh", "vmin", "vmax", "svw", "svh", "lvw", "lvh", "dvw", "dvh", "cqw", "cqh",
+            "cqi", "cqb", "cqmin", "cqmax",
         ][self as usize]
     }
 
@@ -56,7 +81,14 @@ impl ViewportUnit {
         let (w, h) = env
             .screen
             .unwrap_or((env.viewport_width, env.viewport_height));
+        // An owner's content root is a size container (LLP 1123 D12); with
+        // none, CSS uses the small viewport, which a native window's is.
+        let (cw, ch) = env.container.unwrap_or((w, h));
         match self {
+            Self::Cqw | Self::Cqi => cw,
+            Self::Cqh | Self::Cqb => ch,
+            Self::Cqmin => cw.min(ch),
+            Self::Cqmax => cw.max(ch),
             Self::Vw | Self::Svw | Self::Lvw | Self::Dvw => w,
             Self::Vh | Self::Svh | Self::Lvh | Self::Dvh => h,
             Self::Vmin => w.min(h),

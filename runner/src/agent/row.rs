@@ -61,6 +61,19 @@ pub fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
             };
             quote(&text, out)
         }
+        RowValue::Dimension(Dimension::Owner(var, offset)) => {
+            let name = var.name();
+            let text = if offset == 0.0 {
+                format!("var({name})")
+            } else {
+                format!(
+                    "calc(var({name}) {} {}px)",
+                    if offset < 0.0 { "-" } else { "+" },
+                    num(offset.abs() as f64)
+                )
+            };
+            quote(&text, out)
+        }
         RowValue::Dimension(Dimension::Region(region, edge, offset)) => {
             let name = format!("{}{}", region.prefix(), edge.name());
             let text = if offset == 0.0 {

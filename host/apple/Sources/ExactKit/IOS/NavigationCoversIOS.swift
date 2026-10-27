@@ -16,21 +16,20 @@ extension NavigationHost {
     /// chrome, where no native container shows.
     var wantsWholeView: Bool { primaryOwner != nil && !ExactEnv.authoredChrome }
 
-    /// What covers a route of its controller's safe area (`safe`): the
+    /// What a route clears of its controller's safe area (`safe`): the
     /// edges past the document's insets (`env()`, which the page authored
     /// against) for a route in the document, and every edge of its own for a
     /// presented one, whose sheet the document's insets do not clear (LLP
-    /// 1123 D2). The top is a collapsing title's scroller's when it has one;
-    /// the sides and the bottom only while the containers take the whole
-    /// view (`whole`) or the page covers it (`covered`: `viewport-fit="cover"`,
-    /// whose `env()` is the window's safe area and not the tab bar's, which a
-    /// child of a `UITabBarController` reads in its own), and the bottom only
-    /// as far as the route reaches it.
+    /// 1123 D2); the sides and the bottom only while the containers take the
+    /// whole view (`whole`) or the page covers it (`covered`:
+    /// `viewport-fit="cover"`, whose `env()` is the window's safe area and not
+    /// the tab bar's, which a child of a `UITabBarController` reads in its
+    /// own), and the bottom only as far as the route reaches it.
     static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool, covered: Bool = false,
-                           collapses: Bool, reached: CGFloat) -> HostCover.Edges {
+                           reached: CGFloat) -> HostCover.Edges {
         let env = presented ? .zero : document
         let edges = whole || covered
-        return .init(top: collapses ? 0 : max(0, safe.top - env.top),
+        return .init(top: max(0, safe.top - env.top),
                      right: edges ? max(0, safe.right - env.right) : 0,
                      bottom: edges ? max(0, min(safe.bottom, reached) - env.bottom) : 0,
                      left: edges ? max(0, safe.left - env.left) : 0)
@@ -54,6 +53,7 @@ extension NavigationHost {
     func reportCovers() {
         var changes: [(UInt32, HostCover?)] = []
         var wanted: [UInt32: HostCover] = [:]
+        var owners: [UInt32: OwnerValues] = [:]
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in (c.lifted.map({ [$0] }) ?? c.barNodes) + [c.scoped].compactMap({ $0 }) { wanted[node.id] = .whole }
@@ -73,6 +73,8 @@ extension NavigationHost {
             let shows = nav.map(barShows) ?? !ExactEnv.authoredChrome
             guard shows || whole || covered else { continue }
             let edges: HostCover.Edges?
+            // What the route clears, its values' content root (`ownerValues`)
+            var clearance: HostCover.Edges?
             // A collapsing title's scroller goes under the bar, which insets it;
             // its expanded inset is where CSS scrollTop 0 rests.
             // While the bar is not as the route wants it (mid-transition to or
@@ -109,9 +111,15 @@ extension NavigationHost {
                 // A route the keyboard shortens can end above the bars, with no bottom cover.
                 let end = c.node.convert(c.node.bounds, to: c.contentMount).maxY + (c.contentViewport?.frame.minY ?? 0)
                 let reached = end - (c.view.bounds.maxY - safe.bottom)
-                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
-                                        collapses: c.collapseScroll != nil || !c.ridingBars.isEmpty, reached: reached)
-                c.bottomClearance = edges?.bottom ?? 0
+                let cleared = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
+                                              reached: reached)
+                let open = HostCover.Edges(top: 0, right: cleared.right, bottom: cleared.bottom, left: cleared.left)
+                // A collapsing title's scroller, or a band riding the bar, goes under the bar, which insets it
+                let under = c.collapseScroll != nil || !c.ridingBars.isEmpty
+                edges = under ? open : cleared
+                // A transparent bar insets nothing of that scroller: its content starts at the top edge (`collapse`)
+                clearance = under && Self.transparentBar(c.node) ? open : cleared
+                c.bottomClearance = cleared.bottom
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { edges = nil }
@@ -138,6 +146,8 @@ extension NavigationHost {
                     if top > 0 || bottom > 0 { wanted[node.id] = .inset(top: top, bottom: bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
+            if settled, let values = ownerValues(of: c, clearance: clearance) { owners[c.node.id] = values }
+            else if let held = ownerValues[c.node.id] { owners[c.node.id] = held }
             guard let edges else { continue }
             if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(edges) }
         }
@@ -165,7 +175,9 @@ extension NavigationHost {
         for (id, cover) in wanted where covers[id] != cover { changes.append((id, cover)) }
         for id in covers.keys where wanted[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         covers = wanted
-        guard !changes.isEmpty else { return }
+        let ownersChanged = owners != ownerValues
+        ownerValues = owners
+        guard !changes.isEmpty || ownersChanged else { return }
         // A scroller's least content height is the port its cover leaves
         // (`scrollFloor`); the kernel sends no new content size when only that changed.
         for (id, _) in changes { presenter.views[id]?.fitScroll() }
@@ -195,8 +207,40 @@ extension NavigationHost {
         for (id, cover) in covers where delivered[id] != cover { changes.append((id, cover)) }
         for id in delivered.keys where covers[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         delivered = covers
-        guard !changes.isEmpty else { return }
-        presenter.onCovers?(changes)
+        var owners: [(UInt32, OwnerValues?)] = []
+        for (id, values) in ownerValues where deliveredOwners[id] != values { owners.append((id, values)) }
+        for id in deliveredOwners.keys where ownerValues[id] == nil && presenter.views[id] != nil { owners.append((id, nil)) }
+        deliveredOwners = ownerValues
+        guard !changes.isEmpty || !owners.isEmpty else { return }
+        presenter.onCovers?(changes, owners)
+    }
+
+    /// A route's values as a content owner (LLP 1123 D9): what UIKit reports
+    /// for a view at its content root, the route's box less what it clears
+    /// (`clearance`). That is its cover, but a route whose title's scroller,
+    /// or a band riding the bar, goes under the bar is covered nothing at the
+    /// top while its content root still starts at the bar's bottom, as a
+    /// view pinned to the safe-area guide does (D3): its top inset stays 0 as
+    /// the title collapses, and `cqh` leaves the bar out. Its bottom is the
+    /// cover's, at a tab bar's top though a scroller reaches under the bar.
+    /// The regions are its controller's, measured from there (D10); the
+    /// segments are the parts of the document's that the content root holds:
+    /// the window's division moved into the route, read once the document has
+    /// it (UIKit's regions trail a hinge update, `ExactView.fit`), and an
+    /// agent's `prefer segments` the same way.
+    func ownerValues(of c: RouteController, clearance: HostCover.Edges?) -> OwnerValues? {
+        guard let view = c.viewIfLoaded, view.window != nil else { return nil }
+        let e = clearance ?? .init(top: 0, right: 0, bottom: 0, left: 0)
+        let content = c.node.convert(c.node.bounds, to: view).inset(by: UIEdgeInsets(top: e.top, left: e.left, bottom: e.bottom, right: e.right))
+        guard content.width > 0, content.height > 0 else { return nil }
+        let safe = view.bounds.inset(by: view.safeAreaInsets)
+        let inset = [safe.minY - content.minY, content.maxX - safe.maxX, content.maxY - safe.maxY, safe.minX - content.minX].map { max(0, $0) }
+        let vp = presenter.viewport, document = presenter.fold
+        let parts = (document.cols * document.rows > 1 ? document.rects : []).map {
+            vp.convert($0.offsetBy(dx: vp.pageOrigin.x, dy: vp.pageOrigin.y), to: view).intersection(content)
+        }
+        let fold = ViewportFold.grid(parts.filter { !$0.isNull && $0.width > 0 && $0.height > 0 }.map { $0.offsetBy(dx: -content.minX, dy: -content.minY) })
+        return OwnerValues(safe: inset, regions: LayoutRegionsIOS.insets(of: view, viewport: content), fold: fold, size: content.size)
     }
 
     // MARK: The development check (LLP 1075.003 §3.5)

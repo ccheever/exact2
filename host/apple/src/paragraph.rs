@@ -62,7 +62,7 @@ impl<D: DataSource> Host<D> {
         if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
-        let env = kernel.arena().env();
+        let env = kernel.arena().env_for(node.key.index);
         let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) = (
             node.style.width.resolve(env),
             node.style.height.resolve(env),
@@ -248,11 +248,9 @@ impl<D: DataSource> Host<D> {
                 shown.set(Property::Color, self.paint.runs.get(&id).copied());
                 // An image's box is in its paragraph's font, as the kernel measures it.
                 let styled = inline.and(run.parent).and_then(|p| kernel.node(p));
-                let (style, _) = style::style_json_inherited(
-                    styled.as_ref().unwrap_or(&run),
-                    &kernel.env(),
-                    &shown,
-                );
+                let styled = styled.as_ref().unwrap_or(&run);
+                let env = kernel.arena().env_for(styled.key.index);
+                let (style, _) = style::style_json_inherited(styled, env, &shown);
                 let handlers: Vec<_> = self
                     .inline_runs
                     .get(&id)
@@ -349,8 +347,8 @@ impl<D: DataSource> Host<D> {
         if let Some(size) = self.face_box_size(id) {
             props.insert("faceBoxSize", size);
         }
-        let env = self.runner.kernel().env();
-        let (style, _skipped) = style::style_json_for(&node, &env);
+        let env = self.runner.kernel().arena().env_for(node.key.index);
+        let (style, _skipped) = style::style_json_for(&node, env);
         let handlers: Vec<&str> = events.iter().copied().filter_map(handler_name).collect();
         if handlers.contains(&"heightrelease") {
             self.track_height_handle(id);
@@ -409,8 +407,8 @@ impl<D: DataSource> Host<D> {
         if let Some(size) = self.face_box_size(id) {
             props.insert("faceBoxSize", size);
         }
-        let env = self.runner.kernel().env();
-        let (style, _skipped) = style::style_json_for(&node, &env);
+        let env = self.runner.kernel().arena().env_for(node.key.index);
+        let (style, _skipped) = style::style_json_for(&node, env);
         if self.mirror.get(&id).and_then(|m| m.props.get("spellcheck")) != props.get("spellcheck") {
             self.queue_layout_subtree(id);
         }
@@ -520,8 +518,10 @@ impl<D: DataSource> Host<D> {
         let key = motion_node(node.key);
         let shown = self.shown_paint(key);
         let color = shown.get(Property::Color);
-        let env = kernel.env();
-        let mut restyled = vec![(view, style::style_json_presented(&node, &env, &shown).0)];
+        // Each node's own owner resolves its lengths (LLP 1123 D9, D12)
+        let env = |key: exact_kernel::NodeKey| kernel.arena().env_for(key.index);
+        let own = style::style_json_presented(&node, env(node.key), &shown).0;
+        let mut restyled = vec![(view, own)];
         let mut runs = Vec::new();
         if inherits {
             let mut inherited = style::Shown::default();
@@ -537,7 +537,8 @@ impl<D: DataSource> Host<D> {
                 if let Some((owner, _)) = self.inline_runs.get(&child) {
                     runs.push((child, *owner));
                 } else {
-                    restyled.push((child, style::style_json_inherited(&c, &env, &inherited).0));
+                    let style = style::style_json_inherited(&c, env(c.key), &inherited).0;
+                    restyled.push((child, style));
                 }
                 stack.extend(c.children());
             }

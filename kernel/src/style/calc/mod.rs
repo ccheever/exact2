@@ -69,6 +69,8 @@ pub enum EnvTerm {
     /// `env(titlebar-area-<var>)` (Window Controls Overlay). No compact
     /// [`Dimension`] holds it: a length that reads it is always a tree.
     TitleBar(TitleBarVar),
+    /// `var(--exact-…)`: a content owner's value (LLP 1123 D9).
+    Owner(crate::style::OwnerVar),
 }
 
 impl EnvTerm {
@@ -80,6 +82,7 @@ impl EnvTerm {
             EnvTerm::Segment(var, x, y) => env::resolve_wide(var, x, y, env),
             EnvTerm::Region(region, edge) => Some(f64::from(env.region_inset(region, edge))),
             EnvTerm::TitleBar(var) => env.titlebar(var).map(f64::from),
+            EnvTerm::Owner(var) => var.value(env),
         }
     }
 }
@@ -143,6 +146,35 @@ impl Node {
     /// Whether a node anywhere in it satisfies `f`.
     fn any(&self, f: &dyn Fn(&Node) -> bool) -> bool {
         f(self) || self.children().any(|c| c.any(f))
+    }
+
+    /// Whether it is a leaf a content owner gives: `var(--exact-…)` or a
+    /// container unit (LLP 1123 D9, D12).
+    fn owned(&self) -> bool {
+        match self {
+            Node::Env(EnvTerm::Owner(_)) => true,
+            Node::Value(_, Unit::Viewport(unit)) => unit.is_container(),
+            _ => false,
+        }
+    }
+
+    /// It with each leaf an owner gives replaced by its points under `env`.
+    fn bind(&self, env: &Env) -> Node {
+        let all = |c: &[Node]| c.iter().map(|n| n.bind(env)).collect();
+        let one = |c: &Node| Box::new(c.bind(env));
+        match self {
+            n if n.owned() => n
+                .value(env, None)
+                .map_or_else(|| n.clone(), |v| Node::Value(v, Unit::Px)),
+            Node::Sum(c) => Node::Sum(all(c)),
+            Node::Product(c) => Node::Product(all(c)),
+            Node::Min(c) => Node::Min(all(c)),
+            Node::Max(c) => Node::Max(all(c)),
+            Node::Negate(c) => Node::Negate(one(c)),
+            Node::Invert(c) => Node::Invert(one(c)),
+            Node::Clamp(c) => Node::Clamp(Box::new(c.clone().map(|n| n.map(|n| n.bind(env))))),
+            n => n.clone(),
+        }
     }
 
     /// The value under `env`, a percentage of `basis`, in IEEE-754 `f64`
@@ -264,6 +296,7 @@ fn env_dimension(term: EnvTerm, plus: f32) -> Option<Dimension> {
         EnvTerm::Inset(edge) => Dimension::Env(edge, plus),
         EnvTerm::Segment(var, x, y) => Dimension::Segment(var, x, y, plus),
         EnvTerm::Region(region, edge) => Dimension::Region(region, edge, plus),
+        EnvTerm::Owner(var) => Dimension::Owner(var, plus),
         EnvTerm::TitleBar(_) => return None,
     })
 }
@@ -350,6 +383,20 @@ impl Comparison {
             Some(v) => v,
             None => substitute::value(self.substituted(env)?, env, basis),
         }
+    }
+
+    /// It with the values a content owner gives bound to `env`'s (LLP 1123
+    /// D9, D12). The engine resolves a tree with a percentage later, under
+    /// the document's environment ([`crate::style::LayoutEnv`]), which is not
+    /// a node's inside an owner. A top-layer box in an owner has no owner
+    /// values but keeps the owner's container (`NodeArena::env_for`). Itself
+    /// with neither, or when it reads none.
+    pub(crate) fn bound(self, env: &Env) -> Comparison {
+        if env.owner.is_none() && env.container.is_none() {
+            return self;
+        }
+        let bound = self.tree(|t| t.any(&Node::owned).then(|| t.bind(env)));
+        bound.flatten().map_or(self, Comparison::intern)
     }
 
     /// `f` of the tree, or `None` for a text, without copying either.

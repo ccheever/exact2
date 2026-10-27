@@ -8,7 +8,7 @@
 //! Syntax 3 §9), so `env(…, 1)0px` stays a number beside a length.
 
 use super::super::{Dimension, Env};
-use super::parse::env_parts;
+use super::parse::{env_parts, var_parts};
 use cssparser::{ParseError, Parser, ParserInput, Token};
 
 /// `text` with every `env()` whose variable `env` does not define and that
@@ -47,10 +47,18 @@ fn walk<'i>(
         };
         let close = match token.clone() {
             Token::Comment(_) => continue,
-            Token::Function(name) if env.is_some() && name.eq_ignore_ascii_case("env") => {
+            Token::Function(name)
+                if env.is_some()
+                    && (name.eq_ignore_ascii_case("env") || name.eq_ignore_ascii_case("var")) =>
+            {
                 let env = env.expect("checked");
+                let parts = if name.eq_ignore_ascii_case("env") {
+                    env_parts
+                } else {
+                    var_parts
+                };
                 let (term, fallback) =
-                    p.parse_nested_block(|p| env_parts(p, 0).map_err(|_| p.new_custom_error(())))?;
+                    p.parse_nested_block(|p| parts(p, 0).map_err(|_| p.new_custom_error(())))?;
                 match fallback {
                     // Defined: the variable itself, its fallback unused
                     _ if term.value(env).is_some() => {

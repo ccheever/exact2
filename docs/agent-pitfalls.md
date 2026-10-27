@@ -533,12 +533,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   content of the status bar and its bars instead, by padding the route or by UIKit's
   inset on its scroller (LLP 1123 D1). The same `env()` padding inside a route only
   seems to work: it adds 0 to that clearance. A box outside every route has no inset
-  to read until LLP 1123 D9's `var(--exact-safe-area-inset-top)` is built. Until
-  then, put the banner in the route that shows it, where the host pads that route's
-  top: an absolutely positioned child at `top=0` then starts below the status bar and
-  any bar. A route whose scroller starts at its top or right under its header is
-  inset by UIKit instead, and a box at its `top=0` is under the bars. (euxy port's
-  "COPY SAVED" notice, 2026-10-21.)
+  to read either: there `var(--exact-safe-area-inset-top)` is the root's `env()`, 0
+  (LLP 1123 D9's values at the session root, the view's own insets, are not built).
+  Put the banner in the route that shows it, where the host pads that route's top:
+  an absolutely positioned child at `top=0` then starts below the status bar and any
+  bar. A route whose scroller starts at its top or right under its header is inset
+  by UIKit instead, and a box at its `top=0` is under the bars; at
+  `top="var(--exact-safe-area-inset-top)"` it stays there, as that is 0 in a route
+  whose content starts below the bar (D9). (euxy port's "COPY SAVED" notice,
+  2026-10-21.)
 
 - **After a relaunch on iOS, a form opens with old values and ignores the fresh answer.**
   While the data module is not ready, a native host (and the wasm web target) can make

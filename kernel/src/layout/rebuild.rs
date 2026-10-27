@@ -4,6 +4,11 @@ use super::*;
 use std::collections::HashMap;
 
 impl LayoutTree {
+    /// The engine node holding `node`, if any.
+    pub(crate) fn engine_parent(&self, node: NodeId) -> Option<NodeId> {
+        self.taffy.parent(node)
+    }
+
     /// Reconstruct the whole engine tree from the arena's columns, writing the
     /// new handles back. This is rehydration: columns plus rebuild.
     pub fn rebuild(arena: &mut NodeArena) -> LayoutTree {

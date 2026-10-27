@@ -427,13 +427,13 @@ impl<D: DataSource> Runner<D> {
 }
 
 /// `view`'s `scroll-padding`, top, right, bottom, left, in points, as its
-/// committed style resolves it now ([`Update::scroll_padding`]): `env()` and a
-/// computed value resolved.
+/// committed style resolves it now under its content owner's values
+/// ([`Update::scroll_padding`]): `env()` and a computed value resolved.
 pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
     let Some(node) = kernel.node(view) else {
         return [0.0; 4];
     };
-    let env = kernel.arena().env();
+    let env = kernel.arena().env_for(node.key.index);
     let r = &node.style.rare;
     let sides = [
         r.scroll_padding_top,
@@ -475,7 +475,7 @@ pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64
     let Some(node) = kernel.node(view) else {
         return [0.0; 4];
     };
-    let (env, r) = (kernel.arena().env(), &node.style.rare);
+    let (env, r) = (kernel.arena().env_for(node.key.index), &node.style.rare);
     let sides = [
         r.scroll_margin_top,
         r.scroll_margin_right,
@@ -483,4 +483,52 @@ pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64
         r.scroll_margin_left,
     ];
     std::array::from_fn(|i| f64::from(on_grid(env, sides[i].at_basis(env, 0.0), CELLS[i])))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{DataError, DataSource, Runner};
+    use exact_kernel::{Kernel, OwnerValues};
+    use exact_plan::Value;
+
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+
+    /// A keyed jump in a content owner clears its scroller's padding and its
+    /// row's margin as the owner gives them (LLP 1123 D9, D12): its 20-point
+    /// top inset and 10% of its 300, not the window's.
+    #[test]
+    fn scroll_padding_and_margin_read_the_owners_values() {
+        let source = "component App\n  view\n    column testId=\"owner\" width=\"100%\" height=\"100%\"\n      scroll testId=\"list\" height=200 scroll-padding-top=\"var(--exact-safe-area-inset-top)\"\n        column testId=\"row\" height=40 scroll-margin-top=\"10cqh\"\n";
+        let plan = contract::compile(source).unwrap();
+        let mut r = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let view = |r: &Runner<NoData>, id: &str| {
+            let k = r.kernel();
+            k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
+        };
+        let (owner, list, row) = (view(&r, "owner"), view(&r, "list"), view(&r, "row"));
+        let values = OwnerValues {
+            safe: [20.0, 0.0, 0.0, 0.0],
+            cols: 1,
+            rows: 1,
+            size: (400.0, 300.0),
+            ..OwnerValues::default()
+        };
+        r.kernel_mut()
+            .set_owner_values(owner, Some(values))
+            .unwrap();
+        assert_eq!(super::scroll_padding(r.kernel(), list)[0], 20.0);
+        assert_eq!(super::scroll_margin(r.kernel(), row)[0], 30.0);
+    }
 }

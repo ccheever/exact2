@@ -224,7 +224,7 @@ impl Kernel {
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     // A popover is the host's to lift, out of flow, open or closed (`style::top_layer`).
     crate::style::top_layer::apply(arena, slot, s);
-    let (style, env) = (arena.effective_style(slot), arena.env());
+    let (style, env) = (arena.effective_style(slot), arena.env_for(slot));
     match arena.cover(slot) {
         Some(HostCover::Whole) => s.display = taffy::style::Display::None,
         Some(HostCover::Edges(_)) => {
@@ -456,7 +456,7 @@ pub(crate) fn inset(arena: &NodeArena, slot: u32) -> bool {
 /// `s` as authored at the end the platform's inset took (`apply`).
 pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if inset(arena, slot) {
-        let (style, env) = (arena.effective_style(slot), arena.env());
+        let (style, env) = (arena.effective_style(slot), arena.env_for(slot));
         let spaced = style.padding_bottom.spaced(env, crate::style::cells::ROW);
         s.padding.bottom = spaced.floor_lp(env, 0.0);
     }

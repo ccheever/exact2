@@ -798,6 +798,9 @@ component NativeFixture
                         text "Taller"
                       button press=openDetail testId="open-detail" padding=6 background-color="#e5e7eb"
                         text "Detail in Home"
+                      // The route's own values (LLP 1123 D9, D12): 0 at the top it clears, the bar's height left out
+                      column testId="owner-padded" padding-top="var(--exact-safe-area-inset-top)" height="10cqh"
+                        column testId="owner-padded-content" height=1
                 if e.name == "second" and secondPage == "taller"
                   scroll id="list-second" testId="list-second-taller" flex=1 min-height=0
                     column padding=12 gap=8
