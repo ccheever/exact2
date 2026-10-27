@@ -38,4 +38,4 @@ component ShellEditorIcon
     if ["trae", "kiro", "vscode-insiders", "vscodium", "antigravity", "idea", "aqua", "clion", "datagrip", "dataspell", "goland", "phpstorm", "pycharm", "rider", "rubymine", "rustrover", "webstorm"].includes(editor)
       EditorBrandIcon(editor=editor, size=size)
     if editor != "cursor" and editor != "vscode" and editor != "zed" and editor != "file-manager" and not ["trae", "kiro", "vscode-insiders", "vscodium", "antigravity", "idea", "aqua", "clion", "datagrip", "dataspell", "goland", "phpstorm", "pycharm", "rider", "rubymine", "rustrover", "webstorm"].includes(editor)
-      ShellIcon(name="cursor", size=size, color="light-dark(#27272a, #f5f5f5)")
+      ShellIcon(name="cursor", size=size, color="light-dark(#18181b, #f5f5f5)")
