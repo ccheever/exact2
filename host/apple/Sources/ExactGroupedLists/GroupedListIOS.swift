@@ -489,7 +489,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     #if !os(tvOS)
     private var switches: [UInt32: UISwitch] = [:]
     #endif
-    /// Custom rows: the parent the presenter put each in, to give it back.
+    /// Custom rows: the parent the presenter put each in, to give it back, and its authored inertness there.
     var carried: [UInt32: (parent: UIView, frame: CGRect, inert: Bool)] = [:]
     /// Each parent rows are carried from, the order of its children (`noteHome`).
     var homes: [ObjectIdentifier: [UInt32]] = [:]
@@ -1265,8 +1265,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let other as NodeView in cell.contentView.subviews where other !== row { sendHome(other) }
         if carried[id] == nil, let parent = row.superview {
             noteHome(parent)
-            // Its inertness is its authored ancestors', which a cell is not.
-            carried[id] = (parent, row.frame, row.inert)
+            // Its inertness is its authored ancestors', which a cell is not;
+            // a presentation's is read when a touch lands (`pressable`).
+            carried[id] = (parent, row.frame, row.authoredInert)
         }
         guard let place = carried[id] else { return }
         look(id, row: row)
@@ -1366,7 +1367,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// disabled, not inert (its node or an ancestor, the section included).
     private func pressable(_ id: UInt32) -> Bool {
         guard let row = rows[id], row.pressable || radio(row) != nil, !row.disabled, let node = host.presenter.views[id] else { return false }
-        return !(carried[id]?.inert ?? node.inert)
+        return !(carried[id]?.inert ?? false) && !node.inert
     }
     /// The radio a row's tap checks, unless it is disabled or inert.
     private func radio(_ row: GroupedListModel.Row) -> UInt32? {
@@ -1385,11 +1386,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             || node?.props["accessibilitySelected"] == "true" || current { cell.accessibilityTraits.insert(.selected) }
     }
 
-    /// An inert row's cell takes no touch and is no element, as its node.
+    /// An inert row's cell takes no touch and is no element, as its node: by an authored `inert` only. A cell keeps
+    /// what it was configured with until a batch changes its row, and a row inserted while a sheet is up (an expense
+    /// its form saves) is configured under the sheet, which keeps touches and VoiceOver off the list by itself.
     private func interact(_ cell: UICollectionViewCell, _ id: UInt32) {
         assign(cell, \.accessibilityIdentifier, host.presenter.views[id]?.props["testId"])
         if let row = rows[id], !row.custom { accessibility(cell, id, row) }
-        let inert = carried[id]?.inert ?? host.presenter.views[id]?.inert ?? false
+        let inert = carried[id]?.inert ?? host.presenter.views[id]?.authoredInert ?? false
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
         let node = host.presenter.views[id]
