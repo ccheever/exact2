@@ -1073,9 +1073,13 @@ package final class TextEngine {
             plan.next(typesetter, source: shape.attributed, text: text, start: start, room: room, offerWidth: width,
                       breakWord: spec.overflowWrap != 0, length: length)
         }
+        // What a line's trailing spaces add to its typographic width where they
+        // collapse: CSS removes them at the line's end (CSS Text 3 §4.1.3), so
+        // the box's measure leaves them out. `pre` and `pre-wrap` keep theirs.
+        func removed(_ line: CTLine) -> CGFloat { spec.preserves ? 0 : CGFloat(CTLineGetTrailingWhitespaceWidth(line)) }
         // CSS `text-wrap-style: balance` (TextBreaks.swift): a narrower room until the first forced break.
         let balanced = spec.balance && spec.lineClamp == 0 && !plan.boundaries.isEmpty && width > 0
-            ? plan.balance(limit, length: length, inset: { Double(insets.at($0).width) }, next: next, typesetter: typesetter, source: shape.attributed) : nil
+            ? plan.balance(limit, length: length, inset: { Double(insets.at($0).width) }, removed: removed, next: next, typesetter: typesetter, source: shape.attributed) : nil
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
             var count: Int
@@ -1122,7 +1126,7 @@ package final class TextEngine {
             // fills the box, never sizes it.
             let indent = insets.at(start).width
             let drawn = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-            let w = max(0, (natural ?? drawn) + indent)
+            let w = max(0, (natural ?? (drawn - removed(line))) + indent)
             if spec.align == 3, !clamps, width.isFinite {
                 line = TextEngine.justified(line, source: shape.attributed, range: range, width: limit - Double(indent))
             }

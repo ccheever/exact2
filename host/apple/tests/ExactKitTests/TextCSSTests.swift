@@ -103,6 +103,19 @@ final class TextCSSTests: XCTestCase {
         XCTAssertLessThan(engine.minContentWidth(normal), natural.width)
     }
 
+    /// CSS Text 3 §4.1.3 removes collapsible spaces at a soft line break;
+    /// Core Text keeps their advance in the line's typographic width.
+    func testAWrappedLinesTrailingSpaceTakesNoWidth() {
+        let first = width("word word", numeric: 0)
+        // Room for "word word" and less than the space after it
+        let room = first + 1
+        for whiteSpace in [0, 3] {
+            let p = engine.paragraph(spec([run("word word word")], whiteSpace: whiteSpace), width: room)
+            XCTAssertEqual(p.lines.count, 2, "white-space \(whiteSpace)")
+            XCTAssertEqual(p.width, first, accuracy: 1.0 / 64, "white-space \(whiteSpace)")
+        }
+    }
+
     func testPreLineKeepsLineFeedsWrapsAndSizesByForcedLines() {
         // Chrome's innerText for each source under `white-space: pre-line`.
         for (source, rendered) in [("a    b", "a b"), ("a  \n  b", "a\nb"), ("a\n\nb", "a\n\nb"), ("\nfirst", "\nfirst"),
