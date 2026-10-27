@@ -1744,6 +1744,12 @@
       "name": "orientationlock",
       "kind": "str",
       "_comment": "@ref LLP 1133.029 D1: an orientation lock on any element, a Screen Orientation API `OrientationLockType` (`portrait`, `landscape`, their `-primary` and `-secondary`, `natural`, `any`), `current` (the window's orientation when the lock begins) or `none` (the default). Held while the element is mounted and displayed and outside every `dialog` and popover; `exact_runner::orientation` decides which holders count and what the session's lock is."
+    },
+    {
+      "id": 291,
+      "name": "safeArea",
+      "kind": "str",
+      "_comment": "@ref LLP 1123 D4: -exact-safe-area on a route's authored root: auto (default), none, or the top/right/bottom/left edges whose local clearance is off. Not inherited. On iOS and tvOS the route's covers drop those edges and its primary scrollers cancel UIKit's automatic inset there."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

@@ -329,6 +329,35 @@ impl NavPlace {
     ) -> Result<NavPlace, LowerError> {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
         let path = |p: &[String]| [p, &[tag.to_string()]].concat();
+        if let Some(a) = attrs.iter().rev().find(|a| a.name == "-exact-safe-area") {
+            if !self.is_route(attrs) {
+                return err(
+                    "lower-attr-value",
+                    "`-exact-safe-area` belongs on a content owner's authored root (a route with a `navigationKey`), not the session root or a descendant",
+                    a.span,
+                );
+            }
+            // A computed value the host reads; an invalid one is `auto` there, journalled once.
+            let mut literals = Vec::new();
+            crate::theme::literal_leaves(&a.value, &mut literals);
+            for (word, span) in literals {
+                let edges: Vec<_> = word.split_whitespace().collect();
+                if word != "auto"
+                    && word != "none"
+                    && (edges.is_empty()
+                        || edges.iter().enumerate().any(|(i, edge)| {
+                            !matches!(*edge, "top" | "right" | "bottom" | "left")
+                                || edges[..i].contains(edge)
+                        }))
+                {
+                    return err(
+                        "lower-attr-value",
+                        "`-exact-safe-area` takes \"auto\", \"none\", or a space-separated list of top, right, bottom and left without duplicates",
+                        span,
+                    );
+                }
+            }
+        }
         // @ref LLP 1115.000 D5.2 — the bar is each route's, so `navigationBar`
         // is a route's word: on the root or on a box inside a screen no host
         // reads it, and the screen would keep the bar it meant to drop.

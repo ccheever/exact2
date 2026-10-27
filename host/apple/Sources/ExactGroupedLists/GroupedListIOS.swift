@@ -1348,9 +1348,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { owner.scrollViewDidScroll(scrollView) }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { owner.scrollViewWillBeginDragging(scrollView) }
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        owner.scrollViewDidEndDragging(scrollView, willDecelerate: decelerate)
-    }
+    func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) { owner.scrollViewDidChangeAdjustedContentInset(scrollView) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { owner.scrollViewDidEndDragging(scrollView, willDecelerate: decelerate) }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { owner.scrollViewDidEndDecelerating(scrollView) }
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { owner.scrollViewDidEndScrollingAnimation(scrollView) }
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {

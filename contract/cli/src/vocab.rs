@@ -483,6 +483,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if name == "navigationBar" {
             println!("  on a route (LLP 1115.000 D5.2). \"none\": the screen has no navigation bar on iOS, a full-bleed screen that draws its own chrome and way back (a photo viewer, a header laid out by hand); its `header` paints as written and the edge swipe still goes back. \"auto\", the default, is the platform's bar: the route's `header` when it is one (`contract vocab header`), else the system Back button alone on a pushed route, and no bar on a stack's first route. A `navigationBack` control drawn in a pushed route's page without it is a second Back (warning `lower-back-twice`). On the navigation root or off a route it is refused. docs/recipes/navigation-stack.md");
         }
+        if name == "-exact-safe-area" {
+            println!("  on a route's root (a `navigationKey`), the edges whose clearance the route turns off: `auto` (the default) keeps the platform's, `none` turns off all four, or a space-separated list of `top`, `right`, `bottom` and `left`. On iOS and tvOS the content reaches behind the bars, the home indicator, a side strip or the overscan on those edges, and the route's primary scrollers lose UIKit's inset there; the bars, authored padding, the keyboard's inset and a refreshing control's room stay. `var(--exact-safe-area-inset-<edge>)` reads the inset to pad by. Not inherited; refused on the session root and on descendants; a literal that is none of these is refused and a computed one is `auto`, journaled once. Other hosts keep their presentation (LLP 1123 D4)");
+        }
         if name == "navigationDetent" {
             println!("  {DETENT}");
         }

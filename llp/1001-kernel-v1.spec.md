@@ -1641,3 +1641,11 @@ Font-family's other CSS generics (cursive/fantasy/math/emoji/fangsong) have no
 native mapping in the current catalog, and CSS-wide values are not represented
 by plan stack ids. Contract diagnoses both limits; quoted names are local
 families even when their spelling is a CSS generic.
+
+`-exact-safe-area` (LLP 1123 D4) opts an owner's authored root out of local
+clearance: `auto` (default), `none`, or the space-separated edges `top`,
+`right`, `bottom`, `left`. It is not inherited and is refused elsewhere.
+CSS has no native-container clearance property. On iOS and tvOS the route's
+covers drop those edges and its primary scrollers cancel UIKit's automatic
+inset there (overscan included); authored padding stays unchanged. A computed
+value that is none of these is `auto`, journalled once per route.

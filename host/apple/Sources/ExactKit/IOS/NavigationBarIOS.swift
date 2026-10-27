@@ -1086,13 +1086,8 @@ extension NavigationHost {
             if target.pageBand != band || target.bandInset != own { target.setPageBand(band, inset: own) }
         }
         let physical = target?.scrollView
-        // A route that turns transparent, or back, keeps its scroller: only
-        // whether UIKit insets it follows.
-        if let sv = physical, c.collapseScroll === target, c.collapseScrollView === sv {
-            let adjustment: UIScrollView.ContentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
-            if sv.contentInsetAdjustmentBehavior != adjustment { sv.contentInsetAdjustmentBehavior = adjustment }
-        }
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
+        c.safeArea.release(c.collapseScrollView)
         let old = c.collapseScroll, oldView = c.collapseScrollView
         if let old, let sv = oldView { old.retainScrollPosition(from: sv) }
         c.collapseScroll = target
@@ -1105,7 +1100,8 @@ extension NavigationHost {
         // Under a transparent bar the content starts at the top edge, under
         // the bar, as on the web under a fixed transparent header: a hero
         // photo bleeds to the top, and the bar's material comes as it scrolls.
-        shown?.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
+        // That is the top's clearance turned off (`ignoresSafeArea`).
+        shown?.contentInsetAdjustmentBehavior = .automatic
         // …and is there before UIKit is handed it: a bar handed a
         // scroller that far from its top closes an open large title.
         if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset = PixelGrid.offset(CGPoint(x: sv.contentOffset.x, y: -sv.adjustedContentInset.top), in: sv) }
@@ -1168,17 +1164,16 @@ extension NavigationHost {
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
     /// whose own `env()` insets would be added to UIKit's, though not a
     /// sheet's route, which is covered for the sheet's whole safe area
-    /// whatever the document's fit (`reportCovers`); and so does a
-    /// transparent bar's scroller, which UIKit insets nothing (`collapse`).
+    /// whatever the document's fit (`reportCovers`).
     private func reachBottom(_ c: RouteController, presented: Bool) {
         // Until a scroller reaches the bottom edge the route's bottom cover
         // pads its in-flow content above the bars, and its content box is
         // the authored one: a scroller there ends that far above it. The
         // cover it has without one, so a scroller that does not grow as the
         // cover goes is at the edge either way.
-        let found = presented || presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
-        let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
+        let target = presented || presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
+        c.safeArea.release(c.edgeScroll?.scrollView)
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
            previous !== c.collapseScrollView { previous.contentInsetAdjustmentBehavior = .never }
@@ -1259,6 +1254,16 @@ extension NavigationHost {
     /// route's collapse or bottom-edge scroller.
     func insetByUIKit(_ node: NodeView) -> Bool {
         controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node }
+    }
+
+    /// A route's primary scroller's adjusted inset changed (`RouteSafeArea`).
+    func adjustedInsetChanged(_ node: NodeView) {
+        for c in controllers.values where c.collapseScroll === node || c.edgeScroll === node { c.safeArea.sync(c) }
+    }
+
+    /// The correction a route's opted-out edges hold in `scroll`'s insets (`RouteSafeArea`).
+    func safeAreaCorrection(_ scroll: UIScrollView) -> UIEdgeInsets {
+        controllers.values.lazy.map { $0.safeArea.insets(for: scroll) }.first { $0 != .zero } ?? .zero
     }
 
     /// Whether two item lists are the same items, in order.

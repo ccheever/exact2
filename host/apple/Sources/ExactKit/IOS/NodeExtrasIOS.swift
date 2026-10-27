@@ -167,9 +167,10 @@ final class NodeExtras {
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
     var pendingScrollTransfer = false
-    /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
-    /// title's inset, where `scrollTop` 0 rests; 0 for every other scroller.
     var controlRide: CGFloat = 0
+    /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
+    /// title's inset, where `scrollTop` 0 rests, or its adjusted inset while
+    /// the route turns the top off (LLP 1123 D4); 0 for every other scroller.
     var scrollOrigin: CGFloat = 0
     /// …and the smallest inset it has had: its title collapsed.
     var scrollCollapsed: CGFloat = 0

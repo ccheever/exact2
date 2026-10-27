@@ -826,10 +826,18 @@ fn values(e: &Expr, out: &mut Vec<(String, Span, bool)>) {
     }
 }
 
-/// The string literals a value is, through `?:`, `match` and `let`.
+/// The string literals a value is, through `?:`, `match` and `let`; a
+/// template with no `${}` is one.
 pub(crate) fn literal_leaves(e: &Expr, out: &mut Vec<(String, Span)>) {
     match e {
         Expr::Str(text, span) => out.push((text.clone(), *span)),
+        Expr::Template(parts, span) if parts.iter().all(|p| matches!(p, TemplatePart::Text(_))) => {
+            let text = parts.iter().map(|p| match p {
+                TemplatePart::Text(t) => t.as_str(),
+                TemplatePart::Expr(_) => "",
+            });
+            out.push((text.collect(), *span));
+        }
         Expr::Ternary(_, yes, no, _) => {
             literal_leaves(yes, out);
             literal_leaves(no, out);

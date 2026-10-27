@@ -72,7 +72,7 @@ extension NavigationHost {
             let whole = presented || (wantsWholeView && !covered)
             let shows = nav.map(barShows) ?? !ExactEnv.authoredChrome
             guard shows || whole || covered else { continue }
-            let edges: HostCover.Edges?
+            var edges: HostCover.Edges?
             // What the route clears, its values' content root (`ownerValues`)
             var clearance: HostCover.Edges?
             // A collapsing title's scroller goes under the bar, which insets it;
@@ -81,11 +81,12 @@ extension NavigationHost {
             // from a route without one, §9.10), its last cover stands.
             // An active search's bar is UIKit's: the content follows it, as
             // UIKit's own does, but a title's insets are not sampled.
+            c.safeArea.sync(c)
             let search = searching(c)
             let settled = search || (nav?.isNavigationBarHidden ?? true) != routeShowsBar(c, in: nav)
             // A route showing no bar has no title: its inset is the status bar's, none in landscape (LLP 1130 D3).
             let barless = !routeShowsBar(c, in: nav)
-            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 || barless {
+            if !c.ignoresSafeArea("top"), settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 || barless {
                 let inset = sv.adjustedContentInset.top
                 if c.insetsBarless != barless { c.insetsBarless = barless; node.scrollCollapsed = 0 }
                 // tvOS has no large titles: every title is inline.
@@ -111,26 +112,31 @@ extension NavigationHost {
                 // A route the keyboard shortens can end above the bars, with no bottom cover.
                 let end = c.node.convert(c.node.bounds, to: c.contentMount).maxY + (c.contentViewport?.frame.minY ?? 0)
                 let reached = end - (c.view.bounds.maxY - safe.bottom)
-                let cleared = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
-                                              reached: reached)
-                let open = HostCover.Edges(top: 0, right: cleared.right, bottom: cleared.bottom, left: cleared.left)
+                let own = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
+                                          reached: reached)
+                clearance = own
                 // A collapsing title's scroller, or a band riding the bar, goes under the bar, which insets it
                 let under = c.collapseScroll != nil || !c.ridingBars.isEmpty
-                edges = under ? open : cleared
-                // A transparent bar insets nothing of that scroller: its content starts at the top edge (`collapse`)
-                clearance = under && Self.transparentBar(c.node) ? open : cleared
-                c.bottomClearance = cleared.bottom
+                edges = under ? HostCover.Edges(top: 0, right: own.right, bottom: own.bottom, left: own.left) : own
+                c.bottomClearance = own.bottom
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { edges = nil }
+            // An edge the route turns off (`-exact-safe-area`, LLP 1123 D4) has no
+            // clearance: the content root reaches it, and its values say the inset there.
+            let cleared = { (e: HostCover.Edges) in
+                HostCover.Edges(top: c.ignoresSafeArea("top") ? 0 : e.top, right: c.ignoresSafeArea("right") ? 0 : e.right,
+                                bottom: c.ignoresSafeArea("bottom") ? 0 : e.bottom, left: c.ignoresSafeArea("left") ? 0 : e.left)
+            }
+            edges = edges.map(cleared)
+            clearance = clearance.map(cleared)
+            if c.ignoresSafeArea("bottom") { c.bottomClearance = 0 }
             // A scroller UIKit insets lays its content out between those
             // insets (LLP 1116.000 D1.2): content that fills its height rests
             // under the bar and above the home indicator, and scrolling
             // content still passes under both. A large title's inset is its
             // widest, at rest (CSS scrollTop 0).
-            // A transparent bar insets nothing of its scroller: the content
-            // starts under it (`collapse`), so no `.inset` is reported there.
-            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil && !(node === c.collapseScroll && Self.transparentBar(c.node)) {
+            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil {
                 if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
                     // The bottom edge's scroller takes the route's bottom
                     // clearance, which the route then pads nothing of
@@ -142,7 +148,8 @@ extension NavigationHost {
                     // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).
                     let title = node === c.collapseScroll ? node.scrollOrigin : 0
                     let stretched = title > 0 && node.scrollView.map { Self.stretched($0, origin: title) } == true
-                    let top = max(0, max(stretched ? min(safe.top, title) : safe.top, title) - node.pageBand.top), bottom = max(0, max(safe.bottom, reach) - node.pageBand.bottom)
+                    let top = c.ignoresSafeArea("top") ? 0 : max(0, max(stretched ? min(safe.top, title) : safe.top, title) - node.pageBand.top)
+                    let bottom = c.ignoresSafeArea("bottom") ? 0 : max(0, max(safe.bottom, reach) - node.pageBand.bottom)
                     if top > 0 || bottom > 0 { wanted[node.id] = .inset(top: top, bottom: bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
@@ -288,7 +295,7 @@ extension NavigationHost {
         for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.contentMount { say("route \(c.key)", "view") }
             guard let node = c.ownedScroll, let scroll = node.scrollView else { continue }
-            for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node) { say("route \(c.key)", property) }
+            for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node, safeArea: c.safeArea.insets(for: scroll)) { say("route \(c.key)", property) }
         }
     }
 
@@ -298,16 +305,20 @@ extension NavigationHost {
     /// but a route's collapse or bottom-edge scroller's, the backend's Exact-owned delegate, the node's keyboard dismissal (authored, or
     /// the platform's for what it scrolls, LLP 1115.000 D9.1). The offset
     /// and the content size are Exact's too but are not checked: they move
-    /// with the user and with layout, so no last write predicts them.
-    static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool) -> [String] {
+    /// with the user and with layout, so no last write predicts them. A
+    /// route's opted-out edges add their correction (`safeArea`) to the inset.
+    static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool, safeArea: UIEdgeInsets = .zero) -> [String] {
         var out: [String] = []
         // A native backend owns layout/footer insets, composed with the
         // refresh control and keyboard; zero is only the plain-scroll baseline.
         if s === node.scroll {
+            let band = node.bandInset
+            let expected = UIEdgeInsets(top: band.top + safeArea.top, left: band.left + safeArea.left,
+                                        bottom: band.bottom + safeArea.bottom, right: band.right + safeArea.right)
             #if os(tvOS)
-            if s.contentInset != node.bandInset { out.append("contentInset") }
+            if s.contentInset != expected { out.append("contentInset") }
             #else
-            if s.contentInset != node.bandInset, s.refreshControl?.isRefreshing != true { out.append("contentInset") } // a band's is the host's
+            if s.contentInset != expected, s.refreshControl?.isRefreshing != true { out.append("contentInset") } // a band's is the host's
             #endif
         }
         if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .automatic : .never) { out.append("contentInsetAdjustmentBehavior") }

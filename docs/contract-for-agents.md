@@ -1535,6 +1535,18 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
 | a route with `navigationPresentation="modal"` | a sheet |
 
+On an iOS or tvOS route's root, `-exact-safe-area` turns off the route's own
+clearance on the edges it names (LLP 1123 D4). `"top"` lets the content and
+its primary scroller's content reach behind the navigation bar and status
+area, `"bottom"` past the tab bar and home indicator, `"left"` and `"right"`
+past a side strip or the overscan. A space-separated list combines edges,
+`"none"` names all four, and `"auto"` (the default) keeps the platform's
+clearance. The bars stay, and so do authored padding, the keyboard's inset and
+a refreshing control's room. To pad an edge by its inset, read
+`var(--exact-safe-area-inset-<edge>)`. The property is not inherited and is
+refused on the session root and on descendants; a computed value that is none
+of these is `auto`, journalled once. Other hosts keep their presentation.
+
 On macOS, date, time, datetime-local and select controls are default Tab stops,
 independent of the system's Keyboard navigation setting. Their native control
 owns focus and editing keys; `focus`/`blur` and cancellable `key` handlers still
@@ -1561,8 +1573,9 @@ there itself, as `nav = go(nav, url)` would (LLP 1115.000 D4.3); a native host's
 still needs the handler. A declared but disabled
 control refuses them, as does `closedby="none"` on a sheet. A route whose scroller opens
 with a full-bleed picture says `navigationBar="transparent"`: iOS draws its bar clear at
-the scroller's top and insets nothing, so the picture sits under the bar as under a fixed
-transparent header on the web, and the bar's material comes as the content scrolls. On a pushed iOS
+the scroller's top and insets nothing there, so the picture sits under the bar as under a fixed
+transparent header on the web, and the bar's material comes as the content scrolls; at the
+foot the scroller still runs under the home indicator, inset there. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
 not `‹ Recipes`. With no such control the back button is UIKit's default, which since

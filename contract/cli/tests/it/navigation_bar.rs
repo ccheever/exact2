@@ -132,3 +132,92 @@ fn a_header_button_that_presses_nothing_is_named() {
     result.unwrap();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
 }
+
+#[test]
+fn safe_area_opt_out_is_local_to_a_routes_authored_root() {
+    for value in [
+        "auto",
+        "none",
+        "top",
+        "bottom",
+        "top bottom",
+        "left right",
+        "top right bottom left",
+    ] {
+        let source = stack("", &format!("-exact-safe-area=\"{value}\""), "");
+        let plan = contract::bake(contract::compile(&source).unwrap(), NoData).unwrap();
+        let runner = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/viewer",
+        )
+        .unwrap();
+        let kernel = runner.kernel();
+        let ids = kernel.find_by_test_id("route-viewer");
+        assert_eq!(ids.len(), 1);
+        for key in ids {
+            assert_eq!(
+                kernel.node_by_key(key).unwrap().props.str(PropId::SafeArea),
+                Some(value)
+            );
+        }
+    }
+    for value in ["", "Top", "top top", "auto top", "none bottom", "vertical"] {
+        let error = contract::compile(&stack("", &format!("-exact-safe-area=\"{value}\""), ""))
+            .unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{value}: {error}");
+    }
+    // Every literal a value can be is checked: a conditional's branches and a template with no `${}`.
+    for expression in [
+        r#"e.name == "viewer" ? "top" : "none bottom""#,
+        r#"e.name == "viewer" ? "auto top" : "bottom""#,
+        r#"e.name == "viewer" ? "top" : (e.name == "other" ? "Top" : "auto")"#,
+        "`tpo`",
+        r#"e.name == "viewer" ? `top` : `left left`"#,
+    ] {
+        let source = stack("", &format!("-exact-safe-area=({expression})"), "");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{expression}: {error}");
+    }
+    // A template that computes its value is the host's to read.
+    contract::compile(&stack("", "-exact-safe-area=`${e.name}`", "")).unwrap();
+    for (root, inner) in [
+        ("-exact-safe-area=\"none\"", ""),
+        ("", "-exact-safe-area=\"top\""),
+    ] {
+        let error = contract::compile(&stack(root, "", inner)).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{error}");
+        assert!(error.message.contains("owner's authored root"), "{error}");
+    }
+    let error = contract::compile("component App\n  view\n    column -exact-safe-area=\"none\"\n")
+        .unwrap_err();
+    assert_eq!(error.id, "lower-attr-value", "{error}");
+    // State bindings update the same non-inherited prop; ordinary descendants get none.
+    let source = stack(
+        "",
+        "-exact-safe-area=(e.name == \"viewer\" ? \"top bottom\" : \"auto\")",
+        "",
+    );
+    let plan = contract::bake(contract::compile(&source).unwrap(), NoData).unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/viewer",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let viewer = kernel
+        .node_by_key(kernel.find_by_test_id("route-viewer")[0])
+        .unwrap();
+    assert_eq!(viewer.props.str(PropId::SafeArea), Some("top bottom"));
+    for child in viewer.children() {
+        assert_eq!(
+            kernel.node(child).unwrap().props.str(PropId::SafeArea),
+            None
+        );
+    }
+}

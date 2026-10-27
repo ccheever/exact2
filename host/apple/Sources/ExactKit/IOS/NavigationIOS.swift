@@ -135,6 +135,13 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         host?.presenter.session?.natives.routeLoaded(node)
     }
 
+    let safeArea = RouteSafeArea()
+
+    /// Whether the route turns off `edge`'s native clearance: by
+    /// `-exact-safe-area`, or at the top under a transparent bar, whose
+    /// content starts at the top edge and is inset at the bottom as any other.
+    func ignoresSafeArea(_ edge: String) -> Bool { safeArea.ignores(edge, in: self) }
+
     /// The backdrop's colours last written, light and dark.
     private var backdropKey: [[Double]?]?
     /// The controller's view paints what shows behind the route: a dynamic
@@ -843,6 +850,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// A route's controller leaves for good: its header paints again and the
     /// route hatch hears `routeEnded` (LLP 1075.003 §3.2).
     private func end(_ c: RouteController) {
+        c.safeArea.end()
         if let header = c.lifted { header.isHidden = false; c.lifted = nil }
         c.scoped?.isHidden = false
         c.scoped = nil
