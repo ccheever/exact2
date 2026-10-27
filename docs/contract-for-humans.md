@@ -459,7 +459,10 @@ axis is room before the first row and after the last, as in CSS: a length or an
 below its `padding-top`, so a header laid over that padding does not hide it. A
 virtualized list's `scroll-padding` insets where `scrollIntoView` aligns a row,
 as in CSS: `scroll-padding-top` the height of that header brings a row to just
-below it, and the first row to the very top. Other elements refuse it.
+below it, and the first row to the very top. On iOS the row also lands clear of
+the bars UIKit draws the list under (a header, or a composer it lifts into a
+bar), as `scrollToItem(at:at:animated:)` does: `block="end"` puts the newest
+message just above the composer. Other elements refuse it.
 Virtualized lists nest one level deep (an inner vertical list needs a literal
 `height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
 RTL horizontal collections are not supported.

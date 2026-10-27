@@ -61,6 +61,8 @@ pub struct ListLinks {
     pub(crate) into_view_json: fn(&Tree) -> String,
     /// `state.kept`: inner lists' kept positions (LLP 1070 §4.2).
     pub(crate) kept_json: fn(&Tree) -> String,
+    /// What the platform covers of a list's port, where no row is aligned.
+    pub(crate) covered: fn(&mut Tree, ViewId, [f64; 2]) -> bool,
 }
 
 type IntoViewLink = fn(
@@ -92,6 +94,7 @@ pub static LISTS: ListLinks = ListLinks {
     into_view_json: Tree::into_view_json,
     scroll_anchor: Tree::collection_scroll_anchor,
     kept_json: Tree::kept_positions_json,
+    covered: Tree::set_list_covered,
 };
 
 /// A list engine's state where the plan has no way to reach it: admission

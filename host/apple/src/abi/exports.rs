@@ -1014,6 +1014,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.into_view(view, len), |n| n)
         }
 
+        /// What UIKit covers of list `view`'s port at its start and end, in
+        /// points: a row the runner aligns lands clear of it.
+        #[no_mangle]
+        pub extern "C" fn exact_list_covered(rt: u32, view: u32, start: f64, end: f64) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_covered(view, start, end), |_| ())
+        }
+
         /// Canvas draws in a turn of their own (`deferred` nonzero), or in every
         /// turn (LLP 1072 §8.5): the batch says `canvasOwed` and
         /// `exact_canvas_draw` runs them, off the turns main waits on.

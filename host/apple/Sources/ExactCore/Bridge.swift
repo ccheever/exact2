@@ -456,6 +456,14 @@ package final class Runtime {
             return read(exact_into_view(rt, view, n))
         }
     }
+    /// What UIKit covers of list `view`'s port at its start and end, on the
+    /// owner before the reports after it, not waited for.
+    package func listCovered(_ view: UInt32, start: Double, end: Double) {
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            exact_list_covered(rt, view, start, end)
+        }
+    }
     /// A build-only report on the owner, not waited for (LLP 1072 §3):
     /// `done` runs on the owner with the decoded batch.
     package func collectionFeedbackAsync(_ bytes: Data, now: Double, done: @escaping (Batch) -> Void) {

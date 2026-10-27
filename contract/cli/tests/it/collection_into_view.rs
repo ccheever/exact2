@@ -152,8 +152,19 @@ fn list(r: &Runner<Data>, horizontal: bool) -> Option<CollectionSnapshot> {
 fn host(
     r: &mut Runner<Data>,
     view: u32,
+    offset: f64,
+    port: f64,
+    size: impl Fn(usize) -> f64,
+) -> f64 {
+    host_padded(r, view, offset, port, [0.0; 2], size)
+}
+/// `host`, laying out `padding` before the rows and after them.
+fn host_padded(
+    r: &mut Runner<Data>,
+    view: u32,
     mut offset: f64,
     port: f64,
+    padding: [f64; 2],
     size: impl Fn(usize) -> f64,
 ) -> f64 {
     let mut sequence = 0;
@@ -176,7 +187,7 @@ fn host(
                 port_main: port,
                 port_cross: 400.0,
                 cross: 400.0,
-                padding: [0.0; 2],
+                padding,
                 measurements: c
                     .rows
                     .iter()
@@ -241,6 +252,44 @@ fn a_row_far_away_lands_centred_on_its_measured_size() {
         (row.start + row.size / 2.0 - 300.0 - offset).abs() <= 0.5,
         "centred: start {} offset {offset}",
         row.start
+    );
+    assert!(state(&r).contains("\"status\":\"done\""), "{}", state(&r));
+}
+
+/// A list UIKit draws under its bars (LLP 1130 D3) has their bands as
+/// padding in a port that includes them; its host says what they cover. A
+/// row aligned at the end lands above the bottom bar and one centred, in the
+/// middle of what shows, as `scrollToItem(at:at:animated:)` aligns within the
+/// adjusted content insets (the r26 chat's newest message under its composer).
+#[test]
+fn a_row_aligns_clear_of_what_the_platform_covers() {
+    let mut r = boot();
+    let feed = list(&r, false).unwrap().view;
+    let (port, bands) = (600.0, [100.0, 80.0]);
+    host_padded(&mut r, feed, -100.0, port, bands, feed_size);
+    assert!(r.set_list_covered(feed, bands));
+    let landed = |r: &mut Runner<Data>, n: usize| {
+        let offset = host_padded(r, feed, -100.0, port, bands, feed_size);
+        let row = list(r, false)
+            .unwrap()
+            .rows
+            .into_iter()
+            .find(|row| row.index == n)
+            .unwrap();
+        (row.start - offset, row.start + row.size - offset)
+    };
+    r.act("goEnd", vec![Value::Number(503.0)]).unwrap();
+    let (_, end) = landed(&mut r, 503);
+    assert!(
+        (end - (port - bands[1])).abs() <= 0.5,
+        "its end at the bottom bar's top: {end}"
+    );
+    r.act("go", vec![Value::Number(207.0)]).unwrap();
+    let (start, end) = landed(&mut r, 207);
+    let middle = (bands[0] + port - bands[1]) / 2.0;
+    assert!(
+        ((start + end) / 2.0 - middle).abs() <= 0.5,
+        "centred in what shows: {start}…{end}"
     );
     assert!(state(&r).contains("\"status\":\"done\""), "{}", state(&r));
 }

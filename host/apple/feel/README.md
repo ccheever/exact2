@@ -101,11 +101,15 @@ The gestures, all real HID touches through XCTest's synthesizer:
 
 The horizontal gestures and the scrub run only while the list still shows (a tap that opened a row skips them).
 
-`--short` is verify's script, about 30 s: the slow drag; flings down at 6,000 and 4,000 pt/s (blanks sampled in the
-second); the status-bar tap from where they left the list; the pull past the top; the fling and the tap while it
-decelerates; on a carousel already on screen, the 4,000 pt/s fling, one back and the two diagonal drags; one scrub,
-timed. It skips the 1,500 pt/s fling and the flings back up, so the edge bounce is measured only when a fling
-reaches the list's end, and blanks are sampled in one fling (about 45 samples, not 130).
+`--short` is verify's script, about 15 s: the slow drag; flings down at 6,000 and 4,000 pt/s (blanks sampled in the
+second); the status-bar tap from where they left the list; the pull past the top; and on a list whose content is
+12,000 pt or more, one scrub, timed (on a shorter one, dragging the indicator moves the list less than twice as fast as the
+6,000 pt/s fling). It skips the 1,500 pt/s fling and the flings back up, so the edge bounce is measured only when a fling
+reaches the list's end, and blanks are sampled in one fling (about 45 samples, not 130). It skips the tap while
+decelerating and the carousel: in bake-off rounds r24 to r26 (103 verify runs) the findings an app could fix came
+from the slow drag, the flings, the status-bar tap and the pull, and those two found only Exact's own. `verify ios`
+measures once per build: until the build, the plan it runs, the app's server or the probe changes, it reuses the
+last measurement (`--rescroll` takes another).
 
 ## Reading `feel.txt`
 

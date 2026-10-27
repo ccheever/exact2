@@ -550,6 +550,9 @@ uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
    exact_in; returns the ordinary batch. */
 uint32_t exact_into_view(ExactRuntime rt, uint32_t view, size_t len);
+/* What UIKit covers of a virtualized list's port at its start and end, in
+   points: a row the runner aligns (scrollIntoView, a focus) lands clear of it. */
+void exact_list_covered(ExactRuntime rt, uint32_t view, double start, double end);
 /* Property: 0 translate, 1 scale, 2 rotate, 3 opacity. Begin replies with a
  * hold op {token:decimal-string,x,y}. Tokens belong to this runtime incarnation.
  * Check liveness before an authored action; final update, action, then end. */

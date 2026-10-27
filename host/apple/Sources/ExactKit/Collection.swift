@@ -218,6 +218,8 @@ package final class CollectionHost {
         /// The platform's insets of the port when the batch began
         /// (`portInsets`): one that changed under it moved the port.
         var batchInsets: [Double]?
+        /// What the platform covers of the port at its start and end, as the runner was last told.
+        var covered: [Double] = [0, 0]
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
@@ -747,6 +749,9 @@ package final class CollectionHost {
                     entry.lastSequence = entry.cursor.sequence
                     entry.lastLimit = limit
                     reported = true
+                    #if os(iOS) || os(tvOS)
+                    reportCovered(id, entry)
+                    #endif
                     // While its outer list moves, an inner list builds only
                     // what it owes (LLP 1070 F2); its pending report
                     // continues once the outer list rests.

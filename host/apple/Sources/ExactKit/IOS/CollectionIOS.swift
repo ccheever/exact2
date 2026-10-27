@@ -83,6 +83,21 @@ extension CollectionHost {
         entries[id]?.batchStart? += Double(dy)
         offsetDrivers[id]?.moveOffsets(by: dy)
     }
+    /// What UIKit's bars cover of the list's port at its start and end: its
+    /// page bands (LLP 1130 D3), which `geometry` counts as port and padding.
+    /// The runner aligns a row clear of them, as `scrollToItem(at:at:animated:)`
+    /// aligns within the adjusted content insets.
+    func covered(_ id: UInt32) -> [Double] {
+        guard let band = presenter?.views[id]?.pageBand, entries[id]?.snapshot.horizontal != true else { return [0, 0] }
+        return [Double(band.top), Double(band.bottom)]
+    }
+    /// `covered`, told the runner when it changes, before the report that goes with it.
+    func reportCovered(_ id: UInt32, _ entry: Entry) {
+        let covered = covered(id)
+        guard covered != entry.covered, let runtime = presenter?.session?.runtime else { return }
+        entry.covered = covered
+        runtime.listCovered(id, start: covered[0], end: covered[1])
+    }
     /// The insets UIKit adjusts the list's port by, at its start edges. A
     /// safe area its frame changed reaches the scroll view in a layout
     /// pass, which is taken now, inside the batch that moved it.

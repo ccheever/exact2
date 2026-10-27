@@ -255,6 +255,14 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// What UIKit covers of list `view`'s port at its start and end, its
+    /// bars over a list drawn under them (`Host::set_list_covered`).
+    pub fn list_covered(&mut self, view: u32, start: f64, end: f64) {
+        if let Some(host) = self.host.as_mut() {
+            host.set_list_covered(view, [start, end]);
+        }
+    }
+
     /// `key\nblock\ninline` in the input buffer (LLP 1070.000 §5); the key may hold a newline.
     pub fn into_view(&mut self, view: u32, len: usize) -> u32 {
         let text = String::from_utf8_lossy(self.input.get(..len).unwrap_or(&[])).into_owned();

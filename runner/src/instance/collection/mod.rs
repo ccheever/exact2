@@ -208,6 +208,8 @@ pub(crate) struct Collection {
     target: Option<into_view::Target>,
     /// The latest request here and how it stands, for `state`.
     into_view_status: Option<(Rc<str>, IntoViewStatus)>,
+    /// What the platform covers of the port at its start and end, where a row is not aligned.
+    covered: [f64; 2],
     /// Where the window starts before the host reports: 0, a restored
     /// position, or the end.
     start_offset: f64,
@@ -499,6 +501,7 @@ impl Collection {
             restored_at: None,
             target: None,
             into_view_status: None,
+            covered: [0.0; 2],
             start_offset: 0.0,
             reach,
             at_end,
@@ -635,9 +638,8 @@ impl Collection {
         }
         Ok(())
     }
-    /// Keyed invalidation of the rows at `positions` (O(k log N)); a
-    /// confirmed zero among them goes back to the estimate, as in
-    /// [`Self::invalidate_height_estimates`].
+    /// Keyed invalidation of the rows at `positions` (O(k log N)); a confirmed zero among them
+    /// goes back to the estimate, as in [`Self::invalidate_height_estimates`].
     fn invalidate_rows(&mut self, positions: &[usize]) -> Result<(), InstanceError> {
         for &p in positions {
             let key = self.index.shared_key(p).unwrap().clone();
@@ -652,9 +654,8 @@ impl Collection {
         }
         Ok(())
     }
-    /// Key every item, reusing a key only where the list kept its length and
-    /// an item its position ([`Self::rekey_shared`] handles the rest).
-    /// Whether any key changed.
+    /// Key every item, reusing a key only where the list kept its length and an item its
+    /// position ([`Self::rekey_shared`] handles the rest). Whether any key changed.
     fn rekey_full(
         &mut self,
         u: &mut Update<'_>,

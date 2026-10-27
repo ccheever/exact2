@@ -169,26 +169,25 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
   },
   verify: {
     line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
+    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/ (a test\'s own `screenshot` steps too)'],
+      ['--rescroll', 'ios: measure scrolling again though nothing it depends on changed'],
       ['--json', 'the report as one JSON object (ios: `scrolling`, each finding\'s metric, value, UIKit\'s and remedy)'],
     ],
     internal: ['--app <name>'],
-    body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
-(an edit to only app.contract or app.ts runs its new plan, no native rebuild), each on a
-fresh scratch store, and runs check light and dark on the screen it opens to. The tests are
-app.test.contract's, then each other *.test.contract's beside it, as test runs them. Each test's
-last screen is checked the same way in the test's own session (web: at both widths; ios
-runs the tests with UIKit's bars). Then the app relaunches once, on real time, on the store
-a passing test left, and says whether its first screen shows what that test stored. One
-short report: the build if it built, the compiler's warnings (as contract build says them,
-built or not), the tests, check's findings (each once, naming the screens it was on), the
-relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. One
-screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
-each test's named by the test, the relaunch's): look at them when the features work.
+    body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars (an edit to only
+app.contract or app.ts runs its new plan, no native rebuild), each on a fresh scratch store, and runs check
+light and dark on the screen it opens to. The tests are app.test.contract's, then each other *.test.contract's
+beside it, as test runs them. Each test's last screen is checked the same way in the test's own session (web: at
+both widths; ios runs the tests with UIKit's bars). Then the app relaunches once, on real time, on the store a
+passing test left, and says whether its first screen shows what that test stored. One short report: the build if
+it built, the compiler's warnings (as contract build says them, built or not), the tests, check's findings (each
+once, naming the screens it was on), the relaunch, then "verify: clean" or "verify: N problems". A clean verify
+is done. One screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme, each
+test's named by the test, the relaunch's): look at them when the features work.
 Large    each of those screens again at the largest text size (ios: the simulator's, put back
          after; web: a 53 px root, iOS's body there, at 390x844, and the tests run again there
          to read up to 12 screens they pass through): what spills (past the edge, squeezed,
@@ -196,8 +195,8 @@ Large    each of those screens again at the largest text size (ios: the simulato
          smaller or fixed font is the tell, and so is a line-clamp in a list's row or hyphens="auto"
          on a text of several words (a UILabel hyphenates only a word longer than its line; a
          grouped list's rows hyphenate as cells do). Counted ("3 at the largest text size"), never failing.
-Scroll   ios: ~20 s of real touches on a long first-screen list (host/apple/feel): "like UIKit", or a counted
-         finding per metric the app can fix; Exact's own one uncounted line; load > cores: physics only.
+Scroll   ios: ~15 s of real touches on a long first-screen list, once per build (host/apple/feel): "like UIKit", or
+         a counted finding per metric the app can fix; Exact's own one uncounted line; load > cores: physics only.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's, the largest text size's, scrolling's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.

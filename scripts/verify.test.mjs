@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { findings } from '../host/apple/feel/analyze.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
+import { ago, appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, reusable, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -1276,6 +1276,27 @@ test('scrolling: like UIKit in one line; each tell or bad the app can fix a coun
   const failed = run({ ms: 3000, error: 'the recorder wrote nothing in 20 s\nstack' });
   assert.equal(failed.lines[1], 'scrolling: could not measure: the recorder wrote nothing in 20 s');
   assert.equal(failed.problems, 0);
+});
+
+test('scrolling: measured once per build; a measurement is reused while its key holds, said with when, unless it could not judge timing and the machine now can', () => {
+  const idle = { avg: 4, cores: 18 }, busy = { avg: 40, cores: 18 };
+  assert.equal(reusable({ key: 'k', load: idle }, 'k', busy), true);
+  assert.equal(reusable({ key: 'k', load: busy }, 'k', busy), true);
+  assert.equal(reusable({ key: 'k', load: busy }, 'k', idle), false);
+  assert.equal(reusable({ key: 'k', load: idle }, 'other', idle), false);
+  assert.equal(reusable({ key: 'k', load: idle }, null, idle), false); // no key: the build cannot be told
+  assert.equal(reusable(undefined, 'k', idle), false);
+  const now = Date.UTC(2026, 9, 27, 12);
+  assert.deepEqual([20_000, 4 * 60_000, 3 * 3600_000].map((ms) => ago(now - ms, now)), ['under a minute ago', '4 min ago', '3 h ago']);
+  const result = { app: 'a', verdict: 'probed', list: { cls: 'ExactKit.ScrollView' },
+    smooth: { hitchRatio: 0, longestFrameMs: 16.7, mainP95Ms: 4.1, hitchAt: [], verdict: { hitch: 'ok', stall: 'ok', main: 'ok' } },
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: { ratio: 'ok', lag: 'ok', glide: 'ok' } },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, rubberBand: { ratio: 0.48, settleS: 0.55, verdict: { ratio: 'ok', settle: 'ok' } },
+    scrollToTop: { reached: true, startS: 0.02, durationS: 0.92, verdict: { reached: 'ok' } }, blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } } };
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app',
+    scrolled: { ms: 18000, out: '/app/.exact/verify/ios-feel', result, reused: Date.now() - 4 * 60_000 } });
+  assert.match(r.lines[1], /^scrolling: like UIKit \(.*; 18\.0 s of real touches on the first screen's list, ScrollView, measured 4 min ago on this build \(--rescroll measures again\)\)$/);
 });
 
 test('scrolling: the scrub and a carousel join the summary; their hitches and the carousel\'s drags each say whose they are', () => {

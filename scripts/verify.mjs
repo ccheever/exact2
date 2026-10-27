@@ -32,9 +32,10 @@
 // 1116.020 D4, `largestText`); the web also runs the tests again at that size and reads screens they only pass through
 // (`largeTour`).
 //
-//   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
+//   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]
 import { LAUNCH_MEDIA } from './agent-prefer.mjs';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { availableParallelism, loadavg, networkInterfaces } from 'node:os';
@@ -852,7 +853,7 @@ async function checkAt(host, app, size, store, shots) {
     if (facts) Object.defineProperty(runs, 'seen', { value: facts });
     Object.defineProperty(runs, 'refusals', { value: await refusalsIn(s) });
     if (host === 'ios' || size === WEB_SIZES[0]) Object.defineProperty(runs, 'large', { value: await largestText(s, FIRST) });
-    if (host === 'ios') Object.defineProperty(runs, 'tall', { value: await tallContent(s) });
+    if (host === 'ios') Object.defineProperties(runs, { tall: { value: await tallContent(s) }, udid: { value: s.carrier?.udid ?? null } });
     return runs;
   } finally {
     await s.close();
@@ -874,20 +875,68 @@ async function tallContent(s) {
  * cores. Above them, other work (builds) takes the simulator's frames, so a hitch says nothing about the app. */
 const timingJudged = (load) => !load || load.avg <= load.cores;
 /** `--json`'s `scrolling`: the verdict, the metrics found a tell or a bad with UIKit's values, remedies and owner
- * (`exact`, `app`, `either`: host/apple/feel/analyze.mjs `ownerOf`), the load it ran under, and where feel.json
- * (every number) is. */
+ * (`exact`, `app`, `either`: host/apple/feel/analyze.mjs `ownerOf`), the load it ran under, where feel.json
+ * (every number) is, and when it was measured if this run reused it (`reused`). */
 const scrollingOut = (sc) => sc.error ? { error: sc.error, ms: sc.ms }
   : { ms: sc.ms, verdict: sc.result.verdict, list: sc.result.list ?? null, summary: feelSummary(sc.result),
-    findings: feelFindings(sc.result, null, { timing: timingJudged(sc.load) }), ...(sc.load ? { load: { ...sc.load, timingJudged: timingJudged(sc.load) } } : {}), feel: resolve(sc.out, 'feel.json') };
+    findings: feelFindings(sc.result, null, { timing: timingJudged(sc.load) }), ...(sc.load ? { load: { ...sc.load, timingJudged: timingJudged(sc.load) } } : {}), feel: resolve(sc.out, 'feel.json'),
+    ...(sc.reused ? { reused: new Date(sc.reused).toISOString() } : {}) };
+
+const digest = (value) => createHash('sha256').update(value).digest('hex');
+const fileDigest = (path) => { try { return digest(readFileSync(path)); } catch { return null; } };
+/** What the probe is: its recorder, gestures and analysis, and the touch runner that plays them. */
+const PROBE = ['host/apple/feel/feel.m', 'host/apple/feel/probe.mjs', 'host/apple/feel/analyze.mjs', 'host/apple/touches.mjs'];
+
+/** What can change how the first screen's list scrolls, as one digest, or null when it cannot be told (no build, or
+ * one stale in more than its plan): the build the drive launches (its receipt) and the bake of a plan-only edit it
+ * runs on it (agent-build.mjs `planOverride`), the app's own server and the modules of its own that it imports, the
+ * simulator, and the probe. Any edit to the plan's sources makes another bake or build, so it measures again. */
+export async function scrollKey(app, { udid, server = null } = {}) {
+  const [{ nativeBuild, planOverride, planSource }, { appleArtifacts }] = await Promise.all([import('./agent-build.mjs'), import('../host/apple/build.mjs')]);
+  const receipt = resolve(appleArtifacts(app, { destination: 'ios-simulator' }).bundle, 'receipt.json'), built = fileDigest(receipt);
+  if (!built || !udid) return null;
+  const state = nativeBuild('ios', app, { checked: built });
+  if (state.missing || state.changed.some((path) => !planSource(path, app))) return null;
+  const override = state.changed.length ? planOverride('ios', app, state) : null;
+  if (state.changed.length && !override) return null;
+  const served = server ? [...serverModules(app.dir, server.entry)].sort().map((p) => [p, fileDigest(resolve(app.dir, p))]) : null;
+  return digest(JSON.stringify({ built, plan: override && fileDigest(resolve(override.dir, 'override.json')), served, udid,
+    probe: PROBE.map((p) => fileDigest(resolve(ROOT, p))) }));
+}
+
+/** A server's entry and the modules of the app's own it imports, transitively (at most 40). */
+function serverModules(dir, entry) {
+  const seen = new Set([entry]);
+  for (const path of seen) for (const next of importsOf(dir, path)) if (seen.size < 40) seen.add(next);
+  return seen;
+}
+
+/** Whether the measurement `last` (`{ key, load }`) stands for this run, whose key is `key` and whose load is `now`:
+ * the same key, and timing judged then or not judgeable now either. */
+export const reusable = (last, key, now) => !!key && last?.key === key && (timingJudged(last.load) || !timingJudged(now));
+
+/** How long ago `at` was, in a few words. */
+export const ago = (at, now = Date.now()) => {
+  const min = (now - at) / 60_000;
+  return min < 1 ? 'under a minute ago' : min < 90 ? `${Math.round(min)} min ago` : `${Math.round(min / 60)} h ago`;
+};
 
 /** How the first screen's list scrolls against UIKit's (host/apple/feel): the app launched again on a fresh scratch
  * store, on real time (`timing: 'platform'`, no `clock`), with the recorder inserted, and the probe's short script of
  * real touches played on its largest list. `{ ms, out, result, load }` (`result.verdict` is `no-scrollable-list` when
  * no shown list is long; `load`: the higher 1-minute load average of its start and end, and the cores), or
- * `{ error }`. */
-async function scrolling(app, shots) {
-  const started = Date.now(), out = resolve(shots, 'ios-feel'), tracePath = resolve(out, 'trace.jsonl');
+ * `{ error }`. A measurement is kept with its `key` (`scrollKey`) and taken again only when the key changed, `force`
+ * (`--rescroll`) asks, or it could not judge timing and the machine now can: a reused one has `reused`, when it was
+ * measured. */
+async function scrolling(app, shots, { key = null, force = false } = {}) {
+  const started = Date.now(), out = resolve(shots, 'ios-feel'), tracePath = resolve(out, 'trace.jsonl'), kept = resolve(out, 'measured.json');
   const load0 = loadavg()[0];
+  if (!force) {
+    try {
+      const last = JSON.parse(readFileSync(kept, 'utf8'));
+      if (reusable(last, key, { avg: load0, cores: availableParallelism() })) return { ms: last.ms, out, result: JSON.parse(readFileSync(resolve(out, 'feel.json'), 'utf8')), load: last.load, reused: last.at };
+    } catch {}
+  }
   try {
     const [{ open }, feel] = await Promise.all([import('./agent.mjs'), import('../host/apple/feel/probe.mjs')]);
     rmSync(out, { recursive: true, force: true });
@@ -900,7 +949,9 @@ async function scrolling(app, shots) {
       played = await feel.play({ touches: s.carrier.touches, tracePath, script: 'short' });
     } finally { await s.close(); }
     const load = { avg: Math.round(Math.max(load0, loadavg()[0]) * 10) / 10, cores: availableParallelism() };
-    return { ms: Date.now() - started, out, result: feel.finish(out, app.id, played, s.carrier.udid), load };
+    const result = feel.finish(out, app.id, played, s.carrier.udid), ms = Date.now() - started;
+    if (key) writeFileSync(kept, JSON.stringify({ key, at: Date.now(), ms, load }) + '\n');
+    return { ms, out, result, load };
   } catch (e) { return { ms: Date.now() - started, error: e.message }; }
 }
 
@@ -1189,7 +1240,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   else if (scrolled?.result?.verdict === 'probed') {
     const r = scrolled.result, place = relative(cwd, scrolled.out), timing = timingJudged(scrolled.load);
     const all = feelFindings(r, null, { timing }), found = all.filter((f) => !f.unsure && f.owner !== 'exact'), own = all.filter((f) => !f.unsure && f.owner === 'exact');
-    const said = `${secs(scrolled.ms)} of real touches on the first screen's list, ${r.list?.cls?.split('.').at(-1) ?? 'a scroll view'}`;
+    const said = `${secs(scrolled.ms)} of real touches on the first screen's list, ${r.list?.cls?.split('.').at(-1) ?? 'a scroll view'}${scrolled.reused ? `, measured ${ago(scrolled.reused)} on this build (--rescroll measures again)` : ''}`;
     const value = (f) => { const u = f.unit ? ` ${f.unit}` : ''; return `${f.metric} ${f.value}${u} (${f.verdict}; UIKit ${f.uikit}${u})`; };
     const line = (f) => `scrolling ${value(f)}: ${f.remedy}`;
     const notes = all.filter((f) => f.unsure).map((f) => `  note, not counted (the probe also reads plain regions as blank): ${line(f)}`);
@@ -1312,7 +1363,10 @@ async function main(argv) {
     }
     // An app's own server holds what the tests wrote by now: the tour, which writes again, goes last.
     if (running && host === 'web') toured = await largeTour(app);
-    if (host === 'ios' && firsts.some((runs) => runs.tall)) scrolled = await scrolling(app, shots);
+    if (host === 'ios' && firsts.some((runs) => runs.tall)) {
+      const key = await scrollKey(app, { udid: firsts.find((runs) => runs.udid)?.udid, server: owned ? server : null }).catch(() => null);
+      scrolled = await scrolling(app, shots, { key, force: args.includes('--rescroll') });
+    }
   } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');

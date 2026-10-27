@@ -121,6 +121,18 @@ impl<D: DataSource> Runner<D> {
         self.scroll_into_view(request)
     }
 
+    /// What the platform covers of list `view`'s port at its start and end:
+    /// UIKit's bars over a list drawn under them, which its host reports as
+    /// padding (LLP 1130 D3). A row aligned by `scrollIntoView` or a focus
+    /// lands clear of it, as UIKit's `scrollToItem(at:at:animated:)` does.
+    /// Nothing moves now. Whether `view` is a mounted list.
+    pub fn set_list_covered(&mut self, view: ViewId, covered: [f64; 2]) -> bool {
+        match (self.links.lists, self.tree.as_mut()) {
+            (Some(lists), Some(tree)) => (lists.covered)(tree, view, covered),
+            _ => false,
+        }
+    }
+
     /// `state.scrollIntoView`: each list's latest request, then refusals.
     pub fn into_view_json(&self) -> String {
         let mut out = match (self.links.lists, &self.tree) {

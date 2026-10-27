@@ -54,6 +54,10 @@ export function traceOf(tracePath) {
   try { return readTrace(readFileSync(tracePath, 'utf8')); } catch { return readTrace(''); }
 }
 
+/** The content height from which the short script scrubs: dragged end to end in a second, the indicator moves such a
+ * list at least twice as fast as the fastest fling. */
+export const SCRUB_FROM = 12_000;
+
 /** Plays the gesture script on the largest list the app shows (after `steps`), recording into `tracePath` (the
  * recorder must already run in the app). `script`: 'full', the calibrated one (README.md), or 'short', verify's.
  * `{ display, steps, gestures, list }`; `list` is null when no shown scroll view qualifies (`pickList`). */
@@ -208,22 +212,20 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
     };
     /** Horizontal gestures on an inner scroller (`c`): a slow drag, flings along it and back (blanks unsampled), and
      * the arbitration of two diagonal drags held before the lift: mostly horizontal (the scroller's) and mostly
-     * vertical (the list's, as UIKit gives it). `short`: one fling and the two diagonals. */
-    const horizontal = async (c, short) => {
+     * vertical (the list's, as UIKit gives it). */
+    const horizontal = async (c) => {
       const [cx, cy, cw, ch] = c.frame, y = Math.round(cy + ch / 2);
       const right = Math.round(cx + cw - 40), left = Math.round(cx + 40), len = Math.round(Math.min(300, cw * 0.6));
       say(`carousel #${c.id} ${c.cls} at y ${y}, x ${left}…${right}`);
       gestures.push({ name: 'h-start', kind: 'mark', carousel: c.id, start: Date.now(), end: Date.now() });
-      if (!short) {
-        await drag('h-slow-drag', [right, y], [left, y], 250, { press: 0.1, hold: 0.5 });
-        await rest();
-        await drag('h-fling-1500', [right, y], [right - len, y], 1500);
-        await rest();
-      }
+      await drag('h-slow-drag', [right, y], [left, y], 250, { press: 0.1, hold: 0.5 });
+      await rest();
+      await drag('h-fling-1500', [right, y], [right - len, y], 1500);
+      await rest();
       await drag('h-fling-4000', [right, y], [right - len, y], 4000);
       await rest();
       // Back to the start, the last meeting its edge with momentum.
-      for (let i = 0; i < (short ? 1 : 4); i++) {
+      for (let i = 0; i < 4; i++) {
         const f = trace().frames.findLast((g) => g.v === c.id);
         if (f && f.ox <= -(f.il ?? 0) + 1) break;
         await drag(`h-fling-back-${i + 1}`, [left, y], [left + len, y], 6000);
@@ -252,12 +254,9 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
       }
       await statusBar();
       await pull();
-      await tapWhileMoving();
-      if (listShown()) {
-        const c = await findCarousel(0);
-        if (c) await horizontal(c, true);
-        await scrub('scrub');
-      }
+      // The tap while decelerating and the carousel are the full script's: in bake-off rounds r24 to r26 (103 runs)
+      // they found nothing an app could fix. A scrub tests more than the flings only on a long list (`SCRUB_FROM`).
+      if (list.cs[1] >= SCRUB_FROM) await scrub('scrub');
     } else {
       // Momentum: flings down the list (the finger moves up); blanks are measured in the 4,000 pt/s one.
       for (const [name, v] of [['fling-1500', 1500], ['fling-4000', 4000], ['fling-6000', 6000]]) {
@@ -288,7 +287,7 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
       if (listShown()) {
         // Horizontal lists in the list: a carousel met within eight drags.
         const c = await findCarousel(8);
-        if (c) await horizontal(c, false);
+        if (c) await horizontal(c);
         // Scrubbing: timed, then again with blanks sampled.
         await scrub('scrub');
         await sampling(true);

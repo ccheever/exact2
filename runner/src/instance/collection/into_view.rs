@@ -166,7 +166,9 @@ impl Collection {
     }
     /// The offset that aligns row `position` by `align`, from the index,
     /// within the port less its `scroll-padding`, as CSS aligns in the
-    /// snapport (@ref LLP 1010 §6.9). It may be negative, down to the padding
+    /// snapport (@ref LLP 1010 §6.9), and less what the platform covers of it
+    /// (`covered`), as UIKit's `scrollToItem(at:at:animated:)` aligns within
+    /// the adjusted content insets. It may be negative, down to the padding
     /// before the first row: `scrollTop` 0.
     fn aligned(
         &self,
@@ -185,7 +187,11 @@ impl Collection {
         let start = self.index.prefix(position).unwrap_or(0.0) + before;
         let size = (self.index.height(position).unwrap_or(0.0) - before - after).max(0.0);
         let port = self.geometry.as_ref().map_or(0.0, |g| g.port_main);
-        let [inset_start, inset_end] = self.scroll_padding(u);
+        let [padding_start, padding_end] = self.scroll_padding(u);
+        let (inset_start, inset_end) = (
+            padding_start + self.covered[0],
+            padding_end + self.covered[1],
+        );
         // The snapport, as offsets from the port's start.
         let (low, high) = (inset_start, (port - inset_end).max(inset_start));
         let view = high - low;
@@ -502,6 +508,15 @@ impl Collection {
 }
 
 impl Tree {
+    /// [`crate::Runner::set_list_covered`]: whether `view` is a mounted list.
+    pub(crate) fn set_list_covered(&mut self, view: ViewId, covered: [f64; 2]) -> bool {
+        let Some((list, _)) = by_view(&mut self.children, view, &[]) else {
+            return false;
+        };
+        list.covered = covered.map(|n| if n.is_finite() { n.max(0.0) } else { 0.0 });
+        true
+    }
+
     /// Keyboard traversal already knows a logical row position. Resolve its
     /// identity here, without exporting the unmounted keys to a host.
     pub(crate) fn reveal_collection_index(
