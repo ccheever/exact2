@@ -290,7 +290,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
                 "poster": poster.image == nil ? "none" : poster.isHidden ? "hidden" : "shown", "frameReady": frameReady,
                 // @ref LLP 1100 D11
                 "hdr": hdrItem, "eligibleForHDR": AVPlayer.eligibleForHDRPlayback,
-                "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit"]
+                "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit",
+                "appliedDynamicRange": appliedDynamicRange]
     }
     func emit(_ event: String = "snapshot", payload: String = "") {
         guard !invalidated else { return }
@@ -634,6 +635,31 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
 
     var hdrItem: Bool {
         player.currentItem?.asset.tracks(withMediaType: .video).contains { $0.hasMediaCharacteristic(.containsHDRVideo) } ?? false
+    }
+
+    /// Read the presentation objects, so diagnostics can catch a missed update.
+    var appliedDynamicRange: [String: String] {
+        var result: [String: String] = [:]
+        #if os(iOS) || os(tvOS)
+        if #available(iOS 26, tvOS 26, *), let layer = inline?.playerLayer {
+            let range = layer.preferredDynamicRange
+            result["layer"] = range == .standard ? "standard" : range == .constrainedHigh ? "constrained" : "no-limit"
+        }
+        #endif
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
+            #if os(iOS)
+            if let controller {
+                let range = controller.preferredDisplayDynamicRange
+                result["controller"] = range == .standard ? "standard" : range == .constrainedHigh ? "constrained" : "no-limit"
+            }
+            #else
+            let range = presentation.preferredDisplayDynamicRange
+            result["controller"] = range == .standard ? "standard" : range == .constrainedHigh ? "constrained" : "no-limit"
+            #endif
+        }
+        #endif
+        return result
     }
 
     /// `dynamic-range-limit` on the poster, AVKit's player and the inline

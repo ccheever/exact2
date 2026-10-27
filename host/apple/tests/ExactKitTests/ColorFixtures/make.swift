@@ -3,15 +3,82 @@
 //
 //   swift host/apple/tests/ExactKitTests/ColorFixtures/make.swift
 //
+// Video fixtures only:
+//   swift host/apple/tests/ExactKitTests/ColorFixtures/make.swift apps/color-gallery/assets --videos
+// Copy the four clips to this directory when updating the gallery's fixtures.
+//
 // Run by hand on macOS 15 or later. The expected values come from the
 // standards' numbers below, never from Core Graphics, so a test holds the
 // platform to the standard rather than to itself.
 import CoreGraphics
 import Foundation
 import ImageIO
+import AVFoundation
+import VideoToolbox
 
 let out = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1]
     : URL(fileURLWithPath: #filePath).deletingLastPathComponent().path)
+
+// Four three-second clips: a moving dark bar crosses two neutral patches.
+// PQ patches encode 203 and 812 cd/m²; HLG uses signals 0.5 and 0.9.
+// --videos writes only these fixtures, leaving the image encoders untouched.
+func writeVideos() throws {
+    let cases: [(String, Bool, String, String, [Double])] = [
+        ("sdr.mp4", false, AVVideoColorPrimaries_ITU_R_709_2, AVVideoTransferFunction_ITU_R_709_2, [0.5, 0.9]),
+        ("pq.mov", true, AVVideoColorPrimaries_ITU_R_2020, AVVideoTransferFunction_SMPTE_ST_2084_PQ, [pqEncode(203), pqEncode(812)]),
+        ("hlg.mov", true, AVVideoColorPrimaries_ITU_R_2020, AVVideoTransferFunction_ITU_R_2100_HLG, [0.5, 0.9]),
+        ("p3-sdr.mov", false, AVVideoColorPrimaries_P3_D65, AVVideoTransferFunction_ITU_R_709_2, [0.5, 0.9]),
+    ]
+    for (name, hdr, primaries, transfer, signals) in cases {
+        let url = out.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        let writer = try AVAssetWriter(outputURL: url, fileType: name.hasSuffix("mp4") ? .mp4 : .mov)
+        let hevc = !name.hasSuffix("mp4")
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: hevc ? AVVideoCodecType.hevc : .h264,
+            AVVideoWidthKey: 256, AVVideoHeightKey: 64,
+            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 250_000,
+                AVVideoProfileLevelKey: hdr ? kVTProfileLevel_HEVC_Main10_AutoLevel : hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_Main_AutoLevel],
+            AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: primaries, AVVideoTransferFunctionKey: transfer,
+                AVVideoYCbCrMatrixKey: hdr ? AVVideoYCbCrMatrix_ITU_R_2020 : AVVideoYCbCrMatrix_ITU_R_709_2]
+        ])
+        let format = hdr ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: format, kCVPixelBufferWidthKey as String: 256,
+            kCVPixelBufferHeightKey as String: 64, kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+        ])
+        writer.add(input)
+        guard writer.startWriting() else { throw writer.error! }
+        writer.startSession(atSourceTime: .zero)
+        for frame in 0..<90 {
+            while !input.isReadyForMoreMediaData && writer.status == .writing { Thread.sleep(forTimeInterval: 0.002) }
+            var buffer: CVPixelBuffer?
+            guard let pool = adaptor.pixelBufferPool, CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess,
+                  let buffer else { fatalError("no video pixel buffer") }
+            CVPixelBufferLockBaseAddress(buffer, [])
+            for plane in 0..<2 {
+                let rows = CVPixelBufferGetHeightOfPlane(buffer, plane), stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, plane)
+                let address = CVPixelBufferGetBaseAddressOfPlane(buffer, plane)!
+                for y in 0..<rows { for x in 0..<256 {
+                    let signal = abs(x - frame * 2) < 4 ? 0 : signals[x / 128]
+                    if hdr {
+                        address.advanced(by: y * stride).assumingMemoryBound(to: UInt16.self)[x] = UInt16(plane == 0 ? (64 + 876 * signal).rounded() : 512) << 6
+                    } else {
+                        address.advanced(by: y * stride).assumingMemoryBound(to: UInt8.self)[x] = UInt8(plane == 0 ? (16 + 219 * signal).rounded() : 128)
+                    }
+                }}
+            }
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            guard adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(frame), timescale: 30)) else { throw writer.error! }
+        }
+        input.markAsFinished()
+        let done = DispatchSemaphore(value: 0)
+        writer.finishWriting { done.signal() }; done.wait()
+        guard writer.status == .completed else { throw writer.error! }
+        print("wrote \(name)")
+    }
+}
+if CommandLine.arguments.contains("--videos") { try writeVideos(); exit(0) }
 
 // MARK: - The standards' numbers
 
