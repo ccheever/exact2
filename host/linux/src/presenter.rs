@@ -59,6 +59,8 @@ mod field_pointer;
 mod field_scroll;
 #[cfg(test)]
 mod field_tests;
+#[cfg(test)]
+mod frame_target_tests;
 mod group;
 mod hatch;
 mod history;
@@ -718,11 +720,6 @@ impl<D: DataSource> Presenter<D> {
         self.dirty
     }
 
-    /// The last frame's (paint, readback) milliseconds; CPU readback is zero.
-    pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
-        self.brush.last_frame_ms()
-    }
-
     /// Where the pointer is drawn (`None` draws none).
     pub fn set_pointer(&mut self, pointer: Option<(f32, f32)>) {
         if self.pointer != pointer {
@@ -1033,7 +1030,7 @@ impl<D: DataSource> Presenter<D> {
     /// Every node's painted box, in paint order (a fresh frame when stale).
     pub fn boxes(&mut self) -> &[PaintedBox] {
         if self.dirty && !self.display.attached() {
-            let _ = self.frame();
+            let _ = self.frame_for(crate::paint::FrameTarget::Geometry);
         }
         &self.boxes
     }

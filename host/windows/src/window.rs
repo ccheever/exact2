@@ -396,7 +396,16 @@ impl<D: DataSource + Default + 'static> App<D> {
         ) {
             p.set_caret_visible(true);
             // A programmatic move while hidden starts a fresh visible phase.
-            frame = Some(p.frame());
+            // SAFETY: the presenter is still owned by this live window.
+            #[allow(unsafe_code)]
+            {
+                frame = unsafe {
+                    p.window_frame(
+                        handle.hwnd.get() as usize,
+                        handle.hinstance.map_or(0, |h| h.get() as usize),
+                    )
+                }?;
+            }
             self.caret.presented(
                 handle.hwnd.get(),
                 caret_rect,
@@ -520,6 +529,11 @@ impl<D: DataSource + Default + 'static> App<D> {
             return Ok(());
         }
         p.set_caret_visible(self.caret.visible());
+        if !self.caret.can_patch() {
+            p.repaint();
+            window.request_redraw();
+            return Ok(());
+        }
         if self.caret.needs_picture() {
             let other = p.frame();
             if !p.last_frame_succeeded() || p.dirty() {

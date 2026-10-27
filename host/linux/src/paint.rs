@@ -501,15 +501,9 @@ pub struct Scene<'a> {
     pub pointer: Option<(f32, f32)>,
 }
 
-/// One painted frame.
-pub struct Frame {
-    /// Immutable pixels, shared with repaint history; premultiplied RGBA at device scale.
-    pub pixmap: Arc<Pixmap>,
-    /// Every node's box, in paint order (a later box is above an earlier).
-    pub boxes: Vec<PaintedBox>,
-}
-
-pub use backend::{Backend, WindowLayer};
+mod frame;
+pub use backend::{Backend, FrameTarget, WindowLayer};
+pub use frame::Frame;
 
 /// The painter: the walk over one backend.
 pub struct Painter {
@@ -830,13 +824,14 @@ impl Painter {
         }
     }
 
-    fn paint_selected(
+    fn paint_selected_for(
         &mut self,
         scene: &Scene<'_>,
         viewport: (f32, f32),
         skip: Option<exact_kernel::NodeKey>,
         replay: Option<&region::Replay<'_>>,
-    ) -> Result<Frame, String> {
+        target: FrameTarget,
+    ) -> Result<Frame<Option<Arc<Pixmap>>>, String> {
         let started = std::time::Instant::now();
         self.viewport = viewport;
         self.backend.page(page_color(self.dark));
@@ -897,7 +892,13 @@ impl Painter {
             self.backend.pointer(px, py);
         }
         self.boxes_hint = walk.boxes.len();
-        let finished = self.backend.finish();
+        let finished = self.backend.finish_for(target).and_then(|pixels| {
+            if target == FrameTarget::Pixels && pixels.is_none() {
+                Err("paint backend returned no pixels for capture".into())
+            } else {
+                Ok(pixels)
+            }
+        });
         if self.backend.name() == "cpu" {
             self.cpu_ms = Some(started.elapsed().as_secs_f64() * 1000.);
         }
@@ -914,12 +915,12 @@ impl Painter {
         }
         // Pending measurements end with every paint attempt, including failure.
         self.text.borrow_mut().finish_text_frame();
-        let pixmap = Arc::new(finished?);
-        self.damage.pixels = self
-            .accepted_text
-            .values()
-            .any(|p| !p.fragments().is_empty())
-            .then(|| pixmap.clone());
+        let pixmap = finished?.map(Arc::new);
+        self.damage.pixels = pixmap.clone().filter(|_| {
+            self.accepted_text
+                .values()
+                .any(|p| !p.fragments().is_empty())
+        });
         self.damage.dark = self.dark;
         self.damage.focus_ink = damage::field_focus_ink(scene.kernel, scene.focus);
         Ok(Frame {

@@ -1,6 +1,17 @@
 //! What the paint walk draws through.
 use super::*;
 
+/// The consumer of a completed paint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameTarget {
+    /// Return the complete image without presenting it to a window.
+    Pixels,
+    /// Present to the window, or return pixels for its carrier to present.
+    Window,
+    /// Refresh painted geometry without changing the visible window image.
+    Geometry,
+}
+
 /// UI below a split window canvas, with storage retained for its next repaint.
 pub enum WindowLayer {
     /// Pixels contain the complete painted layer.
@@ -200,6 +211,12 @@ pub trait Backend {
     fn pointer(&mut self, x: f32, y: f32);
     /// The frame's pixels.
     fn finish(&mut self) -> Result<Pixmap, String>;
+    /// Complete a paint for its consumer. `Pixels` requires an image; `Window`
+    /// permits `None` only after successful presentation. `Geometry` may omit
+    /// pixels, but must not present. CPU backends can keep their ordinary path.
+    fn finish_for(&mut self, _target: FrameTarget) -> Result<Option<Pixmap>, String> {
+        self.finish().map(Some)
+    }
     /// Whether this backend keeps rows' recordings ([`rows`]).
     fn rows(&self) -> bool {
         false
