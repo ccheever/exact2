@@ -118,14 +118,15 @@ final class PageScrollMacTests: XCTestCase {
             session.presenter.viewport.scrollerStyle = .overlay
             view.layoutSubtreeIfNeeded()
             let agent = session.agentInstance
-            let before = try XCTUnwrap(agent.layout()["viewport"] as? [String: Double])
+            // (the viewport's size; the report carries its scroll geometry beside it since 9aef40d500)
+            let before = try XCTUnwrap(agent.layout()["viewport"] as? [String: Any]).compactMapValues { $0 as? Double }
             XCTAssertEqual(before["w"], Double(window.frame.width))
             XCTAssertEqual(before["h"], Double(window.frame.height))
             let sameSize = NSSize(width: CGFloat(try XCTUnwrap(before["w"])), height: CGFloat(try XCTUnwrap(before["h"])))
             for size in [sameSize, NSSize(width: 640, height: 480), sameSize] {
                 let reply = agent.resizeWindow(size)
                 XCTAssertNil(reply["error"])
-                let viewport = try XCTUnwrap(agent.layout()["viewport"] as? [String: Double])
+                let viewport = try XCTUnwrap(agent.layout()["viewport"] as? [String: Any]).compactMapValues { $0 as? Double }
                 XCTAssertEqual(window.frame.size, size, "a cover resize includes the titlebar")
                 XCTAssertEqual(viewport["w"], Double(size.width))
                 XCTAssertEqual(viewport["h"], Double(size.height))
