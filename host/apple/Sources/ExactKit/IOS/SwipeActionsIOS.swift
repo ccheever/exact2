@@ -67,6 +67,9 @@ package final class SwipeActionsHost {
     /// A touch is landing on `owner`: project its row now, and release it
     /// again if the touch never reaches the table.
     func touch(_ owner: NodeView) {
+        #if os(iOS)
+        if painted.touch(owner) { return }
+        #endif
         guard let row = rows[owner.id], row.owner === owner, !row.projected, !row.grouped else { return }
         row.mount()
         DispatchQueue.main.async { [weak row] in row?.settle() }
@@ -135,8 +138,25 @@ package final class SwipeActionsHost {
         }.map(\.id))
         var wanted = Set<UInt32>(), paintedOwners = Set<UInt32>()
         var claimed = Set<UInt32>()
+        #if os(iOS)
+        painted.dropStale()
+        #endif
         for owner in presenter.carrying("swipeContent") {
             guard let content = owner.props["swipeContent"] else { continue }
+            #if os(iOS)
+            // A painted row the batch did not reach keeps what it was adopted
+            // with: a list scrolling builds a few rows a report, not every
+            // row again. Its names resolve inside it, so a name the batch
+            // gave a row it built (every row's `id`s are the same) changes
+            // nothing here; one given inside it put it in `reshaped`.
+            if let changed, let row = painted.held(owner),
+               relabelled.isEmpty || !row.controls.contains(where: { relabelled.contains($0.id) }),
+               !changed.contains(owner.id) || (reshaped?.contains(owner.id) == false && fills(row.body, owner)),
+               claimed.insert(row.body.id).inserted {
+                paintedOwners.insert(owner.id)
+                continue
+            }
+            #endif
             // A refused owner is retried every batch, as the names its
             // controls read from their subtrees can arrive a batch later.
             // An owner outside `changed` has the props its row was built

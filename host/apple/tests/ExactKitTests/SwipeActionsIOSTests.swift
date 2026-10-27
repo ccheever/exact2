@@ -201,6 +201,8 @@ final class SwipeActionsIOSTests: XCTestCase {
                 let left = leading != rtl
                 apply(p, [paint, side] + (left ? [frame(3, 90, 300, 80), frame(4, 0, 90, 80)] : []))
                 owner.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+                XCTAssertNil(owner.scroll, "no scroll view until a touch lands on the row")
+                p.swipeActions.touch(owner)
                 let scroll = try XCTUnwrap(owner.scroll)
                 var pressed: [UInt32] = []
                 p.onPress = { pressed.append($0) }
