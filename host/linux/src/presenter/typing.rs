@@ -585,11 +585,16 @@ impl<D: DataSource> Presenter<D> {
     /// A key shows the ring a press left off, as Chrome's `:focus-visible`
     /// starts to match on a keydown that holds none of Ctrl, Alt or Meta
     /// (Shift alone counts), before any handler or shortcut hears it. On
-    /// Windows a chord counts too (`winui_focus`).
+    /// Windows any key counts (`winui_focus`): WinUI's keyboard processor
+    /// marks the keyboard as the last input for a modifier too, as Windows
+    /// has shown hidden focus rectangles when Alt is pressed
+    /// (`WM_UPDATEUISTATE`).
     pub(crate) fn key_shows_ring(&mut self, name: &str) {
         let held = self.modifiers();
-        if (self.brush.winui_focus || !(held.ctrl || held.alt || held.meta))
-            && !matches!(name, "Control" | "Alt" | "Meta" | "AltGraph")
+        let winui = self.brush.winui_focus;
+        if winui
+            || (!(held.ctrl || held.alt || held.meta)
+                && !matches!(name, "Control" | "Alt" | "Meta" | "AltGraph"))
         {
             self.brush.keyless = false;
             if self.brush.ringless.take().is_some() {

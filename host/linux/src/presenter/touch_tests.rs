@@ -136,6 +136,17 @@ fn before_any_key_a_windows_focus_shows_no_ring() {
         "the app's focus, before a key"
     );
     p.key_down("Control", 2.);
+    assert_eq!(
+        edge(&mut p, "native"),
+        RING,
+        "a modifier alone is a key to WinUI"
+    );
+    // To Chrome a modifier alone is none; the next key shows the ring.
+    let mut p = boot(BUTTONS);
+    (p.brush.winui_focus, p.brush.keyless) = (false, false);
+    let (x, y) = middle(&p, "native");
+    tap(&mut p, x, y, 1.);
+    p.key_down("Control", 2.);
     assert_ne!(edge(&mut p, "native"), RING, "a modifier alone is no key");
     p.key_down("ArrowDown", 3.);
     assert_eq!(edge(&mut p, "native"), RING, "a key shows the ring");

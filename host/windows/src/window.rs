@@ -856,8 +856,21 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 self.clicks.clear();
                 crate::wheel::dispatch(p, (x, y), delta, self.scale);
             }
-            WindowEvent::KeyboardInput { event, .. } => {
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic,
+                ..
+            } => {
                 self.clicks.clear();
+                // A key already down as the window gains focus (winit's
+                // synthetic press) is held, not pressed here: a browser fires
+                // no keydown for it, and it is no keyboard input to WinUI's
+                // focus visual. Its release still arrives as a key's.
+                if is_synthetic && event.state == ElementState::Pressed {
+                    let (code, _) = key_names(event.physical_key, &event.logical_key, None);
+                    p.hold_modifier(&code, true);
+                    return;
+                }
                 if event.state == ElementState::Pressed {
                     self.caret.activity(Instant::now());
                 }
