@@ -269,7 +269,7 @@ extension NodeView {
     }
     var viewTint: PlatformColor? {
         #if os(iOS) || os(tvOS)
-        return tintColor
+        return paintedTint
         #else
         return nearestAccent
         #endif
@@ -281,8 +281,9 @@ extension NodeView {
         tintPadBar()
         // An `svg`'s paints are resolved into its scene's layers.
         if kind == "svg" { presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint) }
-        // A symbol counts: hierarchical and palette glyphs bake the tint in.
-        guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil else { return }
+        // A symbol counts: hierarchical and palette glyphs bake the tint in. In a control, every
+        // colour greys with the tint (TintDimmingIOS.swift).
+        guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil || insideControl else { return }
         paragraphOwner.invalidateText(); paragraphOwner.setNeedsDisplay()
         applyStyle(style)
         presenter?.controls.tintChanged(self)

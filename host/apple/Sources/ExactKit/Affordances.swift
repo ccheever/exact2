@@ -40,7 +40,7 @@ extension NodeView {
     /// The platform tint used by a native control’s symbol.
     var inheritedTint: PlatformColor {
         #if os(iOS) || os(tvOS)
-        return tintColor
+        return paintedTint
         #else
         return viewTint ?? .controlAccentColor
         #endif
