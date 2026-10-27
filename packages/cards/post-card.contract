@@ -24,7 +24,7 @@ component PostCard
     name: string
     handle: string
     time: string
-    badge: string
+    badge: enum<"none", "verified", "verifier">
   slot
   parts
     surface: paint space
@@ -95,7 +95,7 @@ component PostCard
               text-overflow="ellipsis"
               overflow="hidden"
               flex-shrink=0
-            if badge != ""
+            if badge != "none"
               column align-self="center" margin-left="cards.badge-hang" flex-shrink=0
                 VerifiedBadge(badge=badge, size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
             text `@${handle}` font-size="cards.text-size"

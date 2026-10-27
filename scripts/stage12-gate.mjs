@@ -567,7 +567,7 @@ const compiled = (r, plan) => {
 
 /** The library's components with a slot (library-gate.test.mjs checks each
  * of their cells holds its marker). */
-export const SLOTTED = ['PostCard', 'ProfileHeader', 'ComposeFrame', 'BarItem'];
+export const SLOTTED = ['PostCard', 'ProfileHeader', 'ComposeFrame', 'BarItem', 'PersonRow'];
 /** The ids of library-gate's slotted cells (each a marker). */
 export const markerIds = () => placements(readFileSync(join(LIBRARY_GATE, 'app.contract'), 'utf8'), SLOTTED).map(p => p.id);
 
@@ -1068,7 +1068,7 @@ export function exactEvidence(exact, rows) {
         ...failed.slice(0, 40).map(r => `      ${r.key} ${r.inst} ${r.path} ${r.row}: before ${n(r.before)}, set ${n(r.set)}, removed ${n(r.removed)}: ${r.why}`),
         ...(failed.length > 40 ? [`      … and ${failed.length - 40} more`] : [])];
     }),
-    ...rows.filter(r => r.empty).map(r => `${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.inst}: VerifiedBadge "" draws nothing, its box empty${r.ok ? '' : ` (${r.why})`}`),
+    ...rows.filter(r => r.empty).map(r => `${r.ok ? 'ok  ' : 'FAIL'} ${r.host} ${r.inst}: VerifiedBadge "none" draws nothing, its box empty${r.ok ? '' : ` (${r.why})`}`),
     ...rows.filter(r => !r.case && !r.empty).map(r => `FAIL ${r.host} stage 13 C's cases: ${r.why}`),
   ];
 }

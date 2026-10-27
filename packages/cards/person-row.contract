@@ -1,0 +1,108 @@
+use Name, Avatar, VerifiedBadge from "./common.contract"
+
+// A person in a list (Bluesky's ProfileCard: Outer, Header with the avatar,
+// NameAndHandle with ProfileBadges and the trailing control, Labels' "Follows
+// you" pill, Description; in ProfileCardWithFollowBtn's py_md px_xl row),
+// LLP 1121 stage 15 B batch 2. The whole row is one link to the person, as
+// ProfileCard.Link is: `press` and its spoken `label` the app's ("View Ada's
+// profile"); `disabled` says it's unavailable and dims it (aria-disabled,
+// which doesn't stop `press`: the app's action checks). Its words are the
+// app's: `handle` is the second line as shown ("@ada.bsky.social", or why the
+// person can't be reached), `pill` the pill's text ("" for none). Its one
+// slot is the header's trailing control (a FollowButton, the app's own, or
+// nothing). Its spacing is Bluesky's; a copy's other padding is a named pixel
+// change in its gate, not a variant (theme2's 14:15 ruling: no density enum).
+component PersonRow
+  params
+    divider: color = "cards.divider" control = "token" group = "Color" priority = 2 label = "Divider"
+    meta: color = "cards.meta" control = "token" group = "Color" priority = 2 label = "Handle text"
+    pill: color = "cards.pill" control = "token" group = "Color" priority = 3 label = "Pill"
+    badge: color = "cards.badge" control = "token" group = "Color" priority = 3 label = "Badge"
+    badgeMark: color = "cards.badge-mark" control = "token" group = "Color" priority = 3 label = "Badge mark"
+  props
+    // Its testId.
+    id: string
+    label: string
+    avatar: string
+    name: string
+    handle: string
+    badge: enum<"none", "verified", "verifier">
+    pill: string
+    description: string
+    descriptionLines: number
+    divider: enum<"bottom", "top", "none">
+    disabled: bool
+    press: action
+  slot
+  parts
+    surface: paint shape space
+    avatar: space
+    name: text
+    handle: text
+    pill: paint text shape space
+    description: text
+  view
+    column part="surface" testId=id
+      role="link"
+      aria-label=label
+      aria-disabled=disabled
+      press=press
+      gap="cards.person-gap"
+      padding-top="cards.person-pad-block"
+      padding-bottom="cards.person-pad-block"
+      padding-left="cards.person-pad-inline"
+      padding-right="cards.person-pad-inline"
+      border-top-width=(divider == "top" ? "cards.hairline" : "0px")
+      border-bottom-width=(divider == "bottom" ? "cards.hairline" : "0px")
+      border-top-style="solid"
+      border-bottom-style="solid"
+      border-top-color="param.divider"
+      border-bottom-color="param.divider"
+      opacity=(disabled ? "cards.person-dim" : 1)
+      row gap="cards.person-header-gap" align-items="center"
+        box part="avatar" flex-shrink=0
+          Avatar(src=avatar, size="cards.person-avatar")
+        column flex=1 min-width=0
+          row align-items="center" min-width=0
+            text name part="name" class=Name
+              font-size="cards.person-name-size"
+              font-weight=600
+              line-height="cards.person-name-line"
+              white-space="nowrap"
+              text-overflow="ellipsis"
+              overflow="hidden"
+              flex-shrink=1
+            if badge != "none"
+              column padding-left="cards.person-badge-gap" flex-shrink=0
+                VerifiedBadge(
+                  badge=badge,
+                  size="cards.person-badge",
+                  ink="param.badge",
+                  mark="param.badgeMark"
+                )
+          text handle part="handle"
+            font-size="cards.person-handle-size"
+            line-height="cards.person-handle-line"
+            color="param.meta"
+            white-space="nowrap"
+            text-overflow="ellipsis"
+            overflow="hidden"
+        children
+      if pill != ""
+        row padding-top="cards.person-pill-top"
+          text pill part="pill" class=Name
+            font-size="cards.person-pill-size"
+            line-height="cards.person-pill-line"
+            padding-top="cards.person-pill-pad-block"
+            padding-bottom="cards.person-pill-pad-block"
+            padding-left="cards.person-pill-pad-inline"
+            padding-right="cards.person-pill-pad-inline"
+            border-radius="cards.person-pill-corner"
+            background-color="param.pill"
+      if description != ""
+        column padding-top="cards.person-description-top"
+          text description part="description" class=Name
+            font-size="cards.person-description-size"
+            line-height="cards.person-description-line"
+            white-space="pre-line"
+            line-clamp=descriptionLines

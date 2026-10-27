@@ -34,12 +34,14 @@ component Avatar
         border-color="cards.avatar-ring"
         aria-hidden=true
 
-// A verification badge: "verified", "verifier", or "" for none. Each is two
+// A verification badge: "verified", "verifier", or "none", which draws
+// nothing (an enum since LLP 1121 stage 15 B batch 2, as ProfileHeader's
+// and PersonRow's `badge`; it was a string with "" for none). Each is two
 // one-colour icon tokens stacked, its ground in `ink` and its check in
 // `mark` (theme2's Q5), labelled on the box that holds them.
 component VerifiedBadge
   props
-    badge: string
+    badge: enum<"none", "verified", "verifier">
     size: string
     // Its ground and its check's colours (a card's tokens, a header's params).
     ink: string

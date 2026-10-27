@@ -515,13 +515,32 @@ Owners as they free up (the lead's order).
    normal app retention applies to it; and the clone's copies replaced, on a signed-out copy of the clone with no
    account writes.
    **The exports (as of LLP 1121 stage 15 B, 2026-10-26):** `@exact/cards` exports PostCard, AtCard, ProfileHeader
-   (with its ProfileAlert shape), **Avatar** `(src, size)` and **VerifiedBadge** `(badge, size, ink, mark)`;
+   (with its ProfileAlert shape), **Avatar** `(src, size)`, **VerifiedBadge** `(badge, size, ink, mark)` and (batch
+   2, 2026-10-27) **PersonRow**;
    `@exact/actions` ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton and (batch 2, 2026-10-27)
    **FollowButton**; `@exact/lists` ListRow and SwitchRow. Avatar and VerifiedBadge were the cards' shared pieces until stage 15 B exported them with their params
    unchanged and no defaults: a consumer passes `size`, and VerifiedBadge's `ink` and `mark`, as token or role names
    (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or its own), not literal colours, as
    PostCard does, so an app's design restyles them by the tokens' full names. `apps/library-gate` holds each in a
-   box named for its cell (neither has an `id` prop), VerifiedBadge's `""` an empty box.
+   box named for its cell (neither has an `id` prop), VerifiedBadge's `"none"` an empty box. **The exported
+   VerifiedBadge's `badge` type changed in batch 2** (theme2's Q-badge ruling, 2026-10-27): batch 1 exported it as a
+   `string` with `""` for none; it is now `enum<"none", "verified", "verifier">`, ProfileHeader's type, so a
+   consumer passes `"none"`, a dynamic argument must be of that enum (a `string` is refused), and `""` no longer
+   compiles. PostCard's `badge` took the same type, as it passes its own to VerifiedBadge; AtCard draws no badge.
+   `contract gallery` gives an enum prop the view compares with literals in an `if` a cell per declared value, as it
+   gave batch 1's string a cell per literal (so VerifiedBadge keeps three cells, and ListRow's `accessory` and
+   FollowButton's `icon` gain theirs).
+   **PersonRow** `(id, label, avatar, name, handle, badge, pill, description, descriptionLines, divider, disabled,
+   press)` with one slot, the header's trailing control (a FollowButton, the app's own, or nothing), is a person in a
+   list: Bluesky's ProfileCard (Header: the 40 avatar, the name with its md badge, the handle; Labels' pill;
+   Description) in ProfileCardWithFollowBtn's row (py_md px_xl). The row is one link to the person, as
+   ProfileCard.Link is (`role="link"`, its `label` the app's, `press`); `disabled` is `aria-disabled` and dims it to
+   half, and doesn't stop `press`. Its words are the app's: `handle` is the second line as shown, `pill` the pill's
+   text (`""` for none). `divider` is `"bottom"`, `"top"` (Bluesky's border_t) or `"none"`. Its spacing is Bluesky's
+   only: a copy's other padding is a named pixel change in its gate, with no density variant (theme2's 2026-10-27
+   ruling). Its colours (divider, handle, pill, badge and mark) are params over the cards' tokens, its sizes
+   `cards.person-*` tokens. Library-gate places it once per compiler-marked variant value (divider, disabled), with
+   a picture, each badge, the pill and descriptions as samples, each slot holding its marker.
    **FollowButton** `(id, following, text, label, tone, size, shape, icon, press)` is a person's Follow button, an
    authored pressable under D9's exception as PostButton is, with Bluesky's variants only (FollowButtonInner's
    Button): `tone` primary, inverted, subtle or overlay; `size` small or tiny; `shape` pill or round (icon only);

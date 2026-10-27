@@ -7,6 +7,9 @@
 //! and its plan holds both components' own nodes, each named in the source
 //! map by its declaring identity. The cards' style `Name`, in the same file
 //! and not exported, is still refused, so the export is the `use` line's.
+//! Batch 2: VerifiedBadge's `badge` is `enum<"none", "verified", "verifier">`
+//! (it was a string, "" for none), so batch 1's `""` is refused; PersonRow
+//! is exported too, its trailing control in its slot.
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};
@@ -37,7 +40,7 @@ component App
       Avatar(src="symbol:person", size="cards.avatar")
       VerifiedBadge(badge="verified", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
       VerifiedBadge(badge="verifier", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
-      VerifiedBadge(badge="", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
+      VerifiedBadge(badge="none", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
 "#;
 
 /// A consumer app in a fresh directory, `@exact/cards` the repository's.
@@ -109,4 +112,86 @@ fn the_cards_unexported_style_is_still_refused() {
     let err = contract::compile_path(&dir.join("app.contract")).expect_err("Name is not exported");
     assert!(err.message.contains("Name"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn verified_badges_badge_is_an_enum_so_the_old_empty_string_is_refused() {
+    let dir = consumer(
+        "empty",
+        "use VerifiedBadge from \"@exact/cards\"\n\ncomponent App\n  view\n    column\n      VerifiedBadge(badge=\"\", size=\"cards.badge-size\", ink=\"cards.badge\", mark=\"cards.badge-mark\")\n",
+    );
+    let err =
+        contract::compile_path(&dir.join("app.contract")).expect_err("\"\" is no badge value");
+    assert!(err.message.contains("badge"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const PERSON: &str = r#"use PersonRow from "@exact/cards"
+
+component App
+  action open
+  view
+    column
+      PersonRow(id="ada", label="View Ada's profile", avatar="", name="Ada", handle="@ada.example", badge="verified", pill="Follows you", description="Maps.", descriptionLines=3, divider="bottom", disabled=false, press=open)
+        box testId="trailing" width=24 height=24
+      PersonRow(id="fen", label="View Fen's profile", avatar="symbol:person", name="Fen", handle="@fen.example", badge="none", pill="", description="", descriptionLines=1, divider="top", disabled=true, press=open)
+"#;
+
+/// A consumer places PersonRow from "@exact/cards": its plan holds the row,
+/// named by its identity, with the app's words (no English of the
+/// package's: its link's label, its handle line, its pill) and the trailing
+/// control the app put in its slot; a disabled row says so.
+#[test]
+fn a_consumer_uses_person_row_from_the_package_with_its_trailing_slot() {
+    use exact_kernel::{Kernel, PropId};
+    let dir = consumer("person", PERSON);
+    let app = dir.join("app.contract");
+    let (plan, map) = contract::compile_path_mapped(&app).unwrap_or_else(|e| panic!("{e}"));
+    let json: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let libs: Vec<&str> = json["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|n| n["library"].as_str())
+        .collect();
+    let identity = "@exact/cards/person-row.contract#PersonRow";
+    assert!(libs.contains(&identity), "no {identity} in {libs:?}");
+    let r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let node = |t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap();
+    let said = |t: &str, id: PropId| node(t).props.str(id).map(str::to_string);
+    assert_eq!(
+        said("ada", PropId::AccessibilityLabel).as_deref(),
+        Some("View Ada's profile")
+    );
+    let disabled = |t: &str| node(t).props.bool(PropId::AccessibilityDisabled);
+    assert_eq!(
+        (disabled("ada"), disabled("fen")),
+        (Some(false), Some(true))
+    );
+    assert!(
+        !k.find_by_test_id("trailing").is_empty(),
+        "the slot's trailing control"
+    );
+    assert!(!k.find_by_test_id("verified-badge").is_empty(), "the badge");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+struct NoData;
+
+impl exact_runner::DataSource for NoData {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_runner::Value],
+    ) -> Result<exact_runner::Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
 }

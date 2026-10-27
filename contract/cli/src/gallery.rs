@@ -612,22 +612,34 @@ fn placed<'a>(
             component: c,
             variants: {
                 // Its variant props, then each string prop its view compares
-                // with literals (VerifiedBadge's `badge`): those literals and
-                // the empty string, one cell each (stage 15 D4 batch 1 #2).
+                // with literals in an `if`: those literals and the empty
+                // string, one cell each (stage 15 D4 batch 1 #2); and each
+                // enum prop it compares so (VerifiedBadge's `badge`, an enum
+                // since stage 15 B batch 2, and FollowButton's `icon`): every
+                // value it declares, in order, one cell each.
                 let mut variants = contract_lower::anatomy::described(c, file).variants;
                 for p in &c.props {
-                    let string = matches!(&p.ty, Some(TypeExpr::Named(t, _)) if t == "string");
-                    if !string || variants.iter().any(|(v, _)| *v == p.name) {
+                    if variants.iter().any(|(v, _)| *v == p.name) {
                         continue;
                     }
-                    let mut options = inert::compared_literals(c, &p.name);
-                    if options.is_empty() {
-                        continue;
+                    let options = match &p.ty {
+                        Some(TypeExpr::Named(t, _)) if t == "string" => {
+                            let mut options = inert::compared_literals(c, &p.name);
+                            if !options.is_empty() && !options.iter().any(|o| o.is_empty()) {
+                                options.push(String::new());
+                            }
+                            options
+                        }
+                        Some(TypeExpr::Enum(values, _))
+                            if !inert::compared_literals(c, &p.name).is_empty() =>
+                        {
+                            values.clone()
+                        }
+                        _ => continue,
+                    };
+                    if !options.is_empty() {
+                        variants.push((p.name.clone(), options));
                     }
-                    if !options.iter().any(|o| o.is_empty()) {
-                        options.push(String::new());
-                    }
-                    variants.push((p.name.clone(), options));
                 }
                 variants
             },

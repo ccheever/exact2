@@ -474,11 +474,11 @@ fn each(nodes: &[Node], bound: &[String], f: &mut dyn FnMut(&Node, &[String])) {
     }
 }
 
-/// The string literals `c`'s own view compares string prop `prop` with in an
-/// `if` (`if badge == "verified"`, either side, an `else if` too), in the
-/// order written, each once: the values that draw something, which its name
-/// never does (VerifiedBadge, stage 15 D4 batch 1 #2). A `for` or `match`
-/// binding of the same name shadows it.
+/// The string literals `c`'s own view compares string or enum prop `prop`
+/// with in an `if` (`if badge == "verified"`, either side, an `else if` too),
+/// in the order written, each once: the values that draw something, which
+/// its name never does (VerifiedBadge, stage 15 D4 batch 1 #2). A `for` or
+/// `match` binding of the same name shadows it.
 pub(super) fn compared_literals(c: &Component, prop: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     each(&c.view, &[], &mut |node, bound| {

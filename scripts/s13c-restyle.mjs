@@ -60,9 +60,11 @@ export const COMPONENTS = {
   VerifiedBadge: { source: '@exact/cards/common.contract', root: id => id, ids: ['vb-base', 'sample-vb-verifier'] },
   // Stage 15 B batch 2 (2a): its button is its testId.
   FollowButton: { source: '@exact/actions/follow-button.contract', root: id => id, ids: [...FB.pill, ...FB.bare, ...FB.tiny, ...FB.round, ...FB.roundTiny] },
+  // Stage 15 B batch 2 (2b): its row is its testId.
+  PersonRow: { source: '@exact/cards/person-row.contract', root: id => id, ids: ['pr-base', 'pr-top', 'pr-none', 'pr-disabled', 'sample-pr-avatar', 'sample-pr-verified', 'sample-pr-verifier', 'sample-pr-pill', 'sample-pr-description', 'sample-pr-description-one', 'sample-pr-all'] },
 };
 
-/** library-gate's instances that draw nothing: VerifiedBadge's "" (no
+/** library-gate's instances that draw nothing: VerifiedBadge's "none" (no
  * badge), its box empty on every host. */
 export const EMPTY = ['sample-vb-none'];
 
@@ -74,7 +76,7 @@ export const EXPORTED_TOKENS = ['cards.avatar', 'cards.avatar-corner', 'cards.ha
  * and the components its params come from. */
 export const BATCHES = [
   { name: 'lists', prefix: /^lists\./, components: ['ListRow', 'SwitchRow'] },
-  { name: 'ProfileHeader', prefix: /^cards\./, components: ['ProfileHeader'] },
+  { name: 'ProfileHeader', prefix: /^cards\.(?!person-)/, components: ['ProfileHeader'] },
   { name: 'ComposeFrame', prefix: /^actions\.compose-/, components: ['ComposeFrame'] },
   { name: 'BarItem', prefix: /^actions\.bar-/, components: ['BarItem'] },
   { name: 'HeaderButton', prefix: /^actions\.header-/, components: ['HeaderButton'] },
@@ -85,6 +87,8 @@ export const BATCHES = [
   { name: 'Avatar and VerifiedBadge', names: EXPORTED_TOKENS, components: ['Avatar', 'VerifiedBadge'] },
   // Stage 15 B batch 2 (2a): FollowButton's own tokens, new, and its params.
   { name: 'FollowButton', prefix: /^actions\.follow-/, components: ['FollowButton'] },
+  // Stage 15 B batch 2 (2b): PersonRow's own tokens, new, and its params.
+  { name: 'PersonRow', prefix: /^cards\.person-/, components: ['PersonRow'] },
 ];
 
 /** A token whose value is an expression of others: read, never set; its
@@ -107,6 +111,38 @@ export const DERIVED = {
  * answered `currentcolor` (LLP 1116.019 D6), so a symbol's tint moved to
  * `color` keeps its read. */
 export const READS = {
+  // Stage 15 B batch 2's PersonRow, from its row (.): its padding, gap,
+  // opacity and dividers there; the header (0) with the avatar's box (0/0,
+  // Avatar's column 0/0/0 and picture 0/0/0/0), the names (0/1: the name
+  // 0/1/0/0, the badge's column 0/1/0/1 and VerifiedBadge 0/1/0/1/0 with its
+  // ground /0 and check /1; the handle 0/1/1); the pill's row (1, its text
+  // 1/0); the description's column (1, or 2 after a pill; its text /0).
+  'cards.person-pad-block': ['. padding_bottom,padding_top *'],
+  'cards.person-pad-inline': ['. padding_left,padding_right *'],
+  'cards.person-gap': ['. column_gap,row_gap *'],
+  'cards.person-header-gap': ['0 column_gap,row_gap *'],
+  'cards.person-avatar': ['0/0/0 height,width *', '0/0/0/0 height,width *'],
+  'cards.person-name-size': ['0/1/0/0 font_size *'],
+  'cards.person-name-line': ['0/1/0/0 line_height *'],
+  'cards.person-badge': ['0/1/0/1/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/1/0/1/0/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/1/0/1/0/1 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'cards.person-badge-gap': ['0/1/0/1 padding_left sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'cards.person-handle-size': ['0/1/1 font_size *'],
+  'cards.person-handle-line': ['0/1/1 line_height *'],
+  'cards.person-pill-top': ['1 padding_top sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-size': ['1/0 font_size sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-line': ['1/0 line_height sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-pad-block': ['1/0 padding_bottom,padding_top sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-pad-inline': ['1/0 padding_left,padding_right sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-corner': ['1/0 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right sample-pr-pill,sample-pr-all'],
+  'cards.person-description-top': ['1 padding_top sample-pr-description,sample-pr-description-one', '2 padding_top sample-pr-all'],
+  'cards.person-description-size': ['1/0 font_size sample-pr-description,sample-pr-description-one', '2/0 font_size sample-pr-all'],
+  'cards.person-description-line': ['1/0 line_height sample-pr-description,sample-pr-description-one', '2/0 line_height sample-pr-all'],
+  'cards.person-dim': ['. opacity pr-disabled'],
+  'PersonRow.divider': ['. border_color_bottom,border_color_top *'],
+  'PersonRow.meta': ['0/1/1 text_color *'],
+  'PersonRow.pill': ['1/0 background_color sample-pr-pill,sample-pr-all'],
+  'PersonRow.badge': ['0/1/0/1/0/0 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'PersonRow.badgeMark': ['0/1/0/1/0/1 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
   // Stage 15 B batch 2's FollowButton, from its button (.): its shape,
   // padding, gap and press scale there; its icon's box (0) and image (0/0,
   // read by the colour it draws in); its label (1, or 0 with no icon). Its
@@ -291,6 +327,7 @@ export const PARAM_TOKENS = {
   'FollowButton.subtleFollowingFill': 'actions.follow-subtle-following-fill', 'FollowButton.subtleFollowingInk': 'actions.follow-subtle-following-ink',
   'FollowButton.overlayFill': 'actions.follow-overlay-fill', 'FollowButton.overlayInk': 'actions.follow-overlay-ink',
   'FollowButton.overlayFollowingFill': 'actions.follow-overlay-fill', 'FollowButton.overlayFollowingInk': 'actions.follow-overlay-ink',
+  'PersonRow.divider': 'cards.divider', 'PersonRow.meta': 'cards.meta', 'PersonRow.pill': 'cards.pill', 'PersonRow.badge': 'cards.badge', 'PersonRow.badgeMark': 'cards.badge-mark',
   'FollowButton.pressScale': 'actions.follow-press', 'FollowButton.pressScaleTiny': 'actions.follow-press-tiny', 'FollowButton.pressScaleRound': 'actions.follow-press-round',
 };
 
@@ -353,7 +390,7 @@ export function valueFor(kind, k) {
   return `#${ch(40, 32)}${ch(72, 40)}${ch(104, 48)}`;
 }
 
-/** The thirteen cases (stage 13 C's ten, stage 15 B's exports' one and FollowButton's two): each batch's tokens (the derived ones read, not set) and
+/** The fifteen cases (stage 13 C's ten, stage 15 B's exports' one, FollowButton's two and PersonRow's two): each batch's tokens (the derived ones read, not set) and
  * its components' params, each name its own value. */
 export function cases(root = ROOT) {
   const tokens = newTokens(root), params = packageParams(root);

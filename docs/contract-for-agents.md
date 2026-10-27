@@ -4040,9 +4040,19 @@ following and following, are params (`fill`, `ink`, `followingFill`, …,
 and its press scales are params, one for a small pill, a tiny one and a
 round one.
 The in-repo `@exact/cards` exports PostCard, AtCard, ProfileHeader (and its
-ProfileAlert shape), Avatar `(src, size)` and VerifiedBadge `(badge, size,
-ink, mark)`; `badge` is `"verified"`, `"verifier"`, or `""` for none, which
-draws nothing. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
+ProfileAlert shape), Avatar `(src, size)`, VerifiedBadge `(badge, size, ink,
+mark)` and PersonRow; `badge` is `enum<"none", "verified", "verifier">` (as
+ProfileHeader's and PostCard's), `"none"` drawing nothing. It was a string
+with `""` for none until stage 15 B batch 2: pass `"none"` now, and a data
+value of that enum type. `PersonRow` `(id, label, avatar, name, handle,
+badge, pill, description, descriptionLines, divider, disabled, press)` is a
+person in a list (Bluesky's ProfileCard), its one slot the trailing control
+(a `FollowButton`, your own, or nothing). The whole row is one link
+(`role="link"`, `label` its spoken name, such as "View Ada's profile");
+`handle` is the second line as shown (`"@ada.bsky.social"`), `pill` the
+pill's text (`""` for none), `divider` `"bottom"`, `"top"` or `"none"`;
+`disabled` dims it and says so (`aria-disabled`) but doesn't stop `press`, so
+check in your action. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
 `ink` and `mark`, have no defaults: pass token or role names
 (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or
 your own), not literal colours, so setting those tokens restyles them.

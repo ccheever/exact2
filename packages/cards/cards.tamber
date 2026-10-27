@@ -137,6 +137,33 @@ theme
   cards.alert-icon: length = 14px
   // The divider, the link's frame and split, and the avatar's ring.
   cards.hairline: length = -exact-hairline
+  // A person in a list (PersonRow, Bluesky's ProfileCard in
+  // ProfileCardWithFollowBtn): the row's py_md px_xl and gap_xs, the
+  // header's gap_sm and 40 avatar; the name text_md semi-bold and the handle
+  // text_sm on leading_snug (20 and 17), the badge md (14) after pl_xs; the
+  // "Follows you" pill (text_xs leading_tight, 3 by 6, corner 4) and the
+  // description (text_sm leading_snug), each pt_xs; a disabled row at half.
+  cards.person-pad-block: length = 12px
+  cards.person-pad-inline: length = 20px
+  cards.person-gap: length = 4px
+  cards.person-header-gap: length = 8px
+  cards.person-avatar: length = 40px
+  cards.person-name-size: length = 0.9375rem
+  cards.person-name-line: length = 1.25rem
+  cards.person-badge: length = 14px
+  cards.person-badge-gap: length = 4px
+  cards.person-handle-size: length = 0.81875rem
+  cards.person-handle-line: length = 1.0625rem
+  cards.person-pill-top: length = 4px
+  cards.person-pill-size: length = 0.70625rem
+  cards.person-pill-line: length = 0.8125rem
+  cards.person-pill-pad-block: length = 3px
+  cards.person-pill-pad-inline: length = 6px
+  cards.person-pill-corner: length = 4px
+  cards.person-description-top: length = 4px
+  cards.person-description-size: length = 0.81875rem
+  cards.person-description-line: length = 1.0625rem
+  cards.person-dim: number = 0.5
 
 // The cards' one-colour icons, as templates every host draws from the same
 // path (theme2's path-icons ruling): no `sf`, so Apple draws the path, not

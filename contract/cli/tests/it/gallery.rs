@@ -1183,3 +1183,62 @@ fn a_string_compared_with_literals_gets_a_cell_per_literal_and_the_empty_one() {
     assert!(text.contains(r#"label="label""#), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const ENUM_BADGES: &str = r#"component Badge
+  props
+    badge: enum<"none", "verified", "verifier">
+    other: enum<"a", "b">
+    label: string
+  parts
+    mark: paint
+  view
+    column part="mark"
+      if badge == "verified"
+        text "V"
+      else if "verifier" == badge
+        text "T"
+      text label
+"#;
+
+const ENUM_BADGES_APP: &str = r#"use Badge from "@acme/lib"
+
+component App
+  view
+    column
+      Badge(badge="verified", other="a", label="a")
+"#;
+
+/// An enum prop the view compares with literals in an `if` is a variant of
+/// every value it declares, in order, one cell each (VerifiedBadge's
+/// `badge`, an enum since stage 15 B batch 2, so "none" draws its empty
+/// cell); an enum the view never compares stays at its first value.
+#[test]
+fn an_enum_compared_with_literals_gets_a_cell_per_value() {
+    let dir = fixture("enum-badges");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), ENUM_BADGES).unwrap();
+    std::fs::write(dir.join("app.contract"), ENUM_BADGES_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let badge: Vec<_> = g.cells.iter().filter(|c| c.component == "Badge").collect();
+    assert!(
+        badge.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        badge.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let value = |c: &&contract::gallery::Cell, prop: &str| {
+        c.values
+            .iter()
+            .find(|(p, _)| p == prop)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    };
+    let values: Vec<String> = badge.iter().map(|c| value(c, "badge")).collect();
+    assert_eq!(values, ["none", "verified", "verifier"]);
+    // `other`, never compared, is no variant: three cells, not six.
+    assert_eq!(badge.len(), 3);
+    assert!(badge
+        .iter()
+        .all(|c| !c.values.iter().any(|(p, _)| p == "other")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
