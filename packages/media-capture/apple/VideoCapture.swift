@@ -212,7 +212,7 @@ final class VideoTracks: ExactTrackOwner {
         guard context.agent else {
             for t in tracks.values where t.readyState == "live" {
                 guard let capture = t.capture else { continue }
-                say("\(t.id): foreground=\(shown), running=\(capture.session.isRunning), interrupted=\(capture.session.isInterrupted), muted=\(t.muteReason ?? "none")")
+                say("\(t.id): foreground=\(shown), running=\(capture.session.isRunning), interrupted=\(capture.session.interrupted), muted=\(t.muteReason ?? "none")")
             }
             return
         }
@@ -505,7 +505,7 @@ final class VideoCapture: NSObject, ExactVideoSource {
         for name in [AVCaptureSession.didStartRunningNotification, AVCaptureSession.didStopRunningNotification] {
             observers.append(center.addObserver(forName: name, object: session, queue: .main) { [weak self] _ in
                 guard let self else { return }
-                self.log("camera: running=\(self.session.isRunning), interrupted=\(self.session.isInterrupted)")
+                self.log("camera: running=\(self.session.isRunning), interrupted=\(self.session.interrupted)")
             })
         }
         let tell = { [weak self] (reason: String?) in
@@ -722,5 +722,16 @@ enum CameraPermission {
         case .notDetermined: AVCaptureDevice.requestAccess(for: .video, completionHandler: done)
         default: done(false)
         }
+    }
+}
+
+extension AVCaptureSession {
+    /// `isInterrupted` for the journal; macOS has no such property and no interruption to report.
+    var interrupted: Bool {
+        #if os(macOS)
+        false
+        #else
+        isInterrupted
+        #endif
     }
 }
