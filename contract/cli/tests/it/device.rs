@@ -9,7 +9,8 @@
 //!   asked again;
 //! - a target the declaration names `unsupported` fails `NotSupportedError`,
 //!   and Linux and Windows answer no thermal state;
-//! - an answer carries no platform's words the substitute did not give.
+//! - an answer carries no platform's words the substitute did not give;
+//! - a rendered document's checkpoint holds none of the three.
 
 use exact_kernel::PropValue;
 use exact_runner::{Dispatch, Outcome, Reply, Runner, Work};
@@ -198,5 +199,18 @@ fn linux_and_windows_answer_no_thermal_state() {
             ["", "", ""].map(String::from),
             "{target}"
         );
+    }
+}
+
+#[test]
+fn a_rendered_document_keeps_no_device_fact() {
+    // A render answers from the declaration, not the reader's device; a
+    // seeded answer is never asked again, so the page would never read it.
+    let (_app, r) = boot("document", "web");
+    let checkpoint = r.document_checkpoint("/");
+    let names: Vec<&str> = (checkpoint.answers.iter()).map(|(n, ..)| n.as_str()).collect();
+    for name in ["battery", "network", "power"] {
+        assert!(!names.contains(&name), "{name} is in {names:?}");
+        assert!(!checkpoint.pending.iter().any(|p| p == name), "{name} pending");
     }
 }
