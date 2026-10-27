@@ -41,46 +41,42 @@ pub(super) fn is_overrun(error: &RunnerError) -> bool {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// The re-asks made in the streak of resource `i`'s ask for `args` a turn
-    /// over its budget just refused: the re-ask's own when this commit is one;
-    /// none for a forced ask (a refresh starts anew); else those of the ask in
-    /// flight for these arguments (a store reader asked again under it).
-    pub(super) fn overrun_streak(&self, i: usize, args: &[Value], forced: bool) -> usize {
-        match self.overrun_reasking {
-            Some((r, reasks)) if r == i => reasks,
+    /// The streak an ask of `target` for `args` made now continues (a request
+    /// sent, or a turn over its budget that refused it): a re-ask's, in its
+    /// commit; none for a forced ask (a refresh starts anew); else that of the
+    /// ask in flight for these arguments it replaces (a store reader asked
+    /// again keeps its count).
+    pub(super) fn overrun_reasks(&self, target: Target, args: &[Value], forced: bool) -> usize {
+        match (target, self.overrun_reasking) {
+            (Target::Resource(i), Some((r, reasks))) if i == r => reasks,
             _ if forced => 0,
             _ => (self.pending.iter())
-                .find(|p| p.target == Target::Resource(i) && p.args == args)
+                .find(|p| p.target == target && p.args == args)
                 .map_or(0, |p| p.reasks),
         }
     }
 
-    /// The streak a request of `target` sent now carries: a re-ask's, in its
-    /// commit.
-    pub(super) fn overrun_reasks(&self, target: Target) -> usize {
-        match (target, self.overrun_reasking) {
-            (Target::Resource(i), Some((r, reasks))) if i == r => reasks,
-            _ => 0,
-        }
-    }
-
     /// Hold resource `i`'s ask for `args`, refused by a turn over its budget,
-    /// to be asked again (settlement's publish). The same wait as the one
-    /// standing keeps it: its time, its ticket and so its stamps. Otherwise it
-    /// replaces the ask in flight, under a ticket of this commit's origin and
-    /// invocation (a re-ask's commit is its ask's).
+    /// to be asked again (settlement's publish). Asked again unforced (a store
+    /// reader), the same wait as the one standing keeps it: its time, its
+    /// ticket and so its stamps. Otherwise it replaces the ask in flight, under
+    /// a ticket of this commit's origin and invocation (a re-ask's commit is
+    /// its ask's; a refresh's is its own).
     pub(super) fn hold_reask(
         &mut self,
         i: usize,
         source: String,
         args: Vec<Value>,
         reasks: usize,
+        forced: bool,
         why: &str,
     ) {
         let target = Target::Resource(i);
-        if (self.pending.iter()).any(|p| {
-            p.target == target && p.reask_at.is_some() && p.args == args && p.reasks == reasks
-        }) {
+        if !forced
+            && (self.pending.iter()).any(|p| {
+                p.target == target && p.reask_at.is_some() && p.args == args && p.reasks == reasks
+            })
+        {
             return;
         }
         let after = REASK_MS[reasks];
@@ -195,7 +191,8 @@ impl<D: DataSource> Runner<D> {
     /// ask's origin and invocation; the re-ask counts in its streak as it is
     /// made. A refused commit's rollback restores the wait intact, and it is
     /// due again after the next delay, that re-ask counted; its streak spent,
-    /// the resource fails as on a third turn over its budget.
+    /// the resource fails as on a third turn over its budget, and that commit
+    /// is the receipt.
     pub(super) fn reask(&mut self, ticket: u64) -> Result<CommitReceipt, RunnerError> {
         let p = (self.pending.iter())
             .find(|p| p.ticket == ticket)
@@ -240,10 +237,10 @@ impl<D: DataSource> Runner<D> {
                 let failure = Failure::error(format!(
                     "asked again after a turn over its budget, its commit was refused: {why}"
                 ));
+                // The commit that fails it is what the host must see: the
+                // refusal is in the journal and in the failure's reason.
                 let released = self.release_failed(ticket, Target::Resource(i), failure);
-                if result.is_ok() {
-                    return released.map(|r| r.expect("release_failed commits"));
-                }
+                return released.map(|r| r.expect("release_failed commits"));
             }
         }
         result

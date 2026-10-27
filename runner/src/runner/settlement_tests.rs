@@ -127,6 +127,8 @@ struct Data {
     /// `guard` opens a stream, and refuses with this when set.
     guard_stream: bool,
     guard_refuse: Option<DataError>,
+    /// `rows` answers later with a plain GET, a request a re-ask may keep.
+    later_get: bool,
     adopted: Vec<(String, Vec<Value>, Value)>,
 }
 
@@ -147,6 +149,7 @@ impl Data {
             refuse: None,
             guard_stream: false,
             guard_refuse: None,
+            later_get: false,
             adopted: Vec::new(),
         }
     }
@@ -185,6 +188,8 @@ impl DataSource for Data {
             } else {
                 Value::Bool(true)
             })
+        } else if self.later_get {
+            Answer::Later(Request::get("https://example.test/rows"))
         } else if self.later {
             Answer::Later(Request::continuation(1))
         } else {
@@ -1070,4 +1075,121 @@ fn reasks_fire_at_their_own_times_under_advance() {
     assert_eq!(at, vec![t0 + 250., t0 + 1250.]);
     assert!(!r.pending_res[0], "its streak spent within the advance");
     assert!(r.failed_resources()[0].1.contains("over the 100 ms budget"));
+}
+
+// Round 1 of the redesign (Astra): each red before its fix.
+
+/// Two re-asks whose commits are refused: the commit that fails the resource
+/// is the advance's receipt, so a host sees it leave `pending`.
+#[test]
+fn a_spent_streak_of_refused_reasks_hands_the_host_its_failure() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, true),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let t0 = r.now_ms();
+    r.data().refuse = None;
+    r.data().value = records(3);
+    r.data().bad_guard = true;
+    assert!(r.advance(t0 + 250.).is_err());
+    let receipts = r.advance(t0 + 5_000.).expect("the failing commit stands");
+    assert_eq!(receipts.len(), 1);
+    assert!(!r.pending_res[0]);
+    assert!(r.failed_resources()[0].1.contains("its commit was refused"));
+    assert_eq!(r.timer_due_ms(), None);
+}
+
+/// A re-ask is a request's, not an authored timer's: it comes due while the
+/// timers wait (an unseen wake or call, and `land_then`, advance with them
+/// held).
+#[test]
+fn a_reask_comes_due_while_timers_wait() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    r.data().refuse = None;
+    r.data().value = records(3);
+    r.now_ms += 300.;
+    let landed = r.land_then();
+    assert!(landed.error.is_none());
+    assert_eq!(r.resource("rows").cloned(), Some(records(3)));
+    assert!(!r.pending_res[0]);
+}
+
+/// A refresh that a turn over its budget refuses again replaces the standing
+/// wait: its own origin and invocation, its own time.
+#[test]
+fn a_refresh_replaces_another_invocations_wait() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.as_invocation(CallOrigin::Tool, 7, |r| {
+        r.act("change", vec![Value::Number(1.)])
+    })
+    .unwrap();
+    let t0 = r.now_ms();
+    r.advance(t0 + 100.).unwrap();
+    r.act("refresh", vec![]).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(t0 + 350.), "its own time");
+    r.data().refuse = None;
+    r.data().later = true;
+    r.advance(t0 + 350.).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(r.ticket_origin(asked[0].ticket), CallOrigin::App);
+    assert_eq!(r.ticket_id(asked[0].ticket), 0);
+}
+
+/// A request kept across an argument change (LLP 1054.000.000 D3) starts a
+/// new streak: its first turn over budget waits 250 ms, not 1 s.
+#[test]
+fn new_arguments_on_a_kept_request_start_a_new_streak() {
+    let mut data = Data::new(records(1));
+    data.later_get = true;
+    let mut r = boot(plan(TypeKind::Number, None, false, false), data);
+    let first = r.take_requests();
+    r.data().parse_error = Some(overrun());
+    r.fulfill(first[0].ticket, reply()).unwrap();
+    let t0 = r.now_ms();
+    r.advance(t0 + 250.).unwrap();
+    let again = r.take_requests();
+    assert_eq!(again.len(), 1, "asked again: one re-ask in the streak");
+    r.act("change", vec![Value::Number(2.)]).unwrap();
+    assert!(r.take_requests().is_empty(), "the request is kept");
+    r.fulfill(again[0].ticket, reply()).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(r.now_ms() + 250.));
+}
+
+/// A store reader asked again unforced under its wait keeps the streak's
+/// count, however many store commits come: its next turn over budget waits
+/// 1 s, the second of two.
+#[test]
+fn a_store_readers_new_ask_keeps_its_streak() {
+    let mut data = Data::new(records(2));
+    data.read_store = true;
+    let mut r = boot(plan(TypeKind::Number, None, true, false), data);
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let t0 = r.now_ms();
+    r.advance(t0 + 250.).unwrap();
+    assert!(
+        r.journal().any(|l| l.contains("(2 of 2)")),
+        "one re-ask made"
+    );
+    r.data().refuse = None;
+    r.data().later = true;
+    r.store.set("token", "moved").unwrap();
+    r.commit_again(Vec::new(), "the store moved").unwrap();
+    let asked = r.take_requests();
+    assert_eq!(asked.len(), 1, "asked again for the store");
+    r.data().parse_error = Some(overrun());
+    r.fulfill(asked[0].ticket, reply()).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(r.now_ms() + 1000.));
 }

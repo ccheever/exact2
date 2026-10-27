@@ -335,7 +335,16 @@ impl<D: DataSource> Runner<D> {
                 .filter(|at| due.is_none_or(|(_, timer)| *at < timer));
             let due = due.filter(|(_, at)| ended.is_none() && before_wake(*at));
             let timer_at = due.map(|(_, at)| at).or(ended);
-            let ready = |at: f64| timer_at.is_none_or(|timer| at <= timer) && before_wake(at);
+            // A re-ask is a request's, not an authored timer's: it comes due
+            // while timers wait on an unseen wake or call, which owns it.
+            let reask = self
+                .reask_due(now_ms)
+                .filter(|(_, at)| timer_at.is_none_or(|timer| *at <= timer) && before_wake(*at));
+            let ready = |at: f64| {
+                timer_at.is_none_or(|timer| at <= timer)
+                    && before_wake(at)
+                    && reask.is_none_or(|(_, reask)| at <= reask)
+            };
             // An answer's `then` goes before a timer due at the same time: the
             // answer landed first. A queue's `next` goes after the `then`s and
             // before the timers (LLP 1092 D3). `exactTransport`'s answer is a
@@ -484,12 +493,36 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
+            // A drop's hold ends at its deadline (LLP 1094 D8), before a
+            // timer due at the same time: the drop came first.
+            if let Some(at) = self
+                .reorder_deadline()
+                .filter(|at| timers && *at <= now_ms && ready(*at))
+            {
+                self.now_ms = self.now_ms.max(at);
+                // Its commit takes no checkpoint, so it samples for itself
+                self.sample();
+                let result = self.reorder_timeout();
+                self.sample();
+                match result {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: Some(e),
+                            stopped_on_request: false,
+                        }
+                    }
+                }
+                continue;
+            }
             // A resource a turn over its budget refused is asked again at its
             // time (`overrun.rs`), before a timer due then: its ask came first.
-            if let Some((t, at)) = self
-                .reask_due(now_ms)
-                .filter(|(_, at)| timers && ready(*at))
-            {
+            if let Some((t, at)) = reask {
                 if receipts.len() == TIMER_FIRE_LIMIT {
                     return Advanced {
                         receipts,
@@ -520,33 +553,6 @@ impl<D: DataSource> Runner<D> {
                     landed = self.now_ms;
                     stopped_on_request = true;
                     break;
-                }
-                continue;
-            }
-            // A drop's hold ends at its deadline (LLP 1094 D8), before a
-            // timer due at the same time: the drop came first.
-            if let Some(at) = self
-                .reorder_deadline()
-                .filter(|at| timers && *at <= now_ms && ready(*at))
-            {
-                self.now_ms = self.now_ms.max(at);
-                // Its commit takes no checkpoint, so it samples for itself
-                self.sample();
-                let result = self.reorder_timeout();
-                self.sample();
-                match result {
-                    Ok(receipt) => receipts.push(Timed {
-                        at_ms: self.now_ms,
-                        receipt,
-                    }),
-                    Err(e) => {
-                        return Advanced {
-                            receipts,
-                            now_ms: self.now_ms,
-                            error: Some(e),
-                            stopped_on_request: false,
-                        }
-                    }
                 }
                 continue;
             }

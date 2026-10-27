@@ -821,6 +821,8 @@ impl<D: DataSource> Runner<D> {
                     && p.keepable.as_ref() == Some(&request)
             }) {
                 p.args = args;
+                // (new arguments: a new streak after a turn over its budget)
+                p.reasks = 0;
                 if let Target::Resource(i) = target {
                     p.inspection_generation =
                         self.ids.work.resources.get(i).map_or(0, |w| w.request);
@@ -833,6 +835,8 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
+        // A re-ask after a turn over its budget carries its streak on.
+        let reasks = self.overrun_reasks(target, &args, forced);
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.note_let_go(t, target);
@@ -882,8 +886,7 @@ impl<D: DataSource> Runner<D> {
             long_poll: request.stream && request.long_poll.is_some(),
             replied: false,
             reask_at: None,
-            // A re-ask after a turn over its budget carries its streak on.
-            reasks: self.overrun_reasks(target),
+            reasks,
         });
         self.requests.push(RequestOut {
             ticket,

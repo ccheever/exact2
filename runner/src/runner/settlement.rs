@@ -44,6 +44,7 @@ enum RequestEffect {
     Wait {
         args: Vec<Value>,
         reasks: usize,
+        forced: bool,
         why: String,
     },
 }
@@ -765,11 +766,13 @@ impl<D: DataSource> Runner<D> {
                                             self.placeholder(i, &row, &resources).expect("checked"),
                                         )
                                     };
-                                    let reasks = self.overrun_streak(i, &args, forced);
+                                    let reasks =
+                                        self.overrun_reasks(Target::Resource(i), &args, forced);
                                     if super::overrun::reask_after(reasks).is_some() {
                                         effects[i] = RequestEffect::Wait {
                                             args: args.clone(),
                                             reasks,
+                                            forced,
                                             why: why.message,
                                         };
                                         pending_res[i] = true;
@@ -947,9 +950,12 @@ impl<D: DataSource> Runner<D> {
                         request,
                         forced,
                     } => self.enqueue(Target::Resource(i), source, args, *request, forced),
-                    RequestEffect::Wait { args, reasks, why } => {
-                        self.hold_reask(i, source, args, reasks, &why)
-                    }
+                    RequestEffect::Wait {
+                        args,
+                        reasks,
+                        forced,
+                        why,
+                    } => self.hold_reask(i, source, args, reasks, forced, &why),
                     RequestEffect::None | RequestEffect::Answered => {}
                 }
             }
