@@ -32,6 +32,20 @@ pub(crate) fn material() -> bool {
     metrics::column() == metrics::Column::Material
 }
 
+/// The symbol shapes this process draws (LLP 1115.001 D14): Windows' and
+/// Android's own where they draw a role differently, else the table's,
+/// which the Linux desktop shares with the web. Android's swapchain host,
+/// which shows no Material look, still draws Android's symbols.
+pub(crate) fn symbols() -> exact_kernel::SymbolSet {
+    if cfg!(windows) {
+        exact_kernel::SymbolSet::Fluent
+    } else if material() || cfg!(target_os = "android") {
+        exact_kernel::SymbolSet::Material
+    } else {
+        exact_kernel::SymbolSet::Web
+    }
+}
+
 /// A length of the neutral look for a control whose font size is `em`, in
 /// pixels; `index` is one of `generated::metric`. None of the rows a control
 /// reads is in `rem`.

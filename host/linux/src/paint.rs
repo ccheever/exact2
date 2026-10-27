@@ -567,6 +567,8 @@ pub struct Painter {
     /// the Windows key counts as keyboard input.
     pub(crate) winui_focus: bool,
     pub(crate) keyless: bool,
+    /// Whose shapes a symbol role takes: the process's (`look::symbols`).
+    pub(crate) symbols: exact_kernel::SymbolSet,
     /// The control under a pointer that hovers, and the one a contact holds
     /// down (`presenter/feedback.rs`), which the neutral look washes.
     pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
@@ -664,6 +666,7 @@ impl Painter {
             ringless: None,
             winui_focus: cfg!(windows),
             keyless: cfg!(windows),
+            symbols: look::symbols(),
             feedback: (None, None),
             held_press: None,
             clipped: None,

@@ -23,6 +23,8 @@ struct Schema {
     symbols: Vec<[String; 3]>,
     #[serde(rename = "symbolAliases")]
     symbol_aliases: Vec<[String; 2]>,
+    #[serde(rename = "symbolGlyphs")]
+    symbol_glyphs: Vec<(String, String, String, bool)>,
     materials: Vec<[String; 7]>,
     #[serde(rename = "buttonStyles")]
     button_styles: Vec<[String; 5]>,
@@ -176,6 +178,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "_ => None, }} }}").unwrap();
     write_symbol_role(w, schema);
+    write_symbol_glyphs(w, schema);
     // @ref LLP 1053.000 D4 — `backgroundMaterial`'s vocabulary.
     writeln!(
         w,

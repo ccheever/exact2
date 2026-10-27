@@ -5185,8 +5185,41 @@
       "emoji"
     ]
   ],
+  "symbolGlyphs": [
+    [
+      "back",
+      "fluent",
+      "M20 12H4m7-7-7 7 7 7",
+      false
+    ],
+    [
+      "more",
+      "fluent",
+      "M7.5 12a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm6 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm6 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z",
+      true
+    ],
+    [
+      "back",
+      "material",
+      "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
+      true
+    ],
+    [
+      "more",
+      "material",
+      "M14 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
+      true
+    ],
+    [
+      "share",
+      "material",
+      "M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z",
+      true
+    ]
+  ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path keeps to about the box's 20-unit live area, which the web draws an em across, as an SF Symbol's glyph is (the neutral look's `symbol-scale`). The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
   "_symbolAliases": "[alias, role]. Other spellings a `symbol:` source answers to, beside the role itself and Apple's name for it (dots, dashes and underscores are one: `chevron.right`, `chevron-right`, `chevron_right`): Material's names and the common guesses that mean this role and no other. An alias keeps the distinctions the roles make (filled or outlined, enclosed or bare): a name for a symbol no role draws is no alias and is refused. Never a role, never another spelling's key; `sf/` stays reserved. The lowering rewrites a source to its role, so the plan and every host see the role, and warns (`lower-symbol-alias`) once per use (LLP 1116.007 D3.1).",
+  "_symbolGlyphs": "[role, platform, path, filled]. @ref LLP 1115.001 D14, LLP 1115.004: a role a platform's own symbols draw in another shape, in that shape: in the same 24-unit box, stroked as a role's path is, or filled (even-odd). `fluent` is Windows, whose Back (Segoe Fluent Icons U+E72B) is an arrow and More (U+E712) three bare dots in a row. `material` is Android: `back` and `share` are Material Icons' `arrow_back` (which the top app bar's Up arrow draws too) and `share` paths, and `more` is `more_vert`'s three discs. A role with no row for a platform draws its own path there. A role takes these by any of its spellings (`sf/chevron.backward` is `back`); an icon token is the author's own image and draws as written. The web and the Linux desktop (the neutral look, LLP 1115.000 D17) draw the role's own path.",
   "_materials": "[name, iOS UIBlurEffect.Style (or glass / glassClear: UIGlassEffect), macOS NSVisualEffectView.Material (or glass / glassClear: NSGlassEffectView), web and Linux blur px, web saturate %, light tint, dark tint]. @ref LLP 1053.000 D4: `backgroundMaterial`'s whole vocabulary, one row per platform material, kebab-case one-to-one. A `~` marks a platform without that material: it draws the one named instead and logs so once. The web and Linux columns are stated approximations of Apple's look, not parity. Hosts never admit a platform name directly.",
   "_buttonStyles": "[name, iOS 26+ UIButton.Configuration factory, the factory before iOS 26, macOS NSButton look (borderless, push, push-accent: the accent as bezelColor, glass: NSBezelStyleGlass on macOS 26 else push, glass-accent), web and Linux look (ua: the browser's own button, text, soft, fill, glass, glass-fill)]. @ref LLP 1069.011 D2: `buttonStyle`'s whole vocabulary, kebab-case one-to-one with Apple's names. A `~` marks a platform drawing a stand-in, silently; the agent reports the requested and the drawn style. Hosts never admit a platform name directly.",
   "buttonStyles": [

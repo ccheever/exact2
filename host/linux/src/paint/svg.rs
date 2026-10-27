@@ -13,6 +13,9 @@ use tiny_skia::Transform;
 
 #[path = "island.rs"]
 mod island;
+#[cfg(test)]
+#[path = "symbol_tests.rs"]
+mod symbol_tests;
 
 /// What a fill or a stroke paints with.
 pub enum Ink<'a> {
@@ -165,8 +168,9 @@ impl Painter {
         colour: [u8; 4],
         ts: Transform,
     ) {
-        // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
-        let Some(path) = exact_kernel::symbol_path(role) else {
+        // A role (in this platform's shape), an icon token's form, or `sf/` a
+        // role's Apple name (LLP 1121 D10, LLP 1115.001 D14).
+        let Some(path) = exact_kernel::symbol_path_in(role, self.symbols) else {
             return;
         };
         self.glyph_face(path, style, rect, colour, ts);

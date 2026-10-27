@@ -102,3 +102,16 @@ fn write_symbol_role(w: &mut String, schema: &Schema) {
     }
     writeln!(w, "_ => None, }} }}").unwrap();
 }
+/// @ref LLP 1115.001 D14 — `symbol_glyph`: a role's shape on a platform whose symbols draw it
+/// in a shape of their own.
+fn write_symbol_glyphs(w: &mut String, schema: &Schema) {
+    writeln!(
+        w,
+        "/// A role's path on `platform` (`fluent`, `material`) and whether it is filled, where that\n/// platform draws the role in a shape of its own. Takes the role's own name only.\npub fn symbol_glyph(role: &str, platform: &str) -> Option<(&'static str, bool)> {{ match (role, platform) {{"
+    )
+    .unwrap();
+    for (role, platform, path, filled) in &schema.symbol_glyphs {
+        writeln!(w, "({role:?}, {platform:?}) => Some(({path:?}, {filled})),").unwrap();
+    }
+    writeln!(w, "_ => None, }} }}").unwrap();
+}

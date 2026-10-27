@@ -28,6 +28,21 @@ fn validate(schema: &Schema) {
         );
     }
     symbol_spellings(schema);
+    let mut glyphs = BTreeSet::new();
+    for (role, platform, path, _) in &schema.symbol_glyphs {
+        assert!(
+            roles.contains(role) && ["fluent", "material"].contains(&platform.as_str()),
+            "schema: symbol glyph {role} on {platform}: no such role or platform"
+        );
+        assert!(
+            glyphs.insert((role, platform)),
+            "schema: duplicate symbol glyph {role} on {platform}"
+        );
+        assert!(
+            drawn_path(path),
+            "schema: invalid symbol glyph path {role} on {platform}"
+        );
+    }
     let mut materials = BTreeSet::new();
     for [name, ios, macos, blur, saturate, ..] in &schema.materials {
         assert!(
@@ -269,4 +284,30 @@ fn validate_controls(schema: &Schema) {
             );
         }
     }
+}
+
+/// A path's `d` that starts with a move and then draws: each command but a
+/// close takes numbers, and one besides the moves and closes draws a segment.
+fn drawn_path(d: &str) -> bool {
+    let mut commands = Vec::new();
+    let mut numbers = 0;
+    for c in d.chars() {
+        if c.is_ascii_alphabetic() {
+            if !"MmLlHhVvCcSsQqTtAaZz".contains(c) {
+                return false;
+            }
+            commands.push((c, numbers));
+        } else if !(c.is_ascii_digit() || " .,-".contains(c)) {
+            return false;
+        } else if c.is_ascii_digit() {
+            numbers += 1;
+        }
+    }
+    let takes_numbers = commands.iter().enumerate().all(|(i, &(c, at))| {
+        let next = commands.get(i + 1).map_or(numbers, |&(_, n)| n);
+        "Zz".contains(c) || next > at
+    });
+    commands.first().is_some_and(|&(c, _)| "Mm".contains(c))
+        && takes_numbers
+        && commands.iter().any(|&(c, _)| !"MmZz".contains(c))
 }

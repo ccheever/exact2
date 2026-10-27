@@ -272,6 +272,7 @@ impl Painter {
             Box::new(crate::raster::Raster::transparent()),
         );
         painter.dark = self.dark;
+        painter.symbols = self.symbols;
         painter.split = self.split.clone();
         painter.placements = self.placements.clone();
         painter.canvases = self.canvases.clone();
