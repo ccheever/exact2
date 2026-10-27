@@ -8,8 +8,13 @@ import QuartzCore
 package final class HostPhases: @unchecked Sendable {
     package static let shared = HostPhases()
     package init() {}
-    /// The media clock, seconds; a test gives its own.
+    /// The media clock, seconds; a test gives its own. watchOS has no
+    /// `CACurrentMediaTime`; `systemUptime` reads the same `mach_absolute_time`.
+    #if os(watchOS)
+    package var clock: () -> Double = { ProcessInfo.processInfo.systemUptime }
+    #else
     package var clock: () -> Double = CACurrentMediaTime
+    #endif
 
     /// The fixed phases: what the host does on the main thread to put a frame
     /// up. Each is charged only the time no phase inside it took.
