@@ -11,7 +11,16 @@ final class ArrangementHost {
     private var syncingInsets = false
     private var layoutPending = false
     private var children: [UInt32: [UInt32]] = [:]
+    private var bands: [UInt32: Band] = [:]
+    private var stills: [UInt32: UIView] = [:]
     private(set) var entries: [UInt32: Entry] = [:]
+
+    /// One material across an arrangement's top edge and the panes it covers
+    final class Band {
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+        var scrolls: [UIScrollView] = []
+        var watching: [NSKeyValueObservation] = []
+    }
 
     final class Entry {
         let node: NodeView
@@ -111,6 +120,8 @@ final class ArrangementHost {
     }
 
     private func retire(_ entry: Entry) {
+        removeBand(entry.node.id)
+        releaseStill(entry.node.id)
         let ids = children[entry.node.id] ?? entry.panes.map(\.id)
         let held = entry.holders.filter { $0.node.superview === $0.view }.map(\.node)
         for pane in held where presenter.views[pane.id] !== pane || !ids.contains(pane.id) { pane.removeFromSuperview() }
@@ -234,6 +245,78 @@ final class ArrangementHost {
             }
         }
         finishScrollHandoffs()
+        syncBands(now)
+    }
+
+    /// Draw one band across an arrangement's top while either pane scrolls under the route's bar.
+    /// UIKit draws each pane's own edge effect over that pane alone, which splits one header in two.
+    private func syncBands(_ owned: [UInt32: UIScrollView]) {
+        for (id, entry) in entries {
+            let visible = entry.holders.filter { !entry.isHidden($0) }
+            let scrolls = visible.compactMap { owned[$0.node.id] }
+            let top = scrolls.map(\.safeAreaInsets.top).max() ?? 0
+            // An authored soft edge already fades each pane's content on its own
+            guard visible.count > 1, scrolls.count == visible.count, top > 0, scrolls.allSatisfy({ $0.topEdgeEffect.style != .soft }) else {
+                removeBand(id)
+                continue
+            }
+            let band = bands[id] ?? Band()
+            bands[id] = band
+            let container = entry.node.container
+            band.view.isUserInteractionEnabled = false
+            if band.view.superview !== container || container.subviews.last !== band.view { container.addSubview(band.view) }
+            band.view.frame = CGRect(x: 0, y: 0, width: container.bounds.width, height: top)
+            if band.scrolls.map(ObjectIdentifier.init) != scrolls.map(ObjectIdentifier.init) {
+                for scroll in band.scrolls where !scrolls.contains(scroll) { scroll.topEdgeEffect.isHidden = false }
+                band.scrolls = scrolls
+                band.watching = scrolls.map { $0.observe(\.contentOffset) { [weak self] _, _ in self?.showBand(id) } }
+            }
+            for scroll in scrolls where !scroll.topEdgeEffect.isHidden { scroll.topEdgeEffect.isHidden = true }
+            showBand(id)
+        }
+        for id in bands.keys where entries[id] == nil { removeBand(id) }
+    }
+
+    /// Fade the band in over the first points of content under the edge, as UIKit's edge effect does
+    private func showBand(_ id: UInt32) {
+        guard let band = bands[id] else { return }
+        let under = band.scrolls.map { min(1, max(0, ($0.contentOffset.y + $0.adjustedContentInset.top) / 8)) }.max() ?? 0
+        if band.view.alpha != under { band.view.alpha = under }
+    }
+
+    private func removeBand(_ id: UInt32) {
+        guard let band = bands.removeValue(forKey: id) else { return }
+        band.watching = []
+        for scroll in band.scrolls { scroll.topEdgeEffect.isHidden = false }
+        band.view.removeFromSuperview()
+    }
+
+    /// Show each arrangement in the route a transition takes away as a still until it ends. UIKit
+    /// keeps an arrangement's panes on the window's fold segments, so a route sliding across a fold
+    /// (a back swipe) would otherwise shrink one pane and grow the other as it moves. The route a
+    /// transition brings in has not drawn yet, so its picture would be blank.
+    func holdStill(during transition: UIViewControllerTransitionCoordinator) {
+        guard let leaving = transition.viewController(forKey: .from)?.viewIfLoaded else { return }
+        for entry in entries.values where stills[entry.node.id] == nil {
+            guard let view = entry.controller.viewIfLoaded, view.window != nil, !view.bounds.isEmpty,
+                  entry.node.isDescendant(of: leaving),
+                  let still = view.snapshotView(afterScreenUpdates: false) else { continue }
+            still.frame = view.frame
+            view.superview?.insertSubview(still, aboveSubview: view)
+            view.isHidden = true
+            stills[entry.node.id] = still
+        }
+        guard !stills.isEmpty else { return }
+        transition.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self else { return }
+            for id in Array(stills.keys) { releaseStill(id) }
+        }
+    }
+
+    private func releaseStill(_ id: UInt32) {
+        guard let still = stills.removeValue(forKey: id) else { return }
+        still.removeFromSuperview()
+        entries[id]?.controller.viewIfLoaded?.isHidden = false
     }
 
     /// Move each arrangement under the controller that holds its node now. A route adopts its

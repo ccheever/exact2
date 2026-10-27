@@ -331,6 +331,25 @@ final class ContentOwnersIOSTests: XCTestCase {
         }
     }
 
+    func testArrangedPeersShareOneHeaderBand() throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("arrangements require iOS 27.1") }
+        guard let scene = hostedWindowScene() else { throw missing("scene", "arranged peers use the fold-aware window scene") }
+        let (session, root, first, second, _, _) = try arrangedPeers(in: scene)
+        let scrolls = try [first, second].map { try XCTUnwrap($0.scrollView) }
+        let container = root.container
+        let band = try XCTUnwrap(container.subviews.last as? UIVisualEffectView, "one material spans both panes' top edge")
+        XCTAssertEqual(band.frame, CGRect(x: 0, y: 0, width: container.bounds.width, height: scrolls.map(\.safeAreaInsets.top).max() ?? 0))
+        XCTAssertGreaterThan(band.frame.height, 0)
+        XCTAssertFalse(band.isUserInteractionEnabled, "touches reach the panes beneath")
+        XCTAssertTrue(scrolls.allSatisfy { $0.topEdgeEffect.isHidden }, "the panes' own edge effects give way to the band")
+        XCTAssertEqual(band.alpha, 0, "with nothing under the bar the band is clear")
+        scrolls[1].setContentOffset(CGPoint(x: 0, y: 160 - second.scrollTopInset(scrolls[1])), animated: false)
+        XCTAssertEqual(band.alpha, 1, "content under the bar in either pane shows the band")
+        XCTAssertTrue(session.presenter.arrangements.set(root.id, controller: nil))
+        XCTAssertNil(band.superview, "restoring the authored layout removes the band")
+        XCTAssertTrue(scrolls.allSatisfy { !$0.topEdgeEffect.isHidden }, "and gives each pane its edge effect back")
+    }
+
     /// The edge-effect fixture's Panes tab, its two peers arranged side by side beneath the route's bars.
     @available(iOS 27.1, *)
     private func arrangedPeers(in scene: UIWindowScene) throws -> (ExactSession, NodeView, NodeView, NodeView, RouteController, UIArrangementViewController) {

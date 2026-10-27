@@ -2143,6 +2143,12 @@ children, or the supplied controller already belongs to another container.
 An accepted request uses CSS layout while the child count is not two and resumes
 when two valid children return.
 
+Under a route's bar, one material spans both panes' top edge, as one header, while
+either pane's content passes beneath it; panes with an authored soft edge
+(`-exact-scroll-edge-effect="soft"`) keep their own. While a push or a pop slides the
+route away, its arrangement shows a still picture, since UIKit keeps live panes on the
+fold's segments and would resize them as the route moves.
+
 To keep pane content still as the shared navigation bar minimizes, set
 `route.controller.navigationItem.navigationBarMinimization.safeAreaAdjustment = .disabled`
 in the route hatch (iOS 27+). UIKit retains the safe area while the bar minimizes
