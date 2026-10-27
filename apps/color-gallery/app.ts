@@ -1,5 +1,5 @@
 // The color gallery's data and its canvas surface (LLP 1100 §10).
-import type { Answer, Ctx2D, Frame } from './app.contract.d.ts';
+import type { Answer, Ctx2D, Frame, NativeModule } from './app.contract.d.ts';
 
 export const appId = 'com.exact.colorgallery';
 export const grants = '';
@@ -114,7 +114,7 @@ const HDR = [
   ['hlg.heic', 'HLG HEIC'],
 ].map(([file, label]) => ({ src: `assets/${file}`, label }));
 
-export const answer: Answer = ((source: string, args: unknown[]) => {
+export const answer: Answer = ((source: string, args: unknown[], _secrets: unknown, _storage: unknown, native?: NativeModule) => {
   if (source === 'colorSpaces') {
     if (args[0] === 'platform') return web ? [] : PLATFORM;
     return web ? CSS.map((r) => (r.name.startsWith('rec2100') ? { ...r, note: 'not in browsers yet', swatches: [] } : r)) : CSS;
@@ -123,6 +123,13 @@ export const answer: Answer = ((source: string, args: unknown[]) => {
     const shown = PICTURES.filter((p) => shows(p.src)), pairs = [];
     for (let i = 0; i < shown.length; i += 2) pairs.push({ a: shown[i], b: shown[i + 1] ?? shown[i], two: i + 1 < shown.length });
     return pairs;
+  }
+  if (source === 'nativeFeatures') {
+    const unavailable = { reference: false, video: false };
+    if (web || !native?.available) return unavailable;
+    // Web modules have no synchronous call, even when a module is available.
+    try { return { reference: (native.call({ op: 'colorReference' }) as { available: boolean }).available, video: true }; }
+    catch { return unavailable; }
   }
   if (source === 'hostKind') return web ? 'web' : 'native';
   if (source === 'hdrWhite') return web ? '#ffffff' : `color(rec2100-linear ${args[0]} ${args[0]} ${args[0]})`;

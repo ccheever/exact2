@@ -1096,6 +1096,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
+- **An HDR gradient samples as 1, or a visible box shadow samples as black.**
+  Apple's agent samples through `CALayer.render(in:)`, which does not reproduce
+  every compositor effect. On iOS 27, a native `CAGradientLayer` from 1× to 4×
+  white also captures as 1, and layer shadows disappear from that capture.
+  Compare the layer's colors and range with Color Gallery's UIKit reference,
+  then inspect the displayed screen through iPhone Mirroring. A float capture
+  alone cannot judge those effects. (Color Gallery, iPhone 16 Pro, 2026-10-27.)
+
 - **A build's refusals do not say "error".** A compile refusal prints as
   `app.contract:5:13 [lower-attr-value] symbol \`warning\` is not a role; …` and the
   build exits 1, so a check that greps the output for `error` passes a build that
@@ -1760,6 +1768,13 @@ are in [game-pitfalls.md](game-pitfalls.md).
 
 
 ## Access hatches
+
+- **Published diagnostics stop gaining keys, or repeated elements overwrite
+  one another.** `element.diagnostics` is scoped to the hatch word. The session
+  keeps 16 published names, with at most 4,096 bytes per value. Group repeated
+  instances under a stable name, for example `publish("gradient", {standard: ..., constrained:
+  ..., noLimit: ...})`, and keep each payload within that bound. (Color Gallery's
+  27 paint probes, 2026-10-27; `HatchDiagnostics.swift`.)
 
 - **A native view's frame ticket left on costs CPU on a still screen.** A
   live `context.frames` ticket keeps the display link running at the
