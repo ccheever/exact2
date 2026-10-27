@@ -100,6 +100,32 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y, 1200, accuracy: 0.5)
     }
 
+    /// From a port UIKit reads back a ULP off the pixel grid (5/3 at scale 3
+    /// comes back 1.6666666666666665), a smooth correction still eases to its
+    /// target: the driver took that ULP for the port moving under it and
+    /// restarted its ease every frame, so it never left its first frame (the
+    /// full suite's flake, its link running at full rate; PixelGrid.same).
+    func testASmoothCorrectionFromAPortReadBackOffTheGridLands() throws {
+        let p = presenter()
+        list(p, correction: NSNull())
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        // A grid offset UIKit hands back not exactly as given (the precondition, shown here).
+        let scale = max(1, scroll.traitCollection.displayScale)
+        var start: CGFloat?
+        for k in 1...600 {
+            let y = PixelGrid.offset(CGPoint(x: 0, y: CGFloat(k) / scale), in: scroll).y
+            scroll.contentOffset.y = y
+            if scroll.contentOffset.y != PixelGrid.offset(scroll.contentOffset, in: scroll).y { start = y; break }
+        }
+        let y0 = try XCTUnwrap(start, "an offset UIKit reads back off the grid at scale \(scale)")
+        XCTAssertTrue(PixelGrid.same(scroll.contentOffset.y, y0, in: scroll), "a ULP off, within the read-back slop")
+        let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": seq, "offset": 1700, "smooth": true])]))
+        wait("moving") { self.moving(p) }
+        wait("landed") { !p.collections.animating.contains(1) }
+        XCTAssertEqual(scroll.contentOffset.y, 1700, accuracy: 0.5, "from \(y0), read back \(scroll.contentOffset.y)")
+    }
+
     /// Mid-flight, a new target retargets from where the port is (no jump),
     /// and a drag stops it where it is. The offset each frame is the one on
     /// screen, so a reader of `contentOffset` never sees the destination early.

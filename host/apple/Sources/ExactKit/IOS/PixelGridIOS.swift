@@ -113,6 +113,20 @@ extension PixelGrid {
         return CGPoint(x: snap(point.x, low: -i.left, high: scroll.contentSize.width + i.right - scroll.bounds.width),
                        y: snap(point.y, low: -i.top, high: scroll.contentSize.height + i.bottom - scroll.bounds.height))
     }
+    /// How far, in device pixels, an offset UIKit hands back may sit from the
+    /// value it was given and still be that value: it returns one a ULP or so
+    /// off (5/3 at scale 3 came back 1.6666666666666665). An exact compare
+    /// took that for the port moving: a smooth correction restarted every
+    /// frame and never advanced (SmoothCollectionIOSTests). A real move (a
+    /// clamp, a drag, a reader's scroll) is a pixel or more.
+    package static let readBackSlop: CGFloat = 0.01
+    /// `a` and `b` the same offset of `scroll`'s, within `readBackSlop` of its pixels.
+    package static func same(_ a: CGFloat, _ b: CGFloat, in scroll: UIScrollView) -> Bool {
+        abs(a - b) <= readBackSlop / max(1, scroll.traitCollection.displayScale)
+    }
+    package static func same(_ a: CGPoint, _ b: CGPoint, in scroll: UIScrollView) -> Bool {
+        same(a.x, b.x, in: scroll) && same(a.y, b.y, in: scroll)
+    }
 }
 
 extension Presenter {

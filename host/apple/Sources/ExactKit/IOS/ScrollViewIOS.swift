@@ -281,7 +281,8 @@ extension NodeView {
         // A retained route can gain height when another route hides the keyboard.
         // That clamp is not the reader choosing the end. Keep its intended offset
         // until the returning viewport can fit it, or the reader scrolls again.
-        if anchoredScrollTop != sv.contentOffset.y { retainedScrollTop = nil }
+        // (the anchor a value this host set, the offset UIKit's read-back of it: PixelGrid.same)
+        if !(anchoredScrollTop.map { PixelGrid.same($0, sv.contentOffset.y, in: sv) } ?? false) { retainedScrollTop = nil }
         // An animated follow of the end (below) is still the end, mid-flight.
         let capturedTop = retainedScrollTop ?? sv.contentOffset.y
         followedScroll = (capturedTop,
@@ -290,7 +291,7 @@ extension NodeView {
         guard let followedScroll, !followedScroll.end, followedScroll.top + sv.adjustedContentInset.top > 0.5 else { return }
         // A scroll by the reader invalidates the prior choice. Anchoring's
         // own adjustment does not: keep the same surviving row across batches.
-        if anchoredScrollTop == sv.contentOffset.y, let node = activeReadingAnchor,
+        if anchoredScrollTop.map({ PixelGrid.same($0, sv.contentOffset.y, in: sv) }) == true, let node = activeReadingAnchor,
            presenter?.views[node.id] === node, scrollRect(node, in: sv) != nil, !node.isHidden {
             let rect = scrollRect(node, in: sv) ?? .zero
             if rect.width > 0, rect.height > 0, rect.intersects(sv.bounds) { readingAnchors.append((node, rect.minY)) }

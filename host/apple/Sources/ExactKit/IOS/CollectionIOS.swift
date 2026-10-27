@@ -428,7 +428,7 @@ final class OffsetDriver: NSObject {
         // measured row, a report after its estimate, is still its one target
         // (LLP 1010 §6.8). After it, or once the port moved under it (content
         // that shrank clamped it), a fresh ease from what shows.
-        if !drawn, scroll.contentOffset == from {
+        if !drawn, PixelGrid.same(scroll.contentOffset, from, in: scroll) {
             // Folded back onto the port: no motion at all.
             if abs(target.y - from.y) + abs(target.x - from.x) < 0.5 {
                 scroll.contentOffset = target
@@ -455,7 +455,8 @@ final class OffsetDriver: NSObject {
         // toward the edge it can reach; every frame stays inside the range.
         let reached = CollectionHost.reachable(to, in: scroll)
         let here = CollectionHost.reachable(scroll.contentOffset, in: scroll)
-        if reached != to || here != scroll.contentOffset {
+        // (within a hundredth of a pixel: UIKit's read-back is a ULP off the grid; PixelGrid.same)
+        if !PixelGrid.same(reached, to, in: scroll) || !PixelGrid.same(here, scroll.contentOffset, in: scroll) {
             from = here; to = reached; began = link.targetTimestamp; reclamp(reached)
             if here == reached { scroll.contentOffset = here; cancel(); done(serial, true); return }
         }
