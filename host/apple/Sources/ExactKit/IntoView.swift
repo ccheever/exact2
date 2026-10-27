@@ -161,6 +161,7 @@ final class ElementScrolls {
     /// stays dropped, so nothing scrolls it back once the gesture ends. A
     /// reveal running on it is over: UIKit stops the animation for the drag.
     func userScrolled(_ scroll: UIScrollView) {
+        if let sampler = presenter.session?.sampler, sampler.recording != nil { sampler.scrolled(scroll, name: FrameSampler.scrollerName(scroll), person: true) }
         reveals[ObjectIdentifier(scroll)] = nil
         held.removeAll { entry in
             guard let node = entry.node else { return true }

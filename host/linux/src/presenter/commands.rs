@@ -164,6 +164,10 @@ impl<D: DataSource> Presenter<D> {
                 | "load") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
+                // Recording a trace is the Apple hosts'
+                name @ ("startTrace" | "stopTrace") => {
+                    eprintln!("exact: {name} unsupported on Linux: trace recording is on Apple hosts only")
+                }
                 other => eprintln!("exact: unknown command {other}"),
             }
         }

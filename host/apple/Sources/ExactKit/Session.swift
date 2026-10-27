@@ -1170,15 +1170,13 @@ public final class ExactSession {
                 }
                 if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7)
                 if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
+                if name == "startTrace" || name == "stopTrace" { app.deliver { [weak self] in self?.traceCommand(name, args) }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
                     continue
                 }
-                if name == "share" {
-                    app.deliver { [weak self] in self?.share(args, source: source) }
-                    continue
-                }
+                if name == "share" { app.deliver { [weak self] in self?.share(args, source: source) }; continue }
                 if name == "showNotification" || name == "closeNotification" {
                     app.deliver { [weak self] in self?.notify(name, args) }
                     continue

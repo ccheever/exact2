@@ -117,6 +117,62 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertNil(Batch.decode(Data(#"{"ops":[],"timers":false,"motion":false,"clock":0,"error":null}"#.utf8)).seq)
     }
 
+    /// A recording's report (`stopTrace`): a person's drag and glide are
+    /// segments of their own on the scroller they took, only a frame shown
+    /// again counts as lateness (the link's jitter does not), and each late
+    /// frame names its phase.
+    func testARecordingReportsEachScrollPhaseAndItsLateFrames() throws {
+        let recording = FrameSampler.Recording(began: 0)
+        recording.scrollers = [(t: 10, name: "list")]
+        let p = 1000.0 / 120
+        func frame(_ t: Double, _ interval: Double, _ phase: String?, _ y: Double = 0, overrun: Double = 0) {
+            var r = FrameSampler.Record(t: t, interval: interval, missed: max(0, Int((interval / p).rounded()) - 1), seq: nil, batches: 0, apply: 0)
+            r.period = p; r.overrun = overrun; r.main = 2
+            if let phase { r.scroll = (y, phase) }
+            recording.keep(r)
+        }
+        frame(8.33, p, nil)
+        frame(16.67, p + 0.02, "t", 0)
+        frame(33.33, p * 2, "t", 10)
+        frame(41.67, p, "d", 20, overrun: 3)
+        frame(50, p, "d", 25)
+        frame(58.33, p, "-", 25)
+        let report = FrameSampler.report(recording, identity: [:])
+        let segments = try XCTUnwrap(report["segments"] as? [[String: Any]])
+        XCTAssertEqual(segments.map { $0["phase"] as? String }, ["rest", "drag", "glide", "rest"])
+        XCTAssertEqual(segments[1]["scroller"] as? String, "list")
+        XCTAssertEqual(segments[1]["missed"] as? Int, 1)
+        XCTAssertEqual(segments[1]["hitchMs"] as? Double, 8.33)
+        XCTAssertEqual(segments[2]["scrolledPt"] as? Double, 5)
+        let late = try XCTUnwrap(report["late"] as? [[String: Any]])
+        XCTAssertEqual(late.map { $0["phase"] as? String }, ["drag", "glide"])
+        XCTAssertEqual(late[1]["overrun"] as? Double, 3)
+    }
+
+    /// `stopTrace(maxBytes)`: the report cut to fit, its late frames those
+    /// late the longest first, as many as fit, and its scroll segments kept.
+    func testACompactReportFitsItsBudgetWithTheLatestFramesFirst() throws {
+        let recording = FrameSampler.Recording(began: 0)
+        recording.scrollers = [(t: 0, name: "list")]
+        let p = 1000.0 / 120
+        for i in 0..<300 {
+            let interval = i % 3 == 0 ? p * Double(2 + i % 4) : p
+            var r = FrameSampler.Record(t: Double(i) * p, interval: interval, missed: max(0, Int((interval / p).rounded()) - 1), seq: nil, batches: 1, apply: 1.5)
+            r.period = p; r.main = 4; r.scroll = (Double(i), i < 150 ? "t" : "d")
+            recording.keep(r)
+        }
+        let report = FrameSampler.report(recording, identity: ["device": "test"])
+        let data = FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: 4000)
+        XCTAssertLessThanOrEqual(data.count, 4000)
+        let compact = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual((compact["segments"] as? [[Any]])?.map { $0.first as? String }, ["drag", "glide"])
+        let late = try XCTUnwrap(compact["late"] as? [[Any]])
+        XCTAssertFalse(late.isEmpty)
+        let intervals = late.compactMap { $0[2] as? Double }
+        XCTAssertEqual(intervals, intervals.sorted(by: >))
+        XCTAssertGreaterThan(FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: 8000).count, data.count)
+    }
+
     /// A frame the link delivered on time is late all the same when the main
     /// thread's turn that commits it ends after the frame's target: the
     /// render server shows the last frame again.
