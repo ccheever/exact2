@@ -9,6 +9,8 @@
 use Channel from "./shapes.contract"
 
 members Excord
+  // The screen a picture's viewer (`photo`) is open over: its channel's.
+  derive screen = top(nav).name == "photo" ? "channel" : top(nav).name
   state onScreen = "" persist
   // "?" until the launch is read; then the channel to restore, or "" (nothing, done or cancelled); "!" when
   // Back came before the launch was read (`back`, app.contract), which leaves the list for this launch and the next.
@@ -19,11 +21,11 @@ members Excord
   task readRestore when restore == "?"
     after(1, readLaunch)
   action readLaunch
-    restoreFrom = top(nav).name
-    restore = top(nav).name == "channel" ? top(nav).params.channel : (wide ? "" : onScreen)
+    restoreFrom = screen
+    restore = screen == "channel" ? top(nav).params.channel : (wide ? "" : onScreen)
     restoreServer = server
   // The user has not acted first: nothing opened or followed, still where the launch was, signed in, the same server.
-  derive restoreWanted = open == "" and pendingOpen == "" and not signedOutNow and server == restoreServer and (restoreFrom != "channel" or top(nav).name == "channel")
+  derive restoreWanted = open == "" and pendingOpen == "" and not signedOutNow and server == restoreServer and (restoreFrom != "channel" or screen == "channel")
   derive restoring = restore != "?" and restore != "!" and restore != ""
   task backAtLaunch when restore == "!"
     after(1, listAtLaunch)
@@ -53,11 +55,11 @@ members Excord
   action cancelRestore
     restore = ""
     // Back to the list at launch leaves the list for the next launch too.
-    if top(nav).name != "channel"
+    if screen != "channel"
       onScreen = ""
   // What is on screen is kept for the next launch: a channel once it opens, nothing once the list shows or
   // the account signs out (signing in again starts at the list).
-  task keepOnScreen when restore != "?" and restore != "!" and not restoring and (top(nav).name == "channel" and not signedOutNow ? open : "") != onScreen and (open != "" or top(nav).name == "channel" or signedOutNow) key = `${top(nav).name}:${open}:${signedOutNow}`
+  task keepOnScreen when restore != "?" and restore != "!" and not restoring and (screen == "channel" and not signedOutNow ? open : "") != onScreen and (open != "" or screen == "channel" or signedOutNow) key = `${screen}:${open}:${signedOutNow}`
     after(1, rememberScreen)
   action rememberScreen
-    onScreen = top(nav).name == "channel" and not signedOutNow ? open : ""
+    onScreen = screen == "channel" and not signedOutNow ? open : ""

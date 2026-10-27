@@ -1072,6 +1072,78 @@ test "an image opens full screen, zooms on a double tap and closes"
   tap "viewer-close"
   clock settle
   expect tree missing "viewer"
+  expect state reading == true
+
+test "a picture opens as a screen over its channel, and Back closes it alone"
+  clock +500 real
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  expect state viewingKey == "1562887009075210000-1562887009075399990"
+  expect state screen == "channel"
+  expect state reading == false
+  back
+  clock settle
+  expect tree missing "viewer"
+  expect state viewing == ""
+  expect state reading == true
+  expect tree has "composer"
+
+test "a channel opened from over a picture replaces the picture's"
+  clock +500 real
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  type "viewer-close" key "Meta+k"
+  clock settle
+  type "switcher-search" "hel"
+  clock data
+  type "switcher-search" key "Enter"
+  clock data
+  clock settle
+  expect state chan.name == "help"
+  expect state viewing == ""
+  expect state reading == true
+  reload
+  clock +500 real
+  clock settle
+  clock data
+  clock settle
+  expect state chan.name == "help"
+  expect state screen == "channel"
+
+test "a reload over a picture shows its channel"
+  clock +500 real
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  reload
+  clock +500 real
+  clock settle
+  clock data
+  clock settle
+  expect state viewing == ""
+  expect state screen == "channel"
+  expect state chan.name == "general"
+  expect state nav.tabs.0 .stack.1 .url == "/c/1191168914235588608"
+
+test "a drag down at fit closes the picture"
+  clock +500 real
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  tap "viewer-handle" drag 0 300
+  clock settle
+  expect tree missing "viewer"
+  expect state reading == true
 
 test "picked pictures go up with the message"
   clock +500 real

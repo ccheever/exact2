@@ -270,8 +270,8 @@ function commit(op) {
       if (written[j]?.id === op.top) {
         const from = cursor;
         cursor = j;
-        go(j, from);
-        return;
+        // The entry gone back to takes the top's url when that changed in the same commit (`replace(back(r), u)`).
+        return go(j, from, () => written[j].url === op.url || history.replaceState(written[j] = stamp(j, op), "", historyURL(op.url)));
       }
     }
     for (const index of Object.keys(written)) if (Number(index) > cursor) delete written[index];
@@ -288,7 +288,7 @@ function popped({ j, state, url }) {
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
   // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
   // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationBack.way): the route's
-  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3).
+  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3). An entry given to `navigate` at the URL already shown, which this page did not write or which holds the visit shown, is accepted though nothing changed: a `replace` can give the only entry a reload wrote the URL of the one beneath it, and refusing would hold Back there. An earlier visit at that URL is still refused: accepting it would leave the visits after it on the stack.
   const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   let back = beneath && !!backControl(nav), own = false, why = null;
   pop = {};
@@ -298,7 +298,7 @@ function popped({ j, state, url }) {
       own = true; back = step && (!!backControl(nav) || closedNone(selectedRoute(nav)));
       if (back) why = pressBack(nav); else if (step) hostBack?.(written[cursor].id); else hostGo?.(target);
     }
-    const accepted = back ? last?.top === entry.id : pop.op?.url === target;
+    const accepted = back ? last?.top === entry.id : (pop.op ?? (!owned || entry.id === last?.top ? last : null))?.url === target;
     if (accepted) {
       cursor = j ?? cursor;
       first = Math.min(first, cursor);

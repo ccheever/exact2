@@ -15,7 +15,7 @@ use translatorAvailability, createTranslator, translate, createLanguageDetector,
 use AgeGate from "./agegate.contract"
 use MessageRow from "./transcript.contract"
 use DirectoryList from "./directory.contract"
-use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
+use ImageViewer, ViewerRoute, viewerFade from "./viewer.contract"
 use MemberList, ProfileCard from "./members.contract"
 use PickerFrames, DeleteConfirm from "./picker.contract"
 use RoundButton, MessageMenu from "./controls.contract"
@@ -23,9 +23,12 @@ use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
 
+// A picture's route is the list's child, not its channel's: a reload at its address opens over the
+// list alone, so `strayViewer` can give that one history entry the channel's address.
 routes nav
   home "/"
     channel "/c/:channel"
+    photo "/c/:channel/photo/:photo"
 
 component Excord
   state now = 0
@@ -91,18 +94,6 @@ component Excord
   state revealed: string[] = []
   // A poll's answers chosen before its vote, as `${message id}:${answer id}`.
   state pollPicks: string[] = []
-  // The picture the viewer shows full screen ("" while it is closed).
-  state viewing = ""
-  state viewingAlt = ""
-  state viewingWidth = 0
-  state viewingHeight = 0
-  state viewPanX = 0
-  state viewPanY = 0
-  state viewZoom = 1
-  state viewBoxWidth = 0
-  state viewBoxHeight = 0
-  state viewPortWidth = 0
-  state viewPortHeight = 0
   state aimed = ""
   state aimedId = ""
   state aimedText = ""
@@ -261,8 +252,8 @@ component Excord
   // Asks count too: a page whose window the host refused runs no `afterPage` and would be asked for good.
   derive historyFailed = win.channel == open and win.need != "" and pageAsked == pageKey and (pageTries >= 3 or (pageAsks >= 3 and not pending(paged)))
   derive historyLoading = pending(win) or win.channel != open or win.need != ""
-  // The transcript is on screen, not the channel list or a picture over it.
-  derive reading = top(nav).name == "channel" and viewing == ""
+  // The transcript is on screen, not the channel list, a picture or the lock screen over it.
+  derive reading = top(nav).name == "channel" and not locked
   derive draft = editing == "" ? draftOf(drafts, open) : editText
   // A name being written (`@ada`, `#gen`, `:fer`) and what it could be.
   resource suggestions = suggest(open, draft) as shape Suggestion[] else empty()
@@ -334,6 +325,7 @@ component Excord
   task signedOutHome when signedOutNow and top(nav).name != "home"
     after(1, toSignIn)
   members "./routing.contract"
+  members "./viewer.contract"
   task digest when gw.queued > 0 and not pending(digested) key=gw.seq
     after(1, digestNow)
   task traffic when live and open != ""
@@ -443,7 +435,7 @@ component Excord
     let p = placeOf(places, id)
     // A split opens one channel over another: the one left keeps its place and draft, and is read
     // as `leaving` reads it (its `viewChannel` is this one's below).
-    if top(nav).name == "channel" and open != "" and open != id
+    if screen == "channel" and open != "" and open != id
       places = places.filter(q => q.channel != open).concat([Place(channel=open, anchor=anchor, key=topKey, offset=topOffset, atEnd=not away)])
       if editing != ""
         drafts = withDraft(drafts, open, stash)
@@ -489,8 +481,9 @@ component Excord
       send age = requestAgeRange(ageGates=[18])
     send joined = viewChannel(id)
     lastChannels = withDraft(lastChannels, c.guild != "" ? c.guild : "@me", id)
-    // Beside the list (a split) one channel replaces another, as a sidebar's selection does.
-    nav = top(nav).name == "channel" ? replace(nav, path("channel", id)) : push(nav, path("channel", id))
+    // Beside the list (a split) one channel replaces another, as a sidebar's selection does; a picture
+    // open over the channel left closes with it.
+    nav = top(nav).name == "photo" ? replace(photoOverChannel ? back(nav) : nav, path("channel", id)) : top(nav).name == "channel" ? replace(nav, path("channel", id)) : push(nav, path("channel", id))
   action confirmAge
     ageGate = "confirmed"
   action toggleFolder(id: string)
@@ -533,10 +526,15 @@ component Excord
     profileUser = ""
     close("profile")
   // Leaving keeps the reader's place, puts an unsaved edit away and acknowledges
-  // what was on screen at the end.
+  // what was on screen at the end. A picture opens from its thumbnail only, so
+  // a Forward to one is refused; from over a picture, its channel's address
+  // closes the picture alone. The address on screen (an entry a reload's
+  // stray picture left beside its channel's) leaves nothing.
   action leave(url: string)
-    leaving()
-    nav = go(nav, url)
+    if not url.includes("/photo/") and url != top(nav).url
+      if top(nav).name != "photo" or url != path("channel", top(nav).params.channel)
+        leaving()
+      nav = go(nav, url)
   action back
     restore = restore == "?" ? "!" : restore
     leaving()
@@ -552,10 +550,9 @@ component Excord
       stash = ""
       stashReplyTo = ""
       stashReplyName = ""
-    // What arrived behind a picture was not seen: a Back over the viewer reads nothing.
+    // What arrived behind a picture was not seen: leaving from the viewer reads nothing.
     if not away and anchor == "" and chan.unread > 0 and viewing == ""
       send acked = markRead(open)
-    viewing = ""
     send joined = viewChannel("")
 
   // The window: the reader's place decides which run of history it holds.
@@ -890,38 +887,6 @@ component Excord
       revealed = revealed.concat([`poll:${id}`])
     else
       revealed = revealed.filter(k => k != `poll:${id}`)
-  action show(src: string, alt: string, w: number, h: number)
-    viewingAlt = alt
-    viewingWidth = w
-    viewingHeight = h
-    viewPanX = 0
-    viewPanY = 0
-    viewZoom = 1
-    viewing = src
-  action closeViewer
-    viewing = ""
-  action viewerGeometry(bw: number, bh: number, pw: number, ph: number)
-    viewBoxWidth = bw
-    viewBoxHeight = bh
-    viewPortWidth = pw
-    viewPortHeight = ph
-  // At fit, a drag down far or fast enough closes the viewer; otherwise the
-  // pinch's scale is kept between fit and 4x and the pan stays inside the picture.
-  action viewerRelease(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
-    // A picture Discord gave no size is taken as filling the box.
-    let w = viewingWidth > 0 ? viewingWidth : viewBoxWidth
-    let h = viewingHeight > 0 ? viewingHeight : viewBoxHeight
-    let fit = photoFit(viewBoxWidth, viewBoxHeight, w, h)
-    if photoZoom(scale) == 1 and (y > 120 or vy > 800)
-      viewing = ""
-    else
-      viewZoom = photoZoom(scale)
-      viewPanX = fit > 0 ? photoClamp(x, w, fit, photoZoom(scale), viewPortWidth) : 0
-      viewPanY = fit > 0 ? photoClamp(y, h, fit, photoZoom(scale), viewPortHeight) : 0
-  action viewerToggleZoom
-    viewZoom = viewZoom > 1 ? 1 : 2
-    viewPanX = 0
-    viewPanY = 0
   action aim(key: string, id: string, mine: bool, text: string, author: string, forwarded: bool)
     aimedForward = forwarded
     aimedAuthor = author
@@ -1084,8 +1049,6 @@ component Excord
     close("profile")
     server = serverId
     openChannel(id)
-    // A picture open over the channel left closes with it.
-    viewing = ""
   action switcherClosed
     switching = false
   action toggleReaction(id: string, emoji: string)
@@ -1265,6 +1228,10 @@ component Excord
               image "symbol:messages" font-size=40 color="-exact-tertiary-label"
               text (dmsShown ? "Choose a conversation" : "Choose a channel") font="-exact-title3" color="-exact-secondary-label"
             DirectoryList(gw=gw, dmsShown=dmsShown, guild=guild, dmUnread=dmUnread, dmMentions=dmMentions, rail=rail, openFolders=openFolders, directoryLoaded=directoryLoaded, directoryFailed=directoryFailed, recentDms=recentDms, dms=dms, here=here, channelsFailed=failed(categories), pickServer=pickServer, toggleFolder=toggleFolder, openChannel=openChannel, moreDms=moreDms, retryChannels=retryChannels)
+        else if e.name == "photo"
+          column navigationKey=`${e.id}` navigationPresentation="fullscreen" navigationSource=`photo-${e.params.photo}` position="absolute" inset=0 class=ViewerRoute animation=(viewZoom == 1 ? "viewerFade 1s linear both" : "none")
+            if viewing != "" and not locked
+              ImageViewer(src=viewing, photo=`photo-${e.params.photo}`, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)
         else
           column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0 inert=covered
             header display="flex" align-items="center" gap=8 padding="8px 16px"
@@ -1458,9 +1425,6 @@ component Excord
                       Badge(label=`${t.mentions}`, tint=some("-exact-system-red"))
           if targets.length == 0
             text (switchQuery == "" ? "Type a channel's or a person's name." : "Nothing matches.") font="-exact-footnote" color="-exact-secondary-label" padding="8px 10px"
-      if viewing != "" and not locked
-        for v in [viewing] key=v
-          ImageViewer(src=v, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)
       dialog id="delete-failed" role="alertdialog" aria-label="Couldn’t Delete Message"
         text deleteError testId="delete-error"
         button commandfor="delete-failed" command="close" testId="delete-error-ok"

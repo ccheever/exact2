@@ -458,6 +458,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
   `navigationPresentation="fullscreen"` route. (Signal Clone, build 10.)
+- **A full-screen route on iOS shows white bands above and below its content.**
+  Cause: the host keeps the route's content clear of the status bar and the home
+  indicator (LLP 1123 D3), so a child at `position="absolute" inset=0` starts
+  below the status bar, and where the route paints nothing its controller shows
+  the system background. Fix: give the route's own column the background
+  (`background-color`, with `color-scheme="dark"` for a photo viewer): the host
+  paints it to the screen's edges. It is painted once, so an animation of it does
+  not show there. (Excord's image viewer, 2026-10-27.)
 - **A Mac glass panel shows sharp content behind a wrapper.** AppKit's
   `backdrop-filter` samples only the parent's subtree, even when every wrapper
   is transparent. Make the glass a direct sibling of what it covers; put a
