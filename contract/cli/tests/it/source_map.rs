@@ -1232,7 +1232,7 @@ component Plain
     // No fill and no element-less component on the way: the chain is the walk, and no `walk` is written.
     for id in ["leaf", "plain", "post", "outer", "root"] {
         assert!(
-            at(&runner, &map, id).get("steps").is_none(),
+            at(&runner, &map, id).get("walk").is_none(),
             "{id}: {}",
             at(&runner, &map, id)
         );

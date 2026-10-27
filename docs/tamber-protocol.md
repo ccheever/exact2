@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.17`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.18`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.17"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.18"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -202,6 +202,11 @@ on macOS and Linux.
   Then the sweep's: `tamber-axes` (32 axes) and `tamber-whens` (64 `when` lines a token), design limits alike everywhere,
   and `tamber-ops-size` (1024 operations in a client's request).
   The local token's body may be 16 MiB, every other client's 1 MiB.
+- `tamber/1.18` (stage 15, after stage 14 closed) is opened by the selection's chain as the page walks it (stage 15 D):
+  `source.chain`'s entry `i` is where a `select` of `up: i + 1` lands (the page's own walk up its tree, by `copies`), a
+  slot's host one of its entries with `slot: true`, named by its own call, and a component with no element of its
+  own none. The field is optional: an older server never sends it, and an older client shows the entry as a plain
+  call site whose press lands there all the same.
 
 ## Where it runs
 

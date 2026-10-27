@@ -74,7 +74,7 @@ mod walk;
 use answers::{diagnostic, located, modes_of, no_token, refused, temp_name};
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.17";
+pub const PROTOCOL: &str = "tamber/1.18";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;

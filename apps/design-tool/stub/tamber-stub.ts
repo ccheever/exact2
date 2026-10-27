@@ -228,7 +228,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!allows(asker.scope, need, asker.local)) { const r = refusal(request.method, asker.scope, need); return send({ error: r.error }, r.status); }
       // (A server that lies to a paired client, saying it is local with a page, as a test asks: `/__stub/forge-local`.)
       if (request.method === 'hello' && refuseHello) return send({ error: { message: 'the design files could not be read' } }, 500);
-      if (request.method === 'hello') return send({ ok: { protocol: longPolls ? 'tamber/1.17' : 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
+      if (request.method === 'hello') return send({ ok: { protocol: longPolls ? 'tamber/1.18' : 'tamber/1.13', format: 1, builds: BUILDS, app: '/stub/theme-fixture', files: FILES, epoch: EPOCH, design: 'app.tamber', page: asker.local || forgeLocal ? PAGE ?? (forgeLocal ? 'http://127.0.0.1:5173' : null) : null, live: LIVE, scope: asker.scope, local: asker.local || forgeLocal, ...(asker.client ? { client: asker.client } : {}) } });
       // (Refused once each, as a test asks: `/__stub/refuse-pairing`.)
       if ((request.method === 'pair-code' || request.method === 'clients') && refusePairing.delete(request.method)) return send({ error: { message: `${request.method}: refused, as the test asked` } }, 500);
       if (request.method === 'pair-code') return mint(request);
