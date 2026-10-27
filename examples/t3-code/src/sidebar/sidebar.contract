@@ -164,7 +164,8 @@ component Sidebar
                     SidebarIcon(name="plus", size=12, color="light-dark(#71717b, #818181)")
                     text "Add project" font-size="0.6875rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
             else
-              box flex=1 min-height="1rem"
+              // The first shelf header's mt-auto: no space of its own once the list overflows.
+              box flex=1
               if data.sidebar.workingCount > 0
                 ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="working", label="Working", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               if data.sidebar.snoozedCount > 0

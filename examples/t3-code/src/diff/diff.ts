@@ -251,6 +251,18 @@ export function wordMarks(before: string, after: string): [Segment[], Segment[]]
 /** A drawn line: its tone and number, and the line it is on each side (0 for none), for line selection and comments. */
 export type Row = { tone: string; number: string; segments: Segment[]; oldLine: number; newLine: number };
 export const plain = (text: string): Segment[] => [{ id: '0', text, mark: false, syntax: '' }];
+/** A Markdown list item's marker: the reference highlights with @pierre/highlights (d228f1f2c8 #23178), whose
+ *  pierre themes paint `punctuation.list_marker` in the punctuation grey; the pierre Shiki themes give it the heading ink. */
+const LIST_MARKER = /^\s*([-*+]|\d+[.)])\s*$/;
+function diffLineTokens(lines: readonly string[], path: string): Token[][] {
+  const tokens = lineTokens(lines, path);
+  if (!/\.(md|mdx|markdown)$/i.test(path)) return tokens;
+  return tokens.map(line => {
+    const first = line.findIndex(token => token.text.trim() !== '');
+    if (first < 0 || (line[first]!.cls !== 'tag' && line[first]!.cls !== 'heading') || !LIST_MARKER.test(line[first]!.text)) return line;
+    return line.map((token, at) => at === first ? { ...token, cls: 'punct' } : token);
+  });
+}
 /**
  * One hunk as stacked rows and split pairs; the pull request Code tab draws the same rows (pages-pr-code-rows.ts).
  * With `marks`, each deletion and the addition at its index in a change block carry word-alt marks (wordAltMarks).
@@ -260,7 +272,7 @@ export function hunkRows(hunk: Hunk, path: string, marks = false): { stacked: Ro
   const empty: Row = { tone: 'empty', number: '', segments: [], oldLine: 0, newLine: 0 };
   // Each side is highlighted as one text (timeline-diff-syntax.ts).
   const oldSide = hunk.lines.filter(line => line.kind !== 'addition'), newSide = hunk.lines.filter(line => line.kind !== 'deletion');
-  const oldTokens = lineTokens(oldSide.map(line => line.text), path), newTokens = lineTokens(newSide.map(line => line.text), path);
+  const oldTokens = diffLineTokens(oldSide.map(line => line.text), path), newTokens = diffLineTokens(newSide.map(line => line.text), path);
   const syntax = new Map<Line, { old: Token[]; next: Token[] }>();
   oldSide.forEach((line, at) => syntax.set(line, { old: oldTokens[at] ?? [], next: [] }));
   newSide.forEach((line, at) => syntax.set(line, { old: syntax.get(line)?.old ?? [], next: newTokens[at] ?? [] }));

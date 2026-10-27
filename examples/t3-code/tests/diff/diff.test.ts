@@ -135,3 +135,10 @@ test('a replaced line pair projects word-alt segments on both sides, stacked and
   // Without `marks` (the pull request Code tab) the rows keep no marks.
   expect(hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => marked(row.segments))).toEqual(['', '', '', '']);
 });
+
+test('a Markdown list marker paints punctuation grey; the heading keeps its ink', () => {
+  const [file] = parsePatch(['diff --git a/notes/plan.md b/notes/plan.md', '--- a/notes/plan.md', '+++ b/notes/plan.md', '@@ -0,0 +1,4 @@',
+    '+# Plan', '+1. Write the outline.', '+  - Who reviews', '+3 is a number.', ''].join('\n'));
+  const syntax = hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => row.segments.filter(segment => segment.text.trim() !== '')[0]!);
+  expect(syntax.map(segment => [segment.text, segment.syntax])).toEqual([['# Plan', 'tag'], ['1.', 'punct'], ['-', 'punct'], ['3 is a number.', '']]);
+});
