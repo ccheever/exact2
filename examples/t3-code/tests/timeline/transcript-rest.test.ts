@@ -10,13 +10,14 @@ const column = contractComponent('app-main.contract', 'ChatColumn');
 /** The root's rest slots over a 100pt port of a 500pt transcript, on a clock `now` in ms. */
 function transcript(canRest = true) {
   const state: Env = { restOwner: '', restResting: false, restAtEnd: true, restPulls: 0, restGestureUntil: -1, restLastPull: -1000000,
-    restTop: -1, restHeight: -1, restContent: -1, restWidth: -1, restMovement: 0, findViewport: '' };
+    restTop: -1, restHeight: -1, restContent: -1, restWidth: -1, restMovement: 0, findViewport: '', restText: '' };
   const clock = { now: 0 };
-  const scope = () => ({ canRest, max: Math.max, performanceNow: () => clock.now });
+  const draft = { text: '' };
+  const scope = () => ({ canRest, composerText: draft.text, max: Math.max, performanceNow: () => clock.now });
   const at = (top: number, owner = 'A', size: { content?: number; width?: number; key?: string } = {}) =>
     root.call('restScrolled', state, scope(), [owner, { scrollTop: top, scrollHeight: size.content ?? 500, clientHeight: 100, clientWidth: size.width ?? 300, firstVisibleKey: size.key }]);
   const gesture = (towardEnd: boolean) => root.call('restGesture', state, scope(), [towardEnd]);
-  return { state, clock, at, gesture };
+  return { state, clock, draft, at, gesture };
 }
 
 describe('the composer rests on a reader\'s movement away from the end', () => {
@@ -54,7 +55,17 @@ describe('the composer rests on a reader\'s movement away from the end', () => {
     expect(t.state.restResting).toBe(false);
   });
 
-  test('without eligibility (a focused or multi-line composer, a request) nothing rests', () => {
+  test('the rest keeps the prompt it came to rest on, for an edit to end it (restTyped)', () => {
+    const t = transcript();
+    t.draft.text = 'half a thought';
+    t.at(400); t.gesture(false); t.at(350);
+    expect([t.state.restResting, t.state.restText]).toEqual([true, 'half a thought']);
+    t.draft.text = 'half a thought, more';
+    t.gesture(false); t.at(300);
+    expect(t.state.restText).toBe('half a thought'); // further movement keeps the first
+  });
+
+  test('without eligibility (a multi-line composer, a request) nothing rests', () => {
     const t = transcript(false);
     t.at(300); t.gesture(false); t.at(260);
     expect(t.state.restResting).toBe(false);

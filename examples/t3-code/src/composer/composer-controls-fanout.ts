@@ -12,6 +12,7 @@ import { triggerModelName } from './composer-controls-model';
 import { dispatchSelection } from './composer-ultrathink';
 import { letGo } from '../client/let-go';
 import { composerPair } from './composer-provider-selection'; // the seed is the shown model
+import { acpInstanceIcon } from './acp-instance-icon';
 
 export type FanoutSelection = { instanceId: string; model: string; options: Obj[] };
 // draftFanoutStateAtom: per draft route, in memory.
@@ -56,7 +57,7 @@ export function fanoutView(client: T3Client) {
   const entries = (list ?? []).map(selection => {
     const provider = providers.find(entry => entry.instanceId === selection.instanceId);
     const model = arr(provider?.models).find(entry => entry.slug === selection.model);
-    return { key: `${selection.instanceId}:${selection.model}`, driver: str(provider?.driver),
+    return { key: `${selection.instanceId}:${selection.model}`, driver: str(provider?.driver), icon: acpInstanceIcon(client.config, provider),
       label: model ? `${triggerModelName(model)}${model.isUnavailable === true ? ' (Unavailable)' : ''}` : selection.model };
   });
   return {
@@ -64,7 +65,7 @@ export function fanoutView(client: T3Client) {
     // multipleLabel: two names, then "N more"; allModelNames is the accessible name.
     fanoutLabel: !list ? '' : `${entries.slice(0, 2).map(entry => entry.label).join(', ')}${entries.length > 2 ? `, ${entries.length - 2} more` : ''}`,
     fanoutAria: !list ? '' : entries.map(entry => entry.label).join(', ') || 'Choose models',
-    fanoutMarks: entries.slice(0, 3).map(entry => ({ key: entry.key, driver: entry.driver })),
+    fanoutMarks: entries.slice(0, 3).map(entry => ({ key: entry.key, driver: entry.driver, icon: entry.icon })),
     fanoutMore: Math.max(0, entries.length - 3),
     fanoutKeys: entries.map(entry => entry.key),
   };

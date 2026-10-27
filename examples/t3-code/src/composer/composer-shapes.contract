@@ -158,6 +158,7 @@ shape ComposerBranches
 shape FanoutMark
   key: string
   driver: string
+  icon: string
 shape ComposerView
   placeholder: string
   modelTip: string
@@ -168,6 +169,8 @@ shape ComposerView
   fanoutMore: number
   fanoutKeys: string[]
   traitsLabel: string
+  // The selected ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  providerIcon: string
   runtimeIconOnly: bool
   traitsIconOnly: bool
   restingRuntimeIconOnly: bool
@@ -290,6 +293,8 @@ shape PickerRow
   name: string
   label: string
   driver: string
+  // An ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  icon: string
   // The provider line shows (a search, Favorites, a sub-provider; the Legacy header): a 48pt row, else 32pt.
   twoLine: bool
   favorite: bool
@@ -309,6 +314,8 @@ shape PickerRail
   index: number
   name: string
   driver: string
+  // An ACP Registry instance's agent icon URL (acp-instance-icon.ts).
+  icon: string
   ready: bool
   // An instance that needs setup is selectable though not ready.
   selectable: bool
