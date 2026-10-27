@@ -6,6 +6,20 @@ export const transportSecurity = (section, keys = {}) => {
   return Object.keys(ats).length ? { NSAppTransportSecurity: ats } : {};
 };
 
+/** A launch no link started opens at the manifest's `start_url`, as an installed web app does (W3C App Manifest): resolved
+ * against the manifest's URL, on the app's declared origin when it has one, and baked when it is a place in the app (on
+ * that origin) other than the root. */
+export const startLocation = ({ manifest: { start_url: at }, origin: declared }) => {
+  if (typeof at !== 'string' || !at) return {};
+  const origin = declared ? new URL(declared).origin : 'https://exact.invalid';
+  const url = new URL(at, `${origin}/manifest.json`), place = url.pathname + url.search + url.hash;
+  return url.origin === origin && place !== '/' ? { ExactStartURL: place } : {};
+};
+
+/** When a downloaded update applies and how often the app checks (`deploy.activate`, `deploy.check.interval`). */
+export const updateActivation = (app) => ({ ...(app.manifest.deploy?.activate ? { ExactUpdateActivate: app.manifest.deploy.activate } : {}),
+  ...(app.manifest.deploy?.check?.interval != null ? { ExactUpdateCheckInterval: app.manifest.deploy.check.interval } : {}) });
+
 /** The iOS rows for background work (LLP 1133.017 D14): `UIBackgroundModes`, the manifest's
  * `host.ios.backgroundModes` with the modes the grant lines derive (`reach.backgroundModes`), and
  * `BGTaskSchedulerPermittedIdentifiers`, the identifiers they permit after the bundle id `id`. `fetch` and `processing` come only from a grant line, so a mode has one way to be declared. `only`: the

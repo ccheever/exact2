@@ -6,6 +6,16 @@
 import Foundation
 
 extension ExactEnv {
+    /// Baked host metadata: a bundle normally; the existing product sidecar in bare development builds.
+    nonisolated(unsafe) public static let appMetadata: [String: Any] = {
+        if let info = Bundle.main.infoDictionary, info["CFBundleIdentifier"] != nil { return info }
+        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+        let path = executable.deletingLastPathComponent().appendingPathComponent(executable.lastPathComponent + "-Info.plist")
+        guard let data = try? Data(contentsOf: path),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return [:] }
+        return info
+    }()
+    public static let appName = appMetadata["CFBundleDisplayName"] as? String ?? appMetadata["CFBundleName"] as? String ?? "Exact"
     /// Whether the dev menu was asked for: `EXACT_DEV_MENU` at launch, else
     /// as the build's environment had it (`ExactDevMenu` in Info.plist; an
     /// installed iOS app is launched with no environment), else the person's

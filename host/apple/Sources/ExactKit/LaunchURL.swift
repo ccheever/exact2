@@ -53,6 +53,17 @@ extension ExactSession {
         return openIncoming(runtime.location(of: incoming))
     }
 
+    /// The manifest's `start_url` when it is not the root, which the Apple
+    /// build bakes as `ExactStartURL` (W3C App Manifest).
+    nonisolated(unsafe) static var startLocation = ExactEnv.appMetadata["ExactStartURL"] as? String
+
+    /// A launch no link started opens at the start location, on either
+    /// boot. A session already booted is not navigated: a restart (the dev
+    /// menu's) boots again at the launch location the bridge keeps.
+    func openStartLocation() {
+        if !booted, launchLocation == nil, let start = Self.startLocation { _ = openIncoming(start) }
+    }
+
     /// Before boot the first incoming location is the launch location and
     /// later ones navigate in order after it; afterwards each is one event.
     func openIncoming(_ location: String) -> Bool {
