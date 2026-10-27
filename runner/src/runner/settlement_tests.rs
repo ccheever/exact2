@@ -129,6 +129,12 @@ struct Data {
     guard_refuse: Option<DataError>,
     /// `rows` answers later with a plain GET, a request a re-ask may keep.
     later_get: bool,
+    /// `watch` answers later (else now, false).
+    watch_later: bool,
+    /// `guard` writes the store once.
+    guard_writes_once: bool,
+    /// Moved by `rows`'s refused turn: a turn that took this long, on a live clock.
+    turn_ms: Option<(std::sync::Arc<std::sync::Mutex<f64>>, f64)>,
     adopted: Vec<(String, Vec<Value>, Value)>,
 }
 
@@ -150,6 +156,9 @@ impl Data {
             guard_stream: false,
             guard_refuse: None,
             later_get: false,
+            watch_later: false,
+            guard_writes_once: false,
+            turn_ms: None,
             adopted: Vec::new(),
         }
     }
@@ -170,7 +179,20 @@ impl DataSource for Data {
         if self.read_store && source == "rows" {
             store.get("token");
         }
+        if source == "watch" {
+            return Ok(if self.watch_later {
+                Answer::Later(Request::continuation(2))
+            } else {
+                Answer::Now(Value::Bool(false))
+            });
+        }
+        if source == "guard" && std::mem::take(&mut self.guard_writes_once) {
+            store.set("token", "once")?;
+        }
         if let (Some(e), "rows") = (&self.refuse, source) {
+            if let Some((clock, ms)) = &self.turn_ms {
+                *clock.lock().unwrap() += ms;
+            }
             return Err(e.clone());
         }
         if let (Some(e), "guard") = (&self.guard_refuse, source) {
@@ -242,6 +264,17 @@ fn records(count: usize) -> Value {
 }
 
 fn plan(kind: TypeKind, baked: Option<&Value>, reader: bool, guard: bool) -> Plan {
+    plan_with(kind, baked, reader, guard, false)
+}
+
+/// [`plan`], and with `watch` a resource `watch` asked with `failed(rows)`.
+fn plan_with(
+    kind: TypeKind,
+    baked: Option<&Value>,
+    reader: bool,
+    guard: bool,
+    watch: bool,
+) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let field = b.primitive(kind);
     let item = b.record("Item", &[("value", field)]);
@@ -274,6 +307,13 @@ fn plan(kind: TypeKind, baked: Option<&Value>, reader: bool, guard: bool) -> Pla
         arg.load_resource(rows).call(Stdlib::Length);
         let arg = b.code(arg);
         b.resource("guard", "guard", &[arg], boolean, None);
+    }
+    if watch {
+        let boolean = b.primitive(TypeKind::Bool);
+        let mut arg = Asm::new();
+        arg.failed_resource(rows);
+        let arg = b.code(arg);
+        b.resource("watch", "watch", &[arg], boolean, None);
     }
     b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
     b.finish().unwrap()
@@ -1192,4 +1232,110 @@ fn a_store_readers_new_ask_keeps_its_streak() {
     r.data().parse_error = Some(overrun());
     r.fulfill(asked[0].ticket, reply()).unwrap();
     assert_eq!(r.timer_due_ms(), Some(r.now_ms() + 1000.));
+}
+
+// Round 2 of the redesign (Astra, Grok): each red before its fix.
+
+/// A spent streak's failing commit is made under its ask's origin and
+/// invocation, as each re-ask was: what it asks (here `watch`, which reads
+/// `failed(rows)`) is stamped so.
+#[test]
+fn a_spent_streaks_failure_keeps_its_asks_provenance() {
+    let mut r = boot(
+        plan_with(TypeKind::Number, None, false, true, true),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.as_invocation(CallOrigin::Tool, 7, |r| {
+        r.act("change", vec![Value::Number(1.)])
+    })
+    .unwrap();
+    let t0 = r.now_ms();
+    r.data().refuse = None;
+    r.data().value = records(3);
+    r.data().bad_guard = true;
+    r.data().watch_later = true;
+    assert!(r.advance(t0 + 250.).is_err());
+    r.advance(t0 + 5_000.).unwrap();
+    let asked = r.take_requests();
+    let watch = asked
+        .iter()
+        .find(|q| q.target == "watch")
+        .expect("watch asked");
+    assert_eq!(r.ticket_origin(watch.ticket), CallOrigin::Tool);
+    assert_eq!(r.ticket_id(watch.ticket), 7);
+}
+
+/// A refresh refused by a turn over its budget, asked again in a later pass
+/// of the same settlement (a store reader after a later resource wrote),
+/// still replaces another invocation's wait.
+#[test]
+fn a_refresh_asked_again_in_a_later_pass_still_replaces_the_wait() {
+    let mut data = Data::new(records(2));
+    data.read_store = true;
+    let mut r = boot(plan(TypeKind::Number, None, true, true), data);
+    r.data().refuse = Some(overrun());
+    r.as_invocation(CallOrigin::Tool, 7, |r| {
+        r.act("change", vec![Value::Number(1.)])
+    })
+    .unwrap();
+    let t0 = r.now_ms();
+    r.advance(t0 + 100.).unwrap();
+    r.data().guard_writes_once = true;
+    let asked = r.data().queries;
+    r.commit_again(vec![0, 1], "a refresh of both").unwrap();
+    assert!(
+        r.data().queries >= asked + 3,
+        "rows asked again in a second pass"
+    );
+    assert_eq!(r.timer_due_ms(), Some(t0 + 350.), "the refresh's own time");
+    r.data().refuse = None;
+    r.data().later = true;
+    r.advance(t0 + 350.).unwrap();
+    let asked = r.take_requests();
+    let rows = asked
+        .iter()
+        .find(|q| q.target == "rows")
+        .expect("rows asked");
+    assert_eq!(r.ticket_origin(rows.ticket), CallOrigin::App);
+}
+
+/// Arguments that change by the re-ask's time start a new streak: their first
+/// turn over budget waits 250 ms again, not the spent streak's failure.
+#[test]
+fn new_arguments_at_the_reasks_time_start_a_new_streak() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    r.data().refuse = Some(overrun());
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    let t0 = r.now_ms();
+    r.advance(t0 + 250.).unwrap();
+    // Arguments read anew at the second re-ask (a clock-derived argument).
+    r.slots[0] = Value::Number(2.);
+    r.advance(t0 + 1250.).unwrap();
+    assert!(
+        r.failed_resources().is_empty(),
+        "not the spent streak's failure"
+    );
+    assert!(r.pending_res[0]);
+    assert_eq!(r.timer_due_ms(), Some(t0 + 1500.));
+}
+
+/// On a live clock the delay runs from the refusal: a 400 ms turn doesn't
+/// spend its own 250 ms.
+#[test]
+fn a_slow_turn_does_not_spend_its_own_delay() {
+    let mut r = boot(
+        plan(TypeKind::Number, None, false, false),
+        Data::new(records(2)),
+    );
+    let clock = std::sync::Arc::new(std::sync::Mutex::new(1000.));
+    let read = clock.clone();
+    r.set_live_clock(Some(Box::new(move || *read.lock().unwrap())));
+    r.data().refuse = Some(overrun());
+    r.data().turn_ms = Some((clock, 400.));
+    r.act("change", vec![Value::Number(1.)]).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(1650.));
 }

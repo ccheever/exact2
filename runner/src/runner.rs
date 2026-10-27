@@ -463,8 +463,8 @@ pub struct Runner<D: DataSource> {
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
     /// The re-ask after a turn over its budget being committed (`overrun.rs`):
-    /// its resource, and the re-asks its streak has made with it.
-    overrun_reasking: Option<(usize, usize)>,
+    /// its resource, the re-asks its streak has made with it, and its arguments.
+    overrun_reasking: Option<(usize, usize, Vec<Value>)>,
     /// The reply being landed was refused by its own turn over its budget.
     overran_reply: bool,
     /// `pending` as flags, by resource and by mutation, for expressions.

@@ -418,6 +418,11 @@ impl<D: DataSource> Runner<D> {
                     // resource is device data just like a direct reader.
                     self.store_readers[i] |= store_dependent;
                     let forced = force.contains(&i);
+                    // A refresh a turn over its budget refused stays one when a
+                    // later pass asks again (a store reader): its wait replaces
+                    // the standing one and starts its streak anew (`overrun.rs`).
+                    let refreshed =
+                        forced || matches!(effects[i], RequestEffect::Wait { forced: true, .. });
                     // A stand-in a refused activation failed holds for a kept
                     // seed's identifying arguments, whatever its context
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
@@ -767,12 +772,12 @@ impl<D: DataSource> Runner<D> {
                                         )
                                     };
                                     let reasks =
-                                        self.overrun_reasks(Target::Resource(i), &args, forced);
+                                        self.overrun_reasks(Target::Resource(i), &args, refreshed);
                                     if super::overrun::reask_after(reasks).is_some() {
                                         effects[i] = RequestEffect::Wait {
                                             args: args.clone(),
                                             reasks,
-                                            forced,
+                                            forced: refreshed,
                                             why: why.message,
                                         };
                                         pending_res[i] = true;

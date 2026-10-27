@@ -817,7 +817,11 @@ pub fn settle<D: DataSource>(
         if runner
             .pending()
             .iter()
-            .all(|(_, t)| held.refused.contains(t) || held.busy.contains(t))
+            // A re-ask's wait is the runner's, never the executor's: no timer
+            // fires here, and the checkpoint lists it for the client to ask.
+            .all(|(_, t)| {
+                held.refused.contains(t) || held.busy.contains(t) || runner.is_reask_wait(*t)
+            })
         {
             return Ok(if held.busy.is_empty() {
                 Settled::Complete

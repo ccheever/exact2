@@ -337,9 +337,14 @@ impl<D: DataSource> Runner<D> {
             let timer_at = due.map(|(_, at)| at).or(ended);
             // A re-ask is a request's, not an authored timer's: it comes due
             // while timers wait on an unseen wake or call, which owns it.
-            let reask = self
-                .reask_due(now_ms)
-                .filter(|(_, at)| timer_at.is_none_or(|timer| *at <= timer) && before_wake(*at));
+            // Nor past a drop's hold deadline, which goes first, or waits
+            // with the timers.
+            let hold = self.reorder_deadline().filter(|at| *at <= now_ms);
+            let reask = self.reask_due(now_ms).filter(|(_, at)| {
+                timer_at.is_none_or(|timer| *at <= timer)
+                    && before_wake(*at)
+                    && hold.is_none_or(|hold| *at < hold)
+            });
             let ready = |at: f64| {
                 timer_at.is_none_or(|timer| at <= timer)
                     && before_wake(at)

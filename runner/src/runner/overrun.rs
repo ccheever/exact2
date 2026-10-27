@@ -47,8 +47,9 @@ impl<D: DataSource> Runner<D> {
     /// ask in flight for these arguments it replaces (a store reader asked
     /// again keeps its count).
     pub(super) fn overrun_reasks(&self, target: Target, args: &[Value], forced: bool) -> usize {
-        match (target, self.overrun_reasking) {
-            (Target::Resource(i), Some((r, reasks))) if i == r => reasks,
+        match (target, &self.overrun_reasking) {
+            // (the re-ask's own arguments: new ones start anew, forced)
+            (Target::Resource(i), Some((r, reasks, asked))) if i == *r && asked == args => *reasks,
             _ if forced => 0,
             _ => (self.pending.iter())
                 .find(|p| p.target == target && p.args == args)
@@ -80,6 +81,7 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         let after = REASK_MS[reasks];
+        let at = self.refused_at() + after;
         self.forget_ticket(target);
         let ticket = self.next_ticket;
         self.next_ticket += 1;
@@ -102,10 +104,26 @@ impl<D: DataSource> Runner<D> {
             held: false,
             long_poll: false,
             replied: false,
-            reask_at: Some(self.now_ms + after),
+            reask_at: Some(at),
             reasks,
         });
         self.said_reask(i, why, after, reasks);
+    }
+
+    /// When a turn over its budget refused the ask, for its re-ask's delay: a
+    /// live clock's fresh reading, so a slow turn doesn't spend its own delay;
+    /// the commit's time on a seek clock (the agent's, a test's).
+    fn refused_at(&mut self) -> f64 {
+        let read = (self.clock.sample.as_mut()).map(|sample| sample());
+        read.filter(|t| t.is_finite() && *t <= super::MAX_CLOCK_MS)
+            .map_or(self.now_ms, |t| t.max(self.now_ms))
+    }
+
+    /// Whether `ticket` is a re-ask's wait, held by the runner and never a
+    /// host's to run: a render completes past it, and its checkpoint lists the
+    /// resource as pending for the client to ask.
+    pub fn is_reask_wait(&self, ticket: u64) -> bool {
+        (self.pending.iter()).any(|p| p.ticket == ticket && p.reask_at.is_some())
     }
 
     fn said_reask(&mut self, i: usize, why: &str, after: f64, reasks: usize) {
@@ -147,7 +165,7 @@ impl<D: DataSource> Runner<D> {
         let Some(after) = reask_after(reasks) else {
             return false;
         };
-        let (wait, at) = (self.next_ticket, self.now_ms + after);
+        let (wait, at) = (self.next_ticket, self.refused_at() + after);
         self.next_ticket += 1;
         let p = &mut self.pending[pos];
         p.ticket = wait;
@@ -200,9 +218,10 @@ impl<D: DataSource> Runner<D> {
         let (Target::Resource(i), reasks) = (p.target, p.reasks) else {
             unreachable!("only a resource waits to be asked again")
         };
+        let args = p.args.clone();
         let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
         let result = self.as_invocation(origin, id, |r| {
-            let before = r.overrun_reasking.replace((i, reasks + 1));
+            let before = r.overrun_reasking.replace((i, reasks + 1, args));
             let result = r.commit_again(vec![i], "a turn over its budget, asked again");
             r.overrun_reasking = before;
             result
@@ -225,7 +244,7 @@ impl<D: DataSource> Runner<D> {
         };
         match reask_after(reasks + 1) {
             Some(after) => {
-                let at = self.now_ms + after;
+                let at = self.refused_at() + after;
                 if let Some(p) = self.pending.iter_mut().find(|p| p.ticket == ticket) {
                     p.reasks = reasks + 1;
                     p.reask_at = Some(at);
@@ -239,7 +258,10 @@ impl<D: DataSource> Runner<D> {
                 ));
                 // The commit that fails it is what the host must see: the
                 // refusal is in the journal and in the failure's reason.
-                let released = self.release_failed(ticket, Target::Resource(i), failure);
+                // (under its ask's origin and invocation, as each re-ask was)
+                let released = self.as_invocation(origin, id, |r| {
+                    r.release_failed(ticket, Target::Resource(i), failure)
+                });
                 return released.map(|r| r.expect("release_failed commits"));
             }
         }
@@ -259,10 +281,11 @@ impl<D: DataSource> Runner<D> {
             .find(|p| p.ticket == ticket)
             .expect("a wait")
             .target;
+        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
         match outcome {
-            Outcome::Failed { message, .. } => {
-                self.release_failed(ticket, target, Failure::error(message))
-            }
+            Outcome::Failed { message, .. } => self.as_invocation(origin, id, |r| {
+                r.release_failed(ticket, target, Failure::error(message))
+            }),
             _ => {
                 self.log(lines::dropped(ticket, summary));
                 Ok(None)
