@@ -26,8 +26,8 @@ component ImageViewer
     toggleZoom: action
     close: action
   view
-    // Dark in both schemes, as a photo viewer is.
-    column position="absolute" inset=0 timeline-scope="--dismiss" overflow="hidden" color-scheme="dark" testId="viewer" aria-label=(alt != "" ? alt : "Image")
+    // Dark in both schemes, as a photo viewer is, with the status bar's light text over it.
+    column position="absolute" inset=0 timeline-scope="--dismiss" overflow="hidden" color-scheme="dark" status-bar-style="light-content" testId="viewer" aria-label=(alt != "" ? alt : "Image")
       view position="absolute" inset=0 background-color="-exact-background" animation=(zoom == 1 ? "viewerFade 1s linear both" : "none") animation-timeline="--dismiss" animation-range="0px 300px" aria-hidden=true
       box id="viewer-transform" position="absolute" left=0 top=0 width="100%" height="100%" box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)" -exact-drag-timeline="--dismiss y"
         image src position="absolute" inset=0 width="100%" height="100%" object-fit="contain" aria-label=alt testId="viewer-image"

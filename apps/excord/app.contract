@@ -18,6 +18,7 @@ use DirectoryList from "./directory.contract"
 use ImageViewer, photoFit, photoZoom, photoClamp from "./viewer.contract"
 use MemberList, ProfileCard from "./members.contract"
 use PickerFrames, DeleteConfirm from "./picker.contract"
+use RoundButton, MessageMenu from "./controls.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
@@ -721,13 +722,13 @@ component Excord
         scrollBy("transcript", 0, (k == "PageUp" ? -1 : 1) * max(80, frame("transcript").height - 60))
   action pick(text: string)
     edit(text)
-    focus("composer")
+    focusDraft()
   action cancelEditLookup
     editLookup = false
     editLookupError = ""
   action cancelFindEdit
     cancelEditLookup()
-    focus("composer")
+    focusDraft()
   action resolveEdit
     if draft != "" or editing != "" or replyTo != ""
       cancelEditLookup()
@@ -771,7 +772,7 @@ component Excord
             else
               dismissUnread()
               toPresent()
-        focus("composer")
+        focusDraft()
   action post
     if pending(pastedPictures)
       aimed = aimed
@@ -798,7 +799,7 @@ component Excord
           anchor = ""
           target = "end"
           settling = true
-    focus("composer")
+    focusDraft()
   action postEchoed
     match echoed
       case some(r)
@@ -827,7 +828,7 @@ component Excord
   action cancelReply
     replyTo = ""
     replyName = ""
-    focus("composer")
+    focusDraft()
   action toggleReplyMention
     replyMention = not replyMention
   action cancelEdit
@@ -841,7 +842,7 @@ component Excord
     stash = ""
     stashReplyTo = ""
     stashReplyName = ""
-    focus("composer")
+    focusDraft()
   action beginEdit(id: string, text: string)
     cancelEditLookup()
     if editing == ""
@@ -855,6 +856,13 @@ component Excord
     editRevision = editRevision + 1
     editError = ""
     editText = text
+    focusDraft()
+  // The composer focused for the reader to type on: with its caret at the draft's end unless it was
+  // already focused. The offset is past any draft, which every host clamps to the end as HTML does,
+  // since `draft` here is still the one this action's caller began with.
+  action focusDraft
+    if not composing
+      setSelectionRange("composer", 1000000000, 1000000000)
     focus("composer")
   action beginReply(id: string, author: string)
     cancelEditLookup()
@@ -863,7 +871,7 @@ component Excord
     replyTo = id
     replyName = author
     replyMention = true
-    focus("composer")
+    focusDraft()
 
   // A message's own controls. `aimedText` is the message's Markdown as sent.
   action reveal(key: string)
@@ -1095,7 +1103,7 @@ component Excord
     let over = picked.length + fit.length > 10
     picked = picked.concat(fit).slice(0, 10)
     attachError = refused.length > 0 ? `${refused.map(f => f.name).join(", ")} ${refused.length == 1 ? "is" : "are"} over Discord's 10 MB limit.` : over ? "A message takes up to 10 files." : ""
-    focus("composer")
+    focusDraft()
   // Pictures pasted into the composer join the picked ones, as Discord's do; text pastes as text.
   action pastedInto(e: ClipboardEvent)
     if e.files.length > 0 and editing == ""
@@ -1333,38 +1341,7 @@ component Excord
                           text "Loading messages…" testId="history-loading" color="-exact-secondary-label"
                         else
                           text "No messages yet." testId="history-empty" color="-exact-secondary-label"
-                  column id="message-menu" popover="auto" role="menu"
-                    button press=replyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
-                      image "symbol:reply"
-                      text "Reply"
-                    button press=reactAimed("👍") popovertarget="message-menu" popovertargetaction="hide" testId="menu-thumbs"
-                      text "👍 Thumbs Up"
-                    button press=reactAimed("❤️") popovertarget="message-menu" popovertargetaction="hide" testId="menu-heart"
-                      text "❤️ Heart"
-                    button press=reactAimed("😂") popovertarget="message-menu" popovertargetaction="hide" testId="menu-laugh"
-                      text "😂 Laugh"
-                    button press=openPicker popovertarget="message-menu" popovertargetaction="hide" testId="menu-react"
-                      image "symbol:add"
-                      text "Add Reaction"
-                    hr
-                    button press=copyAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-copy"
-                      image "symbol:copy"
-                      text "Copy Text"
-                    if canTranslate
-                      button press=translateAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-translate"
-                        text "Translate"
-                    button press=copyLink popovertarget="message-menu" popovertargetaction="hide" testId="menu-link"
-                      image "symbol:link"
-                      text "Copy Message Link"
-                    if aimedMine
-                      hr
-                      if not aimedForward
-                        button press=editAimed popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
-                          image "symbol:pencil"
-                          text "Edit Message"
-                      button press=askDelete destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
-                        image "symbol:delete"
-                        text "Delete Message"
+                  MessageMenu(canTranslate=canTranslate, mine=aimedMine, forwarded=aimedForward, reply=replyAimed, react=reactAimed, pickReaction=openPicker, copy=copyAimed, translate=translateAimed, copyLink=copyLink, edit=editAimed, remove=askDelete)
                   PickerFrames(picking=picking, forDraft=pickingForDraft, popover=pickerPopover, touch=(viewport.pointer == "coarse"), query=pickerQuery, choices=choices, search=searchPicker, pick=emojiPicked, closed=pickerClosed, toggled=pickerToggled)
                   DeleteConfirm(confirm=deleteAimed)
                   if chan.typing != ""
@@ -1381,8 +1358,7 @@ component Excord
                   if editLookup
                     row align-items="center" gap=8 padding="4px 4px" flex-shrink=0
                       text "Finding your last message…" font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="finding-edit"
-                      button press=cancelFindEdit aria-label="Cancel finding message" testId="cancel-find-edit"
-                        image "symbol:close"
+                      RoundButton(symbol="symbol:close", label="Cancel finding message", testId="cancel-find-edit", press=cancelFindEdit, disabled=false, size=22, reach=(viewport.pointer == "coarse" ? 11 : 4))
                   if editLookupError != ""
                     text editLookupError font="-exact-footnote" color="-exact-system-red" padding="0px 4px 4px" flex-shrink=0 testId="find-edit-error"
                   // One bar for a reply and an edit: its height holds through the swap, so the transcript keeps its end.
@@ -1393,14 +1369,12 @@ component Excord
                           text `Not saved: ${editError}` font="-exact-footnote" color="-exact-system-red" flex=1 min-width=0 testId="edit-error"
                         else
                           text (pending(edited) and editRevision == savingRevision ? "Saving message…" : "Editing message") font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0
-                        button press=cancelEdit aria-label="Cancel edit" testId="cancel-edit"
-                          image "symbol:close"
+                        RoundButton(symbol="symbol:close", label="Cancel edit", testId="cancel-edit", press=cancelEdit, disabled=false, size=22, reach=(viewport.pointer == "coarse" ? 11 : 4))
                       else
                         text `Replying to ${replyName}` font="-exact-footnote" color="-exact-secondary-label" flex=1 min-width=0 testId="replying"
                         button appearance="none" press=toggleReplyMention aria-pressed=replyMention aria-label=(replyMention ? "Mention on" : "Mention off") testId="reply-mention" padding="2px 6px"
                           text (replyMention ? "@ ON" : "@ OFF") font="-exact-footnote" font-weight=700 color=(replyMention ? "AccentColor" : "-exact-secondary-label")
-                        button press=cancelReply aria-label="Cancel reply" testId="cancel-reply"
-                          image "symbol:close"
+                        RoundButton(symbol="symbol:close", label="Cancel reply", testId="cancel-reply", press=cancelReply, disabled=false, size=22, reach=(viewport.pointer == "coarse" ? 11 : 4))
                   // One line of text is as tall as Send beside it, so the text sits at its middle.
                   if attachError != ""
                     text attachError font="-exact-footnote" color="-exact-system-red" margin="0px 4px 6px" testId="attach-error"
@@ -1434,8 +1408,8 @@ component Excord
                   row align-items="flex-end" gap=8
                     // Pictures only: uploading other files is out of Excord's scope (llp/0001 §1).
                     input type="file" id="attach" multiple=true display="none" change=filesPicked testId="attach-input"
-                    button press=attach aria-label="Add a file" testId="attach" disabled=(editing != "") margin-bottom=4
-                      image "symbol:add"
+                    view margin-bottom=4 flex-shrink=0
+                      RoundButton(symbol="symbol:add", label="Add a file", testId="attach", press=attach, disabled=(editing != ""), size=34, reach=(viewport.pointer == "coarse" ? 5 : 2))
                     // The field draws no ring of its own: the pill's border shows the focus. One line
                     // sits at Send's middle, whatever height the platform gives Send; Send stays at the
                     // bottom as the field grows.
@@ -1444,11 +1418,11 @@ component Excord
                       textarea id="composer" value=draft input=edit selectionchange=caretMoved paste=pastedInto key=keyed focus=focusComposer blur=blurComposer rows=1 field-sizing="content" max-height="9rem" min-height=0
                         placeholder=(chan.guild != "" ? `Message #${chan.name}` : chan.direct ? `Message @${chan.name}` : `Message ${chan.name}`) aria-label="Message" testId="composer" flex=1 min-width=0
                         line-height="1.4em" padding="8px 0px" border="none" outline="none" background-color="transparent"
-                      // Discord's emoji button: dim until the pointer is over it.
-                      button appearance="none" press=openDraftPicker popovertarget=(viewport.pointer == "coarse" ? "" : "draft-picker") aria-label="Emoji" testId="composer-emoji" padding="4px 6px" align-self="flex-end" margin-bottom=5 opacity=0.6
+                      // Discord's emoji button: a face, dim until the pointer is over it.
+                      button appearance="none" press=openDraftPicker popovertarget=(viewport.pointer == "coarse" ? "" : "draft-picker") aria-label="Emoji" testId="composer-emoji" padding="4px 6px" align-self="flex-end" margin-bottom=5 color="-exact-label" opacity=0.55
                         :hover
                           opacity = 1
-                        text "🙂" font-size=20 line-height="24px"
+                        image "symbol:emoji" width=24 height=24
                       button press=post disabled=((draft.trim() == "" and (picked.length == 0 or editing != "")) or pending(pastedPictures) or (editing != "" and pending(edited))) buttonStyle="filled"
                         retainFocus=true aria-label=(editing == "" ? "Send" : "Save edit") testId="send" align-self="flex-end"
                         image "symbol:send"

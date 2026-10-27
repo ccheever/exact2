@@ -302,7 +302,7 @@ test('unloaded replies distinguish a wire snapshot, an unknown original and a nu
   const f = fixture(replies);
   expect(S.message(f.store, cid, original.id)).toBeNull();
   expect(f.view().rows.map(r => r.reply[0])).toEqual([
-    { id: original.id, author: 'Ada', avatar: `${cdn}/embed/avatars/0.png`, color: '', preview: `preview ${'x'.repeat(92)}`, state: 'present' },
+    { id: original.id, author: 'Ada', avatar: `${cdn}/embed/avatars/0.png`, color: '', preview: `preview ${'x'.repeat(92)}…`, state: 'present' },
     { id: missing, author: '', avatar: '', color: '', preview: '', state: 'unknown' },
     { id: missing, author: '', avatar: '', color: '', preview: '', state: 'deleted' },
   ]);
@@ -562,6 +562,6 @@ test('a reply preview cut at its length never splits an emoji', () => {
   const original = message(0, { content: `${'a'.repeat(99)}😀 and more` });
   const reply = message(1000, { content: 'ok', type: 19, message_reference: reference(original.id) } as Partial<Message>);
   const preview = fixture([original, reply]).view().rows[1].reply[0].preview;
-  expect(preview).toBe(`${'a'.repeat(99)}😀`);
+  expect(preview).toBe(`${'a'.repeat(99)}😀…`);
   expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(preview)).toBe(false);
 });
