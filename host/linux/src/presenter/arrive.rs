@@ -99,7 +99,7 @@ impl<D: DataSource> Presenter<D> {
         for id in candidates {
             if self.autofocus_processed.contains(&id)
                 || !self.focusable(id)
-                || self.host.route_visibility(id).1
+                || self.focus_refusal(id).is_some()
             {
                 continue;
             }

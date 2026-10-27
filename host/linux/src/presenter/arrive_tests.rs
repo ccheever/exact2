@@ -143,6 +143,50 @@ fn arrive_at(p: &mut Presenter<()>, location: &str) {
 }
 
 #[test]
+fn autofocus_skips_unrendered_candidates_without_painting_and_retries_when_shown() {
+    let source = r#"component App
+  state shown = false
+  action reveal
+    shown = true
+  view
+    column
+      button press=reveal testId="reveal"
+        text "Reveal"
+      dialog id="closed"
+        input autofocus=true testId="closed-field"
+      column display=(shown ? "flex" : "none")
+        input autofocus=true testId="late" height=32
+"#;
+    let mut p = boot_source(source);
+    assert_eq!(p.focus(), None);
+    for _ in 0..3 {
+        p.repaint();
+        let serial = p.boxes_serial;
+        assert!(p.autofocus().is_none());
+        assert_eq!(p.focus(), None);
+        assert_eq!(p.boxes_serial, serial, "hidden candidates need no paint");
+        assert!(p.dirty(), "the window still needs its requested repaint");
+    }
+
+    let reveal = id(&p, "reveal");
+    assert!(p.host.dispatch_at(reveal, Event::Press, 0.).is_none());
+    assert!(p.after_commit().is_none());
+    assert_eq!(focused(&p), "late", "a hidden candidate was not consumed");
+    assert_ne!(p.focus(), Some(id(&p, "closed-field")));
+
+    assert!(p.set_focus(None, 0.).is_none());
+    p.repaint();
+    let serial = p.boxes_serial;
+    assert!(p.autofocus().is_none());
+    assert_eq!(
+        p.focus(),
+        None,
+        "a processed candidate does not steal focus"
+    );
+    assert_eq!(p.boxes_serial, serial);
+}
+
+#[test]
 fn a_push_moves_the_focus_to_the_routes_heading_and_back_returns_it_to_the_pressed_control() {
     let mut p = boot();
     assert_eq!(focused(&p), "nothing", "the first sight is no arrival");
