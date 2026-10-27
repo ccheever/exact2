@@ -285,8 +285,8 @@ impl Build<'_> {
             if !parent_type.can_hold_children() {
                 return refuse("a leaf holds no children");
             }
-            if parent_type == NodeType::Text && node_type != NodeType::Text {
-                return refuse("a paragraph holds only inline runs");
+            if parent_type == NodeType::Text && !node_type.in_text() {
+                return refuse("a paragraph holds only inline runs and images");
             }
             if parent_type.is_svg_container() != node_type.is_svg_element() {
                 return refuse("an svg holds SVG elements, and they live only there");
