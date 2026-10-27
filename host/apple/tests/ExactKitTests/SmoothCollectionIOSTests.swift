@@ -109,6 +109,9 @@ final class SmoothCollectionIOSTests: XCTestCase {
         let p = presenter()
         list(p, correction: NSNull())
         let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        // At 3x (the grid 5/3 sits on), whatever the simulator's own scale (Astra's round 2).
+        scroll.traitOverrides.displayScale = 3
+        scroll.updateTraitsIfNeeded()
         // A grid offset UIKit hands back not exactly as given (the precondition, shown here).
         let scale = max(1, scroll.traitCollection.displayScale)
         var start: CGFloat?
@@ -117,7 +120,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
             scroll.contentOffset.y = y
             if scroll.contentOffset.y != PixelGrid.offset(scroll.contentOffset, in: scroll).y { start = y; break }
         }
-        let y0 = try XCTUnwrap(start, "an offset UIKit reads back off the grid at scale \(scale)")
+        guard let y0 = start else { throw XCTSkip("this display hands every grid offset back exactly at scale \(scale): nothing to drive") }
         XCTAssertTrue(PixelGrid.same(scroll.contentOffset.y, y0, in: scroll), "a ULP off, within the read-back slop")
         let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
         p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": seq, "offset": 1700, "smooth": true])]))

@@ -90,7 +90,7 @@ final class ReorderGroupIOSTests: XCTestCase {
             inner.contentOffset.y = PixelGrid.offset(CGPoint(x: 0, y: y), in: inner).y
             if inner.contentOffset.y != PixelGrid.offset(CGPoint(x: 0, y: y), in: inner).y { last = y; break }
         }
-        let y = try XCTUnwrap(last, "a last pixel UIKit reads back off the grid")
+        guard let y = last else { throw XCTSkip("this display hands every grid offset back exactly at 3x: nothing to drive") }
         let candidate = ReorderScroller(scroll: inner, vertical: true, rect: .zero)
         XCTAssertFalse(candidate.canScroll(toward: 1), "at its last pixel (\(y), read back \(inner.contentOffset.y))")
         XCTAssertTrue(candidate.canScroll(toward: -1))
