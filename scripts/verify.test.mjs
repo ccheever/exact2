@@ -1277,3 +1277,31 @@ test('scrolling: like UIKit in one line; each tell or bad the app can fix a coun
   assert.equal(failed.lines[1], 'scrolling: could not measure: the recorder wrote nothing in 20 s');
   assert.equal(failed.problems, 0);
 });
+
+test('scrolling: the scrub and a carousel join the summary; their hitches and the carousel\'s drags each say whose they are', () => {
+  const ok = { ratio: 'ok', lag: 'ok', glide: 'ok' };
+  const smooth = (hitchRatio = 0, hitchAt = []) => ({ hitchRatio, longestFrameMs: hitchAt.length ? 50 : 16.7, mainP95Ms: 4.1, hitchAt,
+    verdict: { hitch: hitchRatio >= 10 ? 'bad' : 'ok', stall: hitchAt.length ? 'tell' : 'ok', main: 'ok' } });
+  const drag = (verdict = 'ok') => ({ ratio: 0.95, carouselPt: verdict === 'ok' ? 0 : 40, listPt: 0, verdict });
+  const feel = ({ scrub = smooth(), along = 'ok' } = {}) => ({ app: 'a', verdict: 'probed', list: { cls: 'ExactKit.ScrollView' }, smooth: smooth(),
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: ok },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } },
+    scrub: { took: true, crossed: 0.9, smooth: scrub, verdict: { hitch: scrub.verdict.hitch, stall: scrub.verdict.stall, blank: 'n/a' } },
+    horizontal: { smooth: smooth(), tracking: null, momentum: { tauMs: 500, handoff: 1, verdict: { tau: 'ok', handoff: 'ok' } },
+      edgeBounce: { settleS: 0.6, verdict: { settle: 'ok' } }, across: drag(), along: drag(along), verdict: { across: 'ok', along } } });
+  const run = (result) => report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app',
+    scrolled: { ms: 30000, out: '/app/.exact/verify/ios-feel', result } });
+  assert.match(run(feel()).lines[1], /^scrolling: like UIKit \(hitches 0 ms\/s, .*, 0\/2 lifts dropped a frame, scrubbing 0 ms\/s, a carousel 0 ms\/s;/);
+  // Rows built as the indicator crosses the list are Exact's host's time: Exact's own, not counted.
+  const host = run(feel({ scrub: smooth(80, [{ gesture: 'scrub', ms: 50, mainMs: 45, late: 33, cause: 'scroll', via: {}, where: { 'Exact host · UIKit': 40 } }]) }));
+  assert.equal(host.problems, 0);
+  assert.match(host.lines[2], /^ {2}Exact's own .*: scrub: hitch ratio 80 ms\/s \(bad; UIKit 0 ms\/s\); scrub: longest frame 50 ms \(tell; UIKit 16\.7 ms\); report with/);
+  // The app's own JS on the scrub's frames is the app's finding.
+  const js = run(feel({ scrub: smooth(40, [{ gesture: 'scrub', ms: 50, mainMs: 45, late: 33, cause: 'scroll', via: {}, where: { 'app JS (main waits on exact.owner)': 40 } }]) }));
+  assert.equal(js.problems, 2);
+  assert.match(js.lines[2], /^ {2}scrolling scrub: hitch ratio 40 ms\/s \(bad; UIKit 0 ms\/s\): of the late frames' main thread, app JS/);
+  // A drag down the list that moved the carousel is UIKit's arbitration, which Exact owns.
+  const along = findings(feel({ along: 'bad' }));
+  assert.deepEqual(along.map((f) => [f.metric, f.value, f.owner]), [['carousel: a mostly-vertical drag', '0.95, 40', 'exact']]);
+});

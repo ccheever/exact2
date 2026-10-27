@@ -30,21 +30,27 @@ const feelOf = (spec, arm) => {
 };
 
 // The numbers a person feels, from feel.json: hitch ratio (ms late per s of motion; Apple calls < 5 good), the
-// longest frame, offset jumps while decelerating, flings that drop a frame at the lift, touch-to-content lag.
+// longest frame, offset jumps while decelerating, flings that drop a frame at the lift, touch-to-content lag; the
+// scroll indicator dragged end to end (`scrub`: its hitch ratio and longest frame); and a horizontal list in the list
+// (`carousel`: its hitch ratio, and whether the two diagonal drags went where UIKit sends them).
 const scrollOf = (spec, arm) => {
   const j = json(resolve(ROUND, 'feel', `${spec}-${arm}`, 'feel.json'));
   if (!j || j.verdict !== 'probed') return null;
-  return { hitch: j.smooth?.hitchRatio, longest: j.smooth?.longestFrameMs, jumps: j.momentum?.jumps, lift: j.momentum?.lifts ? `${j.momentum.liftDrops}/${j.momentum.lifts}` : '–', lag: j.tracking?.lagFrames };
+  const h = j.horizontal;
+  return { hitch: j.smooth?.hitchRatio, longest: j.smooth?.longestFrameMs, jumps: j.momentum?.jumps, lift: j.momentum?.lifts ? `${j.momentum.liftDrops}/${j.momentum.lifts}` : '–', lag: j.tracking?.lagFrames,
+    scrub: j.scrub?.smooth ? `${f(j.scrub.smooth.hitchRatio)} / ${f(j.scrub.smooth.longestFrameMs, 0)}` : j.scrub ? 'not taken' : '–', scrubHitch: j.scrub?.smooth?.hitchRatio,
+    carousel: h ? `${f(h.smooth?.hitchRatio)}${h.verdict.across === 'ok' && h.verdict.along === 'ok' ? '' : ` (drags ${h.verdict.across}, ${h.verdict.along})`}` : '–' };
 };
-const scrollRows = [], hitches = { exact: [], other: [] };
+const scrollRows = [], hitches = { exact: [], other: [] }, scrubs = { exact: [], other: [] };
 const smooth = { exact: 0, other: 0, probed: 0 };
 for (const [spec, { stack }] of Object.entries(pairs)) {
   const e = scrollOf(spec, 'exact'), o = scrollOf(spec, stack);
   if (!e && !o) continue;
-  const cell = (x) => (x ? `${f(x.hitch)} | ${f(x.longest, 0)} | ${x.jumps ?? '–'} | ${x.lift} | ${x.lag ?? '–'}` : '– | – | – | – | –');
+  const cell = (x) => (x ? `${f(x.hitch)} | ${f(x.longest, 0)} | ${x.jumps ?? '–'} | ${x.lift} | ${x.lag ?? '–'} | ${x.scrub} | ${x.carousel}` : '– | – | – | – | – | – | –');
   scrollRows.push(`| ${spec} | ${stack} | ${cell(e)} | ${cell(o)} |`);
   if (e && o) {
     smooth.probed++; hitches.exact.push(e.hitch); hitches.other.push(o.hitch);
+    if (e.scrubHitch != null && o.scrubHitch != null) { scrubs.exact.push(e.scrubHitch); scrubs.other.push(o.scrubHitch); }
     if (e.hitch < 5 && !e.jumps) smooth.exact++;
     if (o.hitch < 5 && !o.jumps) smooth.other++;
   }
@@ -72,10 +78,12 @@ const md = [
   '',
   `## Scrolling`,
   '',
-  `Lists that scroll clean (hitch ratio under 5 ms/s and no offset jumps): Exact **${smooth.exact} of ${smooth.probed}**, the other ${smooth.other} of ${smooth.probed}. Mean hitch ratio: Exact ${f(mean(hitches.exact))} ms/s, the other ${f(mean(hitches.other))}.`,
+  `Lists that scroll clean (hitch ratio under 5 ms/s and no offset jumps): Exact **${smooth.exact} of ${smooth.probed}**, the other ${smooth.other} of ${smooth.probed}. Mean hitch ratio: Exact ${f(mean(hitches.exact))} ms/s, the other ${f(mean(hitches.other))}. Scrubbing (the scroll indicator dragged end to end and back, ${scrubs.exact.length} pairs): Exact ${f(mean(scrubs.exact))} ms/s, the other ${f(mean(scrubs.other))}.`,
   '',
-  '| Spec | Other | Exact hitch ms/s | longest ms | jumps | lift drops | lag frames | Other hitch ms/s | longest ms | jumps | lift drops | lag frames |',
-  '|---|---|---|---|---|---|---|---|---|---|---|---|',
+  'Scrub: hitch ms/s / longest ms while the indicator is dragged. Carousel: a horizontal list in the list, its hitch ms/s, and the diagonal drags\' verdicts when either is not UIKit\'s.',
+  '',
+  '| Spec | Other | Exact hitch ms/s | longest ms | jumps | lift drops | lag frames | scrub | carousel | Other hitch ms/s | longest ms | jumps | lift drops | lag frames | scrub | carousel |',
+  '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
   ...scrollRows,
   '',
   '## The pairs',

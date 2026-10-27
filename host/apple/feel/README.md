@@ -24,7 +24,7 @@ bun host/apple/feel/probe.mjs --udid U --app B --steps $'tap "All"\ntap "Shows";
 bun host/apple/feel/analyze.mjs DIR1 DIR2 DIR3
 ```
 
-The app must already be installed on the booted simulator. A probe takes about 40 s (8 s when there is no list),
+The app must already be installed on the booted simulator. A probe takes about 80 s (8 s when there is no list),
 plus about 5 s the first time the touch runner starts on a simulator. `--out` defaults to
 `target/feel/<bundle id>-<time>/`; it gets `trace.jsonl` (every recorded frame, touch and scroll-view scan),
 `gestures.json`, `feel.json` and `feel.txt`. `--at x,y` moves where the gestures land (default: the middle of the
@@ -90,11 +90,21 @@ The gestures, all real HID touches through XCTest's synthesizer:
 4. a pull 240 pt past the top, held, released;
 5. a fling down at 3,000 pt/s, then a tap on the status bar (on its right: the left may hold the back-to-app
    breadcrumb, which leaves the app);
-6. a fling down at 4,000 pt/s and, 200 ms after the lift, a tap in the middle of the list.
+6. a fling down at 4,000 pt/s and, 200 ms after the lift, a tap in the middle of the list;
+7. on a horizontal list in the list (a carousel: a shown scroll view whose content is at least 1.5 × its width + 100
+   pt and no taller than it, whole in the list's viewport; the widest, met within eight slow drags down the list),
+   along its middle: a slow drag (250 pt/s, held 0.5 s), flings at 1,500 and 4,000 pt/s, flings back at 6,000 pt/s
+   until it is at its start, then two drags held before the lift, one mostly along it (4:1) and one mostly down the
+   list (1:4), both starting on it;
+8. the scroll indicator dragged to scrub (UIKit's interactive indicator): shown by a short fling, held 0.5 s, dragged
+   to the far end of its track in 1 s, held 0.3 s, back in 1 s, held 0.3 s; then again with blanks sampled.
 
-`--short` is verify's script, about 20 s: the slow drag; flings down at 6,000 and 4,000 pt/s (blanks sampled in the
+The horizontal gestures and the scrub run only while the list still shows (a tap that opened a row skips them).
+
+`--short` is verify's script, about 30 s: the slow drag; flings down at 6,000 and 4,000 pt/s (blanks sampled in the
 second); the status-bar tap from where they left the list; the pull past the top; the fling and the tap while it
-decelerates. It skips the 1,500 pt/s fling and the flings back up, so the edge bounce is measured only when a fling
+decelerates; on a carousel already on screen, the 4,000 pt/s fling, one back and the two diagonal drags; one scrub,
+timed. It skips the 1,500 pt/s fling and the flings back up, so the edge bounce is measured only when a fling
 reaches the list's end, and blanks are sampled in one fling (about 45 samples, not 130).
 
 ## Reading `feel.txt`
@@ -118,6 +128,14 @@ Each line is a verdict (`ok`, `tell` — someone who knows iOS would notice — 
 | status-bar scroll to top | from the tap to the top | ≤ 1.0 s |
 | tap while decelerating | content travel after the touch lands; `activated` if the list left the screen | < 5 pt |
 | blank samples | the share of sampled moving frames with a band blank where the same frame at rest has rows (the blank check) | 0 |
+| scrub: hitch ratio, longest frame | the same two over the frames of the timed scrub, kept out of the list's own | as above |
+| scrub: blank samples | the blank check over the sampled scrub's frames, the holds at each end included | 0 |
+| carousel: hitch ratio … edge bounce settle | the metrics above along x, on the carousel's frames (its own τ, hand-off and bounce) | as above |
+| carousel: a mostly-horizontal drag | carousel travel ÷ finger travel along it, and how far the list moved | ≥ 0.8 and < 5 pt |
+| carousel: a mostly-vertical drag | list travel ÷ finger travel down it, and how far the carousel moved | ≥ 0.8 and < 5 pt |
+
+The scrub and carousel lines appear only when the probe played them. A scrub that crossed under 0.3 of the list
+(an indicator UIKit does not make interactive, or none shown) reads `took: false` in `feel.json` and is not judged.
 
 Under the verdicts, `where the late frames' main-thread time went` gives each gesture with late frames: how many
 (how many on a timer's tick), how late in all, the three labels that took most of their intervals (each with the
@@ -171,6 +189,22 @@ the next (6,500 → 0 → 12,300 pt/s in one run), a hitch at the moment of rele
 stops a decelerating list), against 1–2 ms for UIKit and 2–7 ms for SwiftUI. During steady motion Exact's p95 sits
 between UIKit's and SwiftUI's.
 
+Scrubbing and carousels, on `bake-s1` (iOS 27, 60 Hz), bake-off round s1's apps, load 10 to 70:
+
+| | UIKit photo grid (`UICollectionView`) | SwiftUI feed (`LazyVStack`) | Exact photo grid | Exact feed |
+|---|---|---|---|---|
+| scrub: hitch ratio (ms/s) | 0 | 495 | 0, 7.3, 0 (52–107 before glimpses) | 69, 72, 73 (420–474 before) |
+| scrub: longest frame (ms) | 16.7 | 146 | 17, 47, 17 (57–63 before) | 72, 57, 78 (154–211 before) |
+| scrub: blank samples, while held | 0, 0 | 0, 0 | 0–0.03, 0 | 0–0.5, 0 |
+| carousel: hitch, τ, hand-off, edge settle | – | 0, 500 ms, 0.85, 0.67 s | – | 0, 498–501 ms, 1.0–1.07, 0.55–0.68 s |
+| carousel: drag mostly along it, mostly down the list | – | 0.94 and 0 pt, each | – | 0.95 and 0 pt, each |
+
+Dragged end to end in a second, the indicator moves a long list 2,000 to 10,000 pt a frame, so every frame shows rows
+no frame before showed. UIKit's collection view configures a screen of cells in 3 to 5 ms a frame; SwiftUI's lazy
+stack takes 50 to 150. Exact builds a glimpse a frame (`CollectionFill::glimpse`: the rows nearest the middle that
+three fifths of a frame fits), so the rest of the port shows blank until the finger holds, and a feed post that
+costs more than a frame still makes that frame late.
+
 ## Limits
 
 - 60 Hz only: the simulator runs at 60 Hz, so a 120 Hz phone's budgets (8.3 ms a frame) are not exercised, and the
@@ -193,9 +227,10 @@ between UIKit's and SwiftUI's.
   symbols; where `dladdr` cannot name one, the time has no callout and counts as scrolling.
 - A list that opens at its end (a chat) has its slow drag and first flings go up it instead; the pull past the top
   is skipped when the flings did not bring the list back to its top.
-- Vertical lists only; the gestures land in the middle of the list and assume a row there tolerates a tap (the
-  tap during deceleration). The detector picks the largest qualifying scroll view; use `--steps` and `--at` for
-  another.
+- Horizontal scrolling is probed only on a carousel inside the vertical list; a screen whose only scroller is a
+  horizontal pager reads `no-scrollable-list`. The vertical gestures land in the middle of the list and assume a
+  row there tolerates a tap (the tap during deceleration). The detector picks the largest qualifying scroll view;
+  use `--steps` and `--at` for another.
 - The touch runner turns on the simulator's accessibility runtime for its session (`touches.mjs`), so every arm
   runs with it loaded; the sampler shows its cost as `accessibility`.
 

@@ -8,7 +8,8 @@
 //   {"k":"touch", t, ph, x, y}   each touch phase the application dispatched (window points)
 //   {"k":"f", …}                 one display-link frame (`tick:`), written while a
 //                                finger is down, a scroll view moves, and 0.5 s after; `ag` is
-//                                the content's shift under the offset since the last one
+//                                the content's shift under the offset since the last one, `ind`
+//                                the vertical scroll indicator, `o` every other view that moved
 //   {"k":"where", t, dt, ms, via, samples}  a late frame: where the main thread's time went
 // Times are CACurrentMediaTime seconds (the host's mach clock on a simulator);
 // `hello` pairs it with the wall clock so the driver's gesture times map onto it.
@@ -466,7 +467,11 @@ static void collect(UIView *v, NSInteger depth, NSMutableArray *out) {
   [NSRunLoop.mainRunLoop addTimer:[NSTimer timerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *t) { 
     flush();
     gSampling = access(gSwitch, F_OK) == 0;
-    if (!gChecking && access(gCheckSwitch, F_OK) == 0) { unlink(gCheckSwitch); [self check]; }
+    if (!gChecking && access(gCheckSwitch, F_OK) == 0) {
+      NSString *first = [NSString stringWithContentsOfFile:@(gCheckSwitch) encoding:NSUTF8StringEncoding error:nil];
+      unlink(gCheckSwitch);
+      [self check:first];
+    }
   }] forMode:NSRunLoopCommonModes];
 }
 
@@ -666,15 +671,22 @@ static double latePoints(NSData *rows, NSData *settled, double *alignErr, long *
 /// The check (`$FEEL_OUT.check`): each kept band's frame drawn again at the same offset once the list has rested
 /// there, so a band counts as blank only where rows that will be drawn were not drawn yet. A grouped list's
 /// background, a gap between sections or a row's own plain area is uniform at rest too. At most `kChecks` bands,
-/// spread over those kept; the list goes back to where it was. Each `{"k":"bcheck", t, blank, late, ms}`
-/// (`late`: the points of the band with ink at rest; `gone`: the view left), then `{"k":"checked", n}`.
+/// spread over those kept, those sampled at the times the switch file names first (up to half); the list goes back
+/// to where it was. Each `{"k":"bcheck", t, blank, late, ms}` (`late`: the points of the band with ink at rest;
+/// `gone`: the view left), then `{"k":"checked", n}`.
 static const NSUInteger kChecks = 10;
-- (void)check {
+- (void)check:(NSString *)first {
   gChecking = YES;
   NSArray<FeelBand *> *all = gBands;
   gBands = [NSMutableArray array];
   self.checkTodo = [NSMutableArray array];
-  for (NSUInteger i = 0, n = MIN(all.count, kChecks); i < n; i++) [self.checkTodo addObject:all[i * all.count / n]];
+  NSMutableArray<FeelBand *> *rest = [all mutableCopy];
+  for (NSString *word in [first ?: @"" componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]) {
+    if (!word.length || self.checkTodo.count >= kChecks / 2) continue;
+    double t = word.doubleValue;
+    for (FeelBand *b in rest) if (fabs(b.t - t) < 1e-4) { [self.checkTodo addObject:b]; [rest removeObject:b]; break; }
+  }
+  for (NSUInteger i = 0, n = MIN(rest.count, kChecks - self.checkTodo.count); i < n; i++) [self.checkTodo addObject:rest[i * rest.count / n]];
   self.checkKept = all.count;
   self.checkDone = 0;
   self.checkHome = self.checkTodo.firstObject.view;
@@ -727,19 +739,24 @@ static const NSUInteger kChecks = 10;
   BOOL touching = gDown > 0;
   // Rescan often enough to meet a pushed screen's list, rarely while moving.
   if (++self.sinceScan >= (t0 - self.lastMotion < 0.5 ? 30 : 8)) { self.sinceScan = 0; [self rescan:t0]; }
-  // The moving view: the innermost one a finger or momentum drives, else the one whose offset changed.
-  FeelView *active = nil, *shifted = nil;
+  // The moving view: the innermost one a finger or momentum drives, else the innermost one only touched (a
+  // horizontal carousel under a finger that drags the list it is in is touched, not dragged), else the one whose
+  // offset changed. Every other view that moved goes in `o`.
+  FeelView *active = nil, *touched = nil, *shifted = nil;
   double shiftBy = 0;
+  NSMutableArray<FeelView *> *moved = [NSMutableArray array];
   for (FeelView *fv in self.views.objectEnumerator) {
     UIScrollView *s = fv.view;
     if (!s || !s.window) continue;
     CGPoint o = s.contentOffset;
     double d = fabs(o.x - fv.last.x) + fabs(o.y - fv.last.y);
     fv.last = o;
-    if ((s.isTracking || s.isDragging || s.isDecelerating) && (!active || fv.depth > active.depth)) active = fv;
+    if ((s.isDragging || s.isDecelerating) && (!active || fv.depth > active.depth)) active = fv;
+    if (s.isTracking && (!touched || fv.depth > touched.depth)) touched = fv;
+    if (d > 0.01) [moved addObject:fv];
     if (d > 0.01 && d > shiftBy) { shifted = fv; shiftBy = d; }
   }
-  FeelView *now = active ?: shifted;
+  FeelView *now = active ?: touched ?: shifted;
   if (now) { self.focus = now; self.lastMotion = t0; }
   BOOL record = touching || now || t0 - self.lastMotion < 0.5 || t0 - gLastTouchT < 0.5;
   double busy = busyNow(), busyMs = (busy - self.lastBusy) * 1000;
@@ -763,9 +780,16 @@ static const NSUInteger kChecks = 10;
     CGPoint o = s.contentOffset;
     CALayer *pl = s.layer.presentationLayer;
     UIEdgeInsets in = s.adjustedContentInset;
-    [line appendFormat:@",\"v\":%ld,\"ox\":%.3f,\"oy\":%.3f,\"py\":%.3f,\"cw\":%.1f,\"ch\":%.1f,\"bw\":%.1f,\"bh\":%.1f,\"it\":%.1f,\"ib\":%.1f,\"tr\":%d,\"dr\":%d,\"de\":%d",
+    [line appendFormat:@",\"v\":%ld,\"ox\":%.3f,\"oy\":%.3f,\"py\":%.3f,\"cw\":%.1f,\"ch\":%.1f,\"bw\":%.1f,\"bh\":%.1f,\"it\":%.1f,\"ib\":%.1f,\"il\":%.1f,\"ir\":%.1f,\"tr\":%d,\"dr\":%d,\"de\":%d",
       (long)fv.ident, o.x, o.y, pl ? pl.bounds.origin.y : o.y, s.contentSize.width, s.contentSize.height, s.bounds.size.width, s.bounds.size.height,
-      in.top, in.bottom, s.isTracking, s.isDragging, s.isDecelerating];
+      in.top, in.bottom, in.left, in.right, s.isTracking, s.isDragging, s.isDecelerating];
+    // `ind`: the vertical scroll indicator in window points and its alpha, where a finger grabs it to scrub.
+    for (UIView *sub in s.subviews) {
+      if (!strstr(object_getClassName(sub), "ScrollIndicator") || sub.bounds.size.height <= sub.bounds.size.width) continue;
+      CGRect r = [sub convertRect:sub.bounds toView:nil];
+      [line appendFormat:@",\"ind\":[%.1f,%.1f,%.1f,%.1f,%.2f]", r.origin.x, r.origin.y, r.size.width, r.size.height, sub.hidden ? 0 : sub.alpha];
+      break;
+    }
     // `ag`: how far the content under the offset moved since the last tick, as last tick's anchor moved in the
     // content; a list that measures rows above the viewport and keeps what is shown in place moves its offset by
     // as much in the same frame.
@@ -778,6 +802,15 @@ static const NSUInteger kChecks = 10;
     self.anchor = a; self.anchorOf = s;
     self.anchorY = a ? [a convertRect:a.bounds toLayer:s.layer].origin.y : 0;
   }
+  // `o`: each other view that moved, [id, x, y, tracking | dragging << 1 | decelerating << 2].
+  NSMutableString *others = [NSMutableString string];
+  for (FeelView *m in moved) {
+    if (m == fv) continue;
+    UIScrollView *ms = m.view;
+    [others appendFormat:@"%@[%ld,%.3f,%.3f,%d]", others.length ? @"," : @"", (long)m.ident, ms.contentOffset.x, ms.contentOffset.y,
+      ms.isTracking | ms.isDragging << 1 | ms.isDecelerating << 2];
+  }
+  if (others.length) [line appendFormat:@",\"o\":[%@]", others];
   if (gSampling || gChecking) [line appendString:@",\"s\":1"];
   [line appendFormat:@",\"own\":%.3f}", (CACurrentMediaTime() - t0) * 1000];
   emit(line);

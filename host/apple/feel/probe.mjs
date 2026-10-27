@@ -12,7 +12,7 @@
 // --sample N measures blank bands every Nth moving frame (0: never; 4); --dump DIR saves the first sampled
 // images and any with a blank band; --short plays verify's script.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { readTree, tapPoint } from '../elements.mjs';
 import { openTouches } from '../touches.mjs';
@@ -28,10 +28,13 @@ export function recorder() {
   const dylib = resolve(ROOT, 'target/feel/recorder-sim.dylib'), source = resolve(HERE, 'feel.m');
   if (existsSync(dylib) && statSync(dylib).mtimeMs >= statSync(source).mtimeMs) return dylib;
   mkdirSync(dirname(dylib), { recursive: true });
+  // Built beside it and renamed over it: an app another probe launched keeps the one it loaded.
+  const built = `${dylib}.${process.pid}`;
   const b = spawnSync('xcrun', ['-sdk', 'iphonesimulator', 'clang', '-dynamiclib', '-fobjc-arc', '-O2', '-Wall', '-target', 'arm64-apple-ios17.0-simulator',
     '-framework', 'UIKit', '-framework', 'QuartzCore', '-framework', 'CoreGraphics', '-framework', 'Foundation',
-    source, '-o', dylib, '-install_name', '@rpath/feel.dylib'], { encoding: 'utf8' });
-  if (b.status !== 0) throw new Error(`building the recorder failed: ${(b.stderr || b.stdout).trim().split('\n').slice(-3).join(' ')}`);
+    source, '-o', built, '-install_name', '@rpath/feel.dylib'], { encoding: 'utf8' });
+  if (b.status !== 0) { rmSync(built, { force: true }); throw new Error(`building the recorder failed: ${(b.stderr || b.stdout).trim().split('\n').slice(-3).join(' ')}`); }
+  renameSync(built, dylib);
   return dylib;
 }
 
@@ -76,10 +79,11 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
     await sleep(300);
   };
   /** The recorder's blank check (feel.m `check`): each sampled frame with a blank band drawn again at its offset
-   * once the list rests there; the list goes back where it was. A gesture of its own, `blank-check`. */
-  const check = async () => {
+   * once the list rests there; the list goes back where it was. A gesture of its own, `blank-check`. `first`: the
+   * times of samples it checks before the rest. */
+  const check = async (first = []) => {
     const start = Date.now(), seen = trace().checked.length;
-    writeFileSync(`${tracePath}.check`, '');
+    writeFileSync(`${tracePath}.check`, first.map((t) => t.toFixed(6)).join(' '));
     for (const until = Date.now() + 20000; trace().checked.length === seen; await sleep(100)) {
       if (Date.now() > until) { rmSync(`${tracePath}.check`, { force: true }); say('the blank check did not finish in 20 s'); break; }
     }
@@ -157,6 +161,82 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
       await rest(4000);
       await sleep(600); // a pushed screen's scan
     };
+    /** The blank samples of `g` with a band, taken once the list had held still for 100 ms (each frame since moved it
+     * under a twentieth of its viewport): the blanks that would linger, which the check judges first. */
+    const heldSamples = (g) => {
+      const t = trace(), from = mediaNow() - (Date.now() - g.start) / 1000, fs = t.frames.filter((f) => f.v === list.id && f.t >= from);
+      const moved = fs.filter((f, i) => i && Math.abs(f.oy - fs[i - 1].oy) >= 0.05 * (f.bh - f.it - f.ib));
+      return t.blanks.filter((b) => b.t >= from && b.blank >= 60).filter((b) => { const last = moved.findLast((f) => f.t <= b.t + 1e-4); return last && b.t - last.t >= 0.1; }).map((b) => b.t);
+    };
+    /** Whether the list is still shown and reachable: a tap that activated a row has left it. */
+    const listShown = () => { const v = trace().scans.at(-1)?.views.find((w) => w.id === list.id); return !!v && v.shown && v.reach; };
+    /** The scroll indicator grabbed and dragged from one end of its track to the other and back (UIKit's interactive
+     * indicator): from the top (a status-bar tap), shown by a short fling, held 0.5 s, then 1 s a leg, the far end
+     * first, 0.3 s held at each end. */
+    const scrub = async (name) => {
+      const f0 = lastFrame();
+      if (f0 && f0.oy > -f0.it + 300) {
+        await tap(`${name}-top`, [Math.round(hello.screen[0] * 0.8), Math.round((trace().scans.at(-1)?.safeTop || 47) / 2)]);
+        await rest(4000);
+      }
+      const at0 = lastFrame(), nearTop = !at0 || at0.oy < -at0.it + 300;
+      await drag(`${name}-reveal`, nearTop ? [x, lo] : [x, hi], nearTop ? [x, lo - 150] : [x, hi + 150], 1500);
+      await sleep(400); // the synthesizer injects nothing while the app is still busy with the last gesture
+      const f = lastFrame();
+      if (!f?.ind || f.v !== list.id || f.ind[4] < 0.05) return say(`${name}: the list shows no scroll indicator`);
+      const ix = Math.round(f.ind[0] + f.ind[2] / 2), iy = Math.round(f.ind[1] + f.ind[3] / 2);
+      const trackTop = Math.round(top + 12), trackBottom = Math.round(bottom - 12);
+      const [far, near] = iy - trackTop > trackBottom - iy ? [trackTop, trackBottom] : [trackBottom, trackTop];
+      const r = fail(name, await touches.ask({ op: 'drag', point: [ix, iy], to: [ix, near], press: 0.5, hold: 0, velocity: 1000, screen: [ix, iy], screenTo: [ix, near], display,
+        path: [{ to: [ix, far], over: 1, hold: 0.3 }, { to: [ix, near], over: 1, hold: 0.3 }] }, 30000));
+      gestures.push({ name, kind: 'scrub', from: [ix, iy], to: [ix, far], back: [ix, near], start: r.injected.start, end: r.injected.end });
+      await rest(4000);
+    };
+    /** A horizontal scroller in the list, by shape (content at least 1.5 × its width + 100 pt, no taller than it),
+     * whole in the list's viewport with 20 pt to spare; the widest. Up to `tries` slow drags down the list to meet one. */
+    const findCarousel = async (tries) => {
+      for (let i = 0; ; i++) {
+        await sleep(600); // the next scan
+        const views = trace().scans.at(-1)?.views ?? [];
+        const c = views.filter((v) => v.id !== list.id && v.shown && v.enabled && v.frame[2] >= 200 && v.frame[3] >= 60 && v.cs[0] > v.frame[2] * 1.5 + 100 && v.cs[1] <= v.frame[3] + 1
+          && v.frame[1] >= top + 20 && v.frame[1] + v.frame[3] <= bottom - 20).sort((a, b) => b.frame[2] - a.frame[2])[0];
+        if (c || i >= tries) return c ?? null;
+        const f = lastFrame(), up = f && f.oy > f.ch - f.bh + f.ib - 300;
+        await drag(`find-carousel-${i + 1}`, up ? [x, hi] : [x, lo], up ? [x, hi + Math.round(span * 0.5)] : [x, lo - Math.round(span * 0.5)], 600, { press: 0.05, hold: 0.3 });
+        await rest(3000);
+      }
+    };
+    /** Horizontal gestures on an inner scroller (`c`): a slow drag, flings along it and back (blanks unsampled), and
+     * the arbitration of two diagonal drags held before the lift: mostly horizontal (the scroller's) and mostly
+     * vertical (the list's, as UIKit gives it). `short`: one fling and the two diagonals. */
+    const horizontal = async (c, short) => {
+      const [cx, cy, cw, ch] = c.frame, y = Math.round(cy + ch / 2);
+      const right = Math.round(cx + cw - 40), left = Math.round(cx + 40), len = Math.round(Math.min(300, cw * 0.6));
+      say(`carousel #${c.id} ${c.cls} at y ${y}, x ${left}…${right}`);
+      gestures.push({ name: 'h-start', kind: 'mark', carousel: c.id, start: Date.now(), end: Date.now() });
+      if (!short) {
+        await drag('h-slow-drag', [right, y], [left, y], 250, { press: 0.1, hold: 0.5 });
+        await rest();
+        await drag('h-fling-1500', [right, y], [right - len, y], 1500);
+        await rest();
+      }
+      await drag('h-fling-4000', [right, y], [right - len, y], 4000);
+      await rest();
+      // Back to the start, the last meeting its edge with momentum.
+      for (let i = 0; i < (short ? 1 : 4); i++) {
+        const f = trace().frames.findLast((g) => g.v === c.id);
+        if (f && f.ox <= -(f.il ?? 0) + 1) break;
+        await drag(`h-fling-back-${i + 1}`, [left, y], [left + len, y], 6000);
+        await sleep(1000);
+      }
+      await rest();
+      const d = Math.round(Math.min(220, span * 0.3, cw * 0.5));
+      await drag('h-diagonal', [right, y], [right - d, y - Math.round(d / 4)], 800, { press: 0.05, hold: 0.3 });
+      await rest();
+      await drag('v-diagonal', [Math.round(cx + cw / 2), y], [Math.round(cx + cw / 2 + d / 4), y - d], 800, { press: 0.05, hold: 0.3 });
+      await rest();
+      gestures.push({ name: 'h-end', kind: 'mark', start: Date.now(), end: Date.now() });
+    };
 
     // Finger tracking: a slow drag, held still, lifted with no velocity.
     await drag('slow-drag', atEnd ? [x, hi] : [x, lo], atEnd ? [x, lo] : [x, hi], 250, { press: 0.1, hold: 0.5 });
@@ -173,6 +253,11 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
       await statusBar();
       await pull();
       await tapWhileMoving();
+      if (listShown()) {
+        const c = await findCarousel(0);
+        if (c) await horizontal(c, true);
+        await scrub('scrub');
+      }
     } else {
       // Momentum: flings down the list (the finger moves up); blanks are measured in the 4,000 pt/s one.
       for (const [name, v] of [['fling-1500', 1500], ['fling-4000', 4000], ['fling-6000', 6000]]) {
@@ -200,6 +285,17 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
       await statusBar();
       // A tap during deceleration stops the list and activates nothing.
       await tapWhileMoving();
+      if (listShown()) {
+        // Horizontal lists in the list: a carousel met within eight drags.
+        const c = await findCarousel(8);
+        if (c) await horizontal(c, false);
+        // Scrubbing: timed, then again with blanks sampled.
+        await scrub('scrub');
+        await sampling(true);
+        await scrub('scrub-sampled');
+        await sampling(false);
+        await check(heldSamples(gestures.at(-1)));
+      } else say('the tap left the list: no carousel or scrub');
     }
     return { display, steps: stepCount, gestures, list };
   } finally {
@@ -211,9 +307,9 @@ export async function play({ touches, tracePath, steps = '', at = null, script =
 /** Writes feel.json and feel.txt to `out` for what `play` returned; the result (`analyze`'s, or a no-scrollable-list one). */
 export function finish(out, app, played, udid) {
   const tracePath = resolve(out, 'trace.jsonl');
-  writeFileSync(resolve(out, 'gestures.json'), JSON.stringify({ app, udid, display: played.display, steps: played.steps, gestures: played.gestures }, null, 1));
+  writeFileSync(resolve(out, 'gestures.json'), JSON.stringify({ app, udid, display: played.display, steps: played.steps, gestures: played.gestures, listId: played.list?.id ?? null }, null, 1));
   const result = played.list
-    ? analyze(traceOf(tracePath), { app, steps: played.steps, gestures: played.gestures })
+    ? analyze(traceOf(tracePath), { app, steps: played.steps, gestures: played.gestures, listId: played.list.id })
     : { app, verdict: 'no-scrollable-list', scan: played.scan ?? null };
   writeFileSync(resolve(out, 'feel.json'), JSON.stringify(result, null, 1));
   writeFileSync(resolve(out, 'feel.txt'), played.list ? report(result) : `${app}: no-scrollable-list (no shown scroll view whose content is meaningfully taller than its bounds)\n`);

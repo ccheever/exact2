@@ -108,7 +108,10 @@ export function analyze(t, meta) {
   const gestures = meta.gestures.slice(meta.steps ?? 0).map((g) => ({ ...g, m0: media(g.start) - 0.03, m1: media(g.end) }));
   gestures.forEach((g, i) => { g.until = gestures[i + 1]?.m0 ?? Infinity; });
   const gestureAt = (time) => gestures.findLast((g) => g.m0 <= time)?.name ?? 'launch';
-  const listId = frames.findLast((f) => f.v != null)?.v;
+  const listId = meta.listId ?? frames.findLast((f) => f.v != null)?.v;
+  // A scrub crosses the list in a second: timed apart (`out.scrub`), so the hitch ratio stays the scrolling a finger does.
+  const scrubs = gestures.filter((g) => g.kind === 'scrub');
+  const inScrub = (time) => scrubs.some((g) => time >= g.m0 && time < g.until);
   const scanView = (s) => s?.views.find((v) => v.id === listId);
   const config = scanView(t.scans.findLast((s) => scanView(s))) ?? null;
 
@@ -132,23 +135,29 @@ export function analyze(t, meta) {
 
   // Smoothness over every moving frame while blanks were not sampled (a sample costs the app's main thread).
   const from = gestures[0]?.m0 ?? 0; // not the navigation steps
-  const moving = steps.filter((s) => s.f.mv && !s.f.s && !s.prev.s && s.f.t >= from);
+  const moving = steps.filter((s) => s.f.mv && !s.f.s && !s.prev.s && s.f.t >= from && !inScrub(s.f.t));
   const wheres = new Map(t.wheres.map((w) => [w.t.toFixed(4), w]));
   const hitchMs = moving.reduce((sum, s) => sum + (s.dt > 1.5 * P ? (s.dt - P) * 1000 : 0), 0);
   const motionS = moving.reduce((sum, s) => sum + s.dt, 0);
-  const smooth = {
-    frames: moving.length, motionS: round(motionS, 2), fps: round(t.hello?.maxFps, 0),
-    hitchRatio: round(motionS ? hitchMs / motionS : null), longestFrameMs: round(Math.max(0, ...moving.map((s) => s.dt * 1000))),
-    hitches: moving.filter((s) => s.dt > 1.5 * P).length,
-    hitchAt: moving.filter((s) => s.dt > 1.5 * P).map((s) => {
-      // Where the main thread's time went (feel.m's sampler) and what woke it: a hitch on a timer's tick is the
-      // app updating itself; any other is the scrolling (rows coming on screen, their layout and commit).
-      const w = wheres.get(s.f.t.toFixed(4));
-      return { gesture: gestureAt(s.f.t), ms: round(s.dt * 1000), mainMs: round(s.app, 1), late: (s.dt - P) * 1000,
-        ...(w ? { where: w.ms, via: w.via ?? {}, cause: causeOfFrame(w) } : {}) };
-    }),
-    mainMs: round(mean(moving.map((s) => s.app)), 2), mainP95Ms: round(pct(moving.map((s) => s.app), 0.95), 2),
+  /** Hitches and main-thread time over `moving` (consecutive frames of the list in motion, unsampled). */
+  const smoothOf = (moving) => {
+    const hitchMs = moving.reduce((sum, s) => sum + (s.dt > 1.5 * P ? (s.dt - P) * 1000 : 0), 0);
+    const motionS = moving.reduce((sum, s) => sum + s.dt, 0);
+    return {
+      frames: moving.length, motionS: round(motionS, 2), fps: round(t.hello?.maxFps, 0),
+      hitchRatio: round(motionS ? hitchMs / motionS : null), longestFrameMs: round(Math.max(0, ...moving.map((s) => s.dt * 1000))),
+      hitches: moving.filter((s) => s.dt > 1.5 * P).length,
+      hitchAt: moving.filter((s) => s.dt > 1.5 * P).map((s) => {
+        // Where the main thread's time went (feel.m's sampler) and what woke it: a hitch on a timer's tick is the
+        // app updating itself; any other is the scrolling (rows coming on screen, their layout and commit).
+        const w = wheres.get(s.f.t.toFixed(4));
+        return { gesture: gestureAt(s.f.t), ms: round(s.dt * 1000), mainMs: round(s.app, 1), late: (s.dt - P) * 1000,
+          ...(w ? { where: w.ms, via: w.via ?? {}, cause: causeOfFrame(w) } : {}) };
+      }),
+      mainMs: round(mean(moving.map((s) => s.app)), 2), mainP95Ms: round(pct(moving.map((s) => s.app), 0.95), 2),
+    };
   };
+  const smooth = smoothOf(moving);
   // The hitch time by cause, per s of motion: timer ticks against scrolling (hitches the sampler saw).
   const lateBy = (cause) => smooth.hitchAt.filter((h) => h.cause === cause).reduce((sum, h) => sum + h.late, 0);
   if (t.wheres.length || smooth.hitchAt.some((h) => h.where)) Object.assign(smooth, { tickHitchRatio: round(motionS ? lateBy('tick') / motionS : null), scrollHitchRatio: round(motionS ? lateBy('scroll') / motionS : null) });
@@ -251,7 +260,7 @@ export function analyze(t, meta) {
   const edge = [];
   for (const g of gestures) {
     const ended = touchesIn(g).findLast((x) => x.ph === 'ended');
-    if (!ended || g.name === 'pull-top') continue;
+    if (!ended || g.name === 'pull-top' || /^(h-|scrub)/.test(g.name)) continue;
     const fs = framesIn(g, ended.t);
     const out1 = fs.findIndex((f) => !inside(f));
     if (out1 < 0) continue;
@@ -302,7 +311,9 @@ export function analyze(t, meta) {
     const pre = stepsIn(tap.m0 - 0.1, began?.t ?? tap.m1).filter((s) => s.f.c < (began?.t ?? Infinity));
     const fs = began ? framesIn(tap, began.t) : [];
     const stopI = fs.findIndex((f, i) => i && fs.slice(i).every((x) => Math.abs(x.vy - f.vy) < 0.5));
-    const view = scanView(t.scans.at(-1));
+    // The list as the scan after the tap had it, before any later gesture.
+    const next = gestures[gestures.indexOf(tap) + 1]?.m0 ?? Infinity;
+    const view = scanView(t.scans.findLast((s) => s.t < next) ?? t.scans.at(-1));
     const activated = !view || !view.reach || !view.shown;
     const v = out.tapToStop = { beforeV: round(pre.at(-1)?.v, 0), stopFrames: stopI >= 0 ? stopI : null,
       travelPt: fs.length ? round(Math.abs(fs.at(-1).vy - fs[0].vy)) : null, activated };
@@ -311,23 +322,94 @@ export function analyze(t, meta) {
 
   // Blank bands: rows not yet drawn where the list shows content.
   const movingAt = new Set(frames.filter((f) => f.mv).map((f) => f.t.toFixed(4)));
-  const samples = t.blanks.filter((b) => movingAt.has(b.t.toFixed(4)));
   // A uniform band is a blank only where the same frame drawn again at rest has ink in it (feel.m `check`): the
   // checked bands give the share of the rest. A trace without the check counts every uniform band, unsure.
-  const uniform = samples.filter((b) => b.blank >= 60);
   const checks = new Map(t.bchecks.filter((c) => !c.gone && !c.unjudged).map((c) => [c.t.toFixed(4), c]));
-  const checkedOnes = uniform.filter((b) => checks.has(b.t.toFixed(4)));
-  const late = checkedOnes.filter((b) => checks.get(b.t.toFixed(4)).late >= 60);
   const verified = t.checked.length > 0;
-  // Every uniform band left unjudged (a list whose content moved under the offset): unknown, not none.
-  const unjudged = verified && uniform.length > 0 && !checkedOnes.length;
-  const blankSamples = !verified ? uniform.length : unjudged ? null : uniform.length && late.length * uniform.length / checkedOnes.length;
-  out.blank = { samples: samples.length, uniformSamples: uniform.length, checked: checkedOnes.length, lateChecked: late.length, verified,
-    blankSamples: round(blankSamples, 1), share: samples.length && blankSamples != null ? round(blankSamples / samples.length, 3) : null,
-    maxPt: round(Math.max(0, ...(verified ? late.map((b) => checks.get(b.t.toFixed(4)).late) : uniform.map((b) => b.blank)))),
-    sampleMs: round(mean(samples.map((b) => b.cost)), 2) };
-  out.blank.verdict = { blank: band(out.blank.share, ...T.blank) };
-  out.list = config ? { cls: config.cls, decelerationRate: round(config.decel, 4), bounces: config.bounces, scrollsToTop: config.scrollsToTop, delaysContentTouches: config.delays, contentHeight: config.cs[1] } : null;
+  const blankOf = (samples) => {
+    const uniform = samples.filter((b) => b.blank >= 60);
+    const checkedOnes = uniform.filter((b) => checks.has(b.t.toFixed(4)));
+    const late = checkedOnes.filter((b) => checks.get(b.t.toFixed(4)).late >= 60);
+    // Every uniform band left unjudged (a list whose content moved under the offset): unknown, not none.
+    const unjudged = verified && uniform.length > 0 && !checkedOnes.length;
+    const blankSamples = !verified ? uniform.length : unjudged ? null : uniform.length && late.length * uniform.length / checkedOnes.length;
+    const r = { samples: samples.length, uniformSamples: uniform.length, checked: checkedOnes.length, lateChecked: late.length, verified,
+      blankSamples: round(blankSamples, 1), share: samples.length && blankSamples != null ? round(blankSamples / samples.length, 3) : null,
+      maxPt: round(Math.max(0, ...(verified ? late.map((b) => checks.get(b.t.toFixed(4)).late) : uniform.map((b) => b.blank)))),
+      sampleMs: round(mean(samples.map((b) => b.cost)), 2) };
+    r.verdict = { blank: band(r.share, ...T.blank) };
+    return r;
+  };
+  out.blank = blankOf(t.blanks.filter((b) => movingAt.has(b.t.toFixed(4)) && !inScrub(b.t)));
+
+  // Scrubbing: the scroll indicator dragged end to end (probe.mjs `scrub`), a screen or more of rows a frame. Timed
+  // in `scrub`, blanks sampled in `scrub-sampled`.
+  if (scrubs.length) {
+    const timed = scrubs.find((g) => g.name === 'scrub'), sampledScrub = scrubs.find((g) => g.name === 'scrub-sampled');
+    const fs = timed ? framesIn(timed) : [];
+    const range = fs.length ? Math.max(1, fs.at(-1).ch - fs.at(-1).bh + fs.at(-1).ib + fs.at(-1).it) : 1;
+    const crossed = fs.length ? (Math.max(...fs.map((f) => f.vy)) - Math.min(...fs.map((f) => f.vy))) / range : 0;
+    const st = timed ? stepsIn(timed.m0, timed.until).filter((s) => s.f.mv && !s.f.s && !s.prev.s) : [];
+    const sc = out.scrub = { took: crossed >= 0.3, crossed: round(crossed, 2), maxStepPt: round(Math.max(0, ...st.map((s) => Math.abs(s.v * s.dt))), 0) };
+    if (timed && sc.took) {
+      sc.smooth = smoothOf(st);
+      for (const h of sc.smooth.hitchAt) h.late = round(h.late);
+      sc.smooth.where = whereClusters(sc.smooth.hitchAt);
+    }
+    if (sampledScrub) {
+      const own = t.blanks.filter((b) => movingAt.has(b.t.toFixed(4)) && b.t >= sampledScrub.m0 && b.t < sampledScrub.until);
+      sc.blank = blankOf(own);
+      // Blanks that linger: those sampled once the finger has held the indicator still for 100 ms (each frame since
+      // moved the list under a twentieth of its viewport).
+      const moved = steps.filter((s) => s.f.t >= sampledScrub.m0 && s.f.t < sampledScrub.until && Math.abs(s.v * s.dt) >= 0.05 * (s.f.bh - s.f.it - s.f.ib));
+      sc.heldBlank = blankOf(own.filter((b) => { const last = moved.findLast((s) => s.f.t <= b.t + 1e-4); return last && b.t - last.f.t >= 0.1; }));
+    }
+    sc.verdict = { hitch: sc.smooth ? band(sc.smooth.hitchRatio, ...T.hitch) : 'n/a', stall: sc.smooth ? band(sc.smooth.longestFrameMs, ...T.stall) : 'n/a',
+      blank: sc.blank && sc.took ? sc.blank.verdict.blank : 'n/a', held: sc.heldBlank?.samples && sc.took ? sc.heldBlank.verdict.blank : 'n/a' };
+  }
+
+  // Horizontal lists in the list (probe.mjs `horizontal`): the same metrics along x, by the vertical analysis on the
+  // carousel's frames with x for y, and the two diagonal drags' arbitration.
+  const mark = gestures.find((g) => g.name === 'h-start');
+  if (mark && meta.axis !== 'x') {
+    const C = mark.carousel, end = gestures.find((g) => g.name === 'h-end');
+    const hs = meta.gestures.filter((g) => g.start >= mark.start && (!end || g.start <= end.start) && g.kind !== 'mark');
+    const rename = (n) => n.replace(/^h-fling-back-/, 'fling-up-').replace(/^h-/, '');
+    const tx = { ...t, blanks: [], bchecks: [], checked: [],
+      frames: t.frames.filter((f) => f.v === C).map((f) => ({ ...f, oy: f.ox, ch: f.cw, bh: f.bw, it: f.il ?? 0, ib: f.ir ?? 0, ag: 0 })),
+      touches: t.touches.map((x) => ({ ...x, y: x.x })) };
+    const hx = analyze(tx, { app: meta.app, steps: 0, gestures: [...hs.map((g) => ({ ...g, name: rename(g.name) })), ...(end ? [end] : [])], listId: C, axis: 'x' });
+    /** `id`'s offset along `axis` over time, from the frames it was the moving view in and the others it moved in. */
+    const track = (id, axis) => {
+      const k = axis === 'x' ? 'ox' : 'oy', i = axis === 'x' ? 1 : 2, pts = [];
+      for (const f of frames) {
+        if (f.v === id) pts.push([f.t, f[k]]);
+        else for (const o of f.o ?? []) if (o[0] === id) pts.push([f.t, o[i]]);
+      }
+      return pts;
+    };
+    const travelIn = (pts, from, to) => {
+      const before = pts.findLast((p) => p[1] != null && p[0] < from), during = pts.filter((p) => p[0] >= from && p[0] <= to);
+      const base = before?.[1] ?? during[0]?.[1];
+      return base == null ? 0 : Math.max(0, ...during.map((p) => Math.abs(p[1] - base)));
+    };
+    const diagonal = (name) => {
+      const g = gestures.find((x) => x.name === name);
+      if (!g) return null;
+      const tt = touchesIn(g), began = tt.find((x) => x.ph === 'began'), ended = tt.findLast((x) => x.ph === 'ended');
+      if (!began || !ended) return null;
+      const lastMove = tt.findLast((x) => x.ph === 'moved' && x.t <= ended.t) ?? ended;
+      const to = ended.t + 0.3;
+      return { fingerX: round(Math.abs(lastMove.x - began.x), 0), fingerY: round(Math.abs(lastMove.y - began.y), 0),
+        carouselPt: round(travelIn(track(C, 'x'), began.t, to), 0), listPt: round(travelIn(track(listId, 'y'), began.t, to), 0) };
+    };
+    const h = diagonal('h-diagonal'), v = diagonal('v-diagonal');
+    if (h) { h.ratio = h.fingerX ? round(h.carouselPt / h.fingerX, 2) : null; h.verdict = h.listPt < 5 && h.ratio >= 0.8 ? 'ok' : h.listPt < 20 && h.ratio >= 0.5 ? 'tell' : 'bad'; }
+    if (v) { v.ratio = v.fingerY ? round(v.listPt / v.fingerY, 2) : null; v.verdict = v.carouselPt < 5 && v.ratio >= 0.8 ? 'ok' : v.carouselPt < 20 && v.ratio >= 0.5 ? 'tell' : 'bad'; }
+    out.horizontal = { carousel: C, list: hx.list, smooth: hx.smooth, tracking: hx.tracking ?? null, flings: hx.flings, momentum: hx.momentum, edgeBounce: hx.edgeBounce,
+      across: h, along: v, verdict: { across: h?.verdict ?? 'n/a', along: v?.verdict ?? 'n/a' } };
+  }
+  out.list = config ? { cls: config.cls, decelerationRate: round(config.decel, 4), bounces: config.bounces, scrollsToTop: config.scrollsToTop, delaysContentTouches: config.delays, contentHeight: config.cs[1], ...(meta.axis === 'x' ? { contentWidth: config.cs[0], paging: config.paging } : {}) } : null;
   return { app: meta.app, verdict: 'probed', ...out };
 }
 
@@ -391,18 +473,48 @@ const VERDICTS = [
     (r, e) => r.blank.verified
       ? `${r.blank.blankSamples} of ${r.blank.samples} frames sampled while the list moved showed a band (up to ${r.blank.maxPt} pt) blank where the same frame at rest has rows drawn: rows drawn late. A row whose content waits on something (an image loading, data fetched as it shows) does this; otherwise it is ${OWN(e)}`
       : `${r.blank.blankSamples} of ${r.blank.samples} frames sampled while the list moved showed a blank band (up to ${r.blank.maxPt} pt) where rows belong: rows drawn late. A row that is itself 60 pt or more of one plain colour, or drawn on a canvas, reads as blank too; otherwise it is ${OWN(e)}`],
+  // The scrub and the carousel: shown in feel.txt only when the probe played them (the sixth entry).
+  ['scrub: hitch ratio (ms/s)', (r) => r.scrub?.smooth?.hitchRatio, (r) => r.scrub?.verdict.hitch, '0',
+    (r, e) => causeOf(r.scrub.smooth.hitchAt, e) ?? `frames came late while the scroll indicator was dragged down the list, a screen or more of rows a frame: ${ROWS}. Where they are light, it is ${OWN(e)}`, (r) => !!r.scrub],
+  ['scrub: longest frame (ms)', (r) => r.scrub?.smooth?.longestFrameMs, (r) => r.scrub?.verdict.stall, '16.7',
+    (r, e) => `a frame of ${r.scrub.smooth.longestFrameMs} ms while the indicator was dragged: ${causeOf([...r.scrub.smooth.hitchAt].sort((a, b) => b.ms - a.ms).slice(0, 1), e) ?? `${ROWS}. Where they are light, it is ${OWN(e)}`}`, (r) => !!r.scrub],
+  ['scrub: blank samples (share)', (r) => r.scrub?.blank?.share, (r) => r.scrub?.verdict.blank, '0',
+    (r, e) => `${r.scrub.blank.blankSamples} of ${r.scrub.blank.samples} frames sampled while the indicator was dragged showed a band (up to ${r.scrub.blank.maxPt} pt) blank where the same frame at rest has rows: rows drawn late. A row whose content waits on something does this; otherwise it is ${OWN(e)}`, (r) => !!r.scrub?.blank],
+  ['scrub: blanks while held (share)', (r) => r.scrub?.heldBlank?.share, (r) => r.scrub?.verdict.held, '0',
+    (r, e) => `${r.scrub.heldBlank.blankSamples} of ${r.scrub.heldBlank.samples} frames sampled 100 ms or more into a hold of the dragged indicator still showed a blank band (up to ${r.scrub.heldBlank.maxPt} pt): rows that stay unbuilt after the list stops. A row whose content waits on something does this; otherwise it is ${OWN(e)}`, (r) => !!r.scrub?.heldBlank?.samples],
+  ['carousel: hitch ratio (ms/s)', (r) => r.horizontal?.smooth.hitchRatio, (r) => r.horizontal?.smooth.verdict.hitch, '0',
+    (r, e) => causeOf(r.horizontal.smooth.hitchAt, e) ?? `frames came late while a horizontal list in the list moved: ${ROWS}. Where its items are light, it is ${OWN(e)}`, (r) => !!r.horizontal],
+  ['carousel: longest frame (ms)', (r) => r.horizontal?.smooth.longestFrameMs, (r) => r.horizontal?.smooth.verdict.stall, '16.7',
+    (r, e) => `a frame of ${r.horizontal.smooth.longestFrameMs} ms while a horizontal list moved: ${ROWS}. Where its items are light, it is ${OWN(e)}`, (r) => !!r.horizontal],
+  ['carousel: tracking ratio', (r) => r.horizontal?.tracking?.ratio, (r) => r.horizontal?.tracking?.verdict.ratio, '1.000',
+    (r, e) => `a horizontal list's content ${r.horizontal.tracking.ratio < 1 ? 'trails' : 'outruns'} the finger: ${OWN(e)}`, (r) => !!r.horizontal?.tracking],
+  ['carousel: deceleration τ (ms; .normal 500)', (r) => r.horizontal?.momentum.tauMs, (r) => r.horizontal?.momentum.verdict.tau, '502',
+    (r, e) => `a horizontal list's fling slows down unlike UIKit's (.normal): scroll snapping does this; without it it is ${OWN(e)}`, (r) => !!r.horizontal],
+  ['carousel: momentum hand-off (content/asked)', (r) => r.horizontal?.momentum.handoff, (r) => r.horizontal?.momentum.verdict.handoff, '1.0',
+    (r, e) => `a horizontal list's glide starts at ${r.horizontal.momentum.handoff}× the finger's speed: ${OWN(e)}`, (r) => !!r.horizontal],
+  ['carousel: edge bounce settle (s)', (r) => r.horizontal?.edgeBounce.settleS, (r) => r.horizontal?.edgeBounce.verdict.settle, '0.6–0.85',
+    (r, e) => `momentum carried past a horizontal list's end comes back in ${r.horizontal.edgeBounce.settleS} s: ${OWN(e)}`, (r) => !!r.horizontal],
+  ['carousel: a mostly-horizontal drag (carousel/finger, list pt)', (r) => r.horizontal?.across && `${r.horizontal.across.ratio}, ${r.horizontal.across.listPt}`, (r) => r.horizontal?.verdict.across, '0.95, 0',
+    (r, e) => `a drag mostly along a horizontal list moved it ${r.horizontal.across.ratio} of the finger's travel and the list it is in ${r.horizontal.across.listPt} pt, where UIKit gives it to the horizontal list alone: ${OWN(e)}`, (r) => !!r.horizontal],
+  ['carousel: a mostly-vertical drag (list/finger, carousel pt)', (r) => r.horizontal?.along && `${r.horizontal.along.ratio}, ${r.horizontal.along.carouselPt}`, (r) => r.horizontal?.verdict.along, '0.95, 0',
+    (r, e) => `a drag mostly down the list that began on a horizontal list moved the list ${r.horizontal.along.ratio} of the finger's travel and the horizontal list ${r.horizontal.along.carouselPt} pt, where UIKit gives it to the list alone: ${OWN(e)}`, (r) => !!r.horizontal],
 ];
+/** The metrics `r` measured: every one of the main script's, and the scrub's and the carousel's when played. */
+const shownIn = (r) => VERDICTS.filter((v) => !v[5] || v[5](r));
 
 /** feel.txt: one line a metric. */
 export function report(r) {
   if (r.verdict !== 'probed') return `${r.app}: ${r.verdict}\n`;
   const lines = [`${r.app}: ${r.list?.cls} (decelerationRate ${r.list?.decelerationRate}, bounces ${r.list?.bounces}, scrollsToTop ${r.list?.scrollsToTop}), ${r.smooth.fps} Hz, ${r.smooth.motionS} s of motion`];
-  for (const [name, value, verdict] of VERDICTS) lines.push(`  ${(verdict(r) ?? 'n/a').padEnd(5)} ${name.padEnd(38)} ${value(r) ?? '–'}`);
-  const counts = VERDICTS.map(([, , v]) => v(r)).reduce((m, v) => ({ ...m, [v]: (m[v] ?? 0) + 1 }), {});
+  for (const [name, value, verdict] of shownIn(r)) lines.push(`  ${(verdict(r) ?? 'n/a').padEnd(5)} ${name.padEnd(38)} ${value(r) ?? '–'}`);
+  const counts = shownIn(r).map(([, , v]) => v(r)).reduce((m, v) => ({ ...m, [v]: (m[v] ?? 0) + 1 }), {});
   lines.push(`  ${counts.ok ?? 0} ok, ${counts.tell ?? 0} tell, ${counts.bad ?? 0} bad`);
   if (r.smooth.where?.length) {
     const split = r.smooth.tickHitchRatio != null ? ` (hitch ms/s from timer ticks ${r.smooth.tickHitchRatio}, from scrolling ${r.smooth.scrollHitchRatio})` : '';
     lines.push(`  where the late frames' main-thread time went${split}:`, ...r.smooth.where.map((c) => `    ${whereLine(c)}`));
+  }
+  for (const [what, s] of [['scrub', r.scrub?.smooth], ['carousel', r.horizontal?.smooth]]) {
+    if (s?.where?.length) lines.push(`  where the ${what}'s late frames' main-thread time went:`, ...s.where.map((c) => `    ${whereLine(c)}`));
   }
   return lines.join('\n') + '\n';
 }
@@ -415,7 +527,7 @@ const unsure = (r, metric) => metric === 'blank samples' && !r.blank?.verified;
 
 /** The metrics that time the main thread: a machine busy with other work makes them, not the app. */
 export const TIMING = new Set(['hitch ratio', 'longest frame', 'main thread p95', 'flings that drop a frame at the lift',
-  'offset jumps while decelerating', 'touch-to-content lag']);
+  'offset jumps while decelerating', 'touch-to-content lag', 'scrub: hitch ratio', 'scrub: longest frame', 'carousel: hitch ratio', 'carousel: longest frame']);
 /** Whose the late frames' time was by the sampler: the label that took most, as an owner (`exact`: Exact's runtime
  * or host; `app`: the app's JS or code), or null when it saw none or the platform took most. */
 function ownerOfTime(hitches) {
@@ -440,6 +552,11 @@ function ownerOf(r, metric) {
       const worst = [...r.smooth.hitchAt].sort((a, b) => b.ms - a.ms)[0];
       return (worst && ownerOfTime([worst])) ?? 'either';
     }
+    case 'scrub: hitch ratio': case 'scrub: longest frame': return ownerOfTime(r.scrub.smooth.hitchAt) ?? 'either';
+    case 'carousel: hitch ratio': case 'carousel: longest frame': return ownerOfTime(r.horizontal.smooth.hitchAt) ?? 'either';
+    case 'carousel: tracking ratio': case 'carousel: momentum hand-off': case 'carousel: edge bounce settle':
+    case 'carousel: a mostly-horizontal drag': case 'carousel: a mostly-vertical drag':
+      return 'exact';
     default: return 'either';
   }
 }
@@ -459,7 +576,8 @@ export function summary(r) {
   if (r.verdict !== 'probed') return '';
   return [r.smooth.hitchRatio != null && `hitches ${r.smooth.hitchRatio} ms/s`, r.smooth.longestFrameMs != null && `longest frame ${r.smooth.longestFrameMs} ms`,
     r.smooth.mainP95Ms != null && `main thread p95 ${r.smooth.mainP95Ms} ms`, r.momentum.tauMs != null && `τ ${r.momentum.tauMs} ms`,
-    r.momentum.lifts && `${r.momentum.liftDrops}/${r.momentum.lifts} lifts dropped a frame`].filter(Boolean).join(', ');
+    r.momentum.lifts && `${r.momentum.liftDrops}/${r.momentum.lifts} lifts dropped a frame`,
+    r.scrub?.smooth && `scrubbing ${r.scrub.smooth.hitchRatio} ms/s`, r.horizontal && `a carousel ${r.horizontal.smooth.hitchRatio} ms/s`].filter(Boolean).join(', ');
 }
 
 if (import.meta.main) {
