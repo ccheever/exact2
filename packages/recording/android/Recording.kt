@@ -5,7 +5,9 @@
 //   its start is a start (D6). A level reader is a consumer too, and never a start.
 // - `audio/mp4` (the unsaid default, D2) is AAC from `MediaCodec` in an MP4 from `MediaMuxer`, whose index is
 //   written at `stop()`, so a take whose process ended is unreadable (D6: the recipe says so); `audio/wav` is 16-bit
-//   PCM, readable up to what was written.
+//   PCM, readable up to what was written. Where `device.microphone-background` is granted the process can outlive
+//   the screen and be stopped from the Task Manager, so the AAC goes to an ADTS part made an MP4 at stop, or at the
+//   next process's first call (Parts.kt, LLP 1133.033 D5).
 // - Reads arrive on the capture's thread; each recorder copies what it takes and encodes on a thread of its own. A
 //   writer two seconds behind stops its recorder with `error` "the writer fell behind" (D6).
 // - An interruption, the capture policy's silencing or the background pauses a recording recorder (D8); a track that
@@ -56,6 +58,13 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
     private val recorders = LinkedHashMap<String, Recorder>()
     private val meters = HashMap<String, Meter>()
     private var next = 0
+    /** A take may outlive the screen: the app's lines declare the `capture` service (LLP 1133.033 D5). */
+    private val outlives = !context.agent && context.foregroundService.declared("capture", "microphone")
+
+    init {
+        // The parts a process that died left are made MP4s before any take of this one begins.
+        if (outlives) Thread({ recoverParts(context.application) { line -> main.post { context.log(line) } } }, "exact.recording.recover").start()
+    }
 
     private fun error(code: String) = JSONObject().put("error", code)
     private fun announce() = context.changed("recording.mediaRecorderState")
@@ -248,7 +257,7 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
             if (source == null || untap != null || state == "inactive") return
             val limit = source.sampleRate * 2
             try {
-                encoder = Encoder(file, type, source.sampleRate, bitRate)
+                encoder = Encoder(file, type, source.sampleRate, bitRate, if (outlives) context.application else null)
             } catch (e: Exception) {
                 return finish("error", "the file did not open: $e") {}
             }
@@ -300,11 +309,13 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    /** A file being written: AAC in MP4, or 16-bit PCM WAV. On the recorder's thread. */
-    private class Encoder(val file: File, type: String, val rate: Int, bitRate: Double) {
+    /** A file being written: AAC in MP4, or 16-bit PCM WAV. On the recorder's thread. With [parts], the AAC goes to an
+     * ADTS part first (Parts.kt). */
+    private class Encoder(val file: File, type: String, val rate: Int, bitRate: Double, parts: Context?) {
         private val wav: RandomAccessFile?
         private val codec: MediaCodec?
         private val muxer: MediaMuxer?
+        private val part: PartWriter?
         private var trackIndex = -1
         private var frames = 0L
         private val info = MediaCodec.BufferInfo()
@@ -314,7 +325,7 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
             file.delete()
             if (type == "audio/wav") {
                 wav = RandomAccessFile(file, "rw").also { it.write(header(0, rate)) }
-                codec = null; muxer = null
+                codec = null; muxer = null; part = null
             } else {
                 wav = null
                 val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, rate, 1)
@@ -324,7 +335,8 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
                     it.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                     it.start()
                 }
-                muxer = MediaMuxer(file.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+                part = parts?.let { PartWriter(it, file) }
+                muxer = if (part == null) MediaMuxer(file.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) else null
             }
         }
 
@@ -351,14 +363,20 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
 
         private fun drain(end: Boolean) {
             val codec = codec ?: return
-            val muxer = muxer ?: return
             while (true) {
                 val index = codec.dequeueOutputBuffer(info, if (end) 10_000 else 0)
                 when {
-                    index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> { trackIndex = muxer.addTrack(codec.outputFormat); muxer.start() }
+                    index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        part?.configure(codec.outputFormat)
+                        muxer?.let { trackIndex = it.addTrack(codec.outputFormat); it.start() }
+                    }
                     index >= 0 -> {
                         val buffer = codec.getOutputBuffer(index)!!
-                        if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0 && info.size > 0 && trackIndex >= 0) muxer.writeSampleData(trackIndex, buffer, info)
+                        val frame = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0 && info.size > 0
+                        if (frame && part != null) {
+                            buffer.position(info.offset); buffer.limit(info.offset + info.size)
+                            part.write(buffer, info.size)
+                        } else if (frame && trackIndex >= 0) muxer?.writeSampleData(trackIndex, buffer, info)
                         codec.releaseOutputBuffer(index, false)
                         if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
                     }
@@ -380,6 +398,7 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
             codec.stop(); codec.release()
             if (trackIndex >= 0) muxer?.stop()
             muxer?.release()
+            part?.finish()
         }
     }
 

@@ -280,16 +280,18 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         }
     }
 
-    /// The app left the foreground or came back (D8): without the background
-    /// mode on iOS a capture's tracks mute, `background`, and its lease goes.
+    /// The app left the foreground or came back (D8): without
+    /// `device.microphone-background` on iOS a capture's tracks mute,
+    /// `background`, and its lease goes (LLP 1133.033 D3). Under the agent
+    /// too, so a drive sees the pause; the lease is then the agent's.
     public func foreground(_ shown: Bool) {
         cameras.foreground(shown)
         if shown { context.changed("media-capture.microphoneStatus"); context.changed("media-capture.cameraStatus") }
         #if os(iOS)
-        guard !context.agent, !Permission.recordsInBackground else { return }
+        guard !Permission.recordsInBackground else { return }
         for t in tracks.values where t.readyState == "live" && t.active {
             if shown {
-                t.platformMute = nil
+                t.platformMute = overlay
                 activate(t)
             } else {
                 t.platformMute = "background"
@@ -360,7 +362,7 @@ struct CaptureOptions {
         voiceProcessing = ["echoCancellation", "noiseSuppression", "autoGainControl"].contains { constraints[$0] as? Bool == true }
         mode = apple["mode"] as? String
         categoryOptions = apple["categoryOptions"] as? [String] ?? []
-        background = (Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []).contains("audio")
+        background = Permission.recordsInBackground
         preferredIOBufferDuration = (apple["preferredIOBufferDuration"] as? Double) ?? (constraints["latency"] as? Double)
         deviceId = constraints["deviceId"] as? String
     }
@@ -442,9 +444,11 @@ enum Permission {
             .map { ["deviceId": $0.uniqueID, "kind": "audioinput", "label": $0.localizedName, "groupId": $0.modelID] }
         #endif
     }
-    /// `audio` in `UIBackgroundModes`: the capture records on in the background (D8).
+    /// `device.microphone-background`'s key (LLP 1133.033 D3): the capture
+    /// records on in the background. Not the `audio` mode, which other lines
+    /// and an app's own playback derive too.
     static var recordsInBackground: Bool {
-        (Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []).contains("audio")
+        Bundle.main.object(forInfoDictionaryKey: "ExactCapturesInBackground") as? Bool == true
     }
 }
 

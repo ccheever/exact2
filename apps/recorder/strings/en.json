@@ -1,4 +1,5 @@
 {
   "purpose.microphone": "Records your takes.",
-  "purpose.transcribe": "Writes down what is said in your takes, on this device."
+  "purpose.transcribe": "Writes down what is said in your takes, on this device.",
+  "purpose.recordingInBackground": "Recording"
 }

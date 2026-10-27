@@ -27,7 +27,13 @@
       ]
     }
   ],
+  "agent": {
+    "foregroundService": "ForegroundServicePreference"
+  },
   "shapes": {
+    "ForegroundServicePreference": {
+      "refused": "option<string>"
+    },
     "MediaStream": {
       "id": "string",
       "active": "bool",
@@ -127,6 +133,7 @@
       "request": true,
       "origin": "app",
       "foreground": true,
+      "inCall": true,
       "grants": {
         "audio": "device.microphone",
         "audioConstraints": "device.microphone",
@@ -174,6 +181,7 @@
       "send": "setTrackEnabled",
       "origin": "app",
       "foreground": true,
+      "inCall": true,
       "when": {
         "enabled": true
       },
