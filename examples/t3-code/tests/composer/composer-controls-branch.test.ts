@@ -6,7 +6,7 @@ import { composerBranches, sanitizeNewRefName, previousWorktree, stripShortcuts 
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { connected, thread } from '../support/composer-controls-fixture';
 import { toasts } from '../../src/shell/toast';
-import { appPath } from '../support/app-files';
+import { appPath, appText } from '../support/app-files';
 
 describe('workspace strip details', () => {
   test('a typed name is offered as a sanitized new ref, and Return picks the highlighted first item', async () => {
@@ -219,7 +219,7 @@ describe('one Run on and Workspace keyboard order', () => {
       ['cclocal:env-mode', '', 'worktree', 0], ['cclocal:env-mode', '', 'previous', 0]]);
     expect(workspace).not.toContain('focus(');
     expect(workspace).not.toContain('close(');
-    const app = await Bun.file(appPath('app.contract')).text();
+    const app = await appText('app.contract');
     expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus("composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(op, id, value, n)');
   });
 });

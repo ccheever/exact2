@@ -1,0 +1,95 @@
+// T3Code's server browser streams (the panel's and the mini view's) and the data module's external opens (LLP 1091.002).
+use ServerBrowserFrame from "./server-browser.contract"
+members T3Code
+  resource serverBrowserLive = serverBrowserFrame(shell.panel.browser.runtimeId, shell.panel.browser.streamUrl) as shape ServerBrowserFrame
+  resource serverBrowserMiniLive = serverBrowserFrame(shell.panel.browserMini.runtimeId, shell.panel.browserMini.streamUrl) as shape ServerBrowserFrame
+  mutation serverBrowserChanged as shape ServerBrowserFrame queue
+  mutation serverBrowserMaintained as shape ServerBrowserFrame queue
+  mutation serverBrowserMiniMaintained as shape ServerBrowserFrame queue
+  mutation serverBrowserUploaded as shape ServerBrowserFrame queue refreshes data
+  derive serverFrame0 = match serverBrowserChanged { case some(value) => value.runtimeId == shell.panel.browser.runtimeId and value.seq > serverBrowserLive.seq ? value : serverBrowserLive, case none => serverBrowserLive }
+  derive serverFrame1 = match serverBrowserMaintained { case some(value) => value.runtimeId == shell.panel.browser.runtimeId and value.seq > serverFrame0.seq ? value : serverFrame0, case none => serverFrame0 }
+  derive serverFrame = match serverBrowserUploaded { case some(value) => value.runtimeId == shell.panel.browser.runtimeId and value.seq > serverFrame1.seq ? value : serverFrame1, case none => serverFrame1 }
+  derive serverMiniFrame0 = match serverBrowserChanged { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverBrowserMiniLive.seq ? value : serverBrowserMiniLive, case none => serverBrowserMiniLive }
+  derive serverMiniFrame1 = match serverBrowserMiniMaintained { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverMiniFrame0.seq ? value : serverMiniFrame0, case none => serverMiniFrame0 }
+  derive serverMiniFrame = match serverBrowserUploaded { case some(value) => value.runtimeId == shell.panel.browserMini.runtimeId and value.seq > serverMiniFrame1.seq ? value : serverMiniFrame1, case none => serverMiniFrame1 }
+  task streamMaintenance when serverFrame.attention or serverMiniFrame.attention key=`${serverFrame.runtimeId}:${serverMiniFrame.runtimeId}`
+    every(250, streamMaintain)
+  action streamMaintain
+    shellClock = performanceNow()
+    send serverBrowserMaintained = serverBrowserStatus(shell.panel.browser.runtimeId, wallTime.epochAtZero + performanceNow())
+    send serverBrowserMiniMaintained = serverBrowserStatus(shell.panel.browserMini.runtimeId, wallTime.epochAtZero + performanceNow())
+    refresh shell
+  task streamDecode when serverFrame.decoding key=`${serverFrame.runtimeId}:${serverFrame.decodeSequence}`
+    after(1, streamDecodeFrame)
+  action streamDecodeFrame
+    send serverBrowserChanged = serverBrowserDecode(serverFrame.runtimeId)
+  task streamMiniDecode when serverMiniFrame.decoding key=`${serverMiniFrame.runtimeId}:${serverMiniFrame.decodeSequence}`
+    after(1, streamDecodeMiniFrame)
+  action streamDecodeMiniFrame
+    send serverBrowserChanged = serverBrowserDecode(serverMiniFrame.runtimeId)
+  state streamWidth = 0
+  state streamHeight = 0
+  state streamFollowSize = false
+  action streamMeasured(id: string, width: number, height: number, follow: bool)
+    if id == shell.panel.browser.runtimeId
+      streamWidth = width
+      streamHeight = height
+      streamFollowSize = follow
+  task streamResized when serverFrame.controlled and streamFollowSize and streamWidth > 0 and streamHeight > 0 key=`${streamWidth}x${streamHeight}:${serverFrame.controlled}`
+    after(150, streamResize)
+  action streamResize
+    send serverBrowserChanged = serverBrowserResize(shell.panel.browser.runtimeId, streamWidth, streamHeight, wallTime.epochAtZero + performanceNow())
+  action streamPainted(id: string, image: string)
+    send serverBrowserChanged = serverBrowserPainted(id, image)
+  action streamControl(id: string, kind: string)
+    send serverBrowserChanged = serverBrowserControl(id, kind, wallTime.epochAtZero + performanceNow())
+  action streamMouse(id: string, event: PointerEvent, phase: string, width: number, height: number)
+    send serverBrowserChanged = serverBrowserMouse(id, event, phase, width, height, wallTime.epochAtZero + performanceNow())
+  action streamWheel(id: string, event: WheelEvent, phase: string, width: number, height: number)
+    send serverBrowserChanged = serverBrowserWheel(id, event, phase, width, height, wallTime.epochAtZero + performanceNow())
+  action streamKey(id: string, event: KeyboardEvent, phase: string)
+    send serverBrowserChanged = serverBrowserKey(id, event, phase, wallTime.epochAtZero + performanceNow())
+  action streamText(id: string, text: string)
+    send serverBrowserChanged = serverBrowserText(id, text, wallTime.epochAtZero + performanceNow())
+  action streamDialog(id: string, accept: bool, prompt: string)
+    send serverBrowserChanged = serverBrowserDialog(id, accept, prompt, wallTime.epochAtZero + performanceNow())
+  action streamUpload(id: string, chooser: string, files: Picked[])
+    send serverBrowserUploaded = serverBrowserUpload(id, chooser, files)
+  // ElectronShell.openExternal (external-open.ts): a link the data module accepted opens once per serial; app.json's
+  // open_url.schemes lets openURL hand the remote editors' deep links to the system. The data module outlives View ›
+  // Reload, which boots this plan again: the serial standing at the first answer is this boot's baseline, so the last
+  // link does not open again.
+  state externalOpenFrom = -1
+  task externalOpenBaseline when externalOpenFrom < 0 and data.revision > 0
+    after(1, externalOpenBaselineTaken)
+  action externalOpenBaselineTaken
+    externalOpenFrom = data.externalOpen.serial
+  task externalOpen when externalOpenFrom >= 0 and data.externalOpen.serial > externalOpenFrom key=data.externalOpen.serial
+    after(1, openExternalUrl)
+  action openExternalUrl
+    openURL(data.externalOpen.url)
+  task streamClipboard when serverFrame.clipboardSequence > 0 key=`${serverFrame.runtimeId}:${serverFrame.clipboardSequence}`
+    after(1, streamCopyClipboard)
+  action streamCopyClipboard
+    copyText(serverFrame.clipboard)
+  task streamOpenedDialog when serverFrame.dialogType != "" key=serverFrame.dialogMessage
+    after(1, streamOpenDialog)
+  action streamOpenDialog
+    showModal(`server-browser-dialog-${serverFrame.runtimeId}`)
+  task streamClosedDialog when serverFrame.dialogType == ""
+    after(1, streamCloseDialog)
+  action streamCloseDialog
+    close(`server-browser-dialog-${serverFrame.runtimeId}`)
+  task streamMiniClipboard when serverMiniFrame.clipboardSequence > 0 key=`${serverMiniFrame.runtimeId}:${serverMiniFrame.clipboardSequence}`
+    after(1, streamCopyMiniClipboard)
+  action streamCopyMiniClipboard
+    copyText(serverMiniFrame.clipboard)
+  task streamOpenedMiniDialog when serverMiniFrame.dialogType != "" key=serverMiniFrame.dialogMessage
+    after(1, streamOpenMiniDialog)
+  action streamOpenMiniDialog
+    showModal(`server-browser-dialog-${serverMiniFrame.runtimeId}`)
+  task streamClosedMiniDialog when serverMiniFrame.dialogType == ""
+    after(1, streamCloseMiniDialog)
+  action streamCloseMiniDialog
+    close(`server-browser-dialog-${serverMiniFrame.runtimeId}`)

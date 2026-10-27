@@ -15,9 +15,10 @@ import { newThreadInItems, threadJumpChords } from '../../src/palette/palette';
 import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { calendarMove, dateLabel, snoozeCalendar } from '../../src/sidebar/snooze-calendar';
-import { appPath } from '../support/app-files';
+import { appText } from '../support/app-files';
 
-const source = (file: string) => Bun.file(appPath(file)).text();
+
+const source = async (file: string) => appText(file);
 const NOW = new Date(2026, 9, 9, 21, 37).getTime(); // Friday, October 9, 2026, local time
 beforeEach(() => setRuntimeClock(() => NOW));
 afterEach(() => setRuntimeClock(() => Number.NaN));

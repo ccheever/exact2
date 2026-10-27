@@ -12,9 +12,10 @@ import { prLocal, pullRequestsPage, type PrInput } from '../../src/pull-requests
 import { environmentQueries } from '../../src/pull-requests/pages-pr-paging';
 import { threadPickerView } from '../../src/pull-requests/pages-pr-links';
 import { contractComponent, value } from '../support/contract-action-fixture';
-import { appPath } from '../support/app-files';
+import { appText } from '../support/app-files';
 
-const source = (file: string) => Bun.file(appPath(file)).text();
+
+const source = async (file: string) => appText(file);
 
 // ── A return to the app keeps the list ──────────────────────────────────────
 

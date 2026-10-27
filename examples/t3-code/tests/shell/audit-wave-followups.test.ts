@@ -10,10 +10,11 @@ import { snapshot } from '../../src/client/presentation';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
 import { panelState, panelView, surfaceLocal } from '../../src/panel/panel-surfaces';
-import { appPath } from '../support/app-files';
+import { appText } from '../support/app-files';
+
 import { adoptHostLocale, currentTimestampLocale } from '../../src/shared/timestamp-format';
 
-const source = (file: string) => Bun.file(appPath(file)).text();
+const source = async (file: string) => appText(file);
 
 const appTs = 'import { answer } from "./answer";\n\nexport function hello(name: string): string {\n  return `Hello, ${name}`;\n}\n';
 function harness() {

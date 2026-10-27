@@ -8,10 +8,11 @@
 // by driving each dialog on macOS: a source read cannot press Tab.
 import { describe, expect, test } from 'bun:test';
 import { contractComponent, value } from '../support/contract-action-fixture';
-import { appFiles, appPath } from '../support/app-files';
+import { appFiles, appText } from '../support/app-files';
+
 
 const files = appFiles().filter(name => name.endsWith('.contract')).sort();
-const sources = new Map<string, string>(await Promise.all(files.map(async file => [file, await Bun.file(appPath(file)).text()] as const)));
+const sources = new Map<string, string>(await Promise.all(files.map(async file => [file, appText(file)] as const)));
 const source = (file: string) => sources.get(file)!;
 const indent = (line: string) => line.length - line.trimStart().length;
 /** The lines of the block that `line` (an index into `lines`) opens: its children, comments and blanks included. */
