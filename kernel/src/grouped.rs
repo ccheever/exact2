@@ -224,6 +224,16 @@ impl TextLook {
     }
 }
 
+/// Whether `href` names another place in the app: a path, with no scheme
+/// and no host (`/landmarks`, `item/2`), not `https://…` or `mailto:…`, and
+/// not this page's own fragment or query (`#intro`, `?tab=2`).
+fn in_app(href: &str) -> bool {
+    let scheme = href
+        .split_once(':')
+        .is_some_and(|(s, _)| !s.is_empty() && !s.contains(['/', '?', '#']));
+    !scheme && !href.starts_with("//") && !href.is_empty() && !href.starts_with(['#', '?'])
+}
+
 /// A symbol image's Apple name: an `sf/` name as written, a role by the
 /// symbol table; `None` for any other node or source.
 fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
@@ -372,6 +382,10 @@ impl Kernel {
                 .filter(|c| c.style.display != Display::None)
                 .collect()
         };
+        // A row that links to a place in the app leads to more of it: UIKit's
+        // disclosure indicator, which its author leaves unsaid (HIG, "Lists
+        // and tables"). A link out of the app opens elsewhere and has none.
+        let leads_in = row.props.link().is_some_and(in_app);
         let parts = shown(row);
         // A row that lays out as a column (a `column`, LLP 1116 D2) stacks
         // its parts: one or two texts are the subtitle cell's lines, and
@@ -391,6 +405,9 @@ impl Kernel {
                     custom: true,
                     ..out
                 };
+            }
+            if leads_in {
+                out.accessory = Accessory::Disclosure;
             }
             return out;
         }
@@ -475,6 +492,9 @@ impl Kernel {
         }
         if out.title.is_none() {
             out.custom = true;
+        }
+        if out.accessory == Accessory::None && leads_in {
+            out.accessory = Accessory::Disclosure;
         }
         // UIKit's content configuration draws none of the row's box: a row
         // whose author wrote an edge of it, or its background image, is its

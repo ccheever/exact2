@@ -29,6 +29,7 @@ mod flow;
 mod flow_auto;
 mod flow_rows;
 mod geometry;
+mod grouped_rows;
 mod hairline;
 mod handoff;
 mod head;
