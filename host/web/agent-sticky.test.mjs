@@ -25,8 +25,9 @@ const CONTRACT = `component StickyFixture
         column testId="header" position="sticky" top=0 height=60 z-index=2 background-color="-exact-secondary-background"
           text "Header"
         for i in [${rows}] key=i
-          button testId=\`row-\${i}\` press=press(\`row-\${i}\`) height=50 width="100%"
-            text \`Row \${i}\`
+          column testId=\`card-\${i}\` overflow="hidden" border-radius=8
+            button testId=\`row-\${i}\` press=press(\`row-\${i}\`) height=50 width="100%"
+              text \`Row \${i}\`
         column testId="ghost" position="sticky" bottom=110 height=40 z-index=3 pointer-events="none"
           text "Pass-through"
         column testId="dock" position="sticky" bottom=0 height=100 z-index=2 background-color="-exact-secondary-background"
@@ -82,6 +83,12 @@ const drive = async (session) => {
   await expect(session.tap(clearRow)).rejects.toThrow(/covers its middle/);
   expect(await scrollTop()).toBe(top);
   await session.carrier.evaluate(`document.getElementById('sticky-test-popover')?.remove()`);
+  // A dock over more than half the port (each row in a card that clips, as Astra's round 1 had it): the band above it.
+  await session.carrier.evaluate(`document.querySelector('[data-testid="dock"]').style.height = '240px'`);
+  const tall = await rowIn(200, 300);
+  expect(tall).not.toBe(null);
+  expect((await session.tap(tall)).scrolled).toBeDefined();
+  expect(await pressed()).toBe(tall);
   // A dock taller than the band it would leave: nothing to scroll it clear into, so the tap refuses.
   await session.carrier.evaluate(`document.querySelector('[data-testid="dock"]').style.height = '340px'`);
   await expect(session.tap(await rowIn(300, 400))).rejects.toThrow(/covers its middle/);

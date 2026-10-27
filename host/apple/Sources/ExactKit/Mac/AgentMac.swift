@@ -442,26 +442,26 @@ extension Agent {
                 "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
     }
 
-    /// `clip`'s bounds, less each sticky box of its document a click at its middle lands on that doesn't hold `v` (the
-    /// design tool's edit dock; theme2's 14:49 ruling): the band it leaves, above one in the lower half, below one in
-    /// the upper, as a person scrolls a row out from under it. Never a popover, which no scroll takes away.
+    /// `clip`'s bounds, less the sticky box of its document a click at `v`'s middle lands on, by the window's own hit
+    /// test (as the tap's), that doesn't hold `v` (the design tool's edit dock; theme2's 14:49 ruling): the band it
+    /// leaves, above one in the lower half, below one in the upper, as a person scrolls a row out from under it. Never
+    /// a popover's, nor one of a scroller inside `clip`.
     private func clearPort(_ clip: NSClipView, of v: NSView) -> CGRect {
         var port = clip.bounds
-        func walk(_ u: NSView) {
-            for s in u.subviews where !s.isHidden && s.alphaValue > 0 {
-                if let n = s as? NodeView, n.layoutPosition == "sticky", n.props["popover"] == nil, !v.isDescendant(of: n) {
-                    let mid = NSPoint(x: n.bounds.midX, y: n.bounds.midY)
-                    guard let up = n.superview, n.hitTest(n.convert(mid, to: up)) != nil else { continue }
-                    let r = n.convert(n.bounds, to: clip).intersection(port)
-                    guard !r.isNull, r.height > 0, r.width > 0 else { continue }
-                    if r.midY < port.midY { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
-                    else { port.size.height = max(0, r.minY - port.minY) }
-                    continue
-                }
-                if !(s is NSScrollView) { walk(s) }
-            }
+        guard let content = v.window?.contentView, let frame = content.superview else { return port }
+        let mid = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
+        guard let hit = content.hitTest(frame.convert(mid, from: nil)), hit !== v, !hit.isDescendant(of: v) else { return port }
+        var up: NSView? = hit, cover: NodeView?
+        while let u = up, u !== clip {
+            if u is NSScrollView { return port }
+            if let n = u as? NodeView, n.layoutPosition == "sticky" { cover = n; break }
+            up = u.superview
         }
-        if let doc = clip.documentView { walk(doc) }
+        guard let n = cover, n.props["popover"] == nil, !v.isDescendant(of: n) else { return port }
+        let r = n.convert(n.bounds, to: clip).intersection(port)
+        guard !r.isNull, r.height > 0, r.width > 0 else { return port }
+        if r.midY < port.midY { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
+        else { port.size.height = max(0, r.minY - port.minY) }
         return port
     }
 

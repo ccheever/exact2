@@ -971,15 +971,23 @@ function clear(el, middle) {
   let cover = hit;
   while (cover && cover.id !== "exact-root" && !pinned(cover)) cover = cover.parentElement;
   if (!cover || cover.id === "exact-root" || cover.contains(el) || cover.closest(":popover-open, dialog[open], :modal")) return null;
-  const scroller = a => { for (let s = a.parentElement; s; s = s.parentElement) { const cs = getComputedStyle(s); if (/(auto|scroll)/.test(cs.overflowY) && s.scrollHeight > s.clientHeight) return s; } return document.scrollingElement; };
-  const port = scroller(el), fixed = getComputedStyle(cover).position === "fixed";
-  if (!fixed && scroller(cover) !== port) return null;
-  const page = port === document.scrollingElement, r = page ? { top: 0, bottom: innerHeight } : port.getBoundingClientRect(), c = cover.getBoundingClientRect();
-  // The band above a box in the port's lower half, below one in its upper half.
-  const [top, bottom] = c.top > (r.top + r.bottom) / 2 ? [r.top, c.top] : [c.bottom, r.bottom];
+  // A sticky box's scroll container, as CSS finds it (the nearest ancestor whose overflow isn't visible on either axis),
+  // which must hold the target; for a fixed one, the target's nearest scroller with travel down, else the page.
+  const sticky = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) { const cs = getComputedStyle(s); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) return s; } return document.scrollingElement; };
+  const travel = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) if (/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight) return s; return document.scrollingElement; };
+  const fixed = getComputedStyle(cover).position === "fixed", port = fixed ? travel(el) : sticky(cover);
+  if (port !== document.scrollingElement && !port.contains(el)) return null;
+  // Vertical only: a scroller with no travel down (a horizontal one, its sticky column) is no band's to clear.
+  if (port.scrollHeight <= port.clientHeight) return null;
+  const page = port === document.scrollingElement, box = page ? { top: 0, bottom: innerHeight, height: innerHeight } : port.getBoundingClientRect(), c = cover.getBoundingClientRect();
+  // What of the port the viewport shows; the band above a box whose middle is in its lower half, below one in its upper.
+  const r = { top: Math.max(box.top, 0), bottom: Math.min(box.bottom, innerHeight) };
+  const [top, bottom] = (c.top + c.bottom) / 2 > (r.top + r.bottom) / 2 ? [r.top, Math.min(c.top, r.bottom)] : [Math.max(c.bottom, r.top), r.bottom];
   if (bottom <= top) return null;
+  // (A scaled port scrolls by its own pixels: the viewport's distance over its scale.)
+  const scale = page || !port.clientHeight ? 1 : box.height / port.offsetHeight || 1;
   const before = port.scrollTop;
-  port.scrollBy({ top: y - (top + bottom) / 2, behavior: "instant" });
+  port.scrollBy({ top: (y - (top + bottom) / 2) / scale, behavior: "instant" });
   return port.scrollTop === before ? null : middle();
 }
 

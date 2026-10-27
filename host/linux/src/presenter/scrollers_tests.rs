@@ -500,3 +500,47 @@ fn a_tap_scrolls_its_target_clear_of_a_sticky_box_of_its_own_scroller() {
     settle(&mut p);
     assert_ne!(pressed(&p), "row-7");
 }
+
+/// The same through a row's own box (a target wrapped in a column that clips, as a card does) and under a dock taller
+/// than half the port: the target is scrolled into the band above the dock (Astra's round 1).
+#[test]
+fn a_tap_scrolls_a_wrapped_target_above_a_tall_sticky_dock() {
+    let rows = (1..=20)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut p = boot(&format!(
+        r#"component App
+  state pressed = ""
+  action press(name: string)
+    pressed = name
+  view
+    column testId="root" width=320
+      scroll testId="port" height=400
+        for i in [{rows}] key=i
+          column testId=`card-${{i}}` overflow="hidden" border-radius=8
+            button testId=`row-${{i}}` press=press(`row-${{i}}`) height=50 width="100%"
+              text `Row ${{i}}`
+        column testId="dock" position="sticky" bottom=0 height=240 z-index=2
+          text "Dock"
+"#
+    ));
+    let pressed = |p: &Presenter<()>| {
+        p.host
+            .runner()
+            .slot("pressed")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    // Row 5's middle (4 * 50 + 25 = 225) lies under the dock (160..400): scrolled into the band above it, then pressed.
+    let row = id(&p, "row-5");
+    let revealed = p.reveal(row).unwrap();
+    assert!(revealed.contains("\"scrolled\":true"), "{revealed}");
+    settle(&mut p);
+    let mid = p.box_of(row).map(|b| b.rect.1 + b.rect.3 / 2.0).unwrap();
+    assert!((0.0..160.0).contains(&mid), "{mid}");
+    p.tap(row).unwrap();
+    settle(&mut p);
+    assert_eq!(pressed(&p), "row-5");
+}

@@ -66,21 +66,21 @@ extension Agent {
         return scrolled
     }
 
-    /// The sticky boxes laid out in `sv` (not in a scroller inside it) that take a finger at their middle, none holding
-    /// `v`: what the tap's own hit test would land on over the target.
-    private func stickies(in sv: UIScrollView, holding v: UIView) -> [NodeView] {
-        var found: [NodeView] = []
-        func walk(_ u: UIView) {
-            for s in u.subviews where !s.isHidden && s.alpha > 0 {
-                if let n = s as? NodeView, n.layoutPosition == "sticky", n.props["popover"] == nil, !v.isDescendant(of: n) {
-                    if n.isUserInteractionEnabled, n.hitTest(CGPoint(x: n.bounds.midX, y: n.bounds.midY), with: nil) != nil { found.append(n) }
-                    continue
-                }
-                if !(s is UIScrollView) { walk(s) }
+    /// The sticky box of `sv`'s content a finger at `v`'s middle lands on, by the window's own hit test (as the tap's):
+    /// none holding `v`, none a popover's, none of a scroller inside `sv`.
+    private func stickyCover(over v: UIView, in sv: UIScrollView) -> NodeView? {
+        guard let window = v.window else { return nil }
+        let mid = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
+        guard let hit = window.hitTest(mid, with: nil), hit !== v, !hit.isDescendant(of: v) else { return nil }
+        var up: UIView? = hit
+        while let u = up, u !== sv {
+            if u is UIScrollView { return nil }
+            if let n = u as? NodeView, n.layoutPosition == "sticky" {
+                return n.props["popover"] == nil && !v.isDescendant(of: n) ? n : nil
             }
+            up = u.superview
         }
-        walk(sv)
-        return found
+        return nil
     }
 
     /// After a scroll, the target's box at rest, for at most half a second:
@@ -116,7 +116,7 @@ extension Agent {
         var port = sv.pageBounds.inset(by: sv.adjustedContentInset)
         guard let window = sv.window else { return port }
         var covers = bars(over: sv).map { $0.convert($0.bounds, to: nil) }
-        if let v { covers += stickies(in: sv, holding: v).map { $0.convert($0.bounds, to: nil) } }
+        if let v, let cover = stickyCover(over: v, in: sv) { covers.append(cover.convert(cover.bounds, to: nil)) }
         if let top = keyboardTopInWindow() {
             covers.append(CGRect(x: window.bounds.minX, y: top, width: window.bounds.width, height: max(0, window.bounds.maxY - top)))
         }

@@ -61,6 +61,39 @@ impl<D: DataSource> Presenter<D> {
         ))
     }
 
+    /// Scroll `id` by `dy` points, clamped to its travel; whether it moved (the Canvas host's bench driver's, and a
+    /// tap's clear of a sticky box).
+    pub(crate) fn scroll_by(&mut self, id: ViewId, dy: f32) -> bool {
+        self.restore_scroll_anchors();
+        let kernel = self.host.kernel();
+        let Some(node) = kernel.node(id) else {
+            return false;
+        };
+        let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
+            let limits = self.collection_scroll_limits();
+            self.brush.scroll_bounds(
+                kernel,
+                self.host.content_region(),
+                &node,
+                limits.get(&id).copied(),
+            )
+        });
+        let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+        let ny = (off.1 + dy).clamp(0.0, bounds.max.1.max(0.0));
+        let moved = self.anchor_input(id, off, dy, (off.0, ny));
+        if ny == off.1 && moved.is_none_or(|dy| dy == 0.) {
+            return false;
+        }
+        self.scroll.insert(id, (off.0, ny));
+        self.scroll_end_input(id, off, Completion::Instant);
+        self.dirty = true;
+        self.collection_scroll_input(id, off);
+        if let Some(error) = self.refresh_transform_geometry() {
+            self.host.log(error);
+        }
+        true
+    }
+
     /// A target whose middle (`at`) a sticky box of its own scroller covers, as the tap's own hit test finds it (the
     /// design tool's edit dock; theme2's 14:49 ruling): that scroller (or the page) scrolled so the middle lands in the
     /// band of its port the box leaves. Never a box that holds the target, nor one of another scroller or the top
@@ -87,37 +120,31 @@ impl<D: DataSource> Presenter<D> {
         let (Some(cover), Some(constraint)) = (cover, constraint) else {
             return false;
         };
-        let scroller = self.scroll_parent(id);
-        if self.is_inside(id, cover) || scroller != Some(constraint.scroller) {
+        // Its scroller, as the kernel's sticky constraint names it, holding the target (the page's is no scroller
+        // here: none moves).
+        let scroller = constraint.scroller;
+        if self.is_inside(id, cover)
+            || !self.is_inside(id, scroller)
+            || kernel.node(scroller).is_none_or(|n| n.parent.is_none())
+        {
             return false;
         }
         let (_, vh) = self.display.viewport().unwrap_or(self.viewport);
-        let port = scroller
-            .and_then(|s| self.box_of(s))
-            .map_or((0.0, vh), |b| (b.rect.1, b.rect.1 + b.rect.3));
-        let port = (port.0.max(0.0), port.1.min(vh));
-        let Some(c) = self.box_of(cover) else {
+        let (Some(port), Some(c)) = (self.box_of(scroller), self.box_of(cover)) else {
             return false;
         };
-        // The band above a box in the port's lower half, below one in its upper half.
-        let (top, bottom) = if c.rect.1 > (port.0 + port.1) / 2.0 {
-            (port.0, c.rect.1)
+        // What of the port the window shows; the band above a box whose middle is in its lower half, below one in its
+        // upper.
+        let port = (port.rect.1.max(0.0), (port.rect.1 + port.rect.3).min(vh));
+        let (top, bottom) = if c.rect.1 + c.rect.3 / 2.0 > (port.0 + port.1) / 2.0 {
+            (port.0, c.rect.1.min(port.1))
         } else {
-            (c.rect.1 + c.rect.3, port.1)
+            ((c.rect.1 + c.rect.3).max(port.0), port.1)
         };
         if bottom <= top {
             return false;
         }
-        if scroller.is_none() {
-            return false;
-        }
-        // (Its own scroller is the innermost `scroll_into` moves, first: only that one, by the band's offset.)
-        let (first, dy) = (std::cell::Cell::new(true), at.1 - (top + bottom) / 2.0);
-        let before = self.box_of(id).map(|b| b.rect.1);
-        self.scroll_into(id, false, true, |_, _| {
-            (0.0, if first.replace(false) { dy } else { 0.0 })
-        });
-        self.box_of(id).map(|b| b.rect.1) != before
+        self.scroll_by(scroller, at.1 - (top + bottom) / 2.0)
     }
 
     /// An app's `scrollIntoView("element-id", block=, inline=)`: the node
