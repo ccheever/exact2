@@ -496,6 +496,15 @@ fn shelf_startup_series() {
                     app.child.try_wait().unwrap().is_some()
                 });
                 assert!(app.child.wait().unwrap().success(), "{}", app.text());
+                if arm == "after" {
+                    let log = app.text();
+                    let first = log
+                        .lines()
+                        .find(|s| s.starts_with("exact-windows: frame 1 at "))
+                        .unwrap();
+                    assert!(first.contains("painter cpu"), "{first}");
+                    assert!(log.contains("composition migration on frame "), "{log}");
+                }
                 println!("S2_STARTUP {name}\n{}", app.text());
             }
         }

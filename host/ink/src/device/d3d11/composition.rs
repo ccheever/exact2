@@ -51,7 +51,7 @@ impl Window {
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
             match CreateWindowExW(
-                WS_EX_NOREDIRECTIONBITMAP,
+                WINDOW_EX_STYLE::default(),
                 w!("STATIC"),
                 w!("Ink measurement"),
                 WS_POPUP | WS_VISIBLE,
@@ -398,6 +398,92 @@ fn presented(status: windows::core::HRESULT) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "native Windows desktop; GDI handoff and Mica"]
+    fn gdi_picture_migrates_without_layering_and_alpha_reaches_mica() {
+        use windows::Win32::{Graphics::Gdi::*, UI::WindowsAndMessaging::*};
+        let window = Window::fixture([320, 240]).unwrap();
+        window.dispatch_pending();
+        let hwnd = window.hwnd;
+        let color = 0x00336699;
+        unsafe {
+            let dc = GetDC(Some(hwnd));
+            let brush = CreateSolidBrush(windows::Win32::Foundation::COLORREF(color));
+            FillRect(
+                dc,
+                &RECT {
+                    left: 0,
+                    top: 0,
+                    right: 320,
+                    bottom: 240,
+                },
+                brush,
+            );
+            assert!(DeleteObject(brush.into()).as_bool());
+            ReleaseDC(Some(hwnd), dc);
+        }
+        let pixel = || unsafe {
+            let mut at = windows::Win32::Foundation::POINT { x: 160, y: 120 };
+            assert!(ClientToScreen(hwnd, &mut at).as_bool());
+            let dc = GetDC(None);
+            let pixel = GetPixel(dc, at.x, at.y).0;
+            ReleaseDC(None, dc);
+            pixel
+        };
+        let wait_for = |expected: Option<u32>| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                window.dispatch_pending();
+                super::super::super::compositor_sync_process_ms().unwrap();
+                let actual = pixel();
+                if expected.map_or(actual != color && actual != u32::MAX, |c| actual == c) {
+                    return actual;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "desktop pixel {actual:x}, expected {expected:?}"
+                );
+            }
+        };
+        wait_for(Some(color));
+        let mut d = D3d11::new().unwrap();
+        let t = d.create_target(320, 240).unwrap();
+        d.render(
+            &Frame::default(),
+            t,
+            Some([
+                0x99 as f64 / 255.,
+                0x66 as f64 / 255.,
+                0x33 as f64 / 255.,
+                1.,
+            ]),
+        )
+        .unwrap();
+        d.attach_window(window.clone(), [320, 240]).unwrap();
+        d.present(t).unwrap();
+        assert_eq!(wait_for(Some(color)), color);
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            assert_eq!(style & WS_EX_LAYERED.0, 0);
+            assert_ne!(style & WS_EX_NOREDIRECTIONBITMAP.0, 0);
+            let mut backdrop = DWM_SYSTEMBACKDROP_TYPE::default();
+            DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_SYSTEMBACKDROP_TYPE,
+                (&mut backdrop as *mut DWM_SYSTEMBACKDROP_TYPE).cast(),
+                size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
+            )
+            .unwrap();
+            assert_eq!(backdrop, DWMSBT_MAINWINDOW);
+        }
+        d.render(&Frame::default(), t, Some([0.; 4])).unwrap();
+        d.present(t).unwrap();
+        println!(
+            "S2_MICA opaque={color:06x}, transparent={:06x}, layered=false",
+            wait_for(None)
+        );
+    }
     #[test]
     fn occluded_present_is_skipped_and_device_removal_is_an_error() {
         use windows::Win32::Foundation::S_OK;
