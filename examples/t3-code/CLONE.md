@@ -37,11 +37,18 @@ require them.
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
 
-The current pickup starts at mobile `250d863`. After generating the pinned tables,
-the connection, thread-submission, and outbox tests pass all 92 tests. The full
-mobile run passes 3,692 tests; one compiler-backed workspace test requires the
-missing `target/debug/contract` executable. The first iPhone build is in progress.
-This is baseline evidence, not acceptance of the real-environment POC.
+The current pickup starts at mobile `250d863`. The iPhone simulator build succeeds
+and Home opens. The connection failure message and successful pairing with the
+real local T3 environment are observed. Home then remains at Loading threads and
+its controls do not navigate. The app console reports that `homeView` exceeds
+the data-source budget. A source profile using the real shell identifies hidden
+Arrange planning as the dominant work. The fix must preserve visible rows and
+Arrange behavior without raising that budget.
+
+After generating the pinned tables, the connection, thread-submission, and outbox
+tests pass all 92 tests. The full mobile run passes 3,692 tests; its remaining
+workspace test passes all 19 tests once `target/debug/contract` is built. This is
+baseline evidence, not acceptance of the real-environment POC.
 
 The app uses Exact Contract, TypeScript/Hermes, and UIKit, with no React Native
 runtime or Metro. Use Bun 1.4.2 and the separate app Cargo workspace. Ordinary
@@ -125,6 +132,7 @@ smallest working change that advances the next app flow.
   after the iPhone baseline runs. Give shared entry points, build output, and
   each simulator one owner. Review independently at working milestones.
 - Build, drive the changed flow, fix observed differences, then commit and push.
+  Commit small verified changes frequently, before combining the next slice.
   Use focused checks during development and run the required integrated checks
   before delivery. A passing build alone does not establish parity.
 - After three failed fixes for one target, stop that approach and report the
