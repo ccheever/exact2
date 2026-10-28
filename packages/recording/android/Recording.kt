@@ -7,9 +7,7 @@
 //   written at `stop()`, so a take whose process ended is unreadable (D6: the recipe says so); `audio/wav` is 16-bit
 //   PCM, readable up to what was written. Where `device.microphone-background` is granted the process can outlive
 //   the screen and be stopped from the Task Manager, so the AAC goes to an ADTS part made an MP4 at stop, or at the
-//   next process's first call (Parts.kt, LLP 1133.033 D5). From API 29 `audio/ogg` and `audio/webm` are Opus, which
-//   `MediaMuxer` writes page by page, so a take whose process ended is readable up to its last page (D6);
-//   `android.outputFormat` and `android.audioEncoder` beat the type's container and codec (D4).
+//   next process's first call (Parts.kt, LLP 1133.033 D5).
 // - Reads arrive on the capture's thread; each recorder copies what it takes and encodes on a thread of its own. A
 //   writer two seconds behind stops its recorder with `error` "the writer fell behind" (D6).
 // - An interruption, the capture policy's silencing or the background pauses a recording recorder (D8); a track that
@@ -87,7 +85,7 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
                 .put("mimeType", "").put("path", "").put("duration", 0) else r?.info() ?: error("NotFoundError"))
             "isTypeSupported" -> {
                 val type = args.optString("type")
-                reply(JSONObject().put("type", type).put("supported", if (context.agent) type == "audio/wav" else type in TYPES))
+                reply(JSONObject().put("type", type).put("supported", if (context.agent) type == "audio/wav" else type in listOf("audio/mp4", "audio/wav")))
             }
             "audioLevel" -> reply(level(args))
             else -> reply(error("NotSupportedError"))
@@ -99,12 +97,11 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
         if (entry?.kind != "stream") return error("NotFoundError")
         val track = entry.tracks.firstOrNull { context.tracks.lookup(it)?.kind == "audio" } ?: return error("NotSupportedError")
         val type = if (context.agent) "audio/wav" else args.optString("mimeType").ifEmpty { "audio/mp4" }
-        if (type !in TYPES) return error("NotSupportedError")
-        val form = if (context.agent) Form.WAV else Form.of(type, args.optJSONObject("android")) ?: return error("NotSupportedError")
+        if (type !in listOf("audio/mp4", "audio/wav")) return error("NotSupportedError")
         val path = pathFor(args.optString("path"), type) ?: return error("NotSupportedError")
         val file = context.file(path) ?: return error("NotSupportedError")
         next += 1
-        val r = Recorder("recorder-${context.session}-$next", type, form, path, file, args.optDouble("audioBitsPerSecond", 0.0))
+        val r = Recorder("recorder-${context.session}-$next", type, path, file, args.optDouble("audioBitsPerSecond", 0.0))
         try {
             r.leave = context.tracks.subscribe(track, r, true, context.origin)
         } catch (e: TrackError) {
@@ -118,7 +115,7 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
 
     /** The path with its container's extension: added when the app wrote none, null when it disagrees. */
     private fun pathFor(path: String, type: String): String? {
-        val ext = mapOf("audio/mp4" to ".m4a", "audio/wav" to ".wav", "audio/ogg" to ".ogg", "audio/webm" to ".webm")[type] ?: ""
+        val ext = mapOf("audio/mp4" to ".m4a", "audio/wav" to ".wav")[type] ?: ""
         val name = path.substringAfterLast('/')
         val dot = name.lastIndexOf('.')
         if (dot <= 0) return path + ext
@@ -213,7 +210,7 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
     }
 
     /** One recorder: a consumer of its track, encoding on a thread of its own. */
-    private inner class Recorder(val id: String, val type: String, val form: Form, val path: String, val file: File, val bitRate: Double) : TrackConsumer {
+    private inner class Recorder(val id: String, val type: String, val path: String, val file: File, val bitRate: Double) : TrackConsumer {
         var state = "recording"
         var reason: String? = null
         var error: String? = null
@@ -260,7 +257,7 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
             if (source == null || untap != null || state == "inactive") return
             val limit = source.sampleRate * 2
             try {
-                encoder = Encoder(file, form, source.sampleRate, bitRate, if (outlives) context.application else null)
+                encoder = Encoder(file, type, source.sampleRate, bitRate, if (outlives) context.application else null)
             } catch (e: Exception) {
                 return finish("error", "the file did not open: $e") {}
             }
@@ -312,15 +309,9 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    /** A file being written: AAC in MP4, Opus in Ogg or WebM, or 16-bit PCM WAV. On the recorder's thread. With
-     * [parts], AAC in MP4 goes to an ADTS part first (Parts.kt). */
-    private class Encoder(val file: File, form: Form, capture: Int, bitRate: Double, parts: Context?) {
-        /** Opus takes 8, 12, 16, 24 or 48 kHz; the capture's other rates are resampled to 48 kHz. */
-        private val resample = form.codec == MediaFormat.MIMETYPE_AUDIO_OPUS && capture !in OPUS_RATES
-        val rate = if (resample) 48000 else capture
-        private val step = capture.toDouble() / rate
-        private var phase = 0.0
-        private var previous: Short = 0
+    /** A file being written: AAC in MP4, or 16-bit PCM WAV. On the recorder's thread. With [parts], the AAC goes to an
+     * ADTS part first (Parts.kt). */
+    private class Encoder(val file: File, type: String, val rate: Int, bitRate: Double, parts: Context?) {
         private val wav: RandomAccessFile?
         private val codec: MediaCodec?
         private val muxer: MediaMuxer?
@@ -332,25 +323,24 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
         init {
             file.parentFile?.mkdirs()
             file.delete()
-            if (form == Form.WAV) {
+            if (type == "audio/wav") {
                 wav = RandomAccessFile(file, "rw").also { it.write(header(0, rate)) }
                 codec = null; muxer = null; part = null
             } else {
                 wav = null
-                val format = MediaFormat.createAudioFormat(form.codec, rate, 1)
-                form.profile?.let { format.setInteger(MediaFormat.KEY_AAC_PROFILE, it) }
-                format.setInteger(MediaFormat.KEY_BIT_RATE, if (bitRate > 0) bitRate.toInt() else if (form.profile != null) 96000 else 64000)
-                codec = MediaCodec.createEncoderByType(form.codec).also {
+                val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, rate, 1)
+                format.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+                format.setInteger(MediaFormat.KEY_BIT_RATE, if (bitRate > 0) bitRate.toInt() else 96000)
+                codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).also {
                     it.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                     it.start()
                 }
-                part = if (form.container == MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) parts?.let { PartWriter(it, file) } else null
-                muxer = if (part == null) MediaMuxer(file.path, form.container) else null
+                part = parts?.let { PartWriter(it, file) }
+                muxer = if (part == null) MediaMuxer(file.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) else null
             }
         }
 
-        fun write(captured: ShortArray) {
-            val samples = if (resample) resampled(captured) else captured
+        fun write(samples: ShortArray) {
             wav?.let { f ->
                 val bytes = java.nio.ByteBuffer.allocate(samples.size * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
                 samples.forEach { bytes.putShort(it) }
@@ -369,22 +359,6 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
                 frames += n; at += n
                 drain(false)
             }
-        }
-
-        /** [input] at [rate], by linear interpolation across calls. */
-        private fun resampled(input: ShortArray): ShortArray {
-            val out = ShortArray(((input.size - phase) / step).toInt().coerceAtLeast(0) + 1)
-            var n = 0
-            while (phase < input.size && n < out.size) {
-                val i = floor(phase).toInt()
-                val a = if (i == 0) previous.toDouble() else input[i - 1].toDouble()
-                val f = phase - i
-                out[n++] = (a + (input[i] - a) * f).toInt().toShort()
-                phase += step
-            }
-            phase -= input.size
-            if (input.isNotEmpty()) previous = input.last()
-            return out.copyOf(n)
         }
 
         private fun drain(end: Boolean) {
@@ -480,38 +454,6 @@ class RecordingModule(context: ExtensionContext) : ExactExtension(context) {
             while (levels.size > history) levels.removeAt(0)
             return JSONObject().put("audioLevel", last).put("totalAudioEnergy", energy).put("totalSamplesDuration", duration)
                 .put("levels", JSONArray(levels))
-        }
-    }
-}
-
-private val TYPES = listOf("audio/mp4", "audio/wav") + if (android.os.Build.VERSION.SDK_INT >= 29) listOf("audio/ogg", "audio/webm") else emptyList()
-private val OPUS_RATES = setOf(8000, 12000, 16000, 24000, 48000)
-
-/** A take's container and codec: the type's (D2), or the platform's words (D4). Null for what this API cannot write. */
-private data class Form(val container: Int, val codec: String, val profile: Int?) {
-    companion object {
-        val WAV = Form(-1, "audio/raw", null)
-        private val AAC = MediaCodecInfo.CodecProfileLevel.AACObjectLC
-        private val HE_AAC = MediaCodecInfo.CodecProfileLevel.AACObjectHE
-
-        fun of(type: String, words: JSONObject?): Form? {
-            if (type == "audio/wav") return WAV
-            val opus = android.os.Build.VERSION.SDK_INT >= 29
-            val container = when (words?.optString("outputFormat")?.ifEmpty { null } ?: mapOf("audio/mp4" to "mpeg4", "audio/ogg" to "ogg", "audio/webm" to "webm")[type]) {
-                "mpeg4" -> MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
-                "ogg" -> if (opus) MediaMuxer.OutputFormat.MUXER_OUTPUT_OGG else return null
-                "webm" -> MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM
-                else -> return null
-            }
-            val encoder = words?.optString("audioEncoder")?.ifEmpty { null } ?: if (container == MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) "aac" else "opus"
-            val form = when (encoder) {
-                "aac" -> Form(container, MediaFormat.MIMETYPE_AUDIO_AAC, AAC)
-                "heAac" -> Form(container, MediaFormat.MIMETYPE_AUDIO_AAC, HE_AAC)
-                "opus" -> if (opus) Form(container, MediaFormat.MIMETYPE_AUDIO_OPUS, null) else return null
-                else -> return null
-            }
-            // `MediaMuxer` puts AAC in MP4 and Opus in Ogg and WebM.
-            return form.takeIf { (container == MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) == (it.codec == MediaFormat.MIMETYPE_AUDIO_AAC) }
         }
     }
 }

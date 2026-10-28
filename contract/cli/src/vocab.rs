@@ -873,8 +873,6 @@ const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large tex
 
 /// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
 const REACH_MARGIN: &str = "reach-margin on a `list virtualized=true`: how far ahead of an edge `reachstart` and `reachend` fire, a literal one or two nonnegative px or % lengths (before, after; a % is of the list's port along its axis), default one port, \"100%\". \"200%\" fires `reachend` when the last row is two ports away (LLP 1145 D4). While the list scrolls toward an end, that end's margin grows by the lead the list's window takes for the scroll, a quarter second of travel up to two ports, so a fling's edge fires as the window loads ahead for it";
-/// What VoiceOver needs to move from a transcript's first message to its last.
-const KEEP_MOUNTED: &str = "keep-mounted on a `list virtualized=true`: the keys of rows it keeps mounted wherever its window is, a list of up to 64 keys as the `for`'s `key=` gives them (an `option` of one too, `none` naming no row): `keep-mounted=[first(ids), ids.at(-1)]` keeps a transcript's first and last message in the accessibility tree, so VoiceOver moves from one to the other; a playing row keeps its player. A key the list does not hold is passed over; another value keeps none and says so in the journal (LLP 1010 §6.11)";
 const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`. Any other scroller, a horizontal strip too, opens at the offset its `scrollLeft=` and `scrollTop=` give, and moves when the value changes";
 
 /// What reaches `navigate=`, and which tab a location lands in (LLP 1038 D8):
@@ -1012,9 +1010,6 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "reach-margin" {
         doc["note"] = REACH_MARGIN.into();
-    }
-    if name == "keep-mounted" {
-        doc["note"] = KEEP_MOUNTED.into();
     }
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
@@ -1184,9 +1179,6 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "reach-margin" {
                 return vec![line, REACH_MARGIN.into()];
-            }
-            if name == "keep-mounted" {
-                return vec![line, KEEP_MOUNTED.into()];
             }
             if name == "accept" {
                 return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];

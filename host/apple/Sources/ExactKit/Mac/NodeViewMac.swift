@@ -532,7 +532,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             addSubview(f)
             field = f
         }
-        presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
+        if kind != "iframe" { presenter.leaves.embed(self) } // a video's player, a module's box (LLP 1068 §5.1); a web view waits for the props (`embedFrame`)
     }
     required init?(coder: NSCoder) { nil }
     package override var isFlipped: Bool { true }

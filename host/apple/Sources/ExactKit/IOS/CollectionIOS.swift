@@ -370,30 +370,21 @@ extension CollectionHost {
     func rowsToCover(_ id: UInt32, ahead: CGFloat) -> UInt32 {
         guard ahead != 0, let entry = entries[id], let node = presenter?.views[id], let scroll = node.scroll else { return 0 }
         let horizontal = entry.snapshot.horizontal
-        let rows = entry.snapshot.rows.compactMap { row in presenter?.views[row.view].map { (index: row.index, frame: span($0, in: scroll, horizontal: horizontal)) } }
-        guard !rows.isEmpty else { return 0 }
-        let mean = rows.map { $0.frame.upperBound - $0.frame.lowerBound }.reduce(0, +) / CGFloat(rows.count)
+        let frames = entry.snapshot.rows.compactMap { row in presenter?.views[row.view].map { span($0, in: scroll, horizontal: horizontal) } }
+        guard !frames.isEmpty else { return 0 }
+        let mean = frames.map { $0.upperBound - $0.lowerBound }.reduce(0, +) / CGFloat(frames.count)
         guard mean > 0 else { return 0 }
         let port = horizontal ? scroll.bounds.minX...scroll.bounds.maxX : scroll.bounds.minY...scroll.bounds.maxY
-        // The run of rows that covers the port from its edge: a kept row
-        // (LLP 1010 §6.11) past a gap of unbuilt rows is not in it, so the
-        // list's end row ends the travel only when the run reaches it.
         var shortfall: CGFloat = 0
         if ahead > 0 {
-            var reached = port.lowerBound, last: Int?
-            for row in rows where row.frame.lowerBound <= reached + 0.5 && row.frame.upperBound >= reached {
-                reached = row.frame.upperBound
-                last = row.index
-            }
-            if last == entry.snapshot.count - 1 { return 0 }
+            if entry.snapshot.rows.last?.index == entry.snapshot.count - 1 { return 0 }
+            var reached = port.lowerBound
+            for frame in frames where frame.lowerBound <= reached + 0.5 { reached = max(reached, frame.upperBound) }
             shortfall = port.upperBound + ahead - reached
         } else {
-            var reached = port.upperBound, first: Int?
-            for row in rows.reversed() where row.frame.upperBound >= reached - 0.5 && row.frame.lowerBound <= reached {
-                reached = row.frame.lowerBound
-                first = row.index
-            }
-            if first == 0 { return 0 }
+            if entry.snapshot.rows.first?.index == 0 { return 0 }
+            var reached = port.upperBound
+            for frame in frames.reversed() where frame.upperBound >= reached - 0.5 { reached = min(reached, frame.lowerBound) }
             shortfall = reached - (port.lowerBound + ahead)
         }
         return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
