@@ -41,7 +41,6 @@ const discovery = (): Discovery => ({ scope: '', provider: null, providerKey: ''
   pending: 0, retryAt: 0, attemptedWake: '', wake: '', timer: false, key: '' });
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 /** The command menu owns skills/commands, not the server's model catalog.
- * Project the current workspace before copying or fingerprinting its commands.
  * Model selection, provider availability and send admission still use client.config. */
 export function mobileComposerProvider(value: unknown, cwd: string): ComposerQueryInput['provider'] {
   if (value === null || value === undefined) return null;

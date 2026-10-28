@@ -149,10 +149,11 @@ matching the shared resolver and preserving missing-versus-empty overrides.
 Instrumented drives observed one composer call allocating about 101 MB before
 this change and a maximum below 14 MB afterward. These are allocation totals
 across collections, not retained heap or a general performance benchmark.
-The normal build opens the tested conversation on its first tap, restores its
-transcript, sends to the real provider and displays `COMPOSER_SCOPE_OK`. Another
-normal restart restores the environment and reply. A separate 18-character draft
-also survives restart with Send ready. Temporary diagnostics and the unsuccessful
+An instrumented drive sends to the real provider and displays
+`COMPOSER_SCOPE_OK`. After all probes are removed, the normal build opens the
+tested conversation on its first tap and restores its transcript, environment
+and that reply. A separate 18-character draft also survives another restart
+with Send ready. Temporary diagnostics and the unsuccessful
 clock-argument experiment were removed. Strict TypeScript, all 3,717 mobile tests
 and the boot check pass. The desktop source cap remains the sole cap violation.
 
