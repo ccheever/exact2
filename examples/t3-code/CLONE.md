@@ -110,6 +110,12 @@ draft opens in Quick Look; sending receives `IMAGE_ATTACHMENT_OK`, and the sent
 image opens after restart. Preview resolution now follows image context to its
 file-backed bytes; removing the reference or file prevents a new preview. Photo
 Library selection remains unverified.
+New-task drafts import and preview the same PNG, recover through Home's Unsent
+row after restart, and discard through confirmation. Unsent follows active tasks
+once the live catalogue loads. Current checkout selects `main` correctly. The
+new-task editor still displays raw attachment references; image send from that
+editor is not yet qualified. Automation text replacement failed, which alone
+does not establish an app typing-loss defect.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
 line, attaches it to the composer, sends it, and receives the requested provider
