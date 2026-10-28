@@ -634,3 +634,26 @@ test('keep-mounted keeps the first, last and playing rows mounted as the window 
   // The new last row is kept; 199 is now an ordinary row of the window.
   expect(grown).toEqual([true, true]);
 }, 60_000);
+
+// @ref LLP 1010 §6.11 — a kept row before a jump's target does not hold the jump open (into_view.rs `settle_target`).
+test('a jump past a kept row settles', async () => {
+  const result = await evaluate(`(async () => {
+    const out = [];
+    for (const keep of [undefined, () => [0]]) {
+      const el = document.createElement('div'); el.id = 'kept-jump';
+      el.style.cssText = 'height:320px;width:400px;overflow:auto';
+      document.getElementById('exact-root').append(el);
+      const own = rt.scope(() => list.vl(el, () => Array.from({length:200}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+      }, {est:32, pw:[], ph:[320], keep}));
+      rt.settled();
+      await exact.lists.pending(); await exact.lists.settle();
+      rt.Hosts.scrollIntoView('kept-jump', 150, 'start', 'nearest', 'instant', null, null);
+      for (let f = 0; f < 4; f++) { await exact.lists.settle(); await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0))); }
+      out.push([exact.lists.intoView().at(-1)?.status, el.scrollTop]);
+      rt.end(own); el.remove(); rt.settled();
+    }
+    return out;
+  })()`);
+  expect(result).toEqual([['done', 4800], ['done', 4800]]);
+}, 60_000);
