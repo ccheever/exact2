@@ -6,7 +6,7 @@
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-10-28
 **Implementer:** unassigned. §10 is staged so one lane can start on the pipeline before the field is final.
-**Related:** LLP 1071 (the JS target; §1 "RealWorld, the headline" is the method and the numbers this continues); LLP 1047.000 §1 (that method); LLP 1053 and LLP 1050 (the list benchmarks and what they found missing); LLP 1116 (the iOS bake-off, whose builders this reuses); LLP 1087 and LLP 1102 (the authoring bench, which the secondary table continues); LLP 1027.004 (the bounded answer); `bench/dioxus/README.md` (the one web comparison so far and its last standings); `bench/heavy-list/SPEC.md` (the feed); the RealWorld project ([docs.realworld.show](https://docs.realworld.show)) and its implementation catalogue; [js-framework-benchmark](https://github.com/krausest/js-framework-benchmark) (Krausest)
+**Related:** LLP 1152.000 (what `re` and Thane do that the JS target does not: the candidates for its row construction, bindings and keyed lists); LLP 1071 (the JS target; §1 "RealWorld, the headline" is the method and the numbers this continues); LLP 1047.000 §1 (that method); LLP 1053 and LLP 1050 (the list benchmarks and what they found missing); LLP 1116 (the iOS bake-off, whose builders this reuses); LLP 1087 and LLP 1102 (the authoring bench, which the secondary table continues); LLP 1027.004 (the bounded answer); `bench/dioxus/README.md` (the one web comparison so far and its last standings); `bench/heavy-list/SPEC.md` (the feed); the RealWorld project ([docs.realworld.show](https://docs.realworld.show)) and its implementation catalogue; [js-framework-benchmark](https://github.com/krausest/js-framework-benchmark) (Krausest)
 
 ## R. Round 1, and what r2 changed
 
@@ -157,7 +157,9 @@ The table of 1,000 rows with create, replace, partial update, select, swap, remo
 10,000, append and clear, timed by its own harness in Chrome, with memory and startup
 columns. It is run as the project runs it, against its pinned Chrome, and Exact's keyed
 entry is written to its contract. The rest of the field is already there, including the
-specialists that are not products (mikado, ivi, blockdom, voby, sycamore). What we gain is
+specialists that are not products (mikado, ivi, blockdom, voby, sycamore, and the two
+nearest vanilla at the time of writing, `re` and Thane, read in LLP 1152.000 for what
+they do that the JS target does not). What we gain is
 an external number nobody can say we chose the conditions for; what it cannot show is
 anything about loading, scrolling or a phone.
 
@@ -248,8 +250,10 @@ streaming, hydration and resumability show):
 
 Kasper.js, petite-vue, Million.js, Aurelia, Hyperapp, FAST, Enhance, Fresh: each is a
 thinner version of an arm already in, or has no implementation base. The Krausest
-specialists appear in that lane's table without an app. jQuery is not a framework in the
-sense asked.
+specialists appear in that lane's table without an app: `re` (one developer's entry
+merged 2026-10-24, its home the benchmark itself) and Thane (a compiler and runtime at
+0.2.0) among them, each worth a Tier 2 slot only once it has docs and releases. jQuery
+is not a framework in the sense asked.
 
 ### 3.5 The ladder: the first round's field
 
