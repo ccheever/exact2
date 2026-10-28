@@ -14,6 +14,13 @@ test('a row shows its float as the plan wrote it, a length at most 3 decimals, a
     { name: 'width', value: 12, source: 'authored' },
     { name: 'transform', value: [{ scale: 1.100000023841858 }, 0.5], source: 'authored' },
     { name: 'color', value: 'label', source: 'authored' },
+    // Round 1: every unitless row keeps its decimals, a true double is left as it is, and any magnitude shortens.
+    { name: 'fill_opacity', value: Math.fround(1 / 3), source: 'authored' },
+    { name: 'zoom', value: Math.fround(1.0004), source: 'authored' },
+    { name: 'stroke_miterlimit', value: Math.fround(Math.SQRT2), source: 'authored' },
+    { name: 'press_scale', value: 0.123456789123, source: 'authored' },
+    { name: 'letter_spacing', value: Math.fround(1e-10), source: 'authored' },
+    { name: 'flex_grow', value: Math.fround(1e30), source: 'authored' },
   ]).rows;
   const shown = Object.fromEntries(rows.map(r => [r.name, r.value]));
   expect(shown['font-size']).toBe('19.7');
@@ -22,6 +29,12 @@ test('a row shows its float as the plan wrote it, a length at most 3 decimals, a
   expect(shown.width).toBe('12');
   expect(shown.transform).toBe('[{"scale":1.1},0.5]');
   expect(shown.color).toBe('label');
+  expect(shown['fill-opacity']).toBe('0.33333334');
+  expect(shown.zoom).toBe('1.0004');
+  expect(shown['stroke-miterlimit']).toBe('1.4142135');
+  expect(shown['-exact-press-scale']).toBe('0.123456789123');
+  expect(shown['letter-spacing']).toBe('0');
+  expect(shown['flex-grow']).toBe('1e+30');
   // What an edit starts from and sends is the source's text, not the rounded number shown.
   expect(rows.find(r => r.name === 'padding-top').editText).toBe('1.000390625rem');
 });

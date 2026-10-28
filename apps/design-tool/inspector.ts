@@ -41,20 +41,22 @@ const lowered = (r: any) => !r.editable?.rung && UNPLACED.test(String(r.editable
  * longhand puts the side first (`border-top-left-radius`). */
 export const rowName = (name: string) => CSS[name] ?? name.replace(/^border_(width|style|color|radius)_(.+)$/, 'border_$2_$1').replace(/_/g, '-');
 
-// Rows whose number is no length, so it keeps the decimals it needs (`opacity` 0.333 is not 0.333 px).
-const UNITLESS = new Set(['opacity', 'flex-grow', 'flex-shrink', 'z-index', 'order', 'line-height', 'aspect-ratio', 'font-weight', '-exact-press-scale']);
-/** A row's number as the panel shows it: the shortest decimal that is still the 32-bit float the plan carries
- * (19.700000762939453 is 19.7), and a length at most 3 decimals (16.006250381469727 is 16.006). Only the shown
- * text: an edit sends the row's own source text, never this. */
-export const shownNumber = (n: number, length = true) => {
-  if (!Number.isFinite(n) || Number.isInteger(n)) return n;
+// Rows whose number is a length, in points or CSS pixels: shown at most 3 decimals. Any other number (an opacity,
+// a scale, a zoom, a miter limit) keeps every decimal its value needs.
+const LENGTH = /(^|-)(width|height|size|padding|margin|gap|radius|top|left|right|bottom|inset|spacing|indent|offset|basis|dashoffset)(-|$)/;
+/** A row's number as the panel shows it: a 32-bit float the plan carries, widened to a double, is the shortest
+ * decimal that is still that float (19.700000762939453 is 19.7); a true double is as JavaScript prints it; a length
+ * is at most 3 decimals (16.006250381469727 is 16.006). Only the shown text: an edit sends the row's own source
+ * text, never this. */
+export const shownNumber = (n: number, length = false) => {
+  if (!Number.isFinite(n)) return n;
   let shortest = n;
-  for (let d = 1; d <= 9; d++) { const t = Number(n.toFixed(d)); if (Math.fround(t) === Math.fround(n)) { shortest = t; break; } }
-  return length ? Number(shortest.toFixed(3)) : shortest;
+  if (Math.fround(n) === n) for (let p = 1; p <= 9; p++) { const t = Number(n.toPrecision(p)); if (Math.fround(t) === n) { shortest = t; break; } }
+  return length && !Number.isInteger(shortest) ? Number(shortest.toFixed(3)) : shortest;
 };
 /** A row's value as text, its numbers shown by `shownNumber`. */
 export const shownValue = (name: string, value: unknown) => typeof value === 'string' ? value
-  : JSON.stringify(value, (_k, v) => typeof v === 'number' ? shownNumber(v, !UNITLESS.has(name)) : v);
+  : JSON.stringify(value, (_k, v) => typeof v === 'number' ? shownNumber(v, LENGTH.test(name) && !/opacity/.test(name)) : v);
 
 /** The build's facts a selection was made under: a reload (its status
  * gone, then told again), a pin, a mode or scheme, a new plan or design
