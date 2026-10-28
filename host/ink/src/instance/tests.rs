@@ -126,3 +126,23 @@ fn disjoint_scissors_emit_nothing_and_pop_restores_the_viewport() {
     e.push(quad(), Bindings::default()).unwrap();
     assert_eq!(e.finish().instances.len(), 1);
 }
+
+#[test]
+fn source_over_never_batches_with_replace_or_blend() {
+    let mut encoder = Encoder::new(8, 8);
+    for flags in [0, flags::REPLACE, 0, 1 << flags::BLEND_SHIFT, 0] {
+        let mut i = Instance::rounded([0., 0., 8., 8.], [0.; 4], [1.; 4]);
+        i.flags = flags;
+        encoder
+            .push(
+                i,
+                Bindings {
+                    destination: TextureId(7),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    let frame = encoder.finish();
+    assert_eq!(frame.batches.len(), 5);
+}

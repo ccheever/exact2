@@ -13,7 +13,7 @@ impl Ink {
         let transform = self
             .device_transform(ts)
             .pre_scale(1. / self.scale, 1. / self.scale);
-        for run in text.glyph_runs(paragraph, palette) {
+        for run in text.physical_glyph_runs(paragraph, palette, origin, self.scale) {
             if run.paint.color[3] == 0 {
                 continue;
             }
@@ -25,8 +25,8 @@ impl Ink {
                 skew: run.synthetic_italic,
             };
             for (id, x, y) in run.glyphs {
-                let (x, phase) = subpixel(x.mul_add(self.scale, origin.0 * self.scale));
-                let y = ((y + origin.1) * self.scale).trunc() as i32;
+                let (x, phase) = subpixel(x);
+                let y = y.trunc() as i32;
                 let Some(glyph) = self.glyphs.get(
                     &mut self.device,
                     &font,

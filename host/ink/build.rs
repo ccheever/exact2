@@ -107,6 +107,10 @@ fn main() {
         .expect("GLSL ES 3.00 writer")
         .write()
         .expect("GLSL ES 3.00 translation");
+        assert!(
+            source.contains("precision highp float;") && source.contains("precision highp int;"),
+            "GLSL ES positions, distances and derivative operands require highp defaults"
+        );
         fs::write(out.join(format!("{}.glsl", entry.name)), source).unwrap();
     }
 }

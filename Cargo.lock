@@ -1554,6 +1554,7 @@ dependencies = [
  "naga 30.0.1",
  "swash",
  "tiny-skia",
+ "wasm-bindgen-futures",
  "web-time",
  "wgpu 30.0.1",
 ]

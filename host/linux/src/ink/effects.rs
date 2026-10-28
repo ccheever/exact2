@@ -91,9 +91,20 @@ impl Ink {
         kind: Kind,
         param: [f32; 4],
     ) -> Result<TextureId> {
+        self.effect_sized(source, region, kind, param, self.size)
+    }
+
+    fn effect_sized(
+        &mut self,
+        source: TextureId,
+        region: [f32; 4],
+        kind: Kind,
+        param: [f32; 4],
+        size: [u32; 2],
+    ) -> Result<TextureId> {
         let started = Instant::now();
-        let target = self.pool.take(&mut self.device)?;
-        let mut e = Encoder::new(self.size[0], self.size[1]);
+        let target = self.pool.take_sized(&mut self.device, size)?;
+        let mut e = Encoder::new(size[0], size[1]);
         let mut i = Instance::new(kind, Brush::Solid, region);
         i.param = param;
         e.push(
@@ -106,6 +117,36 @@ impl Ink {
         .map_err(|_| Error::Invalid("effect clip".into()))?;
         self.device.render(&e.finish(), target, Some([0.; 4]))?;
         self.layer_ms += started.elapsed().as_secs_f64() * 1000.;
+        Ok(target)
+    }
+
+    fn resample(
+        &mut self,
+        source: TextureId,
+        region: [f32; 4],
+        uv: [f32; 4],
+        size: [u32; 2],
+        area: bool,
+    ) -> Result<TextureId> {
+        let target = self.pool.take_sized(&mut self.device, size)?;
+        let mut encoder = Encoder::new(size[0], size[1]);
+        let mut i = Instance::new(
+            if area { Kind::Downsample } else { Kind::Layer },
+            Brush::Image,
+            region,
+        );
+        i.uv = uv;
+        encoder
+            .push(
+                i,
+                Bindings {
+                    image: source,
+                    ..Default::default()
+                },
+            )
+            .map_err(|_| Error::Invalid("resample clip".into()))?;
+        self.device
+            .render(&encoder.finish(), target, Some([0.; 4]))?;
         Ok(target)
     }
 
@@ -140,15 +181,41 @@ impl Ink {
                     source = self.effect(source, region, Kind::ColorPass, [amount, 0., 0., 0.])?;
                 }
                 exact_kernel::style::BackdropOp::Blur(sigma) => {
-                    let sigma = sigma * scale;
+                    let mut sigma = sigma * scale;
                     if !sigma.is_finite() || sigma <= 0. {
                         continue;
+                    }
+                    let mut size = self.size;
+                    let mut area = region;
+                    let mut uv = [
+                        region[0] / size[0] as f32,
+                        region[1] / size[1] as f32,
+                        region[2] / size[0] as f32,
+                        region[3] / size[1] as f32,
+                    ];
+                    let reduced = sigma > 12.;
+                    // Halving bounds each area pass to at most nine source pixels.
+                    while sigma > 12. {
+                        size = [
+                            (area[2] / 2.).ceil().max(1.) as u32,
+                            (area[3] / 2.).ceil().max(1.) as u32,
+                        ];
+                        let next = [0., 0., size[0] as f32, size[1] as f32];
+                        source = self.resample(source, next, uv, size, true)?;
+                        sigma *= 0.5;
+                        area = next;
+                        uv = [0., 0., 1., 1.];
                     }
                     for vertical in [0., 1.] {
                         if sigma < 2. {
                             let r = (3. * sigma).ceil();
-                            source =
-                                self.effect(source, region, Kind::Blur, [r, r, vertical, sigma])?;
+                            source = self.effect_sized(
+                                source,
+                                area,
+                                Kind::Blur,
+                                [r, r, vertical, sigma],
+                                size,
+                            )?;
                         } else {
                             let d = (sigma * 3. * (2. * std::f32::consts::PI).sqrt() / 4. + 0.5)
                                 .floor()
@@ -160,14 +227,19 @@ impl Ink {
                                 [(r, r - 1.), (r - 1., r), (r, r)]
                             };
                             for (left, right) in passes {
-                                source = self.effect(
+                                source = self.effect_sized(
                                     source,
-                                    region,
+                                    area,
                                     Kind::Blur,
                                     [left, right, vertical, 0.],
+                                    size,
                                 )?;
                             }
                         }
+                    }
+                    if reduced {
+                        source =
+                            self.resample(source, region, [0., 0., 1., 1.], self.size, false)?;
                     }
                 }
             }

@@ -1,5 +1,4 @@
 // @ref LLP 1149 D1.1, D2, D6.1. All branch selectors are flat per primitive.
-diagnostic(off, derivative_uniformity);
 
 struct Viewport { size: vec2<f32>, pad: vec2<f32> }
 @group(0) @binding(0) var<uniform> viewport: Viewport;
@@ -106,12 +105,12 @@ fn rounded_distance(p: vec2<f32>, rect: vec4<f32>, r: vec4<f32>) -> f32 {
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0);
 }
 
-fn covered(distance: f32) -> f32 {
-    return clamp(0.5 - distance / max(fwidth(distance), 0.00001), 0.0, 1.0);
-}
-
-fn shape_coverage(p: vec2<f32>, rect: vec4<f32>, radii: vec4<f32>) -> f32 {
-    let alpha = covered(rounded_distance(p, rect, radii));
+fn shape_coverage(p: vec2<f32>, rect: vec4<f32>, radii: vec4<f32>, pixel: vec2<f32>) -> f32 {
+    let distance = rounded_distance(p, rect, radii);
+    let normal = vec2<f32>(rounded_distance(p + vec2<f32>(0.01, 0.0), rect, radii),
+                          rounded_distance(p + vec2<f32>(0.0, 0.01), rect, radii)) - vec2<f32>(distance);
+    let width = max(dot(abs(normal) * 100.0, pixel), 0.00001);
+    let alpha = clamp(0.5 - distance / width, 0.0, 1.0);
     return select(0.0, alpha, all(rect.zw > vec2<f32>(0.0)));
 }
 
@@ -125,8 +124,8 @@ fn normal_cdf(x: f32) -> f32 {
 
 // Evan Wallace's CC0 separable Gaussian integral, extended to four radii.
 // https://madebyevan.com/shaders/fast-rounded-rectangle-shadows/
-fn shadow(p: vec2<f32>, rect: vec4<f32>, radii: vec4<f32>, sigma: f32) -> f32 {
-    if sigma <= 0.0 { return shape_coverage(p, rect, radii); }
+fn shadow(p: vec2<f32>, rect: vec4<f32>, radii: vec4<f32>, sigma: f32, pixel: vec2<f32>) -> f32 {
+    if sigma <= 0.0 { return shape_coverage(p, rect, radii, pixel); }
     let low = p.y - rect.y - rect.w;
     let high = p.y - rect.y;
     let start = clamp(-3.0 * sigma, low, high);
@@ -158,7 +157,29 @@ fn inside(p: vec2<f32>, rect: vec4<f32>) -> f32 {
     return select(0.0, 1.0, all(p >= rect.xy) && all(p < rect.xy + rect.zw));
 }
 
-fn brush(v: Vertex) -> vec4<f32> {
+fn ramp_word(x: i32, row: i32) -> u32 {
+    let b = vec4<u32>(round(textureLoad(ramp, vec2<i32>(x, row), 0) * 255.0));
+    return b.x | (b.y << 8u) | (b.z << 16u) | (b.w << 24u);
+}
+
+fn stop_ramp(t: f32, row: i32) -> vec4<f32> {
+    let count = i32(ramp_word(0, row));
+    var at = bitcast<f32>(ramp_word(1, row));
+    var c = textureLoad(ramp, vec2<i32>(2, row), 0);
+    for (var n = 1; n < count; n++) {
+        let next_at = bitcast<f32>(ramp_word(1 + 2 * n, row));
+        let next = textureLoad(ramp, vec2<i32>(2 + 2 * n, row), 0);
+        if t < next_at {
+            c = mix(c, next, clamp((t - at) / max(next_at - at, 0.0000001), 0.0, 1.0));
+            break;
+        }
+        at = next_at;
+        c = next;
+    }
+    return vec4<f32>(c.rgb * c.a, c.a);
+}
+
+fn brush(v: Vertex, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
     let kind = v.data.x & 65535u;
     let flags = v.data.y;
     switch v.data.x >> 16u {
@@ -195,6 +216,7 @@ fn brush(v: Vertex) -> vec4<f32> {
             }
             if (flags & 8u) != 0u { t = fract(t); }
             if (flags & 268435456u) != 0u { t = 1.0 - abs(fract(t * 0.5) * 2.0 - 1.0); }
+            if (flags & 4u) != 0u { return stop_ramp(t, i32((flags >> 16u) & 1023u)); }
             let size = vec2<f32>(textureDimensions(ramp));
             let uv = vec2<f32>((0.5 + clamp(t, 0.0, 1.0) * (size.x - 1.0)) / size.x,
                                (f32((flags >> 16u) & 1023u) + 0.5) / size.y);
@@ -205,15 +227,20 @@ fn brush(v: Vertex) -> vec4<f32> {
             // Coverage uses uv for its path mask; its image occupies the full slot.
             if kind == 4u { uv = (v.local - v.rect.xy) / v.rect.zw; }
             if (v.data.x >> 16u) == 3u {
-                uv = fract((v.local - v.param.xy) / max(v.param.zw, vec2<f32>(0.00001)));
+                uv = (v.local - v.param.xy) / max(v.param.zw, vec2<f32>(0.00001));
             }
             if (flags & 1073741824u) != 0u {
                 uv = v.position.xy / vec2<f32>(textureDimensions(picture));
             }
             var c = textureSample(picture, filtering, uv);
+            if (v.data.x >> 16u) == 3u {
+                c = textureSampleGrad(picture, filtering, uv, dx / v.param.zw, dy / v.param.zw);
+            }
             if (flags & 16u) != 0u {
                 let size = vec2<i32>(textureDimensions(picture));
-                c = textureLoad(picture, clamp(vec2<i32>(uv * vec2<f32>(size)), vec2<i32>(0), size - vec2<i32>(1)), 0);
+                var at = clamp(vec2<i32>(uv * vec2<f32>(size)), vec2<i32>(0), size - vec2<i32>(1));
+                if (v.data.x >> 16u) == 3u { at = vec2<i32>(floor(fract(uv) * vec2<f32>(size))); }
+                c = textureLoad(picture, at, 0);
             }
             if (flags & 1u) != 0u { c = v.color * c.a; }
             if (v.data.x >> 16u) == 3u { c *= v.color.a; }
@@ -245,6 +272,23 @@ fn blur_pixel(v: Vertex) -> vec4<f32> {
         total += weight;
     }
     return sum / total;
+}
+
+// Each mip dimension falls by at most three, including odd source dimensions.
+fn area_pixel(v: Vertex) -> vec4<f32> {
+    let source_size = vec2<f32>(textureDimensions(picture));
+    let ratio = source_size * v.uv.zw / v.rect.zw;
+    let lo = (floor(v.position.xy) - v.rect.xy) * ratio + v.uv.xy * source_size;
+    let hi = lo + ratio;
+    var sum = vec4<f32>(0.0);
+    for (var y = i32(floor(lo.y)); y < i32(ceil(hi.y)); y++) {
+        for (var x = i32(floor(lo.x)); x < i32(ceil(hi.x)); x++) {
+            let p = vec2<f32>(f32(x), f32(y));
+            let weight = max(vec2<f32>(0.0), min(hi, p + 1.0) - max(lo, p));
+            sum += textureLoad(picture, vec2<i32>(x, y), 0) * weight.x * weight.y;
+        }
+    }
+    return sum / (ratio.x * ratio.y);
 }
 
 fn luminosity(c: vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.3, 0.59, 0.11)); }
@@ -307,18 +351,20 @@ fn blended(back: vec4<f32>, source: vec4<f32>, mode: u32) -> vec4<f32> {
 
 @fragment
 fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
+    let pixel = fwidth(v.local);
+    let dx = dpdx(v.local);
+    let dy = dpdy(v.local);
     let kind = v.data.x & 65535u;
     let flags = v.data.y;
     var alpha = 1.0;
-    var color = brush(v);
+    var color = brush(v, dx, dy);
     switch kind {
-        case 0u: { alpha = shape_coverage(v.local, v.rect, v.radii); }
+        case 0u: { alpha = shape_coverage(v.local, v.rect, v.radii, pixel); }
         case 1u: {
-            alpha = max(0.0, shape_coverage(v.local, v.rect, v.radii) - shape_coverage(v.local, v.uv, v.param));
+            alpha = max(0.0, shape_coverage(v.local, v.rect, v.radii, pixel) - shape_coverage(v.local, v.uv, v.param, pixel));
         }
         case 2u: {
-            alpha = shadow(v.local, v.uv, v.radii, v.param.x);
-            if (flags & 2u) != 0u { alpha = 1.0 - alpha; }
+            alpha = shadow(v.local, v.uv, v.radii, v.param.x, pixel);
         }
         case 3u: {
             let uv = mapped(v.local, v.rect, v.uv);
@@ -336,20 +382,19 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
             let gray = dot(c.rgb, vec3<f32>(0.213, 0.715, 0.072));
             color = vec4<f32>(clamp(vec3<f32>(gray) + v.param.x * (c.rgb - vec3<f32>(gray)), vec3<f32>(0.0), vec3<f32>(c.a)), c.a);
         }
+        case 8u: { color = area_pixel(v); }
         default: { alpha = 0.0; }
     }
     if (flags & 536870912u) != 0u {
         alpha *= textureLoad(color_atlas, vec2<i32>(v.position.xy), 0).a;
     }
     if (flags & 64u) != 0u {
-        alpha *= shape_coverage(v.position.xy, v.clip0, unpack_radii(v.clip_radii.xy));
+        alpha *= shape_coverage(v.position.xy, v.clip0, unpack_radii(v.clip_radii.xy), vec2<f32>(1.0));
     }
     if (flags & 128u) != 0u {
-        var point = v.position.xy;
-        if kind == 2u && (flags & 67108864u) != 0u { point = v.local; }
-        var clip = shape_coverage(point, v.clip1, unpack_radii(v.clip_radii.zw));
+        var clip = shape_coverage(v.position.xy, v.clip1, unpack_radii(v.clip_radii.zw), vec2<f32>(1.0));
         // Shadow's second slot is its border box, excluded for an outer shadow.
-        if kind == 2u && (flags & 2u) == 0u { clip = 1.0 - clip; }
+        if kind == 2u { clip = 1.0 - clip; }
         alpha *= clip;
     }
     if (flags & 256u) != 0u {

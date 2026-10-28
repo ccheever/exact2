@@ -1,5 +1,5 @@
 //! Shelf pages stay valid while a frame or kept row references them. @ref LLP 1149 D4, D8.
-use crate::device::{Device, Format, Result, TextureDesc};
+use crate::device::{Device, Format, Result, Submission, TextureDesc};
 use crate::instance::TextureId;
 use std::collections::HashMap;
 
@@ -16,6 +16,7 @@ struct Page {
     y: u32,
     shelf: u32,
     used: u64,
+    upload: Submission,
 }
 
 pub struct Atlas {
@@ -28,6 +29,7 @@ pub struct Atlas {
     entries: HashMap<Vec<u32>, Entry>,
     overflow: Vec<TextureId>,
     overflow_sizes: HashMap<TextureId, u64>,
+    large_used: HashMap<TextureId, u64>,
     pins: HashMap<TextureId, usize>,
     stats: Stats,
 }
@@ -90,6 +92,7 @@ impl Atlas {
             entries: HashMap::new(),
             overflow: Vec::new(),
             overflow_sizes: HashMap::new(),
+            large_used: HashMap::new(),
             pins: HashMap::new(),
             stats: Stats::default(),
         }
@@ -98,11 +101,19 @@ impl Atlas {
     pub fn begin(&mut self, device: &mut impl Device) -> Result<()> {
         self.frame += 1;
         self.stats = Stats::default();
-        for id in self
+        let retired: Vec<_> = self
             .overflow
-            .extract_if(.., |id| !self.pins.contains_key(id))
-        {
+            .extract_if(.., |id| {
+                !self.pins.contains_key(id)
+                    && self
+                        .large_used
+                        .get(id)
+                        .is_none_or(|used| self.frame.saturating_sub(*used) > 120)
+            })
+            .collect();
+        for id in retired {
             self.overflow_sizes.remove(&id);
+            self.large_used.remove(&id);
             self.entries.retain(|_, e| e.texture != id);
             device.retire_texture(id)?;
         }
@@ -126,6 +137,9 @@ impl Atlas {
     }
 
     pub fn touch(&mut self, texture: TextureId) {
+        if let Some(used) = self.large_used.get_mut(&texture) {
+            *used = self.frame;
+        }
         if let Some(page) = self.pages.iter_mut().find(|p| p.id == texture) {
             page.used = self.frame;
         }
@@ -137,9 +151,7 @@ impl Atlas {
             return None;
         };
         self.stats.hits += 1;
-        if let Some(page) = self.pages.iter_mut().find(|p| p.id == entry.texture) {
-            page.used = self.frame;
-        }
+        self.touch(entry.texture);
         Some(entry)
     }
 
@@ -150,10 +162,27 @@ impl Atlas {
         size: [u32; 2],
         pixels: &[u8],
     ) -> Result<Entry> {
+        let mut completed = device.completed()?;
+        let mut busy = std::collections::HashSet::new();
+        for p in &self.pages {
+            let last = device.last_use(p.id)?;
+            if last > completed && last == p.upload {
+                // Finish this page's upload before appending; a draw still in flight
+                // makes the page unavailable instead. @ref LLP 1149 D11.
+                device.wait(last)?;
+                completed = device.completed()?;
+            }
+            if last > completed {
+                busy.insert(p.id);
+            }
+        }
         let padded = size.map(|s| s + 2 * self.padding);
         let mut slot = None;
         if padded[0] <= self.size[0] && padded[1] <= self.size[1] {
             for page in &mut self.pages {
+                if busy.contains(&page.id) {
+                    continue;
+                }
                 if let Some(origin) = place(page, self.size, padded) {
                     slot = Some((page.id, origin));
                     page.used = self.frame;
@@ -165,7 +194,11 @@ impl Atlas {
                     .pages
                     .iter()
                     .enumerate()
-                    .filter(|(_, p)| p.used != self.frame && !self.pins.contains_key(&p.id))
+                    .filter(|(_, p)| {
+                        p.used != self.frame
+                            && !self.pins.contains_key(&p.id)
+                            && !busy.contains(&p.id)
+                    })
                     .min_by_key(|(_, p)| p.used)
                     .map(|(i, _)| i);
                 if self.pages.len() < self.ceiling || oldest.is_some() {
@@ -182,6 +215,7 @@ impl Atlas {
                             y: 0,
                             shelf: 0,
                             used: self.frame,
+                            upload: Submission(0),
                         }
                     } else {
                         let old = self.pages.swap_remove(oldest.unwrap());
@@ -209,6 +243,9 @@ impl Atlas {
                 mipmapped: false,
             })?;
             self.overflow.push(id);
+            if padded[0] > self.size[0] || padded[1] > self.size[1] {
+                self.large_used.insert(id, self.frame);
+            }
             self.overflow_sizes.insert(
                 id,
                 u64::from(padded[0]) * u64::from(padded[1]) * u64::from(self.format.channels()),
@@ -222,7 +259,10 @@ impl Atlas {
                 * channels;
             upload[start..start + row.len()].copy_from_slice(row);
         }
-        device.upload_texture(texture, origin, padded, &upload)?;
+        let submitted = device.upload_texture(texture, origin, padded, &upload)?;
+        if let Some(page) = self.pages.iter_mut().find(|p| p.id == texture) {
+            page.upload = submitted;
+        }
         self.stats.uploaded_bytes += upload.len() as u64;
         let entry = Entry {
             texture,
