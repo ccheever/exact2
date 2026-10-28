@@ -70,6 +70,16 @@ describe('ProjectCloneToastCoordinator', () => {
     expect(live.has(1)).toBe(true);
     expect(tracked.size).toBe(0);
   });
+  // ProjectCloneToastCoordinator's render key includes `stalled` (8fe4206dec): git going quiet with the same detail redraws
+  // the toast as "Stalled", and output resuming redraws it again.
+  test('a clone that stalls or resumes with the same detail redraws its toast', () => {
+    const { port, log, live } = fakePort(), tracked = new Map<string, TrackedToast>();
+    syncCloneToasts(tracked, [clone()], 'env', '', port);
+    syncCloneToasts(tracked, [clone({ stalled: true })], 'env', '', port);
+    expect(live.get(1)?.description).toBe('Receiving objects · 45% · Stalled');
+    syncCloneToasts(tracked, [clone({ stalled: false })], 'env', '', port);
+    expect([log.length, live.get(1)?.description]).toEqual([3, 'Receiving objects · 45% · 12.3 MiB | 5.0 MiB/s']);
+  });
   test('a running or failed clone that leaves the list closes its toast', () => {
     const { port, log } = fakePort(), tracked = new Map<string, TrackedToast>();
     syncCloneToasts(tracked, [clone({ phase: 'failed', error: 'boom' })], 'env', '', port);
