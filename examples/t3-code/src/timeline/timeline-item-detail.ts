@@ -1,5 +1,4 @@
-// Ported from T3 Code 9c161462c9 packages/client-runtime/src/work-log/itemDetail.ts (MIT, LICENSE-T3; the image
-// markers past the preview limit at 7c3b3b3605ef).
+// Ported from T3 Code 7c3b3b3605ef packages/client-runtime/src/work-log/itemDetail.ts (MIT, LICENSE-T3).
 // Exact adaptation: decoded JSON records/ISO strings replace schema/Effect types; output-only tools also disclose.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { toolOutputImageBlocks, turnItemOutputImages } from './tool-output-images';

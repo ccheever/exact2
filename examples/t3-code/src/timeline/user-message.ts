@@ -18,6 +18,14 @@ export function userMessagePresentation(item: Obj): { text: string; attribution:
 }
 
 const CONTEXT_LINK = /!?\[([^\]\n]{0,512})\]\(t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/[^\s)]{1,128}\)/gi;
+const CONTEXT_REFERENCE = /!?\[([^\]\n]{0,512})\]\(t3-context:\/\/v1\/[a-z][a-z0-9-]{0,39}\/([a-z0-9_-]{1,128})\)/gi;
+/**
+ * An automation's prompt body (AutomationMessageRow's UserMessageBody, given no context renderer): each context
+ * reference reads as its label, or its id with none, in plain text (ChatMarkdown's `<span>{label}</span>`).
+ */
+export function plainContextReferences(text: string): string {
+  return text.replace(CONTEXT_REFERENCE, (_all, label: string, id: string) => (label.trim() || id).replace(/[\\`*_[\]()<>!|~#]/g, '\\$&'));
+}
 /**
  * TimelineUserMessageRow's folded line (T3 Code 7c3b3b3605ef): an automation's task title, else its prompt's first line;
  * another agent's first non-empty line, each context reference read as its label (replaceComposerContextReferences).

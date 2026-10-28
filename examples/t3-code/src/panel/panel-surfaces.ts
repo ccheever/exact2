@@ -47,7 +47,7 @@ import { emptyFramesView, frameLayerView, type BrowserFramesView } from '../brow
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, frameLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
-import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix } from '../timeline/workspace-file-lookup'; // a chat link's file
+import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // a chat link's file
 import { mediaFrameSource } from '../media/media-frame'; // a server tab's PDF as a local copy
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
@@ -250,7 +250,8 @@ export function workspacePath(target: string, cwd: string, line = 0): { path: st
   const suffix = /^(.*?):(\d+)(?::\d+)?$/.exec(path);
   if (suffix && !/^[A-Za-z]$/.test(suffix[1]!)) { path = suffix[1]!; at = at || Number(suffix[2]); }
   const root = cwd.replace(/\/+$/, '');
-  if (root && (path === root || path.startsWith(`${root}/`))) path = path.slice(root.length + 1) || '.';
+  // `/root/../x` starts with the root but leaves it: a host file (ChatMarkdown's panelPath).
+  if (root && (path === root || path.startsWith(`${root}/`)) && workspaceRelativeFilePath(path, root) !== null) path = path.slice(root.length + 1) || '.';
   return { path, line: at };
 }
 /** openFileSurface (palette file picker, content search, file links): needs a project workspace. */

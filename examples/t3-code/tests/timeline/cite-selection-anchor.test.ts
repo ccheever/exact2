@@ -396,6 +396,20 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     expect(calls).toEqual([['command', 'diffreview', 'cite:["t","a"]', `12-152|280,${351.42 + 23.83},221.2,21|Cite check.\nA closing …`, 0], ['removeAllRanges']]);
     expect(state.citeFor).toBe('');
   });
+
+  test('the press holds the last line to the answer as it reads it (popupAnchor): a line in a code block\'s hidden overflow sits on its edge', () => {
+    const calls: unknown[][] = [];
+    // The offer keeps the line as the host reported it, 900 pt into the end text (a code block scrolled sideways).
+    const state: Env = { citeOffer: { ...offer, lx: 900, lw: 80 }, citeFor: '["t","a"]', citeParked: '', citeThread: 't' };
+    const frames: Record<string, unknown> = { 'cite-["t","a"]-2': geometry(280, 351.42, 2000, 45.5), 'cite-["t","a"]': geometry(260, 300, 700, 400) };
+    window.call('citePress', state, { ...cite, frame: (id: string) => frames[id], command: (...args: unknown[]) => calls.push(['command', ...args]),
+      removeAllRanges: () => calls.push(['removeAllRanges']) }, []);
+    const [ranges, frame] = String(calls[0]![3]).split('|');
+    expect(ranges).toBe('12-152');
+    const [x, y, width, height] = frame!.split(',').map(Number);
+    expect([x, width, height]).toEqual([960, 0, 21]);
+    expect(y).toBeCloseTo(351.42 + 23.83, 5);
+  });
 });
 
 describe('the pencil\'s comment above its chip (no change: the clone already places it as the reference)', () => {

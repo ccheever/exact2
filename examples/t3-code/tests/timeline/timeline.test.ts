@@ -6,6 +6,9 @@ import { commandDisplayText, commandProgramName, displayFailed, formatDuration, 
 import type { Files, Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
 import { availableRevertTurnCounts, revertTurnCounts, type Entry } from '../../src/timeline/timeline-rows';
+import { threadFindState } from '../../src/timeline/thread-find-runtime';
+import { liveEvent } from '../../src/client/live-streams';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const base = Date.parse('2026-10-03T00:00:00.000Z');
 const at = (seconds: number) => new Date(base + seconds * 1000).toISOString();
@@ -343,6 +346,42 @@ describe('events and messages', () => {
     expect(users.map(row => [row.attribution, row.title, row.summary, row.collapsible])).toEqual([
       ['automation', 'Automation', 'Nightly digest', false], ['agent', 'Release prep', 'Please review notes.md', false],
       ['agent', 'Agent', 'hello', false], ['', 'You', '', false]]);
+  });
+
+  test('find opens a folded message once as its match moves in; the chevron still closes it (findRevealRef)', async () => {
+    const value = client([user('s', 0, 'Nightly digest\n\nRead the commits.', { scheduledTaskId: 'task-9' }), user('u', 1, 'the commits are mine')]);
+    const folded = () => rows(value).find(row => row.attribution === 'automation')!;
+    expect(folded().expanded).toBe(false);
+    const find = threadFindState(value).model, at = (entryId: string) => ({ complete: true, snapshotSequence: 0, totalMatches: 2, activeIndex: 0, match: { entryId, runId: null, occurrence: 0 }, navigation: [] });
+    find.open = true; find.query = 'commits'; find.result = at('m-s');
+    expect(folded().expanded).toBe(true);
+    await toggle(value, 'message', key('s'));
+    expect(folded().expanded).toBe(false);
+    find.result = at('m-u');
+    expect(folded().expanded).toBe(false);
+    find.result = at('m-s');
+    expect(folded().expanded).toBe(true);
+    // The footer (Open automation, the time, the actions) shows only while the fold is open.
+    const row = contractComponent('timeline.contract', 'UserRow');
+    const footer = (expanded: boolean) => row.drawn('label="Open automation"', row.state(), { message: { ...folded(), expanded }, threadFind: { open: true, query: 'commits', entry: '' } });
+    expect([footer(true), footer(false)]).toEqual([true, false]);
+  });
+
+  test('an automation is named by its live task, reads its context references as labels, and copies without the old prefix', async () => {
+    const value = client([user('s', 0, 'Run [notes_v2.md](t3-context://v1/file/file_1) and ![](t3-context://v1/image/image_2) now', { scheduledTaskId: 'task-9',
+      context: { version: 1, records: [{ version: 1, kind: 'file', contextId: 'file_1', label: 'notes_v2.md', attachmentId: 'att', name: 'notes_v2.md' }] } }),
+    user('l', 1, '[Triggered by schedule task: Daily]\n\nRun it', { messageId: 'scheduled-task-message:task-1:3:scheduled' })]);
+    Object.assign(value, { environmentId: 'env-1', generation: 1 });
+    const fallback = rows(value).find(row => row.attribution === 'automation')!;
+    expect(fallback.summary).toBe('Run [notes_v2.md](t3-context://v1/file/file_1) and ![](t3-context://v1/image/image_2) now');
+    liveEvent(value, { key: 'scheduled-tasks', subscriptionId: 'sub-1', value: { tasks: [{ id: 'task-9', title: 'Nightly digest of the repository' }] } });
+    const [task, legacy] = rows(value).filter(row => row.attribution === 'automation');
+    expect([task!.summary, task!.body, task!.chips.length]).toEqual(['Nightly digest of the repository', 'Run notes\\_v2.md and image\\_2 now', 0]);
+    expect(legacy!.body).toBe('Run it');
+    const copied: string[] = [];
+    Object.assign(value, { restAccess: () => ({ call: async (request: { text: string }) => { copied.push(request.text); return {}; } }) });
+    await chatLocal(value, native, 'copy', key('l'), '');
+    expect(copied).toEqual(['Run it']);
   });
 
   test('short messages with links or quotes do not collapse; the visible text counts (#16624)', () => {

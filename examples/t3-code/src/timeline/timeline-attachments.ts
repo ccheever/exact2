@@ -44,9 +44,15 @@ export function messageAttachments(item: Obj): { images: MessageImage[]; attachF
 }
 
 const isSentVideo = (attachment: Obj) => videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) !== null;
-/** filePreviewKind "audio" (shared/filePreview.ts): an audio MIME type, or a sound's extension under a generic one. */
-export const isSentAudio = (attachment: Obj) => attachment.downloadable !== false && (str(attachment.mimeType).toLowerCase().startsWith('audio/')
-  || (!str(attachment.mimeType) || /^application\/octet-stream$/i.test(str(attachment.mimeType))) && /\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff|weba)$/i.test(str(attachment.name)));
+/**
+ * filePreviewKind "audio" (shared/filePreview.ts): an audio MIME type, or a sound's extension under a generic one (none,
+ * application/octet-stream or text/plain), the MIME type read without its parameters.
+ */
+export function isSentAudio(attachment: Obj): boolean {
+  const mime = str(attachment.mimeType).split(';', 1)[0]!.trim().toLowerCase();
+  const generic = !mime || mime === 'application/octet-stream' || mime === 'text/plain';
+  return attachment.downloadable !== false && (mime.startsWith('audio/') || generic && /\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff|weba)$/i.test(str(attachment.name)));
+}
 const urls = new Map<string, { url: string; expiresAt: number }>();
 /** Signed preview URLs for the selected thread's sent images (useAssetUrls), cached until shortly before they expire. */
 type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };

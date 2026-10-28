@@ -35,8 +35,9 @@ component AudioChip
       paused = not paused
   action loaded
     ready = true
+  // A live or unknown length (Infinity, NaN) is none (AudioPreview's `Number.isFinite(value) ? value : 0`).
   action measured(seconds: number)
-    duration = seconds
+    duration = (seconds > 0 and seconds < 1000000000) ? seconds : 0
   action tick(seconds: number)
     elapsed = seconds
   action started

@@ -18,22 +18,30 @@ fn url_scheme(href: &str) -> Option<&str> {
     (!earlier('/') && !earlier('?') && !earlier('#')).then(|| &href[..colon])
 }
 
+/// `value` after `prefix` (ASCII, any case). `get` keeps the cut on a character's edge: `Café.md` is no `%3a`.
+fn strip_ascii_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    value
+        .get(..prefix.len())
+        .filter(|head| head.eq_ignore_ascii_case(prefix))
+        .map(|_| &value[prefix.len()..])
+}
+
 /// isWindowsDrivePathHref (`C:\repo` or `C:/repo`, percent-encoded or not):
 /// remarkNormalizeLinksAndTagInlineCode turns it into a `file:` URL first.
 fn windows_drive(href: &str) -> bool {
-    let bytes = href.as_bytes();
-    if !bytes.first().is_some_and(u8::is_ascii_alphabetic) {
+    if !href.as_bytes().first().is_some_and(u8::is_ascii_alphabetic) {
         return false;
     }
     let rest = &href[1..];
-    let rest = match rest.strip_prefix(':') {
-        Some(rest) => rest,
-        None if rest.len() >= 3 && rest[..3].eq_ignore_ascii_case("%3a") => &rest[3..],
-        None => return false,
+    let Some(rest) = rest
+        .strip_prefix(':')
+        .or_else(|| strip_ascii_prefix(rest, "%3a"))
+    else {
+        return false;
     };
     rest.starts_with(['/', '\\'])
-        || rest.len() >= 3
-            && (rest[..3].eq_ignore_ascii_case("%2f") || rest[..3].eq_ignore_ascii_case("%5c"))
+        || strip_ascii_prefix(rest, "%2f").is_some()
+        || strip_ascii_prefix(rest, "%5c").is_some()
 }
 
 /// markdownUrlTransform: citation and context references, Windows drive paths and
@@ -281,15 +289,26 @@ fn search_free(value: &str) -> &str {
         .next()
         .unwrap_or(value)
 }
-/// parseFileUrlHref's path (a non-localhost authority as a UNC share), still encoded.
+/// parseFileUrlHref's path (a non-localhost authority as a UNC share), still encoded. As the URL parser reads a
+/// `file:` URL, a backslash is a slash and a drive letter where the host would be starts the path: `file://C:/repo`
+/// (or `C|`) is `C:/repo`.
 fn file_url_path(href: &str) -> String {
-    let rest = search_free(&href[5..]);
+    let rest = search_free(&href[5..]).replace('\\', "/");
+    let drive;
     let (host, path) = match rest.strip_prefix("//") {
-        Some(authority) => match authority.find('/') {
-            Some(at) => (&authority[..at], &authority[at..]),
-            None => (authority, "/"),
-        },
-        None => ("", rest),
+        Some(authority) => {
+            let end = authority.find('/').unwrap_or(authority.len());
+            let bytes = authority.as_bytes();
+            if end == 2 && bytes[0].is_ascii_alphabetic() && matches!(bytes[1], b':' | b'|') {
+                drive = format!("{}:{}", &authority[..1], &authority[2..]);
+                ("", drive.as_str())
+            } else if end < authority.len() {
+                (&authority[..end], &authority[end..])
+            } else {
+                (authority, "/")
+            }
+        }
+        None => ("", rest.as_str()),
     };
     let path = if path.starts_with('/') {
         path.to_string()
@@ -597,38 +616,46 @@ mod link_tests {
         }
     }
 
-    // parseMarkdownFileLink (#22188, #25802, a12d6ed942): only a file-shaped destination is a file chip.
+    /// The destinations tests/timeline/file-links.test.ts reads too, each a file link or not (parseMarkdownFileLink,
+    /// #22188, #25802, a12d6ed942).
+    const FILE_LINK_CASES: &str = include_str!("../../tests/timeline/file-link-cases.tsv");
+
     #[test]
     fn only_file_shaped_destinations_are_file_links() {
-        for href in [
-            "patches/",
-            "docs/My%20Folder/",
-            "pastexam/線性代數/exam_易志偉.pdf",
-            "線性代數/考試.pdf",
-            "Résumé%20final.pdf",
-            "資料.備份",
-            "Makefile",
-            "~/notes.md",
-            "../o/a.md",
-            "/Users/me/notes",
-            "/repo/README",
-            "C:\\repo\\notes",
-        ] {
-            assert_eq!(link_href(href), format!("{FILE_LINK}{href}"), "{href}");
-        }
-        for href in [
-            "patches",
-            "notes",
-            "/chat/settings#L3",
-            "/api/v1",
-            "\\\\attacker.test\\s\\x.ts",
-            "/\\attacker.test\\s\\x.ts",
-            "file://attacker.test/s/x.ts",
-        ] {
-            assert_eq!(link_href(href), href, "{href}");
+        let cases: Vec<(&str, bool)> = FILE_LINK_CASES
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(|line| {
+                let mut columns = line.split('\t');
+                (columns.next().unwrap_or(""), columns.next() == Some("chip"))
+            })
+            .collect();
+        assert!(cases.len() > 20, "{} cases", cases.len());
+        for (href, chip) in cases {
+            assert_eq!(chat_file_link(href), chip, "{href}");
+            // The run's href: a file link where the URL transform keeps the destination (`Dockerfile:8` reads as a
+            // `Dockerfile:` scheme, so its link is targetless).
+            assert_eq!(
+                link_href(href).starts_with(FILE_LINK),
+                chip && kept_by_transform(href),
+                "{href}"
+            );
         }
         // An image's source still resolves as its media chip does.
         assert_eq!(media_href("image"), format!("{FILE_LINK}image"));
+    }
+
+    // A multibyte character where a drive's `%3a` or `%2f` would be is no drive, and no panic (release builds abort).
+    #[test]
+    fn a_multibyte_name_is_no_drive() {
+        for href in ["Café.md", "a%3é", "C:é", "C%3a%2é", "my图.png", "é"] {
+            assert!(!windows_drive(href), "{href}");
+        }
+        for href in ["C:/repo", "c:\\repo", "C%3a%2Frepo", "C%3A%5crepo"] {
+            assert!(windows_drive(href), "{href}");
+        }
+        let doc = document(Value::str("m"), "[x](Café.md) ![x](my图.png) [y](a%3é)");
+        assert_eq!(blocks_of(&doc).len(), 1);
     }
 
     #[test]

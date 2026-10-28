@@ -1,4 +1,4 @@
-// T3 Code 9c161462c9 packages/shared/src/toolOutput.ts (MIT, LICENSE-T3; toolOutputImageBlocks at 7c3b3b3605ef).
+// T3 Code 7c3b3b3605ef packages/shared/src/toolOutput.ts (MIT, LICENSE-T3).
 import { obj, str, type Obj } from '../client/domain';
 export interface ToolOutputImage { mimeType: string; data?: string }
 const IMAGE_TYPES = new Set(['image/gif', 'image/jpeg', 'image/png', 'image/webp']);

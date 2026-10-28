@@ -79,4 +79,22 @@ describe('a sent sound is an audio chip (#21363)', () => {
     expect(attached.attachFiles.map(file => file.id)).toEqual(['c', 'd']);
     expect(isSentAudio({ name: 'clip.mp4', mimeType: 'video/mp4' })).toBe(false);
   });
+  test('the MIME type is read without its parameters, and text/plain is as generic as none (filePreviewKind)', async () => {
+    const { isSentAudio } = await import('../../src/timeline/timeline-attachments');
+    expect([
+      { name: 'memo.mp3', mimeType: 'text/plain' },
+      { name: 'take.wav', mimeType: 'application/octet-stream; charset=binary' },
+      { name: 'voice.ogg', mimeType: 'Audio/Ogg; codecs=opus' },
+      { name: 'notes.txt', mimeType: 'text/plain' },
+      { name: 'memo.mp3', mimeType: 'text/markdown' },
+    ].map(isSentAudio)).toEqual([true, true, true, false, false]);
+  });
+  test('a live or unknown length reads as none, not "Infinity:NaN" (AudioPreview sets 0)', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const chip = contractComponent('timeline-audio.contract', 'AudioChip'), state = chip.state();
+    for (const [seconds, duration] of [[Infinity, 0], [Number.NaN, 0], [-1, 0], [92.5, 92.5]] as const) {
+      chip.call('measured', state, {}, [seconds]);
+      expect(state.duration).toBe(duration);
+    }
+  });
 });

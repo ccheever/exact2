@@ -144,6 +144,19 @@ describe('a citation to an answer not yet loaded', () => {
     expect(placed).toEqual(['["t1","a1"]']);
     expect(toasts(client)).toEqual([]);
   });
+  test('twenty pages without the answer stop with "Could not load"; a page that loads nothing new stops as unavailable', async () => {
+    // Every page moves the cursor and leaves more history, and none holds the answer.
+    const { client, asked } = opened(Array.from({ length: 25 }, (_, page) => [`u${page + 10}`, `a${page + 10}`]));
+    await revealCitation(client, native, 't1', 'a1', () => [], () => {});
+    expect(asked.length).toBe(20);
+    expect(toasts(client)).toEqual([expect.objectContaining({ kind: 'warning', title: 'Could not load the cited response' })]);
+    // A page that leaves the cursor where it was: nothing older loads, so asking again would spin.
+    const still = opened([['u3', 'a3'], ['u2', 'a2']]);
+    still.client.history = async (_native: Native, through = '') => { still.asked.push(through); };
+    await revealCitation(still.client, native, 't1', 'a1', () => [], () => {});
+    expect(still.asked).toEqual(['a1']);
+    expect(toasts(still.client)).toEqual([expect.objectContaining({ kind: 'warning', title: 'The cited response is unavailable' })]);
+  });
   test('a removed answer, a failed page, or a user message toasts why and places nothing', async () => {
     const cases: [string[][], number, string, string][] = [
       [[], -1, 'a1', 'The cited response is unavailable'],

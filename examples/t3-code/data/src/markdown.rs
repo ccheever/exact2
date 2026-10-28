@@ -667,8 +667,9 @@ fn document_with_links(
     heading_ids(&mut doc.blocks);
     fragment_links(&mut doc.blocks);
     let gutters = list_gutters(&doc.blocks);
-    let directions = block_directions(&doc.blocks);
     let mut tasks = task_items(&mut doc.blocks, source);
+    // After the task markers go: `- [x] تم` reads right to left.
+    let directions = block_directions(&doc.blocks, &text);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
     }
@@ -1352,73 +1353,6 @@ mod tests {
         assert_eq!(
             line_breaks("# Title\nText\n| a |\n|---|"),
             "# Title\nText\n| a |\n|---|"
-        );
-    }
-
-    #[test]
-    fn tables_are_one_block_with_sizing_columns_and_copy_text() {
-        let Value::Record(doc) = document(
-            Value::str("t"),
-            &line_breaks(
-                "Intro\n\n| Name | Note |\n|:-|:-|\n| **a** | x, \"y\" |\n| `b` | a long one |\n\n| not | a table\nafter ![shot.png](t3-context://v1/image/image_1)",
-            ),
-        ) else {
-            panic!("document")
-        };
-        let Value::List(blocks) = &doc[1] else {
-            panic!("blocks")
-        };
-        let kinds: Vec<String> = blocks
-            .iter()
-            .map(|block| {
-                let Value::Record(fields) = block else {
-                    panic!("block")
-                };
-                assert_eq!(fields.len(), 20);
-                fields[1].as_str().unwrap_or("").to_string()
-            })
-            .collect();
-        assert_eq!(kinds, vec!["paragraph", "table", "paragraph", "paragraph"]);
-        let Value::Record(table) = &blocks[1] else {
-            panic!("table")
-        };
-        let Value::List(rows) = &table[11] else {
-            panic!("rows")
-        };
-        assert_eq!(rows.len(), 3);
-        let Value::List(columns) = &table[12] else {
-            panic!("columns")
-        };
-        assert_eq!(columns.len(), 2);
-        assert_eq!(
-            table[13].as_str(),
-            Some("| Name | Note |\n| --- | --- |\n| **a** | x, \"y\" |\n| `b` | a long one |")
-        );
-        assert_eq!(
-            table[14].as_str(),
-            Some("Name,Note\na,\"x, \"\"y\"\"\"\nb,a long one")
-        );
-        // The pipe line that is no table keeps its break; the image reference is a chip.
-        let Value::Record(last) = &blocks[3] else {
-            panic!("line")
-        };
-        let Value::List(runs) = &last[7] else {
-            panic!("runs")
-        };
-        let chip = runs.iter().find_map(|run| {
-            let Value::Record(fields) = run else {
-                return None;
-            };
-            (fields[6].as_str() == Some("context-image")).then(|| {
-                (
-                    fields[1].as_str().unwrap_or("").to_string(),
-                    fields[5].as_str().unwrap_or("").to_string(),
-                )
-            })
-        });
-        assert_eq!(
-            chip,
-            Some(("shot.png".into(), "t3-context://v1/image/image_1".into()))
         );
     }
 

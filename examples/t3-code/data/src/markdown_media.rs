@@ -52,7 +52,8 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
     let tables = table_lines(&lines);
     let mut out = String::with_capacity(text.len() + 32);
     let mut fence: Option<(char, usize)> = None;
-    let mut paragraph = false;
+    // The quote depth (0 outside a quote) of the paragraph the previous line continues, when it continues one.
+    let mut paragraph: Option<usize> = None;
     for (index, line) in lines.iter().enumerate() {
         if index > 0 {
             out.push('\n');
@@ -64,7 +65,7 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
                 fence = None;
             }
             out.push_str(line);
-            paragraph = false;
+            paragraph = None;
             continue;
         }
         if let Some(marker @ ('`' | '~')) = trimmed.chars().next() {
@@ -72,14 +73,19 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
             if width >= 3 {
                 fence = Some((marker, width));
                 out.push_str(line);
-                paragraph = false;
+                paragraph = None;
                 continue;
             }
         }
-        let block_image = !paragraph && !tables[index] && sole_image_line(trimmed);
+        let block_image = paragraph.is_none() && !tables[index] && sole_image_line(trimmed);
         // remarkBreakAroundImageLines: an image alone on its source line inside a paragraph keeps that line (a label
-        // such as `**Palette**` above a screenshot), with line breaks before and after it.
-        let owns_line = paragraph && !tables[index] && (sole_image_line(trimmed) || sole_linked_image_line(trimmed));
+        // such as `**Palette**` above a screenshot), with line breaks before and after it; spaces around it, and the
+        // quote marks of a paragraph in a quote, are not the line's content.
+        let (depth, content) = quoted(trimmed);
+        let shown = content.trim_end_matches([' ', '\t']);
+        let owns_line = paragraph == Some(depth)
+            && !tables[index]
+            && (sole_image_line(shown) || sole_linked_image_line(shown));
         if owns_line && !out.ends_with(&format!("{LINE_BREAK}\n")) {
             out.pop();
             out.push_str(LINE_BREAK);
@@ -90,12 +96,31 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
         } else {
             image_links_in_line(line, &mut out);
         }
-        if owns_line && lines.get(index + 1).is_some_and(|next| prose_line(next)) && !trimmed.ends_with(LINE_BREAK) {
+        if owns_line
+            && lines.get(index + 1).is_some_and(|next| continues(next, depth))
+            && !trimmed.ends_with(LINE_BREAK)
+        {
             out.push_str(LINE_BREAK);
         }
-        paragraph = !block_image && prose_line(line);
+        paragraph = (!block_image && continues(line, depth)).then_some(depth);
     }
     std::borrow::Cow::Owned(out)
+}
+
+/// A line's quote depth (its `>` marks, each with the one space after it) and the text after them.
+fn quoted(trimmed: &str) -> (usize, &str) {
+    let (mut depth, mut rest) = (0, trimmed);
+    while let Some(after) = rest.strip_prefix('>') {
+        depth += 1;
+        rest = after.strip_prefix(' ').unwrap_or(after);
+    }
+    (depth, rest)
+}
+
+/// Whether `line` is prose going on with a paragraph at quote depth `depth`.
+fn continues(line: &str, depth: usize) -> bool {
+    let (at, content) = quoted(line.trim_start());
+    at == depth && prose_line(content)
 }
 
 /// `[![alt](src)](link)` alone on a line: a link whose only content is one image, which isImageNode counts as an image.
@@ -544,6 +569,12 @@ mod media_tests {
         assert_eq!(lines("Shot\n[![CI](/ci.svg)](/ci)\nafter").len(), 3, "a linked image alone on its line too");
         assert_eq!(lines("Built [![CI](/ci.svg)](/ci)\nand wrapped").len(), 1, "an inline badge still wraps");
         assert_eq!(lines("Hard-wrapped\nprose"), ["Hard-wrapped prose"]);
+        // Spaces after the image and a quote's marks are not the line's content (remarkBreakAroundImageLines reads
+        // the paragraph's own text).
+        let trimmed = |text: &str| lines(text).iter().map(|line| line.trim().to_string()).collect::<Vec<_>>();
+        assert_eq!(trimmed("**Palette**\n![P](p.png) \nnext"), ["Palette", "<img>", "next"]);
+        assert_eq!(trimmed("> **Palette**\n> ![P](p.png)"), ["Palette", "<img>"]);
+        assert_eq!(trimmed("> **Palette**\n> ![P](p.png)\n> next"), ["Palette", "<img>", "next"]);
     }
 
     #[test]

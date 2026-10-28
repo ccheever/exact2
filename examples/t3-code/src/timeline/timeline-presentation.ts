@@ -57,7 +57,7 @@ import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeli
 import { completeSave } from '../media/save-file';
 import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
 import { keptThread } from '../client/keep-alive';
-import { foldedMessageSummary, userMessagePresentation } from './user-message';
+import { foldedMessageSummary, plainContextReferences, userMessagePresentation } from './user-message';
 import { liveEnvironment } from '../client/live-streams';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
@@ -95,11 +95,13 @@ interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok
   /** A citation's View source is placing its answer (citation-source.ts): ChatColumn restores no remembered position meanwhile. */
   citing: number;
   /** The answer row the last View source asked ChatColumn to place, on its thread; each request a new nonce. */
-  citeJump: { threadId: string; key: string; nonce: number } }
+  citeJump: { threadId: string; key: string; nonce: number };
+  /** Find's active match as last seen (thread, entry, occurrence), and the folded message it still has to open. */
+  findMatch: string; findReveal: string }
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 } }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 }, findMatch: '', findReveal: '' }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
@@ -185,7 +187,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     if (op === 'copy-code') view.codeCopy = { threadId: client.threadId, text, nonce: view.nonce };
     return op === 'copy' ? 'Copied message' : 'Copied code';
   }
-  if (!['fold', 'group', 'attempt'].includes(op)) throw new ClientError(`Unknown timeline action: ${op}`);
+  if (!['fold', 'group', 'attempt', 'message'].includes(op)) throw new ClientError(`Unknown timeline action: ${op}`);
   const key = scoped(client, op, id);
   if (view.open.has(key)) view.open.delete(key); else view.open.add(key);
   return '';
@@ -193,7 +195,8 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
 function copyText(client: T3Client, id: string): string {
   const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === id);
   const item = obj(row?.item);
-  const text = item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '';
+  // A user message copies what it shows: an older automation prompt without its schedule prefix (MessageCopyButton's `text`).
+  const text = item.type === 'proposed_plan' ? str(item.markdown) : item.type === 'user_message' ? userMessagePresentation(item).text : item.type === 'assistant_message' ? str(item.text) : '';
   return relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(text), client.shell.threads);
 }
 
@@ -381,12 +384,25 @@ export function transcriptRows(client: T3Client): Message[] {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
   const setup = threadWorktreeSetup(client), input = rowInput(client, setup);
   const rows = deriveRows(input);
+  noteFindMatch(client, view);
   // MessagesTimeline backgroundWorktreeSetup: a setup still running after the agent's turn started.
   const background = setup.snapshot?.phase === 'running' && agentStarted(setup.snapshot) && input.latestRun?.startedAt != null ? setup.snapshot : null;
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
     workflow: workflowOpening(client), background };
   return rows.map(row => present(row, context));
+}
+
+/**
+ * findRevealRef: each time find's active match moves (or comes back) to a folded automation or agent message, that
+ * message opens once; closing it with its chevron keeps it closed until the match moves again.
+ */
+function noteFindMatch(client: T3Client, view: ViewState): void {
+  const find = threadFindExpanded(client) ? threadFindView(client) : null;
+  const match = find?.entry ? `${client.threadId}\u0000${find.entry}\u0000${find.occurrence}` : '';
+  if (match === view.findMatch) return;
+  view.findMatch = match;
+  view.findReveal = find?.entry ?? '';
 }
 
 /**
@@ -510,11 +526,15 @@ function present(row: Row, context: PresentContext): Message {
         return { ...common, ...opening, code: messageCodeBlocks(opening.body) };
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
-      const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
+      // An automation's prompt reads its context references as their labels (AutomationMessageRow's UserMessageBody).
+      const relabeled = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads);
+      const text = sender.attribution === 'automation' ? plainContextReferences(relabeled) : relabeled, chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // Automation and other agents' messages fold to one line, their author (the sending thread's title) as the heading.
       const automation = sender.attribution === 'automation', agent = sender.attribution === 'agent';
       const senderTitle = agent ? str(context.threads.find(thread => thread.id === item.senderThreadId)?.title).trim() || 'Agent' : '';
       const summary = automation || agent ? foldedMessageSummary(sender.attribution, automation ? sender.text : text, automation ? scheduledTaskTitle(context.client, sender.scheduledTaskId) : '') : '';
+      const foldKey = scoped(context.client, 'message', row.id);
+      if ((automation || agent) && view.findReveal === row.id) { view.open.add(foldKey); view.findReveal = ''; }
       // A file with a chip in the prose needs no standalone row (images always show); an automation's prompt shows none.
       return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, revert: row.revert,
         images: automation ? [] : attached.images, attachFiles: automation ? [] : attached.attachFiles.filter(file => !chipped.has(file.id)), audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text),
@@ -522,7 +542,7 @@ function present(row: Row, context: PresentContext): Message {
         // A queued message that was sent reads as any other; only a steer keeps its marker.
         intent: intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
         intentTip: intent === 'promoted_queued_to_steer' ? 'Originally queued, then promoted to steer the active turn' : intent === 'steer' ? 'Steered the active turn' : '',
-        attribution: sender.attribution, targetId: str(item.senderThreadId), detail: sender.scheduledTaskId,
+        attribution: sender.attribution, targetId: str(item.senderThreadId), detail: sender.scheduledTaskId, expanded: view.open.has(foldKey),
         status: ['completed', 'pending', 'waiting'].includes(str(item.status)) ? '' : str(item.status) };
     }
   }

@@ -135,15 +135,13 @@ component UserRow
     scheme: string
     seen: action
   state expanded = false
-  state folded = true
   action toggleBody
     expanded = not expanded
-  action toggleFold
-    folded = not folded
   derive finding = threadFind.open and threadFind.query.trim() != ""
   derive foldable = message.attribution == "automation" or message.attribution == "agent"
-  // Find reveals only the folded message that holds the active match.
-  derive open = not foldable or not folded or (finding and threadFind.entry == message.id)
+  // A fold's state is the timeline's (`message.expanded`): find opens it once when its active match moves inside
+  // (findRevealRef), and the chevron still closes it.
+  derive open = not foldable or message.expanded
   view
     // The minimap's turn on screen (MessagesTimeline's inView: a strictly positive overlap). Threshold 0
     // reports edge contact too, and nothing more as the overlap grows, so the port is taken 1px in on each edge:
@@ -161,7 +159,7 @@ component UserRow
       if foldable
         column position="relative" width=(open ? "100%" : "auto") max-width="80%" min-width=0 border-radius="1rem" background-color=bubble box-sizing="border-box" testId=`folded-${message.id}`
           MessageHeading(label=message.title)
-          button press=toggleFold aria-expanded=open testId=`fold-${message.id}` width="100%" min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="1rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem"
+          button press=local("message", message.id, "") aria-expanded=open testId=`fold-${message.id}` width="100%" min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="1rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem"
             :focus-visible
               box-shadow="inset 0 0 0 2px light-dark(#1b4ed8b3, #346bf1b3)"
             TimelineIcon(name=(message.attribution == "automation" ? "calendar-clock" : "messages-square"), size=16, color="light-dark(#71717b, #a1a1a1)")
