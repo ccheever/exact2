@@ -3600,8 +3600,9 @@ before, and `text-align` places the lines in it), and `auto` turns it off. `pret
 `-webkit-font-smoothing="antialiased"` (inherited) draws text as Chrome and
 Safari on the Mac do under that property: lighter glyphs, without the stem
 darkening the Mac's default smoothing adds. Write it on the root only when the
-web app being matched sets it; unsaid, text is the platform's. AppKit and UIKit
-draw it, the web writes the property, other hosts ignore it. `none` and
+web app being matched sets it; unsaid, text is the platform's. AppKit draws it
+and the web writes it; iOS, Linux, Windows and a terminal accept it and draw
+as before, as browsers off the Mac ignore it. `none` and
 `subpixel-antialiased` are refused; supported values are `auto | antialiased`.
 
 `text-box` cuts a paragraph's line box to its glyphs (CSS Inline Layout 3 §4),

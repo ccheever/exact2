@@ -313,6 +313,21 @@ fn css_text_in(
             (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
                 crate::text_box_css::push_edge(edge, &mut out)
             }
+            // @ref LLP 1019 D12 — Firefox's Mac spelling beside WebKit's, as
+            // Tailwind's `antialiased` writes both.
+            (StyleId::FontSmoothing, RowValue::Enum(v)) => {
+                let firefox = if *v == "antialiased" {
+                    "grayscale"
+                } else {
+                    "auto"
+                };
+                push_text!(
+                    &mut out,
+                    "-webkit-font-smoothing:{};-moz-osx-font-smoothing:{};",
+                    *v,
+                    firefox
+                )
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It

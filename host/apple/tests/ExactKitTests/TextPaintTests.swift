@@ -531,6 +531,36 @@ final class TextPaintTests: XCTestCase {
         spec.antialiased = true
         XCTAssertNotEqual(TextRasterKey(spec: spec, size: box.size, box: box, scale: 2), smoothed)
     }
+
+    /// The direct draw (`TextEngine.draw`, a view's own context) turns
+    /// smoothing off for the paragraph alone and leaves the context's as it was.
+    func testAntialiasedTextDrawsDirectlyWithoutFontSmoothing() {
+        let width = 900, height = 60
+        func ink(_ specs: [Spec]) -> [Int] {
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
+            bytes.withUnsafeMutableBytes { raw in
+                let ctx = CGContext(data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                    bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: 2, y: -2)
+                ctx.setShouldSmoothFonts(true)
+                for (i, spec) in specs.enumerated() {
+                    TextEngine.draw(engine.paragraph(spec, width: 140), spec: spec,
+                                    in: CGRect(x: CGFloat(i) * 150, y: 5, width: 140, height: 20), context: ctx)
+                }
+            }
+            return (0..<specs.count).map { i in
+                (0..<height).reduce(0) { sum, y in
+                    (i * 300..<(i + 1) * 300).reduce(sum) { $0 + Int(bytes[(y * width + $1) * 4 + 3]) }
+                }
+            }
+        }
+        let smoothed = Spec(runs: [run("Settings General", weight: 500)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        var antialiased = smoothed; antialiased.antialiased = true
+        let drawn = ink([smoothed, antialiased, smoothed])
+        XCTAssertLessThan(Double(drawn[1]), Double(drawn[0]) * 0.97, "\(drawn)")
+        XCTAssertEqual(drawn[2], drawn[0], "the context smooths again after the antialiased paragraph")
+    }
     #endif
 
     /// LLP 1100 D2: a paragraph whose colour is wide rasterizes into Display

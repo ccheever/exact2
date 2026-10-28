@@ -586,12 +586,14 @@ change can break.
 `text-wrap: balance` and a `::placeholder` part containing only `color` for
 the tooltips, toasts, empty states and themed fields of
 `issues/closed/20261009-balanced-text-placeholder-color.md`. This
-amends LLP 1104's placeholder refusal.
+amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
 
-**Admitted (2026-10-28):** `-webkit-font-smoothing: auto | antialiased`, an
-inherited paint row (LLP 1019 D12), for apps that match a web app setting it
-on its root, as T3 Code does. This amends the textrows ruling's deferral of it.
-`none` and `subpixel-antialiased` stay refused.
+**Admitted (Daehyeon Mun, 2026-10-28, waived; LLP 1019 D12):**
+`-webkit-font-smoothing: auto | antialiased`, an inherited paint row. This
+amends the 2026-10-12 textrows ruling above, which kept it deferred. Consumer:
+the T3 Code clone, whose web original sets `antialiased` on its root; drawn
+without it, its labels read a weight heavier than the original's. `none` and
+`subpixel-antialiased` stay refused.
 
 **Runtime**
 

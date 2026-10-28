@@ -1254,12 +1254,15 @@ widths for the issue's sentence: 16 px Arial at 180 px on the Mac
 
 **Font smoothing** (2026-10-28, [LLP 1019 D12](1019-fonts.rfc.md)).
 `-webkit-font-smoothing` (bit 222, inherited, `auto | antialiased`) is a paint
-row: a change neither measures nor lays out. AppKit and UIKit draw an
-`antialiased` paragraph with Core Graphics font smoothing off; the web writes
-the property; Linux, Windows and a terminal ignore it. Declared: Apple reads it
-once per paragraph, so an inline run's own value gives way to its paragraph's,
-and text a platform view draws (a text field's, a native control's title) and a
-paragraph the content-region reader holds keep the platform's smoothing.
+row: a change neither measures nor lays out. AppKit draws an `antialiased`
+paragraph with Core Graphics font smoothing off (UIKit sets the same flag,
+expected to change nothing on iOS, as iOS Safari ignores the property); the
+web writes it with Firefox's `-moz-osx-font-smoothing`; Linux, Windows, a
+terminal and the widget and watch drivers admit it and draw as before.
+Declared: Apple reads it once per paragraph, so an inline run's own value
+gives way to its paragraph's, and text a platform view draws (a text field's,
+a native control's title) and a paragraph the content-region reader holds keep
+the platform's smoothing.
 
 **Book typography** (the reader diary, 2026-10-04). `text-align: justify`
 fills every line but a paragraph's last and one before a forced break, on

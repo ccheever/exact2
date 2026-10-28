@@ -169,6 +169,21 @@ extension TextGeometryTests {
         withBorrowedRequest(value) { XCTAssertFalse(TextMetricKey.matches($0, noStrut.geometry)) }
     }
 
+    /// `-webkit-font-smoothing` is paint (LLP 1019 D12): the kernel's request
+    /// never carries it, so the paragraph it measured is the one an
+    /// `antialiased` paint finds, and the paint keeps the flag.
+    func testAnAntialiasedPaintSharesTheMeasuredIdentity() {
+        var measured = spec("Settings")
+        measured.strut = measured.runs[0]
+        var painted = measured; painted.antialiased = true
+        var cache = TextResidency()
+        let identity = cache.identity(measured)
+        XCTAssertTrue(cache.identity(painted) === identity)
+        withBorrowedRequest(measured) { XCTAssertTrue(cache.borrowedIdentity($0) === identity) }
+        XCTAssertTrue(TextPaint(painted).applying(to: identity).antialiased)
+        XCTAssertNotEqual(TextPaint(painted), TextPaint(measured), "a shape painted each way is its own")
+    }
+
     func testBorrowedSignedZeroNaNAndMalformedUTF8Fallback() {
         var value = spec("replacement �")
         value.strut = value.runs[0]; value.runs[0].letterSpacing = -0.0

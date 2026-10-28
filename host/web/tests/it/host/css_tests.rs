@@ -230,7 +230,7 @@ fn style_rows_lower_to_css_by_their_names() {
         "text-indent:-24px;",
         "hyphens:auto;",
         "text-wrap-style:auto;",
-        "-webkit-font-smoothing:antialiased;",
+        "-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;",
         "column-count:3;",
         "column-width:120px;",
         "column-fill:auto;",
