@@ -2672,7 +2672,12 @@ ids and non-root use are refused. The fixed ids are `close-all`, `autofill`, `sh
 Develop menu; its chords stay), `paste-and-match-style`, `find`,
 `spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
 *App* Help), `actual-size`, `zoom-in`, `zoom-out`.
-Other standard items remain; other hosts ignore removal. View has Actual Size
+Other standard items remain; other hosts ignore removal.
+`-exact-menu-keys="close-window=none"` on the root keeps File ▸ Close Window
+with no chord, so ⌘W reaches the page; declare `-exact-menu-remove="close-all"`
+with it, or AppKit's Close All ⌥⌘W shows as a row of its own.
+`close-window=Meta+Shift+W` gives it ⇧⌘W instead: one `aria-keyshortcuts`
+chord with `Meta` that is not the host's or the system's own. View has Actual Size
 ⌘0, Zoom In ⌘+ and Zoom Out ⌘-, which scale the root font size, the app's
 `setRootFontSize` included, and leave `px` as it is. See the grammar’s “The
 Mac’s menu bar”.

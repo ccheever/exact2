@@ -90,6 +90,204 @@ pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerE
     Ok(())
 }
 
+/// LLP 1021 §5.3.3: a root's chord for File ▸ Close Window, the one host item
+/// that takes a declared chord, `close-window=chord` (one `aria-keyshortcuts`
+/// chord with `Meta`, not one of the host's or the system's standard chords)
+/// or `close-window=none`.
+pub(crate) fn check_menu_keys(attrs: &[Attr], root: bool) -> Result<(), LowerError> {
+    const IDS: &[&str] = &["close-window"];
+    for attr in attrs.iter().filter(|a| a.name == "-exact-menu-keys") {
+        let pairs: Option<Vec<(&str, &str)>> = match &attr.value {
+            Expr::Str(value, _) if root => value
+                .split_whitespace()
+                .map(|pair| pair.split_once('='))
+                .collect(),
+            _ => None,
+        };
+        let valid = pairs.is_some_and(|pairs| {
+            pairs.iter().enumerate().all(|(i, (id, chord))| {
+                IDS.contains(id)
+                    && (*chord == "none" || menu_chord(chord).is_some_and(|c| !standard_chord(&c)))
+                    && !pairs[..i].iter().any(|(earlier, _)| earlier == id)
+            })
+        });
+        if !valid {
+            return err("lower-menu-keys", format!(
+                "`-exact-menu-keys` belongs to a root and takes a literal whitespace-separated list of id=chord, each id once, \
+                 the chord `none` or one `aria-keyshortcuts` chord with Meta (`Meta+Shift+W`) that is not one of the host's or \
+                 the system's own (⌘Q, ⌘W, ⌘H, ⌘M, ⌘-comma and the like); the ids: {}",
+                IDS.join(", ")
+            ), attr.span);
+        }
+    }
+    Ok(())
+}
+
+/// A chord as the Mac host's menu holds it: its modifiers, in the order
+/// Meta, Control, Alt, Shift, and its key, lowercased.
+type MenuChord = (Vec<&'static str>, String);
+
+/// One chord as `aria-keyshortcuts` spells it, with `Meta`, parsed as the
+/// Mac host's shortcuts parse it (`ShortcutsMac.swift`, `Shortcut`): one
+/// character, a named key or `F1` to `F35`, after any of `Meta`, `Control`,
+/// `Alt` and `Shift`, which may repeat, as the host lets them.
+fn menu_chord(chord: &str) -> Option<MenuChord> {
+    let (held, key) = match chord.strip_suffix("++") {
+        Some(held) => (held, "Plus"),
+        None => chord.rsplit_once('+')?,
+    };
+    const NAMED: &[&str] = &[
+        "Enter",
+        "Tab",
+        "Escape",
+        "Space",
+        "Backspace",
+        "Delete",
+        "Insert",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        "Plus",
+    ];
+    let function = key
+        .strip_prefix('F')
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=35).contains(&n) && key == format!("F{n}"));
+    if !(key.chars().count() == 1 || NAMED.contains(&key) || function) {
+        return None;
+    }
+    let mut modifiers = Vec::new();
+    for name in ["Meta", "Control", "Alt", "Shift"] {
+        if held.split('+').any(|m| m == name) {
+            modifiers.push(name);
+        }
+    }
+    let all_known = held
+        .split('+')
+        .all(|m| matches!(m, "Meta" | "Control" | "Alt" | "Shift"));
+    if !all_known || !modifiers.contains(&"Meta") {
+        return None;
+    }
+    let key = if key == "+" {
+        "plus".to_owned()
+    } else {
+        key.to_lowercase()
+    };
+    Some((modifiers, key))
+}
+
+/// Whether `chord` is one the host's menu bar or macOS itself holds: the
+/// app menu's, File's, Edit's (with Find and Spelling), View's, Go's,
+/// Window's, Help's and Develop's (`DevMenuMac.swift`), AppKit's own Close
+/// All and Minimize All, and the system's (app switching, Spotlight,
+/// screenshots, Force Quit, Lock Screen, Log Out, the Dock, Emoji &
+/// Symbols). A chord with Shift is also the one that types its shifted
+/// character on a US layout, as AppKit matches a menu item by the typed
+/// character: ⇧⌘; is ⌘:, and ⇧⌘= is ⌘+.
+fn standard_chord(chord: &MenuChord) -> bool {
+    const STANDARD: &[&str] = &[
+        "Meta+q",
+        "Meta+h",
+        "Meta+Alt+h",
+        "Meta+n",
+        "Meta+o",
+        "Meta+Shift+o",
+        "Meta+w",
+        "Meta+Alt+w",
+        "Meta+m",
+        "Meta+Alt+m",
+        "Meta+,",
+        "Meta+z",
+        "Meta+Shift+z",
+        "Meta+x",
+        "Meta+c",
+        "Meta+v",
+        "Meta+Alt+Shift+v",
+        "Meta+a",
+        "Meta+f",
+        "Meta+Alt+f",
+        "Meta+g",
+        "Meta+Shift+g",
+        "Meta+e",
+        "Meta+j",
+        "Meta+:",
+        "Meta+;",
+        "Meta+0",
+        "Meta+plus",
+        "Meta+=",
+        "Meta+-",
+        "Meta+Control+s",
+        "Meta+Control+f",
+        "Meta+[",
+        "Meta+?",
+        "Meta+Shift+/",
+        "Meta+r",
+        "Meta+d",
+        "Meta+Alt+t",
+        "Meta+tab",
+        "Meta+Shift+tab",
+        "Meta+`",
+        "Meta+space",
+        "Meta+Alt+space",
+        "Meta+Shift+3",
+        "Meta+Shift+4",
+        "Meta+Shift+5",
+        "Meta+Alt+escape",
+        "Meta+Control+q",
+        "Meta+Control+space",
+        "Meta+Shift+q",
+        "Meta+Alt+Shift+q",
+        "Meta+Shift+`",
+        "Meta+Control+Shift+3",
+        "Meta+Control+Shift+4",
+        "Meta+Alt+d",
+    ];
+    const SHIFTED: &[(&str, &str)] = &[
+        ("1", "!"),
+        ("2", "@"),
+        ("3", "#"),
+        ("4", "$"),
+        ("5", "%"),
+        ("6", "^"),
+        ("7", "&"),
+        ("8", "*"),
+        ("9", "("),
+        ("0", ")"),
+        ("-", "_"),
+        ("=", "plus"),
+        ("[", "{"),
+        ("]", "}"),
+        ("\\", "|"),
+        (";", ":"),
+        ("'", "\""),
+        (",", "<"),
+        (".", ">"),
+        ("/", "?"),
+        ("`", "~"),
+    ];
+    let (modifiers, key) = chord;
+    let spelled = |modifiers: &[&str], key: &str| {
+        STANDARD.contains(&format!("{}+{key}", modifiers.join("+")).as_str())
+    };
+    if spelled(modifiers, key) {
+        return true;
+    }
+    let unshifted: Vec<&str> = modifiers
+        .iter()
+        .copied()
+        .filter(|m| *m != "Shift")
+        .collect();
+    unshifted.len() < modifiers.len()
+        && SHIFTED
+            .iter()
+            .any(|(base, shifted)| key == base && spelled(&unshifted, shifted))
+}
+
 /// HTML honours `popovertarget` and `commandfor` on a button only (HTML
 /// §6.12, "the popover target attributes"; "the commandfor attribute"): on
 /// any other node no host opens anything, so it is refused where it is

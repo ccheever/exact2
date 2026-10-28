@@ -2281,6 +2281,19 @@ the virtual clock).
   menu off the bar and leaves its chords (Save Trace's ⌥⌘T among them);
   other hosts ignore it ([LLP 1021 §5.3](../llp/1021-menus.rfc.md#53-contract-extensions-to-the-mac-menu-bar-2026-10-12)).
 
+  On a top-level root, `-exact-menu-keys="close-window=none"` keeps File ▸
+  Close Window (built with ⌘W) in its place with no chord, so ⌘W reaches the
+  page, and `close-window=Meta+Shift+W` gives it ⇧⌘W. `close-window` is the
+  one id; the chord is one `aria-keyshortcuts` chord with `Meta` that is not
+  one of the host's or the system's own (⌘Q, ⌘W, ⌘H, ⌘M, ⌘-comma and the like).
+  Another id, an id named twice, a chord without `Meta`, a standard chord,
+  expressions and non-root use fail with `lower-menu-keys`. With nothing
+  holding ⌘W, AppKit's Close All ⌥⌘W shows as a row of its own: an app that
+  removes ⌘W declares `-exact-menu-remove="close-all"` too. An app command
+  with the same chord still takes it from the item; removing the declaration
+  gives it ⌘W back. Other hosts ignore it
+  ([LLP 1021 §5.3.3](../llp/1021-menus.rfc.md#533-close-windows-chord-2026-10-28)).
+
   The Dock menu and the status item ([LLP 1133.025](../llp/1133.025-desktop.rfc.md)
   D4, D5): `dock` beside one menu id, or alone, files the button in the Dock
   menu too, above AppKit's own items, in declaration order, from the key
