@@ -434,3 +434,29 @@ fn unactivated_mouse_field_contact_does_not_explain_a_route() {
         }
     }
 }
+
+#[test]
+fn in_androids_touch_mode_a_finger_after_the_press_takes_the_arrivals_ring_off() {
+    let mut p = boot();
+    (p.brush.touch_mode, p.brush.keyless) = (true, true);
+    p.set_pointer_kind(crate::presenter::PointerKind::Touch);
+    enter(&mut p, "open");
+    assert_eq!(focused(&p), "detail-title");
+    assert!(!p.brush.keyless, "a key left touch mode");
+    // A finger on the route, then a Back within the key's press: the
+    // focus returns to the control, with no ring.
+    let now = p.host.now();
+    p.pointer_down(200., 400., now).unwrap();
+    p.pointer_up(200., 400., now + 1.).unwrap();
+    assert!(p.system_back(now + 2.));
+    settle(&mut p);
+    assert_eq!(focused(&p), "open");
+    assert_eq!(p.brush.ringless, Some(id(&p, "open")));
+    // A key, then a Back with no press: the focus it returns shows its ring.
+    click(&mut p, "open");
+    p.key_down("ArrowDown", p.host.now());
+    assert!(p.system_back(p.host.now()));
+    settle(&mut p);
+    assert_eq!(focused(&p), "open");
+    assert_ne!(p.brush.ringless, Some(id(&p, "open")));
+}

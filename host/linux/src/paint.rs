@@ -561,12 +561,13 @@ pub struct Painter {
     /// The control a finger's press focused: it is the focus and shows no
     /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
     pub(crate) ringless: Option<ViewId>,
-    /// The focus visual follows WinUI's input tracking, not Chrome's
-    /// `:focus-visible` (LLP 1115.004 D9.2): no ring for a focus the app
-    /// moves before any key (`keyless`), and a key held with Ctrl, Alt or
-    /// the Windows key counts as keyboard input.
+    /// The focus visual follows WinUI's input tracking, not Chrome's `:focus-visible` (LLP
+    /// 1115.004 D9.2): no ring for a focus the app moves before any key (`keyless`), and a key
+    /// held with Ctrl, Alt or the Windows key counts as keyboard input.
     pub(crate) winui_focus: bool,
     pub(crate) keyless: bool,
+    /// Android's touch mode (LLP 1115.001 D7.6): a finger or a pen sets `keyless` again.
+    pub(crate) touch_mode: bool,
     /// Whose shapes a symbol role takes: the process's (`look::symbols`).
     pub(crate) symbols: exact_kernel::SymbolSet,
     /// The control under a pointer that hovers, and the one a contact holds
@@ -665,7 +666,8 @@ impl Painter {
             flatten: None,
             ringless: None,
             winui_focus: cfg!(windows),
-            keyless: cfg!(windows),
+            keyless: cfg!(windows) || cfg!(target_os = "android"),
+            touch_mode: cfg!(target_os = "android"),
             symbols: look::symbols(),
             feedback: (None, None),
             held_press: None,

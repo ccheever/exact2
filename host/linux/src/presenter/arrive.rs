@@ -228,7 +228,12 @@ impl<D: DataSource> Presenter<D> {
         // None after a pointer's press, one after a key's. With no press a
         // finger leaves none (LLP 1115.001 D7.6), and otherwise the focus
         // left decides, as for any focus the app moves (`set_focus`).
-        let ring = by.map(|p| p.key).or((self.direct()).then_some(false));
+        // In Android's touch mode, whether a key came after the last finger.
+        let ring = if self.brush.touch_mode {
+            Some(!self.brush.keyless)
+        } else {
+            by.map(|p| p.key).or((self.direct()).then_some(false))
+        };
         if let Some(e) = self.set_focus(Some(to), self.host.now()) {
             eprintln!("exact: {e}");
         }

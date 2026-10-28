@@ -745,6 +745,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Pointer activation returns HUD button focus to its input canvas after press.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
+        self.touched();
         self.press_at_after_down(x, y, now_ms, None, false)
     }
 

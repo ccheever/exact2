@@ -124,7 +124,7 @@ fn before_any_key_a_windows_focus_shows_no_ring() {
     let mut p = boot(BUTTONS);
     assert_eq!(
         (p.brush.winui_focus, p.brush.keyless),
-        (cfg!(windows), cfg!(windows))
+        (cfg!(windows), cfg!(windows) || cfg!(target_os = "android"))
     );
     p.brush.winui_focus = true;
     p.brush.keyless = true;
@@ -807,4 +807,34 @@ fn a_pressed_field_keeps_its_ring_and_script_focus_follows_the_one_it_leaves() {
         p.key_down("Shift", 3.);
         assert_eq!(p.brush.ringless, None, "{kind:?}: Shift shows the ring");
     }
+}
+
+#[test]
+fn androids_touch_mode_shows_no_ring_until_a_key_and_a_touch_ends_it() {
+    let source = r##"component App
+  view
+    column width=400 height=300
+      input testId="field" width=200 height=30
+      button "Native" accent-color="#ff0000" width=120 height=40 testId="native"
+      button "Other" accent-color="#ff0000" width=120 height=40 testId="other"
+"##;
+    let mut p = boot(source);
+    (p.brush.touch_mode, p.brush.keyless) = (true, true);
+    p.set_pointer_kind(PointerKind::Touch);
+    let (x, y) = middle(&p, "field");
+    tap(&mut p, x, y, 1.);
+    assert_eq!(p.brush.ringless, None, "a field keeps its ring");
+    // A route popped back restores the row's focus from a field's: by
+    // Chrome's rule it would show a ring, but no key has been pressed.
+    let native = id(&p, "native");
+    assert!(p.set_focus(Some(native), 2.).is_none());
+    assert_ne!(edge(&mut p, "native"), RING, "touch mode, after a field");
+    p.key_down("ArrowDown", 3.);
+    assert_eq!(edge(&mut p, "native"), RING, "a key leaves touch mode");
+    // A touch anywhere goes back to it, and takes the ring off with it.
+    tap(&mut p, 390., 290., 4.);
+    assert!(p.brush.keyless);
+    let other = id(&p, "other");
+    assert!(p.set_focus(Some(other), 5.).is_none());
+    assert_ne!(edge(&mut p, "other"), RING, "a touch re-enters touch mode");
 }

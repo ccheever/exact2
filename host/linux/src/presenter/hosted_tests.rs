@@ -650,3 +650,19 @@ fn a_hosted_field_keeps_scalar_steps_for_agent_edits() {
         assert_eq!(p.field_text(field), "\u{301}", "{name}");
     }
 }
+
+#[test]
+fn a_finger_on_a_hosted_field_puts_android_back_in_touch_mode() {
+    let (_shell, _hosting) = shell();
+    let mut p = boot(FORM);
+    p.serve_requests();
+    p.reader_fields(1.0);
+    (p.brush.touch_mode, p.brush.keyless) = (true, false);
+    p.set_pointer_kind(crate::presenter::PointerKind::Touch);
+    p.reader_field_focused(id(&p, "name"), 0, true, 1.0);
+    assert!(p.brush.keyless);
+    // The app moving the focus from the field shows no ring there.
+    let jump = id(&p, "jump");
+    assert!(p.set_focus(Some(jump), 2.0).is_none());
+    assert_eq!(p.brush.ringless, Some(jump));
+}
