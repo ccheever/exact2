@@ -753,3 +753,35 @@ fn urgent_downloads_never_starve_the_others() {
     assert_eq!(seen.lock().unwrap()[THREADS..], ["u3", "u2", "o1", "u1"]);
     drop((busy, held));
 }
+
+#[test]
+fn a_view_that_joined_a_retry_never_cancels_it_with_its_own_older_deadline() {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = asked.clone();
+    let origin = serve(move |_, _| match count.fetch_add(1, Ordering::SeqCst) {
+        0 => Answer::Status(503),
+        // The retry lands slowly, past the second view's own deadline.
+        _ => {
+            std::thread::sleep(Duration::from_millis(400));
+            Answer::Body(png(3, 3, [1, 2, 3, 255]))
+        }
+    });
+    let url = format!("{origin}/shared.png");
+    let k = kernel2(&url);
+    let mut images = images();
+    images.sync(&k, &k.roots());
+    // The second view's backoff is further along (it showed earlier): its deadline comes later than the first's.
+    images.views.get_mut(&2).unwrap().retries = 3;
+    let started = Instant::now();
+    while !(images.bitmaps.contains_key(&1) && images.bitmaps.contains_key(&2)) {
+        assert!(started.elapsed() < SETTLED, "both show");
+        images.poll();
+        images.sync(&k, &k.roots());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        2,
+        "the first view's retry served both; the second's deadline cancelled nothing"
+    );
+}

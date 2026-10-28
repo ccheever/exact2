@@ -124,14 +124,13 @@ impl<D: DataSource> Presenter<D> {
         let viewport = self.viewport;
         self.images.screen = (viewport.0 * self.brush.scale, viewport.1 * self.brush.scale);
         self.images.paint_with(self.brush.text.clone());
-        // In the viewport: what a retry and a download's urgency go by.
-        let on_screen = |id: ViewId| {
+        // Where its painted box is in the viewport: None for a picture with no
+        // painted box (not painted yet, or under `display: none`).
+        let placed = |id: ViewId| -> Option<bool> {
             if host.route_visibility(id).0 {
-                return false;
+                return Some(false);
             }
-            let Some((i, b)) = boxes(&id) else {
-                return true;
-            };
+            let (i, b) = boxes(&id)?;
             let (mut x, mut y, mut w, mut h) = b.rect;
             let mut clip = b.clip;
             if let Some((_, _, d, port)) = shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(&i))
@@ -152,14 +151,17 @@ impl<D: DataSource> Presenter<D> {
                 w = right - x;
                 h = bottom - y;
             }
-            w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
+            Some(w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.)
         };
-        // Asked for: on screen, or mounted where pictures are asked at mount.
+        // In the viewport, its box painted there: what a retry and a download's urgency go by.
+        let on_screen = |id: ViewId| placed(id) == Some(true);
+        // Asked for: in the viewport or with no box yet (a first load), or
+        // mounted where pictures are asked at mount.
         let visible = |id: ViewId| {
             if *AT_MOUNT {
                 return !host.route_visibility(id).0;
             }
-            on_screen(id)
+            placed(id).unwrap_or(true)
         };
         let reports =
             (self.images).sync_shown(host.kernel(), &live, self.brush.scale, &visible, &on_screen);
@@ -177,3 +179,7 @@ impl<D: DataSource> Presenter<D> {
         self.host.set_intrinsics(reports)
     }
 }
+
+#[cfg(test)]
+#[path = "images_tests.rs"]
+mod tests;

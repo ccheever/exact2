@@ -465,17 +465,22 @@ impl Images {
                 continue;
             }
             if let Some(source) = view.source_id.as_ref().map(|s| s.id) {
-                if view.retry_at.is_some_and(|at| Instant::now() >= at) {
-                    // Its download failed and its time to ask again has come:
-                    // the failed source is let go of, and asked for anew below.
-                    self.backend.evict(source);
+                let prepared = self.backend.prepared(source);
+                if prepared.is_none() {
+                    // Another view of the same URL asked again: this one joins
+                    // that download, with no retry of its own counted or due.
                     view.source_id = None;
                     view.retry_at = None;
-                    view.retries += 1;
-                } else if self.backend.prepared(source).is_none() {
-                    // Another view of the same URL asked again: this one joins
-                    // that download (no retry of its own counted).
-                    view.source_id = None;
+                } else if view.retry_at.is_some_and(|at| Instant::now() >= at) {
+                    view.retry_at = None;
+                    // Its download failed and its time to ask again has come:
+                    // the failed source is let go of, and asked for anew
+                    // below. (One that is no longer failed is left be.)
+                    if matches!(prepared, Some(Prepared::Failed(_))) {
+                        self.backend.evict(source);
+                        view.source_id = None;
+                        view.retries += 1;
+                    }
                 }
             }
             // A picture on screen that fills it (a viewer's) is downloaded first.
