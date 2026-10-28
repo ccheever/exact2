@@ -223,6 +223,15 @@ class ExtensionContext internal constructor(val application: Context, private va
         changed("exact-event:" + JSONObject().put("extension", name).put("event", event).put("args", args).put("seq", Extensions.emitted))
     }
 
+    /**
+     * Under the agent, what the implementation discloses of its own objects for `state.extensions` (LLP 1133.008 D8
+     * item 9): listed as its `implementation`, each field replacing the one of its name said before. Through
+     * [changed], as on Apple (`exact-state:`, `runner/src/runner/modules/disclosed.rs`). Nothing outside the agent.
+     */
+    fun state(fields: JSONObject) {
+        if (agent) changed("exact-state:" + JSONObject().put("extension", name).put("state", fields))
+    }
+
     /** The process's pads (LLP 1133.022 D10 item 1), which a world canvas reads too. */
     val pads = ExtensionPads(application)
 

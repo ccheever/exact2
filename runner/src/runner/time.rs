@@ -224,6 +224,11 @@ impl<D: DataSource> Runner<D> {
                 self.listed_choice(choice);
                 continue;
             }
+            // An implementation's own objects, for `state.extensions` (LLP 1133.008 D8 item 9).
+            if let Some(state) = topic.strip_prefix(super::modules::STATED) {
+                self.disclosed_told(state);
+                continue;
+            }
             // A foreground-service claim under the agent (LLP 1133.033 D21).
             if let Some(claim) = topic.strip_prefix(super::modules::CLAIMED) {
                 self.foreground_service_told(claim);

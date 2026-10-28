@@ -182,6 +182,15 @@ for (const engine of engines) {
     await tap(page, 'shutter');
     const afterEnd = await until(page, 'shot-error', t => t === 'InvalidStateError');
     check(engine, 'takePhoto on an ended track is InvalidStateError', afterEnd === 'InvalidStateError', afterEnd);
+
+    // Both kinds are one request to the browser (D3).
+    if (engine !== 'firefox') await context.grantPermissions(['camera', 'microphone'], { origin }).catch(() => {});
+    const before = (await page.evaluate(() => globalThis.__media)).opens;
+    await tap(page, 'open-both');
+    const kinds = await until(page, 'kinds', t => t === 'audio,video');
+    const asked = (await page.evaluate(() => globalThis.__media)).opens - before;
+    check(engine, 'getUserMedia(audio, video) opens both with one request to the browser', kinds === 'audio,video' && asked === 1,
+      `${kinds} ${await text(page, 'open-error')}, ${asked} requests`);
     await context.close();
   } finally {
     await browser.close();

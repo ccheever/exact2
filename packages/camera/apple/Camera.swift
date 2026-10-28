@@ -47,6 +47,7 @@ public final class CameraModule: ExactPackage {
     private var views: [String: ViewState] = [:]
     private var picture: String?
     private var taken = 0
+    private var photos: [[String: Any]] = []
 
     /// What the runner said of a viewfinder, and what it consumes.
     final class ViewState {
@@ -205,6 +206,13 @@ public final class CameraModule: ExactPackage {
             say("takePhoto \(id): InvalidStateError (state=\(s["readyState"] ?? "unknown"), enabled=\(s["enabled"] ?? false), muted=\(s["muteReason"] ?? "none"))")
             return reply(["error": "InvalidStateError"])
         }
+        let origin = context.origin
+        let took = { [self] (path: String, data: Data) in
+            say("took \(path) (\(data.count) bytes\(context.agent ? ", the agent's picture" : ""), sha256 \(Self.sha256(data)))")
+            // Under the agent, each photo for `state.extensions` (§9, Disclosure).
+            photos.append(["path": path, "sha256": Self.sha256(data), "track": id, "origin": origin])
+            context.state(["photos": photos])
+        }
         let written = { [self] (ext: String) -> (String, URL)? in
             let path: String
             if let p = args["path"] as? String, !p.isEmpty { path = p.hasSuffix(".\(ext)") ? p : "\(p).\(ext)" } else { taken += 1; path = "app:/tmp/camera/\(taken).\(ext)" }
@@ -215,7 +223,7 @@ public final class CameraModule: ExactPackage {
         if context.agent {
             guard let data = agentPictureData(), let (path, url) = written("jpg") else { return reply(["error": "UnknownError"]) }
             do { try data.write(to: url) } catch { return reply(["error": "UnknownError"]) }
-            say("took \(path) (\(data.count) bytes, the agent's picture, sha256 \(Self.sha256(data)))")
+            took(path, data)
             return reply(Self.photo(path: path, data: data))
         }
         guard let source = entry.video?() else { return reply(["error": "InvalidStateError"]) }
@@ -236,7 +244,7 @@ public final class CameraModule: ExactPackage {
                     DispatchQueue.main.async {
                         holder.leave()
                         guard ok else { return reply(["error": "UnknownError"]) }
-                        self.say("took \(path) (\(data.count) bytes, sha256 \(Self.sha256(data)))")
+                        took(path, data)
                         reply(Self.photo(path: path, data: data))
                     }
                 }

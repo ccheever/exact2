@@ -105,6 +105,7 @@ public final class ExactPackageContext {
     private let viewFn: () -> ExactPackagePlatformView?
     private let invokeFn: (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void
     private let emitFn: (String, [Any]) -> Void
+    private let stateFn: ([String: Any]) -> Void
     private let activationFn: (String, [Any], String?) -> [AnyHashable: Any]
     private let wakeFn: (String, [Any], String, @escaping (String) -> Void) -> Void
     private let expireWakeFn: (String) -> Void
@@ -143,13 +144,14 @@ public final class ExactPackageContext {
                     return work.cancel
                 },
                 regions: ExactRegions = ExactRegions { _, _ in nil },
-                expireWake: @escaping (String) -> Void = { _ in }) {
+                expireWake: @escaping (String) -> Void = { _ in },
+                state: @escaping ([String: Any]) -> Void = { _ in }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; viewFn = view; invokeFn = invoke
         emitFn = emit; activationFn = activation; wakeFn = wake; self.wakes = wakes; self.transfers = transfers
-        self.pads = pads; afterFn = after; self.regions = regions; expireWakeFn = expireWake
+        self.pads = pads; afterFn = after; self.regions = regions; expireWakeFn = expireWake; stateFn = state
     }
 
     /// `body` once, `ms` later on the session's clock: the agent's under the
@@ -227,6 +229,12 @@ public final class ExactPackageContext {
     /// the session's own directories, a scratch tree under the agent.
     /// Admission has checked the path against the calling source's grants.
     public func file(_ path: String) -> URL? { fileFn(path) }
+
+    /// Under the agent, what the implementation discloses of its own objects
+    /// for `state.extensions` (LLP 1133.008 D8 item 9): listed as its
+    /// `implementation`, each field replacing the one of its name said
+    /// before. Nothing outside the agent. Main thread.
+    public func state(_ fields: [String: Any]) { stateFn(fields) }
 
     /// The readers of `topic` are asked again (LLP 1016.002).
     public func changed(_ topic: String) { changedFn(topic) }

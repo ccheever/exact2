@@ -79,6 +79,7 @@ class CameraModule(context: ExtensionContext) : ExactExtension(context) {
     private val views = HashMap<String, ViewState>()
     private var picture: String? = null
     private var taken = 0
+    private val photos = JSONArray()
     private val sound by lazy { MediaActionSound().apply { load(MediaActionSound.SHUTTER_CLICK) } }
 
     private fun say(line: String) = context.log("camera: $line")
@@ -206,6 +207,13 @@ class CameraModule(context: ExtensionContext) : ExactExtension(context) {
 
     // Photos (D1, D2)
 
+    /** Under the agent, each photo for `state.extensions` (§9, Disclosure), by path and SHA-256. */
+    private fun disclose(path: String, track: String, bytes: ByteArray) {
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        photos.put(JSONObject().put("path", path).put("sha256", sha).put("track", track).put("origin", context.origin))
+        context.state(JSONObject().put("photos", photos))
+    }
+
     private fun takePhoto(args: JSONObject, reply: (JSONObject) -> Unit) {
         val entry = context.tracks.lookup(args.optString("track")) ?: return reply(error("NotFoundError"))
         if (entry.kind != "video") return reply(error("NotSupportedError"))
@@ -220,6 +228,7 @@ class CameraModule(context: ExtensionContext) : ExactExtension(context) {
             val bytes = agentBytes() ?: return reply(error("UnknownError"))
             file.writeBytes(bytes)
             say("took $path (${bytes.size} bytes, the agent's picture)")
+            disclose(path, entry.id, bytes)
             return reply(photo(path, file))
         }
         val source = entry.video?.invoke() ?: return reply(error("InvalidStateError"))

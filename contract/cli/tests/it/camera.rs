@@ -229,3 +229,54 @@ fn a_tool_s_capture_start_is_refused() {
     pump(&mut r, &mut parked);
     assert_eq!(sent(&calls, "takePhoto"), 1, "{}", logs(&r));
 }
+
+/// An implementation's disclosure (D8 item 9): what it says through its
+/// `changed` is listed as its extension's `implementation`, each field
+/// replacing the one of its name said before.
+#[test]
+fn an_implementation_s_disclosure_is_listed() {
+    let (_app, mut r, _calls) = boot("disclosed");
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    r.listen(Arc::new(|| {}));
+    let say = |r: &Runner<Granted>, extension: &str, state: Json| {
+        let body = json!({ "extension": extension, "state": state });
+        r.native_slot().changed(&format!("exact-state:{body}"));
+    };
+    say(
+        &r,
+        "media-capture",
+        json!({ "tracks": [{ "id": "track-1", "lease": true }] }),
+    );
+    say(&r, "camera", json!({ "photos": [] }));
+    say(
+        &r,
+        "camera",
+        json!({ "photos": [{ "path": "app:/tmp/camera/1.jpg" }] }),
+    );
+    r.apply_announced();
+    let state: Json = serde_json::from_str(&r.extensions_json().unwrap()).unwrap();
+    assert_eq!(
+        state["media-capture"]["implementation"]["tracks"][0]["lease"],
+        true
+    );
+    assert_eq!(
+        state["camera"]["implementation"],
+        json!({ "photos": [{ "path": "app:/tmp/camera/1.jpg" }] })
+    );
+    say(
+        &r,
+        "media-capture",
+        json!({ "tracks": [{ "id": "track-1", "lease": false }] }),
+    );
+    r.apply_announced();
+    let state: Json = serde_json::from_str(&r.extensions_json().unwrap()).unwrap();
+    assert_eq!(
+        state["media-capture"]["implementation"]["tracks"][0]["lease"],
+        false
+    );
+    assert!(
+        state["media-capture"]["permissions"].is_object(),
+        "beside the runner's own"
+    );
+}

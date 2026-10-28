@@ -130,6 +130,14 @@ impl<D: DataSource> Runner<D> {
                 None => entry["queued"] = json!([event]),
             }
         }
+        // What each bound implementation disclosed of its own (D8 item 9).
+        for extension in self.disclosed_extensions() {
+            let bound = self.extensions.bound.contains(&extension);
+            let entry = out.entry(extension.clone()).or_insert_with(
+                || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            entry["implementation"] = self.disclosed_json(&extension).unwrap_or_default();
+        }
         // Each package view, and who made it displayed (LLP 1133.008 D8 item 2).
         for row in &self.plan.views {
             let extension = self.plan.str(row.extension);

@@ -65,7 +65,19 @@ final class VideoTracks: ExactTrackOwner {
 
     func owns(_ id: String?) -> Bool { id.map { tracks[$0] != nil } ?? false }
     private func say(_ line: String) { context.log("media-capture: \(line)") }
-    private func announce() { context.changed("media-capture.mediaStreamTrack") }
+    private func announce() { context.changed("media-capture.mediaStreamTrack"); disclose() }
+    /// Under the agent, each track for `state.extensions` (§9, Disclosure): its device, settings, consumers' origins,
+    /// lease and mute.
+    private func disclose() {
+        context.state(["videoTracks": tracks.values.sorted { $0.id < $1.id }.map { t -> [String: Any] in
+            var out = shape(t)
+            out["consumers"] = t.consumers.values.map(\.origin).sorted()
+            out["observers"] = t.observers.count
+            out["lease"] = t.leased
+            if let w = t.waiting { out["waiting"] = w }
+            return out
+        }])
+    }
 
     // MARK: the names
 
@@ -242,12 +254,14 @@ final class VideoTracks: ExactTrackOwner {
             say("\(t.id): a consumer takes no lease (\(origin) origin\(context.foreground ? "" : ", in the background"))")
             consumer.muted(t.muteReason ?? "idle")
         }
+        disclose()
         return ExactSubscription { [weak self, weak t, weak consumer] in
             guard let self, let t, let consumer, t.consumers.removeValue(forKey: ObjectIdentifier(consumer)) != nil else { return }
             if t.consumers.isEmpty {
                 t.waiting = nil
                 if t.leased { self.release(t); self.mute(t, "idle") }
             }
+            self.disclose()
         }
     }
 

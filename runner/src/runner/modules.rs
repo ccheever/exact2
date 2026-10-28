@@ -43,6 +43,7 @@ mod calls;
 mod ceremony;
 mod declared;
 mod devices;
+mod disclosed;
 mod events;
 mod fed;
 mod handles;
@@ -68,6 +69,7 @@ use admit::{Origins, Route};
 pub use calls::CallHow;
 pub use declared::AppState;
 pub(super) use declared::CHOSEN;
+pub(super) use disclosed::STATED;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
 pub(super) use services::CLAIMED;
@@ -118,6 +120,8 @@ pub(super) struct Extensions {
     wakes: wakes::Wakes,
     /// Foreground-service claims under the agent (LLP 1133.033 D21).
     services: services::Services,
+    /// What bound implementations disclose of their own objects (`disclosed.rs`).
+    disclosed: disclosed::Disclosed,
     /// Tool calls, running and to come (LLP 1133.023 D7).
     calls: calls::Calls,
     /// Each bound live source's Contract readers, by resource, with the

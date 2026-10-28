@@ -426,7 +426,15 @@ extension ExactExtensions {
                 NotificationCenter.default.post(name: Notification.Name("exact.regions"), object: box)
                 return box["reply"]
             },
-            expireWake: { [weak module] id in module?.expireWake(name, id: id) })
+            expireWake: { [weak module] id in module?.expireWake(name, id: id) },
+            state: { [weak module] fields in
+                guard let module, module.agent else { return }
+                let body: [String: Any] = ["extension": name, "state": fields]
+                guard JSONSerialization.isValidJSONObject(body), let json = try? JSONSerialization.data(withJSONObject: body) else {
+                    return module.diagnostics.log("\(name): its state is not JSON")
+                }
+                module.changed("exact-state:" + String(decoding: json, as: UTF8.self))
+            })
     }
 
     /// `EXACT_AGENT_PADS`: a drive's test pads (ExactPads), a JSON list.
