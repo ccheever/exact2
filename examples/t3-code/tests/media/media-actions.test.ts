@@ -7,6 +7,7 @@ import { toasts } from '../../src/shell/toast';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { contractComponent } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 
 const native: Native = { available: true, watch() {}, later: async () => ({}) };
 const fileImage: MediaActionSource = { kind: 'image', name: 'logo.png', src: 'http://127.0.0.1:3/api/assets/x/logo.png', reference: { kind: 'file', path: '/repo/screens/logo.png', relativePath: 'screens/logo.png' },
@@ -212,15 +213,14 @@ describe('media views', () => {
     expect((await view('w1')).url).toBe('http://127.0.0.1:16260/api/assets/logo.png?sig=1&workspace-revision=w1');
     expect((await view('w2')).url).toBe('http://127.0.0.1:16260/api/assets/logo.png?sig=1&workspace-revision=w2');
   });
-  test('Files: a playing video holds its URL until playback pauses or ends, and another file loads at once', () => {
-    const player = contractComponent('src/media/media-actions.contract', 'FilesMedia');
+  test('Files: a playing video holds its URL until playback pauses or ends; each file has its own player', () => {
+    const player = contractComponent('src/media/media-actions.contract', 'FilesVideo');
     const calls: unknown[][] = [];
-    const scope = (url: string, retryKey = 'files:clip') => ({ media: { url, retryKey }, local: (...args: unknown[]) => calls.push(args) });
+    const scope = (url: string) => ({ media: { url }, local: (...args: unknown[]) => calls.push(args) });
     const state = player.state();
-    const src = (url: string, retryKey?: string) => player.derives(state, scope(url, retryKey)).videoSrc;
+    const src = (url: string) => player.derives(state, scope(url)).src;
     player.call('started', state, scope('/clip?r1'), []);
     expect(src('/clip?r2')).toBe('/clip?r1');
-    expect(src('/other?r1', 'files:other')).toBe('/other?r1');
     player.call('stopped', state, scope('/clip?r2'), []);
     expect(src('/clip?r2')).toBe('/clip?r2');
     // A player error reports the URL it played, and the next play holds the latest.
@@ -228,6 +228,7 @@ describe('media views', () => {
     player.call('broke', state, { ...scope('/clip?r3'), ...player.derives(state, scope('/clip?r3')) }, ['decode']);
     expect(calls).toEqual([['media-video-error', '/clip?r2', 'decode']]);
     expect(src('/clip?r3')).toBe('/clip?r3');
+    expect(appText('src/media/media-actions.contract')).toContain('for shown in [media.retryKey] key=shown\n                FilesVideo(media=media, local=local)');
   });
   test('Files: without a file revision the workspace revision rides on the URL', async () => {
     const { client } = fakeClient(() => ({}));

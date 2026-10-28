@@ -144,27 +144,32 @@ component MediaVideoFailure
         MediaOpenLink(url=media.openUrl, label=media.openLabel, icon=media.openIcon, dark=dark, testId=`${testId}-open`)
 
 // The Files surface's image or video file (WorkspaceImagePreview / WorkspaceVideoPreview).
-component FilesMedia
+// WorkspaceVideoPreview's MediaVideoPlayer in Files (playbackSource): the data module keeps a video's URL while the file
+// is unchanged (media-views.ts loadedUrl), and a changed file's URL that comes while it plays loads once playback pauses
+// or ends.
+component FilesVideo
   props
     media: MediaView
     local: action
-  // MediaVideoPlayer's playbackSource: the data module keeps a video's URL while the file is unchanged (media-views.ts
-  // loadedUrl), and a changed file's URL that comes while the video plays loads once playback pauses or ends. `heldFor` is
-  // the file the held URL belongs to, so another file opened during playback loads at once.
   state playing = false
   state held = ""
-  state heldFor = ""
-  derive videoSrc = playing and held != "" and heldFor == media.retryKey ? held : media.url
+  derive src = playing and held != "" ? held : media.url
   action started
-    if not playing or heldFor != media.retryKey
+    if not playing
       held = media.url
-      heldFor = media.retryKey
     playing = true
   action stopped
     playing = false
   action broke(message: string)
-    local("media-video-error", videoSrc, message)
+    local("media-video-error", src, message)
     playing = false
+  view
+    video src controls=true playsinline=true preload="metadata" aria-label=media.name error=broke play=started pause=stopped ended=stopped width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
+
+component FilesMedia
+  props
+    media: MediaView
+    local: action
   view
     if media.state == "loading"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" role="status" aria-label=(media.kind == "video" ? "Loading video" : "Loading image") testId="file-media-loading"
@@ -184,4 +189,6 @@ component FilesMedia
             if media.state == "failed"
               MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
             else
-              video videoSrc controls=true playsinline=true preload="metadata" aria-label=media.name error=broke play=started pause=stopped ended=stopped width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
+              // One player per file: FilePreviewPanel keys WorkspaceVideoPreview by environment, thread and path.
+              for shown in [media.retryKey] key=shown
+                FilesVideo(media=media, local=local)

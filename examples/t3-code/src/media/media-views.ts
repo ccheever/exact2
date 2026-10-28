@@ -10,7 +10,7 @@
 // - a video's `error` (MediaVideoPlayer onError) and Retry (onRetry, "Retrying…" while it runs);
 // - T3 Code 7c3b3b3605ef (#23106): a Files video is signed again for each workspace revision, its URL carries the file's
 //   revision (`fileRevision`, which older servers omit; else the workspace revision), and it keeps the URL it loaded
-//   while that revision holds, so a URL signed again never reloads it (MediaVideoPlayer's playbackSource; FilesMedia's
+//   while that revision holds, so a URL signed again never reloads it (MediaVideoPlayer's playbackSource; FilesVideo's
 //   player holds a changed file's URL until playback pauses). A Files image keeps its signature and reloads by the
 //   workspace revision on its URL (WorkspaceImagePreview).
 import type { T3Client } from '../client/client';
