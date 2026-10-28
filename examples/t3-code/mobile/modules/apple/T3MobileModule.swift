@@ -127,7 +127,7 @@ final class T3MobileModule: ExactModule {
     private let scheduledNavigation = T3MobileScheduledNavigation()
     private let voice: T3MobileVoice
     private lazy var composerFileHolds = T3MobileComposerFileHolds(coordinator: queuedEdits)
-    private let composerOperations = T3MobileComposerOperations()
+    private let composerOperations: T3MobileComposerOperations
     private let composerPaste = T3MobileComposerPaste()
     let terminal: T3MobileTerminal
     private let documentRoot: URL
@@ -152,6 +152,7 @@ final class T3MobileModule: ExactModule {
         audio = T3MobileAudio(session: audioSession)
         scheduledControls = T3MobileScheduledControls(agent: context.agent)
         voice = T3MobileVoice(agent: context.agent, audioSession: audioSession, changed: context.changed)
+        composerOperations = T3MobileComposerOperations(changed: { context.changed("t3.composer-finalizations") })
         T3MobileIdentity.configure()
         let directory = T3Storage.dataRoot(agent: context.agent, contextData: context.data)
         let queuedEdits = T3MobileQueuedEdit.shared(root: directory)
@@ -260,6 +261,9 @@ final class T3MobileModule: ExactModule {
         }
         if request["op"] as? String == "composerEditorApply" {
             reply.send(composerOperations.perform(request)); return
+        }
+        if request["op"] as? String == "composerEditorFinalizations" {
+            reply.send(composerOperations.performFinalizations(request)); return
         }
         if request["op"] as? String == "forgetEnvironment" {
             forgetEnvironment(request, reply: reply)

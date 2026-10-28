@@ -123,6 +123,15 @@ New-task dictation now captures the saved text/revision before readiness and rea
 that monotonic revision at completion. Regression tests cover edit/revert during
 readiness and between voice observations, plus an unchanged draft. The two stale
 cases fail against the previous code. Native dictation itself remains unqualified.
+The inactive native NewTask editor prerequisite reserves eight final-source slots
+and retains teardown receipts until explicit acknowledgment. Its actual UIKit
+fixture passes 86 checks, including text/chip source recovery, repeated reads,
+blocked replacement and retry. The normal app builds and the textarea remains
+active. Activation still requires freeze/resume, the client-lifetime Root save
+drain, stable draft/incarnation blocking across transport generations, and native
+node recreation after a factory refusal. Direct editor-object retry alone does
+not qualify recovery through the host. Source review found no introduced blocker
+in this prerequisite.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
 line, attaches it to the composer, sends it, and receives the requested provider

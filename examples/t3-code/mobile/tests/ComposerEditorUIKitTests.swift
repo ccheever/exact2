@@ -25,12 +25,12 @@ final class ComposerEditorUIKitTests {
             if let object = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: Int(length))) as? [String: Any] { owner.events.append(object) }
         }, ctx: Unmanaged.passUnretained(self).toOpaque(), nonce: 1)
     }
-    private func makePort(_ source: String, selection: Int, tokens: String = "[]", epoch: String = UUID().uuidString) throws -> (T3MobileComposerEditor, [String: Any]) {
+    private func makePort(_ source: String, selection: Int, tokens: String = "[]", epoch: String = UUID().uuidString, owner: String? = nil) throws -> (T3MobileComposerEditor, [String: Any]) {
         let port = T3MobileComposerEditor(voice: voice, operations: operations, events: emitter())
         instances.append(port)
         port.view.frame = CGRect(x: 20, y: 180, width: 600, height: 240)
         host.addSubview(port.view)
-        let control: [String: Any] = ["owner": "fixture:" + epoch, "editorId": "composer:" + epoch,
+        let control: [String: Any] = ["owner": owner ?? "fixture:" + epoch, "editorId": "composer:" + epoch,
             "routeVisit": "route:" + epoch, "renderEpoch": epoch, "mountId": "",
             "acknowledgedEventCount": 0, "ackCommandId": "", "active": true, "editable": true, "readOnly": false,
             "focusIntent": ["serial": "", "attempt": 0, "operation": "none"], "command": NSNull(),
@@ -71,6 +71,7 @@ final class ComposerEditorUIKitTests {
         do { try await voiceCapture() } catch { check(false, "voice capture threw: \(error)") }
         do { try await richObservation() } catch { check(false, "rich observation threw: \(error)") }
         do { try bundledIcons() } catch { check(false, "bundled icons threw: \(error)") }
+        do { try finalSourceRecovery() } catch { check(false, "final source recovery threw: \(error)") }
         do { try registryLifetime() } catch { check(false, "registry lifetime threw: \(error)") }
         for port in instances { port.destroy(); port.view.removeFromSuperview() }
         voiceOwner.destroy(); operations.destroy()
@@ -293,7 +294,7 @@ final class ComposerEditorUIKitTests {
         weak var weakPort: T3MobileComposerEditor?
         do {
             let transient = T3MobileComposerEditor(voice: voice, operations: operations, events: emitter())
-            operations.register(transient); weakPort = transient
+            try operations.register(transient); weakPort = transient
         }
         check(weakPort == nil, "Operation registry does not retain a native editor")
         var (port, control) = try makePort("live", selection: 4)
@@ -305,6 +306,38 @@ final class ComposerEditorUIKitTests {
         check((result["error"] as? [String: Any])?["kind"] as? String == "superseded" && port.composerSnapshot?.value == "live",
               "Session registry destruction refuses invocation without changing a surviving port")
         port.destroy(); port.view.removeFromSuperview()
+    }
+
+    private func finalSourceRecovery() throws {
+        let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:recovery", "birth"])
+        var (port, control) = try makePort("🙂 @file", selection: 8,
+            tokens: json([["type": "file", "source": "@file", "label": "file", "start": 3, "end": 8]]), owner: owner)
+        try acknowledge(port, &control)
+        let view = editor(port), text = view.textView, identity = port.composerIdentity!
+        text.textStorage.append(NSAttributedString(string: " unsaved")); text.selectedRange = NSRange(location: text.textStorage.length, length: 0)
+        view.textViewDidChange(text)
+        let lastCount = port.composerEventCount
+        port.destroy(); port.view.removeFromSuperview()
+        let request: [String: Any] = ["op": "composerEditorFinalizations", "generation": 3, "action": "read"]
+        func receipts() -> [[String: Any]] { (operations.performFinalizations(request)["value"] as? [String: Any])?["receipts"] as? [[String: Any]] ?? [] }
+        let retained = receipts(), event = retained.first?["event"] as? [String: Any]
+        check(retained.count == 1 && event?["value"] as? String == "🙂 @file unsaved", "Teardown retains real UIKit text and chip source without delivered callbacks")
+        check(event?["eventCount"] as? Int == lastCount + 1 && event?["kind"] as? String == "retired"
+              && (retained.first?["identity"] as? NSDictionary) == identity.json as NSDictionary,
+              "Final event names the exact retired mount and advances its source count")
+        check(receipts() as NSArray == retained as NSArray, "Repeated native read preserves the unacknowledged source")
+        let replacement = T3MobileComposerEditor(voice: voice, operations: operations, events: emitter())
+        instances.append(replacement); host.addSubview(replacement.view)
+        control["mountId"] = ""; control["acknowledgedEventCount"] = 0
+        do { try apply(replacement, control); check(false, "Replacement admitted before final save") }
+        catch { check((error as? T3ComposerOperationFailure)?.kind == "busy", "Replacement mount refuses an unsaved predecessor") }
+        var ack = request; ack["action"] = "acknowledge"; ack["receiptId"] = retained.first?["receiptId"]
+        let result = operations.performFinalizations(ack)
+        check((result["value"] as? [String: Any])?["acknowledged"] as? Bool == true && receipts().isEmpty, "Explicit save acknowledgment releases the retained source")
+        try apply(replacement, control)
+        check(replacement.composerIdentity?.owner == owner && replacement.composerEventCount == 1, "Failed admission can retry after successful save")
+        replacement.destroy(); replacement.view.removeFromSuperview()
+        check(receipts().isEmpty, "Destroying an unacknowledged seed does not retain another source")
     }
 
     @MainActor private func richObservation() async throws {

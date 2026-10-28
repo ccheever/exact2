@@ -59,7 +59,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         let next = try T3ComposerControl(json: json)
         if state == nil || state?.identity.sameAdmission(next.identity) != true {
             guard next.mountId.isEmpty else { throw ExactNativeRefusal("New composer admission must await ready.") }
-            mount(next)
+            try mount(next)
             return
         }
         guard var state, let editor else { return }
@@ -85,9 +85,11 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         applyFocus(next)
     }
 
-    private func mount(_ next: T3ComposerControl) {
+    private func mount(_ next: T3ComposerControl) throws {
         retireEditor()
         state = .init(identity: next.identity); control = next
+        do { try operations?.register(self) }
+        catch { state = nil; control = nil; throw error }
         let editor = T3MobileOwnedComposerView(frame: root.bounds)
         self.editor = editor; root.editor = editor
         root.addSubview(editor)
@@ -102,7 +104,6 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         bind(editor)
         voiceOwner = next.voiceOwner ?? next.owner
         voice?.register(self, owner: voiceOwner)
-        operations?.register(self)
         fileHolds?.register(self)
         emit("ready", allowUnacknowledged: true)
     }
@@ -272,13 +273,19 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         return true
     }
     private func retireEditor() {
+        let finalEvent: [String: Any]?
+        if var state, state.readyAcknowledged, state.identity.independentNewTask, let snapshot = composerSnapshot {
+            finalEvent = state.event("retired", snapshot: snapshot)
+        } else { finalEvent = nil }
+        applying = true
+        operations?.unregister(self, finalEvent: finalEvent)
         fileHolds?.unregister(self)
         if let identity = state?.identity { paste?.retire(identity) }
-        operations?.unregister(self)
         voice?.unregister(self)
         editor?.destroyOwned(); editor?.removeFromSuperview(); editor = nil; root.editor = nil
         state = nil; control = nil; focusIntent = nil; presentation = nil; voiceRevision = 0; voiceOwner = ""
         terminalCommand = nil; terminalEnvelope = nil
+        applying = false
     }
     override func destroy() { guard alive else { return }; alive = false; retireEditor() }
 }
