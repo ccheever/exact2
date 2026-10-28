@@ -242,13 +242,12 @@ fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
 }
 
 impl<D: DataSource> Presenter<D> {
-    /// The carrier must release its GDI surface before this one-way handoff.
-    /// The first composition frame copies the CPU picture. @ref LLP 1149 S2.2.
+    /// Replace WARP's swap chain with the same CPU picture on hardware.
+    /// Both chains share the window's visual. @ref LLP 1149 S2.3.
     #[cfg(windows)]
     pub fn migrate_painter_window(
         &mut self,
         mut device: exact_ink::device::d3d11::D3d11,
-        window: exact_ink::device::d3d11::Window,
         pixels: &tiny_skia::Pixmap,
     ) -> Result<(), String> {
         use exact_ink::device::Device;
@@ -259,14 +258,21 @@ impl<D: DataSource> Presenter<D> {
                 info.device_ms, info.shaders_ms
             );
         }
-        let mut direct = crate::surfaces::window::DirectWindow::new(window.clone());
+        let mut direct = self
+            .surfaces
+            .direct_window
+            .take()
+            .ok_or("no WARP composition")?;
         let result = (|| {
             let size = [pixels.width(), pixels.height()];
             let target = device.create_target(size[0], size[1])?;
             device.upload_texture(target, [0, 0], size, pixels.data())?;
-            device.attach_window(window, size)?;
+            device.attach_window(direct.window.clone(), size)?;
             device.present(target)?;
             device.retire_texture(target)?;
+            if let Some((previous, _)) = direct.fallback.take() {
+                device.retire_after_present(previous)?;
+            }
             Ok::<_, exact_ink::device::Error>(())
         })();
         match result {
@@ -278,11 +284,10 @@ impl<D: DataSource> Presenter<D> {
                 self.brush.replace_backend(backend);
                 self.painter = info;
                 self.choice = PainterChoice::Ink;
+                direct.starting = false;
             }
             Err(ref error) => {
-                // Attachment may already have made GDI unusable. Recovery stays
-                // on composition even when its first present fails.
-                direct.recovering = true;
+                // Keep the populated WARP chain when replacement fails.
                 self.last_frame_succeeded = false;
                 self.host.log(format!("ink migration: {error}"));
             }
@@ -353,6 +358,17 @@ impl<D: DataSource> Presenter<D> {
     /// A bounded measurement may wait for the last frame's displayed timestamp.
     #[cfg(windows)]
     pub fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        if let Some((device, _)) = self
+            .surfaces
+            .direct_window
+            .as_ref()
+            .and_then(|d| d.fallback.as_ref())
+        {
+            return device
+                .presented_process_ms()
+                .map(Some)
+                .map_err(|e| e.to_string());
+        }
         self.brush.displayed_process_ms()
     }
 

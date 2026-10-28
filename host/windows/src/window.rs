@@ -15,7 +15,7 @@ use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
-    platform::windows::EventLoopBuilderExtWindows,
+    platform::windows::{EventLoopBuilderExtWindows, WindowAttributesExtWindows},
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{CursorIcon, Fullscreen, Theme, Window, WindowId},
 };
@@ -481,11 +481,8 @@ impl<D: DataSource + Default + 'static> App<D> {
                 self.preparing = None;
                 let pixels = p.frame();
                 if p.last_frame_succeeded() {
-                    // No GDI call is permitted after the flip-model handoff,
-                    // including the caret's damage-only presentation.
-                    surface.take();
                     self.caret.clear();
-                    if let Err(error) = p.migrate_painter_window(device, owned.clone(), &pixels) {
+                    if let Err(error) = p.migrate_painter_window(device, &pixels) {
                         eprintln!(
                             "exact-windows: migration: {error}; recovering through composition"
                         );
@@ -506,10 +503,6 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
         let mut frame = if migrated {
             None
-        } else if self.preparing.is_some() {
-            // The startup CPU painter must not give this HWND to a game's
-            // swap chain while the UI's composition device is still opening.
-            Some(p.frame())
         } else {
             p.window_frame(owned.clone())?
         };
@@ -616,38 +609,50 @@ impl<D: DataSource + Default + 'static> App<D> {
             && !p.data_activating()
             && screen_ready
         {
-            let synchronized = exact_ink::device::compositor_sync_process_ms();
-            let deadline = Instant::now() + Duration::from_secs(1);
-            let displayed = loop {
-                let displayed = p.displayed_process_ms();
-                if displayed.is_ok() || Instant::now() >= deadline {
-                    break displayed;
+            if std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("off") {
+                eprintln!("exact-windows: complete first screen submitted (probe off)");
+            } else {
+                let probe = Instant::now();
+                let synchronized = exact_ink::device::compositor_sync_process_ms();
+                let deadline = Instant::now() + Duration::from_secs(1);
+                let displayed = loop {
+                    let displayed = p.displayed_process_ms();
+                    if displayed.is_ok() || Instant::now() >= deadline {
+                        break displayed;
+                    }
+                    // The composition statistics can lag a DWM sync. Do not accept
+                    // an older present as the complete screen's displayed frame.
+                    if exact_ink::device::compositor_sync_process_ms().is_err() {
+                        break displayed;
+                    }
+                };
+                match displayed {
+                    Ok(Some(ms)) => {
+                        eprintln!(
+                            "exact-windows: process to displayed first screen {ms:.3} ms (DXGI)"
+                        )
+                    }
+                    Err(error) => {
+                        eprintln!("exact-windows: displayed-frame timestamp unavailable: {error}")
+                    }
+                    Ok(None) => {}
                 }
-                // The composition statistics can lag a DWM sync. Do not accept
-                // an older present as the complete screen's displayed frame.
-                if exact_ink::device::compositor_sync_process_ms().is_err() {
-                    break displayed;
-                }
-            };
-            match displayed {
-                Ok(Some(ms)) => {
-                    eprintln!("exact-windows: process to displayed first screen {ms:.3} ms (DXGI)")
-                }
-                Err(error) => {
-                    eprintln!("exact-windows: displayed-frame timestamp unavailable: {error}")
-                }
-                Ok(None) => {}
-            }
-            match synchronized {
-                Ok(ms) => eprintln!(
+                match synchronized {
+                    Ok(ms) => eprintln!(
                     "exact-windows: process to first-screen compositor sync {ms:.3} ms (DWM proxy)"
                 ),
-                Err(error) => eprintln!("exact-windows: compositor sync: {error}"),
+                    Err(error) => eprintln!("exact-windows: compositor sync: {error}"),
+                }
+                eprintln!(
+                    "exact-windows: synchronization probe {:.3} ms",
+                    probe.elapsed().as_secs_f64() * 1000.
+                );
             }
             self.measured_first_screen = true;
         }
         self.frames += 1;
-        self.measure_first_composition = migrated && self.frame_limit.is_some();
+        self.measure_first_composition =
+            self.frames == 1 && surface.is_none() && self.frame_limit.is_some();
         if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
             eprintln!("exact-windows: frame {} at {:.3} ms, {}x{}, scale {}, painter {}, caret {}, paint {:.3} ms, present {:.3} ms",
                 self.frames, now, size.width, size.height, self.scale, p.painter.name,
@@ -771,8 +776,35 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         if self.window.is_some() {
             return;
         }
+        let deferred = direct_device(
+            self.config.painter(),
+            std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
+        );
+        let warp = if deferred {
+            let wake = self.proxy.clone();
+            if std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("warp") {
+                match exact_ink::device::d3d11::Preparing::with_wake(false, move || {
+                    let _ = wake.send_event(crate::accessibility::Event::Wake);
+                }) {
+                    Ok(worker) => self.preparing = Some(worker),
+                    Err(error) => {
+                        eprintln!("exact-windows: device preparation: {error}; keeping WARP")
+                    }
+                }
+            }
+            match exact_ink::device::d3d11::Preparing::start(true) {
+                Ok(worker) => Some(worker),
+                Err(error) => {
+                    self.fail(events, error.to_string());
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let window = match events.create_window(
             Window::default_attributes()
+                .with_no_redirection_bitmap(deferred)
                 .with_visible(false)
                 .with_title(&self.name)
                 .with_fullscreen(
@@ -817,24 +849,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             }
         }
         let mut direct = false;
-        let deferred = direct_device(
-            self.config.painter(),
-            std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
-        );
-        if deferred {
-            let wake = self.proxy.clone();
-            match exact_ink::device::d3d11::Preparing::with_wake(
-                std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("warp"),
-                move || {
-                    let _ = wake.send_event(crate::accessibility::Event::Wake);
-                },
-            ) {
-                Ok(worker) => self.preparing = Some(worker),
-                Err(error) => eprintln!(
-                    "exact-windows: device preparation: {error}; keeping CPU presentation"
-                ),
-            }
-        }
         let booted = if deferred {
             app::boot_presenter_on_cpu::<D>(&mut self.config, viewport)
         } else {
@@ -852,7 +866,21 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                                     return;
                                 }
                             };
-                        match p.attach_painter_window(owned, [size.width, size.height]) {
+                        let attached = if let Some(warp) = warp {
+                            warp.finish().map_err(|e| e.to_string()).and_then(|device| {
+                                use exact_ink::device::Device;
+                                eprintln!(
+                                    "exact-ink: WARP startup device {:.3} ms, pipelines {:.3} ms",
+                                    device.info().device_ms,
+                                    device.info().shaders_ms
+                                );
+                                p.start_composition(device, owned, [size.width, size.height])
+                                    .map(|()| true)
+                            })
+                        } else {
+                            p.attach_painter_window(owned, [size.width, size.height])
+                        };
+                        match attached {
                             Ok(attached) => direct = attached,
                             Err(e) => {
                                 self.fail(events, e);
