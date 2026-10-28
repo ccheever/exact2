@@ -201,7 +201,7 @@ component LimitButton
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="#ffffff"
       if external
         box margin-left=-2 margin-right=-2 flex-shrink=0
-          Icon(name="external-link", size=14, color="#ffffff")
+          ShellIcon(name="external-link", size=14, color="#ffffff")
 
 // ExpandableText in ThreadErrorBanner: the message (a JSON error's own message) clamped to three lines, and
 // "Show full error" / "Show less" (InlineButton tone="muted", mt-1) when the exact text says more.

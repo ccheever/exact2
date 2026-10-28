@@ -33,10 +33,11 @@ use WorktreeSetupCard from "./timeline-worktree.contract"
 use BackgroundSetupChip from "./timeline-worktree.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
+use ThreadNowLine, QueuedTurn, QueuedMore from "../composer/thread-end.contract"
 
 // The bottom padding each row kind keeps (TimelineRowContent and WorkLogBlock).
 // The gap under a row in px at the root size 16; the row lays it out in rem (Interface font size).
-fn rowGap(kind: string, continues: bool, expanded: bool, actions: bool, attached: bool, meta: bool): number = kind == "fork" ? 8 : kind == "status" ? 0 : kind == "user" or kind == "workflow" or actions or attached ? 16 : kind == "entry" or kind == "live" or kind == "group" or kind == "thinking" ? (continues or expanded ? 0 : 8) : kind == "details" ? (continues ? 0 : 4) : kind == "work" or kind == "working" ? 6 : kind == "assistant" ? (meta ? 0 : 8) : kind == "plan" ? 0 : kind == "checkpoint" ? 0 : kind == "compaction" or kind == "meta" ? 16 : kind == "subagents" ? 0 : 8
+fn rowGap(kind: string, continues: bool, expanded: bool, actions: bool, attached: bool, meta: bool): number = kind == "fork" ? 8 : kind == "status" or kind == "thread-now" or kind == "queued" or kind == "queued-more" ? 0 : kind == "user" or kind == "workflow" or actions or attached ? 16 : kind == "entry" or kind == "live" or kind == "group" or kind == "thinking" ? (continues or expanded ? 0 : 8) : kind == "details" ? (continues ? 0 : 4) : kind == "work" or kind == "working" ? 6 : kind == "assistant" ? (meta ? 0 : 8) : kind == "plan" ? 0 : kind == "checkpoint" ? 0 : kind == "compaction" or kind == "meta" ? 16 : kind == "subagents" ? 0 : 8
 
 // MessagesTimeline formatWorkingTimer: whole seconds, then formatDuration's "1m 5s".
 fn workingTimer(seconds: number): string = seconds < 60 ? `${seconds}s` : `${seconds >= 3600 ? floor(seconds / 3600).toString() + "h " : ""}${floor(seconds % 3600 / 60) > 0 ? floor(seconds % 3600 / 60).toString() + "m " : ""}${seconds % 60 > 0 ? (seconds % 60).toString() + "s" : ""}`.trim()
@@ -109,7 +110,7 @@ component TimelineRow
                 column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
                   RowActions(message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
               else
-                TimelineContent(message=message, documents=documents, hovering=hovered, part=part, hoverPart=hoverPart, local=local, command=command, now=now, scheme=scheme, diffScheme=diffScheme, attachments=attachments)
+                TimelineContent(message=message, documents=documents, hovering=hovered, part=part, hoverPart=hoverPart, local=local, command=command, busy=busy, now=now, scheme=scheme, diffScheme=diffScheme, attachments=attachments)
                 if message.actionsId != "" and message.kind != "checkpoint"
                   column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
                     RowActions(message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
@@ -407,6 +408,7 @@ component TimelineContent
     hoverPart: action
     local: action
     command: action
+    busy: bool
     now: number
     scheme: string
     diffScheme: string
@@ -522,6 +524,12 @@ component TimelineContent
                           else
                             if message.kind == "status"
                               ThreadStatusLine(message=message, command=command)
+                            else if message.kind == "thread-now"
+                              ThreadNowLine(message=message, busy=busy, command=command)
+                            else if message.kind == "queued"
+                              QueuedTurn(message=message, busy=busy, command=command, urls=attachments)
+                            else if message.kind == "queued-more"
+                              QueuedMore(message=message, command=command)
                             else
                               if message.kind == "subagents"
                                 SubagentGroup(message=message, command=command, local=local, now=now)

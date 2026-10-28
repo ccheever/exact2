@@ -7,7 +7,6 @@
 import { subagentCard } from '../sidebar/subagent-card';
 import { arr, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { triggerModelName } from '../composer/composer-controls-model';
-import { resolveModelShortName } from '../client/model-short-name';
 
 import { resolveProviderInstanceAcpRegistryIconUrl } from '../providers/acp-icons';
 import { instanceDisplayName } from '../sidebar/subagent-card';
@@ -81,9 +80,8 @@ export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], ind
   const model = endpoint.model?.trim();
   const providerModel = model ? arr(entry?.models).find(candidate => candidate.slug === model) : undefined;
   const displayName = entry ? instanceDisplayName(entry) : endpoint.instanceId;
+  const label = providerModel !== undefined ? triggerModelName(providerModel, str(entry?.driver)) : model ? model : displayName;
   const driver = str(entry?.driver) || endpoint.instanceId;
-  const label = providerModel !== undefined ? triggerModelName({ ...providerModel, shortName: resolveModelShortName(providerModel, driver) ?? '' })
-    : model ? model : displayName;
   const [light, dark] = PROVIDER_TEXT_COLOR[driver] ?? ['', ''];
   return { id: `${index}:${endpoint.instanceId}:${endpoint.model ?? ''}`, label, body: '', icon: '', output: '', result: `${displayName} · ${label}`,
     failed: false, timestamp: '', detail: driver, iconLight: light, iconDark: dark, initials: instanceInitials(displayName),
