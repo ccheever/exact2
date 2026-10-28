@@ -263,6 +263,13 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             eprintln!("exact: {line}");
         }
     }
+    if state.frame_limit.is_some()
+        && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+        && !state.measured_first_screen
+    {
+        eprintln!("exact-windows: the first-screen readiness target was not painted");
+        state.failed = true;
+    }
     if state.frames > 0 {
         eprintln!(
             "exact-windows: {} frames; mean paint {:.2} ms; mean present {:.2} ms",
@@ -517,11 +524,17 @@ impl<D: DataSource + Default + 'static> App<D> {
                 self.started.elapsed().as_secs_f64() * 1000.
             );
         }
+        // A screen's ready marker can exclude background requests that do not
+        // contribute to it. Shelf's library-count appears with its seeded books.
+        let screen_ready = std::env::var("EXACT_AGENT_WINDOW_READY").map_or_else(
+            |_| !p.pending(),
+            |target| p.host().kernel().find_by_test_id(&target).len() == 1,
+        );
         if self.frame_limit.is_some()
             && !self.measured_first_screen
             && p.last_frame_succeeded()
             && !p.data_activating()
-            && !p.pending()
+            && screen_ready
         {
             let synchronized = exact_ink::device::compositor_sync_process_ms();
             match p.displayed_process_ms() {
