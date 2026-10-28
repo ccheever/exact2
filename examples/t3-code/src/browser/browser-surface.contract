@@ -42,7 +42,7 @@ component BsIcon
     size: number
     color: string
   view
-    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       path d=bsPath(name)
 
 // The surface; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88).
@@ -617,7 +617,7 @@ component BrowserLauncherProfiles
   view
     box position="absolute" right="2rem" top="0.25rem" width="1.5rem" height="1.5rem"
       button id="surface-browser-profiles" popovertarget="launcher-browser-profiles" key=triggerKey hover=hover aria-label="Open browser in a profile" aria-haspopup="menu" testId="surface-browser-profiles" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.25rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#27272914, #f5f5f514)" : "#00000000") title=""
-        svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+        svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="m6 9 6 6 6-6"
       // MenuPopup align="end" side="bottom" sideOffset 6 (RightPanelTabs.tsx): its right edge under the chevron's.
       column id="launcher-browser-profiles" popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" key=listKey position="absolute" position-area="bottom span-left" margin-top="0.375rem" width="14rem"

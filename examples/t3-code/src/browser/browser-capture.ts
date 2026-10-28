@@ -15,7 +15,7 @@ import { requestComposerField } from '../composer/composer-field-request';
 // answer that started it, and a stop sent while the start runs must not wait on a native that was let go.
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
-import { obj, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
 import { pushToast, toasts, updateToast, type ToastAction } from '../shell/toast';
 import { markActionCopied } from '../shell/shell';
@@ -42,6 +42,9 @@ import type { PanelState } from '../panel/panel-surfaces';
 import { previewPdfAssetUrl } from './browser-url';
 import { appFiles } from '../media/save-file';
 import { frameEntry, frameIdOf } from './browser-frames';
+import { agentDriving } from './browser-automation-run';
+import { fleet } from '../connections/settings-b-fleet';
+import { shellRuntime, sidebarStatus } from '../sidebar/sidebar-model';
 import { activePicks, annotateState, cancelAnnotate, startAnnotate, type ApplyPick } from './browser-annotate';
 import { automationCalls } from './browser-automation-run';
 
@@ -230,12 +233,29 @@ export function floatingTabOf(client: T3Client): string | null {
 }
 
 /** A hidden tab's page that must keep drawing (browser-frames.ts FrameHold): the hatch records it or shows it in its
- *  separate window, or an agent's recording holds it. */
+ *  separate window, an agent's recording holds it, or the agent drives it in its turn. */
 export function heldFrame(client: T3Client, runtimeId: string): { width: number; height: number } | null {
   const tab = report(client, runtimeId), recording = obj(tab.recording);
   const held = tab.pip === true || recording.armed === true || recording.capturing === true || recording.recording === true
-    || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId);
+    || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId)
+    || agentDriving(client, runtimeId, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return held ? browserMiniSourceSize(client, runtimeId) : null;
+}
+
+/**
+ * The thread's agent turn runs (the reference's PreviewAgentActivity, ended by RunExecutionService's agentTurnsSettled):
+ * the root turn works, waits on the person or on another thread (t3_thread_wait), or its run is parked on subagents, the
+ * child turns agentTurnsSettled waits for. A parked monitor or background task is no turn: it can be a dev server's
+ * watchdog.
+ */
+export function threadTurnRunning(client: T3Client, environmentId: string, threadId: string): boolean {
+  const shell = environmentId === client.environmentId ? client.shell : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.shell;
+  const thread = shell?.threads.find(entry => entry.id === threadId);
+  if (!thread) return false;
+  const status = sidebarStatus(thread);
+  if (status === 'working' || status === 'approval' || status === 'input') return true;
+  if (status !== 'waiting') return false;
+  return shellRuntime(thread)?.status === 'running' || arr(thread.pendingBackgroundTasks).some(task => str(task.kind) === 'subagent');
 }
 
 export function recordingOf(client: T3Client, ref: ScopedThreadRef, tabId: string, runtimeId: string): boolean {
@@ -248,7 +268,7 @@ export function browserCaptureView(client: T3Client, ref: ScopedThreadRef, tabId
   return {
     pickActive, pickDisabled: !tabId || failed,
     // PreviewChromeRow: the disabled reason, else Cancel while annotating.
-    pickTip: failed ? 'Page didn’t load — pick unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
+    pickTip: failed ? 'Page didn\'t load. Pick is unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
     captureDisabled: !hasWebContents || failed, recording: recordingOf(client, ref, tabId, runtimeId),
     floating: floatingTabOf(client) === tabId, floatDisabled: !hasWebContents || failed,
     separateWindow: tab.pip === true,

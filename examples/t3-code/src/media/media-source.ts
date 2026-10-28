@@ -1,14 +1,14 @@
 // What a piece of authored media is and how its bytes are reached (T3 Code
 // 1e2ecbd975, MIT; see LICENSE-T3): packages/client-runtime/src/mediaSource.ts with the parts of
-// markdownImages.ts (classifyMarkdownImageSource, markdownImageSourceFragment), markdownLinks.ts
-// (normalizeMarkdownLinkDestination, splitMarkdownLinkSearchAndHash, parseFileUrlHref,
+// markdownImages.ts (classifyMarkdownImageSource, markdownImageSourceFragment; 7c3b3b3605ef's network paths),
+// markdownLinks.ts (normalizeMarkdownLinkDestination, splitMarkdownLinkSearchAndHash, parseFileUrlHref,
 // splitFilePathPosition, fileBasename) and packages/shared/src/filePreview.ts (mediaMimeType,
-// mediaMimeTypeFromExtension, the workspace preview paths) it reads.
+// mediaMimeTypeFromExtension, the workspace preview paths; mediaPreview.ts's image types at 7c3b3b3605ef) it reads.
 import { videoMimeType } from '../composer/composer-video';
-import { isWindowsAbsolutePath, mediaFileReference, mediaReferenceFileName, mediaUrlReference, safeDecodeURIComponent, type MediaReference } from './media-reference';
+import { isNetworkPath, isWindowsAbsolutePath, mediaFileReference, mediaReferenceFileName, mediaUrlReference, safeDecodeURIComponent, type MediaReference } from './media-reference';
 
-const IMAGE_MIME_TYPE_BY_EXTENSION = new Map([['.avif', 'image/avif'], ['.gif', 'image/gif'], ['.ico', 'image/x-icon'], ['.jpeg', 'image/jpeg'], ['.jpg', 'image/jpeg'], ['.png', 'image/png'], ['.svg', 'image/svg+xml'], ['.webp', 'image/webp']]);
-export const WORKSPACE_IMAGE_PREVIEW_EXTENSIONS = ['.avif', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.svg', '.webp'] as const;
+const IMAGE_MIME_TYPE_BY_EXTENSION = new Map([['.avif', 'image/avif'], ['.bmp', 'image/bmp'], ['.heic', 'image/heic'], ['.heif', 'image/heif'], ['.gif', 'image/gif'], ['.ico', 'image/x-icon'], ['.jpeg', 'image/jpeg'], ['.jpg', 'image/jpeg'], ['.png', 'image/png'], ['.svg', 'image/svg+xml'], ['.tif', 'image/tiff'], ['.tiff', 'image/tiff'], ['.webp', 'image/webp']]);
+export const WORKSPACE_IMAGE_PREVIEW_EXTENSIONS = ['.avif', '.bmp', '.gif', '.ico', '.heic', '.heif', '.jpeg', '.jpg', '.png', '.svg', '.tif', '.tiff', '.webp'] as const;
 
 /** Classifies a literal filesystem extension, without URL decoding or suffix removal. */
 export function mediaMimeTypeFromExtension(extension: string): string | null {
@@ -91,6 +91,10 @@ function joinWorkspacePath(workspaceRoot: string, relativePath: string): string 
   const path = relativePath.replace(/[\\/]/g, separator).replace(/^[\\/]+/, '');
   return `${root}${separator}${path}`;
 }
+/** Rendering is not a click, so a network path loads only from the project's own share. */
+function hostFileSource(path: string, workspaceRoot: string | null | undefined): MarkdownImageSource {
+  return isNetworkPath(path) && !(workspaceRoot && mediaFileReference(path, workspaceRoot).relativePath !== undefined) ? { _tag: 'Blocked' } : { _tag: 'WorkspaceFile', path };
+}
 /** Where a markdown image or video source's bytes load from; a host path never reaches the image component unsigned. */
 export function classifyMarkdownImageSource(value: string | null | undefined, workspaceRoot?: string | null): MarkdownImageSource {
   if (value === null || value === undefined) return { _tag: 'Blocked' };
@@ -99,11 +103,11 @@ export function classifyMarkdownImageSource(value: string | null | undefined, wo
   if (/^(?:https?:|data:|blob:|\/\/)/i.test(source)) return { _tag: 'Direct', uri: source };
   if (/^file:/i.test(source)) {
     const target = parseFileUrlHref(source);
-    return target === null ? { _tag: 'Blocked' } : { _tag: 'WorkspaceFile', path: stripSlashPrefixedWindowsDrive(safeDecodeURIComponent(target.path)) };
+    return target === null ? { _tag: 'Blocked' } : hostFileSource(stripSlashPrefixedWindowsDrive(safeDecodeURIComponent(target.path)), workspaceRoot);
   }
   const path = stripSlashPrefixedWindowsDrive(safeDecodeURIComponent(splitMarkdownLinkSearchAndHash(source).path));
   if (path.length === 0) return { _tag: 'Blocked' };
-  if (path.startsWith('/') || isWindowsAbsolutePath(path)) return { _tag: 'WorkspaceFile', path };
+  if (path.startsWith('/') || isWindowsAbsolutePath(path)) return hostFileSource(path, workspaceRoot);
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(path) || path.startsWith('~/') || path.startsWith('~\\')) return { _tag: 'Blocked' };
   if (!workspaceRoot) return { _tag: 'Blocked' };
   return { _tag: 'WorkspaceFile', path: joinWorkspacePath(workspaceRoot, path) };

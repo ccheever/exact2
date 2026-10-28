@@ -8,6 +8,7 @@ use ProjectMark from "../shared/icons-kit.contract"
 use PgIcon from "../shared/pages-icons.contract"
 use dbStep from "../diff/diff.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
+use Tip from "../shell/shell-tip.contract"
 
 shape HeroProject
   id: string
@@ -35,6 +36,7 @@ shape PagesHome
   pullRequests: bool
   // HostedStaticOnboardingState's second paragraph: the Local environment switched off, or the pairing hint.
   noEnvironmentDescription: string
+  scratchShortcut: string // chat.newWithoutProject's label, the tip under "or start without a project"
 
 // useNavigateBack's history over the utility pages (app.contract pageTrail): the pages a
 // page's Back goes back through after `current` opens `name`. A page opened from another keeps the one it left; one
@@ -81,7 +83,7 @@ component EmptyThread
               if home.scratchDraft
                 HeroPicker(home=home, scheme=scheme, size=14, command=command, addProject=addProject)
               if home.scratchLine
-                ScratchLink(busy=busy, command=command)
+                ScratchLink(busy=busy, shortcut=home.scratchShortcut, command=command)
 
 // DraftHeroProjectHeading: "What should we build in <project>?" on one line when the window is lg and that line
 // fits; otherwise "What should we build?" over the project picker at text-base. HeroWidthProbe lays the one-line
@@ -117,16 +119,31 @@ component ProjectHeading
         row min-width=0 max-width="100%" justify-content="center"
           HeroPicker(home=home, scheme=scheme, size=16, command=command, addProject=addProject)
 
-// "or start without a project": an InlineButton (tone muted, text-sm medium).
+// "or start without a project": an InlineButton (tone muted, text-sm medium), with chat.newWithoutProject's shortcut in a
+// tip below it when one is bound (DraftHeroHeadline's TooltipPopup side="bottom").
 component ScratchLink
   props
     busy: bool
+    shortcut: string
     command: action
   state over = false
   action hover(value: bool)
     over = value
   view
-    button press=command("pages:hero-scratch", "", "", 0) hover=hover disabled=busy testId="hero-start-without-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" position="relative"
+    if shortcut != ""
+      Tip(label=shortcut, side="bottom", align="center", offset=4)
+        ScratchButton(busy=busy, over=over, hover=hover, command=command)
+    else
+      ScratchButton(busy=busy, over=over, hover=hover, command=command)
+
+component ScratchButton
+  props
+    busy: bool
+    over: bool
+    hover: action
+    command: action
+  view
+    button press=command("pages:hero-scratch", "", "", 0) hover=hover disabled=busy testId="hero-start-without-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" position="relative" title=""
       text "or start without a project" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
       if over
         box position="absolute" left=0 right=0 top="1.0625rem" height=1 background-color="light-dark(#18181b, #f5f5f5)"
@@ -208,12 +225,12 @@ component HeroPicker
           scroll flex-shrink=1 min-height=0 max-height="20rem" width="100%"
             column width="100%" padding="0.25rem" box-sizing="border-box" role="listbox"
               for project in matches key=project.id
-                button id=`hero-project-${project.id}` press=pickRow(project.id) hover=hoverRow(project.id) role="option" aria-selected=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(highlight == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : project.selected ? "light-dark(#18181b14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+                button id=`hero-project-${project.id}` press=pickRow(project.id) hover=hoverRow(project.id) role="option" aria-selected=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(highlight == project.id ? "light-dark(#18181b17, #f5f5f517)" : project.selected ? "light-dark(#18181b0f, #f5f5f50f)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                   ProjectMark(label=project.mark, muted=false, ink=project.ink, surface=project.surface, size=16)
                   // DraftProjectName: up to two lines, broken anywhere.
                   text project.name flex=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=2 overflow-wrap="anywhere" min-width=0 text-align="left"
               if needle == ""
-                button id="hero-add-project" press=pickRow("add-project") hover=hoverRow("add-project") role="option" aria-selected=false aria-label="Add project" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(highlight == "add-project" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+                button id="hero-add-project" press=pickRow("add-project") hover=hoverRow("add-project") role="option" aria-selected=false aria-label="Add project" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(highlight == "add-project" ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                   PgIcon(name="folder-plus", size=16, color="light-dark(#71717b, #a1a1a1)")
                   text "Add project" flex=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" text-align="left"
 
@@ -269,7 +286,7 @@ component PagesLanding
             text "This app connects to T3 Code running on your computer or a server. Start the T3 Code desktop app or command-line server on that machine and keep it running." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #a1a1a1)"
             text home.noEnvironmentDescription margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #a1a1a1)" testId="no-environment-description"
             row margin-top="1.5rem" justify-content="center"
-              LandingButton(scheme=scheme, label="Open Connections", icon="plus", primary=true, busy=false, press=openConnections, testId="landing-open-connections")
+              LandingButton(scheme=scheme, label="Open Environments", icon="plus", primary=true, busy=false, press=openConnections, testId="landing-open-connections")
 
 // Button size="sm": 28pt, px 9, rounded-lg, a 16pt glyph 6pt from the label.
 component LandingButton

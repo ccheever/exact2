@@ -196,7 +196,7 @@ describe('device tools, refs, archive menu, look', () => {
     expect(state.menuOf).toBe('env1:p1:t9');
   });
   test('look follows chat width, diff colours, identification and themes', () => {
-    const client = fakeClient();
+    const client = Object.assign(fakeClient(), { preferencesLoaded: true });
     Object.assign(client.local.clientSettings as Obj, { chatWidth: 'wide', diffColorScheme: 'blue-orange', environmentIdentificationMode: 'pill', themeLight: 'grove', themeDark: 'grove' });
     const value = look(as(client));
     expect([value.chatMax, value.diff, value.artwork, value.pill, value.themed]).toEqual([1152, 'blue-orange', false, 'Nightly', true]);
