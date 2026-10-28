@@ -23,6 +23,10 @@ component App
     send poked = poke(what)
   action switch
     id = "b"
+  action other
+    id = "c"
+  action reload
+    refresh server
   view
     text server testId="server"
 "#;
@@ -216,7 +220,7 @@ fn a_tool_or_a_wake_directs_no_child() {
     assert_eq!(poke(&mut r, "kill"), "true");
     assert_eq!(r.take_socket_sends().len(), 1);
     // A tool's commit that changes the child's arguments asks for a new
-    // spawn, which is refused; the running child is kept, not let go.
+    // spawn, which is refused once; the running child is kept, not let go.
     r.act_from(CallOrigin::Tool, "switch", vec![]).unwrap();
     assert!(r.take_requests().is_empty());
     assert!(r.take_request_refusal(true).is_none());
@@ -225,14 +229,22 @@ fn a_tool_or_a_wake_directs_no_child() {
         "{:?}",
         r.pending()
     );
-    let journal: Vec<&str> = r.journal().collect();
-    assert!(
-        (journal.iter())
-            .any(|l| l.contains("kept running, its replacement refused, person-required")),
-        "{journal:?}"
-    );
-    // A person's switch replaces it.
+    // The tool's arguments are not inherited: a person's commit that
+    // leaves them, or a reload, starts nothing, and nothing is said again.
     r.act("switch", vec![]).unwrap();
+    r.act("reload", vec![]).unwrap();
+    assert!(r.take_requests().is_empty());
+    assert!(
+        r.pending().iter().any(|(_, t)| *t == ticket),
+        "{:?}",
+        r.pending()
+    );
+    let kept = (r.journal())
+        .filter(|l| l.contains("kept running, its replacement refused, person-required"))
+        .count();
+    assert_eq!(kept, 1);
+    // A person's other arguments replace it.
+    r.act("other", vec![]).unwrap();
     assert_eq!(r.take_requests().len(), 1);
 }
 

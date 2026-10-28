@@ -6,6 +6,7 @@ use super::super::{DataSource, Request, Runner, Target};
 use super::admit::held_to_app;
 use super::CallOrigin;
 use crate::process::WorkClock;
+use exact_plan::Value;
 use std::sync::Arc;
 
 /// `@exact/child-process`'s declaration: the `origin` of each name in its
@@ -19,6 +20,10 @@ pub(in crate::runner) struct Processes {
     pub(super) clock: Option<Arc<dyn WorkClock>>,
     /// Each child stream's facts as its messages told them, by ticket.
     children: std::collections::BTreeMap<u64, ChildState>,
+    /// The arguments of each resource whose running child was kept when
+    /// a re-ask with them was refused for its origin: asked again with
+    /// them, by any origin, the child is still kept (D13).
+    refused: Vec<(Target, Vec<Value>)>,
 }
 
 /// What `state.streams` shows of a child process (LLP 1133.007 D2).
@@ -74,8 +79,10 @@ impl<D: DataSource> Runner<D> {
             return None;
         }
         let (kind, _) = crate::process::summary(&request.body);
-        let name = crate::process::declared_name(&kind).unwrap_or(&kind);
-        let why = self.admit_process(name, Some(request.reach.origin)).err()?;
+        let why = match crate::process::declared_name(&kind) {
+            Some(name) => self.admit_process(name, Some(request.reach.origin)).err()?,
+            None => format!("{kind}: not a call @exact/child-process declares"),
+        };
         self.log(format!("process refused, {why}"));
         Some(match why.starts_with("person-required") {
             true => "person-required: only a person's input or the app's own code starts a program (LLP 1133.007 D13)",
@@ -83,26 +90,42 @@ impl<D: DataSource> Runner<D> {
         })
     }
 
-    /// A re-ask of a resource whose child is running, refused for its
-    /// origin: the child keeps running under its old ticket, since letting
-    /// that go would end its group, which a tool, a wake or the device may
-    /// not do (LLP 1133.007 D13). Said; `true` when kept.
-    pub(in crate::runner) fn keeps_child(&mut self, target: Target, request: &Request) -> bool {
+    /// A re-ask with `args` of a resource whose child is running, refused
+    /// for its origin: the child keeps running under its old ticket, since
+    /// letting that go would end its group, which a tool, a wake or the
+    /// device may not do (LLP 1133.007 D13). The refused arguments are
+    /// kept, so a later ask with them, by any origin, keeps the child too,
+    /// said once; only other arguments replace it. `true` when kept.
+    pub(in crate::runner) fn keeps_child(
+        &mut self,
+        target: Target,
+        args: &[Value],
+        request: &Request,
+    ) -> bool {
         if !(request.is_process() && request.stream) {
             return false;
         }
         let children = &self.extensions.processes.children;
-        let Some(running) = (self.pending.iter())
+        let running = (self.pending.iter())
             .find(|p| p.target == target && children.contains_key(&p.ticket))
-            .map(|p| p.ticket)
-        else {
+            .map(|p| p.ticket);
+        let refused = &mut self.extensions.processes.refused;
+        let Some(running) = running else {
+            refused.retain(|(t, _)| *t != target);
             return false;
         };
+        if refused.iter().any(|(t, a)| *t == target && a == args) {
+            return true;
+        }
+        refused.retain(|(t, _)| *t != target);
         let (kind, _) = crate::process::summary(&request.body);
-        let name = crate::process::declared_name(&kind).unwrap_or(&kind);
+        let Some(name) = crate::process::declared_name(&kind) else {
+            return false;
+        };
         let Err(why) = self.admit_process(name, Some(self.origin_for(Some(target)))) else {
             return false;
         };
+        (self.extensions.processes.refused).push((target, args.to_vec()));
         let resource = self.target_name(target);
         self.log(format!(
             "process {running} ({resource}): kept running, its replacement refused, {why}"
@@ -208,6 +231,10 @@ fn refusal(name: &str, origin: CallOrigin) -> Result<(), String> {
         Some(_) => Ok(()),
     }
 }
+
+#[cfg(test)]
+#[path = "processes_tests.rs"]
+mod runner_tests;
 
 #[cfg(test)]
 mod tests {

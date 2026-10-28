@@ -841,7 +841,7 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
-        if self.keeps_child(target, &request) {
+        if self.keeps_child(target, &args, &request) {
             return;
         }
         // A re-ask after a turn over its budget carries its streak on.
@@ -1417,8 +1417,10 @@ impl<D: DataSource> Runner<D> {
                 // A round of an ask made before a watched topic changed
                 // carries the ask again to its last (LLP 1016.002 D4).
                 self.log(super::lines::one_more(&name));
+                let ticket = self.next_ticket;
                 self.enqueue(p.target, p.source, p.args, request, false);
-                if let Some(next) = self.pending.last_mut() {
+                // `enqueue` may keep a ticket or a running child, and push none.
+                if let Some(next) = self.pending.last_mut().filter(|n| n.ticket >= ticket) {
                     next.ask_again |= p.ask_again;
                     next.origin = p.origin;
                     next.inspection_generation = p.inspection_generation;
