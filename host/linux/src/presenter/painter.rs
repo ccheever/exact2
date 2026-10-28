@@ -277,6 +277,7 @@ impl<D: DataSource> Presenter<D> {
                 let (backend, info) = ink_backend(ink);
                 self.brush.replace_backend(backend);
                 self.painter = info;
+                self.choice = PainterChoice::Ink;
             }
             Err(ref error) => {
                 // Attachment may already have made GDI unusable. Recovery stays
