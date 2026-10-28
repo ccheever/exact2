@@ -204,7 +204,12 @@ fn boot_worker() {
         "warp" => D3d11::open(true).unwrap().info().clone(),
         "wgpu" => {
             std::env::set_var("WGPU_BACKEND", "dx12");
-            super::super::wgpu::Wgpu::new().unwrap().info().clone()
+            let info = super::super::wgpu::Wgpu::new().unwrap().info().clone();
+            assert_eq!(
+                info.api, "wgpu Dx12",
+                "the Windows control must use DirectX 12"
+            );
+            info
         }
         _ => panic!("INK_BOOT_DEVICE must be d3d11, warp or wgpu"),
     };

@@ -76,7 +76,10 @@ impl Wgpu {
     pub async fn open() -> Result<Self> {
         let started = Instant::now();
         let instance = ::wgpu::Instance::new(::wgpu::InstanceDescriptor {
-            backends: ::wgpu::Backends::PRIMARY.with_env(),
+            // wgpu-types' environment helper is inert without its `std` feature.
+            backends: std::env::var("WGPU_BACKEND")
+                .map(|value| ::wgpu::Backends::from_comma_list(&value))
+                .unwrap_or(::wgpu::Backends::PRIMARY),
             ..::wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = instance
