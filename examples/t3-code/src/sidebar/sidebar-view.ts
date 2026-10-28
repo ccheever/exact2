@@ -43,7 +43,7 @@ import { triggerDisplayModelName } from './model-short-name';
 import { inboxReturns } from './thread-inbox';
 import { autoDirection } from './title-direction';
 import { textDirection } from '../shared/text-direction';
-import { splitForMiddleTruncate } from './middle-truncate';
+import { splitForMiddleTruncate } from '../details/middle-truncate';
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };

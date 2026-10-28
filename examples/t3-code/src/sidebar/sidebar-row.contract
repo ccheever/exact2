@@ -600,9 +600,9 @@ component DraftCard
                 SidebarIcon(name="x", size=12, color=(hoverId == `draft:${d.id}#discard` ? "light-dark(#18181b, #f1f3f7)" : "light-dark(#71717b, #a3a3a3)"))
         text d.preview width="100%" margin-top="0.125rem" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181be6, #f3f3f3e6)" line-clamp=1 text-align="left"
 
-// MiddleTruncate (ui/middle-truncate.tsx): a branch too long for its line keeps its tail (middle-truncate.ts) and the
-// head gives way; one without a tail is cut at its end. The reference draws the ellipsis on the tail's side of the
-// cut; Contract's `text-overflow` cuts only at a text's end, so here it ends the head (proposal F7).
+// MiddleTruncate (ui/middle-truncate.tsx): a branch too long for its line keeps its tail (details/middle-truncate.ts)
+// and the head gives way; one without a tail is cut at its end. The reference draws the ellipsis on the tail's side of
+// the cut; Contract's `text-overflow` cuts only at a text's end, so here it ends the head (proposal F7).
 component MiddleTruncate
   props
     value: string

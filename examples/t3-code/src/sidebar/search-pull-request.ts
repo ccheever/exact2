@@ -6,7 +6,8 @@
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { visiblePullRequests } from '../panel/shell-pr';
-import { lifecycle, lifecycleIcon, providerOfUrl, shortName, sidebarPrBadge, snapshotPr, statusTooltip } from '../panel/pr-surface';
+import { lifecycle, lifecycleIcon, providerOfUrl, sidebarPrBadge, snapshotPr, statusTooltip } from '../panel/pr-surface';
+import { terminologyOf } from '../details/git-logic';
 import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 import { parseFleetThreadId } from '../connections/settings-b-fleet';
 import { branchPullRequest } from './sidebar-branch-pr';
@@ -43,15 +44,6 @@ export function rowPullRequestLinks(client: T3Client, thread: Obj): Obj[] {
 }
 
 const STATE_LABEL: Record<string, string> = { open: 'open', draft: 'draft', closed: 'closed', merged: 'merged' };
-/**
- * changeRequestTerminologyForUrl: the terms of the host a link's URL names, GitHub's when it names none (the first
- * definition). The plural is the panels' term table's to carry; GitLab says merge requests, every other host pull
- * requests, as `shortName` says PR.
- */
-function hostTerms(url: string): { shortLabel: string; plural: string } {
-  const kind = providerOfUrl(url), shortLabel = shortName(kind);
-  return { shortLabel, plural: kind === 'gitlab' ? 'merge requests' : shortLabel === 'PR' ? 'pull requests' : 'change requests' };
-}
 /** The badge a search result draws: its text, its glyph, its lifecycle state ('' until known) and its label. */
 export interface SearchPullRequest { text: string; icon: string; state: string; label: string }
 /**
@@ -67,7 +59,7 @@ export function searchPullRequest(client: T3Client, thread: Obj, query: string):
   const pr = current ? snapshotPr(current) : branchPullRequest(client, thread);
   const stored = current ?? [thread.linkedPullRequest, thread.branchPullRequest].map(reference)
     .find((candidate): candidate is Obj => candidate !== null && pullRequestMatchesSearchQuery(pullRequestSearchTerms({ linkedPullRequest: candidate }), query));
-  const number = pr?.number ?? (stored ? num(stored.number) : 0), url = pr?.url || str(stored?.url), terms = hostTerms(url);
+  const number = pr?.number ?? (stored ? num(stored.number) : 0), url = pr?.url || str(stored?.url), terms = terminologyOf(providerOfUrl(url)); // changeRequestTerminologyForUrl
   if (badge.stacked) return { text: badge.badge, icon: badge.badgeIcon, state: badge.badgeState, label: `Stack of ${badge.badge} ${terms.plural}, ${STATE_LABEL[badge.badgeState]}` };
   if (!number || !url) return null;
   const tooltip = pr ? statusTooltip(pr) : `${terms.shortLabel} #${number}, status pending`;

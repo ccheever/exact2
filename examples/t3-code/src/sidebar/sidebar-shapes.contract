@@ -69,7 +69,7 @@ shape Thread
   // The title's direction ("ltr", "rtl": textDirection's majority), and the rename field's (its first strong letter).
   titleDir: string
   renameDir: string
-  // The branch split for middle truncation (middle-truncate.ts): its head and the tail it keeps, "" for no split.
+  // The branch cut for middle truncation (details/middle-truncate.ts): the head, and the tail it keeps ("" for none).
   branchHead: string
   branchTail: string
   terminalCount: number
