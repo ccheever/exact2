@@ -619,3 +619,42 @@ fn a_failure_that_asking_again_may_mend_errs_once_its_showings_retries_are_spent
         "{s}"
     );
 }
+
+/// An over-long source, a symbol, then the same over-long source: a new
+/// assignment, so its `error` again.
+#[test]
+fn an_over_long_source_given_again_after_a_symbol_errs_again() {
+    let long = format!("pictures/{}", "x".repeat(5000));
+    let source = format!(
+        r#"component App
+  state errors = 0
+  state shown = "{long}"
+  action failed(m: string)
+    errors = errors + 1
+  action symbol
+    shown = "symbol:back"
+  action back
+    shown = "{long}"
+  view
+    column width=300 height=300
+      button "Symbol" press=symbol testId="symbol" width=100 height=30
+      button "Back" press=back testId="back" width=100 height=30
+      image shown width=40 height=40 error=failed testId="picture"
+"#
+    );
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(&source),
+        (),
+        (300., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    until(&mut p, |s| s["errors"].as_f64() == Some(1.));
+    press(&mut p, "symbol");
+    run(&mut p, 100);
+    press(&mut p, "back");
+    until(&mut p, |s| s["errors"].as_f64() == Some(2.));
+}

@@ -72,18 +72,16 @@ enum RasterRetry {
         return formatter
     }()
 
-    /// `text` with every link in it (a word with `://`, one starting `/`, or one with a scheme) cut at its query or
-    /// fragment: a CDN's links carry signatures (Discord's `ex`, `is`, `hm`),
-    /// and an image's `error` quotes only the host and path (the Linux host's
-    /// `remote::without_queries`).
+    /// `text` with every link in it cut at its query or fragment: in each word,
+    /// the first `?` or `#` after a `/` or `:` (a scheme, a path, a link wrapped
+    /// in `url(…)` or backticks) ends it. A CDN's links carry signatures
+    /// (Discord's `ex`, `is`, `hm`), and an image's `error` quotes only the host
+    /// and path (the Linux host's `remote::without_queries`).
     static func withoutQueries(_ text: String) -> String {
         var out = "", word = ""
         func flush() {
-            let bare = word.drop { !$0.isLetter && !$0.isNumber && $0 != "/" }
-            let scheme = bare.split(separator: ":", maxSplits: 1).first.map { name in
-                bare.contains(":") && name.first?.isLetter == true && name.allSatisfy { $0.isLetter || $0.isNumber || "+.-".contains($0) }
-            } ?? false
-            if word.contains("://") || word.hasPrefix("/") || scheme, let cut = word.firstIndex(where: { $0 == "?" || $0 == "#" }) { word = String(word[..<cut]) }
+            if let marker = word.firstIndex(where: { $0 == "/" || $0 == ":" }),
+               let cut = word[marker...].firstIndex(where: { $0 == "?" || $0 == "#" }) { word = String(word[..<cut]) }
             out += word; word = ""
         }
         for character in text {
