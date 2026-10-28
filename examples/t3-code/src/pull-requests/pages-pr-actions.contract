@@ -4,7 +4,7 @@
 // the open pull request's group — draft toggle, Merge now, Enable/Disable auto-merge, the merge-method
 // radios — the host links, Close/Reopen/Revert changes), the out-of-date base branch's mark with its
 // popover (Update branch, Update with rebase), "Approve workflows to run", and their confirmations in
-// place (useInlineActionConfirm). Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3)
+// place (useInlineActionConfirm). Sources: T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3)
 // components/pullRequest/{PullRequestDetailPanel.tsx,useInlineActionConfirm.ts}, components/AnimatedWidth.tsx,
 // ui/{button,badge,menu,popover}.tsx.
 use PgIcon from "../shared/pages-icons.contract"
@@ -23,6 +23,7 @@ use PrLinksView, PrActOnItem, PrdLinkedCount, PrdActOnItems from "./pages-pr-lin
 use hoverTipAtFrame from "../shell/hover-layer.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use DialogFinalFocus from "../shared/dialog-trap.contract"
+use PrTerm from "./pr-term.contract"
 
 keyframes paSpin
   from rotate=0
@@ -87,6 +88,7 @@ shape PrActionsView
   dialogDestructive: bool
   dialogValue: string
   stack: PrStackView
+  term: PrTerm
 
 fn paInk(): string = "light-dark(#18181b, #f5f5f5)"
 fn paMuted(): string = "light-dark(#71717b, #a1a1a1)"
@@ -218,7 +220,7 @@ component PrdActionsMenu
   // focus on its first row, and the arrows, Home, End and a letter move through the enabled rows.
   derive gated = not actions.pending and actions.open
   derive handing = handoffs.pending == ""
-  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label="Explain this PR"), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings"), KmItem(id=(actions.guideEnabled and not actions.guideDisabled ? "pr-more-guide" : ""), label=actions.guideLabel)].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label=actions.mergeNowLabel), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label=actions.autoMergeLabel)]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label=actions.closeLabel), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label=actions.revertLabel), KmItem(id=(actions.deleteBranchItem and not actions.deleteBranchDisabled ? "pr-more-delete-branch" : ""), label="Delete branch")]).filter((item) => item.id != "")
+  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label=`Explain this ${actions.term.short}`), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings"), KmItem(id=(actions.guideEnabled and not actions.guideDisabled ? "pr-more-guide" : ""), label=actions.guideLabel)].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label=actions.mergeNowLabel), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label=actions.autoMergeLabel)]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label=`Copy ${actions.term.short} number`), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label=actions.closeLabel), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label=`Reopen ${actions.term.singular}`), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label=actions.revertLabel), KmItem(id=(actions.deleteBranchItem and not actions.deleteBranchDisabled ? "pr-more-delete-branch" : ""), label="Delete branch")]).filter((item) => item.id != "")
   action hover(value: bool)
     over = value
   // menu-keys.contract: the link row is a MenuItem too, highlighted by its focus alone; the
@@ -253,6 +255,10 @@ component PrdActionsMenu
   action rowLeft(what: string)
     if actions.armedControl == "menu" and actions.armedAction == what
       local("pr-ui-disarm", ref, `menu|${what}`)
+  // A row armed in the menu goes as the menu closes (useInlineActionConfirm: its control unmounts).
+  action menuToggled(e: ToggleEvent)
+    if e.newState == "closed" and actions.armedControl == "menu"
+      local("pr-ui-disarm", ref, `menu|${actions.armedAction}`)
   view
     column position="relative" flex-shrink=0
       Tip(label=actions.moreLabel, side="top", align="center", offset=20)
@@ -263,10 +269,10 @@ component PrdActionsMenu
           else
             PgIcon(name="ellipsis", size=16, color=paMuted())
       // MenuPopup align="end" side="bottom" (PullRequestDetailPanel.tsx): its right edge under the trigger's.
-      row id="pr-more-menu" popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" testId="pr-more-layer"
+      row id="pr-more-menu" popover="auto" toggle=menuToggled position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" testId="pr-more-layer"
         // As wide as its widest line: "Opens a thread that knows which pull request you mean." (318 at 12px) and the
         // item's glyph, gap and insets.
-        PrMenuBox(scheme=scheme, width=380, label="More pull request actions")
+        PrMenuBox(scheme=scheme, width=380, label=`More ${actions.term.singular} actions`)
           KeyMenu(menuId="pr-more-keys", items=rows, keyed=0, gap="0px", modal=true)
             PrdConfirmEscape(actions=actions, ref=ref, local=local, layer="menu")
             // PullRequestThreadLinks display="menu-item" (no thread to link to: the picker).
@@ -300,14 +306,14 @@ component PrdActionsMenu
             link id="pr-more-open-host" hover=hostLitHover focus=hostLitFocus(true) blur=hostLitFocus(false) cursor="pointer" href=url role="menuitem" testId="pr-more-open-host" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" background-color=(hostLit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
               PgIcon(name="arrow-up-right", size=14, color=paMuted())
               text `Open on ${hostName}` font-size="0.875rem" line-height="1.25rem" color=paInk() flex=1 min-width=0 white-space="nowrap"
-            PaMenuItem(keysId="pr-more-keys", icon="link", label="Copy link", shortcut="⇧⌘C", disabled=false, destructive=false, press=copy("PR link", url), testId="pr-more-copy-link")
-            PaMenuItem(keysId="pr-more-keys", icon="copy", label="Copy PR number", shortcut="⇧⌘K", disabled=false, destructive=false, press=copy("PR number", numberLabel), testId="pr-more-copy-number")
+            PaMenuItem(keysId="pr-more-keys", icon="link", label="Copy link", shortcut="⇧⌘C", disabled=false, destructive=false, press=copy(`${actions.term.short} link`, url), testId="pr-more-copy-link")
+            PaMenuItem(keysId="pr-more-keys", icon="copy", label=`Copy ${actions.term.short} number`, shortcut="⇧⌘K", disabled=false, destructive=false, press=copy(`${actions.term.short} number`, numberLabel), testId="pr-more-copy-number")
             if actions.closeItem
               PaSeparator()
               PaConfirmItem(keysId="pr-more-keys", icon="git-pull-request-closed", label=actions.closeLabel, armed=(actions.armedControl == "menu" and actions.armedAction == "close"), disabled=actions.pending, destructive=true, press=confirmRow("close"), left=rowLeft("close"), testId="pr-more-close")
             if actions.reopenItem
               PaSeparator()
-              PaMenuItem(keysId="pr-more-keys", icon="git-pull-request-arrow", label="Reopen pull request", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "reopen"), testId="pr-more-reopen")
+              PaMenuItem(keysId="pr-more-keys", icon="git-pull-request-arrow", label=`Reopen ${actions.term.singular}`, shortcut="", disabled=actions.pending, destructive=false, press=act("action", "reopen"), testId="pr-more-reopen")
             if actions.revertItem
               PaSeparator()
               PaConfirmItem(keysId="pr-more-keys", icon="rotate-ccw", label=actions.revertLabel, armed=(actions.armedControl == "menu" and actions.armedAction == "revert"), disabled=actions.pending, destructive=(actions.armedAction == "revert"), press=confirmRow("revert"), left=rowLeft("revert"), testId="pr-more-revert")

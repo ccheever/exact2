@@ -1,4 +1,4 @@
-// The pooled Limits view as data for usage-pooled.contract, T3 Code 74541bab17 (MIT, see
+// The pooled Limits view as data for usage-pooled.contract, T3 Code 7c3b3b3605ef (MIT, see
 // LICENSE-T3): apps/web/src/components/usage/UsageLimitsPooled.tsx (UsageLimitsPooled, PoolSection,
 // PoolWindowCard, PoolBar, PoolSegment, SegmentTriggers, LegendRow, SegmentPopover, RedeemableSegment,
 // ActiveSegmentPopover's check that its segment is still drawn,
@@ -22,9 +22,12 @@ import { cursorKeychainAccessEnvironments } from './usage-refresh';
 import { selectedConnected, type EnvironmentUsageStatus, type UsageState } from './usage-environments';
 
 const driverLabel = (driver: string) => driverMeta(driver)?.label ?? driver;
-/** providerInstanceInitials (client-runtime state/providerInstanceDisplay.ts). */
+/**
+ * providerInstanceInitials (client-runtime state/providerInstanceDisplay.ts): punctuation separates words, so "Codex (hub)"
+ * reads CH, not C(; an apostrophe inside a word stays ("Theo's Codex" is TC) and a quoting one goes ("Codex 'hub'" is CH).
+ */
 export function instanceInitials(label: string): string {
-  const words = label.replace(/[_-]+/g, ' ').split(/\s+/u).filter(Boolean);
+  const words = label.replace(/(?:(?!['’])\p{P})+/gu, ' ').split(/\s+/u).map(word => word.replace(/^['’]+|['’]+$/gu, '')).filter(Boolean);
   if (words.length === 0) return '';
   if (words.length === 1) return Array.from(words[0]!).slice(0, 2).join('').toUpperCase();
   return words.slice(0, 2).map(word => Array.from(word)[0]?.toUpperCase() ?? '').join('');

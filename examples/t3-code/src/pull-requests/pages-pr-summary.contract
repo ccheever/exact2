@@ -1,5 +1,5 @@
 // The pull request Summary tab, measured against
-// T3 Code 9c161462c9 (MIT, see LICENSE-T3) components/pullRequest/PullRequestSummaryTab.tsx (its
+// T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3) components/pullRequest/PullRequestSummaryTab.tsx (its
 // conversations and comment headers at 74541bab17), PullRequestMoreReplies.tsx,
 // PullRequestActivityUnavailableState.tsx and PullRequestGhosts.tsx PullRequestConversationGhost:
 // reviewers with the verdict ring each last gave, labels, the sticky Description, Checks and
@@ -26,6 +26,8 @@ use PrHandoffsView from "./pages-pr-handoffs.contract"
 use PrdFixButton from "./pages-pr-handoffs.contract"
 use KmItem from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
+use PrTerm from "./pr-term.contract"
+use pgPath from "../shared/pages-icons.contract"
 
 shape PrFace
   key: string
@@ -111,6 +113,7 @@ shape PrSummaryView
   showResolved: bool
   filterLabel: string
   filteredOutText: string
+  term: PrTerm
 
 fn prsMuted(): string = "light-dark(#71717b, #a1a1a1)"
 fn prsInk(): string = "light-dark(#18181b, #f5f5f5)"
@@ -120,6 +123,8 @@ fn prsCheckIcon(status: string): string = status == "failure" or status == "canc
 // REVIEW_OUTCOME_PRESENTATION: the ring a face wears (a stale verdict's is mixed 35% into the background).
 fn prsRing(outcome: string, stale: bool): string = outcome == "approved" ? (stale ? "0 0 0 2px light-dark(#a6e8d2, #075139)" : "0 0 0 2px light-dark(#00bc7d, #00d492)") : outcome == "changes-requested" ? (stale ? "0 0 0 2px light-dark(#f6a6ad, #602a2b)" : "0 0 0 2px light-dark(#e40014, #ff6467)") : outcome == "dismissed" ? (stale ? "0 0 0 2px light-dark(#d4d4d7, #2e2e2e)" : "0 0 0 2px light-dark(#71717b99, #a1a1a199)") : "none"
 fn prsOutcomeIcon(outcome: string): string = outcome == "approved" ? "circle-check" : outcome == "changes-requested" ? "circle-x" : "circle-dashed"
+// REVIEW_OUTCOME_PRESENTATION fillClassName: the avatar badge's fill.
+fn prsOutcomeFill(outcome: string): string = outcome == "approved" ? "light-dark(#00bc7d, #00d492)" : outcome == "changes-requested" ? "light-dark(#e40014, #ff6467)" : "light-dark(#71717b, #a1a1a1)"
 fn prsBadgeBg(outcome: string): string = outcome == "approved" ? "light-dark(#00bc7d14, #00bc7d29)" : outcome == "changes-requested" ? "light-dark(#fb2c3614, #fb2c3629)" : "light-dark(#ffffff, #ffffff0a)"
 fn prsBadgeInk(outcome: string): string = outcome == "approved" ? "light-dark(#007a55, #00d492)" : outcome == "changes-requested" ? "light-dark(#c10007, #ff6467)" : "light-dark(#18181b, #f5f5f5)"
 
@@ -206,7 +211,7 @@ component PrdSummary
       column id=`${scrollId}-description` width="100%" role="region" aria-label="Description"
         PrdSectionHeader(id=`${scrollId}-description-heading`, label="Description", open=descriptionOpen, still=still, press=toggle("description"), testId="pull-request-description-toggle")
         column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" display=(descriptionOpen ? "flex" : "none") testId="pull-request-description"
-          PrdDescription(bodyId=(hasBody ? bodyId : ""), raw=writes.rawBody, canEdit=writes.canEditChange, saving=writes.bodySaving, serial=writes.bodySerial, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act)
+          PrdDescription(term=writes.term, bodyId=(hasBody ? bodyId : ""), raw=writes.rawBody, canEdit=writes.canEditChange, saving=writes.bodySaving, serial=writes.bodySerial, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act)
       column id=`${scrollId}-checks` width="100%" role="region" aria-label="Checks"
         PrdSectionHeader(id=`${scrollId}-checks-heading`, label="Checks", open=checksOpen, still=still, press=toggle("checks"), testId="pull-request-checks-toggle")
         if checksOpen
@@ -228,10 +233,10 @@ component PrdSummary
         if commentsOpen
           column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" testId="pull-request-comments"
             if summary.activityPending
-              PrdConversationGhost(still=still)
+              PrdConversationGhost(term=summary.term.singular, still=still)
             else
               if summary.activityError != ""
-                PrdActivityUnavailable(error=summary.activityError, compact=true, retry=retry)
+                PrdActivityUnavailable(error=summary.activityError, term=summary.term.singular, compact=true, retry=retry)
               else
                 if summary.truncated
                   text summary.truncatedText margin-bottom="0.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a004d, #fe9a004d)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.75rem" line-height="1rem" color=prsInk() testId="pull-request-comments-truncated"
@@ -258,15 +263,20 @@ component PrdSummary
                     if shown > 10
                       PrdWideButton(label="Show only 10 recent conversations", outline=false, press=fewer, testId="pull-request-comments-fewer")
 
-// A reviewer's face in the stack (-space-x-1): the verdict rides it as a ring, its words for a
-// screen reader and in the tooltip ("<name> — <outcome>").
+// A reviewer's face in the stack (-space-x-1): the verdict rides it as a ring and, since a ring alone blends into a
+// colourful bot avatar, as its glyph at the face's corner (PullRequestReviewOutcomeAvatarBadge: 12pt, 4pt past the
+// bottom right, the outcome's fill with a background stroke of 3, half opacity when stale); its words for a screen
+// reader and in the tooltip ("<name>: <outcome>").
 component PrdReviewerFace
   props
     reviewer: PrReviewerEntry
   view
     Tip(label=reviewer.tooltip, side="bottom", align="center", offset=20)
-      box margin-left="-0.25rem" border-radius="624.9375rem" box-shadow=prsRing(reviewer.outcome, reviewer.stale) role="img" aria-label=(reviewer.outcomeText == "" ? reviewer.login : `${reviewer.login}, ${reviewer.outcomeText}`) testId=`pull-request-reviewer-${reviewer.key}`
+      box position="relative" margin-left="-0.25rem" border-radius="624.9375rem" box-shadow=prsRing(reviewer.outcome, reviewer.stale) role="img" aria-label=(reviewer.outcomeText == "" ? reviewer.login : `${reviewer.login}, ${reviewer.outcomeText}`) testId=`pull-request-reviewer-${reviewer.key}`
         PrAvatar(avatar=reviewer.avatar, initial=reviewer.initial, size=16)
+        if reviewer.outcome != ""
+          svg position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#fcfcfc, #000000)" fill=prsOutcomeFill(reviewer.outcome) stroke="currentColor" stroke-width=3 stroke-linecap="round" stroke-linejoin="round" opacity=(reviewer.stale ? 0.5 : 1) aria-hidden=true testId=`pull-request-reviewer-badge-${reviewer.key}`
+            path d=pgPath(prsOutcomeIcon(reviewer.outcome)) fill=prsOutcomeFill(reviewer.outcome)
 
 // Section: a sticky 40pt heading (the label and a chevron that turns), then its body; heading
 // controls sit beside the trigger, not inside it.
@@ -581,11 +591,13 @@ component PrdMoreReplies
 component PrdActivityUnavailable
   props
     error: string
+    // The host's word for a change request, as in "pull request".
+    term: string
     compact: bool
     retry: action
   view
     column width="100%" min-height=(compact ? "auto" : "12rem") padding-left=(compact ? 0 : "1rem") padding-right=(compact ? 0 : "1rem") padding-top=(compact ? "0.75rem" : "2.5rem") padding-bottom=(compact ? "0.75rem" : "2.5rem") box-sizing="border-box" align-items="center" justify-content="center" gap="0.5rem" role="alert" testId=(compact ? "pull-request-activity-error-compact" : "pull-request-activity-error")
-      text "Could not load pull request activity" text-align="center" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=prsInk()
+      text `Could not load ${term} activity` text-align="center" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=prsInk()
       text error max-width="28rem" text-align="center" font-size="0.75rem" line-height="1rem" color=prsMuted()
       PrdRetry(retry=retry)
 
@@ -610,9 +622,10 @@ keyframes prgPulse
   to opacity=1
 component PrdConversationGhost
   props
+    term: string
     still: bool
   view
-    column width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="1rem" role="status" aria-label="Loading pull request conversation" animation=(still ? "none" : "prgPulse 2.4s steps(4) infinite") testId="pull-request-conversation-ghost"
+    column width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="1rem" role="status" aria-label=`Loading ${term} conversation` animation=(still ? "none" : "prgPulse 2.4s steps(4) infinite") testId="pull-request-conversation-ghost"
       PrdGhostRemark(meta="40%")
       PrdGhostRemark(meta="33%")
       PrdGhostRemark(meta="40%")

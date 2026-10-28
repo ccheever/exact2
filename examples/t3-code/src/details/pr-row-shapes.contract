@@ -44,6 +44,8 @@ shape PrRowExtra
 shape MergeAsk
   open: bool
   number: number
+  // "Merge pull request?", in the host's term.
+  title: string
   description: string
   target: string
   pending: bool
