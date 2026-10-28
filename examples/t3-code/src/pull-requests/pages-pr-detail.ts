@@ -166,7 +166,8 @@ const due = (panel: Panel) => panel.detailDue || (panel.activityDue && !!(panel.
 const messageOf = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'The environment request failed.');
 
 /** `returns`: the window focused again (app.contract `windowReturned`, which reads the clock then). */
-export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number; tab?: string; page?: boolean; linkTick?: number; preview?: string; guideActive?: boolean };
+/** `shown`: the detail is drawn (the page's panel open, or a thread's surface), which the checks timer needs. */
+export type DetailInput = { selected: string; refresh: number; now: number; visible?: boolean; returns?: number; tab?: string; page?: boolean; linkTick?: number; preview?: string; guideActive?: boolean; shown?: boolean };
 export async function pullRequestDetail(client: T3Client, native: Native | null | undefined, input: DetailInput, storage?: Files): Promise<PrDetailView> {
   const view = emptyDetail();
   view.md = markdownEnv(client); view.diffScheme = diffSchemeOf(client);
@@ -292,12 +293,13 @@ function serverReportsChecks(client: T3Client, ref: Obj): boolean {
 }
 /**
  * usePullRequestChecksRefresh's timer (pull-requests-members.contract `prChecksTick`): on while the open pull request's
- * checks are read again, every 45 s while runs are pending (or none are reported) and 60 s once they settle; off in a
- * hidden window, once the reader has been idle for six minutes (useLiveRefresh), and for a host that reports no checks.
+ * checks are read again, every 45 s while runs are pending (or none are reported) and 60 s once they settle; off while
+ * the detail is not drawn, in a hidden window, once the reader has been idle for six minutes (useLiveRefresh), and for a
+ * host that reports no checks.
  */
 function checksPollOf(client: T3Client, panel: Panel | null, selection: PrSelection, input: DetailInput | undefined): '' | 'pending' | 'settled' {
   const detail = panel?.detail;
-  if (!detail || !input || detail.state !== 'open' || panel!.checksNone || input.visible === false || readerIdle(client, input.now) || !serverReportsChecks(client, selectionRef(selection))) return '';
+  if (!detail || !input || detail.state !== 'open' || panel!.checksNone || input.visible === false || input.shown === false || readerIdle(client, input.now) || !serverReportsChecks(client, selectionRef(selection))) return '';
   return checksRefreshIntervalMs(arr(detail.checks)) === 45_000 ? 'pending' : 'settled';
 }
 /** How early a timer tick may land and still count as the interval come round. */
@@ -309,7 +311,7 @@ const CHECKS_TICK_SLACK_MS = 1_000;
 async function readChecks(client: T3Client, native: Native, panel: Panel, ref: Obj, input: DetailInput): Promise<void> {
   const detail = panel.detail;
   if (!detail || panel.checksNone || !serverReportsChecks(client, ref)) return;
-  const interval = detail.state === 'open' && input.visible !== false && !readerIdle(client, input.now)
+  const interval = detail.state === 'open' && input.visible !== false && input.shown !== false && !readerIdle(client, input.now)
     && input.now - panel.checksAt >= checksRefreshIntervalMs(arr(detail.checks)) - CHECKS_TICK_SLACK_MS;
   if (!panel.checksDue && !interval) return;
   panel.checksDue = false; panel.checksAt = input.now;

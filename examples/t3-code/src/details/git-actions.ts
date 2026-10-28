@@ -20,6 +20,7 @@ import {
   quickAction, quickActionIcon, requiresDefaultBranchConfirmation, sortedPublishProviders, terminology, workingFiles, workingTreeRoot,
 } from './git-logic';
 import { letGo } from '../client/let-go';
+import { formatDiffCount } from './diff-count';
 
 export const GIT_ACTION_KEY = 'git-action';
 export const SUCCESS_VISIBLE_MS = 10_000;
@@ -339,8 +340,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
     writable, repo: status?.isRepo !== false,
     // quietEmptyDraft: a draft or a run-less thread with nothing to commit, push or diff shows neither the Git action nor Changes.
     quiet: unstarted && !progress && !error && quick.disabled && !insertions && !deletions,
-    // formatDiffCount: the counts grouped as the system's locale writes them ("+1,234" in English).
-    changesAdd: `+${insertions.toLocaleString()}`, changesDel: `-${deletions.toLocaleString()}`,
+    changesAdd: `+${formatDiffCount(insertions)}`, changesDel: `-${formatDiffCount(deletions)}`,
     initLabel: state.initPending ? 'Initializing...' : 'Initialize Git', initPending: state.initPending,
     quickLabel: quick.label, quickIcon: quickActionIcon(quick, status), quickDisabled: !writable || quick.disabled, quickHint: quick.disabled ? (quick.hint ?? 'This action is currently unavailable.') : '',
     progress: !!progress, progressStatus: progress?.status ?? '', progressOutput: progress?.output ?? '', progressElapsed: progress ? (progress.startedAt > 0 ? formatElapsed(progress.startedAt, now) : '0s') : '',

@@ -11,6 +11,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { contractComponent } from '../support/contract-action-fixture';
+import { adoptHostLocale } from '../../src/shared/timestamp-format';
 
 const status = (extra: Obj = {}): Obj => ({ isRepo: true, hasPrimaryRemote: true, isDefaultRef: false, refName: 'feature', hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 }, hasUpstream: true, aheadCount: 0, behindCount: 0, pr: null, ...extra });
@@ -215,11 +216,15 @@ describe('the card\'s Git rows (GitActionsControl panel)', () => {
     expect([rows.drawn('testId="details-git-group"', rows.state(), scope(true)), rows.drawn('GitChanges(details=details', rows.state(), scope(true))]).toEqual([false, false]);
     expect([rows.drawn('testId="details-git-group"', rows.state(), scope(false)), rows.drawn('GitChanges(details=details', rows.state(), scope(false))]).toEqual([true, true]);
   });
-  test('Changes counts the branch\'s lines where the server reports them, grouped as the system\'s locale writes them (formatDiffCount)', () => {
-    const grouped = (count: number) => new Intl.NumberFormat().format(count);
-    expect(gitCardView(client, status({ workingTree: { files: [], insertions: 1234, deletions: 0 } }), '', '/repo', 100)).toMatchObject({ changesAdd: `+${grouped(1234)}`, changesDel: '-0' });
-    expect(gitCardView(client, status({ workingTree: { files: [], insertions: 9, deletions: 9 }, branchChanges: { insertions: 12_500, deletions: 3 } }), '', '/repo', 100))
-      .toMatchObject({ changesAdd: `+${grouped(12_500)}`, changesDel: '-3' });
+  test('Changes counts the branch\'s lines where the server reports them, grouped as the reference\'s runtime locale writes them (formatDiffCount)', () => {
+    // The packaged reference ships only en-US (scripts/build-desktop-artifact.ts DESKTOP_ELECTRON_LANGUAGES), so its default
+    // locale is en-US on every Mac: a German region (the host's format locale) still reads "1,234".
+    adoptHostLocale('de-DE');
+    try {
+      expect(gitCardView(client, status({ workingTree: { files: [], insertions: 1234, deletions: 0 } }), '', '/repo', 100)).toMatchObject({ changesAdd: '+1,234', changesDel: '-0' });
+      expect(gitCardView(client, status({ workingTree: { files: [], insertions: 9, deletions: 9 }, branchChanges: { insertions: 12_500, deletions: 3 } }), '', '/repo', 100))
+        .toMatchObject({ changesAdd: '+12,500', changesDel: '-3' });
+    } finally { adoptHostLocale(null); }
   });
   test('a split pair keeps its fill while its menu is open (data-popup-open): the branch picker, the options and Run on', () => {
     const rows = contractComponent('git.contract', 'GitRows'), state = rows.state(), fill = 'light-dark(#0000000e, #ffffff13)', clear = '#00000000';

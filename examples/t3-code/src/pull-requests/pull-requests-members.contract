@@ -13,14 +13,18 @@ members T3Code
   resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns) as shape PrListView
   // usePullRequestChecksRefresh: while the open pull request's checks are read again (prDetail.checksPoll), a tick every
   // 45 s while runs are pending and 60 s once they settle moves the clock prDetail reads, as providerNow does in app.contract.
+  // The timer runs only while the detail is drawn: the page's panel open and Settings not over the page, or a thread's
+  // surface, which Settings leaves mounted (PullRequestsPage unmounts the panel, _chat.tsx the page). It starts again for
+  // another pull request (useLiveRefresh's key).
+  derive prChecksShown = (utilityPage == "pull-requests" and prPanelOpen and not settingsOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request")
   state prChecksNow = 0
   action prChecksTick
     prChecksNow = performanceNow()
-  task prChecksPending when prDetail.checksPoll == "pending"
+  task prChecksPending when prDetail.checksPoll == "pending" and prChecksShown key=prDetail.ref
     every(45000, prChecksTick)
-  task prChecksSettled when prDetail.checksPoll == "settled"
+  task prChecksSettled when prDetail.checksPoll == "settled" and prChecksShown key=prDetail.ref
     every(60000, prChecksTick)
-  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + max(elapsed, prChecksNow), data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 5000), page.visibilityState == "visible" and not settingsOpen and ((utilityPage == "pull-requests" and prPanelOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request"))) as shape PrDetailView // the page, the linked threads' 10 s tick
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + max(elapsed, prChecksNow), data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 5000), page.visibilityState == "visible" and not settingsOpen and ((utilityPage == "pull-requests" and prPanelOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request")), prChecksShown) as shape PrDetailView // the page, the linked threads' 10 s tick
   task guideDisabled when prDetail.phase == "content" and prTab == "guide" and not prDetail.guide.enabled
     after(1, guideFallback)
   // An unavailable tab falls back to the Summary without becoming the surface's remembered tab.

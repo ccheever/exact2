@@ -8,12 +8,13 @@
 import { describe, expect, test } from 'bun:test';
 import { contractComponent, value } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
-import type { Obj } from '../../src/client/domain';
-import { PREFERENCE_PATH, type Files, type Native } from '../../src/client/protocol';
+import { initialShell, type Obj } from '../../src/client/domain';
+import { ClientError, PREFERENCE_PATH, type Files, type Native } from '../../src/client/protocol';
+import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { T3Client } from '../../src/client/client';
 import { storage } from '../support/composer-controls-fixture';
 import { checksRefreshIntervalMs, resolvePullRequestDetailChecks, PULL_REQUEST_ACTIONS } from '../../src/details/pr-row-logic';
-import { readDetail, forgetDetails } from '../../src/details/pr-row-actions';
+import { readDetail, forgetDetails, rowChecksPoll } from '../../src/details/pr-row-actions';
 import { observePullRequestChecks, observePullRequestSummary, sharedPullRequestSummary } from '../../src/pull-requests/pages-pr-shared';
 import { noteInteraction, PR_REFRESH_KEY, prRefreshEvent, rememberListAnswer } from '../../src/pull-requests/pages-pr-refresh';
 import { pagesSource } from '../../src/pages/pages-sources';
@@ -249,17 +250,27 @@ const root = contractComponent('app.contract', 'T3Code');
 const rootLines = appText('app.contract').split('\n');
 const declared = (prefix: string) => rootLines.map(line => line.trim()).find(line => line.startsWith(prefix))!;
 const detailCall = (() => { const line = declared('resource prDetail = '); return line.slice('resource prDetail = '.length, line.indexOf(' as shape PrDetailView')); })();
-/** A gated task's gate and the interval its body arms. */
-const timer = (name: string) => {
+/** A gated task's gate, its key and the interval its body arms. */
+const timer = (name: string, tick = 'prChecksTick') => {
   const at = rootLines.findIndex(line => line.trim().startsWith(`task ${name} when `));
-  return { gate: rootLines[at]!.trim().slice(`task ${name} when `.length), every: Number(/every\((\d+), prChecksTick\)/.exec(rootLines[at + 1]!)![1]) };
+  const [gate, key] = rootLines[at]!.trim().slice(`task ${name} when `.length).split(' key=');
+  return { gate: gate!, key: key!, every: Number(new RegExp(`every\\((\\d+), ${tick}\\)`).exec(rootLines[at + 1]!)![1]) };
 };
+/** A members derive's expression. */
+const derived = (name: string) => declared(`derive ${name} = `).slice(`derive ${name} = `.length);
 const clock = { elapsed: 0, prChecksNow: 0 };
+/** The root's state the prDetail resource and the checks timer read: the Pull requests page with its panel open. */
+const pageScope = { utilityPage: 'pull-requests', prSelected: selected, shell: { panel: { pr: { selected: '' }, open: false, kind: '' } }, prRefresh: 1, wallTime: { epochAtZero: 0 },
+  data: { revision: 0 }, page: { visibilityState: 'visible' }, windowReturns: 0, prTab: 'summary', liveNow: 0, settingsOpen: false, prPanelOpen: true, max: Math.max, floor: Math.floor };
+/** Whether the timer runs: its gate over the root's state, with prChecksShown as the members derive it. */
+const runs = (name: string, view: unknown, scope: Obj = {}) => {
+  const env = { ...pageScope, ...scope, prDetail: view };
+  return value(timer(name).gate, { ...env, prChecksShown: value(derived('prChecksShown'), env) });
+};
 /** The runner asking prDetail on the root's clock (`elapsed`, the minute tick; `prChecksNow`, the checks timer). */
 async function askOnClock(client: T3Client, scope: Obj = {}) {
-  const args = value(detailCall, { utilityPage: 'pull-requests', prSelected: selected, shell: { panel: { pr: { selected: '' }, open: false, kind: '' } }, prRefresh: 1,
-    wallTime: { epochAtZero: 0 }, data: { revision: 0 }, page: { visibilityState: 'visible' }, windowReturns: 0, prTab: 'summary', liveNow: 0, settingsOpen: false,
-    prPanelOpen: true, max: Math.max, floor: Math.floor, prDetail: (...values: unknown[]) => values, ...clock, ...scope }) as unknown[];
+  const env = { ...pageScope, ...clock, ...scope };
+  const args = value(detailCall, { ...env, prChecksShown: value(derived('prChecksShown'), env), prDetail: (...values: unknown[]) => values }) as unknown[];
   let seen = wakes, view = await pagesSource(client, native, 'prDetail', args) as Awaited<ReturnType<typeof pullRequestDetail>>;
   for (let asked = 0; wakes > seen && asked < 8; asked++) { seen = wakes; view = await pagesSource(client, native, 'prDetail', args) as typeof view; }
   return view;
@@ -279,7 +290,7 @@ describe('the PR page reads its checks as the details row does (usePullRequestDe
     // Pending runs arm the 45 s timer, not the settled one.
     const pending = timer('prChecksPending'), settled = timer('prChecksSettled');
     expect([pending.every, settled.every]).toEqual([45_000, 60_000]);
-    expect([value(pending.gate, { prDetail: view }), value(settled.gate, { prDetail: view })]).toEqual([true, false]);
+    expect([runs('prChecksPending', view), runs('prChecksSettled', view)]).toEqual([true, false]);
     // Another ask before the timer comes round (a data revision on the same clock) reads nothing.
     await askOnClock(client, { data: { revision: 1 } });
     expect(count('pullRequests.checks')).toBe(1);
@@ -288,7 +299,7 @@ describe('the PR page reads its checks as the details row does (usePullRequestDe
     view = await askOnClock(client);
     expect(count('pullRequests.checks')).toBe(2);
     expect([view.checksSummary, view.checksTone]).toEqual(['All checks passed', 'passing']);
-    expect([value(pending.gate, { prDetail: view }), value(settled.gate, { prDetail: view })]).toEqual([false, true]);
+    expect([runs('prChecksPending', view), runs('prChecksSettled', view)]).toEqual([false, true]);
     // The minute clock coming round 15 s later reads nothing; the settled timer's tick does.
     clock.elapsed = 61_000;
     await askOnClock(client);
@@ -303,6 +314,39 @@ describe('the PR page reads its checks as the details row does (usePullRequestDe
     await askOnClock(client, { prRefresh: 2 });
     expect([count('pullRequests.detail'), count('pullRequests.checks')]).toEqual([3, 4]);
     expect([checksRefreshIntervalMs([]), checksRefreshIntervalMs([{ status: 'action-required' }]), checksRefreshIntervalMs([{ status: 'success' }])]).toEqual([45_000, 45_000, 60_000]);
+  });
+  test('the timer runs only while the detail is drawn: not with the page\'s panel closed or Settings over the page; a thread\'s surface keeps it under Settings', async () => {
+    const { client, count } = fakeClient(defaults({ 'pullRequests.detail': () => detail({ checks: [{ name: 'ci/build', status: 'pending' }] }) }));
+    Object.assign(clock, { elapsed: 1_000, prChecksNow: 0 });
+    const shown = await askOnClock(client);
+    expect([shown.checksPoll, runs('prChecksPending', shown), count('pullRequests.checks')]).toEqual(['pending', true, 1]);
+    // The panel closed (prTogglePanel keeps the selection): no timer, and the clock coming round reads nothing.
+    const closed = { prPanelOpen: false };
+    tick(1_000 + 45_000);
+    const hidden = await askOnClock(client, closed);
+    expect([hidden.checksPoll, runs('prChecksPending', hidden, closed), count('pullRequests.checks')]).toEqual(['', false, 1]);
+    // Settings over the page leaves utilityPage on it.
+    const settings = { settingsOpen: true };
+    tick(1_000 + 90_000);
+    expect([(await askOnClock(client, settings)).checksPoll, count('pullRequests.checks')]).toEqual(['', 1]);
+    // A thread's pull request surface stays mounted under Settings, as the thread does.
+    const surface = { utilityPage: '', settingsOpen: true, shell: { panel: { pr: { selected }, open: true, kind: 'pull-request' } } };
+    tick(1_000 + 135_000);
+    const thread = await askOnClock(client, surface);
+    expect([thread.checksPoll, runs('prChecksPending', thread, surface), count('pullRequests.checks')]).toEqual(['pending', true, 2]);
+  });
+  test('the timer starts again for another pull request (useLiveRefresh\'s key)', async () => {
+    const { client } = fakeClient(defaults({ 'pullRequests.detail': payload => detail({ number: payload.number, url: `https://github.com/lane/sandbox/pull/${String(payload.number)}`, checks: [{ name: 'ci/build', status: 'pending' }] }) }));
+    Object.assign(clock, { elapsed: 1_000, prChecksNow: 0 });
+    const seven = await askOnClock(client);
+    const eight = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 8 });
+    const other = await askOnClock(client, { prSelected: eight });
+    for (const name of ['prChecksPending', 'prChecksSettled']) {
+      const { key } = timer(name);
+      expect(key).toBe('prDetail.ref');
+      expect([value(key, { prDetail: seven }), value(key, { prDetail: other })]).toEqual([seven.ref, other.ref]);
+    }
+    expect(seven.ref).not.toBe(other.ref);
   });
   test('the timer stops once the reader has been idle for six minutes and comes back with them (useLiveRefresh)', async () => {
     const { client, count } = fakeClient(defaults({ 'pullRequests.detail': () => detail({ checks: [{ name: 'ci/build', status: 'pending' }] }) }));
@@ -350,34 +394,66 @@ describe('the PR page reads its checks as the details row does (usePullRequestDe
   });
 });
 
+/** The card's row in a visible window (prRowsView's `poll`). */
+const visibleRow = { visible: true };
 describe('the details row merges a checks answer as the PR page does', () => {
   test('only the state and the checks, never undoing merged, and not when the detail is newer', async () => {
     let checksReply: Obj = { state: 'open', observedAt: 50, checks: [{ name: 'test', status: 'failure' }] };
     const { client } = fakeClient(defaults({ 'pullRequests.detail': () => detail({ number: 104, observedAt: 100, checks: [{ name: 'test', status: 'pending' }] }), 'pullRequests.checks': () => checksReply }));
     const ref = { projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 104 };
-    expect((await readDetail(client, native, ref, 1_000))?.checks).toEqual([{ name: 'test', status: 'pending' }]);
+    expect((await readDetail(client, native, ref, 1_000, visibleRow))?.checks).toEqual([{ name: 'test', status: 'pending' }]);
     checksReply = { state: 'merged', observedAt: 150, checks: [{ name: 'test', status: 'success' }] };
-    const polled = await readDetail(client, native, ref, 1_000 + 45_000);
+    const polled = await readDetail(client, native, ref, 1_000 + 45_000, visibleRow);
     expect([polled?.state, polled?.title, polled?.checks]).toEqual(['merged', 'Add a changelog', [{ name: 'test', status: 'success' }]]);
     checksReply = { state: 'open', observedAt: 200, checks: [{ name: 'test', status: 'success' }] };
-    expect((await readDetail(client, native, ref, 1_000 + 45_000 + 60_000))?.state).toBe('merged');
+    expect((await readDetail(client, native, ref, 1_000 + 45_000 + 60_000, visibleRow))?.state).toBe('merged');
     forgetDetails(client);
   });
   test('a host whose checks answer is null is not polled again; a failed read is (ThreadDetailsPrRow isSettledWithoutChecks)', async () => {
     let fail = true;
     const failing = fakeClient(defaults({ 'pullRequests.detail': () => detail({ number: 105, checks: [] }), 'pullRequests.checks': () => { if (fail) throw new Error('GitHub API rate limit exceeded'); return { state: 'open', checks: [] }; } }));
     const ref = { projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 105 };
-    await readDetail(failing.client, native, ref, 1_000);
+    await readDetail(failing.client, native, ref, 1_000, visibleRow);
     fail = false;
-    await readDetail(failing.client, native, ref, 1_000 + 45_000);
+    await readDetail(failing.client, native, ref, 1_000 + 45_000, visibleRow);
     expect(failing.count('pullRequests.checks')).toBe(2);
     forgetDetails(failing.client);
     const none = fakeClient(defaults({ 'pullRequests.detail': () => detail({ number: 105, checks: [] }), 'pullRequests.checks': () => null }));
-    await readDetail(none.client, native, ref, 1_000);
-    await readDetail(none.client, native, ref, 1_000 + 45_000);
-    await readDetail(none.client, native, ref, 1_000 + 105_000);
+    await readDetail(none.client, native, ref, 1_000, visibleRow);
+    await readDetail(none.client, native, ref, 1_000 + 45_000, visibleRow);
+    await readDetail(none.client, native, ref, 1_000 + 105_000, visibleRow);
     expect(none.count('pullRequests.checks')).toBe(1);
     forgetDetails(none.client);
+  });
+  test('the row polls on its own timer as the page does: 45 s pending, 60 s settled, not in a hidden window or for an idle reader', async () => {
+    const { client, count } = fakeClient(defaults({ 'pullRequests.detail': () => detail({ number: 106, checks: [{ name: 'test', status: 'pending' }] }) }));
+    const ref = { projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 106 };
+    noteInteraction(client, 1_000, false);
+    await readDetail(client, native, ref, 1_000, visibleRow);
+    expect([rowChecksPoll(client, ref, 1_000, true), rowChecksPoll(client, ref, 1_000, false)]).toEqual(['pending', '']);
+    // A hidden window reads nothing; a visible one reads at the tick.
+    await readDetail(client, native, ref, 1_000 + 45_000, { visible: false });
+    expect(count('pullRequests.checks')).toBe(1);
+    await readDetail(client, native, ref, 1_000 + 45_000, visibleRow);
+    expect(count('pullRequests.checks')).toBe(2);
+    // Six idle minutes stop it.
+    await readDetail(client, native, ref, 1_000 + 6 * 60_000, visibleRow);
+    expect([count('pullRequests.checks'), rowChecksPoll(client, ref, 1_000 + 6 * 60_000, true)]).toEqual([2, '']);
+    forgetDetails(client);
+    // shell-members.contract's row timer: its gates and key over the card's rows, its tick into the clock the card reads.
+    const rows = (checksPoll: string) => ({ prRows: { checksPoll, checksKey: 'k' } });
+    const pending = timer('prRowChecksPending', 'prRowChecksTick'), settled = timer('prRowChecksSettled', 'prRowChecksTick');
+    expect([pending.every, settled.every, pending.key, settled.key]).toEqual([45_000, 60_000, 'details.prRows.checksKey', 'details.prRows.checksKey']);
+    expect([value(pending.gate, { details: rows('pending') }), value(settled.gate, { details: rows('pending') }), value(settled.gate, { details: rows('settled') }), value(pending.gate, { details: rows('') })])
+      .toEqual([true, false, true, false]);
+    const state = { prRowChecksNow: 0 };
+    root.call('prRowChecksTick', state, { performanceNow: () => 46_000 }, []);
+    const detailsCall = (() => { const line = declared('resource details = '); return line.slice('resource details = '.length, line.indexOf(' as shape ShellDetails')); })();
+    const args = value(detailsCall, { shellDetails: (...values: unknown[]) => values, detailsShown: true, data: { threadId: 't1', revision: 0, sidebarOpen: false }, conversationWidth: 800, wallTime: { epochAtZero: 0 },
+      shellClock: 30_000, prRowChecksNow: state.prRowChecksNow, viewport: { width: 1280 }, sidebarWidth: 0, page: { hasFocus: false, visibilityState: 'visible' }, lineageWorkflows: [], lineagePhasesOpen: [],
+      lineagePhasesClosed: [], max: Math.max, floor: Math.floor }) as unknown[];
+    // The card's clock is the later of the shell's and the row timer's; the window counts as visible without the focus.
+    expect([args[4], args[6], args[10]]).toEqual([46_000, false, true]);
   });
 });
 
@@ -485,6 +561,22 @@ describe('the Pull Requests list across a relaunch and beside its panel (PullReq
     const file = JSON.parse(new TextDecoder().decode(await disk.fs.readFile(PREFERENCE_PATH))) as { prListAnswers: { scopes: Record<string, Record<string, { entries: Obj[] }>> } };
     const scopes = Object.values(file.prListAnswers.scopes);
     expect([scopes.length, scopes[0]![relaunched.client.environmentId]!.entries.map(entry => entry.number)]).toEqual([1, [9]]);
+  });
+  test('each server\'s answer is written as it lands: a read let go at the next server keeps the first on disk', async () => {
+    const disk = storage();
+    const entry = { key: 'http://127.0.0.1:16551\nenv-b', origin: 'http://127.0.0.1:16551', environmentId: 'env-b', phase: 'connected', message: '', traceId: '', generation: 4, synchronized: 4,
+      lastEvent: 0, subscriptions: {}, config: { environment: { label: 'Lane B', capabilities: { pullRequests: true } } }, scopes: ['orchestration:read'], error: '', requested: true,
+      shell: { ...initialShell(), projects: [{ id: 'b1', title: 'other', workspaceRoot: '/b', repositoryIdentity: { provider: 'github', canonicalKey: 'github.com/lane/other' } }] } } as unknown as FleetEntry;
+    fleet.entries.set(entry.key, entry);
+    try {
+      const { client, page } = listFixture([row(7)], { 'pullRequests.list': payload => {
+        if (payload.environmentId === 'env-b') throw new ClientError('The answer was let go.', 'superseded');
+        return { entries: [row(7)], viewers: {} };
+      } });
+      await expect(page({}, disk)).rejects.toThrow('let go');
+      const file = JSON.parse(new TextDecoder().decode(await disk.fs.readFile(PREFERENCE_PATH))) as { prListAnswers: { scopes: Record<string, Record<string, { entries: Obj[] }>> } };
+      expect(Object.values(file.prListAnswers.scopes).map(scope => Object.keys(scope))).toEqual([[client.environmentId]]);
+    } finally { fleet.entries.delete(entry.key); }
   });
   test('a row the list could not measure takes the +/- of the pull request open beside it', async () => {
     const unmeasured = row(7, { additions: 0, deletions: 0 });

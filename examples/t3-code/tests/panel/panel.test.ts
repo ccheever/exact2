@@ -333,6 +333,19 @@ describe('Linked pull requests', () => {
     expect(labels(chained(number => `https://gitlab.com/o/r/-/merge_requests/${number}`))).toEqual(['2 merge requests chained by base branch.', '']);
     expect(labels(chained(number => `https://example.com/o/r/changes/${number}`))[0]).toBe('2 change requests chained by base branch.');
   });
+  test('a row\'s quick actions are its host\'s, by the registry; a link no host claims has none (ThreadPullRequestsPanel linkHost)', () => {
+    const { client } = fakeClient();
+    const speed = (url: string, snapshot: Record<string, unknown>) => {
+      (client.shell.threads[0] as { pullRequests: unknown[] }).pullRequests = [link(9, { headBranch: 'h', baseBranch: 'main', ...snapshot }, { url })];
+      return prsView(client, 0).rows[0]!.speed.map(action => action.action);
+    };
+    expect(speed('https://github.com/o/r/pull/9', { state: 'open' })).toEqual(['close', 'merge']);
+    // GitHub's route alone does not make an unknown host GitHub.
+    expect(speed('https://example.com/o/r/changes/9', { state: 'open' })).toEqual([]);
+    // GitCafe's staging host claims `/pulls/` before Forgejo, and GitCafe offers Ready on a draft.
+    expect(speed('https://staging.git.cafe/o/r/pulls/3', { state: 'open', isDraft: true })).toEqual(['close', 'ready']);
+    expect(speed('https://codeberg.org/o/r/pulls/3', { state: 'open', isDraft: true })).toEqual(['close']);
+  });
   test('rows carry watch state, waiting links and the footer; watch and unlink are orchestration commands', async () => {
     const watched = link(4, { title: 'Watched', state: 'open', isDraft: false, headBranch: 'h', baseBranch: 'main', updatedAt: '2026-10-04T00:00:00.000Z', syncedAt: '2026-10-04T00:00:00.000Z', additions: 3, deletions: 1, author: { login: 'octo' } }, { watch: { since: 'x' } });
     const { client, calls } = fakeClient();

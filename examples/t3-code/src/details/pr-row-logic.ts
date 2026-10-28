@@ -17,6 +17,7 @@ import { MONO12, emptyBreakdown, type BreakdownLine, type PrBreakdown } from '..
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { sourceControlHosts } from '../shared/source-control-hosts';
 import { capitalizeTerm, terminologyForUrl, type Terminology } from './git-logic';
+import { formatDiffCount } from './diff-count';
 
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
 const names = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : []);
@@ -354,8 +355,8 @@ export function prCard(detail: Obj, lifecycleKey: string, room: number, breakdow
     branches: `${str(detail.baseBranch)} ← ${str(detail.headBranch)}`,
     checksShown: state === 'open' && rollup !== 'none', checksStatus: rollup === 'failing' ? 'failure' : rollup === 'pending' ? 'pending' : 'success', checksText: describeChecks(checks),
     conflictText: detail.isDraft === true && conflicting ? `Merge conflicts with ${str(detail.baseBranch)}` : '',
-    files: `${changed.toLocaleString('en-US')} ${changed === 1 ? 'file' : 'files'}`,
-    additions: additions === 0 && deletions === 0 ? '' : `+${additions.toLocaleString('en-US')}`, deletions: additions === 0 && deletions === 0 ? '' : `-${deletions.toLocaleString('en-US')}`,
+    files: `${formatDiffCount(changed)} ${changed === 1 ? 'file' : 'files'}`,
+    additions: additions === 0 && deletions === 0 ? '' : `+${formatDiffCount(additions)}`, deletions: additions === 0 && deletions === 0 ? '' : `-${formatDiffCount(deletions)}`,
     breakdown: additions === 0 && deletions === 0 ? emptyBreakdown() : breakdown, flipped: false, width: 0, height: 0,
   };
   const diff = card.additions ? 4 + width12(card.additions) + 4 + width12(card.deletions) : 0;

@@ -209,11 +209,11 @@ describe('host effects (usePullRequestActionRunner, usePullRequestHandoffs)', ()
     replies['pullRequests.detail'] = () => detail({ checks: [check('test', 'pending')] });
     let checks = [check('test', 'pending')];
     replies['pullRequests.checks'] = () => ({ state: 'open', checks });
-    await readDetail(client, native, ref104, 1000);
-    await readDetail(client, native, ref104, 40_000);
+    await readDetail(client, native, ref104, 1000, { visible: true });
+    await readDetail(client, native, ref104, 40_000, { visible: true });
     expect(calls.filter(call => call.method === 'pullRequests.checks').length).toBe(1);
     checks = [check('test', 'success')];
-    expect(arr((await readDetail(client, native, ref104, 46_000))!.checks)[0]).toMatchObject({ status: 'success' });
+    expect(arr((await readDetail(client, native, ref104, 46_000, { visible: true }))!.checks)[0]).toMatchObject({ status: 'success' });
     expect(calls.filter(call => call.method === 'pullRequests.detail').length).toBe(1);
     await readDetail(client, native, ref104, 1000 + 10 * 60_000);
     expect(calls.filter(call => call.method === 'pullRequests.detail').length).toBe(2);

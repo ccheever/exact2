@@ -33,7 +33,7 @@ const CLAIMS: Claim[] = [
   { kind: 'azure-devops', route: /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u, authority: url => url.port !== '' },
 ];
 /** The first host, in the registry's claim order, that reads `target` as one of its change requests. */
-function claimChangeRequestUrl(target: string): { kind: string; link: ChangeRequestLink } | null {
+export function claimChangeRequestUrl(target: string): { kind: string; link: ChangeRequestLink } | null {
   let url: URL;
   try { url = new URL(target); } catch { return null; }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;

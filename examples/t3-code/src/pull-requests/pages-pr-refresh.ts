@@ -1,5 +1,5 @@
 // Keeping the pull request surfaces current (MIT reference, see LICENSE-T3, T3 Code
-// 1e2ecbd975):
+// 7c3b3b3605ef):
 // - packages/client-runtime/src/state/pullRequests.ts createPullRequestRefreshAtomFamily: one
 //   `pullRequests.subscribeRefreshes` stream (payload `{}`) per environment, held while any pull
 //   request surface reads; each value is a server-announced change (a mutation, a turn, another
@@ -11,9 +11,10 @@
 //   view reopened later is an arrival, not a first read), and the reader's last interaction (the
 //   window's, app.contract `interacted`, to the second); the first after six idle minutes resumes
 //   the views as an arrival (`watchInteraction`).
-// - pullRequestDetail.logic.ts read/writePullRequestDetailSnapshot (74541bab17): the snapshots live in
-//   the app's versioned preference file (t3-code.json, `prDetailSnapshots`), bounded to the 20 most
-//   recently written.
+// - pullRequestDetail.logic.ts read/writePullRequestDetailSnapshot: the snapshots live in the app's versioned
+//   preference file (t3-code.json, `prDetailSnapshots`), bounded to the 20 most recently written, and
+//   state/pullRequests.ts rememberPullRequestListAnswer and restorePullRequestList keep the list's first-page
+//   answers there (`prListAnswers`).
 // The stream rides T3Client's transport (one dispatch line in client.ts drain, as shell-vcs.ts);
 // the newest subscription since the latest subscribe is the one counted (shell-vcs.ts explains
 // the request-id order). A new connection carries no streams, so the next read subscribes again.

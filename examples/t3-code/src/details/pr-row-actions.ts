@@ -11,6 +11,7 @@
 // - the Merge AlertDialog ("Merge pull request?") and the checks popover's
 //   "Show all".
 import { sharedPullRequestSummary } from '../pull-requests/pages-pr-shared';
+import { readerIdle } from '../pull-requests/pages-pr-refresh';
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -64,7 +65,7 @@ const RETRY_MS = 30_000;
  * read is still out (or was dropped with its answer) is not fresh, so the next answer reads again; the
  * latest read to finish is the one kept.
  */
-export async function readDetail(client: T3Client, native: Native, reference: Obj | null, now: number): Promise<Obj | null> {
+export async function readDetail(client: T3Client, native: Native, reference: Obj | null, now: number, poll?: { visible: boolean }): Promise<Obj | null> {
   if (!reference || num(reference.number) <= 0 || !str(reference.repository)) return null;
   const state = prState(client), key = refKey(client, reference), cached = state.details.get(key);
   if (cached && !cached.reading) {
@@ -72,10 +73,11 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
     if (known && cached.detail) cached.detail = { ...cached.detail, ...known };
     const open = cached.detail?.state === 'open';
     const fresh = cached.error ? !now || now - cached.at < RETRY_MS : !open || !now || now - cached.at < REFRESH_MS;
-    // usePullRequestChecksRefresh: the checks alone, every 45 s while runs are pending (or none reported), else 60 s;
-    // the answer, newer than the detail it lands on, takes over only the state and the checks.
-    if (fresh && open && now && cached.detail && !cached.checksNone && caps(client).pullRequestChecks === true) {
-      if (now - cached.checksAt >= checksRefreshIntervalMs(arr(cached.detail.checks))) {
+    // usePullRequestChecksRefresh, for the card's row (`poll`): the checks alone on the row's timer (rowChecksPoll), every
+    // 45 s while runs are pending (or none reported), else 60 s, in a visible window while the reader is about; the
+    // answer, newer than the detail it lands on, takes over only the state and the checks.
+    if (fresh && poll?.visible && !readerIdle(client, now) && open && now && cached.detail && !cached.checksNone && caps(client).pullRequestChecks === true) {
+      if (now - cached.checksAt >= checksRefreshIntervalMs(arr(cached.detail.checks)) - CHECKS_TICK_SLACK_MS) {
         cached.checksAt = now;
         // A failed read is tried again at the next interval; a null answer ends the polling.
         const update = await client.rpc(native, 'pullRequests.checks', normalRef(reference)).catch((error: unknown) => { if (letGo(error)) throw error; return undefined; });
@@ -110,6 +112,17 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
   entry.reading = false;
   state.details.set(key, entry);
   return entry.detail;
+}
+/** How early a timer tick may land and still count as the interval come round. */
+const CHECKS_TICK_SLACK_MS = 1_000;
+/**
+ * The row's checks timer (shell-members.contract `prRowChecksTick`): "pending" (45 s), "settled" (60 s), or "" while the
+ * pull request is not open, its host reports no checks or answered them null, the window is hidden or the reader idle.
+ */
+export function rowChecksPoll(client: T3Client, reference: Obj | null, now: number, visible: boolean): '' | 'pending' | 'settled' {
+  const cached = reference ? prState(client).details.get(refKey(client, reference)) : undefined, detail = cached?.detail;
+  if (!detail || detail.state !== 'open' || cached!.checksNone || !visible || readerIdle(client, now) || caps(client).pullRequestChecks !== true) return '';
+  return checksRefreshIntervalMs(arr(detail.checks)) === 45_000 ? 'pending' : 'settled';
 }
 /** The detail already read for a reference, without asking (a tab icon is drawn synchronously). */
 export function peekDetail(client: T3Client, reference: Obj): Obj | null { return sharedPullRequestSummary(client, reference, prState(client).details.get(refKey(client, reference))?.detail ?? null); }

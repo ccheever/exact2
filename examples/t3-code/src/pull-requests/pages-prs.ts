@@ -329,17 +329,15 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
       for (const environmentId of new Set(round.targets.map(target => target.environmentId))) await client.rpc(native, 'pullRequests.invalidate', environmentId === client.environmentId ? {} : { environmentId }).catch(() => ({}));
     }
     const answers: [string, Obj][] = [];
-    let kept = false;
     for (const target of round.targets) {
       try {
         const answer = await client.rpc(native, 'pullRequests.list', target.environmentId === client.environmentId ? target.input : { ...target.input, environmentId: target.environmentId });
         answers.push([target.environmentId, answer]);
-        // Each server's first-page answer is kept for the next start.
-        kept = rememberListAnswer(client, target, answer) || kept;
+        // Each server's first-page answer is kept for the next start and written as it lands (rememberPullRequestListAnswer),
+        // as the detail panel writes its snapshot, so a read let go after it still leaves it on disk.
+        if (rememberListAnswer(client, target, answer) && storage) await client.savePreferences(storage);
       } catch (error) { if (letGo(error)) throw error; cached.error ||= failure(error); }
     }
-    // Written as each answer lands (rememberPullRequestListAnswer), as the detail panel writes its snapshot.
-    if (kept && storage) await client.savePreferences(storage);
     const merged = foldAnswers(client, answers);
     if (!merged) throw new Error(cached.error || 'Pull requests could not be read.');
     const held = previous?.result && previous.scope === scope ? arr(previous.result.entries) : null;

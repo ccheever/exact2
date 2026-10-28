@@ -19,11 +19,11 @@ import { currentPullRequestLink, visiblePullRequests, pullRequestPanelTarget } f
 import { listLines, resolveChains } from './linked-prs';
 import { parseChangeRequestUrl, findProjectForChangeRequest, findProjectOnChangeRequestHost } from '../palette/palette-linkpr';
 import { repositorySelector } from '../composer/composer-editor-menu';
-import { readDetail, peekDetail, forgetDetails, mergeAsk, askMerge, confirmMerge, performAction, startHandoff, closeMerge, toggleShowAll } from '../details/pr-row-actions';
+import { readDetail, peekDetail, forgetDetails, mergeAsk, askMerge, confirmMerge, performAction, startHandoff, closeMerge, toggleShowAll, rowChecksPoll, refKey } from '../details/pr-row-actions';
 import { rowExtra, emptyExtra, type RowExtra } from '../details/pr-row';
 import type { MergeAsk } from '../details/pr-row-actions';
 import { breakdownKey, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns } from '../pull-requests/pr-change-breakdown';
-import { capitalizeTerm, terminology, terminologyOf, type Terminology } from '../details/git-logic';
+import { capitalizeTerm, changeRequestHostKind, terminology, terminologyOf, type Terminology } from '../details/git-logic';
 
 export type PrTarget = { projectId: string; host: string; repository: string; number: number; url: string; environmentId?: string };
 export type PrRow = {
@@ -33,7 +33,8 @@ export type PrRow = {
   /** The server watches this open pull request for the thread: the row's eye, which stops the watch (`watchKey`, linked-prs.ts's key). */
   watching: boolean; watchKey: string; stopWatchLabel: string;
 };
-export type PrRowsView = { show: boolean; rows: PrRow[]; rest: PrRow[]; moreLabel: string; expanded: boolean; merge: MergeAsk };
+/** `checksPoll`, `checksKey`: the row's checks timer (rowChecksPoll) and the pull request it runs for. */
+export type PrRowsView = { show: boolean; rows: PrRow[]; rest: PrRow[]; moreLabel: string; expanded: boolean; merge: MergeAsk; checksPoll: string; checksKey: string };
 /** ThreadDetailsPrRows' expanded state, per thread so a scheme rebuild of the card keeps it. */
 const expandedThreads = new WeakMap<T3Client, Set<string>>();
 export function togglePrRows(client: T3Client): void {
@@ -48,10 +49,9 @@ export const linkKey = (link: { host?: unknown; repository?: unknown; number?: u
 
 /** sourceControlClients.get(kind).changeRequest.shortLabel: GitLab says MR, every other host PR, a kind no host claims "change request". */
 export function shortName(kind: string): string { return terminologyOf(kind || undefined).shortLabel; }
-/** linkedPullRequestSnapshotStatus: the provider a linked URL implies. */
-export function providerOfUrl(url: string): string {
-  return url.includes('/-/merge_requests/') ? 'gitlab' : url.includes('/pullrequest/') ? 'azure-devops' : url.includes('/pull-requests/') ? 'bitbucket' : url.includes('/pulls/') ? 'forgejo' : 'github';
-}
+/** linkedPullRequestSnapshotStatus: the provider a linked URL implies, findByChangeRequestUrl(url) ?? get(undefined): the
+ *  default host's (GitHub's) where no host claims it. */
+export const providerOfUrl = (url: string): string => changeRequestHostKind(url) || 'github';
 const STATE_LABEL: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
 /** resolvePullRequestState: an open draft reads as a draft. */
 export const lifecycle = (state: string, isDraft: boolean) => (state === 'open' && isDraft ? 'draft' : ['open', 'closed', 'merged'].includes(state) ? state : 'open');
@@ -146,7 +146,7 @@ function simpleRow(client: T3Client, number: number, url: string, label: string,
  * current link, else its branch's pull request, as "#N[: title]"; with the host's detail the row
  * splits into its state glyph, the checks and the one action worth taking.
  */
-export async function prRowsView(client: T3Client, native: Native, input: { status: Obj | null; threadId: string; now: number; projectId: string; rightGap?: number; inline?: boolean }): Promise<PrRowsView> {
+export async function prRowsView(client: T3Client, native: Native, input: { status: Obj | null; threadId: string; now: number; projectId: string; rightGap?: number; inline?: boolean; visible?: boolean }): Promise<PrRowsView> {
   const none: PrRowsView = emptyPrRows();
   const thread = client.shell.threads.find(entry => entry.id === input.threadId);
   const capabilities = caps(client), many = capabilities.threadPullRequests === true;
@@ -170,7 +170,8 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
     ? current ? { projectId: str(project.id), host: str(current.host), repository: str(current.repository), number }
       : repository ? { projectId: str(project.id), repository, number } : null
     : null;
-  const loaded = native?.available ? await readDetail(client, native, reference, input.now) : null;
+  const visible = input.visible !== false;
+  const loaded = native?.available ? await readDetail(client, native, reference, input.now, { visible }) : null;
   const summary = reference ? sharedPullRequestSummary(client, reference, loaded) : null;
   const detail = loaded && summary ? { ...loaded, ...summary } : loaded;
   if (summary) {
@@ -194,10 +195,11 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
   const rest = current === null ? [] : listLines(resolveChains(links)).map(line => line.link).filter(link => linkKey(link) !== linkKey(current))
     .map(link => { const pr = snapshotPr(link), snapshot = snapshotOf(link); return simpleRow(client, num(link.number), str(link.url), `#${num(link.number)}${snapshot ? `: ${str(snapshot.title)}` : ''}`, pr, link, projectTerm, openTerm); });
   const expanded = rest.length > 0 && expandedThreads.get(client)?.has(client.draftKey) === true;
-  return { show: true, rows: [main], rest: expanded ? rest : [], moreLabel: rest.length ? (expanded ? 'Show less' : `Show ${rest.length} more`) : '', expanded, merge: mergeAsk(client) };
+  return { show: true, rows: [main], rest: expanded ? rest : [], moreLabel: rest.length ? (expanded ? 'Show less' : `Show ${rest.length} more`) : '', expanded, merge: mergeAsk(client),
+    checksPoll: rowChecksPoll(client, reference, input.now, visible), checksKey: reference ? refKey(client, reference) : '' };
 }
 // A declaration, so shell-details' module-level empty view can call it through the import cycle.
-export function emptyPrRows(): PrRowsView { return { show: false, rows: [], rest: [], moreLabel: '', expanded: false, merge: { open: false, number: 0, title: '', description: '', target: '', pending: false } }; }
+export function emptyPrRows(): PrRowsView { return { show: false, rows: [], rest: [], moreLabel: '', expanded: false, merge: { open: false, number: 0, title: '', description: '', target: '', pending: false }, checksPoll: '', checksKey: '' }; }
 
 /**
  * `shell:surface-linked-pr-*`: Ready and the confirmed Merge run against the host; Resolve
