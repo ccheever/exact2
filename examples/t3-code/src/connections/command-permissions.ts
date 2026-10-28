@@ -99,7 +99,6 @@ const RPC_SCOPES: Record<string, Permission> = {
   'pullRequests.linkedThreads': 'orchestration:read',
   'pullRequests.list': 'orchestration:read',
   'pullRequests.listStats': 'orchestration:read',
-  'pullRequests.filterOptions': 'orchestration:read',
   'pullRequests.preview': 'orchestration:read',
   'pullRequests.replyToThread': 'source-control:write',
   'pullRequests.reportState': 'orchestration:read',
