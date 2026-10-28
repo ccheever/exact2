@@ -98,6 +98,8 @@ const drives = {
       check(4, 'saving data, ten minutes: no refresh', await revision(s) === saving, `${saving} then ${await revision(s)}`);
       await s.clock('+1200000');
       check(4, 'saving data, thirty minutes: a refresh', await revision(s) === saving + 1, `${saving} then ${await revision(s)}`);
+      // Reload is disabled while that refresh is pending.
+      await s.clock('settle');
       const before = await revision(s);
       await s.tap('refresh-weather');
       check(4, 'Reload refreshes at once', await revision(s) === before + 1, `${before} then ${await revision(s)}`);
