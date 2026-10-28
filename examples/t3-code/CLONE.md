@@ -132,6 +132,23 @@ drain, stable draft/incarnation blocking across transport generations, and nativ
 node recreation after a factory refusal. Direct editor-object retry alone does
 not qualify recovery through the host. Source review found no introduced blocker
 in this prerequisite.
+The uncommitted native handoff unit freezes its writer, retains its captured source
+until save acknowledgment, and resumes with the producer's explicit document.
+Its reservation follows stable draft identity across transport generations. Review
+found stale serialized chip offsets after native typing; the current correction
+uses the rebased token array for comparison and Undo capture. In the latest UIKit
+fixture, chip restoration and producer Undo pass, but an unchanged-resume Undo
+assertion fails. The result is 113 passed and one failed. This reached the
+three-round fix limit. The unit remains inactive and uncommitted. Root drain,
+producer integration and native-node recreation also gate activation.
+
+A later normal cold launch stalled with an empty transcript and unready Send.
+Selecting the other owned conversation and returning restores the transcript;
+Send ownership remains unready. Temporary local probes report a connected, live
+thread, an enabled rich editor with matching route identity, no acknowledged native
+editor mount, and a pending local outbox recovery read. A process sample shows no
+outbox worker blocked on a lock. Native callback diagnosis remains open; the stall
+is not qualified as fixed.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
 line, attaches it to the composer, sends it, and receives the requested provider
