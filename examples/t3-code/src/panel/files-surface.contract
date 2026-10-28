@@ -25,6 +25,7 @@ use MediaFrame from "../media/media-frame.contract"
 use PreviewImage, ImageActions from "./preview-image.contract"
 use MermaidFileView from "./mermaid-file.contract"
 use FileSurfaceFailure from "./file-surface-chrome.contract"
+use AttachmentBody from "./pr-attachment.contract"
 use PanelIcon from "./panel-icons.contract"
 use SidebarMenuCard, SidebarMenuItem from "../sidebar/sidebar-row.contract"
 use SidebarMenuRow from "../sidebar/sidebar-shapes.contract"
@@ -308,6 +309,12 @@ component FilePreview
   // The picture's failure is the image body's own (PreviewImage).
   action imageFailed(message: string)
     let ignored = message
+  // A document's body sends its controls as Files' own (`surface-files-att-*`); the rest go on to the window.
+  action attLocal(op: string, id: string, value: string)
+    if op.startsWith("surface-linked-att-")
+      local(`surface-files-att-${op.slice(19)}`, id, value)
+    else
+      local(op, id, value)
   // diff-review: the open comment draft's text (FilePreviewPanel's annotation draft).
   state draftText = ""
   action editDraft(text: string)
@@ -392,6 +399,9 @@ component FilePreview
         // One player per file: FilePreviewPanel keys WorkspaceAudioPreview by environment, thread and path.
         for shown in [files.fileKey] key=shown
           FilesAudio(url=files.url, label=files.path, failed=local("surface-files-audio-error", files.url))
+    // FilePreviewPanel's AttachmentFilePreview under "File": a document, or a file read as binary.
+    if files.preview == "attachment"
+      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=false, local=attLocal, actionIds="")
     if files.preview == "audio-error"
       FileSurfaceFailure(message="Unable to load audio.", canRetry=true, retry=local("surface-files-audio-retry", files.absolutePath, ""), testId="file-audio-failed")
     // A rendered HTML page or a PDF (always rendered), as an attachment's (BrowserDocumentFrame, media-frame.contract).
