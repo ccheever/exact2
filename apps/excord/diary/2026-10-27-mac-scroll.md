@@ -32,6 +32,15 @@ task: the Mac transcript dropping frames as it scrolls, on a real account
   the empty batches turned out to be the agent's own clock steps (`docs/agent-pitfalls.md`).
   The change was dropped.
 
+- A second trace from his account (e2fc73048e) put the frames it still missed in frames
+  that built rows: about 5.6 ms of apply, 4 ms of runtime and 8 ms no phase claims. Its plan
+  sites counted each row site `moved` about 9,500 times, about five rows a layout; a long
+  scroll back through #general on the fixture shows the same ratio (94 rows built, 356
+  layouts, 1,755 moves of a row's root). `moved` counts every node whose absolute frame
+  changed, so a row shifting in the list counts all its nodes, while the Apple host emits
+  only the parent-relative frames that changed (`host/apple/src/layout.rs`): it is not the
+  cost. What his rows cost that the fixture's do not is still to be sampled on his machine.
+
 ### Lean in
 
 - The trace named the work by plan site once it was joined to a plan of the same contract
