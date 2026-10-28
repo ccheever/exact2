@@ -93,9 +93,9 @@ screens, retaining iPad Files chat when its inspector is supported. The native
 app opens the real tree and README source on first entry, then switches to
 Markdown preview. Source rows use authored presentation without native cell
 separators. File title, subtitle and actions now share the native navigation bar
-with the reference editor style. The file route now owns an opaque, sheet-colored
-bar without its default separator. Native Preview/Source switching and returning
-through Files to the thread preserve the correct header. Unwrapped source uses the regular platform
+with the reference editor style. The file route now owns an opaque bar with the
+sheet background and no separator. Preview/Source switching retains that bar;
+returning through Files restores the thread header. Unwrapped source uses the regular platform
 monospace font and reference gutter geometry. Wrapped source uses Menlo and the
 reference token traits and insets. One virtualized viewport now pans every line
 together while its opaque line-number gutter stays fixed. Its shared width uses
@@ -105,8 +105,9 @@ file stops at its final character after repeated pans. The normal iPhone
 drive verifies this on the large schema file, including newly revealed rows,
 wrapping after a pan, a pull to refresh, and opening a second file. Wrapping
 remounts the viewer and resets both offsets as the reference does. Markdown code
-styling still differs. Files still needs the reference heading, row alignment and
-native search placement. Source rows carry only source fields and reuse their
+styling still differs. Files rows now align their labels beside the icons without
+system cell separators; file selection and back navigation work in the normal app.
+Its heading and native search placement still differ. Source rows carry only source fields and reuse their
 highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
 Read failures show an error and Try again instead of an empty body. All 3,706

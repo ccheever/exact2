@@ -64,9 +64,9 @@ component MobileFileTree
                 button press=refresh disabled=data.loading min-height=38.5 margin-top=10.5 align-self="start" border-radius=100 padding-left=14 padding-right=14 background-color=colors.subtle
                   text "Try again" font-size=12.25 font-weight=500 color=colors.foreground
       else
-        list id=listId flex=1 min-height=0 virtualized=true estimated-item-height=42 refresh=refresh
+        list id=listId appearance="none" flex=1 min-height=0 virtualized=true estimated-item-height=42 refresh=refresh
           for item in data.rows key=item.id
-            button press=pick(item.path, item.directory)
+            button appearance="none" press=pick(item.path, item.directory)
               aria-label=item.path margin-left=7 margin-right=7 min-height=42
               border-radius=12 padding-left=(8 + item.depth * 18) padding-right=7
               background-color=(item.selected ? colors.subtleStrong : "transparent")
@@ -77,7 +77,7 @@ component MobileFileTree
                 else
                   view width=10.5
                   FileTypeIcon(token=item.token, size=17)
-                text item.name flex=1 min-width=0 line-clamp=1 font-size=12.25 line-height="18.375px"
+                text item.name flex=1 min-width=0 line-clamp=1 text-align="left" font-size=12.25 line-height="18.375px"
                   font-weight=(item.selected ? 700 : 500) color=(item.selected ? colors.foreground : item.ignored ? colors.tertiary : colors.secondary)
                 if item.directory and item.loaded
                   text item.count font-size=10 font-weight=500 color=colors.tertiary
