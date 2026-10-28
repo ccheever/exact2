@@ -1719,7 +1719,10 @@ load, with a `message` that says why (`error=failed` runs `action failed(message
 string)`; `error=failed("icon")` passes `"icon"` before it). On macOS and iOS the
 message is the reason (`HTTP 404`, `Could not connect to the server.`, `not an image
 format this host decodes`); the browser gives none, so the web says `the image did
-not load`. A symbol fires neither. What each host's fetch of an `http(s)` source
+not load`. On every native host a download that asking again may mend (the network, a lookup, TLS, a timeout, the spool,
+a 5xx, 408 or 429, an empty body) is asked again while the picture is on screen, after 1, 2, 4, 8, 16 and 30 s
+and never sooner than `Retry-After`, so on macOS and iOS its `error` comes once those are spent (about a minute of
+waits, plus the downloads and any `Retry-After`), and one that fails off screen errs only after it has shown ([LLP 1011](../llp/1011-image-v1.spec.md) §4). A symbol fires neither. What each host's fetch of an `http(s)` source
 sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
 `Referer`, follow redirects to any host (within App Transport Security), take any
 2xx body up to 64 MiB whatever its `Content-Type`, and keep an HTTP cache on disk;
