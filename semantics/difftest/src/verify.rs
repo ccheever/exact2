@@ -12,8 +12,8 @@
 //! `semantics/Apps/Proofs/`.
 
 use crate::script::{Case, Event, Scripted};
-use crate::{check, compile, expectations, leanrun, oracle, work_dir, Verdict};
-use contract_syntax::{Span, Step};
+use crate::{check, compile, expectations_on, leanrun, oracle, work_dir, Verdict};
+use contract_syntax::Span;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -22,6 +22,8 @@ use std::process::Command;
 pub struct Options {
     /// The Lean type checker on the program.
     pub types: bool,
+    /// Run delivery, expectations, the refusal census and coverage without Lean.
+    pub runner_only: bool,
     /// Regenerate this module's embedding and build its proofs.
     pub prove: Option<String>,
 }
@@ -38,18 +40,18 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         .canonicalize()
         .map_err(|e| format!("{}: {e}", file.display()))?;
     let source = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    let map = match contract::compile_path_mapped(&file) {
-        Ok((_, map)) => map,
+    let (plan, map) = match contract::compile_path_mapped(&file) {
+        Ok(compiled) => compiled,
         Err(e) => {
             println!("REFUSED {}: {e}", show(&file));
             return Ok(false);
         }
     };
     leanrun::CACHE.store(true, std::sync::atomic::Ordering::Relaxed);
-    leanrun::build()?;
     let mut ok = true;
 
     let mut located = Vec::new();
+    let (mut whole, mut partial, mut skipped) = (0, 0, 0);
     for test_file in test_files(&file) {
         let Ok(text) = std::fs::read_to_string(&test_file) else {
             continue;
@@ -63,22 +65,39 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
             }
         };
         for t in &tests {
-            match crate::script::test_case(&show(&test_file), &source, Some(&file), t) {
-                Ok(scripted) => located.push(Located {
-                    scripted,
-                    steps: t
-                        .steps
-                        .iter()
-                        .filter_map(|s| match s {
-                            Step::Tap { span, .. }
-                            | Step::Type { span, .. }
-                            | Step::Clock { span, .. } => Some((test_file.clone(), *span)),
-                            _ => None,
-                        })
-                        .collect(),
-                }),
-                Err(why) => println!("SKIP {why}"),
+            let scripted = crate::script::test_case(&show(&test_file), &source, Some(&file), t)?;
+            let delivery = &scripted.delivery;
+            let empty = if delivery.empty_clock {
+                "; empty under the synchronous oracle"
+            } else {
+                ""
+            };
+            if let Some((span, kind, why)) = &delivery.stopped {
+                let verdict = if delivery.taken == 0 {
+                    skipped += 1;
+                    "SKIP"
+                } else {
+                    partial += 1;
+                    "PART"
+                };
+                println!(
+                    "{verdict} {}: stopped at {}: {kind}: {why}{empty}",
+                    scripted.case.name,
+                    at_span(&test_file, *span)
+                );
+                if delivery.taken == 0 {
+                    continue;
+                }
+            } else {
+                whole += 1;
+                println!("WHOLE {}{empty}", scripted.case.name);
             }
+            let steps = delivery
+                .events
+                .iter()
+                .map(|s| (test_file.clone(), *s))
+                .collect();
+            located.push(Located { scripted, steps });
         }
     }
     let tests = located.len();
@@ -86,18 +105,42 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         scripted: crate::explore(&show(&file), &source, Some(&file)),
         steps: Vec::new(),
     });
-    // An `expect` is the runner's against the seeded oracle's data, not the
-    // app's own: a note, never the verdict.
-    for l in &located {
-        if let Err(e) = expectations(&l.scripted) {
+    let mut census = crate::census::Census::default();
+    let mut findings = Vec::new();
+    for (i, l) in located.iter().enumerate() {
+        let case = &l.scripted.case;
+        let oracle = oracle::Oracle::for_case(&plan, case);
+        let (rust, _) = crate::observe::run(plan.clone(), oracle, &case.events);
+        // Expectations use the seeded oracle's data, not the app's own.
+        if let Err(e) = expectations_on(&l.scripted, &rust) {
             println!(
                 "NOTE {}: with the oracle's data, {}",
-                l.scripted.case.name,
+                case.name,
                 e.split_once("; the runner shows")
                     .map_or(e.as_str(), |(head, _)| head)
             );
         }
+        findings.push((i, census.observe(&rust), rust));
     }
+    for (i, found, rust) in &findings {
+        let l = &located[*i];
+        for f in found {
+            let location = locate(&l.scripted.case, &l.steps, &map, f.at, rust, &[]);
+            let location = location.split("  runner:").next().unwrap_or(&location);
+            println!(
+                "REFUSED {} ({}):\n{}  {}\n  # {}",
+                l.scripted.case.name, f.class, location, f.line, f.reason
+            );
+        }
+    }
+    ok &= census.passed();
+    census.print(&plan);
+    println!("verify: {} cases ({tests} tests, 1 explored); blocks: {whole} whole, {partial} partial, {skipped} skipped", located.len());
+    if options.runner_only || !lean_available() {
+        println!("semantics did not run ({}); install Lean: curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y", if options.runner_only { "--runner-only" } else { "lake is unavailable" });
+        return Ok(ok);
+    }
+    leanrun::build()?;
     let cases: Vec<Case> = located.iter().map(|l| l.scripted.case.clone()).collect();
     let outcomes = check(cases, 16, "verify")?;
     let (mut agree, mut diverge, mut outside) = (0, 0, 0);
@@ -146,7 +189,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         }
     }
     println!(
-        "verify: {} cases ({tests} tests, 1 explored): {agree} agree, {diverge} diverge, {outside} outside the semantics",
+        "semantics: {} cases: {agree} agree, {diverge} diverge, {outside} outside the semantics",
         outcomes.len()
     );
     if options.types {
@@ -156,6 +199,14 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         ok &= prove(&file, module)?;
     }
     Ok(ok)
+}
+
+fn lean_available() -> bool {
+    Command::new(leanrun::lake())
+        .arg("--version")
+        .current_dir(leanrun::project())
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 /// The files whose `test` blocks run: the program, `<stem>.test.contract`

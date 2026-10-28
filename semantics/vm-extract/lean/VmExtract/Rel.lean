@@ -28,13 +28,15 @@ def opName : Op → String
   | .FailedMutation => "FailedMutation" | .FailureMutation => "FailureMutation"
 
 /-- A Rust trap and the model's for the same failure (the pc and operands
-the Rust trap carries are not the model's). A roster refusal is the Rust
-`TypeMismatch` at `Call`. What the model leaves out (`NativeProps`) is
+the Rust trap carries are not the model's). A roster refusal is
+`TypeMismatch` at `Call`, `RangeCount`, or `PathParameter`. What the model leaves out (`NativeProps`) is
 `unsupported` there, whatever the Rust does. -/
 def TrapRel : Trap → Contract.Vm.Trap → Prop
   | _, .unsupported _ => True
   | .StackUnderflow _, .stackUnderflow => True
   | .TypeMismatch _ .Call, .call _ => True
+  | .RangeCount _ _, .call _ => True
+  | .PathParameter _, .call _ => True
   | .TypeMismatch _ op, .typeMismatch s => s = opName op
   | .UnwrapNone _, .unwrapNone => True
   | .BadField _ _, .badField => True

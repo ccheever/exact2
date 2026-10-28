@@ -38,7 +38,7 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   difftest corpus [<dir|file>…] [--js|--js-only]
   difftest explore <dir|file>… [--js|--js-only]
-  difftest verify <file.contract> [--types] [--prove <Module>]
+  difftest verify <file.contract> [--runner-only] [--types] [--prove <Module>]
   difftest quick [--base <rev>]
   difftest random [--seed <u64>] [--count <n>] [--batch <n>] [--js|--js-only]
   difftest numbers [--seed <u64>] [--count <n>]
@@ -224,6 +224,7 @@ fn run_verify(args: &[String]) -> Result<bool, String> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "--types" => options.types = true,
+            "--runner-only" => options.runner_only = true,
             "--prove" => {
                 options.prove = Some(it.next().ok_or("--prove needs a module name")?.clone())
             }

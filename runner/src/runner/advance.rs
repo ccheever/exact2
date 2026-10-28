@@ -17,6 +17,7 @@ pub(super) struct Clock {
     /// The scheduling instant of the callback running, which the `then`s and
     /// queue `next`s it arms inherit (D2)
     instant: Option<f64>,
+    pub(super) trace: Option<Vec<super::trace::Ran>>,
     /// When the commit running started, or the input or reply it serves
     /// arrived
     started: f64,
@@ -169,7 +170,7 @@ impl<D: DataSource> Runner<D> {
             self.timers[i].next_ms = super::virtual_frame(at, 1);
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
-            match self.scheduled(at, |r| r.run_action(action, Vec::new(), &[])) {
+            match self.scheduled(at, |r| r.traced_action("task", action, Vec::new(), &[])) {
                 Ok(receipt) => a.receipts.push(Timed {
                     at_ms: self.now_ms,
                     receipt,
@@ -442,7 +443,12 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.now_ms = self.now_ms.max(at);
                 let ticket = self.next_ticket;
-                let result = self.scheduled(at, |r| r.run_next(m));
+                let result = self.scheduled(at, |r| {
+                    let was = r.poisoned;
+                    let result = r.run_next(m);
+                    r.record_ran("queue", r.plan.mutations[m].name, was, &result);
+                    result
+                });
                 match result {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
@@ -486,7 +492,7 @@ impl<D: DataSource> Runner<D> {
                 // item 6).
                 let (origin, id, causes) = self.then_origin(m);
                 let result = self.as_invocation_caused(origin, id, causes, |r| {
-                    r.scheduled(at, |r| r.run_action(action, Vec::new(), &[]))
+                    r.scheduled(at, |r| r.traced_action("then", action, Vec::new(), &[]))
                 });
                 match result {
                     Ok(receipt) => receipts.push(Timed {
@@ -600,7 +606,7 @@ impl<D: DataSource> Runner<D> {
                 };
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
-                match self.scheduled(at, |r| r.run_action(action, Vec::new(), &[])) {
+                match self.scheduled(at, |r| r.traced_action("task", action, Vec::new(), &[])) {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
                         receipt,
@@ -695,7 +701,7 @@ impl<D: DataSource> Runner<D> {
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
             let ticket = self.next_ticket;
-            let result = self.scheduled(at, |r| r.run_action(action, Vec::new(), &[]));
+            let result = self.scheduled(at, |r| r.traced_action("task", action, Vec::new(), &[]));
             // D3: its next beat follows its callback's completion, unless the
             // callback cancelled it; one it rekeyed starts from there.
             let done = self.now_ms;

@@ -44,15 +44,6 @@ pub struct Oracle {
     pub prerendered: bool,
 }
 
-/// The sources the runner answers itself, from the host's facts.
-pub const HOST_SOURCES: &[&str] = &[
-    exact_runner::delivery::SOURCE,
-    exact_runner::page::SOURCE,
-    exact_runner::time::SOURCE,
-    exact_runner::surface_record::SOURCE,
-    exact_runner::viewport::SOURCE,
-];
-
 impl Oracle {
     /// A source for `plan`'s signatures, answering from `seed`.
     pub fn new(plan: &Plan, seed: u64) -> Self {
@@ -136,6 +127,21 @@ impl Oracle {
             stored: self.stored.clone(),
             prerendered: self.prerendered,
         }
+    }
+
+    /// Sources whose boot answers bypassed the oracle and became host facts.
+    pub fn host_sources(&self) -> Vec<&str> {
+        let facts = self.facts.borrow();
+        self.plan
+            .resources
+            .iter()
+            .filter(|r| {
+                facts
+                    .iter()
+                    .any(|(name, _, _)| name == self.plan.str(r.name))
+            })
+            .map(|r| self.plan.str(r.source))
+            .collect()
     }
 
     /// The transcript in `Contract.OracleText`'s format.

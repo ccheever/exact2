@@ -1442,7 +1442,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         super::lines::ran(what, self.plan.str(self.plan.action(handler.action).name));
-        self.run_action(handler.action, args, &frames)
+        self.traced_action("handler", handler.action, args, &frames)
     }
 }
 

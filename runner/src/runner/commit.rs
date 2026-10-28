@@ -331,6 +331,11 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             if !args[i].conforms(&self.plan, param.ty) {
+                if args[i].typed(&self.plan, param.ty) {
+                    return Err(RunnerError::NonFiniteValue {
+                        name: self.plan.str(param.name).to_string(),
+                    });
+                }
                 return Err(RunnerError::ArgumentType {
                     action: self.plan.str(row.name).to_string(),
                     param: self.plan.str(param.name).to_string(),
@@ -462,9 +467,12 @@ impl<D: DataSource> Runner<D> {
         {
             let row = &self.plan.slots[*slot as usize];
             let refusal = if !self.conforms(value, row.ty) {
-                Some(RunnerError::SlotType {
-                    slot: self.plan.str(row.name).to_string(),
-                })
+                Some(RunnerError::slot_type(
+                    &self.plan,
+                    value,
+                    row.ty,
+                    self.plan.str(row.name),
+                ))
             } else if too_long(value) {
                 Some(RunnerError::StringTooLong {
                     name: self.plan.str(row.name).to_string(),

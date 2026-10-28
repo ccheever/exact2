@@ -60,7 +60,7 @@ embedding stale when it is added.
 
 **Differential testing.** For each case, `difftest` compiles the program to a
 plan and boots it on the runner, delivers the script's events, and prints a
-canonical observation after every step: the outcome, every root slot, derive
+canonical observation after every step: the outcome, the commits attempted, every root slot, derive
 and resource, the commands issued to a host (not `setMode`, which the
 runner takes and applies itself: `hostCommands`), and the text of every
 element with a `testId`. Then it emits the program with the Lean backend, and runs many cases
@@ -69,6 +69,18 @@ each. The two texts must match line for line. Data sources are a seeded oracle
 that answers any call with a value of the declared shape. The runner's
 transcript of that oracle becomes the Lean side's oracle, so if the semantics
 makes a call the runner didn't, that is a divergence.
+
+The observation starts with `== <step>` and `outcome ok|refused|poisoned`.
+Before the configuration, each attempted commit prints
+`ran <kind> <action> <ok|refused|poisoned>`, in execution order. The kind is
+`handler`, `task`, `then`, or `queue`; a queue names its mutation. A failed
+outcome or commit is followed by `# <reason>`. Reasons are the runner's
+Debug text and Lean's `why`, and are not compared; `ran` lines are compared.
+Boot has no `ran` line. Neither does an event with no handler or whose
+curried arguments refused before reaching its action. A due refusal and a
+successful handler therefore print separate commit outcomes even when the
+step's outcome is `refused`. `Observe` uses traced variants of `advance`
+and `dispatch`; their equality to the untraced functions is not yet proved.
 
 An event is delivered as every host delivers one, at the current time: the
 work already due (a timer, a mutation's `then`, a queue's next send) fires
@@ -190,7 +202,25 @@ async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
 app's `test` blocks (its own, those in `app.test.contract` and those in
-every other `*.test.contract` beside it) plus an explore script, on the runner and on the semantics. A divergence
+every other `*.test.contract` beside it) plus an explore script, first on
+the runner, then on the semantics. `--runner-only`, or an unavailable `lake`,
+runs the runner's half alone and reports how to install Lean. Its exit
+status comes from that half: a type refusal fails; app refusals are findings.
+`clock data` and `clock settle` become `clock +0`, labelled once per block
+as `empty under the synchronous oracle`. A block runs up to its first
+undeliverable step, with its location, kind and reason printed. Only a block
+that stops at its first step is `SKIP`. Expectations before the stop still
+run. The summary counts whole, partial and skipped blocks.
+
+The refusal census classifies every failed outcome and commit line as
+`world`, `limit`, `poisoned`, `cycle`, `value`, `app`, `type`, or
+`unclassified`. Those counts include both the aggregate outcome and its
+commit line; findings use the refusing commit's line, without attributing
+due work to the event. A boot or argument refusal has no commit line.
+Coverage names actions committed and never run, clock actions fired against
+the declared tasks, steps with multiple commits, and poisoned steps.
+
+A divergence
 names the step where the two first differ and the line of the test that
 step comes from, where the element it tapped is declared, and the slot,
 derive or element whose line differs:
@@ -232,7 +262,9 @@ The web build's JS target (`host/web-js`, LLP 1071) is a second
 implementation of Contract: the plan compiled ahead to one ES module over a
 small runtime. `--js` on `corpus`, `explore` and `random` checks every case
 a third way, against the runner (`difftest/src/js.rs`); `--js-only` skips
-the semantics (no Lean needed).
+the semantics (no Lean needed). The JS module exposes no commit trace, so
+`js.rs` strips `ran` lines from both observations before comparing them;
+this checks the step's outcome and configuration, without commit attribution.
 
 ```
 cargo run -p contract-difftest -- corpus --js
@@ -248,8 +280,10 @@ and run under Bun in a fresh VM context over the render DOM
 tabs use the live runtime's deferred construction. It omits virtualized
 descendants by the collection attached to the element, including a list
 whose role is `tabpanel`. Its sources answer synchronously from the
-runner's oracle transcript, as the runner's do; the host's reserved sources
-(viewport, page, time…) answer what the runner answered at boot. A call the
+runner's oracle transcript, as the runner's do; resources whose boot
+answers bypassed the oracle become host facts (except transport and MIDI,
+which remain outside the model). Their sources answer what the runner
+answered at boot. A call the
 runner never made is noted (`# js: the oracle has no answer…`) and shows as
 the refusal it causes. It prints `Contract.Observe`'s format from the
 module's own state (names.js) and the DOM: a `testId`'s text is a text's,
@@ -258,6 +292,8 @@ A tap goes to the element's `press` listener and a `type` to its `change`;
 an element without one is refused, as the runner refuses (NoHandler), and so
 is a value a browser could not deliver (a select's unknown or disabled
 option, a checkbox's text, a date outside HTML's format or its bounds).
+A press on a disabled control is outside the JS comparison: the runner's
+direct dispatch delivers it, while the browser's event handler declines it.
 
 The JS target's `sin` and `cos` are the browser's `Math.sin` and
 `Math.cos`, held to the runner's pinned libm by value, not by bits (LLP

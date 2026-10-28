@@ -41,6 +41,12 @@ pub(super) fn list_call(
     if f == Stdlib::Range {
         let n = match args.first() {
             Some(Value::Number(n)) if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 => *n,
+            Some(Value::Number(n)) => {
+                return Err(Trap::RangeCount {
+                    pc,
+                    non_finite: !n.is_finite(),
+                })
+            }
             _ => return Err(mismatch),
         };
         // A count past `usize` saturates, and past the bound traps here.

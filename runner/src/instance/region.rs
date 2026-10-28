@@ -433,9 +433,7 @@ pub(super) fn init_owned(
         if s.owner == Some(arm) {
             let v = u.eval(s.init, frames)?;
             if !v.conforms(plan, s.ty) {
-                return Err(InstanceError::SlotType {
-                    slot: plan.str(s.name).to_string(),
-                });
+                return Err(InstanceError::slot_type(plan, &v, s.ty, plan.str(s.name)));
             }
             slots.borrow_mut().insert(i as u32, v);
         }

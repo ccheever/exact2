@@ -309,9 +309,12 @@ impl Collection {
             if s.owner.is_some() && s.owner == arm {
                 let value = u.eval(s.init, &inner)?;
                 if !value.conforms(plan, s.ty) {
-                    return Err(InstanceError::SlotType {
-                        slot: plan.str(s.name).to_string(),
-                    });
+                    return Err(InstanceError::slot_type(
+                        plan,
+                        &value,
+                        s.ty,
+                        plan.str(s.name),
+                    ));
                 }
                 slots.borrow_mut().insert(i as u32, value);
             }

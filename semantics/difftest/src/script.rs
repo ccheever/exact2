@@ -66,6 +66,21 @@ pub struct Scripted {
     pub case: Case,
     /// Events and expectations interleaved, as written.
     pub items: Vec<Item>,
+    /// How far an authored block can be delivered.
+    pub delivery: Delivery,
+}
+
+/// Delivery of an authored block under the synchronous oracle.
+#[derive(Debug, Clone, Default)]
+pub struct Delivery {
+    /// The first step not delivered: its location, kind and reason.
+    pub stopped: Option<(contract_syntax::Span, String, String)>,
+    /// Steps consumed before stopping, including expectations and ignored reads.
+    pub taken: usize,
+    /// The authored location of each delivered event.
+    pub events: Vec<contract_syntax::Span>,
+    /// A `clock data` or `clock settle` became `clock +0`.
+    pub empty_clock: bool,
 }
 
 impl Event {
@@ -111,8 +126,7 @@ fn literal(e: &Expr) -> Option<String> {
 }
 
 /// Every `test` block of a corpus file, as a scripted case. A step the
-/// differential run cannot deliver (a hover, a key, a screenshot, an
-/// absolute clock) is refused by name.
+/// differential run cannot deliver ends that block's prefix.
 pub fn scripted(
     file: &str,
     source: &str,
@@ -136,64 +150,25 @@ pub fn test_case(
     t: &contract_syntax::TestDecl,
 ) -> Result<Scripted, String> {
     let mut items = Vec::new();
+    let mut delivery = Delivery::default();
     for step in &t.steps {
-        items.push(match step {
-            Step::Tap {
-                target,
-                form: contract_syntax::TapForm::Press,
-                modifiers,
-                ..
-            } if modifiers.is_empty() => Item::Event(Event::Tap(target.clone())),
-            Step::Type {
-                target,
-                text,
-                append: false,
-                ..
-            } => Item::Event(Event::Type(target.clone(), text.clone())),
-            Step::Clock { arg, .. } => match arg.strip_prefix('+').map(str::parse::<f64>) {
-                Some(Ok(ms)) if ms.is_finite() && ms >= 0.0 => Item::Event(Event::Clock(ms)),
-                _ => {
-                    return Err(format!(
-                        "{file}: test {:?}: `clock {arg}`: only `clock +ms` is delivered",
-                        t.name
-                    ))
-                }
-            },
-            Step::ExpectState { name, value, .. } => match literal(value) {
-                Some(v) => Item::Expect(Expect::State(name.clone(), v)),
-                None => {
-                    return Err(format!(
-                        "{file}: test {:?}: `expect state {name}` needs a literal",
-                        t.name
-                    ))
-                }
-            },
-            Step::ExpectText { target, value, .. } => {
-                Item::Expect(Expect::Text(target.clone(), value.clone()))
+        let item = match deliver(step) {
+            Ok(item) => item,
+            Err(why) => {
+                delivery.stopped = Some((step.span(), step_kind(step), why));
+                break;
             }
-            Step::ExpectTree {
-                target, present, ..
-            } => Item::Expect(Expect::Tree(target.clone(), *present)),
-            // The voice table is not in Lean (LLP 1096 D11): its commands
-            // are, and those are compared; a step that reads the table is
-            // the runner's tests' and conformance's.
-            Step::ExpectSound { .. } | Step::Midi { .. } => continue,
-            // Displayed wake-lock holders have no Lean oracle (LLP 1125 D11).
-            Step::ExpectWakelock { .. } => continue,
-            // A control's `disabled` is read from the host's tree (LLP 1116.010 D3), which Lean has no model of.
-            Step::ExpectDisabled { .. } => continue,
-            // The media session is the host's (LLP 1098 D12): an assertion on
-            // it has no oracle, and a test that only asserts it still runs.
-            // Its `tap` form is not a press, so it reaches `other` and the
-            // test is skipped by name.
-            Step::ExpectMediaSession { .. } | Step::ExpectMediaSessionAction { .. } => continue,
-            other => {
-                return Err(format!(
-                    "{file}: test {:?}: a step the differential run does not deliver: {other:?}",
-                    t.name
-                ))
+        };
+        delivery.taken += 1;
+        if let Some(item) = item {
+            if matches!(item, Item::Event(_)) {
+                delivery.events.push(step.span());
             }
-        });
+            if matches!(step, Step::Clock { arg, .. } if arg == "data" || arg == "settle") {
+                delivery.empty_clock = true;
+            }
+            items.push(item);
+        }
     }
     let events = items
         .iter()
@@ -212,5 +187,133 @@ pub fn test_case(
             prerendered: false,
         },
         items,
+        delivery,
     })
+}
+
+fn deliver(step: &Step) -> Result<Option<Item>, String> {
+    Ok(Some(match step {
+        Step::Tap {
+            target,
+            form: contract_syntax::TapForm::Press,
+            modifiers,
+            ..
+        } if modifiers.is_empty() => Item::Event(Event::Tap(target.clone())),
+        Step::Type {
+            target,
+            text,
+            append: false,
+            ..
+        } => Item::Event(Event::Type(target.clone(), text.clone())),
+        Step::Clock { arg, .. } if arg == "data" || arg == "settle" => {
+            Item::Event(Event::Clock(0.0))
+        }
+        Step::Clock { arg, .. } => match arg.strip_prefix('+').map(str::parse::<f64>) {
+            Some(Ok(ms)) if ms.is_finite() && ms >= 0.0 => Item::Event(Event::Clock(ms)),
+            _ => return Err("only clock +ms, data and settle are delivered".into()),
+        },
+        Step::ExpectState { name, value, .. } => match literal(value) {
+            Some(v) => Item::Expect(Expect::State(name.clone(), v)),
+            None => return Err(format!("expect state {name} needs a literal")),
+        },
+        Step::ExpectText { target, value, .. } => {
+            Item::Expect(Expect::Text(target.clone(), value.clone()))
+        }
+        Step::ExpectTree {
+            target, present, ..
+        } => Item::Expect(Expect::Tree(target.clone(), *present)),
+        // The voice table is not in Lean (LLP 1096 D11): its commands
+        // are, and those are compared; a step that reads the table is
+        // the runner's tests' and conformance's.
+        Step::ExpectSound { .. } | Step::Midi { .. } => return Ok(None),
+        // Displayed wake-lock holders have no Lean oracle (LLP 1125 D11).
+        Step::ExpectWakelock { .. } => return Ok(None),
+        // A control's `disabled` is read from the host's tree (LLP 1116.010 D3), which Lean has no model of.
+        Step::ExpectDisabled { .. } => return Ok(None),
+        // The media session is the host's (LLP 1098 D12): an assertion on
+        // it has no oracle, and a test that only asserts it still runs.
+        // Its `tap` form is not a press, so it reaches `other` and the
+        // block stops at that step.
+        Step::ExpectMediaSession { .. } | Step::ExpectMediaSessionAction { .. } => return Ok(None),
+        other => {
+            return Err(format!(
+                "{} is not delivered by the synchronous oracle",
+                step_kind(other)
+            ))
+        }
+    }))
+}
+
+fn step_kind(step: &Step) -> String {
+    match step {
+        Step::Clock { arg, .. } => format!("clock {}", arg.split_whitespace().next().unwrap_or("")),
+        Step::Key { .. } => "type key".into(),
+        Step::FailFetch { .. } => "fail fetch".into(),
+        Step::PassFetch { .. } => "pass fetch".into(),
+        Step::Tap { .. } => "tap".into(),
+        Step::ExpectState { .. } => "expect state".into(),
+        other => format!("{other:?}")
+            .split_whitespace()
+            .next()
+            .unwrap_or("unknown")
+            .to_lowercase(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const APP: &str = "component App\n  state n = 0\n  action add\n    n = n + 1\n  view\n    button \"add\" testId=\"add\" press=add\n";
+
+    #[test]
+    fn synchronous_clocks_keep_expectations_and_stop_at_the_first_unsupported_step() {
+        let source = format!("{APP}\ntest \"prefix\"\n  clock data\n  tap \"add\"\n  clock settle\n  expect state n == 1\n  reload\n  tap \"add\"\n  expect state n == 2\n");
+        let scripts = scripted("app.test.contract", &source, None).unwrap();
+        let s = &scripts[0];
+        assert_eq!(
+            s.case.events,
+            [
+                Event::Clock(0.0),
+                Event::Tap("add".into()),
+                Event::Clock(0.0)
+            ]
+        );
+        assert_eq!(s.delivery.taken, 4);
+        assert!(s.delivery.empty_clock);
+        let (span, kind, _) = s.delivery.stopped.as_ref().unwrap();
+        assert_eq!((span.line, span.col, kind.as_str()), (13, 3, "reload"));
+        assert_eq!(
+            s.delivery.events.iter().map(|s| s.line).collect::<Vec<_>>(),
+            [9, 10, 11]
+        );
+        crate::expectations(s).unwrap();
+        let source = source.replace("expect state n == 1", "expect state n == 7");
+        assert!(
+            crate::expectations(&scripted("app.test.contract", &source, None).unwrap()[0]).is_err()
+        );
+    }
+
+    #[test]
+    fn undeliverable_steps_keep_their_kind_and_location() {
+        for (step, kind) in [
+            ("request GET \"/items\"", "request"),
+            ("clock until state n == 1 within 100", "clock until"),
+            ("fail fetch \"https://example.test\"", "fail fetch"),
+            ("pass fetch \"https://example.test\"", "pass fetch"),
+            ("back", "back"),
+            ("close", "close"),
+            ("type \"add\" key \"Enter\"", "type key"),
+            ("tap \"add\" hover", "tap"),
+            ("pick \"file\" cancel", "pick"),
+            ("resize 800x600", "resize"),
+            ("prefer color-scheme dark", "prefer"),
+        ] {
+            let source = format!("{APP}\ntest \"stops\"\n  {step}\n  tap \"add\"\n");
+            let s = scripted("test", &source, None).unwrap().remove(0);
+            assert_eq!(s.delivery.taken, 0, "{step}");
+            assert!(s.case.events.is_empty(), "{step}");
+            assert_eq!(s.delivery.stopped.as_ref().unwrap().1, kind, "{step}");
+        }
+    }
 }

@@ -33,7 +33,7 @@ export function stageHostGlue(root, dir) {
  */
 export function driverRuntime(root) {
   const own = readdirSync(resolve(root, 'host/web-js')).filter(f => f.endsWith('.js')).sort().map(f => `host/web-js/${f}`);
-  return [...own, ...[...HOST_WEB_GLUE, 'navigation.js', 'grant-admission.js'].map(f => `host/web/${f}`)];
+  return [...own, ...[...HOST_WEB_GLUE, 'navigation.js', 'grant-admission.js', 'frame-messages.js'].map(f => `host/web/${f}`)];
 }
 
 /** A runtime module's `../web/…` imports, pointed at the copies beside it. */

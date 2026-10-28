@@ -322,6 +322,11 @@ impl<D: DataSource> Runner<D> {
                     match result {
                         Ok(o) => {
                             if !self.conforms(&o.value, self.plan.derives[i].ty) {
+                                if o.value.typed(&self.plan, self.plan.derives[i].ty) {
+                                    return Err(RunnerError::NonFiniteValue {
+                                        name: self.plan.str(self.plan.derives[i].name).to_string(),
+                                    });
+                                }
                                 return Err(RunnerError::DeriveType {
                                     derive: self.plan.str(self.plan.derives[i].name).to_string(),
                                 });

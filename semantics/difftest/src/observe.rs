@@ -206,7 +206,14 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
     // The host's facts, as the runner answered them at boot.
     for res in &plan.resources {
         let source = plan.str(res.source);
-        if crate::oracle::HOST_SOURCES.contains(&source) {
+        if !matches!(source, "exactTransport" | "exactMIDI")
+            && !r
+                .data()
+                .transcript
+                .borrow()
+                .iter()
+                .any(|call| call.source == source)
+        {
             let name = plan.str(res.name);
             if let Some(v) = r.resource(name).cloned() {
                 r.data()
@@ -220,29 +227,26 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
     for e in events {
         out.push(format!("== {}", e.label()));
         let was = r.is_poisoned();
-        let result = match e {
-            Event::Tap(t) => match find(&r, t) {
-                Some(view) => deliver(&mut r, view, HostEvent::Press),
+        let (result, ran) = r.trace_commits(|r| match e {
+            Event::Tap(t) => match find(r, t) {
+                Some(view) => deliver(r, view, HostEvent::Press),
                 None => Err(exact_runner::RunnerError::UnknownView(0)),
             },
-            Event::Type(t, s) => match find(&r, t) {
-                Some(view) => deliver(
-                    &mut r,
-                    view,
-                    HostEvent::Change(ControlValue::Text(s.clone())),
-                ),
+            Event::Type(t, s) => match find(r, t) {
+                Some(view) => deliver(r, view, HostEvent::Change(ControlValue::Text(s.clone()))),
                 None => Err(exact_runner::RunnerError::UnknownView(0)),
             },
             Event::Clock(ms) => {
                 let to = r.now_ms() + ms;
                 r.advance(to).map(drop)
             }
-        };
+        });
         if r.is_poisoned() && !was {
             out.push("outcome poisoned".into());
             if let Err(e) = &result {
                 out.push(format!("# {e:?}"));
             }
+            out.extend(ran);
             break;
         }
         match &result {
@@ -252,6 +256,7 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
                 out.push(format!("# {e:?}"));
             }
         }
+        out.extend(ran);
         if r.is_poisoned() {
             break;
         }

@@ -112,36 +112,8 @@ fn unlinked() -> InstanceError {
     )
 }
 
-/// Why an instance could not be realized.
-#[allow(missing_docs)]
-#[derive(Debug, Clone, PartialEq)]
-pub enum InstanceError {
-    Trap(Trap),
-    Bridge(bridge::BridgeError),
-    UnknownNodeType(u8),
-    List(&'static str),
-    SubjectKind {
-        region: RegionsId,
-    },
-    KeyKind {
-        region: RegionsId,
-    },
-    DuplicateKey {
-        region: RegionsId,
-    },
-    SlotType {
-        slot: String,
-    },
-    Collection(String),
-    /// Host geometry rejected before changing any collection or kernel state.
-    InvalidCollectionFeedback,
-}
-
-impl From<Trap> for InstanceError {
-    fn from(t: Trap) -> Self {
-        InstanceError::Trap(t)
-    }
-}
+mod errors;
+pub use errors::InstanceError;
 
 /// One realized node.
 #[derive(Debug)]

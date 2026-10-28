@@ -13,12 +13,15 @@
 //! cases come from [`gen`].
 
 pub mod arith;
+mod census;
 pub mod expansion;
 pub mod gen;
 pub mod js;
 pub mod leanrun;
 pub mod lowering;
 pub mod observe;
+#[cfg(test)]
+mod observe_tests;
 pub mod oracle;
 pub mod quick;
 pub mod rng;
@@ -236,6 +239,57 @@ const BOUNDS: [&str; 4] = [
     "ValueTooDeep",
 ];
 
+/// Classify the runner's Debug reason, never the semantics' prose. The
+/// names are RunnerError and Trap variants; an unknown variant stays visible.
+pub fn refusal_class(reason: &str) -> &'static str {
+    fn variant(s: &str) -> &str {
+        s.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .next()
+            .unwrap_or("")
+    }
+    let reason = reason.strip_prefix("# ").unwrap_or(reason);
+    let tag = variant(reason);
+    if BOUNDS.contains(&tag) {
+        return "limit";
+    }
+    match tag {
+        "Trap" | "Instance" => refusal_class(reason.split_once('(').map_or("", |(_, inner)| inner)),
+        "Data"
+        | "Shape"
+        | "UnknownView"
+        | "NoHandler"
+        | "InvalidEvent"
+        | "InvalidValue"
+        | "InvalidViewport"
+        | "InvalidTime"
+        | "InvalidPlace"
+        | "InvalidCollectionFeedback" => "world",
+        // Runner arity is the host's payload; the VM's is a type error.
+        "Arity" if reason.starts_with("Arity { action:") => "world",
+        "Arity" | "SlotType" | "DeriveType" | "ArgumentType" | "TypeMismatch"
+        | "StackUnderflow" | "BadField" | "BadScope" | "BadParam" | "WriteNotDeclared"
+        | "BadJump" | "Malformed" | "NoResult" | "SubjectKind" | "UnknownNodeType" => "type",
+        "TimerFireLimit" | "QueueFull" => "limit",
+        "Poisoned" => "poisoned",
+        "Cycle" => "cycle",
+        "NonFiniteValue" | "NonFiniteClock" | "ClockOutOfRange" | "ClockDidNotAdvance"
+        | "TaskKey" | "PathParameter" | "KeyKind" | "Router" => "value",
+        "RangeCount" if reason.contains("non_finite: true") => "value",
+        "RangeCount" if reason.contains("non_finite: false") => "app",
+        "UnwrapNone" | "DuplicateKey" | "List" | "Collection" => "app",
+        "router" if reason.contains(" refused: ") => "app",
+        "KernelSchemaMismatch"
+        | "AppMismatch"
+        | "Plan"
+        | "NotOneRoot"
+        | "Kernel"
+        | "RootRegion"
+        | "Bridge"
+        | "Pending" => "unclassified",
+        _ => "unclassified",
+    }
+}
+
 fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     // `#` lines are commentary (a refusal's reason), never compared.
     let keep = |v: Vec<String>| -> Vec<String> {
@@ -334,7 +388,12 @@ pub fn expectations(s: &Scripted) -> Result<(), String> {
     let plan = compile(&s.case)?;
     let oracle = oracle::Oracle::new(&plan, seed_of(&s.case.name));
     let (rust, _) = observe::run(plan, oracle, &s.case.events);
-    let steps = chunks(&rust);
+    expectations_on(s, &rust)
+}
+
+/// Check expectations against an observation already produced by the runner.
+pub fn expectations_on(s: &Scripted, rust: &[String]) -> Result<(), String> {
+    let steps = chunks(rust);
     let mut k = 0;
     for item in &s.items {
         match item {
@@ -421,6 +480,7 @@ pub fn stored_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
                 ..s.case.clone()
             },
             items: s.case.events.iter().cloned().map(Item::Event).collect(),
+            delivery: s.delivery.clone(),
         });
         out.push(s);
         out.extend(variant);
@@ -443,6 +503,7 @@ pub fn prerendered_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
                 ..s.case.clone()
             },
             items: s.case.events.iter().cloned().map(Item::Event).collect(),
+            delivery: s.delivery.clone(),
         });
         out.push(s);
         out.extend(variant);
@@ -485,6 +546,7 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
     Scripted {
         case,
         items: events.into_iter().map(Item::Event).collect(),
+        delivery: Default::default(),
     }
 }
 
