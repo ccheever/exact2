@@ -414,7 +414,6 @@ final class TintDimmingIOSTests: XCTestCase {
             ["op": "children", "id": 3, "ids": [4]],
             ["op": "frame", "id": 4, "x": 0.0, "y": 250.0, "w": 200.0, "h": 50.0],
             ["op": "present", "id": 4, "property": "flight", "x": 0.5, "y": 0.0]]))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let status = try XCTUnwrap(p.views[4])
         let layer = try XCTUnwrap((status.superview as? FlightClip)?.superview as? FlightLayer, "the status flies")
         XCTAssertTrue(layer.superview === controller.view, "in its controller's view")
@@ -605,8 +604,8 @@ final class TintDimmingIOSTests: XCTestCase {
     }
 
     /// A Markdown link in the tint greys as UIKit dims it outside a control, and so does an atom in
-    /// the tint a press acts on; the paragraph's own text and an atom no press acts on keep the tint,
-    /// and an atom in its kind's own colour keeps that
+    /// the tint a press acts on, their shadow and stroke in the tint included; the paragraph's own
+    /// text and an atom no press acts on keep the tint, and an atom in its kind's own colour keeps that
     func testAMarkdownLinkAndAPressedAtomDimAndOtherAtomsKeepTheirInk() throws {
         ExactMarkdown.install()
         let props: [String: Any] = [
@@ -615,7 +614,8 @@ final class TintDimmingIOSTests: XCTestCase {
             "atomStyles": ##"{"citation":[[75,"#ff3b30"]]}"##,
             "atomFaces": #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"The quoted passage"},{"source":"[Memo](t3-note:2)","label":"A memo","icon":"","title":"The memo"}]"#,
         ]
-        let ink: [String: Any] = ["text_color": ["sys": "@tint", "c": blue]]
+        let tinted: [String: Any] = ["sys": "@tint", "c": blue]
+        let ink: [String: Any] = ["text_color": tinted, "text_shadow": ["o": [1.0, 1.0], "b": 0.0, "c": tinted], "text_stroke_width": 1.0, "text_stroke_color": tinted]
         let p = presenter([
             ["op": "create", "id": 1, "kind": "text", "props": props, "style": ink],
             ["op": "create", "id": 2, "kind": "text", "props": props, "handlers": ["atompress"], "style": ink],
@@ -628,6 +628,12 @@ final class TintDimmingIOSTests: XCTestCase {
             let runs = try XCTUnwrap(p.views[id]).paragraphSpec().runs
             return try XCTUnwrap(runs.first { $0.text.contains(text) }?.color, "a piece with \"\(text)\" has a colour")
         }
+        // A run's own shadow, or the paragraph's where every run casts the same (`gatherShadows`)
+        func shadowAndStroke(_ id: UInt32, _ text: String) throws -> (shadow: [Double], stroke: [Double]) {
+            let spec = try XCTUnwrap(p.views[id]).paragraphSpec()
+            let run = try XCTUnwrap(spec.runs.first { $0.text.contains(text) }, "a piece with \"\(text)\"")
+            return (Array(try XCTUnwrap(run.shadow ?? spec.shadow, "its shadow").dropFirst(3)), Array(try XCTUnwrap(run.stroke, "its stroke").dropFirst()))
+        }
         assertChannels(try piece(1, "quote"), red, "the atom before the dimming")
         assertChannels(try piece(2, "memo"), blue, "the pressed atom before the dimming")
         dim(p, true)
@@ -639,6 +645,11 @@ final class TintDimmingIOSTests: XCTestCase {
         }
         assertChannels(try piece(1, "memo"), blue, "an atom no press acts on")
         assertChannels(try piece(2, "memo"), grey, "an atom a press acts on, as a link")
+        for (id, text, expected, what) in [(UInt32(1), "memo", blue, "an atom no press acts on"), (2, "memo", grey, "an atom a press acts on"), (1, "go", grey, "the link")] {
+            let (shadow, stroke) = try shadowAndStroke(id, text)
+            assertChannels(shadow, expected, "\(what)'s shadow in the tint")
+            assertChannels(stroke, expected, "\(what)'s stroke in the tint")
+        }
         dim(p, false)
         assertChannels(try piece(1, "go"), blue, "the link once the dimming ends")
         assertChannels(try piece(2, "memo"), blue, "the pressed atom once the dimming ends")
