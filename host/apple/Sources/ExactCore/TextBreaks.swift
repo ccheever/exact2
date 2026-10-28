@@ -75,8 +75,11 @@ package struct LineBreakPlan {
     /// six (`TextEngine.balancedLimit`); the rest break at `limit`. `widest`
     /// is those lines' widest broken greedily, which is still the box's
     /// measure: balancing moves breaks, never the box. Call before the
-    /// layout advances this plan; `next` is the layout's own break.
-    package func balance(_ limit: Double, length: Int, inset: (Int) -> Double, next: (inout LineBreakPlan, Int, Double) -> Int,
+    /// layout advances this plan; `next` is the layout's own break, and
+    /// `removed` the trailing spaces it leaves out of a line's width, given
+    /// the line's room.
+    package func balance(_ limit: Double, length: Int, inset: (Int) -> Double, removed: (CTLine, CGFloat) -> CGFloat,
+                 next: (inout LineBreakPlan, Int, Double) -> Int,
                  typesetter: CTTypesetter, source: NSAttributedString) -> (until: Int, room: Double, widest: CGFloat)? {
         let until = hardEnds.first ?? length
         func lines(_ limit: Double, widest: (Int, Int) -> Void = { _, _ in }) -> Int {
@@ -94,7 +97,7 @@ package struct LineBreakPlan {
         _ = lines(limit) { start, count in
             let range = CFRangeMake(start, count)
             let line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: source, range: range)
-            widest = max(widest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + CGFloat(inset(start)))
+            widest = max(widest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - removed(line, CGFloat(limit - inset(start))) + CGFloat(inset(start)))
         }
         return (until, room, widest)
     }
