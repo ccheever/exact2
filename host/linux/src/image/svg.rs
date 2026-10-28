@@ -185,12 +185,10 @@ pub(super) fn decode(
     cancelled: impl Fn() -> bool,
 ) -> Result<Decoded, Refusal> {
     // No link's query, a CDN's signature, is logged: the source is named cut
-    // at its query (a `data:` one by its media type alone), and the
-    // diagnostics of a file that is not the app's own (downloaded, a `data:`
-    // source, an `app:/` file), which quote what it holds, links and all, are
-    // counted, not quoted; a bundled file's are quoted for its developer.
-    let foreign =
-        super::remote::is_remote(name) || name.starts_with("data:") || name.starts_with("app:/");
+    // at its query (a `data:` one by its media type alone), and the parser's
+    // diagnostics, which quote what the file holds (links and all), are
+    // counted, not quoted (a bundled file's are the compiler's to name, LLP
+    // 1011.001 D5).
     let data_name;
     let name = match name.strip_prefix("data:") {
         Some(rest) => {
@@ -201,33 +199,19 @@ pub(super) fn decode(
         None => super::remote::without_query(name),
     };
     let log = |line: String| eprintln!("{}", super::remote::redacted(&line, name));
-    let quoted = |what: &dyn std::fmt::Display| {
-        if foreign {
-            "(not quoted: not the app's own file)".to_string()
-        } else {
-            super::remote::without_quoted_queries(&what.to_string())
-        }
-    };
     let text = std::str::from_utf8(bytes).map_err(|_| {
         log(format!("exact: image `{name}`: not UTF-8 text"));
         Refusal::DecodeFailed
     })?;
-    let loaded = exact_svg_file::load(text).map_err(|e| {
-        log(format!(
-            "exact: image `{name}`: not an SVG this host reads: {}",
-            quoted(&e)
-        ));
+    let loaded = exact_svg_file::load(text).map_err(|_| {
+        log(format!("exact: image `{name}`: not an SVG this host reads"));
         Refusal::DecodeFailed
     })?;
-    if foreign && !loaded.document.warnings.is_empty() {
+    if !loaded.document.warnings.is_empty() {
         let count = loaded.document.warnings.len();
-        log(format!("exact: image `{name}`: {count} parts this host does not draw (not quoted: not the app's own file)"));
-    } else {
-        // (A quoted link in the file loses its query, a space in it too.)
-        for warning in &loaded.document.warnings {
-            let warning = super::remote::without_quoted_queries(&warning.to_string());
-            log(format!("exact: image `{name}`: {warning}"));
-        }
+        log(format!(
+            "exact: image `{name}`: {count} parts this host does not draw"
+        ));
     }
     if cancelled() {
         return Err(Refusal::Stale);

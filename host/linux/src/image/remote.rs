@@ -78,38 +78,6 @@ pub(crate) fn without_queries(text: &str) -> String {
     out
 }
 
-/// [`without_queries`], after cutting every quoted span (`"…"`, `'…'`,
-/// `url(…)`) at its first `?` or `#`: a diagnostic that quotes a file's text
-/// can hold a link with a space in its query, which the word rule alone would
-/// split. One pass.
-pub(crate) fn without_quoted_queries(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    let mut last = ['\0'; 3];
-    while let Some(c) = chars.next() {
-        out.push(c);
-        let closer = match c {
-            '"' | '\'' => Some(c),
-            '(' if last == ['u', 'r', 'l'] => Some(')'),
-            _ => None,
-        };
-        last = [last[1], last[2], c];
-        let Some(closer) = closer else { continue };
-        let mut cut = false;
-        while let Some(&n) = chars.peek() {
-            if n == closer {
-                break;
-            }
-            chars.next();
-            cut |= n == '?' || n == '#';
-            if !cut {
-                out.push(n);
-            }
-        }
-    }
-    without_queries(&out)
-}
-
 /// Whether `name` is fetched rather than read: an `http:` or `https:` URL.
 pub(super) fn is_remote(name: &str) -> bool {
     name.split_once(':').is_some_and(|(scheme, _)| {

@@ -395,7 +395,9 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   host decodes`, the core's refusal, Apple's names), never after its `load`,
   and nothing is asked for that assignment after it. The reason, and the
   line on stderr (`exact: image <url>: HTTP 404`), quote a link without its
-  query or fragment (a CDN's signature), on every native host. Linux and Windows decode PNG and SVG
+  query or fragment (a CDN's signature), on every native host; an SVG's
+  parser diagnostics, which quote the file, are counted on stderr, not quoted
+  (a bundled file's are the compiler's to name, LLP 1011.001 D5). Linux and Windows decode PNG and SVG
   bodies; a JPEG, GIF or WebP body fails there as a bundled one does, and
   Android's platform decoder reads all three (`image/jpeg.rs`).
 - **Events:** the loader sends a node that hears it the source's `load`
