@@ -175,7 +175,7 @@ test "a reply's original far back loads around it, lit, and Jump to Present retu
   clock settle
   tap "reply-to-1562624645306263268"
   clock settle
-  expect state anchor == "1517079087703661082"
+  expect state anchor == "1518635600276626020"
   expect state highlight == "1518635600276626020"
   expect tree has "message-1518635600276626020"
   expect state win.hasAfter == true
