@@ -85,7 +85,7 @@ component MobileInspectorContent
     column flex=1 min-height=0 position="relative"
       if state.mountedFiles or (state.mountedRoute and state.kind != "changed-files")
         column position="absolute" inset=0 visibility=(data.showFiles ? "visible" : "hidden") pointer-events=(data.showFiles and visible ? "auto" : "none") aria-hidden=(not data.showFiles or not visible)
-          MobileFileTree(listId="inspector-files", data=data.files, colors=colors, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
+          MobileFileTree(bottomInset=0, listId="inspector-files", data=data.files, colors=colors, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
       if state.mountedGit
         column position="absolute" inset=0 visibility=(data.showGit ? "visible" : "hidden") pointer-events=(data.showGit and visible ? "auto" : "none") aria-hidden=(not data.showGit or not visible)
           MobileGitOverview(data=data.git, inspector=true, bottomInset=gitBottomInset, action=gitAction, refresh=refreshGit, colors=gitColors)

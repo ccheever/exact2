@@ -8,7 +8,7 @@ final class T3MobileInformationSearch {
     private var alive = true
 
     func makeView(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
-        guard alive else { throw ExactNativeRefusal("License search session has ended.") }
+        guard alive else { throw ExactNativeRefusal("Search session has ended.") }
         let port = T3MobileInformationSearchPort(owner: self, events: events)
         try port.setProps(props); return port
     }
@@ -44,6 +44,7 @@ private final class T3MobileInformationSearchPort: ExactNativeInstance {
     private weak var host: UIView?
     private let root = UIView()
     private var key = "", query = ""
+    private var placeholder = "Search packages", searchLabel = "Search open-source licenses"
     private var dismissRequested = false, alive = true
     private var generation = 0
     private var toolbar: UIView?, field: UISearchTextField?, close: UIButton?
@@ -57,14 +58,17 @@ private final class T3MobileInformationSearchPort: ExactNativeInstance {
     }
     override func setProps(_ props: [String: String]) throws {
         guard alive, let nextKey = props["route-key"], !nextKey.isEmpty else {
-            throw ExactNativeRefusal("License search needs its route key.")
+            throw ExactNativeRefusal("Search needs its route key.")
         }
         if key != nextKey {
             detach(); owner?.unbind(self, key: key); key = nextKey
         }
         query = props["query"] ?? ""; dismissRequested = props["dismiss-keyboard"] == "true"
+        placeholder = props["search-placeholder"] ?? "Search packages"
+        searchLabel = props["search-label"] ?? "Search open-source licenses"
         owner?.bind(self, key: key)
         if let field {
+            configureLabels(field)
             if field.text != query { field.text = query }
             if dismissRequested { field.resignFirstResponder() }
         }
@@ -78,20 +82,27 @@ private final class T3MobileInformationSearchPort: ExactNativeInstance {
     private func accepts(_ field: UISearchTextField, in route: ExactRoute) -> Bool {
         alive && self.field === field && self.route === route && route.isLive && owner?.isCurrent(self, key: key, route: route) == true
     }
+    private func configureLabels(_ field: UISearchTextField) {
+        field.accessibilityLabel = searchLabel
+        if field.attributedPlaceholder?.string != placeholder {
+            field.attributedPlaceholder = NSAttributedString(string: placeholder,
+                attributes: [.foregroundColor: UIColor.secondaryLabel, .font: field.font ?? UIFont.preferredFont(forTextStyle: .title3)])
+        }
+    }
     private func install(in route: ExactRoute) {
         let host = route.controller.view!
         self.host = host
         let toolbar = UIView(); toolbar.translatesAutoresizingMaskIntoConstraints = false; toolbar.layer.zPosition = 1
         host.addSubview(toolbar); self.toolbar = toolbar
-        route.owns(view: toolbar, "Open-source license search and keyboard dismiss", surface: true)
+        route.owns(view: toolbar, "\(searchLabel) and keyboard dismiss", surface: true)
         let effect: UIVisualEffect
         if #available(iOS 26.0, *) { let glass = UIGlassEffect(); glass.isInteractive = true; effect = glass } else { effect = UIBlurEffect(style: .systemMaterial) }
         let background = UIVisualEffectView(effect: effect); background.translatesAutoresizingMaskIntoConstraints = false; background.layer.cornerRadius = 24; background.clipsToBounds = true; toolbar.addSubview(background)
         let field = UISearchTextField(); self.field = field
-        field.placeholder = "Search packages"; field.accessibilityLabel = "Search open-source licenses"; field.autocorrectionType = .no; field.autocapitalizationType = .none; field.spellCheckingType = .no
+        field.autocorrectionType = .no; field.autocapitalizationType = .none; field.spellCheckingType = .no
         let searchFont = UIFont.preferredFont(forTextStyle: .title3)
         field.font = searchFont; field.adjustsFontForContentSizeCategory = true; field.textColor = .label; field.tintColor = .label
-        field.attributedPlaceholder = NSAttributedString(string: "Search packages", attributes: [.foregroundColor: UIColor.secondaryLabel, .font: searchFont])
+        configureLabels(field)
         field.borderStyle = .none; field.translatesAutoresizingMaskIntoConstraints = false; background.contentView.addSubview(field)
         field.text = query
         field.addAction(UIAction { [weak self, weak field, weak route] _ in

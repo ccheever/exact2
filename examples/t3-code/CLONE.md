@@ -106,8 +106,14 @@ drive verifies this on the large schema file, including newly revealed rows,
 wrapping after a pan, a pull to refresh, and opening a second file. Wrapping
 remounts the viewer and resets both offsets as the reference does. Markdown code
 styling still differs. Files rows now align their labels beside the icons without
-system cell separators; file selection and back navigation work in the normal app.
-Its heading and native search placement still differ. Source rows carry only source fields and reuse their
+system cell separators. Its Files/project header and bottom search reuse the
+existing native coordinators. The focused field and dismiss-button frames match
+the reference capture. Native no-results search, directory expansion, result
+selection, Preview/Source actions and returning with the query intact pass.
+Empty/error states reserve the same toolbar clearance as file rows. Hiding the
+header coordinator's unused body button restores the first row's folder glyphs.
+The inspector-supported Files/chat branch retains its existing search input.
+Source rows carry only source fields and reuse their
 highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
 Read failures show an error and Try again instead of an empty body. All 3,706

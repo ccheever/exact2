@@ -66,6 +66,7 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
         configuration = raw; self.identifier = identifier; title = config["title"] as? String ?? ""
         rows = config["actions"] as? [[String: Any]] ?? []; tint = nextTint
         button.isEnabled = !identifier.isEmpty; button.tintColor = tint
+        button.isHidden = !key.isEmpty
         button.isUserInteractionEnabled = key.isEmpty; button.accessibilityElementsHidden = !key.isEmpty
         if !key.isEmpty { owner?.bind(self, key: key) }
         refresh()
@@ -80,6 +81,10 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
         guard let route, route.isLive else { return }
         if #available(iOS 26.0, *) { route.controller.navigationItem.style = .editor }
         refreshAppearance(route)
+        if rows.isEmpty {
+            if group != nil { removeItem() }
+            button.menu = nil; return
+        }
         if let group, rendered == configuration, renderedTint == tint {
             if !route.controller.navigationItem.trailingItemGroups.contains(where: { $0 === group }) {
                 route.controller.navigationItem.trailingItemGroups.append(group)
