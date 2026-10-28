@@ -2,7 +2,7 @@
 // `look`. Reference: routes/__root.tsx (data-chat-width, data-diff-color-scheme,
 // font and theme variables on :root), index.css (--chat-content-max-width,
 // :root[data-diff-color-scheme="blue-orange"]), appearanceContrast.ts, the
-// theme palette roles and SidebarChrome's environment identification.
+// theme palette roles and useEnvironmentIdentificationMode.
 // `themed` is false for the stock T3 Code theme at default contrast and glass,
 // so surfaces keep their measured stock colours; otherwise they take the
 // palette's light-dark() tokens.
@@ -76,7 +76,7 @@ export function look(client: T3Client): Look {
     terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode),
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
     message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
-    diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), artwork: prefs.environmentIdentificationMode === 'artwork', pill: prefs.environmentIdentificationMode === 'pill' ? 'Nightly' : '',
+    diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), ...environmentIdentification(client.preferencesLoaded, prefs, mode),
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
     fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize, promptSize: clampPromptFontSize(prefs.fontSizePrompt), promptFont: fontStack(prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
     codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, math: prefs.mathRenderingEnabled, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
@@ -84,6 +84,22 @@ export function look(client: T3Client): Look {
     skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior, legacySidebar: prefs.legacySidebarEnabled,
     confirmUnpin: prefs.confirmThreadUnpin, confirmArchive: prefs.confirmThreadArchive, confirmDelete: prefs.confirmThreadDelete,
   };
+}
+
+/** The built-in palettes that keep the sidebar's artwork (themePalettes.ts `sidebarArtwork: true`). */
+const ARTWORK_THEMES = new Set(['t3-chat', 'grove', 'ocean', 'ember', 'iris']);
+/**
+ * resolveEnvironmentIdentificationMode (hooks/useSettings.ts at 7c3b3b3605ef): nothing until the preferences load; the
+ * pill, not the artwork, while a palette without artwork is the active half (a custom or an environment's theme, or the
+ * theme editor's draft, which paintOf puts on its half). The stock theme has no palette of its own and keeps the mode.
+ * Under System the half is the window's, which this module cannot read: either half that has no artwork shows the pill.
+ */
+export function environmentIdentification(loaded: boolean, prefs: ClientPrefs, mode: string): { artwork: boolean; pill: string } {
+  if (!loaded) return { artwork: false, pill: '' };
+  const withoutArtwork = (id: string) => id !== 't3-code' && !ARTWORK_THEMES.has(id);
+  const halves = mode === 'light' ? [prefs.themeLight] : mode === 'dark' ? [prefs.themeDark] : [prefs.themeLight, prefs.themeDark];
+  const chosen = prefs.environmentIdentificationMode, shown = chosen === 'artwork' && halves.some(withoutArtwork) ? 'pill' : chosen;
+  return { artwork: shown === 'artwork', pill: shown === 'pill' ? 'Nightly' : '' };
 }
 
 /** devicePresentation's appearance mode: the window draws in the mode `look` resolves (T3WindowChrome.setAppearance), the theme editor's draft's included. */

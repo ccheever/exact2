@@ -170,6 +170,9 @@ describe('media views', () => {
     expect(rpcs.length).toBe(before + 1);
     expect(mediaFailed(client, video.url)).toBe(false);
     expect(await filesMediaView(client, native, 'notes.txt', '/repo/notes.txt', '/repo', '', 1000)).toMatchObject({ kind: '' });
+    // workspaceAssetResource (#24627): a picture outside the workspace (an absolute link in the thread) is a media-file.
+    await filesMediaView(client, native, '/Users/me/Desktop/shot.png', '/Users/me/Desktop/shot.png', '/repo', '', 1000);
+    expect(rpcs.at(-1)).toEqual({ method: 'assets.createUrl', resource: { _tag: 'media-file', threadId: 't1', path: '/Users/me/Desktop/shot.png' } });
     // WorkspaceImagePreview's onError: the picture's `error` (exact2 #121) is the failure state, menu kept.
     await mediaLocal(client, native, 'image-error', image.url, 'HTTP 404');
     expect(await filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', '', 1000)).toMatchObject({ state: 'failed', failText: 'Unable to load workspace image.' });

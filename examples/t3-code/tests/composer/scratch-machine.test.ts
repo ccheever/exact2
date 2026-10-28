@@ -9,7 +9,8 @@ import { environmentOptions, runOnEnvironment } from '../../src/details/git-env'
 import { awaitScratchProject, machineChanging, scratchChoices, SCRATCH_NOT_LOADED } from '../../src/composer/scratch-machine';
 import { activityRun, setupTurnStarted } from '../../src/timeline/worktree-card-run';
 import { adoptWorktreeSetup, threadWorktreeSetup } from '../../src/timeline/timeline-worktree';
-import { autoShowDevices, resetLaunch, visibleMini } from '../../src/device/floating-player';
+import { applyDeviceSnapshot, resetLaunch, visibleMini } from '../../src/device/floating-player';
+import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import { chatCanvasView } from '../../src/shell/chat-canvas-view';
 import { resolvePreviewMiniPlayerFrame, resolveDeviceMiniPlayerSourceSize } from '../../src/device/previewMiniPlayerLayout';
 import { deviceMini, floatMiniDevice } from '../../src/device/device-session';
@@ -119,29 +120,28 @@ describe('a thread\'s device session floats (ChatView autoShowFloatingPreview)',
   const state = (sessions: Obj[]) => ({ hosts: [], devices: [iphone], sessions });
   const open = { threadId: 't1', hostId: 'local', deviceId: 'IPHONE' };
   const thread = (threadId = 't1') => ({ environmentId: 'env', threadId, generation: 1, presentation: {} }) as unknown as T3Client;
-  test('the thread open before the first device state floats its session; a later visit takes a baseline', () => {
+  const apply = (client: T3Client, snapshot: Obj, sheet = false) => applyDeviceSnapshot(client, 'env', snapshot, { sheet, autoShowFloatingPreview: true }, new EnvironmentFleet());
+  test('the environment\'s first device state is a baseline; a session opened after it floats over its thread', () => {
     resetLaunch();
     const first = thread();
-    autoShowDevices(first, null, false); // before the first chunk: EMPTY_DEVICE_STATE, an empty baseline
-    autoShowDevices(first, state([open]), false);
+    apply(first, state([open]));
+    expect(deviceMini(first, state([open])).show).toBe(false);
+    apply(first, state([]));
+    apply(first, state([open]));
     expect(deviceMini(first, state([open]))).toMatchObject({ show: true, name: 'iPhone 18 Pro', deviceId: 'IPHONE' });
-    const later = thread('t2');
-    autoShowDevices(later, state([]), false); // the launch thread is elsewhere
-    (later as unknown as { threadId: string }).threadId = 't1';
-    autoShowDevices(later, state([open]), false);
-    expect(deviceMini(later, state([open])).show).toBe(false);
   });
   test('a new session floats, a closed one takes the player with it, a sheet layout floats nothing', () => {
     resetLaunch();
     const client = thread();
-    autoShowDevices(client, state([]), false);
-    autoShowDevices(client, state([open]), false);
+    apply(client, state([]));
+    apply(client, state([open]));
     expect(deviceMini(client, state([open])).show).toBe(true);
-    autoShowDevices(client, state([]), false);
+    apply(client, state([]));
     expect(deviceMini(client, state([])).show).toBe(false);
     resetLaunch();
     const narrow = thread();
-    autoShowDevices(narrow, state([open]), true);
+    apply(narrow, state([]), true);
+    apply(narrow, state([open]), true);
     expect(deviceMini(narrow, state([open])).show).toBe(false);
   });
   test('the player hides while the panel shows the same device (shouldRenderPreviewMiniPlayer)', () => {

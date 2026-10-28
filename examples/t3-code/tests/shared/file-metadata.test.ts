@@ -77,3 +77,10 @@ test('failed batches remain bounded without retrying a mounted chip repeatedly b
   Object.assign(app, { draftKey: 'env:t2', draft: '@p0' });
   expect(fileMetadataNeeded(app, 1)).toBe(true);
 });
+// useFileMetadata at 7c3b3b3605ef: a network path is never asked about, since the server's stat would make Windows
+// send the user's NTLM credentials to its host.
+test('network paths get no metadata request', async () => {
+  const { app, calls } = fixture('@/repo/a.ts @//attacker.test/share/x.ts @\\\\attacker.test\\share\\y.ts @file://attacker.test/share/z.ts', paths => ({ entries: paths.map(() => ({ kind: 'file' })) }));
+  await refreshFileMetadata(app, native, 100);
+  expect(calls).toEqual([['/repo/a.ts']]);
+});
