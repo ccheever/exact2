@@ -18,7 +18,7 @@ use DirectoryList from "./directory.contract"
 use ImageViewer, ViewerRoute, viewerFade from "./viewer.contract"
 use MemberList, ProfileCard from "./members.contract"
 use PickerFrames, DeleteConfirm from "./picker.contract"
-use RoundButton, MessageMenu from "./controls.contract"
+use RoundButton, MessageMenu, TrayIcon from "./controls.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
@@ -133,13 +133,9 @@ component Excord
   resource mediaPreferences = exactViewport() as shape MediaPreferences
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
-  // A desktop's (LLP 1133.025 §12.2): opening at login, Windows' notification area, and attention
-  // when something for the reader arrives while Excord is not in front. Elsewhere the login item
-  // is absent and none of it shows.
   resource login = loginItemStatus() as shape LoginItemStatus else empty(available=false, state="unknown")
   mutation loginSet as shape LoginItemStatus
   state keepInTray = true persist
-  derive tray = keepInTray and match login.windows { case some(w) => true, case none => false }
   // Translate: the aimed message's language, the pair to the person's, and each translation for the session.
   state translated: Translated[] = []
   state translating = ""
@@ -1184,13 +1180,11 @@ component Excord
       send lockChecked = authenticate(reason="reason.unlock")
   action lockAfterCheck
     send lockSet = protectToken()
-  action toggleLogin
-    if login.state == "disabled"
-      send loginSet = registerLoginItem(hidden=false)
+  action setLogin(on: bool, hidden: bool)
+    if on
+      send loginSet = registerLoginItem(hidden=hidden)
     else
       send loginSet = unregisterLoginItem()
-  action toggleHidden
-    send loginSet = registerLoginItem(hidden=not login.hidden)
   action loginSettings
     openLoginItemSettings()
   action toggleTray
@@ -1206,13 +1200,8 @@ component Excord
   view
     main testId="excord" navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave key=windowKey interactive-widget="resizes-content" width="100%" height="100%"
       head title=pageTitle
-      // Windows' notification area (LLP 1133.025 D4): a click shows the window, the menu opens Excord.
-      if tray
-        button -exact-menu="status" aria-label="Excord" press=showWindow popovertarget="tray-menu" testId="tray"
-          image (mentionTotal > 0 or dmUnread ? "symbol:notifications" : "symbol:messages")
-        column id="tray-menu" popover="auto" role="menu" aria-label="Excord"
-          button press=showWindow testId="tray-open"
-            text "Open Excord"
+      if keepInTray and match login.windows { case some(w) => true, case none => false }
+        TrayIcon(unread=(mentionTotal > 0 or dmUnread), open=showWindow)
       for e in stack(nav) key=e.id
         if e.name == "home" and signedOutNow
           column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0 inert=covered
@@ -1256,11 +1245,10 @@ component Excord
                 button press=toggleLock popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=session.lockOn testId="lock-switch"
                   text lockLabel
               if login.available
-                hr
-                button press=toggleLogin popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=(login.state != "disabled") testId="login-switch"
+                button press=setLogin(login.state == "disabled", false) popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=(login.state != "disabled") testId="login-switch"
                   text "Open Excord at Login"
                 if login.state == "enabled"
-                  button press=toggleHidden popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=login.hidden testId="login-hidden"
+                  button press=setLogin(true, not login.hidden) popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=login.hidden testId="login-hidden"
                     text "Start Hidden"
                 if login.state == "requires-approval"
                   button press=loginSettings popovertarget="account-menu" popovertargetaction="hide" testId="login-approve"
