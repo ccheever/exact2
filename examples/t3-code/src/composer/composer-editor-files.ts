@@ -408,9 +408,10 @@ export function composerFileRecords(client: T3Client, text: string): Obj[] {
 export function fileChipContexts(client: T3Client, text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const file of referencedFiles(client.local, client.draftKey, text)) {
-    // A video's chip is kind video (FilmIcon); an SVG's an image chip (FileChip's SvgFileChip), its press still the file's.
+    // A video's chip is kind video (FilmIcon). An SVG's stays kind file, so its press opens the file, and draws as an
+    // image chip (FileChip's SvgFileChip): the record's third field names the glyph.
     if (file.status === 'ready' || file.source === 'attached' || mapFor(texts, client).has(file.id)) {
-      out[`file/${file.contextId}`] = `${isSvgAttachment(file.name, file.mimeType) ? 'image' : videoMimeType(file) ? 'video' : 'file'}\t${formatAttachmentSize(file.sizeBytes)}`;
+      out[`file/${file.contextId}`] = `${videoMimeType(file) ? 'video' : 'file'}\t${formatAttachmentSize(file.sizeBytes)}${isSvgAttachment(file.name, file.mimeType) ? '\timage' : ''}`;
     }
   }
   return out;

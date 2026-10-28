@@ -5,6 +5,11 @@ import { composerChips } from '../../src/composer/composer-source-chips';
 import { refreshFileMetadata } from '../../src/shared/file-metadata';
 import type { Native } from '../../src/client/protocol';
 import { fileChipContexts, isSvgAttachment, setDraftFiles } from '../../src/composer/composer-editor-files';
+import { composerChipOpen, composerChipTake } from '../../src/composer/composer-chip-bridge';
+import { composerSourceSession } from '../../src/composer/composer-rich-state';
+import { performChipAct } from '../../src/composer/composer-chip-details';
+import { composerFileView } from '../../src/composer/composer-chip-file';
+import { observeComposer } from '../support/composer-field-fixture';
 
 test('filesystem metadata distinguishes dotted folders and extensionless files in composer chip faces', async () => {
   const value = '@release.v1 @capture ', client = new T3Client();
@@ -43,16 +48,22 @@ test('a thread chip leads with its project icon, MessagesSquare without a known 
   expect(faces[1]).toMatchObject({ kind: 'thread', icon: 'messages-square', glyph: { kind: '' } });
 });
 
-test("an attached SVG's chip is an image chip whose press opens the file (FileChip's SvgFileChip)", () => {
+test("an attached SVG's chip draws as an image chip and its press opens the file (FileChip's SvgFileChip)", async () => {
   const client = new T3Client();
   Object.assign(client, { environmentId: 'env', threadId: 't1' });
   const file = (id: string, name: string, mimeType: string) => ({ id, contextId: `file_${id}`, draftKey: client.draftKey, environmentId: 'env', name, mimeType,
     sizeBytes: 2048, source: 'attached', attachmentId: '', status: 'staged' as const });
   setDraftFiles(client.local, [file('s', 'logo.svg', 'image/svg+xml'), file('o', 'mark.SVG', 'binary/octet-stream'), file('n', 'notes.txt', 'text/plain')]);
-  const value = '[logo.svg](t3-context://v1/file/file_s) [mark.SVG](t3-context://v1/file/file_o) [notes.txt](t3-context://v1/file/file_n)';
-  expect(fileChipContexts(client, value)).toEqual({ 'file/file_s': 'image\t2 KB', 'file/file_o': 'image\t2 KB', 'file/file_n': 'file\t2 KB' });
+  const value = '[logo.svg](t3-context://v1/file/file_s) [mark.SVG](t3-context://v1/file/file_o) [notes.txt](t3-context://v1/file/file_n) ';
+  expect(fileChipContexts(client, value)).toEqual({ 'file/file_s': 'file\t2 KB\timage', 'file/file_o': 'file\t2 KB\timage', 'file/file_n': 'file\t2 KB' });
   expect(composerChipFaces(client, value, composerChips(value)).map(face => [face.kind, face.icon, face.interactive])).toEqual([
-    ['image', 'image', true], ['image', 'image', true], ['file', 'file', true]]);
+    ['file', 'image', true], ['file', 'image', true], ['file', 'file', true]]);
   expect(isSvgAttachment('diagram.svg', 'application/unknown')).toBe(true);
   expect(isSvgAttachment('diagram.svg', 'text/xml')).toBe(false);
+  // The press, as the field reports it: a file press, which opens the draft file's preview.
+  const snapshot = observeComposer(client, value), session = composerSourceSession(client);
+  const press = composerChipOpen(client, { ...snapshot, ...session.chips[0]!, surface: 'composer', comment: false, frame: { unavailable: false, x: 10, y: 20, width: 80, height: 18 } });
+  expect(press).toMatchObject({ kind: 'file', act: 'file', context: 'file_s' });
+  await performChipAct(client, {} as Native, composerChipTake(client, press!.seq)!);
+  expect((await composerFileView(client, { available: true } as Native, 1)).file).toMatchObject({ id: 's', name: 'logo.svg', origin: 'Draft' });
 });

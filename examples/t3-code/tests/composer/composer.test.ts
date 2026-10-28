@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { composerPlaceholder, threadPhase, traitsMenu, commandChords, controlsWidth, composerView, runtimeModes } from '../../src/composer/composer-presentation';
 import { pickerCatalog, scoreModel, favoriteKeys, pickerReady } from '../../src/composer/model-catalog';
+import { setFanout } from '../../src/composer/composer-controls-fanout';
 
 const badge = () => ({ providerBadge: '', providerBadgeColor: '' });
 const provider = (instanceId: string, models: object[], extra: object = {}) => ({ instanceId, driver: 'codex', displayName: instanceId === 'codex' ? 'Codex' : 'Exact verification fixture',
@@ -67,6 +68,22 @@ describe('composer controls', () => {
     const legacy = composerView(client({ runtimeMode: 'auto' , config: { providers: [provider('exact_fixture', fixtureModels, { supportedRuntimeModes: ['approval-required'] })] } }),
       { approval: false, question: false, choiceOnly: false });
     expect(legacy.runtimeLabel).toBe('Supervised');
+  });
+  test("an unavailable model's badge widens the picker in the footer's layout, except on a multi-model draft", () => {
+    const unavailable = fixtureModels.map(model => model.slug === 'gpt-6-astra' ? { ...model, isUnavailable: true } : model);
+    // The probes' widths (composer-measure.ts): the labels, and the badge's text at 10pt medium.
+    const anchors = { controls: [0, 380], 'm-model-sm': [0, 90], 'm-traits-sm': [0, 50], 'm-runtime-sm': [0, 70], 't:10:500:Unavailable': [0, 52] };
+    const view = (models: object[], extra: object = {}, fanout = false) => {
+      const draft = client({ presentation: { anchors }, config: { providers: [provider('exact_fixture', models)] }, ...extra });
+      if (fanout) setFanout(draft as unknown as Parameters<typeof setFanout>[0], [{ instanceId: 'exact_fixture', model: 'gpt-6-astra', options: [] }, { instanceId: 'exact_fixture', model: 'gpt-5.6-luna', options: [] }]);
+      return composerView(draft, { approval: false, question: false, choiceOnly: false });
+    };
+    // Picker 48 + 90, Reasoning 34 + 22 + 50, Full access 56 + 70: 370 fits the 388 the controls row gives.
+    expect(view(fixtureModels).runtimeIconOnly).toBe(false);
+    // The badge adds its text, 3pt padding and a 1pt border each side, and the trigger's 6pt gap: 436 does not.
+    expect(view(unavailable).runtimeIconOnly).toBe(true);
+    // A multi-model trigger draws no badge (ProviderModelPicker: only without selectedEntries).
+    expect(view(unavailable, { threadId: '' }, true).runtimeIconOnly).toBe(false);
   });
   test('plan toggle needs the device setting and a provider that allows it', () => {
     const on = { local: { favoriteModels: [], deviceSettings: { planModeEnabled: true } } };

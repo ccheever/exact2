@@ -25,9 +25,7 @@ import { commandShortcut } from '../shell/shell'; // the workspace and host tool
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
 // `switched`: the ref a switch checked out, kept while the stream still reports the status it had then.
-type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; switched?: { name: string; status: Obj | null }; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean;
-  /** Whether the strip's picker, and the workspace card's, was open at the last read. */
-  stripOpen?: boolean; cardOpen?: boolean };
+type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; switched?: { name: string; status: Obj | null }; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
 type RepoCache = { environmentId: string; generation: number; origin: string; byCwd: Map<string, Repo> };
 const repos = new WeakMap<T3Client, RepoCache>();
 function repositoryCache(client: T3Client): Map<string, Repo> {
@@ -156,10 +154,6 @@ export function previousWorktree(client: T3Client): { branch: string; worktreePa
 /** Refreshes repository state the strip shows; the menu's refs load while the branch picker is open. */
 async function load(client: T3Client, native: Native, cwd: string, open: boolean, query: string, card: boolean): Promise<Repo> {
   const entry = repo(client, cwd), access = client.restAccess(native);
-  // handleOpenChange: opening the picker asks the server to read the checkout's current branch again, without a remote
-  // fetch; the answer reaches the strip through the status stream, and a failure is not reported.
-  if (open && !entry[card ? 'cardOpen' : 'stripOpen']) void access.request('vcs.refreshStatus', { cwd, localOnly: true }).catch(() => undefined);
-  entry[card ? 'cardOpen' : 'stripOpen'] = open;
   // BranchToolbarBranchSelector reads `vcsEnvironment.status`, the subscribeVcsStatus stream, and the
   // reference asks vcs.refreshStatus only on window focus and when a git menu opens (GitActionsControl).
   // So the strip and the card's branch row read the stream that follows this workspace (shell-vcs.ts).
@@ -212,8 +206,26 @@ export async function composerBranches(client: T3Client, native: Native | null |
   if (!card) noteStripLayout(client, view);
   return { ...view, balanceFetch: card ? '' : autoBalanceState(client).fetch };
 }
+/**
+ * Each branch picker's opening, for BranchToolbarBranchSelector's handleOpenChange: the strip's picker was open at its
+ * last read (`stripOpen`), and the workspace card's picker opened since its last read (`cardOpened`, git-branch.ts).
+ */
+const pickers = new WeakMap<T3Client, { stripOpen: boolean; cardOpened: boolean }>();
+function pickerState(client: T3Client): { stripOpen: boolean; cardOpened: boolean } {
+  let state = pickers.get(client);
+  if (!state) { state = { stripOpen: false, cardOpened: false }; pickers.set(client, state); }
+  return state;
+}
+/** The workspace card's branch picker opened (git-branch.ts `git-open`); the card's next read asks for the branch. */
+export function cardBranchPickerOpened(client: T3Client): void { pickerState(client).cardOpened = true; }
+
 /** shouldShowComposerContextStrip with Git controls. */
 async function stripView(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card: boolean) {
+  // handleOpenChange: a picker that opens asks the server to read the checkout's current branch again, without a remote
+  // fetch; the answer reaches it through the status stream, and a failure is not reported. Each picker keeps its own
+  // open state, as the reference's isBranchMenuOpen, whatever folder or thread its reads find.
+  const picker = pickerState(client), opened = card ? picker.cardOpened : open && !picker.stripOpen;
+  if (card) picker.cardOpened = false; else picker.stripOpen = open;
   const hidden = { show: false, envMode: 'local', forceWorktree: false, envLabel: 'Current checkout', envIcon: 'folder', envLocked: false, previous: false, previousBranch: '',
     branchLabel: '', branch: '', loading: false, refs: [] as Array<{ name: string; badge: string; selected: boolean; index: number }>, status: '', creatable: '', enterOp: '', enterValue: '', checkout: [] as CheckoutItem[], ...NO_RUN_ON, ...NO_STRIP_PR, gitless: false,
     // BranchToolbarEnvModeSelector and BranchToolbarEnvironmentSelector add these to their tooltips (shortcutLabelForCommand).
@@ -223,6 +235,7 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
   if (client.threadId && !persist && !card) return hidden; // the workspace card's branch row (git-branch.ts) shows on threads too
   const cwd = cwdFor(client);
   if (!cwd) return hidden;
+  if (opened) void client.restAccess(native).request('vcs.refreshStatus', { cwd, localOnly: true }).catch(() => undefined);
   let entry: Repo;
   try { entry = await load(client, native, cwd, open, query, card); } catch { return hidden; }
   // shouldShowComposerContextStrip without Git controls: only the machine selector, when it shows.

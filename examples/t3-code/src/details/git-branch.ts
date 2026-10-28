@@ -12,7 +12,7 @@ import type { T3Client } from '../client/client';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import { splitForMiddleTruncate } from './middle-truncate';
 import { ClientError, type Files, type Native } from '../client/protocol';
-import { canOverrideServerEnv, composerBranches, draftContext, refBadge, sanitizeNewRefName, selectBranch, serverEnvBranch, serverEnvMode, serverOrigin, toggleServerOrigin } from '../composer/composer-controls-branch';
+import { canOverrideServerEnv, cardBranchPickerOpened, composerBranches, draftContext, refBadge, sanitizeNewRefName, selectBranch, serverEnvBranch, serverEnvMode, serverOrigin, toggleServerOrigin } from '../composer/composer-controls-branch';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
 import { REF_PAGE, firstPage, morePages, refScrollEnds, refsStatus, scrollEnds } from '../composer/ref-paging';
 import { checkoutItems, type CheckoutItem } from '../composer/pr-checkout'; // the picker's checkout item
@@ -130,7 +130,8 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
 export function branchLocal(client: T3Client, op: string, id: string, value: string): string {
   const state = branchState(client);
   // The row and the chevron open their popovers (the host toggles them); the picker starts a fresh search.
-  if (op === 'open') { state.open = id; state.query = ''; if (state.refs) state.refs.stale = true; return ''; }
+  // Opening the branch picker asks for the current branch on the card's next read (handleOpenChange).
+  if (op === 'open') { state.open = id; state.query = ''; if (state.refs) state.refs.stale = true; if (id === 'branch') cardBranchPickerOpened(client); return ''; }
   if (op === 'query') { state.query = value.slice(0, 256); return ''; }
   if (op === 'origin') {
     if (client.threadId) { if (!toggleServerOrigin(client)) throw new ClientError('A started thread keeps its workspace.'); return ''; }

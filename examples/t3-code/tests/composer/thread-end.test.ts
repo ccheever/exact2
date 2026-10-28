@@ -6,7 +6,7 @@ import { arr, obj, type Obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
 import { toasts } from '../../src/shell/toast';
 import { endSummary, queuedTurnRows, threadEndRows, threadNowRows } from '../../src/composer/thread-end';
-import { checkMissingEditThreads, queuedEdit } from '../../src/composer/composer-controls-queue';
+import { checkMissingEditThreads, queueState, queuedEdit } from '../../src/composer/composer-controls-queue';
 import { opened } from '../support/composer-controls-fixture';
 
 /** A running, steerable turn on t1 with `count` queued messages, as the server holds them. */
@@ -77,6 +77,29 @@ describe('queued turns at the end of the timeline (QueuedRunsControl)', () => {
     expect(bubbles(queuedTurnRows(client))[0]).toMatchObject({ actionLabel: 'Send now', intentTip: 'Skip compaction and send this message (⇧⌘Enter)' });
     await command('cc:queued-steer', 'q1');
     expect(native.committed.at(-1)).toMatchObject({ type: 'queued-message.promote-to-steer', queuedRunId: 'q1', targetRunId: 'r1' });
+  });
+  test("Send now's rules: no turn starts on an archived or deleted thread; only a user's bare /compact is skipped", async () => {
+    const { client } = await queue(1, false);
+    const projection = client.projection;
+    const active = (status: string, userMessageId = '') => { projection.runs = arr(projection.runs).map(run => run.id === 'r1' ? { ...run, status, userMessageId } : run); };
+    active('interrupted');
+    expect(queueState(projection)).toMatchObject({ canSendNow: true, canSteer: false });
+    for (const gone of [{ archivedAt: '2026-10-28T00:00:00.000Z' }, { deletedAt: '2026-10-28T00:00:00.000Z' }]) {
+      projection.thread = { ...obj(projection.thread), archivedAt: null, deletedAt: null, ...gone };
+      expect(queueState(projection).canSendNow).toBe(false);
+      expect(bubbles(queuedTurnRows(client))[0]!.actionLabel).toBe('');
+    }
+    projection.thread = { ...obj(projection.thread), archivedAt: null, deletedAt: null };
+    // isCompactionCommandMessage: the user's `/compact` (any case, padded) with no attachments, nothing else.
+    active('running', 'mc');
+    const compacting = (fields: Obj) => {
+      projection.messages = [...arr(projection.messages).filter(message => message.id !== 'mc'), { id: 'mc', role: 'user', text: ' /COMPACT ', ...fields }];
+      return queueState(projection);
+    };
+    expect(compacting({})).toMatchObject({ canSendNow: false, promoteSkipsCompaction: true, canSteer: true });
+    expect(compacting({ attachments: [{ type: 'image', id: 'i1' }] })).toMatchObject({ promoteSkipsCompaction: false, canSteer: false });
+    expect(compacting({ role: 'assistant' })).toMatchObject({ promoteSkipsCompaction: false, canSteer: false });
+    expect(compacting({ text: '/compact the history' })).toMatchObject({ promoteSkipsCompaction: false, canSteer: false });
   });
   test('a turn that cannot be steered offers no Send now', async () => {
     const { client } = await queue(1, false);
