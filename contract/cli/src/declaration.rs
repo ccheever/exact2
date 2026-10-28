@@ -202,7 +202,8 @@ fn keyed(shape: &Value) -> Option<&Map<String, Value>> {
 /// A keyed shape's keys as Contract's optional fields: an item gives any of
 /// them. A key that takes an `app:/` path or bytes (`{"type": "path", "or":
 /// "bytes"}`) is a string to Contract, which never calls a name that takes
-/// one (`"contract": false`).
+/// one (`"contract": false`); so is a string held to its UTF-8 bytes
+/// (`{"type": "string", "maxBytes": n}`).
 fn keyed_fields(shape: &str, keys: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
     keys.iter()
         .map(|(key, ty)| {
@@ -213,6 +214,7 @@ fn keyed_fields(shape: &str, keys: &Map<String, Value>, span: Span) -> Result<Ve
                     }
                     "string"
                 }
+                Value::Object(_) if ty["type"] == "string" => "string",
                 ty => ty.as_str().ok_or_else(|| {
                     format!("`{shape}`'s key `{key}` has a type, or is a path's object")
                 })?,

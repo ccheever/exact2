@@ -176,6 +176,32 @@ pub(super) const CONFIG: &str = include_str!("typescript.mjs");
 /// The module binding's generator, which `CONFIG` imports from beside it.
 pub(super) const BINDING: &str = include_str!("__exact_binding.mjs");
 
+/// The target a module binding answers `supports` for (LLP 1133.006 D7), as
+/// an implementation's `targets` names it: Cargo's `CARGO_CFG_TARGET_OS` in
+/// an app's build script, else the OS of `TARGET`'s triple, which is all a
+/// bake run outside Cargo (`exact-js-bake --cargo`) is told. None where
+/// neither says, as in a development loop that serves several targets.
+pub(super) fn binding_target() -> Option<String> {
+    let os = std::env::var("CARGO_CFG_TARGET_OS").ok();
+    os.or_else(|| target_os(&std::env::var("TARGET").ok()?).map(str::to_owned))
+}
+
+/// The OS of a Rust target triple, in Cargo's `target_os` words, for the
+/// targets an implementation names.
+fn target_os(triple: &str) -> Option<&'static str> {
+    [
+        ("-apple-tvos", "tvos"),
+        ("-apple-ios", "ios"),
+        ("-apple-darwin", "macos"),
+        ("-android", "android"),
+        ("-windows", "windows"),
+        ("-linux", "linux"),
+    ]
+    .into_iter()
+    .find(|(part, _)| triple.contains(part))
+    .map(|(_, os)| os)
+}
+
 /// `CONFIG` and `BINDING` written into `stage`, each only when changed.
 pub(super) fn write_config(stage: &Path) -> Result<(), String> {
     super::write_changed(&stage.join("__exact_config.mjs"), CONFIG.as_bytes())?;

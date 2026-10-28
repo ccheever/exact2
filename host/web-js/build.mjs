@@ -304,7 +304,7 @@ async function typecheck(checking) {
   const overlay = /export\s+(const|function|let)\s+overlay\b|export\s*\{[^}]*\boverlay\b/.test(readFileSync(resolve(stage, 'app.ts'), 'utf8'))
     ? "import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n" : '';
   writeFileSync(resolve(stage, '__exact_entry.ts'), "import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n" + overlay);
-  writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
+  writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts, target: 'web' }));
   writeFileSync(resolve(stage,'__exact_backend_source.json'), JSON.stringify(readFileSync(resolve(stage,'app.ts'),'utf8')));
   const real = realpathSync(stage);
   if (real !== tsStage) throw new Error(`the TypeScript stage moved: ${real}`);

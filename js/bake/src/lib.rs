@@ -1200,9 +1200,10 @@ fn bake_in(
     }
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
     resident::write_config(stage)?;
+    let target = resident::binding_target();
     write_changed(
         &stage.join("__exact_paths.json"),
-        serde_json::json!({"app": app, "mounts": mounts(&app)?})
+        serde_json::json!({"app": app, "mounts": mounts(&app)?, "target": target})
             .to_string()
             .as_bytes(),
     )?;

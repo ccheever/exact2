@@ -20,6 +20,6 @@ component Fixture
           text w.text testId="wrote"
         case none
           text "" testId="wrote"
-      for kind in ["png", "png-bytes", "apng", "text", "both", "bad", "large", "big-bytes", "race", "empty", "two", "jpeg", "nested"] key=kind
+      for kind in ["png", "png-bytes", "apng", "text", "both", "bad", "large", "big-bytes", "race", "overflow", "long-text", "refused-first", "empty", "two", "jpeg", "nested"] key=kind
         button press=copy(kind) testId=kind
           text kind
