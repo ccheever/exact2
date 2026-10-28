@@ -1275,7 +1275,7 @@ fn an_older_noop_picture_keeps_the_new_collection_seeks_completion() {
 fn an_older_moving_picture_keeps_the_new_collection_seeks_completion() {
     // As above, but the older picture moves (a seek to 200, painted, then retargeted to 400 on the same
     // sequence): acknowledging 200 advances the newer target's base, and the copy `scrollend` keeps of it must
-    // follow, or the seek to 400 never completes (round 3, Astra P2).
+    // follow, or the seek to 400 never completes.
     let mut p = boot_source(
         r#"component App
   state order = ""

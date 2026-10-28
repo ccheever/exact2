@@ -172,7 +172,7 @@ fn a_hidden_list_rebuilt_under_the_same_route_is_clamped_afresh() {
 
 #[test]
 fn a_list_scrolled_and_covered_before_its_frame_keeps_its_place() {
-    // The scroll's frame never painted before the picture covered it (round 1, Astra): its offset is still the
+    // The scroll's frame never painted before the picture covered it: its offset is still the
     // list's.
     let mut p = boot();
     attach(&mut p);
@@ -188,7 +188,7 @@ fn a_list_scrolled_and_covered_before_its_frame_keeps_its_place() {
 fn a_list_wheeled_and_covered_before_its_frame_keeps_its_place() {
     // A wheel writes the offset itself (`scroll_container_by`), with no scroll handler and no frame before the
     // picture covers the list: the acknowledged picture painted this list at its id, so the offset is still
-    // its own (round 2, Astra).
+    // its own.
     let mut p = boot();
     attach(&mut p);
     let port = named(&p, "port");
@@ -204,7 +204,7 @@ fn a_list_wheeled_and_covered_before_its_frame_keeps_its_place() {
 fn content_that_shrank_while_hidden_shows_in_range_from_the_first_frame() {
     // 800 held, then only 20 rows (400 px under a 300 px port) remain: the first frame that shows the list again
     // paints it in range, at its end, staged as the list's own clamp; its input offset stays 800 until that frame
-    // is acknowledged, then 100 (round 2, Astra). A list's own clamp keeps the reader's revision (ack_tests).
+    // is acknowledged, then 100. A list's own clamp keeps the reader's revision (ack_tests).
     let (mut p, port, _) = opened();
     press(&mut p, "trim");
     assert_eq!(p.scroll_of(port), (0., 800.), "hidden, nothing to clamp to");
@@ -273,7 +273,7 @@ impl DataSource for Rows {
 fn a_virtualized_list_keeps_its_row_when_rows_arrive_while_hidden() {
     // Excord's transcript: a virtualized list (collection feedback and corrections) under the picture, rows
     // arriving below (the gateway) or a page above (older history) while it is hidden; on dismiss the same row
-    // shows at the same place, from the first frame (round 1, Astra).
+    // shows at the same place, from the first frame.
     let source = r#"routes nav
   home "/"
     photo "/photo"
@@ -366,7 +366,7 @@ component App
 fn a_hidden_route_destroyed_and_built_again_keeps_no_stale_offset() {
     // The route under the picture is popped and a new one pushed in its place (its tree built again, fresh
     // ids), the picture over it again: the old list's 800 leaves with its node, and the new list shows at its
-    // top, bounded, with no tracking edited by hand (round 2, Astra (c)).
+    // top, bounded, with no tracking edited by hand.
     let rows: String = (0..100)
         .map(|r| format!("              box testId=\"row{r}\" width=400 height=20\n"))
         .collect();
@@ -482,7 +482,7 @@ fn boot_kept() -> Presenter<()> {
 
 #[test]
 fn rows_removed_above_while_hidden_keep_the_anchor_row_over_a_stale_offset() {
-    // Round 3, Astra and Grok, the reviewers' sequence: at 1600 (row80 on top), the first 40 rows removed while
+    // At 1600 (row80 on top), the first 40 rows removed while
     // the picture covers the list; the anchor staged while hidden (800, row80 on top) wins over the stale input
     // offset 1600, whose clamp would be 900: the first frame shows row80 on top, not the end (theme2 10:42).
     let mut p = boot_kept();
@@ -507,7 +507,7 @@ fn rows_removed_above_while_hidden_keep_the_anchor_row_over_a_stale_offset() {
 
 #[test]
 fn an_anchor_past_the_new_travel_is_clamped_not_the_stale_offset() {
-    // Round 3, Grok's variant: at 800, 300 px removed above (anchor 500) and enough below that the travel is
+    // At 800, 300 px removed above (anchor 500) and enough below that the travel is
     // 600: the anchor's 500 is in range and wins; the stale 800 clamped would be 600.
     let mut p = boot_kept();
     let port = named(&p, "port");
@@ -527,7 +527,7 @@ fn an_anchor_past_the_new_travel_is_clamped_not_the_stale_offset() {
 
 #[test]
 fn a_horizontal_scroller_shrunk_while_hidden_paints_in_range_from_the_first_frame() {
-    // Round 3, Astra: an ordinary horizontal scroller with no scrollLeft binding, at x 800, its content shrunk
+    // An ordinary horizontal scroller with no scrollLeft binding, at x 800, its content shrunk
     // to 400 px under a 300 px port while hidden: the staged clamp (x 100) survives the scheduling of ordinary
     // scrollers, and the first frame paints at x 100, not 800.
     let source = r#"routes nav
@@ -652,8 +652,8 @@ fn stage_clamp(p: &mut Presenter<()>) -> ViewId {
 
 #[test]
 fn a_staged_clamp_leaves_no_cursor_after_its_acknowledgement() {
-    // Round 1, Astra (c2 MINOR): the cursor made only to carry the clamp outlived its acknowledgement and
-    // its node, as ordinary scrollers are kept and no binding pass sweeps them.
+    // The cursor made only to carry the clamp must not outlive its acknowledgement or its node: ordinary
+    // scrollers are kept, and no binding pass sweeps them.
     let mut p = boot_staged();
     let port = stage_clamp(&mut p);
     attach(&mut p);

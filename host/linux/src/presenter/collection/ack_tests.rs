@@ -128,7 +128,7 @@ fn a_lists_own_position_acknowledged_during_a_fling_keeps_the_revision_and_the_f
 #[test]
 fn a_readers_move_before_the_acknowledgement_carries_the_lists_own_anchor_by_its_change() {
     // An anchor's 3 px planned from 600, painted, the reader moving 40 before its acknowledgement: the move
-    // stands and the anchor's change goes on with it, painted (round 2, Grok); the revision stands.
+    // stands and the anchor's change goes on with it, painted; the revision stands.
     let (mut p, port, rev) = flinging();
     plan_own(&mut p, port, 597.);
     let painted = p.display_frame().unwrap();
@@ -150,7 +150,7 @@ fn a_readers_move_before_the_acknowledgement_carries_the_lists_own_anchor_by_its
 #[test]
 fn a_clamp_carried_across_a_readers_move_clamps_where_the_reader_is() {
     // An absolute clamp (offset 600 to 550) and a reader's sample to 540: the clamp re-clamps 540, which is in
-    // range, not 540 - 50 (round 2, Grok P1).
+    // range, not 540 - 50.
     let (mut p, port, rev) = flinging();
     plan(&mut p, port, 550., Origin::Clamp);
     let painted = p.display_frame().unwrap();
@@ -172,7 +172,7 @@ fn a_clamp_carried_across_a_readers_move_clamps_where_the_reader_is() {
 #[test]
 fn an_acknowledgement_that_applies_part_of_a_newer_position_moves_its_base() {
     // Base 600, painted 620, a newer 630 planned from the same base; the 620 is acknowledged, then the reader
-    // moves 10: the newer position has 10 left to apply, not 30, so 640, not 660 (round 2, Astra P1).
+    // moves 10: the newer position has 10 left to apply, not 30, so 640, not 660.
     let (mut p, port, rev) = flinging();
     plan_own(&mut p, port, 620.);
     let painted = p.display_frame().unwrap();
@@ -236,7 +236,7 @@ fn an_apps_position_during_a_fling_lands_where_asked_and_ends_it() {
 #[test]
 fn a_fractional_own_position_keeps_the_revision() {
     // In f32, 480 + 477.1 - 480 is 477.09998 against an offset of 477.1: the reader's tracked offset must be
-    // exactly the offset, or the revision's exact compare takes it for an app scroll (round 1, Astra P1).
+    // exactly the offset, or the revision's exact compare takes it for an app scroll.
     let (mut p, port, rev) = flinging();
     for _ in 0..3 {
         assert_eq!(p.reader_scrolled(port, (0., -40.), rev), Some((0., -40.)));
@@ -251,7 +251,7 @@ fn a_fractional_own_position_keeps_the_revision() {
 #[test]
 fn a_lists_own_refinement_of_an_apps_position_stays_the_apps() {
     // An app's position refined by a measurement correction before it is painted still lands where the app
-    // asked and still ends the fling (round 1, Astra P1).
+    // asked and still ends the fling.
     let (mut p, port, rev) = flinging();
     assert_eq!(p.reader_scrolled(port, (0., -40.), rev), Some((0., -40.)));
     let key = p.host.kernel().node(port).unwrap().key;

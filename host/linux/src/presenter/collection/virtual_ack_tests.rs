@@ -1,5 +1,5 @@
 //! A virtualized list's own positions under a reader's fling, through the collection's feedback and correction
-//! path (round 1, Astra P2): rows prepended while the reader moves between paint and acknowledgement, the end
+//! path: rows prepended while the reader moves between paint and acknowledgement, the end
 //! followed with and without a `scrollend` listener, and an app's `scrollLeft` refined by measurements.
 use super::*;
 use exact_runner::{DataError, Value};
@@ -170,7 +170,7 @@ fn follow_source(listener: bool) -> String {
 #[test]
 fn the_end_followed_moves_the_revision_on_with_or_without_a_scrollend_listener() {
     // The app's end follow (scrollFollowEnd) is the app's position whether or not a `scrollend` handler tracks
-    // the end: adding a listener changes no revision (round 1, Astra P2).
+    // the end: adding a listener changes no revision.
     let mut outcome = Vec::new();
     for listener in [false, true] {
         let mut p = boot(&follow_source(listener));
@@ -178,7 +178,7 @@ fn the_end_followed_moves_the_revision_on_with_or_without_a_scrollend_listener()
         p.scroll_to(port, (0., 1e6)).unwrap();
         settle(&mut p);
         let mut rev = held(&mut p, port);
-        // Appends in a row, one before the last one's acknowledgement too (round 2, Astra P2).
+        // Appends in a row, one before the last one's acknowledgement too.
         for (n, settled) in [(1, true), (2, false), (3, true)] {
             press(&mut p, "grow");
             if !settled {
@@ -206,7 +206,7 @@ fn the_end_followed_moves_the_revision_on_with_or_without_a_scrollend_listener()
 #[test]
 fn the_end_followed_on_a_resize_pass_moves_the_revision_on() {
     // A port that shrinks (a composer growing under a chat) keeps a follow-end list at its end on the pass
-    // that resizes it: still the app's position (round 1, Grok).
+    // that resizes it: still the app's position.
     let source = follow_source(false)
         .replace(
             "  state count = 40\n",
@@ -243,7 +243,7 @@ fn the_end_followed_on_a_resize_pass_moves_the_revision_on() {
 #[test]
 fn a_measurement_clamped_to_the_range_away_from_the_end_keeps_the_revision() {
     // Rows estimated at 40 and measured at 20 shrink the range under a reader who did not stand at the end: the
-    // list's own position, from no row too, keeps the revision (round 1, Grok).
+    // list's own position, from no row too, keeps the revision.
     let source = follow_source(false)
         .replace("  state count = 40\n", "  state count = 100\n")
         .replace("estimated-item-height=20", "estimated-item-height=40");
@@ -263,7 +263,7 @@ fn a_measurement_clamped_to_the_range_away_from_the_end_keeps_the_revision() {
 #[test]
 fn an_apps_scroll_left_refined_by_measurements_still_ends_the_fling() {
     // Cards estimated at 100 and measured at 94: the request's target is refined by measurement corrections
-    // before it is painted, and stays the app's (round 1, Astra P1).
+    // before it is painted, and stays the app's.
     let source = r#"component App
   state jump = 0
   action far
@@ -296,7 +296,7 @@ fn an_apps_scroll_left_refined_by_measurements_still_ends_the_fling() {
 
 #[test]
 fn content_shrinking_under_a_list_at_its_end_is_the_lists_own() {
-    // Parked at the end, rows removed: the clamp to the new end is the list's own (round 2, Grok P2).
+    // Parked at the end, rows removed: the clamp to the new end is the list's own.
     let mut p = boot(&follow_source(false));
     let port = named(&p, "port");
     p.scroll_to(port, (0., 1e6)).unwrap();
@@ -315,7 +315,7 @@ fn content_shrinking_under_a_list_at_its_end_is_the_lists_own() {
 #[test]
 fn a_fling_that_left_the_end_then_clamped_is_the_lists_own() {
     // The reader moved away from the end, then rows were removed under it so its offset clamps to the new end:
-    // the list's own (round 2, Grok P2); the next sample is taken.
+    // the list's own; the next sample is taken.
     let mut p = boot(&follow_source(false));
     let port = named(&p, "port");
     p.scroll_to(port, (0., 1e6)).unwrap();
@@ -337,7 +337,7 @@ fn a_fling_that_left_the_end_then_clamped_is_the_lists_own() {
 #[test]
 fn an_absolute_scroll_supersedes_a_pending_prepend() {
     // A request to 0 while a 50-row prepend's correction is pending: the request wins and the prepend's +1,000
-    // is not applied over it (round 2, Astra P2).
+    // is not applied over it.
     let source = r#"component App
   state first = 1000
   state count = 200
@@ -367,7 +367,7 @@ fn an_absolute_scroll_supersedes_a_pending_prepend() {
 fn a_second_append_before_the_first_follow_is_painted_is_still_followed_as_the_apps() {
     // The first append's end follow is planned but not yet painted, and a settled pass raises the travel last
     // seen; the second append still finds the list standing at its end, by its pending position, not by the
-    // unacknowledged offset (round 2, Astra P2). With and without a `scrollend` listener.
+    // unacknowledged offset. With and without a `scrollend` listener.
     for listener in [false, true] {
         let mut p = boot(&follow_source(listener));
         let port = named(&p, "port");
@@ -403,7 +403,7 @@ fn a_second_append_before_the_first_follow_is_painted_is_still_followed_as_the_a
 
 #[test]
 fn a_clamp_under_a_carried_anchor_advances_its_base() {
-    // Round 3, Astra P1, the reviewer's sequence: a list at 1600 (travel 1700) loses 200 px of rows above it, so
+    // A list at 1600 (travel 1700) loses 200 px of rows above it, so
     // the anchor's target is 1400 (travel 1500); that picture is submitted, a -10 sample carries the anchor
     // (target 1390, base 1590), the old picture's acknowledgement clamps the input offset to 1500, and another
     // -10 sample must land at 1380: the clamp already took 90 of the anchor's 200, not 1290.
