@@ -6,7 +6,10 @@
   "shapes": {
     "ClipboardItem": {
       "record": {
-        "text/plain": "string",
+        "text/plain": {
+          "type": "string",
+          "maxBytes": 1048576
+        },
         "image/png": {
           "type": "path",
           "access": "read",
@@ -36,7 +39,10 @@
       "contract": false,
       "params": ["data"],
       "options": {
-        "data": "string"
+        "data": {
+          "type": "string",
+          "maxBytes": 1048576
+        }
       },
       "answers": null,
       "origin": "app",

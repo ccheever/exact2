@@ -19,12 +19,12 @@ const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 /** `{base64}` as bytes. */
 const unwired = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 
-/** A PNG's size from its `IHDR`, or null for what is not a PNG. */
+/** A PNG's size from its `IHDR`, or null for what is not a PNG: a side past the specification's 2³¹ − 1, as on Apple. */
 export function pngSize(bytes) {
   if (bytes.length < 24 || SIGNATURE.some((b, i) => bytes[i] !== b)) return null;
   if (String.fromCharCode(...bytes.subarray(12, 16)) !== 'IHDR') return null;
-  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  return { width: v.getUint32(16), height: v.getUint32(20) };
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), width = v.getUint32(16), height = v.getUint32(20);
+  return width <= 0x7fffffff && height <= 0x7fffffff ? { width, height } : null;
 }
 
 /** Frame 0 of `bytes` drawn: the first frame of its animation, as Chromium's clipboard writer decodes it. */
@@ -40,7 +40,7 @@ const hex = buffer => [...new Uint8Array(buffer)].map(b => b.toString(16).padSta
 
 export function implementation({ agent, log, files }) {
   const say = line => log?.(`clipboard: ${line}`);
-  let latest = 0, inFlight = null, writes = 0, last = null;
+  let latest = 0, inFlight = null, writes = 0, last = null, shownNumber = 0;
   const refused = (error, message) => { say(`write refused: ${error} (${message})`); return { error, message }; };
 
   /** A new PNG of `bytes`' pixels, or a refusal. */
@@ -106,7 +106,8 @@ export function implementation({ agent, log, files }) {
       shown.image = { width: png.width, height: png.height, bytes: png.png.length, sha256: hex(await crypto.subtle.digest('SHA-256', png.png)) };
       say(`wrote image/png ${png.width}×${png.height} (${png.png.length.toLocaleString('en-US')} bytes)${text != null ? ' and text/plain' : ''}`);
     } else say(`wrote text/plain (${new TextEncoder().encode(text).length} bytes)`);
-    last = shown;
+    // What `state()` shows is the newest write's, though an older one's hash, awaited after its write, lands later.
+    if (number > shownNumber) { shownNumber = number; last = shown; }
     return null;
   }
   const disclosed = () => ({ writes, ...(last ? { lastWrite: last } : {}) });

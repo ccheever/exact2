@@ -11,8 +11,10 @@
 //   image, `writeObjects([NSImage])`, and `public.png` beside it (D5); iOS
 //   one item of `public.png` and `public.utf8-plain-text` (D5).
 // - Under the agent it is its own substitute (D8 item 4, §7): it writes a
-//   private pasteboard named for the session, which the host's `copyText`
-//   writes too, unless `EXACT_DEVICE=real` asks for the person's.
+//   private pasteboard named for the session, by the rule and name the
+//   host's `copyText` uses (AgentPasteboard.swift), unless `--bind
+//   clipboard` or `EXACT_DEVICE=real` asks for the person's. Where the
+//   private pasteboard cannot be made the write refuses.
 // - A later write supersedes one still decoding, which fails `AbortError` (D2).
 import CryptoKit
 import ExactPackage
@@ -95,7 +97,8 @@ public final class ClipboardModule: ExactPackage {
         switch record["image/png"] {
         case nil: break
         case let path as String:
-            guard let url = context.file(path) else { return reply(refused("NotFoundError", "no file at \(path)")) }
+            // The file a link names, whose size the bound is.
+            guard let url = context.file(path)?.resolvingSymlinksInPath() else { return reply(refused("NotFoundError", "no file at \(path)")) }
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
             guard let size else { return reply(refused("NotFoundError", "no file at \(path)")) }
             guard size <= Self.mostFile else { return reply(refused("DataError", "too large: \(path) is over 64 MiB")) }
@@ -135,7 +138,9 @@ public final class ClipboardModule: ExactPackage {
 
     /// The pasteboard written now, and what state discloses of the write.
     private func land(text: String?, image: Sanitized?) -> [String: Any] {
-        let board = paste(text: text, image: image)
+        guard let board = paste(text: text, image: image) else {
+            return refused("UnknownError", "the session's private pasteboard could not be made")
+        }
         writes += 1
         var types: [String] = []
         if text != nil { types.append("text/plain") }
@@ -161,7 +166,7 @@ public final class ClipboardModule: ExactPackage {
     var privateName: String { "exact.agent.clipboard.\(context.hostSession)" }
 
     #if os(macOS)
-    private func paste(text: String?, image: Sanitized?) -> (name: String, types: [String]) {
+    private func paste(text: String?, image: Sanitized?) -> (name: String, types: [String])? {
         let board = substituting ? NSPasteboard(name: NSPasteboard.Name(privateName)) : NSPasteboard.general
         board.clearContents()
         if let image {
@@ -180,8 +185,9 @@ public final class ClipboardModule: ExactPackage {
         return (board.name.rawValue, (board.types ?? []).map(\.rawValue))
     }
     #else
-    private func paste(text: String?, image: Sanitized?) -> (name: String, types: [String]) {
-        let board = substituting ? (UIPasteboard(name: UIPasteboard.Name(privateName), create: true) ?? .general) : UIPasteboard.general
+    /// Nil when the session's private pasteboard could not be made: never the person's in its place.
+    private func paste(text: String?, image: Sanitized?) -> (name: String, types: [String])? {
+        guard let board = substituting ? UIPasteboard(name: UIPasteboard.Name(privateName), create: true) : UIPasteboard.general else { return nil }
         var item: [String: Any] = [:]
         if let image { item[UTType.png.identifier] = image.png }
         if let text { item[UTType.utf8PlainText.identifier] = text }
@@ -208,8 +214,10 @@ public final class ClipboardModule: ExactPackage {
         guard still.count >= 24, String(decoding: still[still.startIndex + 12..<still.startIndex + 16], as: UTF8.self) == "IHDR" else {
             return .failure(Refusal(description: "not a PNG"))
         }
-        let (hw, hh) = (side(16), side(20))
-        guard hw * hh <= mostPixels else { return .failure(Refusal(description: "too large: \(hw)×\(hh) is over 64,000,000 pixels")) }
+        // A side past the PNG specification's 2³¹ − 1 is no PNG, and the product is taken without overflow.
+        let (hw, hh) = (side(16), side(20)), (pixels, over) = hw.multipliedReportingOverflow(by: hh)
+        guard hw <= Int(Int32.max), hh <= Int(Int32.max) else { return .failure(Refusal(description: "not a PNG")) }
+        guard !over, pixels <= mostPixels else { return .failure(Refusal(description: "too large: \(hw)×\(hh) is over 64,000,000 pixels")) }
         guard let source = CGImageSourceCreateWithData(still as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
               CGImageSourceGetType(source) as String? == UTType.png.identifier else {
             return .failure(Refusal(description: "not a PNG"))
@@ -217,7 +225,8 @@ public final class ClipboardModule: ExactPackage {
         let header = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         let w = header?[kCGImagePropertyPixelWidth] as? Int ?? 0, h = header?[kCGImagePropertyPixelHeight] as? Int ?? 0
         guard w > 0, h > 0 else { return .failure(Refusal(description: "not a PNG")) }
-        guard w * h <= mostPixels else { return .failure(Refusal(description: "too large: \(w)×\(h) is over 64,000,000 pixels")) }
+        let (decoded, wide) = w.multipliedReportingOverflow(by: h)
+        guard !wide, decoded <= mostPixels else { return .failure(Refusal(description: "too large: \(w)×\(h) is over 64,000,000 pixels")) }
         guard let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
             return .failure(Refusal(description: "not a PNG: it does not decode"))
         }

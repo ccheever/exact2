@@ -1039,11 +1039,13 @@ export function configure(stage, incremental=false, parse) {
 // Members other interfaces declare on `name`'s names, by name, with their interface's shapes (LLP 1133.014 D10 item 1).
 const membersOf=(name, interfaces)=>interfaces.flatMap(i=>Object.entries(i.declaration.members ?? {}).filter(([o])=>o.split('#')[0]===name).flatMap(([o,m])=>Object.entries(m ?? {}).map(([option,spec])=>[o.split('#')[1],{ option, type: spec.type, answers: spec.answers, shapes: i.declaration.shapes ?? {} }]))).reduce((out,[fn,m])=>((out[fn] ??= []).push(m), out),{});
 function moduleBindings(stage, app) {
-  const out=new Map();
+  // The target the build compiles, as an implementation's `targets` names it, or none (a loop serving several).
+  const mapping=resolve(stage,'__exact_paths.json'), named=existsSync(mapping) ? JSON.parse(readFileSync(mapping,'utf8')).target : null;
+  const target=['web','ios','macos','tvos','android','windows','linux'].includes(named) ? named : null, out=new Map();
   const interfaces=moduleInterfaces(app); for (const {name,declaration,implementations} of interfaces) {
     const file='__exact_modules/'+name.replace(/^@/,'').replace(/\//g,'__')+'.ts';
     mkdirSync(resolve(stage,'__exact_modules'),{recursive:true});
-    const text=moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces)), at=resolve(stage,file);
+    const text=moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces),target), at=resolve(stage,file);
     if (!existsSync(at) || readFileSync(at,'utf8')!==text) writeFileSync(at,text);
     out.set(name,'./'+file);
   }

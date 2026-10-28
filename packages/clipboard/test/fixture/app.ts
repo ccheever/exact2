@@ -6,9 +6,11 @@ export const appId = '__APP_ID__';
 export const grants = 'fs.read app:/tmp/copy\nfs.write app:/tmp/copy';
 
 // An 8×8 red PNG carrying a `tEXt` chunk the sanitized write drops; an APNG whose default image (red) is not
-// part of its animation, frame 0 green and frame 1 blue; and a PNG whose header declares 9000×9000 pixels.
+// part of its animation, frame 0 green and frame 1 blue; a PNG whose header declares 9000×9000 pixels; and the
+// 33 bytes of a header that declares 2³²−1 × 2³²−1, past the PNG specification's 2³¹−1.
 const RED = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAKHRFWHRDb21tZW50AG1ldGFkYXRhIGEgc2FuaXRpemVkIHdyaXRlIGRyb3BzdXr2SAAAABFJREFUeNpj+M/AgBUxDC0JACj/P8HOd8hPAAAAAElFTkSuQmCC';
 const APNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACGFjVEwAAAACAAAAAPONk3AAAAARSURBVHjaY/jPwIAVMQwtCQAo/z/BznfITwAAABpmY1RMAAAAAAAAAAgAAAAIAAAAAAAAAAAAAQAKAADyTrpiAAAAFGZkQVQAAAABeNpjYPjPgB0NLQkA6TA/wSwJCQUAAAAaZmNUTAAAAAIAAAAIAAAACAAAAAAAAAAAAAEACgAAH9hpiwAAABRmZEFUAAAAA3jaY2Bg+I8DDSkJAKlwP8EZfwA/AAAAAElFTkSuQmCC';
+const HUGE_HEADER = 'iVBORw0KGgoAAAANSUhEUv//////////CAIAAABdlLlp';
 const BIG = 'iVBORw0KGgoAAAANSUhEUgAAIygAACMoCAIAAADit+XtAAAAC0lEQVR4nGNggAEAAAoAAX+AdF4AAAAASUVORK5CYII=';
 
 const bytes = (b64: string) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -28,6 +30,8 @@ const sources: Sources = {
         case 'bad': await write([new ClipboardItem({ 'image/png': new TextEncoder().encode('not a png') })]); break;
         case 'large': await write([new ClipboardItem({ 'image/png': await file('big.png', BIG) })]); break;
         case 'big-bytes': await write([new ClipboardItem({ 'image/png': new Uint8Array(2 * 1024 * 1024 + 1) })]); break;
+        case 'overflow': await write([new ClipboardItem({ 'image/png': bytes(HUGE_HEADER) })]); break;
+        case 'long-text': await write([new ClipboardItem({ 'text/plain': 'x'.repeat(1024 * 1024 + 1) })]); break;
         case 'empty': await write([]); break;
         case 'two': await write([new ClipboardItem({ 'text/plain': 'a' }), new ClipboardItem({ 'text/plain': 'b' })]); break;
         case 'jpeg': await write([new ClipboardItem({ 'image/jpeg': bytes(RED) })]); break;
@@ -40,6 +44,14 @@ const sources: Sources = {
           const second = await b;
           late('A');
           return { text: `${await a} | ${second}` };
+        }
+        case 'refused-first': {
+          // A write refused before it is sent supersedes nothing: A, still awaiting its data, lands.
+          let late: (v: string) => void = () => {};
+          const a = write([new ClipboardItem({ 'text/plain': new Promise<string>(r => { late = r; }) })]).then(() => 'A ok', said);
+          const refused = await write([new ClipboardItem({ 'image/png': new Uint8Array(2 * 1024 * 1024 + 1) })]).then(() => 'refused ok', said);
+          late('A');
+          return { text: `${await a} | ${refused}` };
         }
         default: return { text: `no kind ${kind}` };
       }
