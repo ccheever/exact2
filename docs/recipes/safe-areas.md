@@ -14,17 +14,18 @@ column navigationKey="inbox" position="absolute" inset=0 display="flex" flex-dir
     // A carousel: nothing to write. It spans the screen and scrolls under the sidebar
     list display="flex" overflow-x="scroll" overflow-y="hidden" gap=12
       …
-  // A composer: in flow after the list, it follows the keyboard; controls alone make
-  // it a bar the list scrolls under and clears; with text or a colour, add the bar value
-  row gap=8
-    input …
-    button …
-  // A floating button the list clears, by its own size
-  button "New" position="absolute" bottom=16 right=16 -exact-safe-area="bar"
+  // A composer: in flow after the list, it follows the keyboard. It holds a line of
+  // text besides its controls, so it says bar: the list scrolls under it and clears it
+  column -exact-safe-area="bar"
+    text …
+    row gap=8
+      input …
+      button …
 ```
 
-- **Content at the platform's margins**: pad the scroller by the values, as above. A carousel
-  inside still spans the screen; rows whose colour should span it pad themselves instead.
+- **Content at the platform's margins**: pad the scroller by the values, as above, never the
+  route's root: padding there keeps the list and its carousels off the edges. A carousel in
+  the scroller spans the screen; rows whose colour should span it pad themselves.
   `--exact-readable-content-inset-left` and `-right` give a readable width.
 - **Two panes side by side**: pad the left one's left and the right one's right by the
   values; the space between them is your `gap`.
@@ -36,8 +37,10 @@ column navigationKey="inbox" position="absolute" inset=0 display="flex" flex-dir
 - **Keep an image's size but let it seem to continue** under a sidebar: `extend`.
 - **A photo at the top of a scrolling page, under the bar**: `navigationBar="transparent"`
   on the route. Inside a scroller, `ignore top` and `extend top` do nothing.
-- **A box the content beneath must clear** (a floating button, a card over a map): `bar`.
-- `start` and `end` are the leading and trailing sides; right to left mirrors them. The
-  values name physical sides: `-left` goes with `padding-left`.
+- **A box the content beneath must clear** (a floating button, a card over a map, a bar
+  holding text or a colour): `bar`, as `button "New" position="absolute" bottom=16
+  right=16 -exact-safe-area="bar"`. A row of controls alone after the list needs nothing.
+- In `-exact-safe-area`, `start` and `end` are the leading and trailing sides and right to
+  left mirrors them. Positions and the values are physical: `-left` goes with `padding-left`.
 - Padding by `env(safe-area-inset-*)` inside a route clears the safe area twice (warning
   `lower-env-in-owner`).
