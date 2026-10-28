@@ -145,7 +145,7 @@ describe('PR menu public opening and nested Filters focus', () => {
       preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']),
       showPopover: (...args: unknown[]) => calls.push(['show', ...args]), focus: (id: string) => calls.push(['focus', id]),
       control: (...args: unknown[]) => calls.push(['prepare', ...args]),
-      openMenu: () => { calls.push(['prepare']); component.call('openMenu', state, {}, []); },
+      openMenu: () => { calls.push(['prepare']); component.call('openMenu', state, { control: () => undefined }, []); },
     };
     for (const key of ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space']) {
       calls.length = 0;
@@ -211,10 +211,10 @@ describe('PR menu public opening and nested Filters focus', () => {
   test('first Escape consumes only the child; pointer exit blurs, and the parent close returns Filters focus', () => {
     const menu = contractComponent('pages-prs.contract', 'PrFiltersMenu');
     const search = contractComponent('pages-prs.contract', 'PrFilterSub');
-    const state = menu.state(), calls: unknown[][] = [];
+    const state = menu.state(), calls: unknown[][] = [], controls: unknown[][] = [];
     const scope: Env = {
       preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']),
-      focus: (id: string) => calls.push(['focus', id]), blur: () => calls.push(['blur']),
+      focus: (id: string) => calls.push(['focus', id]), blur: () => calls.push(['blur']), control: (...args: unknown[]) => controls.push(args),
     };
     scope.closeSub = () => menu.call('closeSub', state, scope, []);
     scope.searchEscape = scope.closeSub;
@@ -240,6 +240,9 @@ describe('PR menu public opening and nested Filters focus', () => {
     menu.call('subBack', state, scope, ['ArrowLeft']);
     expect(state.sub).toBe('');
     expect(calls).toEqual([['prevent'], ['focus', 'pr-filter-author']]);
+    // Every close (the submenu's, the menu's) stops the host search: no picker is open.
+    expect(controls.length).toBeGreaterThan(0);
+    expect(controls.every(([op, value]) => op === 'option-kind' && value === '')).toBe(true);
   });
 
   test('Filters hover and keyboard return focus actual rows and preserve the next row', async () => {

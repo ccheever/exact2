@@ -110,7 +110,8 @@ export function reactionsSignature(reactions: readonly PullRequestReaction[]): s
 // ── The review being written (pullRequestReviewStore.ts) ────────────────────
 
 export type PullRequestReviewPosition = { kind: 'added'; newLine: number } | { kind: 'deleted'; oldLine: number } | { kind: 'context'; oldLine: number; newLine: number; side: string };
-export type PendingReviewComment = { id: string; path: string; oldPath?: string; position: PullRequestReviewPosition; body: string };
+/** `startPosition`: the first line of a comment on a range ending at `position`, only for a host with `review.rangeComment`. */
+export type PendingReviewComment = { id: string; path: string; oldPath?: string; position: PullRequestReviewPosition; startPosition?: PullRequestReviewPosition; body: string };
 /** A counter rather than anything derived from the comment: two remarks on one line can be the same. */
 let pendingCommentSequence = 0;
 export function nextPendingReviewCommentId(): string {

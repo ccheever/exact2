@@ -10,6 +10,7 @@ import { failure } from '../../src/transport/transport-wire';
 import { rpcPermissions } from '../../src/connections/command-permissions';
 import { scopedSettingPatch, writingStyleOf } from '../../src/settings/scoped-settings';
 import { canSnooze, pendingInput, raisedHand, sidebarStatus } from '../../src/sidebar/sidebar-model';
+import { mergeUsage, providersWithUsage } from '../../src/usage/pages-usage';
 
 const at = '2026-10-21T00:00:00.000Z';
 const usage = { usedTokens: 10, updatedAt: at, autoCompactThreshold: 200_000, promptCacheExpiresAt: at };
@@ -72,6 +73,19 @@ describe('what a 0.1.4 server adds', () => {
     expect(shell.threads[0]).toMatchObject({ lastErrorCode: 'rate_limit', pendingBackgroundTasks: [{ awaited: true }] });
   });
 
+  test('a pull request read at a time, that always reports checks and takes ranged comments reads as before; Muse Code usage is a provider', () => {
+    const detail: Obj = { state: 'open', observedAt: 1_000, mergeCapabilities: { merge: true, squash: true }, capabilities: { mergeMethods: ['merge', 'squash'], checksAlwaysReport: true,
+      review: { inlineComment: true, rangeComment: true, reply: true, resolve: true, verdicts: ['comment'] } }, viewerPermissions: {} };
+    expect(allowedMergeMethods(detail)).toEqual(['merge', 'squash']);
+    const bucket = { day: '2026-10-27', provider: 'muse', model: 'muse-1', totals: { uncachedInputTokens: 1, cachedInputTokens: 0, cacheCreationTokens: 0, outputTokens: 1, reasoningTokens: 0 },
+      costUsd: 1, cacheSavingsUsd: 0, costSource: 'modelPriced', records: 1, unpricedRecords: 0, sessions: 1 };
+    const merged = mergeUsage([{ id: 'env', label: 'Mac', summary: { contractVersion: 6, readAt: at, buckets: [bucket],
+      sources: [{ fingerprint: { hostId: 'mac', provider: 'muse', resolvedHomePath: '/m', volumeId: '1:2' }, status: 'ok', scannedFiles: 1, skippedFiles: 0, malformedRecords: 0, distinctSessions: 1, message: null }] } }]);
+    expect(merged.providers.map(entry => [entry.provider, entry.costUsd, entry.sessions])).toEqual([['muse', 1, 1]]);
+    // A provider the page knows (usage-providers.ts), so it draws: Muse Code's series and its row.
+    expect(providersWithUsage(merged)).toEqual(['muse']);
+  });
+
   test('a guest share update carries the whole thread and applies as a thread event', () => {
     const state = threadSnapshot({ snapshotSequence: 3, projection: { thread: { id: 't', title: 'T' }, runs: [], attempts: [], nodes: [], subagents: [], providerSessions: [],
       providerThreads: [], providerTurns: [], runtimeRequests: [], messages: [], plans: [], turnItems: [], checkpointScopes: [], checkpoints: [], contextHandoffs: [],
@@ -132,7 +146,7 @@ describe('client behaviour', () => {
     expect(rpcPermissions('git.runStackedAction', { action: 'commit_push_pr', threadId: 't' })).toEqual(['source-control:write', 'orchestration:read']);
     expect(rpcPermissions('git.runStackedAction', { action: 'create_pr', projectId: 'p' })).toEqual(['source-control:write']);
     expect(rpcPermissions('git.runStackedAction', { action: 'commit', threadId: 't' })).toEqual(['source-control:write']);
-    expect(['preview.close', 'projects.listIgnoredFiles', 'pullRequests.changeBreakdown', 'device.easAccount'].map(method => rpcPermissions(method, {})))
-      .toEqual([['preview:operate'], ['filesystem:read'], ['orchestration:read'], ['settings:write']]);
+    expect(['preview.close', 'projects.listIgnoredFiles', 'pullRequests.changeBreakdown', 'device.easAccount', 'pullRequests.filterOptions'].map(method => rpcPermissions(method, {})))
+      .toEqual([['preview:operate'], ['filesystem:read'], ['orchestration:read'], ['settings:write'], ['orchestration:read']]);
   });
 });

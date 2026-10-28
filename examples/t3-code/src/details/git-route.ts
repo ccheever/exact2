@@ -18,7 +18,7 @@ export async function gitShellCommand(client: T3Client, native: Native, storage:
 
 /** `chatlocal:git-<op>`: the picker and menu state, the dialogs' fields. */
 export async function gitChatLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
-  if (op === 'open' || op === 'query' || op === 'origin') return branchLocal(client, op, id, value);
+  if (op === 'open' || op === 'query' || op === 'origin' || op === 'opened') return branchLocal(client, op, id, value, native);
   branchState(client).open = '';
   if (op.startsWith('pr-')) return checkoutLocal(client, native, op.slice(3), value);
   return gitLocal(client, native, op === 'open-file' ? 'open-file' : op, id, value);

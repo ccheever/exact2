@@ -29,7 +29,7 @@ import { sourceControlHostName } from '../shared/source-control-hosts';
 import { nextPendingReviewCommentId, pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-logic';
 import type { WriteReference } from './pages-pr-writes';
 import {
-  adoptDiffSlice, areAllDiffFilesCollapsed, describePullRequestDiffError, fnv1a32, isLineInFileDiff, orderDiffFiles, renderablePatch, resolveDiffReviewPosition, reviewPositionAnchor, toggleFileDiffFoldForViewed,
+  adoptDiffSlice, areAllDiffFilesCollapsed, describePullRequestDiffError, fnv1a32, isLineInFileDiff, orderDiffFiles, renderablePatch, resolveDiffReviewAnchor, reviewPositionAnchor, toggleFileDiffFoldForViewed,
   type DiffFoldOverride, type DiffSlice, type PrDiffFile, type PrDiffSide, type PullRequestReviewPosition, type RenderablePatch,
 } from './pages-pr-code-logic';
 import { BASE, codeRows, fileKey, hiddenCount, isCollapsed, type CodeItem } from './pages-pr-code-rows';
@@ -43,7 +43,7 @@ import { emptyThreadState, presentThreads, threadBodies, threadCommand, type PrT
 /** Commits per press of "Show more" in the scope menu. */
 export const COMMIT_PAGE_SIZE = 10;
 
-type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; range: SelectedLineRange };
+type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; startPosition?: PullRequestReviewPosition; range: SelectedLineRange };
 export type CodeState = {
   find: DiffFind;
   key: string; mounted: boolean; commit: string | null; refresh: number;
@@ -424,7 +424,8 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       // "Add to review": the comment joins the pending review (pages-pr-writes-logic.ts PullRequestReviewStore).
       const draft = code.draft, body = value.trim();
       if (!draft || body.length === 0 || obj(obj(ctx.detail?.capabilities).review).inlineComment !== true || obj(ctx.detail?.viewerPermissions).comment !== true) return '';
-      pullRequestReviewStore(client).addComment(pullRequestReviewKey(reference), { id: nextPendingReviewCommentId(), path: draft.path, ...(draft.oldPath === null ? {} : { oldPath: draft.oldPath }), position: draft.position, body });
+      pullRequestReviewStore(client).addComment(pullRequestReviewKey(reference), { id: nextPendingReviewCommentId(), path: draft.path, ...(draft.oldPath === null ? {} : { oldPath: draft.oldPath }),
+        ...(draft.startPosition === undefined ? {} : { startPosition: draft.startPosition }), position: draft.position, body });
       code.draft = null; code.selection = null;
       return '';
     }
@@ -454,14 +455,17 @@ function beginComment(ctx: CodeLocalContext, code: CodeState, value: string): st
   const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
   return beginRange(code, ctx.detail, path, gutterClick(code.selection, path, at, index), ctx.allowAsk);
 }
-/** The draft on a range (beginComment's body): a range collapses to its last line, as only GitHub carries a multi-line comment. */
+/**
+ * The draft on a range (beginComment's body). On a host without ranged comments (`review.rangeComment`) a range collapses
+ * to its last line: one that silently lost its first line there would be worse than one line.
+ */
 function beginRange(code: CodeState, detail: Obj | null, path: string, range: SelectedLineRange, allowAsk = false): string {
   const target = filesOf(code).find(entry => entry.path === path);
   if (!target || !linesOpen(code, detail, allowAsk)) return '';
-  const position = resolveDiffReviewPosition(target, range.end, range.endSide ?? range.side, loadedContents(code, path));
-  if (position === null) return '';
+  const anchor = resolveDiffReviewAnchor(target, range, obj(obj(detail?.capabilities).review).rangeComment === true, loadedContents(code, path));
+  if (anchor === null) return '';
   code.selection = { path, range };
-  code.draft = { fileKey: fileKey(target), path, oldPath: target.previous && target.previous !== path && target.status === 'renamed' ? target.previous : null, position, range };
+  code.draft = { fileKey: fileKey(target), path, oldPath: target.previous && target.previous !== path && target.status === 'renamed' ? target.previous : null, ...anchor, range };
   return '';
 }
 /**

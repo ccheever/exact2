@@ -10,8 +10,7 @@ import { triggerModelName } from '../composer/composer-controls-model';
 
 import { resolveProviderInstanceAcpRegistryIconUrl } from '../providers/acp-icons';
 import { instanceDisplayName } from '../sidebar/subagent-card';
-import { instanceInitials } from '../usage/usage-pooled-view';
-import { providerBadge } from '../client/presentation';
+import { providerBadge, providerInstanceInitials } from '../client/presentation';
 import { formatElapsedSeconds, subagentElapsedMs, workActive } from './timeline-work-rows';
 
 const STATUS: Record<string, string> = {
@@ -84,7 +83,7 @@ export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], ind
   const driver = str(entry?.driver) || endpoint.instanceId;
   const [light, dark] = PROVIDER_TEXT_COLOR[driver] ?? ['', ''];
   return { id: `${index}:${endpoint.instanceId}:${endpoint.model ?? ''}`, label, body: '', icon: '', output: '', result: `${displayName} · ${label}`,
-    failed: false, timestamp: '', detail: driver, iconLight: light, iconDark: dark, initials: instanceInitials(displayName),
+    failed: false, timestamp: '', detail: driver, iconLight: light, iconDark: dark, initials: providerInstanceInitials(displayName),
     ...(entry ? { badge: providerBadge(entry, providers).providerBadge, badgeColor: providerBadge(entry, providers).providerBadgeColor } : {}),
     driverIcon: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: driver, iconUrl: str(entry?.iconUrl) || undefined }) ?? '' };
 }
@@ -113,7 +112,7 @@ export function subagent(item: Obj, context: SubagentContext = NO_CONTEXT): Acti
     result: STATUS[status] ?? status, failed: status === 'failed', timestamp: str(item.startedAt ?? item.updatedAt),
     tone: status === 'failed' ? 'error' : status === 'completed' ? 'success' : settled || status === 'idle' ? 'muted' : 'info',
     ok: true, reasoning: false, expandable: false, detail: driver, status, targetId: str(item.childThreadId), answer: '',
-    startedMs: Number.isFinite(startedMs) ? startedMs : 0, initials: instanceInitials(str(provider?.displayName, driver)),
+    startedMs: Number.isFinite(startedMs) ? startedMs : 0, initials: providerInstanceInitials(str(provider?.displayName, driver)),
     driverIcon: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: driver, iconUrl: str(provider?.iconUrl) || undefined }) ?? '' };
 }
 
