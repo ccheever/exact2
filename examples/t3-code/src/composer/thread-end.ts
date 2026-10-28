@@ -27,8 +27,9 @@ import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
  */
 type Line = { id: string; icon: string; tone?: string; status?: string; title: string; detail?: string; segments?: Activity[]; actions: Activity[] };
 
-const segment = (id: string, label: string, targetId = '', body = ''): Activity => ({ id, label, body, status: targetId ? 'link' : 'text', targetId, tone: 'muted' });
-const action = (id: string, label: string, op: string, targetId: string, tone = '', ok = true): Activity => ({ id, label, body: '', status: 'action', detail: op, targetId, tone, ok });
+const blank = { icon: '', output: '', result: '', failed: false, timestamp: '' };
+const segment = (id: string, label: string, targetId = '', body = ''): Activity => ({ ...blank, id, label, body, status: targetId ? 'link' : 'text', targetId, tone: 'muted' });
+const action = (id: string, label: string, op: string, targetId: string, tone = '', ok = true): Activity => ({ ...blank, id, label, body: '', status: 'action', detail: op, targetId, tone, ok });
 
 /** childInputNowItem: subagents waiting on the user, unless this thread is itself waiting on them. */
 function childInput(client: T3Client): Line | null {
