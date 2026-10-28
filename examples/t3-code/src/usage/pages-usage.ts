@@ -1,5 +1,5 @@
 // The Usage page: server.getUsageSummary merged and presented
-// as the reference UsagePage does. Sources: T3 Code 74541bab17 (MIT, see LICENSE-T3)
+// as the reference UsagePage does. Sources: T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3)
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
 // usageShortcuts,usagePagePreferences,UsageLimits,UsageLimitsPooled}.tsx,
 // apps/web/src/state/usage.ts (withoutProviders, the last answered usage useUsage keeps on
@@ -514,7 +514,7 @@ export function presentUsage(page: UsageView, merged: Merged, window: UsageWindo
     const count = totals?.sessions ?? 0, share = tokens ? totals?.tokenShare ?? 0 : totals?.costShare ?? 0;
     const meta = PROVIDERS[provider], awaiting = isLoading(provider) && !withData.includes(provider);
     return { key: provider, driver: meta.driver, label: meta.label, light: meta.color[0], dark: meta.color[1], sessions: `${formatCount(count)} ${count === 1 ? 'session' : 'sessions'}`,
-      value: awaiting ? '—' : tokens ? formatTokens(totals?.totalTokens ?? 0) : formatUsd(totals?.costUsd ?? 0),
+      value: awaiting ? '-' : tokens ? formatTokens(totals?.totalTokens ?? 0) : formatUsd(totals?.costUsd ?? 0),
       detail: tokens ? `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}` : `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`,
       loading: isLoading(provider), awaiting, enable: '', enableLabel: '', busy: false };
   });

@@ -3,7 +3,7 @@ use ThreadFindView from "../timeline/thread-find.contract"
 // chat/ThreadDetailsCard.tsx, threadDetailsCardLayout.ts, ThreadDetailsSection.tsx,
 // threadDetailsPanelStyles.ts, BranchToolbar panel rows, OpenInPicker,
 // ProjectScriptsControl, GitActionsControl, ThreadRelationshipsControl;
-// upstream 9c161462c9). One card, two
+// upstream 7c3b3b3605ef). One card, two
 // placements: docked inline at the canvas's top right (280pt, 12pt in, open by
 // default per thread) where a 640pt chat lane still fits beside it, else the
 // header's popover (264pt inside its 8pt viewport, 60pt down, 13pt in). The
@@ -30,6 +30,7 @@ use LineageBodyRow from "./lineage-workflows.contract"
 use ShellEditorIcon from "../shell/shell-icons-kit.contract"
 use TipBubble from "../shell/shell-tip.contract"
 use TipCard from "../shell/shell-tip.contract"
+use Tip from "../shell/shell-tip.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
 use ProviderMark from "../shared/icons.contract"
 use GitRows from "./git.contract"
@@ -342,10 +343,12 @@ component RunContextLabel
     details: ShellDetails
     locked: bool
   view
-    box margin-left=-1 margin-right=-1 display="flex" flex-shrink=0
-      CnMachineIcon(kind=details.envKind, size=18, color="light-dark(#71717b, #a1a1a1)")
+    Tip(label=details.git.runTip, side="top", align="center", offset=20)
+      box margin-left=-1 margin-right=-1 display="flex" flex-shrink=0
+        CnMachineIcon(kind=details.envKind, size=18, color="light-dark(#71717b, #a1a1a1)")
     text details.envLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=400 line-height="1.21875rem" color=(locked ? "light-dark(#18181bcc, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") testId="details-environment-label" text-box-trim="trim-both" text-box-edge="cap alphabetic"
-    ShellIcon(name=details.envIcon, size=16, color="light-dark(#71717b, #a1a1a1)")
+    Tip(label=details.git.workspaceTip, side="top", align="center", offset=20)
+      ShellIcon(name=details.envIcon, size=16, color="light-dark(#71717b, #a1a1a1)")
 
 component WorkspaceMenu
   props

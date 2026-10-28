@@ -169,16 +169,17 @@ component PanelHeaderBar
           AddSurfaceMenu(surfaces=surfaces, profiles=panel.browser.profiles, ui=ui, local=local)
       if panel.tabStrip.overflow
         TabScroll(canLeft=(tabsScroll > 1), canRight=(tabsScroll < panel.tabStrip.max - 1), left=scrollTabs(0 - tabsStep), right=scrollTabs(tabsStep))
+      // Maximize in either layout, first (a sheet's layoutControls lead with RightPanelMaximizeControl); the sheet, which
+      // covers the details card, then offers its toggle.
+      box position="relative" flex-shrink=0
+        button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+          MorphMaximize(on=maximized, size=16, color="light-dark(#18181bcc, #f5f5f5cc)", weight=2, still=still)
+        TipBubble(label=(maximized ? "Restore panel size" : "Maximize panel"), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "maximize"))
       if sheet
         box position="relative" flex-shrink=0
           button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
             ShellIcon(name="square-menu", size=16, color="light-dark(#18181bcc, #f5f5f5cc)")
           TipBubble(label=(keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details"))
-      else
-        box position="relative" flex-shrink=0
-          button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
-            MorphMaximize(on=maximized, size=16, color="light-dark(#18181bcc, #f5f5f5cc)", weight=2, still=still)
-          TipBubble(label=(maximized ? "Restore panel size" : "Maximize panel"), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "maximize"))
       box position="relative" flex-shrink=0 hover=hover("terminal")
         button press=ui("terminal", "") disabled=(not terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=terminalOpen testId="panel-toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(terminalAvailable and (terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           ShellIcon(name="panel-bottom", size=16, color="light-dark(#18181bcc, #f5f5f5cc)")
@@ -545,7 +546,7 @@ component LinkedPrRowView
           if row.age != ""
             text row.age flex-shrink=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
       if row.speed.length > 0 and (prSpeedMode or row.speedPending)
-        PrQuickActions(actions=row.speed, number=row.number, pending=row.speedPending, act=quick, sweepDown=ignoreDown, sweepMove=ignoreMove, sweepUp=ignoreMove)
+        PrQuickActions(actions=row.speed, number=row.number, label=row.quickLabel, pending=row.speedPending, act=quick, sweepDown=ignoreDown, sweepMove=ignoreMove, sweepUp=ignoreMove)
       row position="absolute" right=0 bottom="0.125rem" opacity=(over or menuOpen ? 1 : 0) padding-left="1.25rem" padding-right="0.25rem" align-items="center" border-radius="0.25rem" background-color="light-dark(#f7f7f8, #101010)"
         button id=`linked-pr-actions-${row.key}` popovertarget=`linked-pr-menu-${row.key}` key=menuKey aria-label=`Actions for #${row.number}` aria-haspopup="menu" aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           PanelIcon(name="ellipsis", size=14, color="light-dark(#18181b, #f5f5f5)")

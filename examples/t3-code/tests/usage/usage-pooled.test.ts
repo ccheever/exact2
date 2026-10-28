@@ -16,7 +16,7 @@ import { pagesLocal } from '../../src/pages/pages-commands';
 import { fleet, environmentKey, EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import { initialShell } from '../../src/client/domain';
 import { forgetUsageState } from '../../src/usage/usage-environments';
-import { popoverSides } from '../../src/usage/usage-pooled-view';
+import { instanceInitials, popoverSides } from '../../src/usage/usage-pooled-view';
 import { usageFleetEvent, usageFleetReset } from '../../src/usage/usage-replies';
 import { forgetLimitsRefreshes } from '../../src/usage/usage-refresh';
 import { appPath } from '../support/app-files';
@@ -337,7 +337,7 @@ describe('usage across environments', () => {
     await rig.reply(rig.of('server.getUsageSummary')[0]!, summary({ sources: [usageSource('codex', '/c'), usageSource('cursor', 'cursor-account:a', { refreshing: true })],
       buckets: [usageBucket('codex', 1.5, '/c')] }));
     let page = await rig.page({ metric: 'cost' });
-    expect(page.providers.map(row => [row.key, row.value, row.loading, row.awaiting])).toEqual([['codex', '$1.50', false, false], ['cursor', '—', true, true]]);
+    expect(page.providers.map(row => [row.key, row.value, row.loading, row.awaiting])).toEqual([['codex', '$1.50', false, false], ['cursor', '-', true, true]]);
     expect(page.chart.series.map(series => series.key)).toEqual(['codex', 'cursor']);
     expect(page.columns.map(column => column.key)).toEqual(['codex', 'cursor']);
     await rig.reply(rig.of('server.getUsageSummary')[1]!, { error: { kind: 'RPC', message: 'Cursor API timed out' } });
@@ -643,5 +643,21 @@ describe('the even-pace gap', () => {
       const source = await Bun.file(appPath(file)).text();
       expect(source).not.toContain('-after');
     }
+  });
+});
+
+// T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3): client-runtime state/providerInstanceDisplay.test.ts, original names.
+describe('providerInstanceInitials', () => {
+  test('treats punctuation as a word break but keeps apostrophes between letters', () => {
+    expect(instanceInitials('Codex (hub)')).toBe('CH');
+    expect(instanceInitials('work_codex')).toBe('WC');
+    expect(instanceInitials("Theo's Codex")).toBe('TC');
+    expect(instanceInitials("Codex 'hub'")).toBe('CH');
+    expect(instanceInitials('‘hub’')).toBe('HU');
+    expect(instanceInitials('(hub)')).toBe('HU');
+  });
+  test('keeps an emoji whole instead of splitting its surrogate pair', () => {
+    expect(instanceInitials('😀 Work')).toBe('😀W');
+    expect(instanceInitials('😀')).toBe('😀');
   });
 });

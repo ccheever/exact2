@@ -10,7 +10,7 @@ import { can, requirePermission } from '../connections/command-permissions';
 // presentation state per client. The stream's events reach it through the
 // client's event drain (client.ts) under GIT_ACTION_KEY.
 import type { T3Client } from '../client/client';
-import { obj, str, type Obj } from '../client/domain';
+import { num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { draftContext } from '../composer/composer-controls-branch';
@@ -20,6 +20,7 @@ import {
   quickAction, quickActionIcon, requiresDefaultBranchConfirmation, sortedPublishProviders, terminology, workingFiles, workingTreeRoot,
 } from './git-logic';
 import { letGo } from '../client/let-go';
+import { formatDiffCount } from './diff-count';
 
 export const GIT_ACTION_KEY = 'git-action';
 export const SUCCESS_VISIBLE_MS = 10_000;
@@ -96,7 +97,9 @@ export function gitActionEvent(client: T3Client, entry: Obj): void {
     case 'hook_finished': run.label = run.phaseLabel; run.hookAt = 0; run.output = ''; break;
     case 'action_finished': {
       const result = obj(item.result), toast = obj(result.toast), branch = obj(result.branch);
-      state.success = { cwd: run.cwd, title: str(toast.title, 'Done'), description: str(toast.description), at: 0 };
+      // A change request the action created says only that, in the host's short term ("Created MR").
+      const created = obj(result.pr).status === 'created';
+      state.success = { cwd: run.cwd, title: created ? `Created ${terminology(state.status).shortLabel}` : str(toast.title, 'Done'), description: created ? '' : str(toast.description), at: 0 };
       // resolveThreadBranchUpdate: a feature ref the action created becomes the thread's branch.
       if (branch.status === 'created' && str(branch.name)) state.branchSync.push({ threadId: run.threadId, draftKey: run.draftKey, branch: str(branch.name) });
       finish(client, state, run, '');
@@ -305,7 +308,7 @@ async function loadDiscovery(client: T3Client, native: Native, state: GitState):
 
 export type GitView = ReturnType<typeof gitCardView>;
 /** The card's Version Control rows, menu, notes and dialogs for one status. */
-export function gitCardView(client: T3Client, status: Obj | null, error: string, cwd: string, now: number, editor = '') {
+export function gitCardView(client: T3Client, status: Obj | null, error: string, cwd: string, now: number, editor = '', unstarted = false) {
   const state = gitState(client);
   state.editor = editor;
   if (state.cwd !== cwd) { state.cwd = cwd; state.dialog = ''; state.pending = state.shown = null; if (state.success?.cwd !== cwd) state.success = null; }
@@ -331,8 +334,14 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
   const form = state.publish, providers = sortedPublishProviders(form.discovered);
   const chosen = providers.find(option => option.value === form.provider && option.ready) ?? providers.find(option => option.ready) ?? providers.find(option => option.value === (form.provider || 'github'))!;
   const repository = form.repository ?? (sourceControlHost(chosen.value)?.inferOwner && chosen.account ? `${chosen.account}/` : '');
+  // The Changes row's totals: the branch's where the server reports them, else the working tree's.
+  const totals = obj(status?.branchChanges ?? status?.workingTree), insertions = num(totals.insertions), deletions = num(totals.deletions);
   return {
-    writable, repo: status?.isRepo !== false, initLabel: state.initPending ? 'Initializing...' : 'Initialize Git', initPending: state.initPending,
+    writable, repo: status?.isRepo !== false,
+    // quietEmptyDraft: a draft or a run-less thread with nothing to commit, push or diff shows neither the Git action nor Changes.
+    quiet: unstarted && !progress && !error && quick.disabled && !insertions && !deletions,
+    changesAdd: `+${formatDiffCount(insertions)}`, changesDel: `-${formatDiffCount(deletions)}`,
+    initLabel: state.initPending ? 'Initializing...' : 'Initialize Git', initPending: state.initPending,
     quickLabel: quick.label, quickIcon: quickActionIcon(quick, status), quickDisabled: !writable || quick.disabled, quickHint: quick.disabled ? (quick.hint ?? 'This action is currently unavailable.') : '',
     progress: !!progress, progressStatus: progress?.status ?? '', progressOutput: progress?.output ?? '', progressElapsed: progress ? (progress.startedAt > 0 ? formatElapsed(progress.startedAt, now) : '0s') : '',
     success: !progress && !!state.success, successTitle: state.success?.title ?? '', successDescription: state.success?.description ?? '',
@@ -347,9 +356,9 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
     allSelected: state.excluded.size === 0, noneSelected: selected.length === 0, someSelected: state.excluded.size > 0 && selected.length > 0,
     selectedInsertions: selected.reduce((sum, file) => sum + file.insertions, 0), selectedDeletions: selected.reduce((sum, file) => sum + file.deletions, 0),
     confirmTitle: copy.title, confirmDescription: copy.description, confirmContinue: copy.continueLabel, confirmFeatureReason: pending ? featureReason(status, pending.branchName) : '', canChangeBranch: canChangeThreadBranch(client),
-    publishStep: form.step, publishProviders: providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source Control to configure this provider.',
+    publishStep: form.step, publishProviders: providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source control to configure this provider.',
       selected: option.value === chosen.value && option.ready })),
-    publishRows: pairs(providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source Control to configure this provider.',
+    publishRows: pairs(providers.map(option => ({ value: option.value, label: option.label, ready: option.ready, hint: option.hint || 'Open Settings -> Source control to configure this provider.',
       selected: option.value === chosen.value && option.ready }))),
     publishProvider: chosen.value, publishProviderLabel: chosen.label, publishHost: chosen.value === 'forgejo' && chosen.host ? chosen.host : chosen.host || sourceControlHost(chosen.value)?.host || '',
     publishPlaceholder: chosen.placeholder, publishRepository: repository, publishVisibility: form.visibility, publishRemote: form.remote, publishProtocol: form.protocol,

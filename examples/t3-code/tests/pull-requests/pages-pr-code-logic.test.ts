@@ -1,15 +1,38 @@
 // The pull request Code tab's pure logic, ported with the reference's own test names and
 // cases (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: components/pullRequest/{pullRequestDiff.logic,
-// pullRequestFilesViewed.logic,pullRequestFileOrder.logic,pullRequestDetail.logic}.test.ts), plus
-// the clone's own: the whitespace filter, the slice adoption and the review positions.
+// pullRequestFilesViewed.logic,pullRequestFileOrder.logic,pullRequestDetail.logic}.test.ts; at 7c3b3b3605ef,
+// pullRequestDiffError.test.ts), plus the clone's own: the whitespace filter, the slice adoption and the review positions.
 import { describe, expect, test } from 'bun:test';
 import {
-  adoptDiffSlice, countViewedFiles, editPullRequestThreadComment, hideWhitespaceChanges, isFileDiffCollapsed, isFileViewed, isLineInFileDiff, isStaleViewedState,
+  adoptDiffSlice, countViewedFiles, describePullRequestDiffError, editPullRequestThreadComment, hideWhitespaceChanges, isFileDiffCollapsed, isFileViewed, isLineInFileDiff, isStaleViewedState,
   mergePullRequestThreadComments, orderDiffFiles, renderablePatch, resolveDiffReviewPosition, reviewPositionAnchor, revertFileViewedOverlay, settleFileViewedOverlay,
   toFileViewedBatch, toFileViewedStates, toggleFileDiffFoldForViewed, type DiffSlice, type FileViewedOverlay, type PrDiffFile,
 } from '../../src/pull-requests/pages-pr-code-logic';
 
 const fileWithHunks = (hunks: { deletionStart: number; deletionCount: number; additionStart: number; additionCount: number }[]) => ({ hunks });
+
+describe('describePullRequestDiffError', () => {
+  test('explains the rate limit inside an HTTP transport error without exposing the endpoint', () => {
+    const error = 'Failed to fetch remote environment endpoint http://127.0.0.1:49477/api/pull-requests/diff (PullRequestOperationError: Pull request operation diff failed: github requests to github.com are paused until the rate limit resets.).';
+    const result = describePullRequestDiffError(error, 'GitHub', 'pull request');
+    expect(result.title).toBe('GitHub rate limit reached');
+    expect(result.description).toContain('after the limit resets');
+    expect(result.description).not.toContain('127.0.0.1');
+    expect(result.description).not.toContain('PullRequestOperationError');
+  });
+  // regression: #19945 diff load failures from a provider quota showed a generic error
+  test("recognizes a provider's API quota error", () => {
+    expect(describePullRequestDiffError('GitHub API rate limit exceeded.', 'GitHub', 'pull request').title).toBe('GitHub rate limit reached');
+  });
+  test('does not blame a rate limit for an unknown connection failure', () => {
+    const result = describePullRequestDiffError('Failed to fetch remote environment endpoint http://localhost:49477/api/pull-requests/diff (TypeError: Failed to fetch).', 'GitHub', 'pull request');
+    expect(result.title).toBe("Couldn't load the changes");
+    expect(result.description).toContain('Try again');
+    expect(result.description).not.toContain('localhost');
+    expect(result.description).not.toContain('limit');
+    expect(describePullRequestDiffError('boom', 'GitLab', 'merge request').description).toBe("The environment couldn't load this merge request's diff. Try again, or view the changes on GitLab.");
+  });
+});
 
 describe('isLineInFileDiff', () => {
   const file = fileWithHunks([{ deletionStart: 10, deletionCount: 3, additionStart: 10, additionCount: 5 }, { deletionStart: 40, deletionCount: 0, additionStart: 42, additionCount: 2 }]);

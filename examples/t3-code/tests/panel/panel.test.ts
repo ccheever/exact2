@@ -5,9 +5,9 @@
 import { frames } from '../../src/browser/browser-frames';
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
-import { closeSurfaceIn, openFileIn, syncDiff, panelState, surfaceLocal, surfaceStore, availability, panelView, workspacePath, type PanelState } from '../../src/panel/panel-surfaces';
+import { closeSurfaceIn, openFileIn, syncDiff, panelKey, panelState, surfaceLocal, surfaceStore, availability, panelView, workspacePath, type PanelState } from '../../src/panel/panel-surfaces';
 import { draftThreadId } from '../../src/composer/draft-thread-id';
-import { deviceThreadId } from '../../src/device/device-session';
+import { deviceThreadId, miniDeviceOf, selectDeviceTarget } from '../../src/device/device-session';
 import { toasts } from '../../src/shell/toast';
 import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths, setMarkdownTaskChecked } from '../../src/panel/files-surface';
 import { resolveChains, listLines, prsView, prCommandPayload } from '../../src/panel/linked-prs';
@@ -73,6 +73,9 @@ describe('rightPanelStore rules', () => {
     expect(workspacePath('/repo', '/repo/')).toEqual({ path: '.', line: 0 });
     expect(workspacePath('/etc/hosts', '/repo')).toEqual({ path: '/etc/hosts', line: 0 });
     expect(workspacePath('docs/guide.md', '/repo', 4)).toEqual({ path: 'docs/guide.md', line: 4 });
+    // workspaceRelativeFilePath (regression #16354): a `..` that leaves the root is a host path, not a workspace path.
+    expect(workspacePath('/repo/project/../other/notes.md', '/repo/project')).toEqual({ path: '/repo/project/../other/notes.md', line: 0 });
+    expect(workspacePath('/repo/project/docs/a/../b.md', '/repo/project')).toEqual({ path: 'docs/a/../b.md', line: 0 });
   });
   test('the Diff tab follows the client diff panel, which other controls open and close', () => {
     const state = panel();
@@ -316,6 +319,33 @@ describe('Linked pull requests', () => {
     const cyclic = [make(5, 'a', 'b'), make(6, 'b', 'a')];
     expect(listLines(resolveChains(cyclic)).map(row => row.depth)).toEqual([0, 0]);
   });
+  test('a stack\'s first row names its host from the URL, or its term for a chain by base branch (ThreadPullRequestsPanel)', () => {
+    const { client } = fakeClient();
+    const native = (url: (number: number) => string) => [1, 2].map(number => link(number, { state: 'open', headBranch: `l${number}`, baseBranch: 'main' },
+      { url: url(number), stack: nativeStack('9', [1, 2]) }));
+    const labels = (links: unknown[]) => { (client.shell.threads[0] as { pullRequests: unknown[] }).pullRequests = links; return prsView(client, 0).rows.map(row => row.stackLabel); };
+    expect(labels(native(number => `https://github.com/o/r/pull/${number}`))[0]).toBe('GitHub stack of 2: merging a layer lands the ones below it.');
+    // GitHub Enterprise Server: GitHub's route on another hostname; GitCafe's own hosts are GitCafe's.
+    expect(labels(native(number => `https://git.corp.example/o/r/pull/${number}`))[0]).toBe('GitHub stack of 2: merging a layer lands the ones below it.');
+    expect(labels(native(number => `https://git.cafe/o/r/pull/${number}`))[0]).toBe('GitCafe stack of 2: merging a layer lands the ones below it.');
+    expect(labels(native(number => `https://example.com/o/r/changes/${number}`))[0]).toBe('the host stack of 2: merging a layer lands the ones below it.');
+    const chained = (url: (number: number) => string) => [link(1, { state: 'open', headBranch: 'a', baseBranch: 'main' }, { url: url(1) }), link(2, { state: 'open', headBranch: 'b', baseBranch: 'a' }, { url: url(2) })];
+    expect(labels(chained(number => `https://gitlab.com/o/r/-/merge_requests/${number}`))).toEqual(['2 merge requests chained by base branch.', '']);
+    expect(labels(chained(number => `https://example.com/o/r/changes/${number}`))[0]).toBe('2 change requests chained by base branch.');
+  });
+  test('a row\'s quick actions are its host\'s, by the registry; a link no host claims has none (ThreadPullRequestsPanel linkHost)', () => {
+    const { client } = fakeClient();
+    const speed = (url: string, snapshot: Record<string, unknown>) => {
+      (client.shell.threads[0] as { pullRequests: unknown[] }).pullRequests = [link(9, { headBranch: 'h', baseBranch: 'main', ...snapshot }, { url })];
+      return prsView(client, 0).rows[0]!.speed.map(action => action.action);
+    };
+    expect(speed('https://github.com/o/r/pull/9', { state: 'open' })).toEqual(['close', 'merge']);
+    // GitHub's route alone does not make an unknown host GitHub.
+    expect(speed('https://example.com/o/r/changes/9', { state: 'open' })).toEqual([]);
+    // GitCafe's staging host claims `/pulls/` before Forgejo, and GitCafe offers Ready on a draft.
+    expect(speed('https://staging.git.cafe/o/r/pulls/3', { state: 'open', isDraft: true })).toEqual(['close', 'ready']);
+    expect(speed('https://codeberg.org/o/r/pulls/3', { state: 'open', isDraft: true })).toEqual(['close']);
+  });
   test('rows carry watch state, waiting links and the footer; watch and unlink are orchestration commands', async () => {
     const watched = link(4, { title: 'Watched', state: 'open', isDraft: false, headBranch: 'h', baseBranch: 'main', updatedAt: '2026-10-04T00:00:00.000Z', syncedAt: '2026-10-04T00:00:00.000Z', additions: 3, deletions: 1, author: { login: 'octo' } }, { watch: { since: 'x' } });
     const { client, calls } = fakeClient();
@@ -440,6 +470,27 @@ describe('Device setup', () => {
     expect(draftThreadId(client)).toBe('cmd-0');
     expect(deviceThreadId(client)).toBe('cmd-0');
     expect(surfaceStore(client).deviceSetup).toBe('env:cmd-0');
+  });
+  test('closing the panel floats its device only while the thread\'s session on it is live (floatDeviceSurface)', async () => {
+    const { client } = fakeClient();
+    const iphone = { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' };
+    const devices = (sessions: unknown[]) => deviceStateEvent(client, { subscriptionId: '1-7', key: DEVICE_STATE_KEY, value: { hosts: [{ id: 'local', label: 'This machine', kind: 'local', platforms: [] }],
+      hostStatus: 'ready', hostStatuses: { local: { status: 'ready' } }, devices: [], sessions, onboardingCompleted: true, agentAccessEnabled: false } });
+    const closeOnDevice = async () => {
+      const state = panelState(client);
+      state.surfaces = [{ id: 'device', kind: 'device', path: '', line: 0, reveal: 0 }]; state.active = 'device'; state.visible = true;
+      selectDeviceTarget(client, panelKey(client), iphone);
+      await surfaceLocal(client, native, 'hide', '', '');
+      return state.visible;
+    };
+    await watchDevice(client, native);
+    // A session another thread holds, or one on another device, has nothing of this tab's to stream.
+    devices([{ threadId: 't2', hostId: 'local', deviceId: 'IPHONE' }, { threadId: 't1', hostId: 'local', deviceId: 'PIXEL' }]);
+    expect(await closeOnDevice()).toBe(false);
+    expect(miniDeviceOf(client, 't1')).toBeUndefined();
+    devices([{ threadId: 't1', hostId: 'local', deviceId: 'IPHONE' }]);
+    expect(await closeOnDevice()).toBe(false);
+    expect(miniDeviceOf(client, 't1')).toMatchObject({ hostId: 'local', deviceId: 'IPHONE' });
   });
 });
 

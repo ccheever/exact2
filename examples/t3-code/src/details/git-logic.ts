@@ -1,4 +1,5 @@
 import { sourceControlHosts } from '../shared/source-control-hosts';
+import { claimChangeRequestUrl } from '../palette/palette-linkpr';
 // Git action rules for the workspace card, adapted from T3 Code (MIT;
 // see LICENSE-T3): apps/web/src/components/GitActionsControl.logic.ts (quick action,
 // menu items, default-branch copy, progress), GitActionsControl.tsx
@@ -7,28 +8,44 @@ import { sourceControlHosts } from '../shared/source-control-hosts';
 // Pure functions over a VcsStatusResult; the runner lives in git-actions.ts.
 import { arr, obj, str, num, type Obj } from '../client/domain';
 
-export type Terminology = { shortLabel: string; singular: string };
-const PRESENTATION: Record<string, { short: string; long: string; icon: string; name: string }> = {
-  github: { short: 'PR', long: 'pull request', icon: 'github', name: 'GitHub' },
-  gitlab: { short: 'MR', long: 'merge request', icon: 'gitlab', name: 'GitLab' },
-  forgejo: { short: 'PR', long: 'pull request', icon: 'forgejo', name: 'Forgejo' },
-  'azure-devops': { short: 'PR', long: 'pull request', icon: 'azure-devops', name: 'Azure DevOps' },
-  gitcafe: { short: 'PR', long: 'pull request', icon: 'gitcafe', name: 'GitCafe' },
-  bitbucket: { short: 'PR', long: 'pull request', icon: 'bitbucket', name: 'Bitbucket' },
-  unknown: { short: 'change request', long: 'change request', icon: 'pull-request', name: 'source control' },
+/** ChangeRequestTerminology: the host's own words for a change request ("an MR" because the article follows how the label is said). */
+export type Terminology = { shortLabel: string; shortLabelWithArticle: string; singular: string; plural: string };
+const PR: Terminology = { shortLabel: 'PR', shortLabelWithArticle: 'a PR', singular: 'pull request', plural: 'pull requests' };
+const MR: Terminology = { shortLabel: 'MR', shortLabelWithArticle: 'an MR', singular: 'merge request', plural: 'merge requests' };
+const CHANGE_REQUEST: Terminology = { shortLabel: 'change request', shortLabelWithArticle: 'a change request', singular: 'change request', plural: 'change requests' };
+const PRESENTATION: Record<string, { term: Terminology; icon: string; name: string }> = {
+  github: { term: PR, icon: 'github', name: 'GitHub' },
+  gitlab: { term: MR, icon: 'gitlab', name: 'GitLab' },
+  forgejo: { term: PR, icon: 'forgejo', name: 'Forgejo' },
+  'azure-devops': { term: PR, icon: 'azure-devops', name: 'Azure DevOps' },
+  gitcafe: { term: PR, icon: 'gitcafe', name: 'GitCafe' },
+  bitbucket: { term: PR, icon: 'bitbucket', name: 'Bitbucket' },
+  unknown: { term: CHANGE_REQUEST, icon: 'pull-request', name: 'source control' },
 };
 const providerOf = (status: Obj | null): Obj | null => {
   const provider = status?.sourceControlProvider;
   return provider && typeof provider === 'object' && !Array.isArray(provider) ? provider as Obj : null;
 };
 const presentationOf = (provider: Obj | null) => PRESENTATION[str(provider?.kind) || 'github'] ?? PRESENTATION.github!;
-/** getChangeRequestTerminology: a status without a provider reads as GitHub's "PR". */
-export function terminology(status: Obj | null): Terminology {
-  const provider = providerOf(status);
-  if (!provider) return { shortLabel: 'PR', singular: 'pull request' };
-  const presentation = presentationOf(provider);
-  return { shortLabel: presentation.short, singular: presentation.long };
+/** sourceControlClients.get(kind).changeRequest: no kind is the default host's (GitHub's), a kind no host claims "change request". */
+export const terminologyOf = (kind: string | null | undefined): Terminology => (kind ? PRESENTATION[kind]?.term ?? CHANGE_REQUEST : PR);
+/** changeRequestTerminologyFor: the status's host, GitHub's "PR" without one. */
+export const terminology = (status: Obj | null): Terminology => terminologyOf(str(providerOf(status)?.kind));
+/** findByChangeRequestUrl(url)?.kind: the host whose change request URL this is, by the definitions registry's claims
+ *  (palette-linkpr.ts), '' where none claims it. */
+export const changeRequestHostKind = (url: string): string => claimChangeRequestUrl(url.trim())?.kind ?? '';
+/** findByChangeRequestUrl(url) ?? get(undefined): where only a change request's URL is known, the URL names its host. */
+export const terminologyForUrl = (url: string): Terminology => terminologyOf(changeRequestHostKind(url) || undefined);
+/** hostLabelForChangeRequestUrl: the URL's host by name, "the host" where none claims it. */
+export function hostLabelForUrl(url: string): string {
+  const kind = changeRequestHostKind(url);
+  return kind ? sourceControlHosts.find(host => host.kind === kind)?.label ?? 'the host' : 'the host';
 }
+/** capitalizeTerm: a host's term where it opens a sentence ("Merge request merged"). */
+export const capitalizeTerm = (term: string): string => term.charAt(0).toUpperCase() + term.slice(1);
+/** The words as a view draws them (pull-requests/pr-term.contract PrTerm); `title` opens a sentence. */
+export type TermView = { short: string; singular: string; plural: string; title: string };
+export const termView = (term: Terminology): TermView => ({ short: term.shortLabel, singular: term.singular, plural: term.plural, title: capitalizeTerm(term.singular) });
 /** getSourceControlPresentation(...).Icon as a mark name (an unknown host gets the pull-request glyph). */
 export const providerMark = (status: Obj | null): string => presentationOf(providerOf(status)).icon;
 
@@ -86,7 +103,7 @@ export function menuItems(status: Obj | null, busy: boolean, hasPrimaryRemote: b
   const push: MenuItem = { id: 'push', label: 'Push', disabled: !(!busy && hasBranch && !behind && num(status.aheadCount) > 0 && pushable), icon: 'cloud-upload', dialogAction: 'push' };
   if (hasOpenPr) return [commit, push];
   return [commit, push, { id: 'pr', label: `Create ${term.shortLabel}`, icon: providerMark(status), dialogAction: 'create_pr',
-    disabled: !(!busy && hasBranch && !changes && !hasOpenPr && defaultDelta && !behind && pushable) }];
+    disabled: !(!busy && hasBranch && !hasOpenPr && defaultDelta && !behind && pushable) }];
 }
 
 /** getMenuActionDisabledReason: the hover note on a disabled menu item. */
@@ -107,9 +124,9 @@ export function menuReason(item: MenuItem, status: Obj | null, busy: boolean, ha
     return 'Push is currently unavailable.';
   }
   if (!hasBranch) return `Detached HEAD: check out a branch before creating a ${term.singular}.`;
-  if (changes) return `Commit local changes before creating a ${term.singular}.`;
   if (!upstream && !hasPrimaryRemote) return `Add an "origin" remote before creating a ${term.singular}.`;
-  if (!ahead) return `No local commits to include in a ${term.singular}.`;
+  // Commits ahead of the default branch, which are what a change request carries.
+  if (num(status.aheadOfDefaultCount ?? status.aheadCount) <= 0) return `No local commits to include in a ${term.singular}.`;
   if (behind) return `Branch is behind upstream. Pull/rebase before creating a ${term.singular}.`;
   return `Create ${term.singular} is currently unavailable.`;
 }
@@ -117,7 +134,7 @@ export function menuReason(item: MenuItem, status: Obj | null, busy: boolean, ha
 /** The menu's trailing notes (detached HEAD, behind upstream, a status error). */
 export function menuNotes(status: Obj | null, error: string): { id: string; text: string; tone: string }[] {
   const notes: { id: string; text: string; tone: string }[] = [];
-  if (status && status.refName === null) notes.push({ id: 'detached', text: 'Detached HEAD: create and check out a branch to enable push and pull request actions.', tone: 'warning' });
+  if (status && status.refName === null) notes.push({ id: 'detached', text: `Detached HEAD: create and check out a branch to enable push and ${terminology(status).singular} actions.`, tone: 'warning' });
   if (status && status.refName != null && status.hasWorkingTreeChanges !== true && num(status.behindCount) > 0 && num(status.aheadCount) === 0)
     notes.push({ id: 'behind', text: 'Behind upstream. Pull/rebase first.', tone: 'warning' });
   if (error) notes.push({ id: 'error', text: error, tone: 'error' });
@@ -175,10 +192,10 @@ const optionNone = (value: unknown): string => { const option = obj(value); retu
 /** getPublishProviderReadiness over the discovery's providers. */
 export function publishReadiness(provider: string, discovered: Obj[]): { ready: boolean; hint: string; account: string; host: string } {
   const entry = discovered.find(candidate => str(candidate.kind) === provider);
-  if (!entry) return { ready: false, hint: 'Provider status unavailable. Open Settings -> Source Control and rescan.', account: '', host: '' };
+  if (!entry) return { ready: false, hint: 'Provider status unavailable. Open Settings -> Source control and rescan.', account: '', host: '' };
   const auth = obj(entry.auth), account = optionNone(auth.account), host = optionNone(auth.host);
   if (str(entry.status) !== 'available') return { ready: false, hint: str(entry.installHint), account, host };
-  if (str(auth.status) === 'unauthenticated') return { ready: false, hint: optionNone(auth.detail) || `${str(entry.label, provider)} is not authenticated. Open Settings -> Source Control for setup guidance.`, account, host };
+  if (str(auth.status) === 'unauthenticated') return { ready: false, hint: optionNone(auth.detail) || `${str(entry.label, provider)} is not authenticated. Open Settings -> Source control for setup guidance.`, account, host };
   return { ready: true, hint: '', account, host };
 }
 /** The provider cards, ready ones first then by label. */

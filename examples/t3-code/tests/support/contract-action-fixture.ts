@@ -195,6 +195,13 @@ export function contractComponent(file: string, name: string) {
     return { params, body: tree(0, 4)[0] };
   };
 
+  /** The first line of the view containing `marker`. */
+  const viewLine = (marker: string): string => {
+    const line = lines.slice(lines.indexOf('  view') + 1).find(entry => entry.includes(marker));
+    if (!line) throw new Error(`${file}: no view line of ${name} has ${marker}`);
+    return line;
+  };
+
   const derives = (state: Env, scope: Env): Env => {
     const env: Env = { ...scope, ...state }, out: Env = {};
     for (const line of lines) {
@@ -250,6 +257,33 @@ export function contractComponent(file: string, name: string) {
     },
     /** Every `derive x = …` in declaration order, each seeing the state, `scope` and the derives before it. */
     derives,
+    /**
+     * The value of attribute `attr` on the first view line containing `marker` (`attr=(…)`, a quoted or backquoted
+     * string, or one token), read over `state`, `scope` and the derives.
+     */
+    attribute(marker: string, attr: string, state: Env, scope: Env): unknown {
+      const line = viewLine(marker), at = line.indexOf(` ${attr}=`);
+      if (at < 0) throw new Error(`${file}: the line of ${name} with ${marker} has no ${attr}`);
+      const start = at + attr.length + 2, open = line[start];
+      let end = start;
+      if (open === '(') {
+        for (let depth = 0; end < line.length; end++) {
+          const c = line[end]!;
+          if (c === '"' || c === '`') { end = line.indexOf(c, end + 1); continue; }
+          if (c === '(') depth++;
+          if (c === ')' && --depth === 0) break;
+        }
+        end++;
+      } else if (open === '"' || open === '`') end = line.indexOf(open, start + 1) + 1;
+      else end = start + /^\S+/.exec(line.slice(start))![0].length;
+      return value(line.slice(start, end), { ...scope, ...state, ...derives(state, scope) });
+    },
+    /** The named arguments of the component call that opens the first view line containing `marker` (`Tip(label=…)`). */
+    callArguments(marker: string, state: Env, scope: Env): Env {
+      const line = viewLine(marker).trim(), callee = /^(\w+)\(/.exec(line)?.[1];
+      if (!callee) throw new Error(`${file}: the line of ${name} with ${marker} is no component call`);
+      return value(line, { ...scope, ...state, ...derives(state, scope), [callee]: (args: Env) => args }) as Env;
+    },
   };
 }
 

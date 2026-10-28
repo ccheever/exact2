@@ -1,6 +1,6 @@
 // The pull request Summary tab's model (MIT reference, see LICENSE-T3, T3 Code
-// 74541bab17 apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
-// verdict each last gave (a ring, the sr-only words and the "<name> — <outcome>" tooltip), the
+// 7c3b3b3605ef apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
+// verdict each last gave (a ring, the sr-only words and the "<name>: <outcome>" tooltip), the
 // checks with "Check details are out of date." when a newer rollup disagrees, and the
 // conversation through the comment filter — bot comments and finished work (a resolved thread,
 // a dismissed review, drawn collapsed) shown only when the filter asks for them — as loose comments
@@ -14,6 +14,7 @@ import { pagesPrefs } from '../pages/pages-prefs';
 import { relativeLabel } from './pages-prs';
 import { currentTimestampLocale } from '../shared/timestamp-format';
 import { checkStatusLabel, checksRollup } from '../details/pr-row-logic';
+import { termView, terminologyOf } from '../details/git-logic';
 import {
   filterPullRequestConversationItems, isPullRequestCommentFinished, latestPullRequestReviewOutcomes, orderPullRequestComments, pullRequestCommentCount, pullRequestConversationItemComments,
   pullRequestConversationItems, pullRequestReviewOutcome, pullRequestReviewOutcomeLabel, pullRequestReviewOutcomeStaleLabel, visibleBody, type PullRequestConversationItem,
@@ -57,6 +58,8 @@ export function emptySummary() {
     activeCount: 0, newest: [] as PrConversation[], oldest: [] as PrConversation[],
     // The filter: what it shows, its trigger's words ("Filter", "3 hidden") and the line for a conversation it hides whole.
     showBots: false, showResolved: false, filterLabel: 'Filter', filteredOutText: '',
+    // The host's words ("Could not load merge request activity").
+    term: termView(terminologyOf(undefined)),
   };
 }
 
@@ -84,7 +87,6 @@ const named = (actor: unknown) => { const person = obj(actor), login = str(perso
 export const fullDate = (iso: string) => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toLocaleString(currentTimestampLocale()) : ''; };
 /** "CHANGES_REQUESTED" reads as "Changes requested". */
 export const reviewStateLabel = (state: string) => { const words = state.toLowerCase().split('_').join(' '); return words.charAt(0).toUpperCase() + words.slice(1); };
-const isBot = (actor: unknown) => { const person = obj(actor); return person.isBot === true || str(person.login).endsWith('[bot]'); };
 /** CollapsedComment's one-line preview of a finished remark. */
 export const previewText = (body: string) => body.replace(/<!--[\s\S]*?-->/gu, '').replace(/^\s*>?\s*\[!\w+\]\s*$/gmu, '').replace(/!?(\[([^\]]+)\])\([^)]*\)/gu, '$2')
   .replace(/^[\s>#*-]+/gmu, '').replace(/[*`]/gu, '').replace(/\s+/g, ' ').trim();
@@ -130,6 +132,7 @@ export function presentSummary(input: SummaryInput): PrSummaryView {
   const { detail, activity, now } = input;
   const view = emptySummary(), url = str(detail.url), capabilities = obj(detail.capabilities);
   view.key = url; view.activityPending = input.activityPending; view.activityError = input.activityError;
+  view.term = termView(terminologyOf(str(detail.provider) || undefined));
   const comments = arr(activity?.comments), commits = arr(activity?.commits);
   // Reviewers: the people asked, then anyone who ruled without being asked; each wears their last verdict.
   const outcomes = latestPullRequestReviewOutcomes(comments, commits);
@@ -141,7 +144,7 @@ export function presentSummary(input: SummaryInput): PrSummaryView {
     const person = face(entry.actor), verdict = entry.outcome;
     const words = verdict ? (verdict.stale ? pullRequestReviewOutcomeStaleLabel(verdict.outcome) : pullRequestReviewOutcomeLabel(verdict.outcome)) : '';
     return { key: entry.key, login: person.login, avatar: person.avatar, initial: person.initial, outcome: verdict?.outcome ?? '', stale: verdict?.stale ?? false,
-      outcomeText: words, tooltip: verdict ? `${named(entry.actor)} — ${words}` : named(entry.actor) };
+      outcomeText: words, tooltip: verdict ? `${named(entry.actor)}: ${words}` : named(entry.actor) };
   });
   view.showLabels = arr(detail.labels).length > 0 || capabilities.labels === true;
   // Checks: a newer rollup (the list's row) that disagrees with the detail's checks makes them stale.

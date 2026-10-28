@@ -25,6 +25,9 @@ fn diffStatInk(scheme: string, role: string): string = scheme == "blue-orange" ?
 // deleted take the darker light tokens, the dark added one success-foreground; modified is a muted blue (light: info
 // 50% with muted-foreground; dark: info at 65%), muted under blue-orange, which spends blue on additions.
 fn diffChangeInk(scheme: string, status: string): string = status == "added" ? (scheme == "blue-orange" ? diffInk(scheme, "add") : "light-dark(#007a55, #00d492)") : status == "deleted" ? (scheme == "blue-orange" ? diffInk(scheme, "del") : "light-dark(#c10007, #ff2e3f)") : (scheme == "blue-orange" ? "light-dark(#71717b, #a1a1a1a6)" : "light-dark(#435cb1, #51a2ffa6)")
+// A heading's `+b` (diff.ts diffLineTokens): weight 700, and the class without it for its colour and slant.
+fn diffBold(cls: string): bool = cls.endsWith("+b")
+fn diffSyn(cls: string): string = cls.endsWith("+b") ? cls.slice(0, -2) : cls
 fn diffSel(role: string): string = role == "row" ? "light-dark(#eff7fd, #0f151a)" : role == "gutter" ? "light-dark(#f0f7fd, #10151a)" : role == "number" ? "light-dark(#20649e, #72b6ff)" : "#009fff"
 
 component DiffTool
@@ -63,10 +66,17 @@ component DiffRow
     beginComment: action
     cancelComment: action
     saveComment: action
+    // The file the pointer is over, any of its rows (`diffs-container:hover`), which shows its header's Copy path. A row
+    // names its file as the pointer enters it; the list clears it as the pointer leaves the list.
+    hoveredPath: string
+    hoverPath: action
+  action rowHover(over: bool)
+    if over and hoveredPath != item.path
+      hoverPath(item.path)
   view
-    column width="100%"
+    column width="100%" hover=rowHover
       if item.kind == "file"
-        DiffFileHeader(item=item, command=command, scheme=scheme)
+        DiffFileHeader(item=item, command=command, scheme=scheme, fileHovered=(hoveredPath == item.path))
       if item.kind == "pad"
         box width="100%" height="0.5rem"
       if item.kind == "ghost"
@@ -123,6 +133,7 @@ component DiffFileHeader
     item: DiffItem
     command: action
     scheme: string
+    fileHovered: bool
   state hovering = false
   state copyFocused = false
   action setHover(over: bool)
@@ -140,8 +151,8 @@ component DiffFileHeader
       DiffGlyph(name=item.status, size=16, color=diffChangeInk(scheme, item.status))
       button press=command("diff-view", "file", item.path, 0) disabled=item.unavailable aria-label=item.path flex-shrink=1 min-width=0 padding=0 border-width=0 background-color="#00000000"
         text item.name font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1
-      // The copy button shows on hover or focus ([data-diff-copy-path]).
-      button press=command("diff-view", "copy", item.path, 0) focus=focusCopy(true) blur=focusCopy(false) opacity=(hovering or copyFocused ? 1 : 0) aria-label="Copy file path" testId=`diff-copy-${item.path}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+      // The copy button shows while any of its file is hovered, or on focus ([data-diff-copy-path] under diffs-container:hover).
+      button press=command("diff-view", "copy", item.path, 0) focus=focusCopy(true) blur=focusCopy(false) opacity=(hovering or fileHovered or copyFocused ? 1 : 0) aria-label="Copy file path" testId=`diff-copy-${item.path}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         DiffGlyph(name="copy", size=12, color="light-dark(#71717a, #a1a1a1)")
       // DiffFileStatus: Retry after a failed read; "Partial diff preview" for a file past the per-file cap.
       if item.error or item.partial
@@ -234,7 +245,7 @@ component DiffCell
           box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffInk(scheme, "del-bar") background-image=`repeating-linear-gradient(to bottom, ${diffInk(scheme, "del")} 0 1px, transparent 1px 2px)`
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family=family font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         for segment in segments key=segment.id
-          text segment.text background-color=(segment.find == 0 and segment.mark ? diffInk(scheme, tone == "deletion" ? "del-mark" : "add-mark") : findPaint(segment.find)) color=(segment.find >= 2 ? "#171717" : synColor(segment.syntax)) font-style=synSlant(segment.syntax)
+          text segment.text background-color=(segment.find == 0 and segment.mark ? diffInk(scheme, tone == "deletion" ? "del-mark" : "add-mark") : findPaint(segment.find)) color=(segment.find >= 2 ? "#171717" : synColor(diffSyn(segment.syntax))) font-style=synSlant(diffSyn(segment.syntax)) font-weight=(diffBold(segment.syntax) ? 700 : 400)
       // The empty side of a split run: Pierre's [data-gutter-buffer] flat and its [data-content-buffer] hatched, 45° stripes
       // rising to the right in the buffer colour (CDP, 1e2ecbd975: #f8f8f8 / #131313; stripes #e6e6e6 / #1d1d1d over the
       // code surface). Pierre paints one repeating-linear-gradient over the whole run, 2px stripes in 8px tiles. Here a
