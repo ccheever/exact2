@@ -142,13 +142,19 @@ assertion fails. The result is 113 passed and one failed. This reached the
 three-round fix limit. The unit remains inactive and uncommitted. Root drain,
 producer integration and native-node recreation also gate activation.
 
-A later normal cold launch stalled with an empty transcript and unready Send.
-Selecting the other owned conversation and returning restores the transcript;
-Send ownership remains unready. Temporary local probes report a connected, live
-thread, an enabled rich editor with matching route identity, no acknowledged native
-editor mount, and a pending local outbox recovery read. A process sample shows no
-outbox worker blocked on a lock. Native callback diagnosis remains open; the stall
-is not qualified as fixed.
+A large-catalogue cold launch exposed a blank transcript, unready Send and a
+Hermes allocation failure. Composer preparation copied and fingerprinted command
+catalogues for every workspace. It now projects only the exact current workspace,
+matching the shared resolver and preserving missing-versus-empty overrides.
+Instrumented drives observed one composer call allocating about 101 MB before
+this change and a maximum below 14 MB afterward. These are allocation totals
+across collections, not retained heap or a general performance benchmark.
+The normal build opens the tested conversation on its first tap, restores its
+transcript, sends to the real provider and displays `COMPOSER_SCOPE_OK`. Another
+normal restart restores the environment and reply. A separate 18-character draft
+also survives restart with Send ready. Temporary diagnostics and the unsuccessful
+clock-argument experiment were removed. Strict TypeScript, all 3,717 mobile tests
+and the boot check pass. The desktop source cap remains the sole cap violation.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
 line, attaches it to the composer, sends it, and receives the requested provider
