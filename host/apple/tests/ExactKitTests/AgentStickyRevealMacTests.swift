@@ -56,6 +56,17 @@ final class AgentStickyRevealMacTests: XCTestCase {
         XCTAssertNil(agent.tap(["id": Int(headed.id)])["error"])
         session.presenter.settlePump()
         XCTAssertEqual(pressed(), headed.props["testId"] as? String)
+        // A dock that lets the pointer through (theme2's condition): a click at a row under it lands on the row, so the
+        // cover rule finds none there, as the window's hit test does: nothing moves, and the tap presses the row.
+        XCTAssertNil(agent.tap(["id": Int(try XCTUnwrap(node("ghost")).id)])["error"])
+        session.presenter.settlePump(); window.layoutIfNeeded()
+        let through = try XCTUnwrap(row(300...399))
+        XCTAssertEqual(agent.reveal(["id": Int(through.id)])["scrolled"] as? Bool, false)
+        XCTAssertNil(agent.tap(["id": Int(through.id)])["error"])
+        session.presenter.settlePump()
+        XCTAssertEqual(pressed(), through.props["testId"] as? String)
+        XCTAssertNil(agent.tap(["id": Int(try XCTUnwrap(node("ghost")).id)])["error"])
+        session.presenter.settlePump(); window.layoutIfNeeded()
         // A dock taller than the band it would leave: nothing moves, and the tap refuses there.
         XCTAssertNil(agent.tap(["id": Int(try XCTUnwrap(node("grow")).id)])["error"])
         session.presenter.settlePump(); window.layoutIfNeeded()
