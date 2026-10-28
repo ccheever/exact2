@@ -55,8 +55,24 @@ The restored draft reaches the server intact. Final acceptance on an available
 existing checkout creates a new thread, receives a real reply, sends a follow-up,
 and stops its provider run. After relaunch, the environment, reply and interrupted
 conversation remain available. The functional iPhone POC is verified; its signed
-production build, TestFlight processing and tester availability remain pending.
+production build is signed; TestFlight processing and tester availability remain pending.
 The first Home fix is pushed in PR216 at `122646f95` and independently reviewed.
+
+POC build `1.0.0 (20261028070658)` comes from pushed commit `900e56c72`.
+The IPA passes signature and provisioning checks with the existing clone identity.
+Its production build reads the native module table on the iOS Simulator after
+compiling package sources for that probe's target. The builder regression suite
+passes 49 tests with one skipped. The earlier device-only package output blocked
+all roster probes; the fix preserves production qualification.
+[EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/70e7839c-9380-405d-b9fc-8952a9c982ac)
+uses that exact IPA and the existing internal `Team (Expo)` group. Verify its
+Apple processing and group availability before calling this checkpoint delivered.
+
+Direct pairing accepts HTTPS, with HTTP limited to loopback. The LAN HTTP drive
+shows that restriction through the real form. This Mac's T3 Connect tunnel is
+healthy, but its relay login is separate from direct pairing and remains unproved
+in the clone. The functional POC above used the simulator's authorized loopback
+connection; it does not prove pairing from a physical phone.
 
 All six root repository checks pass at the mobile checkpoint. On the integrated
 PR, build, tests, Clippy, formatting, boot and workspace checks pass. Caps finds
