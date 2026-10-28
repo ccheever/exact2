@@ -430,10 +430,12 @@ component Harmony
     draft = ""
     replyTo = ""
     sampledAt = performanceNow()
+    refresh world
   action afterEdit
     draft = ""
     editing = ""
     sampledAt = performanceNow()
+    refresh world
   // After a message write the view showed predicted, the read that delivers it:
   // asked again even when the clock has not moved since the last read.
   action resync
