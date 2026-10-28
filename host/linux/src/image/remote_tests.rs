@@ -954,6 +954,16 @@ fn an_errors_links_lose_their_queries() {
     assert_eq!(without_queries("HTTP 404"), "HTTP 404");
     assert_eq!(without_queries("why? because"), "why? because");
     assert_eq!(
+        without_queries("`https://h/a.svg?x=)&hm=secret`: x"),
+        "`https://h/a.svg`: x"
+    );
+    let long = format!("<{}?{}>", "a".repeat(200_000), "b".repeat(200_000));
+    assert_eq!(
+        without_queries(&long).len(),
+        200_002,
+        "linear, and the query gone"
+    );
+    assert_eq!(
         without_queries("@import url( a.css?hm=secret);"),
         "@import url( a.css);"
     );

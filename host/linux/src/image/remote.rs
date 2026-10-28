@@ -33,32 +33,48 @@ pub(crate) fn redacted(text: &str, _source: &str) -> String {
 /// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` and the log
 /// quote only the host and path. A `?` with a character after it that is not a
 /// space or a closing mark starts a query, wherever the link sits (in
-/// backticks, `url( … )`, a source with a space in it): it is dropped to the
-/// next space or closing mark (`)`, `"`, `'`, `` ` ``, `>`, `]`). A `#` does
-/// the same in a word with a `/`, a `:` or a `url(` (a colour, `#fff`, stays).
-/// A question (`why?`) is left be.
+/// backticks, `url( … )`, a source with a space in it). It is dropped up to the
+/// next space, or the next closing mark (`)`, `"`, `'`, `` ` ``, `>`, `]`)
+/// that ends the token (a space, the end, punctuation or another closing mark
+/// after it: a `)` inside a query does not end it). A `#` does the same in a
+/// word with a `/`, a `:` or a `url(` (a colour, `#fff`, stays). A question
+/// (`why?`) is left be. One pass, linear in `text`.
 pub(crate) fn without_queries(text: &str) -> String {
-    let closing = |c: char| c.is_whitespace() || ")\"'`>]".contains(c);
+    let closing = |c: char| ")\"'`>]".contains(c);
+    let after_close =
+        |c: Option<char>| c.is_none_or(|c| c.is_whitespace() || closing(c) || ",;:.".contains(c));
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
-    let mut word = String::new();
+    // Whether the word so far has a link's mark, and its last three characters (for `url(`).
+    let (mut linked, mut last) = (false, ['\0'; 3]);
     while let Some(c) = chars.next() {
-        let linked = word.contains(['/', ':']) || word.contains("url(");
-        let starts = match c {
-            '?' => chars.peek().is_some_and(|&next| !closing(next)),
-            '#' => linked && chars.peek().is_some_and(|&next| !closing(next)),
-            _ => false,
-        };
-        if starts {
-            while chars.peek().is_some_and(|&next| !closing(next)) {
-                chars.next();
+        let next = chars.peek().copied();
+        let opens = next.is_some_and(|n| !n.is_whitespace() && !closing(n));
+        if opens && (c == '?' || (c == '#' && linked)) {
+            loop {
+                match chars.peek().copied() {
+                    None => break,
+                    Some(n) if n.is_whitespace() => break,
+                    Some(n) if closing(n) => {
+                        let mut ahead = chars.clone();
+                        ahead.next();
+                        if after_close(ahead.peek().copied()) {
+                            break;
+                        }
+                        chars.next();
+                    }
+                    Some(_) => {
+                        chars.next();
+                    }
+                }
             }
             continue;
         }
         if c.is_whitespace() {
-            word.clear();
+            (linked, last) = (false, ['\0'; 3]);
         } else {
-            word.push(c);
+            linked |= c == '/' || c == ':' || (c == '(' && last == ['u', 'r', 'l']);
+            last = [last[1], last[2], c];
         }
         out.push(c);
     }

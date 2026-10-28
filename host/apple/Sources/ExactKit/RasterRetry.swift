@@ -72,11 +72,6 @@ enum RasterRetry {
         return formatter
     }()
 
-    /// `text` with every link in it cut at its query or fragment: in each word,
-    /// the first `?` or `#` after a `/` or `:` (a scheme, a path, a link wrapped
-    /// in `url(…)` or backticks) ends it. A CDN's links carry signatures
-    /// (Discord's `ex`, `is`, `hm`), and an image's `error` quotes only the host
-    /// and path (the Linux host's `remote::without_queries`).
     /// `text` about source `source` with no link's query (`withoutQueries`:
     /// the source, however it is quoted, is one of them).
     static func redacted(_ text: String, source: String) -> String { withoutQueries(text) }
@@ -84,23 +79,34 @@ enum RasterRetry {
     /// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` quotes
     /// only the host and path. A `?` with a character after it that is not a
     /// space or a closing mark starts a query wherever the link sits, dropped
-    /// to the next space or closing mark; a `#` does the same in a word with a
-    /// `/`, a `:` or a `url(`. A question (`why?`) is left be (the Linux
-    /// host's `remote::without_queries`).
+    /// up to the next space, or the next closing mark that ends the token (a
+    /// space, the end, punctuation or another closing mark after it); a `#`
+    /// does the same in a word with a `/`, a `:` or a `url(`. A question
+    /// (`why?`) is left be. One pass (the Linux host's `remote::without_queries`).
     static func withoutQueries(_ text: String) -> String {
-        let closing: (Character) -> Bool = { $0.isWhitespace || ")\"'`>]".contains($0) }
-        var out = "", word = ""
-        var characters = Array(text)[...]
-        while let c = characters.popFirst() {
-            let linked = word.contains("/") || word.contains(":") || word.contains("url(")
-            let next = characters.first
-            let starts = (c == "?" || (c == "#" && linked)) && next.map { !closing($0) } == true
-            if starts {
-                while let n = characters.first, !closing(n) { characters.removeFirst() }
+        let closing: (Character) -> Bool = { ")\"'`>]".contains($0) }
+        let afterClose: (Character?) -> Bool = { c in c.map { $0.isWhitespace || closing($0) || ",;:.".contains($0) } ?? true }
+        let characters = Array(text)
+        var out = "", i = 0, linked = false, last: [Character] = ["\0", "\0", "\0"]
+        while i < characters.count {
+            let c = characters[i]
+            let next: Character? = i + 1 < characters.count ? characters[i + 1] : nil
+            let opens = next.map { !$0.isWhitespace && !closing($0) } ?? false
+            if opens && (c == "?" || (c == "#" && linked)) {
+                i += 1
+                while i < characters.count {
+                    let n = characters[i]
+                    if n.isWhitespace { break }
+                    if closing(n), afterClose(i + 1 < characters.count ? characters[i + 1] : nil) { break }
+                    i += 1
+                }
                 continue
             }
-            if c.isWhitespace { word = "" } else { word.append(c) }
-            out.append(c)
+            if c.isWhitespace { linked = false; last = ["\0", "\0", "\0"] } else {
+                linked = linked || c == "/" || c == ":" || (c == "(" && last == ["u", "r", "l"])
+                last = [last[1], last[2], c]
+            }
+            out.append(c); i += 1
         }
         return out
     }
