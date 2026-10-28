@@ -106,7 +106,7 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
     switchOff: edge(input, text), thumb: canvas, // The reference blurs what is behind a glass surface; the native top layer has no backdrop
     // filter, so the glass mix is composited over the canvas it would mostly show.
     popover: mix(stock ? (dark ? '#111111' : '#ffffff') : r.surfaceOverlay, 0.18 + 0.82 * glass / 100, canvas),
-    popoverBorder: dark ? '#ffffff1a' : alpha(text, 0.1), highlight: alpha(text, dark ? 0.06 : 0.08), kbd: dark ? (stock ? '#0a0a0a' : r.sidebar) : sidebar,
+    popoverBorder: dark ? '#ffffff1a' : alpha(text, 0.1), highlight: alpha(text, dark ? 0.06 : 0.08), kbd: alpha(ink(text, canvas), 0.07), // ui/kbd.tsx bg-foreground/[0.07]
     output: stock ? (dark ? '#ffffff08' : '#fafafa') : r.muted, line: '#7f7f7f40',
     rowHover: stock ? (dark ? '#ffffff0a' : '#fcfcfc') : mix(r.sidebarRowActive, 0.5, sidebar), sectionMuted: alpha(ink(sidebarMuted, sidebar), 0.75),
     tileActive: alpha(stock ? (dark ? '#ffffff0a' : '#f4f4f5') : r.accentSurface, 0.3),

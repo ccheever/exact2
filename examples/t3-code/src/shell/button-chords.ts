@@ -1,9 +1,11 @@
 // Chords the window's buttons must not declare in some contexts.
 //
 // AppSidebarLayout.tsx (MIT, see LICENSE-T3): the rich-text composer claims
-// Mod+B for bold (isRichTextBoldShortcut: Meta or Control with B, no Alt or
-// Shift), so while it holds the focus the sidebar toggle stays out of the way;
-// the plain-text composer and every other place keep the toggle.
+// Mod+B to bold its selected text (isRichTextBoldShortcut: Meta or Control
+// with B, no Alt or Shift, and a selection that is not collapsed), so while it
+// holds the focus with text selected the sidebar toggle stays out of the way;
+// with nothing selected, in the plain-text composer and everywhere else the
+// chord toggles the sidebar.
 import { obj, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { panelState } from '../panel/panel-surfaces';
@@ -20,9 +22,9 @@ export function isBoldChord(chord: string): boolean {
   return key.toLowerCase() === 'b' && parts.length === 1 && (parts[0] === 'Meta' || parts[0] === 'Control');
 }
 
-/** The sidebar toggle's chords without the bold chord while the rich-text composer is focused. */
-export function claimBoldChord<T extends { keySidebar: string }>(keys: T, composerFocus: boolean, richText: boolean): T {
-  if (!composerFocus || !richText || !keys.keySidebar) return keys;
+/** The sidebar toggle's chords without the bold chord while the rich-text composer is focused with text selected. */
+export function claimBoldChord<T extends { keySidebar: string }>(keys: T, composerFocus: boolean, richText: boolean, selected: boolean): T {
+  if (!composerFocus || !richText || !selected || !keys.keySidebar) return keys;
   return { ...keys, keySidebar: keys.keySidebar.split(' ').filter(chord => chord && !isBoldChord(chord)).join(' ') };
 }
 

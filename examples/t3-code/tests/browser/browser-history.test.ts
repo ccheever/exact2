@@ -1,4 +1,5 @@
-// Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): apps/web/src/browserHistoryStore.test.ts (33 tests),
+// Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): apps/web/src/browserHistoryStore.test.ts (33 tests; 7c3b3b3605ef
+// dropped the pending titles, which visits now fill: browser-history-record.test.ts),
 // under their own names. Substitutions: the zustand store is one `BrowserHistoryStore`; `readPreparedConnection`'s
 // environment host is `recordVisitForThread`'s last argument; "persist writes" are the store's `writes` count (the
 // saved half, as `partialize` keeps it); `mergeBrowserHistoryState` takes only the saved value (the store's actions
@@ -135,37 +136,37 @@ describe('useBrowserHistoryStore', () => {
     store.recordVisitForThread(threadRef, 'ftp://a.test/', 2);
     expect(store.state.byProjectKey).toEqual({});
   });
-  it('sets titles update-only via the thread helper', () => {
+  it('sets titles update-only', () => {
     store.registerThreadProject(threadRef, 'proj-a');
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/', 'Should not create');
+    store.setTitleForUrl('proj-a', 'http://a.test/', 'Should not create');
     expect(store.state.byProjectKey).toEqual({});
     store.recordVisitForThread(threadRef, 'http://a.test/#/settings', 1);
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/#/settings', 'My App');
+    store.setTitleForUrl('proj-a', 'http://a.test/#/settings', 'My App');
     expect(store.state.byProjectKey['proj-a']?.[0]?.title).toBe('My App');
   });
   it('does not persist when the title is already set', () => {
     store.registerThreadProject(threadRef, 'proj-a');
     store.recordVisitForThread(threadRef, 'http://a.test/', 1);
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/', 'My App');
+    store.setTitleForUrl('proj-a', 'http://a.test/', 'My App');
     const writes = store.writes, byProjectKey = store.state.byProjectKey;
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/', 'My App');
+    store.setTitleForUrl('proj-a', 'http://a.test/', 'My App');
     expect(store.state.byProjectKey).toBe(byProjectKey);
     expect(store.writes).toBe(writes);
   });
   it('sets a title against a settled url that differs from the stored one only by a trailing slash', () => {
     store.registerThreadProject(threadRef, 'proj-a');
     store.recordVisitForThread(threadRef, 'http://a.test/community', 1);
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/community/', 'Community');
+    store.setTitleForUrl('proj-a', 'http://a.test/community/', 'Community');
     expect(store.state.byProjectKey['proj-a']?.[0]).toMatchObject({ url: 'http://a.test/community', title: 'Community' });
     store.state = { ...store.state, byProjectKey: {} };
     store.recordVisitForThread(threadRef, 'http://a.test/community/', 1);
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/community', 'Community');
+    store.setTitleForUrl('proj-a', 'http://a.test/community', 'Community');
     expect(store.state.byProjectKey['proj-a']?.[0]).toMatchObject({ url: 'http://a.test/community/', title: 'Community' });
   });
   it('matches a requested localhost URL to the resolved environment host', () => {
     store.registerThreadProject(threadRef, 'proj-a');
     store.recordVisitForThread(threadRef, 'http://localhost:5173/app', 1);
-    store.setTitleForThreadUrl(threadRef, 'http://192.168.64.2:5173/app', 'Local App', '192.168.64.2');
+    store.setTitleForUrl('proj-a', 'http://192.168.64.2:5173/app', 'Local App', '192.168.64.2');
     expect(store.state.byProjectKey['proj-a']?.[0]?.title).toBe('Local App');
   });
   it('deduplicates loopback aliases and the resolved environment host', () => {
@@ -183,14 +184,14 @@ describe('useBrowserHistoryStore', () => {
   it('does not match a genuinely different path via the trailing-slash comparison', () => {
     store.registerThreadProject(threadRef, 'proj-a');
     store.recordVisitForThread(threadRef, 'http://a.test/community', 1);
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/community/foo', 'Foo');
+    store.setTitleForUrl('proj-a', 'http://a.test/community/foo', 'Foo');
     expect(store.state.byProjectKey['proj-a']?.[0]?.title).toBeUndefined();
   });
   it('updates only the most recent entry when several share a trailing-slash comparison key', () => {
     store.registerThreadProject(threadRef, 'proj-a');
     store.recordVisitForThread(threadRef, 'http://a.test/community/', 1);
     store.recordVisitForThread(threadRef, 'http://a.test/community', 2);
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/community/', 'Community');
+    store.setTitleForUrl('proj-a', 'http://a.test/community/', 'Community');
     const entries = store.state.byProjectKey['proj-a'];
     expect(entries?.[0]).toMatchObject({ url: 'http://a.test/community', title: 'Community' });
     expect(entries?.[1]).toMatchObject({ url: 'http://a.test/community/' });
@@ -200,7 +201,7 @@ describe('useBrowserHistoryStore', () => {
     store.registerThreadProject(threadRef, 'proj-a');
     store.recordVisitForThread(threadRef, 'http://a.test/', 1);
     const oversized = 'y'.repeat(BROWSER_HISTORY_MAX_TITLE_LENGTH + 50);
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/', oversized);
+    store.setTitleForUrl('proj-a', 'http://a.test/', oversized);
     const title = store.state.byProjectKey['proj-a']?.[0]?.title;
     expect(title).toHaveLength(BROWSER_HISTORY_MAX_TITLE_LENGTH);
     expect(title).toBe(oversized.slice(0, BROWSER_HISTORY_MAX_TITLE_LENGTH));
@@ -209,7 +210,7 @@ describe('useBrowserHistoryStore', () => {
     store.registerThreadProject(threadRef, 'proj-a');
     store.recordVisitForThread(threadRef, 'http://a.test/', 1);
     store.recordVisitForThread(threadRef, 'http://b.test/', 2);
-    store.removeUrlForThread(threadRef, 'http://a.test/');
+    store.removeUrl('proj-a', 'http://a.test/');
     expect(store.state.byProjectKey['proj-a']?.map(e => e.url)).toEqual(['http://b.test/']);
   });
 });
@@ -248,22 +249,15 @@ describe('pendingVisitsByThreadKey', () => {
   });
 });
 
-describe('pendingTitlesByThreadKey', () => {
+describe('registerThreadProject', () => {
   beforeEach(() => { store = new BrowserHistoryStore(); });
 
-  it('buffers a title set before registration and applies it once the matching visit drains', () => {
+  it('returns the URLs of the queued visits it landed, which the caller then titles', () => {
     store.recordVisitForThread(threadRef, 'http://a.test/', 1);
-    store.setTitleForThreadUrl(threadRef, 'http://a.test/', 'My App');
-    expect(store.state.byProjectKey).toEqual({});
-    store.registerThreadProject(threadRef, 'proj-a');
-    expect(store.state.byProjectKey['proj-a']?.[0]).toMatchObject({ url: 'http://a.test/', title: 'My App' });
-    expect(store.state.pendingTitlesByThreadKey).toEqual({});
-  });
-  it('preserves environment host matching while a title is pending', () => {
-    store.recordVisitForThread(threadRef, 'http://localhost:5173/app', 1);
-    store.setTitleForThreadUrl(threadRef, 'http://192.168.64.2:5173/app', 'Local App', '192.168.64.2');
-    store.registerThreadProject(threadRef, 'proj-a');
-    expect(store.state.byProjectKey['proj-a']?.[0]?.title).toBe('Local App');
+    store.recordVisitForThread(threadRef, 'http://b.test/', 2);
+    expect(store.registerThreadProject(threadRef, 'proj-a')).toEqual(['http://a.test/', 'http://b.test/']);
+    expect(store.registerThreadProject(threadRef, 'proj-a')).toEqual([]);
+    expect(store.registeredProject(threadRef)).toBe('proj-a');
   });
 });
 
@@ -277,7 +271,6 @@ describe('mergeBrowserHistoryState', () => {
     expect(typeof new BrowserHistoryStore(merged).recordVisit).toBe('function');
     expect(merged.projectKeyByThreadKey).toEqual({ good: 'b' });
     expect(merged.pendingVisitsByThreadKey).toEqual({});
-    expect(merged.pendingTitlesByThreadKey).toEqual({});
   });
 });
 
@@ -291,7 +284,8 @@ describe('the saved preferences (clone)', () => {
     expect(saved.browserHistory).toEqual({ byProjectKey: { 'proj-a': [{ url: 'http://localhost:5173/', lastVisitedAt: 7 }] }, projectKeyByThreadKey: { [`env-1:thread-1`]: 'proj-a' } });
     const next: Record<string, unknown> = {};
     adoptBrowserHistory(next, { browserHistory: { ...(saved.browserHistory as object), byProjectKey: { ...(saved.browserHistory as { byProjectKey: object }).byProjectKey, junk: 'x' } } });
-    expect(browserHistory(next).threadRecentHistory(threadRef, 8)).toEqual([{ url: 'http://localhost:5173/', lastVisitedAt: 7 }]);
+    const restored = browserHistory(next);
+    expect(restored.projectHistory(restored.registeredProject(threadRef), 8)).toEqual([{ url: 'http://localhost:5173/', lastVisitedAt: 7 }]);
   });
   it('labels a recent visit as the reference does', () => {
     expect(formatRelativeTimeLabel(1_000, 30_000)).toBe('just now');
