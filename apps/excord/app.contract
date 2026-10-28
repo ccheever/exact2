@@ -1060,6 +1060,11 @@ component Excord
     openChannel(id)
   action switcherClosed
     switching = false
+  // Escape pressed in a dialog is the dialog's: the channel's (`channelKey`) would otherwise take it and
+  // keep the dialog open. `tabindex=-1` on each dialog keeps its handler from making it a Tab stop.
+  action dialogKey(k: string)
+    if k == "Escape"
+      stopPropagation()
   action toggleReaction(id: string, emoji: string)
     send changed = react(open, id, emoji)
   action retry(key: string)
@@ -1222,11 +1227,11 @@ component Excord
                 button press=askSignOut destructive=true popovertarget="account-menu" popovertargetaction="hide" testId="menu-sign-out"
                   image "symbol:sign-out"
                   text "Sign Out"
-            dialog id="account-details" role="alertdialog" aria-label="Account"
+            dialog id="account-details" role="alertdialog" key=dialogKey tabindex=-1 aria-label="Account"
               text (gw.meName == "" ? "Connecting…" : gw.fixture ? `Sample account: ${gw.meName}` : `Signed in as ${gw.meName}`) testId="account-identity"
               button commandfor="account-details" command="close" testId="account-close"
                 text "Close"
-            dialog id="confirm-sign-out" role="alertdialog" aria-label="Sign Out?"
+            dialog id="confirm-sign-out" role="alertdialog" key=dialogKey tabindex=-1 aria-label="Sign Out?"
               text "Excord forgets your token on this device."
               button press=signOutNow destructive=true commandfor="confirm-sign-out" command="close" testId="sign-out-confirm"
                 text "Sign Out"
@@ -1328,8 +1333,8 @@ component Excord
                         else
                           text "No messages yet." testId="history-empty" color="-exact-secondary-label"
                   MessageMenu(canTranslate=canTranslate, mine=aimedMine, forwarded=aimedForward, reply=replyAimed, react=reactAimed, pickReaction=openPicker, copy=copyAimed, translate=translateAimed, copyLink=copyLink, edit=editAimed, remove=askDelete)
-                  PickerFrames(picking=picking, forDraft=pickingForDraft, popover=pickerPopover, touch=(viewport.pointer == "coarse"), query=pickerQuery, choices=choices, search=searchPicker, pick=emojiPicked, closed=pickerClosed, toggled=pickerToggled)
-                  DeleteConfirm(confirm=deleteAimed)
+                  PickerFrames(picking=picking, forDraft=pickingForDraft, popover=pickerPopover, touch=(viewport.pointer == "coarse"), query=pickerQuery, choices=choices, search=searchPicker, pick=emojiPicked, closed=pickerClosed, toggled=pickerToggled, keys=dialogKey)
+                  DeleteConfirm(confirm=deleteAimed, keys=dialogKey)
                   if chan.typing != ""
                     row position="absolute" left=16 right=16 bottom=2 gap=6 align-items="center"
                       row gap=3 aria-hidden=true
@@ -1417,17 +1422,17 @@ component Excord
                   MemberList(rows=members, open=showProfile)
               if chan.ageRestricted and ageGate != "confirmed"
                 AgeGate(age=age, asking=pending(age), confirm=confirmAge, leave=back)
-      dialog id="members" aria-label="Members" close=membersClosed testId="members-sheet"
+      dialog id="members" aria-label="Members" close=membersClosed key=dialogKey tabindex=-1 testId="members-sheet"
         scroll max-height="70vh" width="20rem" max-width="100%"
           if membersSheet
             MemberList(rows=members, open=memberCard)
-      dialog id="profile" aria-label=(profile.name != "" ? profile.name : "Profile") close=profileClosed testId="profile"
+      dialog id="profile" aria-label=(profile.name != "" ? profile.name : "Profile") close=profileClosed key=dialogKey tabindex=-1 testId="profile"
         column gap=10 padding=20 width="20rem" max-width="100%" align-items="flex-start"
           ProfileCard(profile=profile)
           button commandfor="profile" command="close" align-self="stretch" testId="profile-close"
             text "Done"
       // The quick switcher is the window's, so ⌘K shows it over whichever screen is on top.
-      dialog id="switcher" aria-label="Find or Start a Conversation" close=switcherClosed testId="switcher"
+      dialog id="switcher" aria-label="Find or Start a Conversation" close=switcherClosed key=dialogKey tabindex=-1 testId="switcher"
         column gap=8 padding=12 width="28rem" max-width="100%"
           input type="search" value=switchQuery input=searchSwitcher key=switcherKey placeholder="Where would you like to go?" aria-label="Where would you like to go?" autofocus=true testId="switcher-search"
           scroll max-height="20rem"
@@ -1445,7 +1450,7 @@ component Excord
                       Badge(label=`${t.mentions}`, tint=some("-exact-system-red"))
           if targets.length == 0
             text (switchQuery == "" ? "Type a channel's or a person's name." : "Nothing matches.") font="-exact-footnote" color="-exact-secondary-label" padding="8px 10px"
-      dialog id="delete-failed" role="alertdialog" aria-label="Couldn’t Delete Message"
+      dialog id="delete-failed" role="alertdialog" key=dialogKey tabindex=-1 aria-label="Couldn’t Delete Message"
         text deleteError testId="delete-error"
         button commandfor="delete-failed" command="close" testId="delete-error-ok"
           text "OK"

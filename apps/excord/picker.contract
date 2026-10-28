@@ -27,8 +27,9 @@ component EmojiPicker
 component DeleteConfirm
   props
     confirm: action
+    keys: action
   view
-    dialog id="confirm-delete" role="alertdialog" aria-label="Delete Message"
+    dialog id="confirm-delete" role="alertdialog" key=keys tabindex=-1 aria-label="Delete Message"
       text "Are you sure you want to delete this message?"
       button press=confirm destructive=true commandfor="confirm-delete" command="close" testId="delete-confirm"
         text "Delete"
@@ -50,8 +51,9 @@ component PickerFrames
     pick: action
     closed: action
     toggled: action
+    keys: action
   view
-    dialog id="react-picker" aria-label=(forDraft ? "Emoji" : "Add Reaction") close=closed testId="react-picker"
+    dialog id="react-picker" aria-label=(forDraft ? "Emoji" : "Add Reaction") close=closed key=keys tabindex=-1 testId="react-picker"
       if picking and not popover
         EmojiPicker(query=query, choices=choices, search=search, pick=pick)
     if not touch

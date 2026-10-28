@@ -1327,6 +1327,30 @@ test "the member list opens from the channel, and a member opens their card"
   expect text "profile-handle" == "@ada"
   expect state profile.roles.0.name == "Maintainers"
 
+// The channel's Escape (cancel a reply, jump to the present) is not a dialog's: on the web it kept the
+// sheet open.
+test "Escape closes the member sheet over a channel, and then a member's card"
+  clock settle
+  clock until state gateway.state == "ready" within 5000
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "members-toggle"
+  clock settle
+  back
+  clock settle
+  expect state membersSheet == false
+  tap "members-toggle"
+  clock settle
+  tap "member-1191168914227200001"
+  clock data
+  clock settle
+  expect text "profile-handle" == "@ada"
+  back
+  clock settle
+  expect state profileUser == ""
+  expect state open == "1191168914235588608"
+
 test "a channel @everyone may not see is marked private"
   clock +500 real
   clock data
