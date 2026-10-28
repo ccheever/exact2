@@ -124,9 +124,10 @@ or use the embedded server ("This machine"). Configure and authenticate at least
 T3 Code. This client implements orchestration protocol 2 and requires the server's
 `serverResolvedCommandContext` capability for writes. A server on another protocol is listed as
 outdated or newer; one that can update itself offers **Update** in Settings › Connections. A
-connected server older than this client shows "Server update available" above the composer (and
-a warning in the thread details card); its Update streams the update's progress, waits for the
-server to come back on the new version and shares that state with Settings › Connections
+connected server older than this client shows a warning in the thread details card, and the
+sidebar's update pill offers its update; a notice above the composer appears only while the update
+runs or after it failed. Update streams the update's progress, waits for the server to come back
+on the new version and shares that state with Settings › Connections
 (`server-update.ts`). The sidebar's Update button combines one-click provider and remote server
 updates in one confirmation, with per-machine progress and Retry. Provider installers finish
 before servers restart; a slow server keeps its own progress without holding up the other
