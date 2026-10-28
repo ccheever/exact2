@@ -416,6 +416,13 @@ pub(crate) fn parsed(
         })
         .chain(presence(app_dir, &sources))
         .chain(local_network(&sources, production))
+        // An auth.session line that is not an origin admits no sign-in (LLP 1146 D4), whichever source declares it.
+        .chain(sources.iter().filter_map(|(spec, source)| {
+            Some(format!(
+                "{source}: {}",
+                exact_runner::auth::session_grant_refusal((*spec)?)?
+            ))
+        }))
         .collect();
     if errors.is_empty() {
         Ok(())
@@ -1158,6 +1165,28 @@ mod tests {
         let mac = derive_for("macos");
         assert_eq!(mac["entitlements"], json!([]));
         assert!(mac.get("entitlementValues").is_none());
+    }
+
+    #[test]
+    fn an_auth_session_line_that_is_not_an_origin_is_refused_from_either_source() {
+        let dir = app(&[]);
+        let rust = parsed(
+            &dir.0,
+            None,
+            Some("auth.session https://idp.example/tenant"),
+            false,
+        )
+        .unwrap_err();
+        assert!(rust.starts_with("the Rust source: grants: `auth.session https://idp.example/tenant` is not an origin"), "{rust}");
+        let bare = parsed(&dir.0, Some("auth.session"), None, false).unwrap_err();
+        assert!(bare.contains("`auth.session` names no origin"), "{bare}");
+        parsed(
+            &dir.0,
+            Some("auth.session https://idp.example"),
+            Some("auth.session https://login.example"),
+            false,
+        )
+        .unwrap();
     }
 
     #[test]

@@ -69,6 +69,25 @@ impl DataSource for Module {
         self.background_round(outcome)
     }
 
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        let _ = store;
+        self.keep_sent_now(let_go, refused)
+    }
+
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        self.module_landed_now(store, token, outcome)
+    }
+
     fn background_state(&self) -> Option<exact_runner::BackgroundState> {
         self.storage.as_ref()?;
         Some(self.background.state.clone())

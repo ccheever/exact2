@@ -504,7 +504,7 @@ export function driveNotes(s, { host, storage, origins = [] }) {
       // request-shape refusals above and failing assertions below still get actionable notes.
       if (process.env.EXACT_AGENT_DEBUG) for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}`);
       const pending = (state?.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name);
-      if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so a drive that reads the app's data starts with "clock data"`);
+      if (early && pending.length) note('early', `${op} read the app with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply has surely landed only after a clock step, so a drive that reads the app's data starts with "clock data"`);
     } catch { /* advice only */ }
   };
 }
@@ -518,7 +518,8 @@ export async function serverRequest(base, st) {
   const url = whole ? st.path : `${base}${st.path}`, said = `request ${st.method} ${url}${st.as ? ` as ${st.as}` : ''}`;
   const headers = { ...(st.body != null ? { 'content-type': 'application/json' } : {}), ...(st.as ? { authorization: `Bearer ${st.as}` } : {}) };
   let res;
-  try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
+  // A bound only for a hanging server (docs/testing.md): a request that waits for the app, as an OAuth fixture's `await`, may take a loaded machine a while.
+  try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(60_000) }); }
   catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
   const text = (await res.text().catch(() => '')).trim();
   const answered = `the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`;
@@ -642,7 +643,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const failures = [], expectedRefusals = [];
     const refusalCursors = new Map();
     let end = null;
-    const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
+    // The app's server is the auth fixture: a sign-in held for its origin shows its whole URL, for `authorize` (LLP 1146 D4).
+    const fixture = server ? { EXACT_AUTH_FIXTURE: new URL(server).origin } : {};
+    const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), ...fixture, EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
     const facts = { size, seed, locale, formatLocale, timeZone, epoch, failFetch };
@@ -730,15 +733,16 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; resetLogs(s); s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env: { ...(env ?? {}), ...fixture }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
       for (const [name, value] of Object.entries(media)) {
         const r = await s.prefer({ [name]: value });
         if (r?.error) throw new Error(r.error);
       }
     };
-    // The clock stands still between steps: what an input started (a reply,
-    // a mutation's `then`, a timer, a transition) lands at a clock step. A
-    // failed expect after an input with none says so (kanban F19).
+    // The clock stands still between steps: a reply may land between them
+    // (host I/O, LLP 1012 §2), but what an input started (a reply, a
+    // mutation's `then`, a timer, a transition) has surely landed only after a
+    // clock step. A failed expect after an input with none says so (kanban F19).
     let input = null;
     // What the test typed since its last other input: fields it left holding a draft (verify's reload does not compare them); and all it typed.
     const typed = new Set(), touched = new Set();
@@ -799,7 +803,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       };
       // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
       // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
-      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize', 'back']);
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'authorize', 'clipboard', 'resize', 'back']);
       const settleFired = async () => {
         if (!armed.size) return;
         const faults = (await s.state()).faults ?? [];
@@ -864,6 +868,23 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
             catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
             input = st.line; break;
+          }
+          // The held sign-in, completed against the app's own server (LLP 1146 D4): its authorization URL is
+          // requested with redirects not followed, and the redirect's Location answers the hold.
+          case 'authorize': {
+            const held = ((await s.state())?.pending ?? []).filter((p) => p.device?.capability === 'auth');
+            if (!held.length) throw new Error("authorize: no sign-in is held. Tap the button whose action calls openAuthSession first; if a step did, the sign-in failed before it opened, and the app's error text or `logs` says why");
+            if (held.length > 1) throw new Error(`authorize: ${held.length} sign-ins are held (${held.map((p) => `@${p.ticket}`).join(', ')}); authorize completes one, so start only one before it`);
+            const [{ ticket, device: { args } }] = held;
+            if (st.cancel) { delivered(await s.tap(`@${ticket}`, { choice: 'cancel' })); input = st.line; break; }
+            if (!args.url && server && args.origin === new URL(server).origin) throw new Error(`authorize: the held sign-in goes to the app's server, ${args.origin}, but the host shows its URL redacted: it was not told that server is the drive's auth fixture (EXACT_AUTH_FIXTURE natively, ?authFixture= on the web), which the driver passes to every host it launches; a carrier that does not is the driver's to fix`);
+            if (!args.url) throw new Error(`authorize: the held sign-in goes to ${args.origin}, not the app's server${server ? ` (${new URL(server).origin})` : ''}; authorize completes only a sign-in against the server test starts (docs/recipes/oauth.md)`);
+            let answer;
+            try { answer = await fetch(args.url, { redirect: 'manual', signal: AbortSignal.timeout(60_000) }); }
+            catch (e) { throw new Error(`authorize: ${args.origin}${args.path} did not answer: ${e.message}`); }
+            const location = answer.headers.get('location');
+            if (![302, 303].includes(answer.status) || !location) throw new Error(`authorize: ${args.origin}${args.path} answered ${answer.status}${location ? '' : ' with no Location'}, not a redirect to the app's callback: ${(await answer.text()).slice(0, 200)}`);
+            delivered(await s.type(`@${ticket}`, location)); input = st.line; break;
           }
           case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
           case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;

@@ -134,6 +134,22 @@ macro_rules! configured {
             fn background_state(&self) -> Option<$crate::exact_runner::BackgroundState> {
                 $crate::exact_runner::DataSource::background_state(&self.0)
             }
+            fn keep_sent(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+                let_go: &[$crate::exact_runner::InFlight<'_>],
+                refused: bool,
+            ) -> Vec<Option<u64>> {
+                $crate::exact_runner::DataSource::keep_sent(&mut self.0, store, let_go, refused)
+            }
+            fn module_landed(
+                &mut self,
+                store: &mut $crate::exact_runner::Store,
+                token: u64,
+                outcome: $crate::exact_runner::Outcome,
+            ) -> Result<(), $crate::exact_runner::DataError> {
+                $crate::exact_runner::DataSource::module_landed(&mut self.0, store, token, outcome)
+            }
             fn take_logs(&mut self) -> Vec<String> {
                 $crate::exact_runner::DataSource::take_logs(&mut self.0)
             }

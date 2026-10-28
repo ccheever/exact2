@@ -141,7 +141,7 @@ pub(super) fn waits_for(topic: &str, ticket: u64, name: &str) -> String {
 /// That request's reply landed (or failed): the resource is asked again.
 pub(super) fn asked_again(ticket: u64, name: &str) -> String {
     text!(
-        "{}: asked again, a watched topic changed while request {} was in flight",
+        "{}: asked again, a watched topic changed or module work wrote the store while request {} was in flight",
         name,
         ticket
     )

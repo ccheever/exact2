@@ -498,7 +498,8 @@ impl<D: DataSource> Runner<D> {
                                 && !exact_plan::runner_owned_source(self.plan.str(row.source))
                                 && !forced
                                 && (!self.store_readers[i]
-                                    || s.store_revision == self.store.revision())
+                                    || s.store_revision == self.store.revision()
+                                    || self.asks_again_after_reply(i))
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
                                 && (!s.placeholder || pending_res[i] || awaiting[i]))
@@ -686,6 +687,12 @@ impl<D: DataSource> Runner<D> {
                                         if !self.watching[i].contains(&topic) {
                                             self.watching[i].push(topic);
                                         }
+                                    }
+                                    // A failed ask that read the store makes a store
+                                    // reader too, so a reply's write asks it again
+                                    // (LLP 1146 §2.3).
+                                    if self.store.reads() > reads_before {
+                                        self.store_readers[i] = true;
                                     }
                                     resources[i] = Some(shown);
                                     settled_res[i] = true;
@@ -925,6 +932,7 @@ impl<D: DataSource> Runner<D> {
             // does not refresh itself.
             let stale_store_reader = states.iter().enumerate().any(|(i, state)| {
                 self.store_readers[i]
+                    && !self.asks_again_after_reply(i)
                     && state
                         .as_ref()
                         .is_none_or(|state| state.store_revision != revision)
