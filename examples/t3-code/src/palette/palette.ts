@@ -20,8 +20,8 @@ import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from '../pages/pages-home';
 import { pickerProjects } from './palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from '../sidebar/thread-reference';
-import { addProjectEnvironments, projectLocation } from './palette-environments';
-import { fleet } from '../connections/settings-b-fleet';
+import { addProjectEnvironments, newProjectEnvironments, projectLocation } from './palette-environments';
+import { fleet, fleetThreads, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { sourceControlHosts } from '../shared/source-control-hosts';
 import { textDirection } from '../shared/text-direction';
 import {
@@ -249,36 +249,40 @@ function severalEnvironments(client: T3Client): boolean {
   return new Set([client.environmentId, ...fleet.catalogIds()].filter(Boolean)).size > 1;
 }
 /**
- * buildThreadActionItems: every visible thread (not archived, not a subagent), ranked by its search subject; the open
- * one is listed last in its group, as picking it does nothing. `query` is the root query a pull request badge shows
- * for (ThreadSearchPullRequestNumber).
+ * buildThreadActionItems over useThreadShells: every visible thread (not archived, not a subagent) of the focused
+ * environment and of each background one (fleetThreads, under `fleet:<environment>:<id>`), ranked by its search subject;
+ * the open one is listed last in its group, as picking it does nothing. `query` is the root query a pull request badge
+ * shows for (ThreadSearchPullRequestNumber).
  */
-export function threadItems(client: T3Client, now: number, query: string): Item[] {
-  const providers = arr(client.config.providers);
-  // ThreadCommandSubtitle's environmentLabel: these are the focused environment's threads.
-  const environmentLabel = projectLocation(client, client.environmentId).label;
-  const searchedLabel = severalEnvironments(client) ? environmentLabel : null;
-  return sortedThreads(client.shell.threads).filter(thread => obj(thread.lineage).relationshipToParent !== 'subagent').map(thread => {
-    const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
-    const projectTitle = str(project?.title);
+export function threadItems(client: T3Client, now: number, query: string, source: EnvironmentFleet = fleet): Item[] {
+  const searchedLabels = severalEnvironments(client);
+  const entries = new Map([...source.entries.values()].map(entry => [entry.environmentId, entry]));
+  return sortedThreads([...client.shell.threads, ...fleetThreads(source)]).filter(thread => obj(thread.lineage).relationshipToParent !== 'subagent').map(thread => {
+    const id = str(thread.id), ref = parseFleetThreadId(id), environmentId = ref?.environmentId ?? client.environmentId;
+    // ThreadCommandSubtitle's environmentLabel: the thread's own environment's.
+    const environmentLabel = projectLocation(client, environmentId, source).label;
+    const projectTitle = ref ? str(thread.fleetProjectTitle) : str(client.shell.projects.find(candidate => candidate.id === thread.projectId)?.title);
     const identity = projectIdentity(projectTitle);
+    const providers = arr((ref ? entries.get(environmentId)?.config : client.config)?.providers);
     const instance = providers.find(provider => provider.instanceId === obj(thread.modelSelection).instanceId);
     const stampIso = str(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);
-    const current = thread.id === client.threadId;
-    return { thread: threadSearchSubject(thread, projectTitle || null, searchedLabel, client.environmentId), terms: [str(thread.title)], ...(current ? { secondary: true } : {}),
-      row: row({ key: str(thread.id), op: 'thread', arg: str(thread.id), icon: 'message-square', title: str(thread.title, 'Untitled thread'), timestamp: relativeLabel(stampIso, now),
+    const current = !ref && id === client.threadId;
+    const subject = threadSearchSubject(ref ? { ...thread, id: ref.threadId } : thread, projectTitle || null, searchedLabels ? environmentLabel : null, environmentId);
+    return { thread: subject, terms: [str(thread.title)], ...(current ? { secondary: true } : {}),
+      row: row({ key: id, op: 'thread', arg: id, icon: 'message-square', title: str(thread.title, 'Untitled thread'), timestamp: relativeLabel(stampIso, now),
         project: projectTitle ? identity.projectMark : '', projectInk: identity.projectInk, projectSurface: identity.projectSurface, description: projectTitle, env: projectTitle ? environmentLabel : '',
-        terminalCount: terminalProcessCount(client, str(thread.id)), ...palettePullRequest(client, thread, query), branch: str(thread.branch), provider: str(instance?.driver), current }) };
+        terminalCount: terminalProcessCount(client, id), ...palettePullRequest(client, thread, query), branch: str(thread.branch), provider: str(instance?.driver), current }) };
   });
 }
 /**
  * The threads whose messages match and whose title, branch or pull request do not, best first (rankMessageMatches,
- * PALETTE_MESSAGE_LIMIT): the server's matches, one per thread, as their threads' rows with the snippet in place of the
- * project line. `query` is the one the matches were found for.
+ * PALETTE_MESSAGE_LIMIT): the servers' matches, one per thread keyed by its row's id, every environment's ranked
+ * together, as their threads' rows with the snippet in place of the project line. `query` is the one the matches were
+ * found for.
  */
 export function messageItems(threads: Item[], matches: Map<string, Obj>, query: string, now: number): Item[] {
   const byId = new Map(threads.map(item => [item.row.arg, item]));
-  const candidates = [...matches.values()].map(match => ({ match, threadId: str(match.threadId), messageCreatedAt: str(match.messageCreatedAt) || null,
+  const candidates = [...matches].map(([threadId, match]) => ({ match, threadId, messageCreatedAt: str(match.messageCreatedAt) || null,
     quality: typeof match.quality === 'number' ? match.quality : undefined, hits: typeof match.hits === 'number' ? num(match.hits) : undefined }));
   return rankMessageMatches(candidates, candidate => byId.get(candidate.threadId)?.thread, foldSearchQuery(query), now, { withoutTitleMatches: true }).slice(0, PALETTE_MESSAGE_LIMIT).flatMap(candidate => {
     const item = byId.get(candidate.threadId);
@@ -346,7 +350,8 @@ export function rootActions(client: T3Client): Item[] {
   }
   action('open-file-picker', ['go to file', 'open file', 'file picker', 'find file', 'quick open'], { op: 'mode', arg: 'files', icon: 'file-search', title: 'Go to file', shortcut: commandShortcut(client, 'filePicker.toggle') });
   action('search-project-contents', ['search project', 'find in files', 'grep', 'content search', 'text search'], { op: 'mode', arg: 'content', icon: 'text-search', title: 'Search project contents', shortcut: commandShortcut(client, 'projectSearch.toggle') });
-  if (str(client.config.newProjectsRoot)) action('new-project', ['new project', 'create project', 'empty', 'repository', 'repo', 'git init'], { op: 'page', arg: 'new-project', icon: 'folder-git', title: 'New project' });
+  // newProjectEnvironmentOptions: any connected environment that can make a new project, which openNewProjectFlow starts on.
+  if (newProjectEnvironments(client).length) action('new-project', ['new project', 'create project', 'empty', 'repository', 'repo', 'git init'], { op: 'page', arg: 'new-project', icon: 'folder-git', title: 'New project' });
   // Each host's picker words ("Forgejo / Gitea"). openAddProjectFlow: with no connected environment, Settings › Connections.
   const hostWords = sourceControlHosts.flatMap(host => host.pickerLabel.toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean));
   action('add-project', ['add project', 'folder', 'directory', 'browse', 'clone', 'remote', 'repository', 'repo', 'git', ...hostWords, 'url', 'environment'],
@@ -434,9 +439,9 @@ export function settingsItems(client: T3Client, query: string): Item[] {
 }
 
 /**
- * `matches` are the server's message matches, one per thread in its order, found for `matchQuery`; `linkedThreads`, a
- * pull request's linked threads, take the thread results' place while the query is its URL. `searching` says message
- * results are still on their way.
+ * `matches` are the servers' message matches, one per thread keyed by its row's id, found for `matchQuery`;
+ * `linkedThreads`, a pull request's linked threads, take the thread results' place while the query is its URL.
+ * `searching` says message results are still on their way.
  */
 export type CommandContext = { page: string; query: string; now: number; scheme: string; matches: Map<string, Obj>; matchQuery: string; searching: boolean; linkedThreads?: Item[] | null };
 /** A submenu's page: New thread in..., Change theme, Change appearance. */

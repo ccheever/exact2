@@ -9,11 +9,19 @@ import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { parseWhen } from '../../src/settings/keybinding-view';
 import { keyboardDispatch, type DispatchContext } from '../../src/shell/keyboard-dispatch';
 import { newThreadInItems, rootActions } from '../../src/palette/palette';
+import { paletteCommand } from '../../src/palette/palette-commands';
+import { announcements } from '../../src/shell/announce';
+import { fleet } from '../../src/connections/settings-b-fleet';
+import type { Files, Native } from '../../src/client/protocol';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
 import { primaryAt, primaryOff, resetPrimary } from '../support/local-primary-fixture';
+import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
+import { rememberEditor } from '../../src/details/shell-details';
+import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const root = contractComponent('app.contract', 'T3Code');
+const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('none'); }, async atomicWriteFile() {} } };
 type Palette = { parent: string; popOnEmpty: boolean; back: boolean; count: number; rows: Obj[] };
 
 /** The palette's root state, with the scope its actions read; calls to the root's own actions run in place. */
@@ -199,6 +207,53 @@ describe('⌘O opens the shown file once, else the workspace (#18983)', () => {
     expect(opens({ fileSurface: true, fileOpenPath: '/repo/README.md' })).toEqual([['command', 'chatlocal:surface-files-open-editor', '/repo/README.md']]);
     // The file shown, its picker unable to open it: the window's fallback, on this machine only.
     expect(opens({ fileSurface: true, fileOpenPath: '' })).toEqual([['flow', 'open-favorite', '/repo']]);
+  });
+  test('the editor that opened is announced, as useOpenFavoriteEditorShortcut announces it', async () => {
+    primaryAt('http://127.0.0.1:16891', 'env1');
+    const c = client(), opened: Obj[] = [];
+    const native = { available: true, watch() {}, later: async (input: unknown) => {
+      const request = input as Obj;
+      if (request.method === 'shell.openInEditor') opened.push(request.payload as Obj);
+      return { ok: true, generation: 1, value: {} };
+    } } as Native;
+    await paletteCommand(c, native, files, 'open-favorite', '/repo', '');
+    expect(opened).toEqual([{ cwd: '/repo', editor: 'vscode' }]);
+    // announce's messages wait for the focus to settle, then speak (shell/announce.ts).
+    announcements(c, 1_000, fleet);
+    expect(announcements(c, 1_500, fleet).first).toBe('Opened in VS Code');
+  });
+  // Another machine's environment, reached here over SSH as `devbox`, where this Mac's remote links take Zed and VS Code.
+  function remote(last: string) {
+    resetRemoteEditorsForTests(); resetExternalOpensForTests();
+    const c = client();
+    c.origin = 'http://127.0.0.1:41001';
+    rememberEditor(c, last);
+    const native = { available: true, watch() {}, later: async (input: unknown) => {
+      const request = input as Obj;
+      const value = request.op === 'sshHosts' ? { targets: { 'http://127.0.0.1:41001': { alias: 'devbox' } } } : request.op === 'remoteEditorsProbe' ? { editors: ['zed', 'vscode'] } : {};
+      return { ok: true, generation: 1, value };
+    } } as Native;
+    return { c, native };
+  }
+  const spoken = (c: T3Client) => { announcements(c, 1_000, fleet); return announcements(c, 1_500, fleet).first; };
+  test('remotely ⌘O opens with the last-used editor when its links take it, else the first in EDITORS order, and says which', async () => {
+    const zed = remote('zed');
+    await paletteCommand(zed.c, zed.native, files, 'open-favorite', '/repo', '');
+    expect(externalOpensForTests()).toEqual(['zed://ssh/devbox/repo']);
+    expect(spoken(zed.c)).toBe('Opened in Zed');
+    const cursor = remote('cursor'); // the last-used editor has no remote link here
+    await paletteCommand(cursor.c, cursor.native, files, 'open-favorite', '/repo', '');
+    expect(externalOpensForTests()).toEqual(['vscode://vscode-remote/ssh-remote+devbox/repo']);
+    expect(spoken(cursor.c)).toBe('Opened in VS Code');
+  });
+  test('an open that fails says nothing', async () => {
+    resetRemoteEditorsForTests(); resetExternalOpensForTests();
+    const c = client();
+    c.origin = 'https://far.example.com'; // another machine with no route here
+    const native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 1, value: {} }) } as Native;
+    expect(await paletteCommand(c, native, files, 'open-favorite', '/repo', '')).toMatchObject({ close: true });
+    expect(externalOpensForTests()).toEqual([]);
+    expect(spoken(c)).toBe('');
   });
   test('a remote file surface without a picker opens nothing', () => {
     // Not this machine (no primary at this origin): the bearer route has no local editor fallback.

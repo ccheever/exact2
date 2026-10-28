@@ -180,7 +180,11 @@ const shownThread = (client: T3Client): string => (client.threadId ? `${client.e
 export function pickSearchResult(client: T3Client, id: string): void {
   const session = sidebarSession(client), match = session.searchShown.find(row => row.id === id)?.match;
   pendingFinds.delete(client);
-  if (match) pendingFinds.set(client, { key: rowKey(client, id), from: shownThread(client), ...findForMessageMatch(match, session.searchFoundFor) });
+  if (match) findWhenShown(client, id, match, session.searchFoundFor);
+}
+/** A message result's find (⌘K's too), on `match` as found for `query`: it opens once the thread of row `id` shows. */
+export function findWhenShown(client: T3Client, id: string, match: Obj, query: string): void {
+  pendingFinds.set(client, { key: rowKey(client, id), from: shownThread(client), ...findForMessageMatch(match, query) });
 }
 /** After a thread opens and after each refresh: a pending find opens on its thread once that thread shows. */
 export function showPendingFind(client: T3Client): void {

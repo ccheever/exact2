@@ -9,6 +9,7 @@ import { paletteCommand } from '../../src/palette/palette-commands';
 import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch, visit, favoriteEditor } from '../../src/shell/keyboard-dispatch';
 import { toasts } from '../../src/shell/toast';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const NOW = Date.parse('2026-10-03T12:00:00.000Z');
 const binding = (key: string, command: string, extra: Obj = {}): Obj => ({ command, shortcut: { key, modKey: true, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...extra } });
@@ -224,6 +225,20 @@ describe('add project', () => {
     expect(view.enterLabel).toBe('Create');
     const highlighted = await addProjectView(c, native, { page: 'new-project', query: 'My App', highlighted: true });
     expect(highlighted).toMatchObject({ enterLabel: 'Select', accessoryKey: '⌘ Enter', accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: 'My App' });
+  });
+  test('the footer\'s Enter reads Toggle on the publish option, Select on another row and Create on none (footerActionLabel)', async () => {
+    const c = client(), native = new Fake();
+    native.replies['server.discoverSourceControl'] = { sourceControlProviders: [{ kind: 'github', status: 'available', auth: { status: 'authenticated', account: 'fixture' } }] };
+    const body = contractComponent('palette.contract', 'CommandPaletteBody');
+    const enter = async (highlight: number) => {
+      const view = await addProjectView(c, native, { page: 'new-project', query: 'App', highlighted: highlight >= 0 });
+      const row = view.rows.find(entry => entry.index === highlight);
+      const scope = { view, highlight, scroll: 0, scheme: 'dark', rem: 16, viewport: { width: 1280, height: 840 }, min: Math.min, max: Math.max, floor: Math.floor };
+      return [row?.title ?? '', body.derives({}, scope).enterText];
+    };
+    expect(await enter(0)).toEqual(['Create private repository on GitHub', 'Toggle']);
+    expect(await enter(1)).toEqual(['Add existing project', 'Select']);
+    expect(await enter(-1)).toEqual(['', 'Create']);
   });
   test('adding a path creates the project and opens a new thread in it', async () => {
     const c = client(), native = new Fake();
