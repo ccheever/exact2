@@ -119,6 +119,11 @@ impl Kernel {
             return Ok(());
         }
         self.arena.set_cover(slot, cover);
+        // PROTO: a block root's clearance moves its frames' origin whether or
+        // not its layout changes (`clearance`): publish it again.
+        if self.arena.blocks.holds(slot) {
+            self.arena.layout_dirty.insert(slot);
+        }
         if let Some(r) = &mut self.region {
             r.intrinsic(slot);
         }
@@ -418,6 +423,10 @@ pub(crate) fn settle_chain<'a>(
         let HostCover::Edges([_, _, bottom, _]) = cover else {
             continue;
         };
+        // PROTO: a block root's clearance is no chain's (`clearance`).
+        if arena.blocks.holds(covered) {
+            continue;
+        }
         if bottom <= 0.0 || !arena.is_live(covered) || !scroller_insets_bottom(arena, covered) {
             continue;
         }
@@ -681,9 +690,24 @@ pub(crate) fn applied_padding(arena: &NodeArena, slot: u32) -> [f32; 4] {
 /// right, bottom and left: the host's sizing, not the box's CSS padding.
 pub(crate) fn added_padding(arena: &NodeArena, slot: u32) -> [f32; 4] {
     match arena.cover(slot) {
+        // PROTO (safe-area design §2.2): a block root's `Edges` is its
+        // clearance, the safe area its root is laid out inside
+        // (`clearance`), never padding added to it.
+        Some(HostCover::Edges(_)) if arena.blocks.holds(slot) => [0.0; 4],
         Some(HostCover::Edges(edges)) => edges,
         Some(HostCover::Inset([top, bottom])) => [0.0, 0.0, top + bottom, 0.0],
         _ => [0.0; 4],
+    }
+}
+
+/// PROTO (safe-area design §2.2): the clearance of a block root, top,
+/// right, bottom and left: the owner's safe area as its host reports it
+/// (`Edges`), which the root is laid out inside. Its frames are published
+/// that far in from the block's origin; its used size is still the block's.
+pub(crate) fn clearance(arena: &NodeArena, slot: u32) -> Option<[f32; 4]> {
+    match arena.cover(slot) {
+        Some(HostCover::Edges(e)) if arena.blocks.holds(slot) => Some(e),
+        _ => None,
     }
 }
 

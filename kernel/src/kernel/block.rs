@@ -61,6 +61,21 @@ impl BlockAxis {
     }
 }
 
+/// PROTO (safe-area design §2.2): `block` less the root's clearance on each
+/// axis, the box the root is laid out in (the owner's safe area).
+pub(crate) fn inner(arena: &NodeArena, slot: u32, block: HostBlock) -> HostBlock {
+    let Some([top, right, bottom, left]) = super::clearance(arena, slot) else {
+        return block;
+    };
+    let less = |axis: BlockAxis, by: f32| match axis {
+        BlockAxis::Is(v) => BlockAxis::Is((v - by).max(0.0)),
+        BlockAxis::AtMost(v) => BlockAxis::AtMost((v - by).max(0.0)),
+        BlockAxis::Fit(v) => BlockAxis::Fit((v - by).max(0.0)),
+        BlockAxis::Region(v) => BlockAxis::Region((v - by).max(0.0)),
+    };
+    HostBlock { width: less(block.width, left + right), height: less(block.height, top + bottom) }
+}
+
 /// A containing block a host gives one node, in points.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HostBlock {
@@ -272,6 +287,7 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     let Some(block) = arena.blocks.get(slot) else {
         return;
     };
+    let block = inner(arena, slot, block);
     if replaced_above(arena, slot) {
         s.display = taffy::style::Display::None;
         return;
@@ -621,7 +637,7 @@ impl Kernel {
         let under = |slot: u32| slot != root && arena.is_ancestor(root, slot);
         let offer = |b: HostBlock| Offer::definite(b.width.length(), b.height.length());
         let held = arena.blocks.0.iter().filter(|b| under(b.slot));
-        held.map(|b| (b.slot, offer(b.block))).collect()
+        held.map(|b| (b.slot, offer(inner(arena, b.slot, b.block)))).collect()
     }
 
     /// Lay `root` out under `offer`, then each subtree with a block under
@@ -708,7 +724,7 @@ impl Kernel {
         ) else {
             return (0.0, 0.0);
         };
-        used_in(block, &tree.layout(node))
+        used_in(block, super::clearance(&self.arena, slot), &tree.layout(node))
     }
 
     /// The used size `view`'s subtree would have in `block`, had its host
@@ -763,14 +779,15 @@ impl Kernel {
         arena.blocks.set(slot, Some(block));
         trial.restyle(&arena, slot, node);
         trial.mark_dirty(node);
-        let offer = Offer::definite(lengths[0], lengths[1]);
+        let room = inner(&arena, slot, block);
+        let offer = Offer::definite(room.width.length(), room.height.length());
         layout::compute(&mut arena, &mut trial, self.measurer.as_mut(), slot, offer)?;
         if arena.flags(slot).has(NodeFlags::HIDDEN) {
             return Ok(BlockMeasure::default());
         }
         let l = trial.layout(node);
         Ok(BlockMeasure {
-            used: used_in(block, &l),
+            used: used_in(block, super::clearance(&arena, slot), &l),
             border: (l.size.width, l.size.height),
             margin: [l.margin.top, l.margin.right, l.margin.bottom, l.margin.left],
         })
@@ -792,14 +809,16 @@ pub struct BlockMeasure {
 /// A block root's used size from its engine layout: the given length where
 /// the block is the size, and where it is a maximum or a fit its border box
 /// and margins, clamped only for `AtMost`.
-fn used_in(block: HostBlock, l: &taffy::tree::Layout) -> (f32, f32) {
+fn used_in(block: HostBlock, clearance: Option<[f32; 4]>, l: &taffy::tree::Layout) -> (f32, f32) {
+    // PROTO: a cleared root's end is in its inner box; the clearance is added back once.
+    let [top, right, bottom, left] = clearance.unwrap_or([0.0; 4]);
     let axis = |axis: BlockAxis, end: f32| match axis {
         BlockAxis::Is(length) => length,
         BlockAxis::AtMost(most) => end.clamp(0.0, most),
         BlockAxis::Fit(_) | BlockAxis::Region(_) => end.max(0.0),
     };
     (
-        axis(block.width, l.location.x + l.size.width + l.margin.right),
-        axis(block.height, l.location.y + l.size.height + l.margin.bottom),
+        axis(block.width, l.location.x + l.size.width + l.margin.right + left + right),
+        axis(block.height, l.location.y + l.size.height + l.margin.bottom + top + bottom),
     )
 }

@@ -67,11 +67,14 @@ pub(super) fn publish(
     // relative to the container's own (`base`), or a straddling box's union.
     // `t` is the translation its subtree inherits; (ox, oy) stay flow-thread
     // origins, so a child is placed from its parent's unfragmented box.
+    // PROTO (safe-area design §2.2): a cleared block root is published at its
+    // clearance's left and top, the safe area's origin in the block's space.
+    let (cx, cy) = crate::kernel::clearance(arena, root).map_or((0.0, 0.0), |e| (e[3], e[0]));
     let mut stack = if full || has_sources || whole {
         vec![(
             root,
-            0.0,
-            0.0,
+            cx,
+            cy,
             hidden,
             full || whole,
             false,

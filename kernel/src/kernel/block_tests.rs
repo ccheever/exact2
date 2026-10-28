@@ -384,33 +384,26 @@ fn a_hidden_root_lays_nothing_out_and_its_used_size_is_zero() {
 
 #[test]
 fn a_cover_applies_inside_a_block() {
-    // What a bar covers of a route is padding inside the route's block, as
-    // an iPad column's bar will be: the same boxes as that padding written.
+    // PROTO (safe-area design §2.2): what a bar covers of a route is its
+    // clearance, the safe area its root is laid out inside: the root is the
+    // block less the clearance, at the clearance's left and top, and its used
+    // size is still the block's.
     let mut covered = laid_out(small());
     covered.set_host_block(3, is(300.0, 200.0)).unwrap();
     covered
         .set_host_cover(3, Some(HostCover::Edges([44.0, 0.0, 0.0, 10.0])))
         .unwrap();
     covered.compute_layout(1, OFFER).unwrap();
-    let mut written = small();
-    written.push(style(
-        3,
-        &[
-            (StyleId::PaddingTop, n(44.0)),
-            (StyleId::PaddingLeft, n(10.0)),
-        ],
-    ));
-    let mut written = laid_out(written);
-    written.set_host_block(3, is(300.0, 200.0)).unwrap();
-    written.compute_layout(1, OFFER).unwrap();
-    for id in [3, 4] {
-        let (a, b) = (
-            covered.node(id).unwrap().frame,
-            written.node(id).unwrap().frame,
-        );
-        assert!(a.bits_eq(b), "{id}: {a:?} {b:?}");
-    }
+    let root = covered.node(3).unwrap().frame;
+    assert_eq!((root.x, root.y, root.width, root.height), (10.0, 44.0, 290.0, 40.0));
     assert_eq!(covered.node(4).unwrap().frame.y, 44.0);
+    assert_eq!(covered.host_block_size(3), Some((300.0, 200.0)));
+    // The clearance moving with the same inner size republishes the root.
+    covered
+        .set_host_cover(3, Some(HostCover::Edges([44.0, 5.0, 0.0, 5.0])))
+        .unwrap();
+    covered.compute_layout(1, OFFER).unwrap();
+    assert_eq!(covered.node(3).unwrap().frame.x, 5.0);
 }
 
 #[test]
