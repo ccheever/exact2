@@ -255,14 +255,9 @@ fn build_dxbc(out: &Path, entries: &[String]) {
     let mut fxc = None;
     if windows {
         for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
-            // Installation into an existing PATH directory must invalidate the stub.
-            if dir.is_dir() {
-                println!("cargo:rerun-if-changed={}", dir.display());
-            }
             for name in ["fxc.exe", "fxc"] {
                 let candidate = dir.join(name);
                 if candidate.is_file() {
-                    println!("cargo:rerun-if-changed={}", candidate.display());
                     if fxc.is_none() {
                         fxc = Some(candidate);
                     }
