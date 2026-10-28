@@ -26,7 +26,10 @@ import { letGo } from '../client/let-go';
 import { composerNow } from '../composer/composer-controls';
 import { claimThreadOpen, pickedQuery } from './palette-search';
 import { addTarget, chooseNewProjectEnvironment, newProjectEnvironments, targetRequest, type AddEnvironment } from './palette-environments';
-import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { fleet, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { environmentCall } from '../pull-requests/pages-pr-environments';
+import { findWhenShown } from '../sidebar/sidebar-search';
+import { shownMessageMatch } from './palette-view';
 
 export type PaletteResult = { revision: number; ok: boolean; close: boolean; page: string; query: string; project: string; thread: string; message: string };
 const message = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
@@ -69,24 +72,31 @@ async function createProject(client: T3Client, native: Native, storage: Files, t
 
 /**
  * CommandPaletteThreadItems runThread: a thread picked from a search counts as opened by this client at the pick's moment,
- * for Recent Threads and the use boost, and the server records the open with its query (`thread.visit` with `opened`
- * and `searchQuery`), which ranks the thread first when that query is typed again. `pick` is "<moment in epoch ms>
- * <query>", the query being the root page's search ("" for other rows); the open thread is no pick.
+ * for Recent Threads and the use boost, and its server records the open with its query (`thread.visit` with `opened`
+ * and `searchQuery`), which ranks the thread first when that query is typed again. `id` is the row's (a background
+ * environment's thread is `fleet:<environment>:<id>`); `pick` is "<moment in epoch ms> <query>", the query being the
+ * root page's search ("" for other rows); the open thread is no pick. A message row opens find at its message once its
+ * thread shows, as its run calls openThreadFindOnQuery.
  */
-async function pickThread(client: T3Client, native: Native | null | undefined, threadId: string, pick: string): Promise<void> {
+async function pickThread(client: T3Client, native: Native | null | undefined, id: string, pick: string, source: EnvironmentFleet): Promise<void> {
   const space = pick.indexOf(' '), at = Number(pick.slice(0, space)), query = pick.slice(space + 1);
-  if (space <= 0 || !Number.isFinite(at) || query.trim().length === 0 || query.startsWith('>') || threadId === client.threadId) return;
-  claimThreadOpen(client.environmentId, threadId, at);
+  const message = shownMessageMatch(client, id, query);
+  if (message) findWhenShown(client, id, message.match, message.query);
+  if (space <= 0 || !Number.isFinite(at) || query.trim().length === 0 || query.startsWith('>') || id === client.threadId) return;
+  const ref = parseFleetThreadId(id), environmentId = ref?.environmentId ?? client.environmentId, threadId = ref?.threadId ?? id;
+  claimThreadOpen(environmentId, threadId, at);
   // A server that keeps no visits sends no `lastVisitedAt`. The open goes whether or not this client already claimed it,
   // and the pick does not wait for its reply (upstream's `void visitThread(…)`): a request with a `deliver` key returns
   // once the transport has sent it, and the reply lands in the inbox, where nothing reads it. A refused send is dropped,
   // as visitThread's reportFailure: false drops it.
-  const thread = client.shell.threads.find(entry => entry.id === threadId);
+  const threads = ref ? [...source.entries.values()].find(entry => entry.environmentId === environmentId)?.shell.threads ?? [] : client.shell.threads;
+  const thread = threads.find(entry => entry.id === threadId);
   if (!thread || thread.lastVisitedAt === undefined || !native?.available) return;
   try {
     const [commandId] = await client.ids(native, 1);
-    await client.call(native, { op: 'request', method: 'orchestration.dispatchCommand', deliver: `palette-visit:${commandId}`,
-      payload: { type: 'thread.visit', commandId, threadId, visitedAt: str(thread.updatedAt), opened: true, searchQuery: pickedQuery(query) } }, client.generation, true);
+    const visit = { op: 'request', method: 'orchestration.dispatchCommand', deliver: `palette-visit:${commandId}`,
+      payload: { type: 'thread.visit', commandId, threadId, visitedAt: str(thread.updatedAt), opened: true, searchQuery: pickedQuery(query) } };
+    await (ref ? environmentCall(client, native, environmentId, visit, true, source) : client.call(native, visit, client.generation, true));
   } catch (error) {
     if (letGo(error)) throw error;
   }
@@ -95,7 +105,7 @@ async function pickThread(client: T3Client, native: Native | null | undefined, t
 export async function paletteCommand(client: T3Client, native: Native | null | undefined, storage: Files, op: string, id: string, value: string, source: EnvironmentFleet = fleet): Promise<PaletteResult> {
   // A thread row and New thread in <project>: the palette closes and the window navigates. A thread row's `value` is its
   // pick (pickThread).
-  if (op === 'thread') { await pickThread(client, native, id, value); return done(client, '', id); }
+  if (op === 'thread') { await pickThread(client, native, id, value, source); return done(client, '', id); }
   if (op === 'new-thread') return done(client, id);
   if (!native?.available) return stay(client, false, 'Open this app on macOS to connect to T3 Code.');
   const flow = flowOf(client);

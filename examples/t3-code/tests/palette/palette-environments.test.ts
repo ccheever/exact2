@@ -14,6 +14,8 @@ import { environmentOptionLabel } from '../../src/palette/palette-environments';
 import { fleet, environmentKey, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { primary, type PrimaryTarget } from '../../src/connections/local-primary';
 import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes';
+import { showPendingFind } from '../../src/sidebar/sidebar-search';
+import { threadFindState, threadFindView } from '../../src/timeline/thread-find-runtime';
 
 const PRIMARY = environmentKey('http://127.0.0.1:16601', 'env-primary');
 const THIRD = environmentKey('http://127.0.0.1:16602', 'env-third');
@@ -213,6 +215,66 @@ describe('New project: its Environments', () => {
     expect(offered()).toBe(true); // Lane Third can; the focused Lane Second cannot
     fleet.entries.delete(THIRD);
     expect(offered()).toBe(false);
+  });
+});
+
+// CommandPaletteThreadItems.tsx useConnectedThreadSearch and the message items' run (openThreadFindOnQuery).
+describe('⌘K message results from every connected environment', () => {
+  const NOW = Date.parse('2026-10-28T12:00:00.000Z'), at = (hours: number) => new Date(NOW - hours * 3_600_000).toISOString();
+  /** Lane Second (focused) and Lane Third each hold a thread whose messages say "lakebed"; a third thread is named for it. */
+  function searching(): { c: T3Client; native: Fake } {
+    const c = threeEnvironments(), native = new Fake();
+    c.shell = { sequence: 1, projects: [{ id: 'p1', title: 'agent-edits', workspaceRoot: '/second/agent-edits' }],
+      threads: [{ id: 't2', projectId: 'p1', title: 'Second notes', updatedAt: at(2) }, { id: 't3', projectId: 'p1', title: 'Lakebed survey', updatedAt: at(3) }] };
+    fleet.entries.get(THIRD)!.shell.threads = [{ id: 't9', projectId: 'p9', title: 'Deploy log', updatedAt: at(1), lastVisitedAt: at(1) }];
+    const match = (threadId: string, snippet: string, extra: Obj = {}) => ({ threadId, messageId: `m-${threadId}`, source: 'user', snippet, quality: 1, hits: 1, messageCreatedAt: at(4), ...extra });
+    native.replies[''] = { 'orchestration.searchThreads': { matches: [match('t2', 'the lakebed is dry'), match('t3', 'lakebed again')] } };
+    native.replies[THIRD] = { 'orchestration.searchThreads': { matches: [match('t9', 'Lakebed deploy finished', { source: 'assistant', hits: 3 })] } };
+    return { c, native };
+  }
+  const view = (c: T3Client, native: Fake) => paletteView(c, native, [true, 'command', '', 'lakebed', '', false, NOW, 'dark']);
+
+  test('are searched on each environment\'s own transport and ranked together', async () => {
+    const { c, native } = searching();
+    const rows = (await view(c, native)).rows;
+    expect(native.calls.filter(call => call.method === 'orchestration.searchThreads').map(call => [str(call.fleet), obj(call.payload).query])).toEqual([['', 'lakebed'], [PRIMARY, 'lakebed'], [THIRD, 'lakebed']]);
+    // Lane Third's thread is listed with its environment; "Lakebed survey" matches by its title, so it is no message row.
+    expect(rows.filter(row => row.key.startsWith('threads-messages:')).map(row => [row.arg, row.title, row.matchLabel, row.context])).toEqual([
+      ['fleet:env-third:t9', 'Deploy log', 'Agent:', 'present · Lane Third'],
+      ['t2', 'Second notes', 'You:', 'agent-edits · Lane Second'],
+    ]);
+    expect(rows.find(row => row.key.startsWith('threads-search:'))!.arg).toBe('t3');
+  });
+
+  test('a message row opens its thread in its environment, tells that server of the pick, and finds the message once it shows', async () => {
+    const { c, native } = searching();
+    await view(c, native);
+    expect(await paletteCommand(c, native, files(), 'thread', 'fleet:env-third:t9', `${NOW} lakebed`)).toMatchObject({ close: true, thread: 'fleet:env-third:t9' });
+    const visit = native.calls.find(call => call.method === 'orchestration.dispatchCommand')!;
+    expect([visit.fleet, visit.deliver]).toEqual([THIRD, 'palette-visit:id-0']);
+    expect(obj(visit.payload)).toMatchObject({ type: 'thread.visit', threadId: 't9', opened: true, searchQuery: 'lakebed' });
+    showPendingFind(c); // still Lane Second's, while the reconnect runs
+    expect(threadFindView(c).open).toBe(false);
+    Object.assign(c, { environmentId: 'env-third', threadId: 't9', generation: 2 });
+    c.config = { ...c.config, threadFind: true };
+    showPendingFind(c);
+    expect(threadFindView(c)).toMatchObject({ open: true, query: 'Lakebed' });
+    expect(threadFindState(c).model.start).toEqual({ entryId: 'm-t9', occurrence: 0 });
+  });
+
+  test('a title row, or a thread picked where the root query is not shown, opens no find', async () => {
+    const { c, native } = searching();
+    c.config = { ...c.config, threadFind: true };
+    await view(c, native);
+    await paletteCommand(c, native, files(), 'thread', 't3', `${NOW} lakebed`);
+    Object.assign(c, { threadId: 't3' });
+    showPendingFind(c);
+    expect(threadFindView(c).open).toBe(false);
+    // A message row's thread picked from an Add project page's fallback, whose picks carry no query.
+    await paletteCommand(c, native, files(), 'thread', 't2', `${NOW} `);
+    Object.assign(c, { threadId: 't2' });
+    showPendingFind(c);
+    expect(threadFindView(c).open).toBe(false);
   });
 });
 

@@ -1,6 +1,6 @@
 // The palette resource: which page the overlay shows for its mode, page and query.
 import type { T3Client } from '../client/client';
-import { arr, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { closedView, commandView, rootFallback, threadJumpChords, type PaletteView } from './palette';
 import { addProjectView, isBrowseQuery } from './palette-add';
@@ -9,30 +9,54 @@ import { contentSearchView, filePickerView } from './palette-files';
 import { linkPullRequestView, resetLinkDialog } from './palette-linkpr';
 import { linkedThreadItems, threadPickerView } from '../pull-requests/pages-pr-links';
 import { messageSearchTokens } from './palette-search';
+import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { environmentRequest, environmentTarget } from '../pull-requests/pages-pr-environments';
 
 /** THREAD_SEARCH_QUERY_MAX_LENGTH: a pasted wall of text searches by its start rather than failing the request. */
 const THREAD_SEARCH_QUERY_MAX_LENGTH = 200;
+/** How long a background environment's search may hold the palette, which draws once every environment answered. */
+const BACKGROUND_SEARCH_SECONDS = 10;
 const searches = new WeakMap<T3Client, { key: string; matches: Obj[] }>();
 /**
- * useThreadSearch: orchestration.searchThreads, newest query only, once the query holds a word the server can match
- * messages by (three or more letters, or two Chinese, Japanese or Korean characters). One match per thread, in the
- * server's order.
+ * useConnectedThreadSearch: orchestration.searchThreads on every connected environment (the focused one and each
+ * background one the fleet keeps synchronized, on its own transport), newest query only, once the query holds a word
+ * the server can match messages by (three or more letters, or two Chinese, Japanese or Korean characters). One match
+ * per thread, keyed by its row's id (a background thread's `fleet:<environment>:<id>`), each environment's in its
+ * server's order. A failed search counts as no matches.
  */
-async function threadMatches(client: T3Client, native: Native | null | undefined, query: string): Promise<{ matches: Map<string, Obj>; query: string }> {
+async function threadMatches(client: T3Client, native: Native | null | undefined, query: string, source: EnvironmentFleet = fleet): Promise<{ matches: Map<string, Obj>; query: string }> {
   const needle = query.trim().slice(0, THREAD_SEARCH_QUERY_MAX_LENGTH).trim();
   const result = new Map<string, Obj>();
-  if (!native?.available || !client.ready || needle.startsWith('>') || messageSearchTokens(needle).long.length === 0) return { matches: result, query: needle };
-  const key = `${client.generation}:${needle}`;
+  if (!native?.available || needle.startsWith('>') || messageSearchTokens(needle).long.length === 0) return { matches: result, query: needle };
+  const environments = [...(client.ready ? [{ environmentId: client.environmentId, generation: client.generation }] : []),
+    ...[...source.entries.values()].filter(entry => environmentTarget(client, entry.environmentId, source)?.key === entry.key)];
+  const key = `${needle}\n${environments.map(environment => `${environment.environmentId}:${environment.generation}`).join(' ')}`;
   let hit = searches.get(client);
   if (!hit || hit.key !== key) {
-    let matches: Obj[] = [];
-    try { matches = arr((await client.restAccess(native).request('orchestration.searchThreads', { query: needle })).matches); }
-    catch { matches = []; }
-    hit = { key, matches };
+    const answers = await Promise.all(environments.map(async ({ environmentId }) => {
+      try {
+        const reply = environmentId === client.environmentId ? await client.restAccess(native).request('orchestration.searchThreads', { query: needle })
+          : await environmentRequest(client, native, environmentId, 'orchestration.searchThreads', { query: needle }, { timeoutSeconds: BACKGROUND_SEARCH_SECONDS }, source);
+        return arr(obj(reply).matches).map(match => ({ ...match, environmentId }));
+      } catch { return []; }
+    }));
+    hit = { key, matches: answers.flat() };
     searches.set(client, hit);
   }
-  for (const match of hit.matches) if (!result.has(str(match.threadId))) result.set(str(match.threadId), match);
+  for (const match of hit.matches) {
+    const environmentId = str(match.environmentId), threadId = str(match.threadId);
+    const id = environmentId === client.environmentId ? threadId : fleetThreadId(environmentId, threadId);
+    if (!result.has(id)) result.set(id, match);
+  }
   return { matches: result, query: needle };
+}
+// The message rows the root page shows, by row id, and the query they were found for: picking one opens find at its
+// message (pickThread), as a message item's run calls openThreadFindOnQuery.
+const shownMessages = new WeakMap<T3Client, { query: string; matches: Map<string, Obj> }>();
+/** The match of message row `id` when the root page shows it for `query` (the pick's); null for any other row. */
+export function shownMessageMatch(client: T3Client, id: string, query: string): { match: Obj; query: string } | null {
+  const shown = shownMessages.get(client), match = shown?.matches.get(id);
+  return shown && match && shown.query === query.trim().slice(0, THREAD_SEARCH_QUERY_MAX_LENGTH).trim() ? { match, query: shown.query } : null;
 }
 
 /** Add project's pages, New project from the root, and an environment's Sources opened from it (`env:<id>`). */
@@ -66,5 +90,8 @@ async function paletteViewOf(client: T3Client, native: Native | null | undefined
   if (page === 'pr-link-thread') return threadPickerView(client, query, false);
   const linkedThreads = linkedThreadItems(client, page, query), root = page.startsWith('pr-linked|') ? '' : page;
   const search = root === '' && !linkedThreads ? await threadMatches(client, native, query) : { matches: new Map<string, Obj>(), query: '' };
-  return { ...commandView(client, { page: root, query, now, scheme, matches: search.matches, matchQuery: search.query, searching: false, linkedThreads }), page, jumpKeys };
+  const view = commandView(client, { page: root, query, now, scheme, matches: search.matches, matchQuery: search.query, searching: false, linkedThreads });
+  const messages = view.rows.filter(entry => entry.key.startsWith('threads-messages:')).flatMap(entry => { const match = search.matches.get(entry.arg); return match ? [[entry.arg, match] as const] : []; });
+  shownMessages.set(client, { query: search.query, matches: new Map(messages) });
+  return { ...view, page, jumpKeys };
 }
