@@ -97,26 +97,41 @@ struct SafeReach {
     /// view follows its bounds, takes UIKit's adjustment on the axes it scrolls, and is offset by
     /// the reach across them.
     static func apply(_ reach: UIEdgeInsets, to v: NodeView) {
-        guard reach != v.reach else { return }
-        let base = v.frame.inset(by: v.reach)
-        v.reach = reach
-        v.bounds.origin = CGPoint(x: -reach.left, y: -reach.top)
-        v.frame = base.inset(by: UIEdgeInsets(top: -reach.top, left: -reach.left, bottom: -reach.bottom, right: -reach.right))
+        if reach != v.reach {
+            let base = v.frame.inset(by: v.reach)
+            v.reach = reach
+            v.bounds.origin = CGPoint(x: -reach.left, y: -reach.top)
+            v.frame = base.inset(by: UIEdgeInsets(top: -reach.top, left: -reach.left, bottom: -reach.bottom, right: -reach.right))
+        }
         guard let sv = v.scroll else { return }
-        sv.frame = v.scrollFrame
+        if sv.frame != v.scrollFrame { sv.frame = v.scrollFrame }
+        // UIKit adjusts the axes it counts as scrollable; a reaching horizontal scroll axis bounces so a short
+        // carousel counts (a vertical one already does, `fitScroll`).
         let axes = Self.axes(v)
-        // Across the axes it scrolls, the content keeps its laid-out place: Exact's offset (by delta, as bands are).
-        let cross = UIEdgeInsets(top: axes.y ? 0 : reach.top, left: axes.x ? 0 : reach.left,
-                                 bottom: axes.y ? 0 : reach.bottom, right: axes.x ? 0 : reach.right)
-        let old = v.reachInset
-        v.reachInset = cross
-        sv.contentInset = UIEdgeInsets(top: sv.contentInset.top + cross.top - old.top, left: sv.contentInset.left + cross.left - old.left,
-                                       bottom: sv.contentInset.bottom + cross.bottom - old.bottom, right: sv.contentInset.right + cross.right - old.right)
-        // Along them, UIKit's adjustment; an authored axis bounces, so UIKit counts it as scrollable.
-        let along = (axes.y && (reach.top > 0 || reach.bottom > 0)) || (axes.x && (reach.left > 0 || reach.right > 0))
-        if along, sv.contentInsetAdjustmentBehavior == .never { sv.contentInsetAdjustmentBehavior = .automatic }
+        let reaches = reach != .zero
+        if reaches, sv.contentInsetAdjustmentBehavior == .never { sv.contentInsetAdjustmentBehavior = .automatic }
         if axes.x && (reach.left > 0 || reach.right > 0) { sv.alwaysBounceHorizontal = true }
         v.fitScroll()
+        reconcile(v)
+    }
+
+    /// The content's place on each edge it reaches: UIKit's adjustment where UIKit applies one, and Exact's
+    /// `contentInset` for the rest of the scroll view's own safe-area inset there (the cross axis, a short
+    /// page UIKit does not adjust), read from UIKit and never computed: the safe area less UIKit's part.
+    /// Called again whenever UIKit's adjustment changes (`ScrollView.adjustedContentInsetDidChange`).
+    static func reconcile(_ v: NodeView) {
+        guard let sv = v.scroll else { return }
+        let r = v.reach, safe = sv.safeAreaInsets, adj = sv.adjustedContentInset, ci = sv.contentInset
+        func part(_ reach: CGFloat, _ safe: CGFloat, _ adjusted: CGFloat, _ content: CGFloat) -> CGFloat {
+            reach > 0 ? max(0, min(reach, safe) - (adjusted - content)) : 0
+        }
+        let want = UIEdgeInsets(top: part(r.top, safe.top, adj.top, ci.top), left: part(r.left, safe.left, adj.left, ci.left),
+                                bottom: part(r.bottom, safe.bottom, adj.bottom, ci.bottom), right: part(r.right, safe.right, adj.right, ci.right))
+        let old = v.reachInset
+        guard want != old else { return }
+        v.reachInset = want
+        sv.contentInset = UIEdgeInsets(top: ci.top + want.top - old.top, left: ci.left + want.left - old.left,
+                                       bottom: ci.bottom + want.bottom - old.bottom, right: ci.right + want.right - old.right)
     }
 
     /// The axes a scroller scrolls: one the author made `scroll`, or `auto` with content past its port, as
