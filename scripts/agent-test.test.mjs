@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, propertyHolds, refusalExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
+import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, propertyHolds, refusalExpectation, refuseDisabled, runTests, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
@@ -610,4 +610,12 @@ test('expect perf reads a resource\'s asks and a component\'s or a view\'s work'
   expect(at('built', 'Ghost', '==', 0)).toContain('names no component');
   expect(perfExpectation(null, { subject: 'query', target: 'a', compare: '==', value: 0 })).toContain('no `perf` block');
   expect(perfExpectation({ ...measured, whole: { sites: [] } }, { subject: 'query', target: 'a', compare: '==', value: 0 })).toContain('counts no resource asks');
+});
+
+test('a test scoped on macos runs under the mac alias and the sample host too', () => {
+  expect(testScope('mac')).toBe('macos');
+  expect(testScope('macos')).toBe('macos');
+  expect(testScope('host')).toBe('macos');
+  expect(testScope('host-ios')).toBe('ios');
+  expect(testScope('web')).toBe('web');
 });
