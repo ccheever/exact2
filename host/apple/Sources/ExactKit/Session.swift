@@ -383,7 +383,7 @@ public final class ExactSession {
     /// The last two timer advances changed nothing the presenter shows,
     /// and no batch has applied since (`scheduleClock`).
     var timersQuiet: Bool { quietTimerAdvances >= 2 }
-    private(set) var quietTimerAdvances = 0
+    var quietTimerAdvances = 0
     /// An advance of a deadline already due is running (`advanceIfDue`)
     var advancingDue = false
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
@@ -418,16 +418,20 @@ public final class ExactSession {
     // one is in flight, work that would wait behind it on the owner (a
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
-    private(set) var fillInFlight = false
-    private typealias IdleWork = (views: Int?, work: () -> Void, cancelled: (() -> Void)?)
-    private var afterFill: [IdleWork] = []
-    private var viewsEpoch = 0
-    private let published = NSLock()
+    var fillInFlight = false
+    typealias IdleWork = (views: Int?, work: () -> Void, cancelled: (() -> Void)?)
+    var afterFill: [IdleWork] = []
+    var viewsEpoch = 0
+    let published = NSLock()
     /// What the owner committed without main waiting.
     enum Published { case fill(UInt32), tick, advance, canvas, notice, reply, cancelledReply }
     /// Batches the owner committed without main waiting, in its order: a
     /// slice's (with its list), a frame's tick's and a canvas draw's.
-    private var publishedQueue: [(kind: Published, batch: Batch, generation: Int)] = []
+    var publishedQueue: [PendingBatch] = []
+    /// Numbered batches and released idle work, stable for equal job numbers.
+    var pendingBatches: [(sequence: UInt64, work: PendingWork)] = []
+    var idleReleasePending = false
+    var presentationWaiters: [() -> Void] = []
     /// A frame's tick is on the owner (LLP 1072 §7.1): the next one waits.
     var tickInFlight = false
     /// A timer advance is on the owner (LLP 1072.000): the next one waits.
@@ -435,7 +439,7 @@ public final class ExactSession {
     /// Canvas draws run in a turn of their own on the owner (LLP 1072 §8.5):
     /// the last batch applied says whether one is owed, one is in flight
     /// at a time, and one is asked for once per main-queue turn.
-    private(set) var canvasInFlight = false
+    var canvasInFlight = false
     /// A system notice's batches on the owner (`tellSoon`), each landing in its order.
     var noticesInFlight = 0
     var repliesInFlight = 0
@@ -444,22 +448,13 @@ public final class ExactSession {
     var ownerInFlight: Bool { fillInFlight || tickInFlight || advanceInFlight || canvasInFlight || noticesInFlight > 0 || repliesInFlight > 0 }
     /// Whether this generation's plan reads `onLine`, learned by a synchronous `tellPage`.
     var readsOnLineKnown: (generation: Int, value: Bool)?
-    private var canvasOwed = false
+    var canvasOwed = false
     private var canvasAsked = false
-    private(set) var landing = false
-    /// Landing slices ahead of a batch already made: their appearance
-    /// reports wait for it, so no batch made later applies before it.
-    private(set) var holdingReports = false
-    /// Slices build off main on iOS unless the agent drives the app, or
+    var landing = false
+    /// Slices build off main unless the agent drives the app, or
     /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1072 T12).
-    /// macOS follows once physical scrolling there is measured (stage 5).
-    /// Read when a session wires itself; tests set it to drive the
-    /// asynchronous path on macOS.
-    #if os(iOS) || os(tvOS)
+    /// Read when a session wires itself.
     nonisolated(unsafe) static var asyncFills = !ExactEnv.agentMode && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
-    #else
-    nonisolated(unsafe) static var asyncFills = false
-    #endif
     package var isApplyingPresentation: Bool { applying }
     // Weak live gesture ownership only; no historical tokens or row registry.
     private let inputHolds = NSHashTable<SwipeHold>.weakObjects()
@@ -574,22 +569,12 @@ public final class ExactSession {
     /// The app's clock: what events, timers, motion, and canvases see.
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
-    /// View reports expire after reset; executor work survives a plan commit.
-    package func whenIdle(bound: Bool = false, _ work: @escaping () -> Void, cancelled: (() -> Void)? = nil) {
-        idle((bound ? viewsEpoch : nil, work, cancelled))
-    }
-    private func idle(_ item: IdleWork) {
-        if state == .destroyed || (item.views != nil && item.views != viewsEpoch) { item.cancelled?() }
-        else if fillInFlight { afterFill.append(item) }
-        else { item.work() }
-    }
-
     /// Send a build-only slice to the owner; its batch comes back published.
     private func sendFill(_ view: UInt32, _ bytes: Data) {
         fillInFlight = true
-        let captured = generation
+        let captured = generation, sequence = Owner.shared.enqueued + 1
         runtime.collectionFeedbackAsync(bytes, now: now()) { [weak self] batch in
-            self?.publish(.fill(view), batch, captured)
+            self?.publish(.fill(view), batch, captured, sequence: sequence)
         }
     }
 
@@ -597,7 +582,7 @@ public final class ExactSession {
     /// waited for (LLP 1072 §8.5): main is not awake for a draw. A tick in
     /// flight draws in its own turn, so none is asked for meanwhile; its
     /// batch says whether one is still owed.
-    private func askCanvasDraw() {
+    func askCanvasDraw() {
         guard canvasOwed, !canvasAsked, !canvasInFlight else { return }
         canvasAsked = true
         DispatchQueue.main.async { [weak self] in
@@ -605,78 +590,8 @@ public final class ExactSession {
             canvasAsked = false
             guard state != .destroyed, canvasOwed, !canvasInFlight, !tickInFlight else { return }
             canvasInFlight = true
-            let captured = generation
-            runtime.canvasDrawAsync { [weak self] batch in self?.publish(.canvas, batch, captured) }
-        }
-    }
-
-    /// On the owner: queue a batch for main, in the owner's order.
-    func publish(_ kind: Published, _ batch: Batch, _ generation: Int) {
-        published.lock()
-        publishedQueue.append((kind, batch, generation))
-        published.unlock()
-        DispatchQueue.main.async { [weak self] in self?.landFill() }
-    }
-
-    private var hasPublished: Bool {
-        published.lock()
-        defer { published.unlock() }
-        return !publishedQueue.isEmpty
-    }
-
-    /// Apply the slice the owner published, then what it owes and what
-    /// waited for it. Before any other batch applies, so batches apply in
-    /// the owner's order (T4).
-    func landFill() {
-        guard !landing else { return }
-        landing = true
-        // A reply the slices released (`afterFill`) may have left a deadline
-        // due: it advances once they have landed, unless a batch waits on them
-        defer { landing = false; if !holdingReports { advanceIfDue() } }
-        while true {
-            published.lock()
-            let next = publishedQueue.isEmpty ? nil : publishedQueue.removeFirst()
-            published.unlock()
-            guard let next else { return }
-            let began = CACurrentMediaTime()
-            var submitted = 0.0
-            switch next.kind {
-            case .fill: fillInFlight = false
-            case .tick: tickInFlight = false
-            case .advance: advanceInFlight = false
-            case .canvas: canvasInFlight = false
-            case .notice: noticesInFlight -= 1
-            case .reply, .cancelledReply: submitted = retireReply()
-            }
-            if case .cancelledReply = next.kind { continue }; if next.batch.held { if case .fill(let view) = next.kind { landedFill(view, stale: true) }; continue } // (held over a reset: as stale, ResetGate replays its work)
-            guard state != .destroyed, next.generation == generation else {
-                if case .reply = next.kind { retryActivation(generation: next.generation) }
-                if case .fill(let view) = next.kind { landedFill(view, stale: true) }
-                continue
-            }
-            let batch = next.batch
-            if case .advance = next.kind { applyUnlessEmpty(batch, timer: true) } else if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
-                apply(batch)
-            }
-            if case .reply = next.kind {
-                sampler?.replyPump(main: submitted + (CACurrentMediaTime() - began) * 1000)
-                retryActivation(generation: next.generation)
-            }
-            // A draw owed while this one ran, or one a tick left owed.
-            if canvasOwed { askCanvasDraw() }
-            guard case .fill(let view) = next.kind else { continue }
-            landedFill(view)
-        }
-    }
-
-    /// A stale slice can land inside a commit, before its replacement tree.
-    private func landedFill(_ view: UInt32, stale: Bool = false) {
-        let waiting = afterFill; afterFill.removeAll()
-        if state != .destroyed { presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime) }
-        guard stale else { for item in waiting { idle(item) }; return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { waiting.forEach { $0.cancelled?() }; return }
-            for item in waiting { idle(item) }
+            let captured = generation, sequence = Owner.shared.enqueued + 1
+            runtime.canvasDrawAsync { [weak self] batch in self?.publish(.canvas, batch, captured, sequence: sequence) }
         }
     }
 
@@ -700,6 +615,10 @@ public final class ExactSession {
             presenter.collections.onFill = { [weak self] view, bytes in self?.sendFill(view, bytes) }
             presenter.collections.filling = { [weak self] in self?.fillInFlight ?? false }
             presenter.collections.drain = { [weak self] in self?.drainFill() }
+        }
+        presenter.collections.reportsReady = { [weak self] in
+            guard let self else { return true }
+            return pendingBatches.isEmpty && !ownerInFlight && !awaitingTree
         }
         presenter.collections.onFeedback = { [weak self] bytes in
             guard let self, state != .destroyed else { return }
@@ -853,7 +772,7 @@ public final class ExactSession {
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
-        apply(batch)
+        applyReplacement(batch)
         treeIsIn()
         if batch.error == nil { tellTime(); refuseUnheardLaunch() }
         // A fresh runner must receive the view's current viewport and insets.
@@ -959,13 +878,15 @@ public final class ExactSession {
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
         appFileRoots = AppFiles.learn(runtime)
-        apply(batch)
+        applyReplacement(batch)
         treeIsIn()
         tellTime()
         refuseUnheardLaunch()
         view?.rebooted()
-        autofocusHeld = false
-        if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
+        afterPresentation { [self] in
+            autofocusHeld = false
+            if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
+        }
         state = .ready
         if restart { fputs("reloaded \(label)\n", stderr) } // a launch generation's first boot is no reload
     }
@@ -1003,43 +924,10 @@ public final class ExactSession {
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
 
-    /// A batch from a timer, a scroll event or a host's measurement: one that
-    /// changes nothing only moves the clock. An app's timer that writes nothing
-    /// (a poll that finds no news), a `scroll=` handler whose writes show
-    /// nowhere (every frame of a fling) and a size layout already had (a list
-    /// row's symbol, which the kernel measured) still commit, and the presenter's
-    /// whole pass cost ~4.5 ms a batch on the simulator. Other events
-    /// still apply an empty batch: a native control that changed itself
-    /// before its handler ran is reconciled by the pass (a refused tab), and
-    /// the agent's clock seeks native animations through it. Slices published
-    /// before it land first (T4), and it is asked again (a fling's fills).
-    /// `timer`: a clock advance's, which `timersQuiet` counts.
-    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, timer: Bool = false) {
-        guard !batch.busy, !batch.held else { return }
-        guard !applying else { apply(batch); return }
-        if !landing, ownerInFlight, hasPublished {
-            // What the slices leave owed is asked after this batch, as in `apply`.
-            holdingReports = true; landFill(); holdingReports = false
-            guard state != .destroyed else { return }
-        }
-        guard !fillInFlight, !tickInFlight, !advanceInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch); return }
-        // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
-        sampler?.batch(batch.seq, ms: 0); logAlerts(batch.alerts); logJournal(batch.journal)
-        if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
-        if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
-        timerDue = batch.timerDueMs
-        scheduleClock(due: batch.timerDueMs)
-        // What the pass did that a scroll moves (`scrolledWithoutPass`).
-        if scrolled { presenter.scrolledWithoutPass() }
-        drainReports()
-        advanceIfDue()
-    }
-
-    /// The appearance reports a landing held back (`holdingReports`), asked
-    /// once the batch the owner made before them has applied or skipped.
-    private func drainReports() {
-        if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
-        while !holdingReports, !pendingViewDark.isEmpty {
+    /// Appearance is reported after all batches already made have applied.
+    func drainReports() {
+        if colorsOwed, pendingBatches.isEmpty, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
+        while pendingBatches.isEmpty, !awaitingTree, !pendingViewDark.isEmpty {
             let (id, dark) = pendingViewDark.removeFirst()
             let batch = runtime.viewScheme(id, dark: dark)
             // Appearance already changed natively; retain its transaction accounting without rescheduling.
@@ -1050,38 +938,52 @@ public final class ExactSession {
         }
     }
 
+    /// A replacement must be present before its caller runs `treeIsIn`.
+    /// Published old work still retires its flight counters in the drain.
+    func applyReplacement(_ batch: Batch) {
+        pendingBatches.removeAll {
+            if case .batch(let next) = $0.work, next.kind == nil {
+                return next.generation != generation || next.views != viewsEpoch
+            }
+            return false
+        }
+        pendingCommands.removeAll()
+        pendingSurfaceRecords.removeAll()
+        let wasLanding = landing, wasApplying = applying
+        landing = true; applying = false
+        applyNow(batch, replacement: true)
+        applying = wasApplying; landing = wasLanding
+    }
+
     #if DEBUG
-    /// Tests: a tick's slice the owner published, not yet landed.
-    func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
-    func holdFillForTests() { fillInFlight = true }
-    func commitForTests() { generation += 1; viewsEpoch += 1 }
-    func publishFillForTests(_ view: UInt32, _ batch: Batch, generation: Int) { fillInFlight = true; publish(.fill(view), batch, generation) }
-    func oweColorsForTests() { colorsOwed = true }
+    func commitForTests(resetViews: Bool = true) { generation += 1; if resetViews { viewsEpoch += 1 } }
     #endif
 
     /// Batches that reached `apply` (`IdleTickTests` read it, and painted popovers keep their measures for one: `PositionArea.MeasureCache`).
     private(set) var appliedBatches = 0
-    package func apply(_ batch: Batch) {
+    func applyNow(_ batch: Batch, replacement: Bool = false) {
         guard state != .destroyed, !batch.busy, !batch.held else { return }
         appliedBatches += 1
         quietTimerAdvances = 0
-        // A slice the owner committed before this batch applies first (T4).
-        if !applying, !landing, ownerInFlight, hasPublished {
-            // What the landed slices leave owed is asked after this batch,
-            // which the owner made after them (T4; LLP 1034 §8).
-            holdingReports = true; landFill(); holdingReports = false
-            guard state != .destroyed else { return }
-        }
+        let captured = generation, views = viewsEpoch
         let outermost = !applying
         // After the batch's own accounting below, which a later defer runs first
-        defer { if outermost { advanceIfDue(); rasters.readmitPictures() } }
+        defer { applying = !outermost; if outermost { rasters.readmitPictures() } }
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3), told to the sampler there was when it began while the session keeps it: a recording the batch starts makes a new one, and one it stops lets a production bake's go.
         let timed = sampler, began = CACurrentMediaTime()
-        defer { if let timed, timed === sampler { timed.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }; if let q = batch.seq { natives.hatchClock.seq = q.1 }; logAlerts(batch.alerts); logJournal(batch.journal) }
+        defer { if let timed, timed === sampler { timed.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }; logAlerts(batch.alerts); logJournal(batch.journal) }
+        if let q = batch.seq { natives.hatchClock.seq = q.1 }
         if batch.facts { app.scheduleStatus() } // the app's own `setMode` or `setRootFontSize` (LLP 1122 D4)
         // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
+        // Native callbacks can apply a newer batch before this pass returns.
+        // Install this batch's state first so it cannot overwrite theirs.
+        frames.motion = batch.motion
+        frames.spatial = batch.spatial
+        frames.canvas2d = batch.canvas
+        frames.tasks = batch.frames
+        timerDue = batch.timerDueMs
         if canvasOwed { askCanvasDraw() }
         for op in batch.ops where op.op == .router { routerOp = op.payload }
         // @ref LLP 1048.003 D1 — the head's title, for the app that owns the chrome.
@@ -1108,24 +1010,19 @@ public final class ExactSession {
         // Each presenter takes its boot's table, a second one with the same too.
         ThemeRoles.apply(batch, root: presenter.root); if batch.ops.contains(where: { $0.op == .roles }) { presenter.applyThemeTint() }
         ThemeRoles.within(presenter.root) { presenter.apply(batch) }; Tambers.moved(self) // bindings' places (LLP 1121 D12)
+        guard state != .destroyed, generation == captured, viewsEpoch == views else { return }
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         AnimatedRasters.shared.poke()
         for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)); presenter.reorderGroup?.observe(ReorderGroupState(op.payload)) }
         presenter.reorder?.raiseLifted()
-        frames.motion = batch.motion
-        frames.spatial = batch.spatial
-        frames.canvas2d = batch.canvas
-        frames.tasks = batch.frames
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
-        timerDue = batch.timerDueMs
-        scheduleClock(due: batch.timerDueMs)
+        scheduleClock(due: timerDue)
         if outermost {
             while !pendingSurfaceRecords.isEmpty {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
-            drainReports()
             presenter.collections.flush()
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
@@ -1137,97 +1034,104 @@ public final class ExactSession {
             #endif
             let queued = pendingCommands
             pendingCommands = []
-            for (name, args, source) in queued {
-                if name == "copyText" {
-                    guard args.count == 1, let text = args.first as? String else {
-                        fputs("exact: copyText requires one string\n", stderr)
-                        continue
-                    }
-                    #if os(tvOS)
-                    // tvOS has no pasteboard.
-                    fputs("exact: copyText: no pasteboard\n", stderr)
-                    _ = text
-                    #elseif canImport(UIKit)
-                    UIPasteboard.general.string = text
-                    #else
-                    NSPasteboard.general.clearContents()
-                    if !NSPasteboard.general.setString(text, forType: .string) {
-                        fputs("exact: copyText failed\n", stderr)
-                    }
-                    #endif
+            if replacement {
+                afterPresentation { [self] in deliverCommands(queued, generation: captured, views: views) }
+            } else { deliverCommands(queued, generation: captured, views: views) }
+        }
+    }
+
+    private func deliverCommands(_ queued: [(String, [Any], UInt32?)], generation captured: Int, views: Int) {
+        for (name, args, source) in queued {
+            guard state != .destroyed, generation == captured, viewsEpoch == views else { break }
+            if name == "copyText" {
+                guard args.count == 1, let text = args.first as? String else {
+                    fputs("exact: copyText requires one string\n", stderr)
                     continue
                 }
-                if name == "reload" && args.isEmpty {
-                    // The dev menu's Reload, from the app, in a release build too (a Mac one has no menu, LLP 1115.000 D7.8); `EXACT_DEV_MENU=0`, at build or launch, refuses it.
-                    guard ExactEnv.devMenu != false else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
-                    app.deliver { DevMenu.reload() }
-                    continue
+                #if os(tvOS)
+                // tvOS has no pasteboard.
+                fputs("exact: copyText: no pasteboard\n", stderr)
+                _ = text
+                #elseif canImport(UIKit)
+                UIPasteboard.general.string = text
+                #else
+                NSPasteboard.general.clearContents()
+                if !NSPasteboard.general.setString(text, forType: .string) {
+                    fputs("exact: copyText failed\n", stderr)
                 }
-                if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7)
-                if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
-                if name == "startTrace_EXPERIMENTAL" || name == "stopTrace_EXPERIMENTAL" { app.deliver { [weak self] in self?.traceCommand(name, args) }; continue }
-                if name == "haptic" {
-                    // @ref LLP 1077 D14 — feedback from app logic.
-                    app.deliver { Haptics.play(args.first as? String ?? "") }
-                    continue
-                }
-                if name == "share" { app.deliver { [weak self] in self?.share(args, source: source) }; continue }
-                if name == "showNotification" || name == "closeNotification" {
-                    app.deliver { [weak self] in self?.notify(name, args) }
-                    continue
-                }
-                if name == "postMessage" {
-                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : "", iframe = args.count > 2 && args[2] as? String == "iframe"
-                    app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }
-                    continue
-                }
-                if (name == "focus" && !args.isEmpty) || name == "selectText" { // bare `focus()` is the window's: the delegate's (LLP 1133.025 §8)
-                    app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
-                    continue
-                }
-                if name == "removeAllRanges" {
-                    #if os(macOS)
-                    app.deliver { [weak self] in self?.presenter.selection.clear() }
-                    #else
-                    log("removeAllRanges refused: reader selection commands are not supported on this platform")
-                    #endif
-                    continue
-                }
-                if name == "setSelectionRange" || name == "setRangeText" {
-                    app.deliver { [weak self] in if name == "setRangeText" { self?.presenter.fieldSelections.setRangeText(args) } else { self?.presenter.fieldSelections.setSelectionRange(args) } }
-                    continue
-                }
-                if name == "blur" { app.deliver { [weak self] in self?.presenter.blurElement(args) }; continue }
-                if ["showPopover", "hidePopover", "togglePopover"].contains(name) { app.deliver { [weak self] in self?.presenter.menus.action(name, args) }; continue }
-                if name == "showModal" || (name == "close" && args.first is String) { let id = args.first as? String ?? ""; app.deliver { [weak self] in self?.presenter.dialogCommand(name, id) }; continue } // a dialog's, by id (LLP 1115 D6); bare `close()` is the window's
-                if name == "scrollIntoView" {
-                    app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
-                    continue
-                }
-                if name == "fastSeek" || name == "load" || name == "requestFullscreen" {
-                    app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
-                    continue
-                }
-                if name == "showPicker" {
-                    app.deliver { [weak self] in self?.picker.show(args) }
-                    continue
-                }
-                if name == "saveFile" {
-                    app.deliver { [weak self] in self?.picker.save(args) }
-                    continue
-                }
-                if ["showOpenFilePicker", "showDirectoryPicker", "showSaveFilePicker", "requestPermission"].contains(name) {
-                    app.deliver { [weak self] in if name == "requestPermission" { self?.picker.permission(args) } else { self?.picker.document(name, args) } }
-                    continue
-                }
-                if name == "format" {
-                    app.deliver { [weak self] in self?.presenter.formatElement(args) }
-                    continue
-                }
-                if ["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess", "setRootFontSize"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8), its MIDI queue's `midi` op sends (LLP 1125 D7); the root font size is laid out already (LLP 1069.000 D3)
-                if app.handleCommand(name) { continue }
-                app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
+                #endif
+                continue
             }
+            if name == "reload" && args.isEmpty {
+                // The dev menu's Reload, from the app, in a release build too (a Mac one has no menu, LLP 1115.000 D7.8); `EXACT_DEV_MENU=0`, at build or launch, refuses it.
+                guard ExactEnv.devMenu != false else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
+                app.deliver { DevMenu.reload() }
+                continue
+            }
+            if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7)
+            if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
+            if name == "startTrace_EXPERIMENTAL" || name == "stopTrace_EXPERIMENTAL" { app.deliver { [weak self] in self?.traceCommand(name, args) }; continue }
+            if name == "haptic" {
+                // @ref LLP 1077 D14 — feedback from app logic.
+                app.deliver { Haptics.play(args.first as? String ?? "") }
+                continue
+            }
+            if name == "share" { app.deliver { [weak self] in self?.share(args, source: source) }; continue }
+            if name == "showNotification" || name == "closeNotification" {
+                app.deliver { [weak self] in self?.notify(name, args) }
+                continue
+            }
+            if name == "postMessage" {
+                let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : "", iframe = args.count > 2 && args[2] as? String == "iframe"
+                app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }
+                continue
+            }
+            if (name == "focus" && !args.isEmpty) || name == "selectText" { // bare `focus()` is the window's: the delegate's (LLP 1133.025 §8)
+                app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
+                continue
+            }
+            if name == "removeAllRanges" {
+                #if os(macOS)
+                app.deliver { [weak self] in self?.presenter.selection.clear() }
+                #else
+                log("removeAllRanges refused: reader selection commands are not supported on this platform")
+                #endif
+                continue
+            }
+            if name == "setSelectionRange" || name == "setRangeText" {
+                app.deliver { [weak self] in if name == "setRangeText" { self?.presenter.fieldSelections.setRangeText(args) } else { self?.presenter.fieldSelections.setSelectionRange(args) } }
+                continue
+            }
+            if name == "blur" { app.deliver { [weak self] in self?.presenter.blurElement(args) }; continue }
+            if ["showPopover", "hidePopover", "togglePopover"].contains(name) { app.deliver { [weak self] in self?.presenter.menus.action(name, args) }; continue }
+            if name == "showModal" || (name == "close" && args.first is String) { let id = args.first as? String ?? ""; app.deliver { [weak self] in self?.presenter.dialogCommand(name, id) }; continue } // a dialog's, by id (LLP 1115 D6); bare `close()` is the window's
+            if name == "scrollIntoView" {
+                app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
+                continue
+            }
+            if name == "fastSeek" || name == "load" || name == "requestFullscreen" {
+                app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
+                continue
+            }
+            if name == "showPicker" {
+                app.deliver { [weak self] in self?.picker.show(args) }
+                continue
+            }
+            if name == "saveFile" {
+                app.deliver { [weak self] in self?.picker.save(args) }
+                continue
+            }
+            if ["showOpenFilePicker", "showDirectoryPicker", "showSaveFilePicker", "requestPermission"].contains(name) {
+                app.deliver { [weak self] in if name == "requestPermission" { self?.picker.permission(args) } else { self?.picker.document(name, args) } }
+                continue
+            }
+            if name == "format" {
+                app.deliver { [weak self] in self?.presenter.formatElement(args) }
+                continue
+            }
+            if ["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess", "setRootFontSize"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8), its MIDI queue's `midi` op sends (LLP 1125 D7); the root font size is laid out already (LLP 1069.000 D3)
+            if app.handleCommand(name) { continue }
+            app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
         }
     }
 
@@ -1346,7 +1250,7 @@ public final class ExactSession {
         // No window, no report: attaching reports (`didMoveToWindow`), before its scheme, so nothing eases from a stand-in blue.
         guard view?.window != nil else { return }
         #endif
-        if applying || awaitingTree { colorsOwed = true; return } // a tint the batch being applied set, reported once the batch is in
+        if applying || landing || awaitingTree { colorsOwed = true; return } // a tint the batch being applied set, reported once the batch is in
         // No app tint: `@tint` is left out, and the kernel keeps the last.
         apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) }))
     }
@@ -1356,7 +1260,7 @@ public final class ExactSession {
     private var pendingViewDark: [(UInt32, Bool)] = []
     var colorsOwed = false
     fileprivate(set) var awaitingTree = false // committed to a new runner whose tree is not in: a report would reach the old views
-    private func treeIsIn() { awaitingTree = false; replayHeld(); if colorsOwed { colorsOwed = false; reportColors() } } // only the replacement batch, not a reset's cleanup
+    private func treeIsIn() { awaitingTree = false; replayHeld(); if colorsOwed { colorsOwed = false; reportColors() }; landFill() } // only the replacement batch, not a reset's cleanup
     /// A view painting motion: when its own appearance is not the one its node's colours resolve by, say so after
     /// the batch (LLP 1062 D4).
     func noteAppearance(_ view: NodeView) { noteAppearance(view.id, dark: view.drawsDark) }
@@ -1465,8 +1369,7 @@ public final class ExactSession {
     public func destroy() {
         guard state != .destroyed else { return }
         state = .destroyed
-        let waiting = afterFill; afterFill.removeAll()
-        waiting.forEach { $0.cancelled?() }
+        cancelPendingBatches()
         generation += 1
         cancelAuthSessions()
         clockTimer?.invalidate()

@@ -13,12 +13,12 @@ extension ExactSession {
     func pumpReplies() {
         guard state != .destroyed else { return }
         let began = CACurrentMediaTime()
-        let captured = generation, time = now()
+        let captured = generation, time = now(), sequence = Owner.shared.enqueued + 1
         repliesInFlight += 1
         // Keep parsing, settlement and batch decoding on the existing owner.
         // Publication joins fills and ticks before any later synchronous batch.
         runtime.pumpAsync(now: time) { [weak self] batch in
-            self?.publish(batch == nil ? .cancelledReply : .reply, batch ?? Batch(ops: [], timers: false, motion: false, clock: nil, error: nil), captured)
+            self?.publish(batch == nil ? .cancelledReply : .reply, batch ?? Batch(ops: [], timers: false, motion: false, clock: nil, error: nil), captured, sequence: sequence)
         }
         replySubmissions.append((CACurrentMediaTime() - began) * 1000)
     }
@@ -47,8 +47,8 @@ extension ExactSession {
     func tellSoon(_ calls: [(Runtime) -> Batch]) {
         guard !runtime.holds("tellSoon(_:)") else { return } // (a notice a restart's reset sets off: held before it is counted or queued, ResetGate)
         noticesInFlight += calls.count
-        let captured = generation
-        runtime.later(calls) { [weak self] batch in self?.publish(.notice, batch, captured) }
+        let captured = generation, sequence = Owner.shared.enqueued + 1
+        runtime.later(calls) { [weak self] batch in self?.publish(.notice, batch, captured, sequence: sequence) }
     }
 
     /// `tellPage` for a notice; at once unless the data source is activating

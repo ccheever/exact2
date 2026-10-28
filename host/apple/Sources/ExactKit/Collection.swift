@@ -362,6 +362,8 @@ package final class CollectionHost {
     var onFill: ((UInt32, Data) -> Void)?
     var filling: (() -> Bool)?
     var drain: (() -> Void)?
+    /// A report measures only after the session has applied its waiting batches.
+    var reportsReady: (() -> Bool)?
     /// The slice a report sends off main, and the retire-only report a
     /// landed one owes, each with its limit.
     private var building: (view: UInt32, limit: UInt32)?
@@ -665,7 +667,7 @@ package final class CollectionHost {
         // landing flushes again (`landed`). A continuation now would find it
         // still in flight and queue another, every main-queue turn until it
         // lands (LLP 1072 §3.2).
-        if filling?() == true { return }
+        if filling?() == true || reportsReady?() == false { return }
         observeTurns()
         // Reserve the continuation before calling Rust: its batch can reenter us.
         schedule()
@@ -674,7 +676,7 @@ package final class CollectionHost {
         var free = entries.count
         while !dirty.isEmpty {
             // A slice in flight holds every report until it lands (T4).
-            if filling?() == true { return }
+            if filling?() == true || reportsReady?() == false { return }
             let rescue = !rescuing.isDisjoint(with: dirty)
             guard budget.begin(rescue: rescue) else { return }
             #if os(iOS) || os(tvOS)

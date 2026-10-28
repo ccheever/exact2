@@ -13,10 +13,12 @@ package final class Owner: @unchecked Sendable {
     private final class Job {
         var body: (() -> Void)?
         var done = false
+        let sequence: UInt64?
         /// Signalled when the job is done, or when a call waits for main.
         let wake: DispatchSemaphore
-        init(_ body: @escaping () -> Void, wake: DispatchSemaphore = DispatchSemaphore(value: 0)) {
+        init(_ body: @escaping () -> Void, sequence: UInt64? = nil, wake: DispatchSemaphore = DispatchSemaphore(value: 0)) {
             self.body = body
+            self.sequence = sequence
             self.wake = wake
         }
     }
@@ -48,6 +50,11 @@ package final class Owner: @unchecked Sendable {
     /// Main is running a call the owner waits on (T5): it cannot wait on
     /// the owner. Touched on main only.
     private var serving = 0
+    /// Main's FIFO submissions. A `later` notification belongs to the current
+    /// turn, before the next queued job, and does not advance this counter.
+    package private(set) var enqueued: UInt64 = 0
+    /// Read on the owner: the submission that produced the current result.
+    package private(set) var sequence: UInt64 = 0
 
     private init() {
         let started = DispatchSemaphore(value: 0)
@@ -83,6 +90,7 @@ package final class Owner: @unchecked Sendable {
             // A notification was posted during an earlier job: it goes first.
             let job = later.isEmpty ? jobs.removeFirst() : later.removeFirst()
             lock.unlock()
+            if let number = job.sequence { sequence = number }
             autoreleasepool { job.body?() }
             lock.lock()
             job.body = nil
@@ -103,13 +111,15 @@ package final class Owner: @unchecked Sendable {
             return busy()
         }
         if main { HostPhases.shared.count(.ownerSync) }
+        if main { enqueued += 1 }
+        let sequence = main ? enqueued : nil
         // Main's wait is the runtime phase of a late frame (LLP 1142 D1).
         let phase = main ? HostPhases.shared.begin(.runtime) : false
         defer { HostPhases.shared.end(phase) }
         return withoutActuallyEscaping(body) { body in
             var result: T?
             lock.lock()
-            let job = Job({ result = body() }, wake: spareWakes.popLast() ?? DispatchSemaphore(value: 0))
+            let job = Job({ result = body() }, sequence: sequence, wake: spareWakes.popLast() ?? DispatchSemaphore(value: 0))
             jobs.append(job)
             if main { mainWaits = job }
             lock.unlock()
@@ -145,8 +155,9 @@ package final class Owner: @unchecked Sendable {
     /// (LLP 1072 T3: the collection fill). What it produces goes back to
     /// main by its own publication.
     package func post(_ body: @escaping () -> Void) {
+        if Thread.isMainThread { enqueued += 1 }
         lock.lock()
-        jobs.append(Job(body))
+        jobs.append(Job(body, sequence: Thread.isMainThread ? enqueued : nil))
         lock.unlock()
         work.signal()
     }

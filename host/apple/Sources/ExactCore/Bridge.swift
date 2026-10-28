@@ -13,6 +13,9 @@ import Foundation
 /// One batch from the library: the ops, and whether the presenter should keep
 /// the clock (timers) or the display link (motion) running.
 public struct Batch {
+    /// The owner submission that produced this batch, retained across later calls.
+    package var ownerSequence: UInt64?
+
     public package(set) var ops: [BatchOp]
     public let timers: Bool
     public let motion: Bool
@@ -162,7 +165,9 @@ package final class Runtime {
         let (open, modal) = topLayer?() ?? ([], nil)
         return Owner.shared.sync({
             installTopLayer(open, modal: modal)
-            return body()
+            var batch = body()
+            batch.ownerSequence = Owner.shared.sequence
+            return batch
         }, busy: Runtime.busy)
     }
     private func installTopLayer(_ open: [TopLayerFrame], modal: Int?) {
@@ -229,6 +234,7 @@ package final class Runtime {
         // strings into Swift values before returning; no batch borrows the buffer.
         let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
         var batch = hooks.decodeBatch(bytes, profileResolver)
+        batch.ownerSequence = Owner.shared.sequence
         #if DEBUG
         // What was decoded, before `prepare` adds the owner's values.
         observeBatch?(Data(bytes), batch)

@@ -558,6 +558,40 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertTrue(scroller.bounds.contains(shown), "the field is in its scroller's view: \(shown) in \(scroller.bounds)")
     }
 
+    func testAReleasedRevealWaitsForItsBlocksBehindAnotherIdleReport() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "keyboard ownership requires the hosted app responder chain")
+        }
+        let session = try fixture("owner-reveal-queued", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let controller = try mountSheet()
+        let scroller = try XCTUnwrap(try node(session, "sheet-scroll").scrollView)
+        let field = try node(session, "sheet-field-c")
+        until("the scroller is laid out") { scroller.bounds.height == 60 }
+        XCTAssertTrue(try XCTUnwrap(field.field).becomeFirstResponder())
+        session.drainFill()
+        scroller.setContentOffset(.zero, animated: false)
+        session.holdFillForTests()
+        setKeyboard(p, top: 600)
+        // No layout pass yet: the first released report must submit new blocks.
+        controller.view.bounds.size.height -= 80
+        p.owners.revealOnceTold()
+        var second = false
+        session.whenIdle {
+            second = true
+            XCTAssertEqual(scroller.contentOffset.y, 0, "the blocks batch still waits behind this report")
+            p.owners.publish()
+            XCTAssertEqual(scroller.contentOffset.y, 0, "an unchanged report cannot consume the pending reveal")
+        }
+        session.publishFillForTests(1, wireBatch([]), generation: session.generation)
+        session.drainFill()
+        XCTAssertTrue(second)
+        until("the presented blocks release the reveal") {
+            scroller.contentOffset.y > 0 && scroller.bounds.contains(field.convert(field.bounds, to: scroller))
+        }
+    }
+
     /// A mounted sheet is out of its route's authored ancestry in UIKit, so
     /// what the ancestry hands down is handed to the sheet's mount: an
     /// authored `aria-hidden` above the route hides the sheet from

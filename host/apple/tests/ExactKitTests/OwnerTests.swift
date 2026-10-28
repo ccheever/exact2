@@ -103,6 +103,26 @@ final class OwnerTests: XCTestCase {
         XCTAssertEqual(order, ["served", "job", "later", "next"])
     }
 
+    func testMainSubmissionNumbersFollowFIFOAndLaterDoesNotRenumberIt() {
+        let owner = Owner.shared, before = Owner.shared.enqueued
+        var order: [String] = []
+        owner.post {
+            owner.callMain {
+                XCTAssertEqual(owner.enqueued, before + 2, "main has queued its synchronous job already")
+                owner.syncOrLater { order.append("later") }
+                XCTAssertEqual(owner.enqueued, before + 2, "the notification belongs before the next FIFO job")
+                XCTAssertEqual(owner.sync({ 1 }, busy: -1), -1)
+                XCTAssertEqual(owner.enqueued, before + 2, "a refused call enqueues nothing")
+            }
+            order.append("post")
+        }
+        owner.sync { order.append("sync") }
+        XCTAssertEqual(owner.enqueued, before + 2)
+        XCTAssertEqual(order, ["post", "later", "sync"])
+        owner.sync { owner.sync {} }
+        XCTAssertEqual(owner.enqueued, before + 3, "an owner-side inline call is part of the same job")
+    }
+
     func testCallMainFromAnAsynchronousOwnerJobIsServedByTheMainQueue() {
         let done = expectation(description: "served")
         Owner.shared.sync {

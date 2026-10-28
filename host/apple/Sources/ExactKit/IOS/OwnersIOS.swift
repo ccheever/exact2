@@ -204,6 +204,7 @@ final class OwnerBlocks {
     /// placement unless it is presented.
     private(set) var told: [UInt32: (block: HostBlock, placement: BlockPlacement?)] = [:]
     private var resetting = false, revealOwed = false
+    private var pendingReports = 0
     /// Each block's rectangle in its root's coordinates (`BatchOp.blockRect`),
     /// as the last layout sent it: what an open popover is reported by.
     private(set) var blockRects: [UInt32: CGRect] = [:]
@@ -333,10 +334,19 @@ final class OwnerBlocks {
         blocks += told.keys.filter { now[$0] == nil && presenter.views[$0] != nil }.map { ($0, nil) }
         told = now
         if !blocks.isEmpty || !placements.isEmpty {
-            session.applyUnlessEmpty(session.runtime.blocks(blocks, placements: placements), scrolled: true)
+            pendingReports += 1
+            session.applyUnlessEmpty(session.runtime.blocks(blocks, placements: placements), scrolled: true) { [weak self] in
+                guard let self else { return }
+                pendingReports -= 1
+                revealIfTold()
+            }
         }
-        // Reveal against the blocks just told, after their pending fill
-        if revealOwed {
+        revealIfTold()
+    }
+
+    private func revealIfTold() {
+        // Another released idle report can run before the blocks batch lands.
+        if revealOwed, pendingReports == 0 {
             revealOwed = false
             presenter.revealSettledEditor()
         }
@@ -373,6 +383,7 @@ final class OwnerBlocks {
         told = [:]
         blockRects = [:]
         revealOwed = false
+        pendingReports = 0
     }
 }
 

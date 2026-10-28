@@ -4,13 +4,13 @@ import XCTest
 @testable import ExactKit
 
 /// LLP 1072: a list scrolled with its slices built on the owner thread while
-/// main paints what they mount. The macOS host keeps slices synchronous in
-/// the app; the test turns the asynchronous path on, so the Thread
-/// Sanitizer (`swift test --sanitize=thread`) sees owner-side measurement and
-/// main-side painting of the same rows at once.
+/// main paints what they mount. The Thread Sanitizer (`swift test
+/// --sanitize=thread`) sees measurement and painting of the same rows at once.
 final class OwnerScrollMacTests: XCTestCase {
     private var window: NSWindow?
-    override func tearDown() { window?.close(); window = nil; ExactSession.asyncFills = false }
+    private var savedAsyncFills = false
+    override func setUp() { super.setUp(); savedAsyncFills = ExactSession.asyncFills }
+    override func tearDown() { window?.close(); window = nil; ExactSession.asyncFills = savedAsyncFills; super.tearDown() }
 
     func testAListScrolledWithSlicesOnTheOwnerKeepsItsRows() throws {
         try caltrainArchive()

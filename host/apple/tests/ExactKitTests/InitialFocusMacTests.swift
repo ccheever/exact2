@@ -93,6 +93,54 @@ final class InitialFocusMacTests: XCTestCase {
         }
     }
 
+    func testANestedReplacementRestoresFocusAfterItsListFills() throws {
+        _ = NSApplication.shared
+        let bytes = try plan("""
+        component App
+          state rows = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+          view
+            main width="100%" height="100%"
+              list virtualized=true id="fields" width="100%" height="100%"
+                for n in rows key=n
+                  input id=`field-${n}` testId=`field-${n}` value="" height=40
+
+        """)
+        let session = ExactApp.shared.makeSession(label: "restore-list-focus")
+        defer { session.destroy() }
+        session.clock = 0
+        let view = ExactView(session: session)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer { window.close() }
+        XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 400, height: 300)).error)
+        let p = session.presenter
+        p.focusElement(["field-0"])
+        XCTAssertEqual(p.focusedNode?.props["testId"], "field-0")
+        let feedback = p.collections.onFeedback
+        var reported = false
+        p.collections.onFeedback = { data in
+            if !reported {
+                reported = true
+                XCTAssertNil(p.focusedNode, "the replacement must not restore focus before its first list report")
+                XCTAssertTrue(session.autofocusHeld)
+            }
+            feedback?(data)
+        }
+        let receive = p.onCommand
+        p.onCommand = { name, args, source in
+            if name != "replace" { receive?(name, args, source); return }
+            // An old publication still needs to retire. The replacement's
+            // list cannot report while it is in flight inside this landing.
+            session.publishTickForTests(wireBatch([]))
+            XCTAssertTrue(session.apply(bytes, label: "focused-list"))
+        }
+        session.apply(wireBatch([["op": "command", "name": "replace", "args": []]]))
+        XCTAssertTrue(reported)
+        XCTAssertTrue(p.collections.entries.values.allSatisfy { $0.lastFacts != nil })
+        XCTAssertEqual(p.focusedNode?.props["testId"], "field-0", "focus restoration follows the new row's layout")
+    }
+
     func testAnUnshownWindowAnswersAgentReadsWithoutAnExplicitAutofocusRelease() throws {
         _ = NSApplication.shared
         let bytes = try plan(source(autofocus: true))

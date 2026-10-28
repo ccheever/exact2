@@ -73,7 +73,7 @@ extension ExactSession {
     /// for a `then`, a queue's `next` or an answer that is the earliest work
     /// due; what is due after it is posted.
     func advanceIfDue() {
-        guard !advancingDue, !applying, !landing, !holdingReports, state != .destroyed, clock == nil, !ExactEnv.agentMode,
+        guard !advancingDue, !applying, !landing, state != .destroyed, clock == nil, !ExactEnv.agentMode,
               !frames.tasks, !ownerInFlight, let due = timerDue, due <= now() else { return }
         advancingDue = true
         defer { advancingDue = false }
@@ -93,15 +93,15 @@ extension ExactSession {
     /// owner runs it, as one main waited for does.
     func sendAdvance(now: Double, frame: Double? = nil) {
         advanceInFlight = true
-        let captured = generation
-        runtime.advanceAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.advance, batch, captured) }
+        let captured = generation, sequence = Owner.shared.enqueued + 1
+        runtime.advanceAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.advance, batch, captured, sequence: sequence) }
     }
 
     /// A frame's tick on the owner, not waited for: motion sampled at this
     /// frame lands with the next main-queue turn (LLP 1072 §7.1).
     func sendTick(now: Double, frame: Double? = nil) {
         tickInFlight = true
-        let captured = generation
-        runtime.tickAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.tick, batch, captured) }
+        let captured = generation, sequence = Owner.shared.enqueued + 1
+        runtime.tickAsync(now: now, frame: frame) { [weak self] batch in self?.publish(.tick, batch, captured, sequence: sequence) }
     }
 }
