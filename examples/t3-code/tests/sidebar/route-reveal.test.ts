@@ -11,6 +11,7 @@ import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
 import { legacySidebarSnapshot } from '../../src/sidebar/legacy-sidebar-view';
 import { sidebarLocal } from '../../src/sidebar/sidebar-commands';
 import { sidebarPrefs, sidebarSession } from '../../src/sidebar/sidebar-state';
+import { contractComponent } from '../support/contract-action-fixture';
 
 describe('pendingRouteReveal', () => {
   it('keeps a revealed thread settled across a frame with no thread open', () => {
@@ -126,5 +127,25 @@ describe('the legacy sidebar', () => {
   it('reveals the open row, with the project the virtualized list brings in', () => {
     const view = legacySidebarSnapshot(legacy('t2'), NOW, helpers);
     expect(view).toMatchObject({ revealRow: 't2', revealPending: 't2', revealProject: 'env:/a' });
+  });
+  it('a row in a project the list has not built: the project comes in first, then the row, and only then is it done', () => {
+    const sidebar = contractComponent('legacy-sidebar.contract', 'LegacySidebar'), state = sidebar.state(), calls: unknown[][] = [];
+    let built = false;
+    const legacy = { revealPending: 't9', revealRow: 't9', revealProject: 'env:/a' };
+    const scope = {
+      data: { legacy }, legacy, // `legacy` is the component's derive of `data`; an action reads it as it stands
+      frame: () => ({ unavailable: !built }),
+      scrollIntoView: (...args: unknown[]) => { calls.push(['scroll', ...args]); },
+      local: (...args: unknown[]) => { calls.push(['local', ...args]); },
+    };
+    expect(sidebar.drawn('testId="legacy-reveal"', state, scope)).toBe(true);
+    sidebar.call('revealDue', state, scope, ['t9', 1, 1]);
+    expect(calls).toEqual([['scroll', 'legacy-projects', 'env:/a', { block: 'nearest', behavior: 'instant' }]]);
+    expect(sidebar.drawn('testId="legacy-reveal"', state, scope)).toBe(false);
+    expect(sidebar.drawn('testId="legacy-reveal-row"', state, scope)).toBe(true);
+    built = true;
+    sidebar.call('revealRowDue', state, scope, ['t9', 1, 1]);
+    expect(calls.slice(1)).toEqual([['scroll', 'legacy-row-t9', { block: 'nearest', behavior: 'instant' }], ['local', 'reveal-done', 't9', '']]);
+    expect(state).toMatchObject({ revealRowNext: '', mountRevealed: true });
   });
 });

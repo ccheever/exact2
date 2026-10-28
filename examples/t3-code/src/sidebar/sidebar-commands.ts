@@ -436,8 +436,8 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
   if (op.startsWith('legacy-')) return legacyLocal(client, op.slice(7), id, value);
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
   if (op === 'pill-dismiss') { dismissProviderPill(client, value); return ''; }
-  // The window's clock passed a Working grace (sidebar.contract graceDue): it ends, and the thread heads the inbox.
-  if (op === 'working-grace') { workingInbox(client).expire(Number(value)); return ''; }
+  // The window's clock (sidebar.contract graceDue): owed Working stamps are paid with it, and a grace past it ends.
+  if (op === 'working-grace') { workingInbox(client).advance(Number(value)); return ''; }
   // The open row scrolled into view (sidebar.contract revealDue): the route's reveal is done.
   if (op === 'reveal-done') { completeRouteReveal(session.reveal, scopedRowKey(client, id)); return ''; }
   if (op === 'shelf') {
@@ -460,6 +460,7 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
     else if (count && value === 'ArrowUp') session.searchIndex = (session.searchIndex - 1 + count) % count;
   } else if (op === 'rename-start') startRename(client, id); // after its first click's open has landed (app.contract)
   else if (op === 'rename-key') { if (value === 'Escape' && session.renameId === id) { session.renameId = ''; session.renameTitle = ''; } }
+  else if (op === 'rename-input') { if (session.renameId === id) session.renameTitle = value; } // the field's text, for its direction
   else if (op === 'dialog-close') closeDialog(session);
   else if (op.startsWith('calendar-')) calendarLocal(session, op, id, value, localDate(new Date(wall(client)))); // The date popover
   else if (op === 'dialog-field') {

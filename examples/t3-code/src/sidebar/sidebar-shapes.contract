@@ -176,6 +176,7 @@ shape SidebarView
   ticking: bool
   // The soonest Working grace's end in window time, 0 for none (thread-inbox.ts).
   graceUntil: number
+  graceOwed: number
   probes: TextProbe[]
   searching: bool
   searchPending: bool

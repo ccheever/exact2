@@ -323,7 +323,7 @@ component ThreadRow
                   // variantAction "unsettle": [&:not(:hover):not(:focus-within)_*]:text-secondary-label recedes the badge ink too.
                   SidebarDropVerb(verb=sweptBadge, ink=(t.section == "settled" and not isOpen ? "light-dark(#71717b, #8f8f8f)" : "light-dark(#1b4ed8, #346bf1)"))
         if threadJumpHints and t.jump != ""
-          box position="absolute" right="0.375rem" top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff0c)" background-color="light-dark(#fcfcfcf2, #0a0a0af2)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" pointer-events="none" aria-hidden=true
+          box position="absolute" right="0.375rem" top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="624.9375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff0c)" background-color="light-dark(#fcfcfcf2, #0a0a0af2)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" pointer-events="none" aria-hidden=true
             text t.jump font-family="ui-monospace" font-size="0.625rem" line-height="0.75rem" font-weight=500 letter-spacing=-0.25 color="light-dark(#18181b, #f3f3f3)"
 
 // Zero-size boxes at the row's top for each control that carries a tooltip
@@ -511,6 +511,7 @@ component SidebarRenameField
   action edit(value: string)
     title = value
     releaseUndoClaim() // a field's edit hands ⌘Z back to the fields (ThreadUndoShortcut's input listener)
+    local("rename-input", t.id, value) // `dir="auto"`: the data module reads the typed text's direction
   // SidebarThreadRow's rename field ignores a key that confirms an input method's candidate.
   action renameKey(k: string, e: KeyboardEvent)
     if not e.isComposing
@@ -599,9 +600,9 @@ component DraftCard
                 SidebarIcon(name="x", size=12, color=(hoverId == `draft:${d.id}#discard` ? "light-dark(#18181b, #f1f3f7)" : "light-dark(#71717b, #a3a3a3)"))
         text d.preview width="100%" margin-top="0.125rem" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181be6, #f3f3f3e6)" line-clamp=1 text-align="left"
 
-// The lifted row's destination (dropVerbBadge): Pin, Unpin, Settle, Un-settle or Wake.
 // MiddleTruncate (ui/middle-truncate.tsx): a branch too long for its line keeps its tail (middle-truncate.ts) and the
-// head gives way, its ellipsis just before the tail; one without a tail is cut at its end.
+// head gives way; one without a tail is cut at its end. The reference draws the ellipsis on the tail's side of the
+// cut; Contract's `text-overflow` cuts only at a text's end, so here it ends the head (proposal F7).
 component MiddleTruncate
   props
     value: string
@@ -616,6 +617,7 @@ component MiddleTruncate
         text head font-size="0.75rem" line-height="1rem" color=ink flex-shrink=1 min-width=0 overflow="hidden" white-space="nowrap" text-overflow="ellipsis"
         text tail font-size="0.75rem" line-height="1rem" color=ink flex-shrink=0 white-space="nowrap"
 
+// The lifted row's destination (dropVerbBadge): Pin, Unpin, Settle, Un-settle or Wake.
 component SidebarDropVerb
   props
     verb: string

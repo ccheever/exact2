@@ -3,7 +3,8 @@
 // Pull request sharing; Sharing & access ("access") holds This machine and Authorized clients.
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { appPath } from '../support/app-files';
+import { appPath, appText } from '../support/app-files';
+import { contractComponent, value } from '../support/contract-action-fixture';
 import { runConnectionOp } from '../../src/connections/connections';
 import { environmentKey } from '../../src/connections/settings-b-fleet';
 import { obj } from '../../src/client/domain';
@@ -12,15 +13,25 @@ import type { Native } from '../../src/client/protocol';
 const source = readFileSync(appPath('src/connections/connections.contract'), 'utf8');
 const component = (name: string) => { const start = source.indexOf(`\ncomponent ${name}\n`); return source.slice(start, source.indexOf('\ncomponent ', start + 1)); };
 
-test('Sharing & access shows This machine and Authorized clients; Environments the rest', () => {
-  const panel = component('ConnectionsPanel'), split = panel.indexOf('if view == "access"'), rest = panel.indexOf('      else\n', split);
-  expect(split).toBeGreaterThan(0);
-  const access = panel.slice(split, rest), environments = panel.slice(rest);
-  expect(access).toContain('ThisMachineSection(');
-  expect(access).toContain('AuthorizedClients(');
-  expect(access).not.toContain('ThisAppSection(');
-  expect(environments).toContain('ThisAppSection(');
-  expect(environments).toContain('ConnectionsEnvironments(');
+test('the real mount passes its route: Settings › Connections draws Environments, Sharing & access the rest', () => {
+  // app-settings.contract mounts the panel on the connections route and hands it that route as its `view`.
+  const settings = appText('app-settings.contract').split('\n'), at = settings.findIndex(text => text.includes('ConnectionsPanel(view='));
+  expect(settings.slice(0, at).reverse().find(text => text.trim().startsWith('if '))?.trim()).toBe('if settingsRoute == "connections"');
+  const viewArgument = /ConnectionsPanel\(view=([^,]+),/.exec(settings[at]!)![1]!;
+  const view = value(viewArgument, { settingsRoute: 'connections' });
+  expect(view).toBe('connections');
+  const panel = contractComponent('connections.contract', 'ConnectionsPanel'), state = panel.state();
+  const drawn = (marker: string, route: unknown) => panel.drawn(marker, state, { view: route, width: 800, error: '', page: { network: { visible: true, clientsVisible: true } } });
+  for (const section of ['ThisAppSection(', 'ConnectionsEnvironments(']) {
+    expect(drawn(section, view)).toBe(true);
+    expect(drawn(section, 'access')).toBe(false);
+  }
+  // The Sharing & access route (the settings task's) draws This machine and Authorized clients, and the
+  // connections route does not.
+  for (const section of ['ThisMachineSection(', 'AuthorizedClients(']) {
+    expect(drawn(section, view)).toBe(false);
+    expect(drawn(section, 'access')).toBe(true);
+  }
   // This app holds the Local environment switch; This machine no longer does.
   expect(component('ThisAppSection')).toContain('PvSectionTitle(title="This app")');
   expect(component('ThisAppSection')).toContain('id="local-environment-switch"');

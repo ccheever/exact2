@@ -1,4 +1,4 @@
-// The "Sidebar (legacy)" projection (LegacySidebar.tsx, T3 Code 74541bab17; MIT,
+// The "Sidebar (legacy)" projection (LegacySidebar.tsx, T3 Code 7c3b3b3605ef; MIT,
 // see LICENSE-T3): projects grouped across this environment and the fleet's
 // background environments (sidebarProjectGrouping.ts), sorted by Sort projects
 // (Manual keeps the persisted project order), each with its threads sorted by

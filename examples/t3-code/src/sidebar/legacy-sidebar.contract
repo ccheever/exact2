@@ -110,14 +110,23 @@ component LegacySidebar
   action projectMenu(key: string)
     menuProject = key
   // The open row scrolls into view (block nearest) on each route change and once for each mount (useActiveRowReveal):
-  // a marker mounts once the row is listed, and its first layout scrolls, as the row's own ref does. A project the
-  // virtualized list has not built yet is brought in by its key.
+  // a marker mounts once the row is listed, and its first layout scrolls, as the row's own ref does. A row whose
+  // project the virtualized list has not built yet takes two layouts: the first brings the project in by its key, and
+  // the second, once its rows are built, scrolls to the row.
   state mountRevealed = false
+  state revealRowNext = ""
   derive revealTarget = legacy.revealPending != "" ? legacy.revealPending : (mountRevealed ? "" : legacy.revealRow)
   action revealDue(id: string, w: number, h: number)
     if frame(`legacy-row-${id}`).unavailable
       scrollIntoView("legacy-projects", legacy.revealProject, block="nearest", behavior="instant")
+      revealRowNext = id
     else
+      scrollIntoView(`legacy-row-${id}`, block="nearest", behavior="instant")
+      mountRevealed = true
+      local("reveal-done", id, "")
+  action revealRowDue(id: string, w: number, h: number)
+    revealRowNext = ""
+    if not frame(`legacy-row-${id}`).unavailable
       scrollIntoView(`legacy-row-${id}`, block="nearest", behavior="instant")
     mountRevealed = true
     local("reveal-done", id, "")
@@ -125,9 +134,12 @@ component LegacySidebar
     column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="legacy-sidebar" id="legacy-sidebar" focusin=focusWithin(true) focusout=focusWithin(false) data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
       LegacyThreadMenu(projects=legacy.projects, owner=menuThread, run=run)
       LegacyProjectMenu(projects=legacy.projects, owner=menuProject, run=run)
-      if revealTarget != ""
+      if revealTarget != "" and revealRowNext == ""
         for target in [revealTarget] key=target
           box position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" aria-hidden=true resize=revealDue(target) testId="legacy-reveal"
+      if revealRowNext != ""
+        for next in [revealRowNext] key=next
+          box position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" aria-hidden=true resize=revealRowDue(next) testId="legacy-reveal-row"
       // SidebarChromeHeader: the titlebar row with the stage artwork or the version pill.
       if data.look.artwork
         NightlyBackdrop()
@@ -553,7 +565,7 @@ component LegacyThread
                 box flex-shrink=0 display="flex" role="img" aria-label=t.remoteLabel testId=`thread-remote-${t.id}`
                   CnMachineIcon(kind=t.remoteMachine, size=12, color="light-dark(#71717b66, #a3a3a366)")
               if threadJumpHints and t.jump != ""
-                text t.jump height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#ffffffe6, #0a0a0ae6)" font-family="ui-monospace, monospace" font-size="0.625rem" line-height="1.125rem" font-weight=500 color="light-dark(#18181b, #f3f3f3)" white-space="nowrap" aria-label=t.jump testId=`thread-jump-${t.id}`
+                text t.jump height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="624.9375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#ffffffe6, #0a0a0ae6)" font-family="ui-monospace, monospace" font-size="0.625rem" line-height="1.125rem" font-weight=500 color="light-dark(#18181b, #f3f3f3)" white-space="nowrap" aria-label=t.jump testId=`thread-jump-${t.id}`
               else
                 text t.age font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=(highlighted ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#71717b, #8f8f8f)") white-space="nowrap"
         if confirmShown

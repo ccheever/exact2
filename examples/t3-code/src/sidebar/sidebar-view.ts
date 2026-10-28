@@ -1,4 +1,4 @@
-// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
 import { instanceIconUrl } from '../providers/acp-icons';
 // The sidebar's projection into the snapshot (Sidebar.tsx render): the rows in
 // paint order (collapsed shelves contribute only the open thread, as the
@@ -84,6 +84,8 @@ export interface SidebarView {
   settledCount: number; snoozedCount: number; workingCount: number; ticking: boolean; probes: Probe[];
   /** The soonest Working grace's end (window time), 0 for none: the window's clock ends it there (thread-inbox.ts). */
   graceUntil: number;
+  /** Non-zero while a grace's start or a return's stamp waits for the window's clock; it changes with each new one. */
+  graceOwed: number;
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopes: SidebarScope[];
@@ -308,8 +310,9 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     : project ? projectGlyph(client, project, helpers.projectIdentity) : projectGlyph(client, { title: projectTitle }, helpers.projectIdentity);
   return {
     id, title: str(thread.title, 'Untitled thread'), projectName,
-    // A title reads in its majority direction, start-aligned; the rename field as `dir="auto"` reads it.
-    titleDir: textDirection(str(thread.title, 'Untitled thread')) ?? 'ltr', renameDir: autoDirection(str(thread.title, 'Untitled thread')) ?? 'ltr', ...helpers.projectIdentity(projectTitle), ...grayIdentity(helpers.projectIdentity(projectTitle).projectInk),
+    // A title reads in its majority direction, start-aligned; the rename field follows what is typed, as `dir="auto"`.
+    titleDir: textDirection(str(thread.title, 'Untitled thread')) ?? 'ltr',
+    renameDir: autoDirection(session.renameId === id ? session.renameTitle : str(thread.title, 'Untitled thread')) ?? 'ltr', ...helpers.projectIdentity(projectTitle), ...grayIdentity(helpers.projectIdentity(projectTitle).projectInk),
     providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName), providerIcon: providerIconUrl(instance, obj(environment.settings)),
     terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
@@ -420,7 +423,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const identity = helpers.projectIdentity(scope ? groupTitle(scope) : '');
   const undo = session.undo, live = undoLive(client);
   const pill = sidebarProviderPill(client, clock(now));
-  const graceUntil = workingInbox(client).nextDeadline();
+  const inbox = workingInbox(client), graceUntil = inbox.nextDeadline(), graceOwed = inbox.owed();
   return {
     threads, searchFirstId: searching ? str(rows[searchIndex]?.thread.id) : '',
     snoozePresets: snoozePresets(now, client.local.deviceSettings.timestampFormat),
@@ -430,7 +433,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       searchSelectedId: searching ? str(rows[searchIndex]?.thread.id) : '',
       settledCount: parts.settled.length, snoozedCount: parts.snoozed.length, workingCount: parts.working.length, probes: SIDEBAR_PROBES,
       // A Working row's label ticks each second, and so does the clock a grace or a timed provider pill waits on.
-      ticking: threads.some(thread => thread.workingSince > 0) || graceUntil > 0 || (pill?.until ?? 0) > 0, graceUntil,
+      ticking: threads.some(thread => thread.workingSince > 0) || graceUntil > 0 || graceOwed > 0 || (pill?.until ?? 0) > 0, graceUntil, graceOwed,
       settledExpanded: prefs.settledExpanded, snoozedExpanded: prefs.snoozedExpanded, workingExpanded: prefs.workingExpanded,
       showMore: prefs.settledExpanded && hidden > 0 ? Math.min(hidden, SETTLED_TAIL_PAGE_COUNT) : 0,
       emptyText: searching || total > 0 || draftRows(client, helpers.projectIdentity).length > 0 ? '' : client.shell.projects.length === 0 ? 'No projects yet' : scope ? `No threads in ${scope.name} yet` : 'No threads yet',

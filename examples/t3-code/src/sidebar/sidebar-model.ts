@@ -202,9 +202,14 @@ export function sortActive(threads: Obj[]): Obj[] {
     return order || byId(left, right);
   });
 }
+/** sortInboxThreadsByReturn's time for a thread before any observed return: creation, un-settling, the latest run. */
+export function inboxTime(thread: Obj): number {
+  const run = latestRun(thread);
+  return Math.max(anchor(thread), parse(run?.requestedAt) || 0, parse(run?.completedAt) || 0);
+}
 /** sortInboxThreadsByReturn (Working beta): newest return to the user first. */
 export function sortByReturn(threads: Obj[], observed?: (thread: Obj) => number | undefined): Obj[] {
-  const time = (thread: Obj) => { const run = latestRun(thread); return Math.max(anchor(thread), parse(run?.requestedAt) || 0, parse(run?.completedAt) || 0, observed?.(thread) ?? 0); };
+  const time = (thread: Obj) => Math.max(inboxTime(thread), observed?.(thread) ?? 0);
   return [...threads].sort((left, right) => time(right) - time(left) || byId(left, right));
 }
 /**

@@ -335,7 +335,7 @@ component SidebarDragGhost
       SidebarIcon(name="messages-square", size=16, color="light-dark(#71717b, #a1a1a1)")
       text t.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f3f3f3)" line-clamp=1 min-width=0
       if count > 1
-        text `+${count - 1}` flex-shrink=0 padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" background-color="light-dark(#f4f4f5, #ffffff0a)" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+        text `+${count - 1}` flex-shrink=0 padding-left="0.375rem" padding-right="0.375rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0a)" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
 
 // The lifted row (Sidebar.tsx isDragging: the sidebar surface under the row
 // tint, shadow-lg), with its destination verb in place of the age.

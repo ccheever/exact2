@@ -1,6 +1,6 @@
 // Ported from T3 Code 7c3b3b3605ef packages/client-runtime/src/state/threadInbox.test.ts createInboxReturnTracker
-// (MIT, see LICENSE-T3). exact2: the inputs are raw V2 thread shells; the clock is passed in, and the window's report
-// (`expire`) stands where the reference's timer fires.
+// (MIT, see LICENSE-T3). exact2: the inputs are raw V2 thread shells. The window's report (`advance`) stands where the
+// reference reads `now()`: it starts an owed grace, stamps an owed return, and ends a grace as the timer would.
 import { describe, expect, it } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
@@ -27,6 +27,8 @@ describe('InboxReturnTracker (createInboxReturnTracker)', () => {
     expect(first.returnedAt(thread('a', true))).toBeUndefined();
     expect(first.returnedAt(thread('b', false))).toBeUndefined();
     const held = inbox.observe([thread('a', false), thread('b', false)], T0);
+    inbox.advance(T0);
+    inbox.advance(T0 + 2_000);
     const second = inbox.observe([thread('a', false), thread('b', false)], T0 + 2_000);
     expect(second.returnedAt(thread('a', false))).toBe(T0 + WORKING_EXIT_GRACE_MS);
     expect(second.returnedAt(thread('b', false))).toBeUndefined();
@@ -35,26 +37,42 @@ describe('InboxReturnTracker (createInboxReturnTracker)', () => {
     expect(held.returnedAt(thread('a', false))).toBeUndefined();
   });
 
-  it('holds only placement until the window\'s clock passes the grace', () => {
+  it('starts the grace when the window\'s clock next reads, and holds only placement until it passes', () => {
     const inbox = tracker();
     inbox.observe([thread('a', true)], T0);
     inbox.observe([thread('a', false)], T0);
     expect(inbox.isWorking(thread('a', false))).toBe(true);
-    expect(inbox.nextDeadline()).toBe(T0 + 2_000);
-    expect(inbox.expire(T0 + 1_999)).toBe(false);
+    expect([inbox.owed() > 0, inbox.nextDeadline()]).toEqual([true, 0]);
+    expect(inbox.advance(T0 + 400)).toBe(true);
+    expect([inbox.owed(), inbox.nextDeadline()]).toEqual([0, T0 + 2_400]);
+    expect(inbox.advance(T0 + 2_399)).toBe(false);
     expect(inbox.isWorking(thread('a', false))).toBe(true);
-    expect(inbox.expire(T0 + 2_400)).toBe(true);
+    expect(inbox.advance(T0 + 2_800)).toBe(true);
     expect(inbox.isWorking(thread('a', false))).toBe(false);
     // Its return is the grace's end, where the reference's timer fires.
-    expect(inbox.returnedAt(thread('a', false))).toBe(T0 + 2_000);
+    expect(inbox.returnedAt(thread('a', false))).toBe(T0 + 2_400);
     expect(inbox.nextDeadline()).toBe(0);
   });
 
-  it('starts the grace no earlier than the shell changed, when the snapshot clock lags the event', () => {
+  it('times the grace on the window\'s clock alone: a server clock a minute ahead does not lengthen it', () => {
     const inbox = tracker();
-    inbox.observe([thread('a', true)], T0 - 40_000);
-    inbox.observe([thread('a', false, { updatedAt: stamp(T0) })], T0 - 40_000);
-    expect(inbox.nextDeadline()).toBe(T0 + 2_000);
+    inbox.observe([thread('a', true)], T0);
+    inbox.observe([thread('a', false, { updatedAt: stamp(T0 + 60_000), latestRunId: 'run-1', latestRunCompletedAt: stamp(T0 + 60_000) })], T0);
+    inbox.advance(T0 + 300);
+    expect(inbox.nextDeadline()).toBe(T0 + 2_300);
+    expect(inbox.advance(T0 + 2_300)).toBe(true);
+    expect(inbox.isWorking(thread('a', false))).toBe(false);
+  });
+
+  it('a snapshot clock that moved on starts an owed grace when no window reports one', () => {
+    const inbox = tracker();
+    inbox.observe([thread('a', true)], T0);
+    inbox.observe([thread('a', false)], T0);
+    inbox.observe([thread('a', false)], T0 + 60_000);
+    expect(inbox.nextDeadline()).toBe(T0 + 62_000);
+    inbox.observe([thread('a', false)], T0 + 120_000);
+    expect(inbox.isWorking(thread('a', false))).toBe(false);
+    expect(inbox.returnedAt(thread('a', false))).toBe(T0 + 62_000);
   });
 
   it('cancels a transient return on resume and grants a fresh grace after the next finish', () => {
@@ -63,12 +81,14 @@ describe('InboxReturnTracker (createInboxReturnTracker)', () => {
     expect(inbox.isWorking(thread('a', false))).toBe(false);
     inbox.observe([thread('a', true)], T0);
     inbox.observe([thread('a', false)], T0);
+    inbox.advance(T0);
     inbox.observe([thread('a', true)], T0 + 1_500);
-    expect(inbox.expire(T0 + 2_500)).toBe(false);
+    expect(inbox.advance(T0 + 2_500)).toBe(false);
     expect(inbox.returnedAt(thread('a', true))).toBeUndefined();
-    inbox.observe([thread('a', false, { updatedAt: stamp(T0 + 2_500) })], T0 + 2_500);
-    expect(inbox.expire(T0 + 4_499)).toBe(false);
-    expect(inbox.expire(T0 + 4_500)).toBe(true);
+    inbox.observe([thread('a', false)], T0 + 2_500);
+    inbox.advance(T0 + 2_500);
+    expect(inbox.advance(T0 + 4_499)).toBe(false);
+    expect(inbox.advance(T0 + 4_500)).toBe(true);
     expect(inbox.returnedAt(thread('a', false))).toBe(T0 + 4_500);
   });
 
@@ -82,14 +102,28 @@ describe('InboxReturnTracker (createInboxReturnTracker)', () => {
     ['settling', { settledOverride: 'settled' }],
     ['a snooze', { snoozedUntil: '1970-01-02T00:00:00Z' }],
     ['a manual move', { activeOrderKey: 'manual-order' }],
-  ])('ends a grace at once for %s', (_label, change) => {
+  ])('ends a grace at once for %s, its return stamped by the window\'s clock', (_label, change) => {
     const inbox = tracker();
     inbox.observe([thread('a', true)], T0);
     inbox.observe([thread('a', false)], T0);
     inbox.observe([thread('a', false, change as Obj)], T0);
     expect(inbox.isWorking(thread('a', false))).toBe(false);
-    expect(inbox.returnedAt(thread('a', false))).toBe(T0);
     expect(inbox.nextDeadline()).toBe(0);
+    inbox.advance(T0 + 700);
+    expect(inbox.returnedAt(thread('a', false))).toBe(T0 + 700);
+  });
+
+  it('an approval seen on a lagging snapshot clock heads the inbox at once, then takes the window\'s time', () => {
+    const inbox = tracker();
+    const lagging = T0 - 50_000; // the snapshot clock, read once a minute
+    const fresh = thread('fresh', false, { createdAt: stamp(T0 + 3_000), updatedAt: stamp(T0 + 3_000) });
+    inbox.observe([thread('b', true), fresh], lagging);
+    const asks = thread('b', true, { status: 'waiting', activityRunStatus: 'waiting', pendingRuntimeRequest: { kind: 'approval' }, updatedAt: stamp(T0 + 10_000) });
+    const seen = inbox.observe([asks, fresh], lagging);
+    expect(sortByReturn([fresh, asks], seen.returnedAt).map(item => item.id)).toEqual(['b', 'fresh']);
+    inbox.advance(T0 + 10_400);
+    expect(inbox.returnedAt(asks)).toBe(T0 + 10_400);
+    expect(sortByReturn([fresh, asks], item => inbox.returnedAt(item)).map(item => item.id)).toEqual(['b', 'fresh']);
   });
 
   it('grants grace after a retained expired snooze, not to a future one', () => {
@@ -110,11 +144,13 @@ describe('InboxReturnTracker (createInboxReturnTracker)', () => {
     const inbox = tracker();
     inbox.observe([thread('a', true), thread('b', true)], T0);
     inbox.observe([thread('a', false), thread('b', true)], T0);
-    inbox.observe([thread('a', false), thread('b', false, { updatedAt: stamp(T0 + 500) })], T0 + 500);
-    inbox.expire(T0 + 2_000);
+    inbox.advance(T0);
+    inbox.observe([thread('a', false), thread('b', false)], T0 + 500);
+    inbox.advance(T0 + 500);
+    inbox.advance(T0 + 2_000);
     expect(inbox.returnedAt(thread('a', false))).toBe(T0 + 2_000);
     expect(inbox.returnedAt(thread('b', false))).toBeUndefined();
-    inbox.expire(T0 + 2_500);
+    inbox.advance(T0 + 2_500);
     expect(sortByReturn([thread('a', false), thread('b', false)], item => inbox.returnedAt(item)).map(item => item.id)).toEqual(['b', 'a']);
   });
 
@@ -123,11 +159,12 @@ describe('InboxReturnTracker (createInboxReturnTracker)', () => {
     inbox.observe([thread('a', true)], T0);
     inbox.observe([thread('a', false)], T0);
     inbox.observe([], T0);
-    expect(inbox.nextDeadline()).toBe(0);
+    expect([inbox.nextDeadline(), inbox.owed()]).toEqual([0, 0]);
     inbox.observe([thread('a', true)], T0);
     inbox.observe([thread('a', false)], T0);
+    inbox.advance(T0);
     inbox.observe(null, T0);
-    expect(inbox.nextDeadline()).toBe(0);
+    expect([inbox.nextDeadline(), inbox.owed()]).toEqual([0, 0]);
     expect(inbox.returnedAt(thread('a', false))).toBeUndefined();
   });
 });
@@ -150,8 +187,11 @@ describe('the Working shelf over a grace', () => {
     let parts = partition(client, T0);
     expect(parts.working.map(item => item.id)).toEqual(['a', 'b']);
     expect(parts.active.map(item => item.id)).toEqual(['older']);
-    const view = sidebarSnapshot(client, T0, helpers).sidebar;
-    expect(view).toMatchObject({ graceUntil: T0 + 2_000, ticking: true, workingCount: 2 });
+    // The window's clock starts both graces at its next tick.
+    expect(sidebarSnapshot(client, T0, helpers).sidebar).toMatchObject({ graceUntil: 0, ticking: true, workingCount: 2 });
+    expect(sidebarSnapshot(client, T0, helpers).sidebar.graceOwed).toBeGreaterThan(0);
+    await sidebarLocal(client, native, 'working-grace', '', String(T0));
+    expect(sidebarSnapshot(client, T0, helpers).sidebar).toMatchObject({ graceUntil: T0 + 2_000, graceOwed: 0, ticking: true, workingCount: 2 });
     // b settles within the grace: straight to Settled, never in the inbox.
     client.shell.threads = [thread('a', false), thread('b', false, { settledOverride: 'settled', settledAt: stamp(T0 + 1_000) }), older];
     parts = partition(client, T0 + 1_000);
