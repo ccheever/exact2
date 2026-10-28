@@ -281,7 +281,9 @@ impl D3d11 {
         let swap = composition.swap.clone();
         let did_present;
         unsafe {
-            if !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
+            // Before Commit, DXGI considers the unattached visual occluded.
+            // Its first image must be queued before that visual becomes visible.
+            if composition.active && !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
                 return Ok(0.);
             }
             if WaitForSingleObject(composition.latency, 1000) != WAIT_OBJECT_0 {
