@@ -7,7 +7,10 @@
 use exact_js::{Module, Placement};
 use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, Dispatch, Reply, Store, Work};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::sync::mpsc::{channel, Sender};
+use std::sync::Mutex;
+use std::time::Duration;
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/spin.hbc"));
 const APP: &str = "test.spin";
@@ -63,26 +66,53 @@ fn interrupted(result: &Result<Answer, DataError>, source: &str) -> bool {
     matches!(result, Err(DataError::Unavailable(m)) if *m == format!("`{source}` was interrupted"))
 }
 
+/// Told by a spinning call, through its native module, that it has started:
+/// a channel for each test that spins, so none hears another's (here, then
+/// `render.rs`).
+pub static SPINNING: [Mutex<Option<Sender<()>>>; 2] = [Mutex::new(None), Mutex::new(None)];
+
+/// The native module that tells `SPINNING[TEST]`.
+pub struct Announcer<const TEST: usize>;
+impl<const TEST: usize> exact_js::NativeModule for Announcer<TEST> {
+    fn configure_storage(&mut self, _: PathBuf, _: PathBuf, _: PathBuf) -> Result<(), String> {
+        Ok(())
+    }
+    fn call(&mut self, _: &serde_json::Value) -> Result<serde_json::Value, String> {
+        if let Some(spinning) = SPINNING[TEST].lock().unwrap().as_ref() {
+            let _ = spinning.send(());
+        }
+        Ok(serde_json::json!({}))
+    }
+}
+
 #[test]
 fn a_spinning_call_is_stopped_from_another_thread_and_the_module_answers_again() {
-    let mut m = module();
+    let (spinning, started) = channel();
+    *SPINNING[0].lock().unwrap() = Some(spinning);
+    let root = std::env::temp_dir().join(format!("exact-interrupt-{}", std::process::id()));
+    let mut m = unloaded().with_native(|_| Box::new(Announcer::<0>));
+    m.configure_storage(root.join("data"), root.join("cache"), root.join("tmp"))
+        .unwrap();
+    m.activate().unwrap();
     let mut s = Store::new("", []);
     let stop = m.interrupt().expect("a module can be interrupted");
-    let started = Instant::now();
+    // The other thread interrupts once the call is spinning, not before.
     let timer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(100));
+        let said = started.recv_timeout(Duration::from_secs(30));
+        // Stops the call either way, so a call that never says so fails the test instead of hanging it
         stop.trigger();
+        said.expect("the call never said it was spinning");
     });
     let spun = m.answer(&mut s, "words", &named("spin"));
     timer.join().unwrap();
     assert!(interrupted(&spun, "words"), "{spun:?}");
-    assert!(started.elapsed() >= Duration::from_millis(100));
     // The interrupt was spent on that call: the module answers again.
     assert_eq!(
         words(m.answer(&mut s, "words", &named("calm"))),
         ["hello", "calm"]
     );
     assert_eq!(m.in_flight(), 0);
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]

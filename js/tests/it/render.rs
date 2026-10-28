@@ -11,7 +11,8 @@ use exact_runner::{Answer, DataError, DataSource, Interrupt, Outcome, Store, Tar
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::sync::mpsc::channel;
+use std::time::Duration;
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/spin.hbc"));
 
@@ -21,8 +22,17 @@ struct Spin(Module);
 
 impl Default for Spin {
     fn default() -> Spin {
-        let mut module = Module::new(HBC.to_vec(), "test.spin", "");
+        let mut module = Module::new(HBC.to_vec(), "test.spin", "")
+            .with_native(|_| Box::new(super::interrupt::Announcer::<1>));
         module.set_budget_ms(f64::INFINITY);
+        // A native module comes with storage: the spinning call tells it once it spins.
+        let root = std::env::temp_dir().join(format!(
+            "exact-js-render-spin-storage-{}",
+            std::process::id()
+        ));
+        module
+            .configure_storage(root.join("data"), root.join("cache"), root.join("tmp"))
+            .unwrap();
         Spin(module)
     }
 }
@@ -143,16 +153,19 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
 
 #[test]
 fn a_spinning_source_renders_503_at_its_deadline_and_the_server_keeps_serving() {
-    let deadline = Duration::from_millis(300);
-    let addr = start(deadline);
-    let started = Instant::now();
-    let (status, headers, body) = get(addr, "/page/spin");
-    let took = started.elapsed();
+    let (spinning, started) = channel();
+    *super::interrupt::SPINNING[1].lock().unwrap() = Some(spinning);
+    // A bound only for a hanging test: the spinning page meets its deadline
+    // when the test fires it (`exact_render::expire_renders`), once the call
+    // says it is spinning.
+    let addr = start(Duration::from_secs(30));
+    let spin = std::thread::spawn(move || get(addr, "/page/spin"));
+    let said = started.recv_timeout(Duration::from_secs(30));
+    // Fired either way, so a call that never says so fails the test instead of hanging it
+    exact_render::expire_renders();
+    said.expect("the call never said it was spinning");
+    let (status, headers, body) = spin.join().unwrap();
     assert_eq!(status, 503, "{body}");
-    assert!(
-        took >= deadline,
-        "answered in {took:?}, before the deadline"
-    );
     assert_eq!(header(&headers, "retry-after"), Some("1"));
     assert_eq!(header(&headers, "cache-control"), Some("no-store"));
     // The one worker is free: the next page renders, and says its words.
