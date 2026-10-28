@@ -114,7 +114,7 @@ component EnvironmentItem
         padding-right=14
         padding-top=12.25
         padding-bottom=12.25
-        button press=toggle(environment.id)
+        button press=toggle(opensDetails ? environment.environmentId : environment.id)
           flex=1
           min-width=0
           padding=0
@@ -174,7 +174,7 @@ component EnvironmentItem
           margin=0
           flex-shrink=0
           accent-color=colors.switchActiveTrack
-        button press=toggle(environment.id) padding=0 aria-label=`Manage ${environment.label}`
+        button press=toggle(opensDetails ? environment.environmentId : environment.id) padding=0 aria-label=`Manage ${environment.label}`
           t3-symbol symbol-name=(opensDetails ? "chevron.right" : "chevron.down")
             symbol-weight="regular"
             symbol-tint=colors.iconSubtle

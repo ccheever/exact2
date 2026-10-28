@@ -116,7 +116,7 @@ export function mobileServerProjection(page: MobileServerPage, scope: MobileServ
       choiceSection('responseStreamingMode', 'Response streaming');
       toggle(section('Preview browser'), 'enableAgentBrowserAccess', 'Agent browser access', 'Allow agents to use the in-app preview browser.', 'globe');
     } else {
-      if (!project) section('Manage environments').rows = [...new Map(targets.map(target => [target.source.environmentId, target.source])).values()].map(source => ({ ...base('environment', 'navigate', source.label), icon: 'server.rack', description: 'Server and provider updates', value: source.key, disabled: false }));
+      if (!project) section('Manage environments').rows = [...new Map(targets.map(target => [target.source.environmentId, target.source])).values()].map(source => ({ ...base('environment', 'navigate', source.label), icon: 'server.rack', description: 'Server and provider updates', value: source.environmentId, disabled: false }));
       const updates = section('Updates'), continuation = targets.every(target => obj(obj(target.source.config.environment).capabilities).threadRestartContinuation === true);
       toggle(updates, 'enableProviderUpdateChecks', 'Check provider updates', project ? 'Environment-wide setting. Select All projects to change it.' : 'Check installed provider CLIs for newer versions.', 'arrow.clockwise', project);
       toggle(updates, 'continueThreadsAfterServerUpdate', 'Continue after restart', continuation ? 'Resume interrupted threads after an update or restart.' : 'Update older servers to control restart continuation.', 'arrow.uturn.forward', !continuation);

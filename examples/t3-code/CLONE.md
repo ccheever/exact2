@@ -30,7 +30,7 @@ require them.
 - The InlineShortcut comparison has no complete verdict. Its cached test
   executable is missing, so another test run needs a fresh build.
 - Live App Store Connect status on October 28 reports POC build
-  `1.0.0 (20261028070658)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
+  `1.0.0 (20261028074348)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
   build is assigned to `Team (Expo)`, with one installed tester and one invited
   tester. External distribution was not extended.
 
@@ -58,17 +58,17 @@ conversation remain available. The functional iPhone POC is verified; its signed
 production build is signed and available to the existing internal TestFlight group.
 The first Home fix is pushed in PR216 at `122646f95` and independently reviewed.
 
-POC build `1.0.0 (20261028070658)` comes from pushed commit `900e56c72`.
+POC build `1.0.0 (20261028074348)` comes from pushed commit `d030e5536`.
 The IPA passes signature and provisioning checks with the existing clone identity.
 Its production build reads the native module table on the iOS Simulator after
 compiling package sources for that probe's target. The builder regression suite
 passes 49 tests with one skipped. The earlier device-only package output blocked
 all roster probes; the fix preserves production qualification.
-[EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/70e7839c-9380-405d-b9fc-8952a9c982ac)
+[EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/7e93de65-ae93-431c-b5ce-0be7874b3fc7)
 uses that exact IPA and the existing internal `Team (Expo)` group. Apple processing
 is `VALID`, internal state is `IN_BETA_TESTING`, and the group includes this build.
-Its App Store Connect build ID is `acd29416-0652-434a-85e2-1ad1aa7e18cc`.
-The IPA SHA-256 is `399275d9e98c0bf0d72db6b8387b592949426f8e6111fcebda587078c181ae68`.
+Its App Store Connect build ID is `4161d4c0-078f-4952-9927-cf98b251ab23`.
+The IPA SHA-256 is `f60ac86249f6744220b4f4751a25789decf62cc66ef0e72aab5f30ba4bec24d1`.
 The POC TestFlight checkpoint is delivered. Full phone, iPad and desktop parity
 remain incomplete and need their own acceptance evidence.
 
@@ -77,14 +77,16 @@ native reference accepts the Mac's LAN HTTP address while the clone rejected it.
 Mobile now accepts that origin and leaves iOS App Transport Security in force.
 The normal clone pairs over LAN, saves that address, restarts, restores the
 conversation, and receives a fresh real provider reply. Independent source review
-found no introduced defect. A replacement POC TestFlight build is next; the build
-above predates this correction. Physical-phone pairing remains unproved.
+found no introduced defect. The TestFlight build above includes this correction.
+Physical-phone pairing remains unproved.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
 line, attaches it to the composer, sends it, and receives the requested provider
-reply. Remaining observed phone gaps include stale environment-detail selection
-after changing its URL and a paired learned route retaining its learned marker.
-Reopening after the URL edit preserves the environment and conversation.
+reply. The development build now keeps the environment details page open while
+its URL changes: navigation uses the stable environment ID, and commands retain
+their exact route ownership. Native roundtrip URL edits and a stale-command
+regression pass. This later correction is not in the POC TestFlight build.
+A paired learned route still retains its learned marker.
 T3 Connect relay login remains unconfigured in the clone; direct pairing is the
 verified connection path.
 
@@ -94,7 +96,7 @@ one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
 unchanged from the original PR head. A bounded extraction attempt made no changes;
 the desktop checkpoint needs broader integration. Keep the failure visible.
 
-The full mobile suite passes 3,698 tests, strict app TypeScript passes, and the
+The full mobile suite passes 3,699 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
 with `QueueFull` on the former eager-send action and passes with coalesced text.
 

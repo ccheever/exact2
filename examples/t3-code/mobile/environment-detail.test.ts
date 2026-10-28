@@ -59,8 +59,11 @@ test('showcase is opt-in and preserves actual endpoints when saving unchanged di
 });
 
 import { mobileClient, mobileCommand } from './client';
-import { mobileEnvironmentDetailCommand } from './environment-detail';
+import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';
 import type { Native, Files } from './shared/protocol';
+import { mobileServerProjection } from './settings-server';
+import { contractComponent } from '../tests/support/contract-action-fixture';
+import { obj } from './shared/domain';
 const unusedStorage: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
 
 test('targeted pairing forwards the expected identity and reports mismatch without catalogue writes', async () => {
@@ -109,4 +112,40 @@ test('public environment identity resolves uniquely without changing exact-key o
   expect(mobileEnvironmentSource([first, second], 'server')).toBeNull();
   expect(mobileEnvironmentSource([first, second], first.key)).toBe(first);
   expect(mobileEnvironmentSource([first], 'missing')).toBeNull();
+});
+
+test('an open environment page survives a URL edit while stale command ownership stays refused', async () => {
+  const environmentId = 'url-edit-regression', oldOrigin = 'https://old.example';
+  let saved = { environmentId, origin: oldOrigin, label: 'Mac', mobileLabel: '', enabled: false };
+  const requests: Record<string, unknown>[] = [];
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); requests.push(request);
+    if (request.op === 'environments') return { ok: true, generation: 0, value: { saved: [saved] } };
+    if (request.op === 'status') return { ok: true, generation: 0, value: { state: 'disconnected', origin: '', environmentId: '', message: '' } };
+    if (request.op === 'mobileUpdateEnvironment') {
+      saved = { ...saved, origin: String(request.origin), mobileLabel: String(request.label) };
+      return { ok: true, generation: 0, value: {} };
+    }
+    throw new Error(`Unexpected native operation ${request.op}`);
+  } };
+  const sources = environmentSources({ connection: 'connected', origin: oldOrigin, environmentId, scopes: [], statusMessage: '',
+    config: { settings: { continueThreadsAfterServerUpdate: false } } }, [{ ...saved, enabled: true }], new Map());
+  const settings = mobileServerProjection('maintenance', { environmentIds: [environmentId], members: null, projectLabel: '' }, sources, new Set([environmentId]));
+  const entry = settings.sections.flatMap(section => section.rows).find(row => row.kind === 'navigate');
+  if (!entry) throw new Error('Expected the environment management entry.');
+  type Route = { name: string; environmentKey: string };
+  const state: { nav: Route[] } = { nav: [] };
+  contractComponent('mobile/app.contract', 'App').call('settingsEnvironment', state, {
+    path: (name: string, environmentKey: string): Route => ({ name, environmentKey }),
+    push: (nav: Route[], route: Route) => [...nav, route],
+  }, [entry.value]);
+  const route = state.nav.at(-1);
+  if (!route) throw new Error('Expected the environment page to open.');
+  expect((await mobileEnvironmentDetail(route.environmentKey, native)).found).toBe(true);
+  expect((await mobileCommand(['save-environment', environmentId, JSON.stringify({ label: 'Edited Mac', url: 'https://new.example' })], native, unusedStorage)).message).toBe('');
+  const updated = await mobileEnvironmentDetail(route.environmentKey, native);
+  expect(updated).toMatchObject({ found: true, environmentId, title: 'Edited Mac', key: `https://new.example\n${environmentId}` });
+  expect(state.nav).toEqual([route]);
+  expect((await mobileEnvironmentDetailCommand('refresh-providers', `${oldOrigin}\n${environmentId}`, '', native)).message).toContain('no longer saved');
+  expect(requests.some(request => request.op === 'request')).toBe(false);
 });
