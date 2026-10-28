@@ -1,16 +1,16 @@
 // What the Bluesky clone's three live-read tests prove about exact2, on a server of this machine (theme2's 23:41Z
 // approval): those tests asked Bluesky itself, and failed in main's runs while passing on a fresh main, the network
 // the likeliest cause. Each read is a plain fetch from a TypeScript source, as the clone's are (the poll and Top's
-// 403 are synthetic: the clone answers both locally when signed out), and each answer is WITHHELD until
-// `delay` ms after it came or after the last input step landed (`arm`), so the `clock` step that follows must wait
-// for a fetch in flight or fail (the class 566d1aa573 touched). host/web-js/live-reads.test.mjs
+// 403 are synthetic: the clone answers both locally when signed out), and each answer is WITHHELD until a `clock`
+// step has run `delay` ms (`clocked`), so that step must wait for the fetch in flight or end with it unanswered
+// (the class 566d1aa573 touched). host/web-js/live-reads.test.mjs
 // runs the tests below on the JS target, then FAILING sends every read a failure, which each test must fall back
 // from, not hang on; host/web/live-reads.test.mjs runs both on the wasm target, against a dist built as `native`
 // below says.
 //   1. Discover's poll: a timer's re-ask lands within `clock data`, and the scroll-dependent button follows it.
 //   2. Explore's tabs: a tap-started fetch is waited on; Top's 403 is the source's to shape (LLP 1016 D4).
 //   3. Content & Media: a config read gates the switches; a device-kept setting survives a reload.
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export const CONTRACT = `shape Post
@@ -77,6 +77,7 @@ component LiveReads
     scrollIntoView("post-0", block="start")
   action search(tab: string)
     searchTab = tab
+  // Each test's first input: after it, runTests' atStep watches the session's clock steps.
   action arm
     fresh = fresh
   action toggleVideos
@@ -212,8 +213,7 @@ test "a config read that fails shows no switches"
   expect tree missing "show_trending_videos"
 `;
 
-/** Bluesky's reads, each answered no sooner than `delay` ms after it came or after the last `arm`, and not before the
- * first `arm` after a `gate`: Discover's feed
+/** Bluesky's reads, each answered only `delay` ms into a clock step (`watch` the session): Discover's feed
  * (30 posts, one more for each load of new posts) and a poll of it (`count` new), searchPosts (403, a search
  * refused), searchActors, getPopularFeedGenerators and unspecced.getConfig, typed as Bluesky types them. `failing`
  * answers every one 500. `seen` lists the paths asked, in order. */
@@ -221,15 +221,12 @@ export function blueskyServer({ delay = 300, port = 0 } = {}) {
   const seen = [];
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'content-type': 'application/json' };
   const state = { failing: false };
-  // Each answer waits `delay` ms; `arm` restarts that wait for every answer still withheld. Gated (from the start,
-  // and from each test's end, `gate`), an answer waits for the next `arm`: a launch's reads land only after the
-  // test's first input, however long the launch took.
+  // An answer asked outside a clock step waits for the next one to start, then `delay` ms more; one asked during a
+  // step (a timer's, inside a jump) waits `delay` ms.
   const withheld = new Set();
-  let gated = true;
-  const hold = answer => {
-    withheld.add(answer);
-    if (!gated) answer.timer = setTimeout(() => { withheld.delete(answer); answer(); }, delay);
-  };
+  let clocks = 0;
+  const release = answer => setTimeout(answer, delay);
+  const hold = answer => { if (clocks > 0) release(answer); else withheld.add(answer); };
   const json = (body, status = 200) => new Promise(ok => hold(() => ok(new Response(JSON.stringify(body), { status, headers: cors }))));
   const server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch(req) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
@@ -253,10 +250,19 @@ export function blueskyServer({ delay = 300, port = 0 } = {}) {
   } });
   return {
     origin: `http://127.0.0.1:${server.port}`, seen, state,
-    /** An input step landed (runTests' `atStep`): what it asked is answered no sooner than `delay` ms from now. */
-    arm: () => { gated = false; for (const answer of [...withheld]) { clearTimeout(answer.timer); withheld.delete(answer); hold(answer); } },
-    /** A test ended (runTests' `atEnd`): the next launch's reads wait for its first input. */
-    gate: () => { gated = true; },
+    /** A clock step starts: what is withheld is answered `delay` ms from now. The returned function ends the step. */
+    clocked: () => {
+      clocks += 1;
+      for (const answer of [...withheld]) { withheld.delete(answer); release(answer); }
+      return () => { clocks -= 1; };
+    },
+    /** `s`'s clock steps, told to the server (runTests' `atStep` runs this on the session after an input). */
+    watch(s) {
+      if (s.liveReadsWatched) return;
+      const clock = s.clock.bind(s), clocked = this.clocked;
+      s.clock = async (...args) => { const done = clocked(); try { return await clock(...args); } finally { done(); } };
+      s.liveReadsWatched = true;
+    },
     stop: () => server.stop(true),
   };
 }
@@ -264,6 +270,16 @@ export function blueskyServer({ delay = 300, port = 0 } = {}) {
 /** The app in a fresh directory under `root` (target/), reading `origin`. */
 export function liveReadsApp(root, origin) {
   const dir = mkdtempSync(resolve(root, 'target/live-reads-test-'));
+  try {
+    writeApp(dir, origin);
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
+  return dir;
+}
+
+function writeApp(dir, origin) {
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Live Reads', app: { id: 'test.livereads', name: 'Live Reads' }, host: { web: {} } }));
   writeFileSync(resolve(dir, 'app.contract'), CONTRACT);
   writeFileSync(resolve(dir, 'app.ts'), `export const appId = 'test.livereads';
@@ -292,7 +308,6 @@ export function answer(name: string, args: any[], store: any): any {
   }
 }
 `);
-  return dir;
 }
 
 // `bun scripts/live-reads-fixture.mjs native <dir> [port]`: the app as an `exact new` app at `dir` (outside the

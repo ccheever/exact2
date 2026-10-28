@@ -5,11 +5,11 @@ import { runTests } from '../../scripts/agent-test.mjs';
 import { blueskyServer, FAILING_TESTS, TESTS } from '../../scripts/live-reads-fixture.mjs';
 
 // What the Bluesky clone's three live-read tests prove, on the wasm target, through the wasm module's `fetch`, the
-// runner and glue.js, against a server of this machine that withholds each answer 300 ms past the input step that
-// asked for it (scripts/live-reads-fixture.mjs): each `clock` step must wait for the fetch in flight; then every
-// read fails, and each test falls back rather than hanging. Against a built dist: `bun
-// scripts/live-reads-fixture.mjs native <dir> [port]`, then its wasm build (the line that prints), then
-// EXACT_LIVE_READS_WASM_DIST=<dist> EXACT_LIVE_READS_PORT=<port> (47712; one run at a time per port).
+// runner and glue.js, against a server of this machine that answers only 300 ms into a clock step
+// (scripts/live-reads-fixture.mjs): each `clock` step must wait for the fetch in flight; then every read fails, and
+// each test falls back rather than hanging. Against a built dist: `bun scripts/live-reads-fixture.mjs native <dir>
+// [port]`, then its wasm build (the line that prints), then EXACT_LIVE_READS_WASM_DIST=<dist>
+// EXACT_LIVE_READS_PORT=<port> (47712; one run at a time per port).
 test.skipIf(!process.env.EXACT_LIVE_READS_WASM_DIST)('the clone\'s live reads land within clock data on the wasm target, and fall back when they fail', async () => {
   const dist = resolve(process.env.EXACT_LIVE_READS_WASM_DIST);
   let server, page, dir;
@@ -24,7 +24,7 @@ test.skipIf(!process.env.EXACT_LIVE_READS_WASM_DIST)('the clone\'s live reads la
     const run = async (name, text) => {
       const file = resolve(dir, name);
       writeFileSync(file, text);
-      return runTests({ host: 'web', file, url: page.url.href, webDist: dist, atStep: () => server.arm(), atEnd: async () => { server.gate(); } });
+      return runTests({ host: 'web', file, url: page.url.href, webDist: dist, atStep: (s) => server.watch(s) });
     };
     const answered = await run('app.test.contract', TESTS);
     expect(answered.results.map(r => [r.name, r.failures])).toEqual(answered.results.map(r => [r.name, []]));
