@@ -602,7 +602,6 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     }
     return null;
   };
-  /** One call: done (`null`), refused (`{error}`), or held on the permission ticket until it is answered. */
   // The declaration's `checks` every route holds a send to, as the runner's (LLP 1133.030 D2): exactly `one` of some
   // options, options at least a `min`, options `nonEmpty`; each refused with its `error`. An instant option `after`
   // now is the runner's alone: this clock is not the epoch's.
@@ -617,6 +616,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     }
     return null;
   };
+  /** One call: done (`null`), refused (`{error}`), or held on the permission ticket until it is answered. */
   const effect = (row, args, from = originNow()) => {
     const before = origin;
     if (from === "device") origin = "device";

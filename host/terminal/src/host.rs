@@ -1238,7 +1238,7 @@ impl<D: DataSource> Host<D> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod notify_tests {
     use super::*;
     use exact_plan::Value;
@@ -1256,7 +1256,6 @@ mod notify_tests {
 
     /// `@exact/notifications` has no terminal implementation: a post is
     /// refused, journaled, never substituted (LLP 1133.004 §8).
-    #[cfg(unix)]
     #[test]
     fn a_notification_refused_by_the_terminal_is_journaled() {
         let dir =
