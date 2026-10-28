@@ -862,7 +862,7 @@ fn keep_mounted_is_a_virtualized_lists_list_of_keys() {
     for value in ["[]", "ids", "[first(ids), ids.at(-1)]", "[1, 2]", "[true]", "[none]"] {
         contract::compile(&list(value)).expect(value);
     }
-    for value in ["\"a\"", "1", "[[1]]", "[{a: 1}]"] {
+    for value in ["\"a\"", "1", "[[1]]", "[ids]"] {
         let error = contract::compile(&list(value)).expect_err(value);
         assert_eq!(error.id, "lower-attr-type", "{value}: {error}");
     }
