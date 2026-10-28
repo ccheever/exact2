@@ -66,11 +66,13 @@ test('adding over SSH tunnels, pairs beside the focused environment and toasts',
   await runSshOp(native, 'environment-ssh-pick', 'devbox', '', true);
   expect(calls.map(call => call.op)).toEqual(['sshResolve', 'sshConnect', 'pairEnvironment']);
   expect(calls[1]).toMatchObject({ alias: 'devbox', hostname: 'devbox.lan', username: 'me', port: 2222, pair: true });
-  expect(calls[2]).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:41234', credential: 'PAIRCODE123', scope: STANDARD_SCOPE, legacyScope: LEGACY_SCOPE });
+  // `ssh`: the transport words a version-skewed server's refusal for an SSH host's pairing (ssh.provision).
+  expect(calls[2]).toEqual({ op: 'pairEnvironment', origin: 'http://127.0.0.1:41234', credential: 'PAIRCODE123', scope: STANDARD_SCOPE, legacyScope: LEGACY_SCOPE, ssh: true });
   calls.length = 0;
   const result = await runSshOp(native, 'environment-ssh-add', 'root@box', 'username=&port=22', false);
   expect(calls.map(call => call.op)).toEqual(['sshConnect', 'connect']);
   expect(calls[0]).toMatchObject({ alias: 'box', username: 'root', port: 22 });
+  expect(calls[1]).toMatchObject({ op: 'connect', ssh: true });
   expect(result.generation).toBe(2);
   const failing = fakeNative(request => request.op === 'sshConnect' ? { ok: false, generation: 0, error: { kind: 'Ssh', message: 'T3 Code is not installed on this host.' } } : ok({}));
   await expect(runSshOp(failing.native, 'environment-ssh-add', 'box', '', true)).rejects.toThrow('T3 Code is not installed on this host.');

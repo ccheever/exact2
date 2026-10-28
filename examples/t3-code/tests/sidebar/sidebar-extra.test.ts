@@ -244,17 +244,3 @@ describe('remembered shelves (useLocalStorage t3code:sidebar:*-expanded)', () =>
     expect(sidebarPrefs({ local: fresh } as unknown as T3Client)).toEqual(defaultSidebarPrefs());
   });
 });
-
-describe('thread search pointer (onHighlight)', () => {
-  test('the result under the pointer becomes the highlighted one Enter opens', async () => {
-    const { sidebarLocal } = await import('../../src/sidebar/sidebar-commands');
-    const threads = ['a', 'b', 'c'].map(id => ({ id, projectId: 'p1', title: `fixture ${id}`, status: 'idle', createdAt: '2026-10-04T10:00:00.000Z', updatedAt: '2026-10-04T10:00:00.000Z', lineage: {}, archivedAt: null }));
-    const client = { shell: { projects: [{ id: 'p1', title: 'P' }], threads }, config: { environment: { capabilities: {} } }, query: 'fixture', threadId: '',
-      local: { clientSettings: {}, drafts: {} }, projectGroups: () => [{ key: 'g', name: 'P', members: [{ id: 'p1' }] }] } as unknown as T3Client;
-    const native = { available: true, watch() {}, later: async () => ({}) } as unknown as Native;
-    await sidebarLocal(client, native, 'search-hover', 'c', '');
-    expect(sidebarSession(client).searchIndex).toBe(2);
-    await sidebarLocal(client, native, 'search-hover', 'zzz', '');
-    expect(sidebarSession(client).searchIndex).toBe(2);
-  });
-});

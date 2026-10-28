@@ -221,11 +221,27 @@ export function contractComponent(file: string, name: string) {
       }
       return state;
     },
-    /** Runs `action` over `state` with `scope` (props, helpers) and `args`; its writes land on `state` as it ends. */
+    /**
+     * Runs `action` over `state` with `scope` (props, helpers) and `args`; its writes land on `state` as it ends. It reads
+     * the derives as the starting state gives them. An action of the component it calls runs in the same commit: it reads
+     * the starting state too, and its writes land with these. A function of the same name in `scope` stands in for it.
+     */
     call(actionName: string, state: Env, scope: Env, args: unknown[]) {
-      const { params, body } = action(actionName);
-      const writes: Env = {};
-      run(body, { ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, args[i]])) }, new Set(Object.keys(state)), writes, name);
+      const writes: Env = {}, slots = new Set(Object.keys(state));
+      const own: Env = {};
+      // Each derive the scope can give (a test's scope may leave out what an unrelated derive reads).
+      const derived: Env = {}, env: Env = { ...scope, ...state };
+      for (const line of lines) {
+        const m = /^  derive (\w+) = (.+)$/.exec(line);
+        if (!m) continue;
+        try { env[m[1]!] = derived[m[1]!] = value(m[2]!, env); } catch { /* left unread */ }
+      }
+      const invoke = (target: string, values: unknown[]) => {
+        const { params, body } = action(target);
+        run(body, { ...own, ...derived, ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, values[i]])) }, slots, writes, name);
+      };
+      for (const line of lines) { const m = /^  action (\w+)/.exec(line); if (m && !(m[1]! in scope)) own[m[1]!] = (...values: unknown[]) => invoke(m[1]!, values); }
+      invoke(actionName, args);
       Object.assign(state, writes);
     },
     /**
@@ -258,14 +274,14 @@ export function contractComponent(file: string, name: string) {
     /** Every `derive x = …` in declaration order, each seeing the state, `scope` and the derives before it. */
     derives,
     /**
-     * The value of attribute `attr` on the first view line containing `marker` (`attr=(…)`, a quoted or backquoted
-     * string, or one token), read over `state`, `scope` and the derives.
+     * The value of attribute `attr` on the first view line containing `marker` (`attr=(…)`, a call `attr=name(…)`, a
+     * quoted or backquoted string, or one token), read over `state`, `scope` and the derives.
      */
     attribute(marker: string, attr: string, state: Env, scope: Env): unknown {
       const line = viewLine(marker), at = line.indexOf(` ${attr}=`);
       if (at < 0) throw new Error(`${file}: the line of ${name} with ${marker} has no ${attr}`);
-      const start = at + attr.length + 2, open = line[start];
-      let end = start;
+      const start = at + attr.length + 2, call = /^\w+\(/.exec(line.slice(start))?.[0].length ?? 0, open = call ? '(' : line[start];
+      let end = start + Math.max(0, call - 1);
       if (open === '(') {
         for (let depth = 0; end < line.length; end++) {
           const c = line[end]!;

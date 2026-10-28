@@ -18,6 +18,7 @@ import { SIDEBAR_DISCOVERED_SERVERS_KEY, discoveredServersEvent } from '../../sr
 import { draftContext } from '../../src/composer/composer-controls-branch';
 import { draftFiles } from '../../src/composer/composer-editor-files';
 import { browserHistory } from '../../src/browser/browser-history';
+import { threadHistoryProjectKey } from '../../src/browser/browser-history-record';
 import { legacyGroups, legacySession, legacySidebarSnapshot } from '../../src/sidebar/legacy-sidebar-view';
 import { fleetPortsEvent, fleetPortsPass, openPendingPort, portLabels, rowPorts, watchRowPorts } from '../../src/sidebar/legacy-sidebar-ports';
 import { clearRowDrops, queueRowDrop, rowDropKeys, takeRowDrops } from '../../src/sidebar/legacy-sidebar-drop';
@@ -197,9 +198,10 @@ describe('the discovered-port button (useThreadDiscoveredPorts, openDiscoveredPo
     expect(opened).toEqual(['thread-2']);
     expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 'thread-2', url: 'http://localhost:5173/' });
     expect(surfaceStore(client).panels.get('local:thread-2')).toMatchObject({ visible: true, active: 'browser:tab-1' });
-    // recordVisitForThread: a thread with no registered project keeps the visit pending (browser-history.ts), as the reference does.
-    const pending = (browserHistory(client.local) as unknown as { state: { pendingVisitsByThreadKey: Record<string, { url: string }[]> } }).state.pendingVisitsByThreadKey['local:thread-2'];
-    expect(pending?.map(visit => visit.url)).toEqual(['http://localhost:5173/']);
+    // recordVisit registers the thread under its project first, so the visit lands in that project's history
+    // (browser-history-record.ts), as the reference's browser records it.
+    const projectKey = threadHistoryProjectKey(client, { environmentId: 'local', threadId: 'thread-2' });
+    expect(browserHistory(client.local).projectHistory(projectKey, 5).map(entry => entry.url)).toEqual(['http://localhost:5173/']);
   });
   test('a preview that cannot open says so', async () => {
     const { client, native } = rig({ failOpen: true, threadId: 'thread-2' });

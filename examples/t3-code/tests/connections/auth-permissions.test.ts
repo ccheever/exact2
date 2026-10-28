@@ -75,6 +75,14 @@ describe('effective session permissions', () => {
     });
   }
 
+  test('the pull request filters\' label and author search reads with orchestration:read (RpcAuthorization pullRequestsFilterOptions)', async () => {
+    const denied = clientFixture([]);
+    await expect(denied.client.request(denied.native, 'pullRequests.filterOptions', {})).rejects.toThrow('orchestration:read');
+    expect(denied.requests).toHaveLength(0);
+    const allowed = clientFixture(['orchestration:read']);
+    await allowed.client.request(allowed.native, 'pullRequests.filterOptions', {});
+    expect(allowed.requests).toMatchObject([{ op: 'request', method: 'pullRequests.filterOptions' }]);
+  });
   test('provider management and settings patches do not borrow each other’s grant', () => {
     expect(rpcPermissions('server.updateSettings', { patch: { branchNamePrefix: 'fixture' } })).toEqual(['settings:write']);
     expect(rpcPermissions('server.updateSettings', { patch: {}, providerInstanceMutation: {} })).toEqual(['providers:manage']);

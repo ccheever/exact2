@@ -179,31 +179,6 @@ describe('media views', () => {
     await mediaLocal(client, native, 'image-error', image.url, 'HTTP 404');
     expect(await filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', '', 1000)).toMatchObject({ state: 'failed', failText: 'Unable to load workspace image.' });
   });
-  // FilePreviewPanel and MediaVideoPlayer at 7c3b3b3605ef (#23106): the file's revision rides on the URL, and a URL signed
-  // again for an unchanged file keeps the loaded video.
-  test('Files: a video keeps its URL while the file is unchanged, and takes a changed file\'s', async () => {
-    let signature = 0, revision = 'r1';
-    const { client } = fakeClient(() => ({}), { rpc: async () => ({ relativeUrl: `/api/assets/clip.mp4?sig=${++signature}`, fileRevision: revision }) });
-    const view = (workspace: string) => filesMediaView(client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', workspace, 1000);
-    const first = await view('w1');
-    expect(first.url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=1&file-revision=r1');
-    // A command changed the workspace, not this file: it signs again, and the loaded URL stays.
-    expect((await view('w2')).url).toBe(first.url);
-    revision = 'r2';
-    expect((await view('w3')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=3&file-revision=r2');
-    // Retry video signs again and takes the new URL, the file unchanged.
-    await mediaLocal(client, native, 'retry', first.retryKey, '');
-    expect((await view('w3')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=4&file-revision=r2');
-  });
-  // WorkspaceVideoPreview's `fileRevision ?? workspaceMutationId`: an older server's video follows the workspace revision.
-  test('Files: with no file revision a video takes the workspace revision', async () => {
-    let signature = 0;
-    const { client } = fakeClient(() => ({}), { rpc: async () => ({ relativeUrl: `/api/assets/clip.mp4?sig=${++signature}` }) });
-    const view = (workspace: string) => filesMediaView(client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', workspace, 1000);
-    expect((await view('w1')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=1&workspace-revision=w1');
-    expect((await view('w1')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=1&workspace-revision=w1');
-    expect((await view('w2')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=2&workspace-revision=w2');
-  });
   // WorkspaceImagePreview at 7c3b3b3605ef: an image is not signed again for a workspace revision; the revision on its URL
   // reloads it.
   test('Files: an image keeps its signature and reloads by the workspace revision', async () => {
@@ -213,26 +188,60 @@ describe('media views', () => {
     expect((await view('w1')).url).toBe('http://127.0.0.1:16260/api/assets/logo.png?sig=1&workspace-revision=w1');
     expect((await view('w2')).url).toBe('http://127.0.0.1:16260/api/assets/logo.png?sig=1&workspace-revision=w2');
   });
-  test('Files: a playing video holds its URL until playback pauses or ends; each file has its own player', () => {
-    const player = contractComponent('src/media/media-actions.contract', 'FilesVideo');
-    const calls: unknown[][] = [];
-    const scope = (url: string) => ({ media: { url }, local: (...args: unknown[]) => calls.push(args) });
-    const state = player.state();
-    const src = (url: string) => player.derives(state, scope(url)).src;
-    player.call('started', state, scope('/clip?r1'), []);
-    expect(src('/clip?r2')).toBe('/clip?r1');
-    player.call('stopped', state, scope('/clip?r2'), []);
-    expect(src('/clip?r2')).toBe('/clip?r2');
-    // A player error reports the URL it played, and the next play holds the latest.
-    player.call('started', state, scope('/clip?r2'), []);
-    player.call('broke', state, { ...scope('/clip?r3'), ...player.derives(state, scope('/clip?r3')) }, ['decode']);
-    expect(calls).toEqual([['media-video-error', '/clip?r2', 'decode']]);
-    expect(src('/clip?r3')).toBe('/clip?r3');
-    expect(appText('src/media/media-actions.contract')).toContain('for shown in [media.retryKey] key=shown\n                FilesVideo(media=media, local=local)');
+  // FilePreviewPanel WorkspaceVideoPreview at 7c3b3b3605ef: each workspace change signs the video again; its URL names the
+  // file's revision when the server reports one, else the workspace's, and the view says which (the player holds by it).
+  test('Files: a video is signed again for each command and names its file revision, else the workspace one', async () => {
+    let revision = 'dev:ino:10:1', signature = 0;
+    const { client, rpcs } = fakeClient(() => ({}), { rpc: async (_native: Native, method: string, payload: Call) => {
+      rpcs.push({ method, ...payload }); signature++;
+      return { relativeUrl: `/api/assets/fresh/clip.mp4?sig=${signature}`, ...(revision ? { fileRevision: revision } : {}) };
+    } });
+    const view = async (workspace: string, now = 1000) => { const media = await filesMediaView(client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', workspace, now); return [media.url, media.revision, rpcs.length]; };
+    const url = (sig: number, name: string, value: string) => `http://127.0.0.1:16260/api/assets/fresh/clip.mp4?sig=${sig}&${name}=${encodeURIComponent(value)}`;
+    expect(await view('["item-1",null]')).toEqual([url(1, 'file-revision', 'dev:ino:10:1'), 'dev:ino:10:1', 1]);
+    // A command that left the file alone: signed again, the same revision (the player keeps what it loaded).
+    expect(await view('["item-2",null]')).toEqual([url(2, 'file-revision', 'dev:ino:10:1'), 'dev:ino:10:1', 2]);
+    // Five minutes on, the re-sign keeps the revision too.
+    expect(await view('["item-2",null]', 1000 + 6 * 60_000)).toEqual([url(3, 'file-revision', 'dev:ino:10:1'), 'dev:ino:10:1', 3]);
+    // The file changed: the next command's signature carries the new revision.
+    revision = 'dev:ino:12:2';
+    expect(await view('["item-3",null]', 1000 + 6 * 60_000)).toEqual([url(4, 'file-revision', 'dev:ino:12:2'), 'dev:ino:12:2', 4]);
+    // An older server: the workspace revision, which each command moves (the player reloads once paused).
+    revision = '';
+    expect(await view('["item-4",null]', 1000 + 6 * 60_000)).toEqual([url(5, 'workspace-revision', '["item-4",null]'), '["item-4",null]', 5]);
+    // No workspace revision yet: none named, none held.
+    const fresh = fakeClient(() => ({}));
+    expect((await filesMediaView(fresh.client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', '', 1000)).revision).toBe('');
   });
-  test('Files: without a file revision the workspace revision rides on the URL', async () => {
-    const { client } = fakeClient(() => ({}));
-    expect((await filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', 'w9', 1000)).url).toBe('http://127.0.0.1:16260/api/assets/fresh/logo.png?sig=2&workspace-revision=w9');
+  // MediaVideoPlayer at 7c3b3b3605ef: playbackSource held while the revision holds, a new revision taken once paused or
+  // ended, an error on a kept source falling back to the newest URL.
+  test('Files: the video player holds the source it loaded while its revision holds, and takes a new one once playback stops', () => {
+    const video = contractComponent('media-actions.contract', 'FilesVideo'), state = video.state(), sent: unknown[][] = [];
+    let media = { url: 'u1', revision: 'r1', name: 'clip.mp4' };
+    const scope = () => ({ media, local: (...args: unknown[]) => sent.push(args) });
+    const src = () => video.derives(state, scope()).src;
+    expect(src()).toBe('u1');
+    video.call('loaded', state, scope(), []);
+    media = { ...media, url: 'u2' }; // signed again, the same file
+    expect(src()).toBe('u1');
+    video.call('started', state, scope(), []);
+    media = { ...media, url: 'u3', revision: 'r2' }; // the file changed while it plays
+    expect(src()).toBe('u1');
+    video.call('stopped', state, scope(), []);
+    expect(src()).toBe('u3');
+    video.call('loaded', state, scope(), []);
+    media = { ...media, url: 'u4' };
+    expect(src()).toBe('u3');
+    // The kept source fails (its signature expired, say): the newest URL, no failure.
+    video.call('broke', state, scope(), ['network']);
+    expect([src(), sent]).toEqual(['u4', []]);
+    // The newest one fails: the player's failure.
+    video.call('broke', state, scope(), ['network']);
+    expect(sent).toEqual([['media-video-error', 'u4', 'network']]);
+    // With no revision nothing is held: each new URL loads.
+    const plain = contractComponent('media-actions.contract', 'FilesVideo'), bare = plain.state();
+    plain.call('loaded', bare, { media: { url: 'v1', revision: '', name: 'clip.mp4' }, local: () => undefined }, []);
+    expect(plain.derives(bare, { media: { url: 'v2', revision: '', name: 'clip.mp4' } }).src).toBe('v2');
   });
   test('Files: a refused signature is the failure state, menu kept', async () => {
     const { client } = fakeClient(() => ({}), { rpc: async () => { throw new Error('denied'); } });

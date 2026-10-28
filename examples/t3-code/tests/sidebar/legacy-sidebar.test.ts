@@ -102,8 +102,10 @@ describe('Sidebar.logic.test.ts cases', () => {
     expect(resolveThreadStatusPill(thread('t', { ...running, status: 'starting' }), undefined)).toMatchObject({ label: 'Connecting', pulse: true });
   });
   test('resolveThreadStatusPill: waiting while background work holds the completion, not for left-running commands', () => {
-    expect(resolveThreadStatusPill(thread('t', { ...running, activeRunId: null, status: 'idle', pendingBackgroundTasks: [{ taskId: 'bg-1', kind: 'monitor' }] }), undefined))
+    expect(resolveThreadStatusPill(thread('t', { ...running, activeRunId: null, status: 'idle', pendingBackgroundTasks: [{ taskId: 'bg-1', kind: 'monitor', awaited: true }] }), undefined))
       .toMatchObject({ label: 'Waiting', color: 'light-dark(#71717b, #a3a3a3)', pulse: false });
+    // An unawaited monitor (a dev server's watchdog) leaves the thread done.
+    expect(resolveThreadStatusPill(thread('t', { ...running, activeRunId: null, status: 'idle', pendingBackgroundTasks: [{ taskId: 'bg-1', kind: 'monitor' }] }), undefined)?.label).not.toBe('Waiting');
     expect(resolveThreadStatusPill(thread('t', { ...running, pendingBackgroundTasks: [{ taskId: 'bg-1', kind: 'command' }] }), undefined)).toMatchObject({ label: 'Working', pulse: true });
     expect(resolveThreadStatusPill(thread('t', { ...running, activeRunId: null, status: 'idle', pendingBackgroundTasks: [] }), undefined)).toBeNull();
   });

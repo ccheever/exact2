@@ -8,11 +8,6 @@
 //   anything else is the "Image unavailable · <alt>" label), ChatMarkdownAssetImage and
 //   ChatMarkdownVideo;
 // - a video's `error` (MediaVideoPlayer onError) and Retry (onRetry, "Retrying…" while it runs);
-// - T3 Code 7c3b3b3605ef (#23106): a Files video is signed again for each workspace revision, its URL carries the file's
-//   revision (`fileRevision`, which older servers omit; else the workspace revision), and it keeps the URL it loaded
-//   while that revision holds, so a URL signed again never reloads it (MediaVideoPlayer's playbackSource; FilesVideo's
-//   player holds a changed file's URL until playback pauses). A Files image keeps its signature and reloads by the
-//   workspace revision on its URL (WorkspaceImagePreview).
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -28,26 +23,27 @@ import { workspaceLookupPath } from '../timeline/workspace-file-lookup';
 import { fileIconToken } from '../shared/timeline-files';
 
 /** A media slot as Contract draws it (media-actions.contract MediaView). */
+/** `revision`: what a video's URL names, the file's own revision or else the workspace's, which its player holds its loaded
+ *  source by ('' for none). */
 export type MediaView = {
   kind: string; state: string; url: string; name: string; tip: string; source: string; failText: string;
-  openUrl: string; openLabel: string; openIcon: string; retryKey: string; retrying: boolean;
+  openUrl: string; openLabel: string; openIcon: string; retryKey: string; retrying: boolean; revision: string;
 };
-export const NO_MEDIA: MediaView = { kind: '', state: '', url: '', name: '', tip: '', source: '', failText: '', openUrl: '', openLabel: '', openIcon: '', retryKey: '', retrying: false };
+export const NO_MEDIA: MediaView = { kind: '', state: '', url: '', name: '', tip: '', source: '', failText: '', openUrl: '', openLabel: '', openIcon: '', retryKey: '', retrying: false, revision: '' };
 
-/** `shown`: the URL each Files video (by key) loaded, with the revision it was signed for. */
-type MediaState = { failed: Set<string>; retrying: Set<string>; shown: Map<string, { url: string; revision: string }> };
+type MediaState = { failed: Set<string>; retrying: Set<string> };
 const states = new WeakMap<T3Client, MediaState>();
 function stateOf(client: T3Client): MediaState {
   let state = states.get(client);
-  if (!state) { state = { failed: new Set(), retrying: new Set(), shown: new Map() }; states.set(client, state); }
+  if (!state) { state = { failed: new Set(), retrying: new Set() }; states.set(client, state); }
   return state;
 }
 /** A video whose player reported `error` for this URL (MediaVideoPlayer failedSrc). */
 /** Whether a player or a picture reported an error for this URL (a `video` or `image` `error`, exact2 #121). */
 export const mediaFailed = (client: T3Client, url: string): boolean => !!url && stateOf(client).failed.has(url);
 
-// The workspace mutation each file preview image was last signed for (useAssetUrlRefresh's handled token); null after
-// the connection dropped, so the next connected view signs it again.
+// The workspace mutation each preview's image or Files video was last signed for (useAssetUrlRefresh's handled token);
+// null after the connection dropped, so the next connected view signs it again.
 const handledMutations = new WeakMap<T3Client, Map<string, string | null>>();
 function refreshDue(client: T3Client, id: string, mutationId: string | null): boolean {
   let handled = handledMutations.get(client);
@@ -61,8 +57,10 @@ function refreshDue(client: T3Client, id: string, mutationId: string | null): bo
   return last !== undefined || mintedOf(client).has(id);
 }
 
-// Signed URLs a surface minted (useAssetUrlState), re-minted after five minutes as the HTML page is.
-type Minted = { url: string; at: number; error: boolean; resource: Obj; fileRevision: string };
+// Signed URLs a surface minted (useAssetUrlState), re-minted after five minutes as the HTML page is. `fileRevision`: the
+// file's identity and contents, which a newer server reports (AssetCreateUrlResult), unlike the URL, which every mint signs
+// anew.
+type Minted = { url: string; at: number; error: boolean; resource: Obj; fileRevision?: string };
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
 const STALE_URL_MS = 5 * 60_000;
 function mintedOf(client: T3Client): Map<string, Minted> {
@@ -77,16 +75,22 @@ async function mint(client: T3Client, native: Native | null | undefined, key: st
   if ((!entry || stale || force) && native?.available && client.ready && client.connection === 'connected') {
     try {
       const result = obj(await client.rpc(native, 'assets.createUrl', { resource }));
-      const url = assetUrl(client.origin, str(result.relativeUrl));
-      entry = { url, at: now, error: !url, resource, fileRevision: str(result.fileRevision) };
-    } catch (error) { if (letGo(error)) throw error; entry = { url: '', at: now, error: true, resource, fileRevision: '' }; }
+      const url = assetUrl(client.origin, str(result.relativeUrl)), fileRevision = str(result.fileRevision).trim().slice(0, 256);
+      entry = { url, at: now, error: !url, resource, ...(fileRevision ? { fileRevision } : {}) };
+    } catch (error) { if (letGo(error)) throw error; entry = { url: '', at: now, error: true, resource }; }
     map.set(key, entry);
     if (map.size > 256) map.delete(map.keys().next().value!);
   }
   return entry;
 }
 
-/** The Files surface's media file: a signed image or video and its actions, or NO_MEDIA for any other file. */
+/**
+ * The Files surface's media file: a signed image or video and its actions, or NO_MEDIA for any other file. `revision` is
+ * the workspace's (workspaceMutationId), and an image's URL carries it. A video is signed again each time it moves
+ * (WorkspaceVideoPreview's useAssetUrlState), and its URL names the file's own revision when the server reports one, else
+ * the workspace's; its player (media-actions.contract FilesVideo) holds the source it loaded while that revision holds
+ * and takes a new one once playback pauses or ends (MediaVideoPlayer).
+ */
 export async function filesMediaView(client: T3Client, native: Native | null | undefined, previewPath: string, absolutePath: string, cwd: string, revision: string, now = 0): Promise<MediaView> {
   const kind = isWorkspaceVideoPreviewPath(previewPath) ? 'video' : isWorkspaceImagePreviewPath(previewPath) ? 'image' : '';
   if (!kind || !previewPath || !absolutePath) return NO_MEDIA;
@@ -95,12 +99,10 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
   const inside = mediaFileReference(absolutePath, cwd).relativePath !== undefined;
   const resource = client.threadId ? { _tag: kind === 'video' || !inside ? 'media-file' : 'workspace-file', threadId: client.threadId, path: absolutePath } : { _tag: 'draft-workspace-file', cwd, path: absolutePath };
   const key = `files:${JSON.stringify([client.environmentId, client.threadId, cwd, absolutePath, kind])}`;
-  // A video is signed again for a new workspace revision, which reports whether the file itself changed (`fileRevision`).
-  const video = kind === 'video';
-  const entry = await mint(client, native, key, resource, now, video && revision !== '' && refreshDue(client, key, revision));
-  const fileRevision = video ? entry?.fileRevision ?? '' : '';
-  const latest = entry && !entry.error ? (fileRevision ? fileRevisedUrl(entry.url, fileRevision) : revisedUrl(entry.url, revision)) : '';
-  const url = video ? loadedUrl(stateOf(client), key, latest, fileRevision || revision) : latest;
+  const entry = await mint(client, native, key, resource, now, kind === 'video' && !!revision && refreshDue(client, key, revision));
+  // The revision goes in the URL too, since two mints in the same millisecond sign identical URLs.
+  const videoRevision = kind === 'video' ? entry?.fileRevision || revision : '';
+  const url = !entry || entry.error ? '' : kind === 'video' ? revisedUrl(entry.url, videoRevision, entry.fileRevision ? 'file-revision' : 'workspace-revision') : revisedUrl(entry.url, revision);
   const source: MediaActionSource = { kind, name: previewPath, src: url || null, reference: mediaFileReference(absolutePath, cwd), asset: { resource } };
   // WorkspaceImagePreview / WorkspaceVideoPreview: a refused signature, or the picture's or player's onError for this URL.
   const failed = !!entry?.error || mediaFailed(client, url);
@@ -109,19 +111,8 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
     kind, state: !entry ? 'loading' : failed ? 'failed' : 'ready', url, name: previewPath, tip: mediaTooltip(source), source: encodeMediaSource(source),
     failText: kind === 'video' ? `Video unavailable · ${previewPath}` : 'Unable to load workspace image.',
     openUrl: open?.url ?? '', openLabel: open?.label ?? '', openIcon: open?.icon ?? '', retryKey: kind === 'video' ? key : '', retrying: stateOf(client).retrying.has(key),
+    revision: videoRevision,
   };
-}
-
-/** WorkspaceVideoPreview's revision suffix for a server that reports the file's revision. */
-const fileRevisedUrl = (url: string, revision: string) => `${url}${url.includes('?') ? '&' : '?'}file-revision=${encodeURIComponent(revision)}`;
-/** MediaVideoPlayer's playbackSource: the URL a Files video loaded stays while its revision holds, one signed again included. */
-function loadedUrl(state: MediaState, key: string, latest: string, revision: string): string {
-  const shown = state.shown.get(key);
-  if (shown?.revision === revision) return shown.url;
-  state.shown.delete(key);
-  if (latest) state.shown.set(key, { url: latest, revision });
-  if (state.shown.size > 64) state.shown.delete(state.shown.keys().next().value!);
-  return latest;
 }
 
 // Chat Markdown: an image line (`![alt](src)` alone, the only image block markdown.rs draws).
@@ -422,20 +413,13 @@ export async function mediaLocal(client: T3Client, native: Native, op: string, i
   if (op === 'menu') { await showMediaMenu(client, native, id, value, hooks); return ''; }
   // A Markdown sound's name opens its file beside the thread (InlineAudioPreview's onOpen); a web URL's opens nothing.
   if (op === 'open-file') { if (id) await hooks.openFile?.(id); return ''; }
-  if (op === 'video-error' || op === 'image-error') {
-    // A loaded URL that failed is dropped, so the next view takes the latest one (MediaVideoPlayer onError).
-    for (const [key, shown] of state.shown) if (shown.url === id) state.shown.delete(key);
-    if (id) state.failed.add(id);
-    if (state.failed.size > 64) state.failed.delete(state.failed.values().next().value!);
-    return '';
-  }
+  if (op === 'video-error' || op === 'image-error') { if (id) state.failed.add(id); if (state.failed.size > 64) state.failed.delete(state.failed.values().next().value!); return ''; }
   if (op === 'retry') {
     if (!id || state.retrying.has(id)) return '';
     state.retrying.add(id);
     await wakeShell(native);
     try {
       if (value) state.failed.delete(value);
-      state.shown.delete(id);
       if (id.startsWith('attachment:')) hooks.forgetAttachment?.(id.slice('attachment:'.length));
       else {
         // useAssetUrlRefresh: sign the same resource again while "Retrying…" shows.

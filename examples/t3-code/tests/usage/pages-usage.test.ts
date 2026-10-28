@@ -7,6 +7,7 @@ import { formatResetsIn } from '../../src/usage/usage-limits';
 import { adoptPagesPrefs, pagesPrefs } from '../../src/pages/pages-prefs';
 import type { Obj } from '../../src/client/domain';
 import { appPath } from '../support/app-files';
+import { contractComponent } from '../support/contract-action-fixture';
 import { resolveHour12 } from '../../src/shared/timestamp-format';
 
 test('usage figures format as usageFormat.ts does', () => {
@@ -109,6 +110,46 @@ test('the chart rounds its scale up and draws monotone curves in plot pixels', (
   expect(chart.series.map(series => series.key)).toEqual(['codex']);
   expect(chart.series[0]!.area.endsWith('L600.00,224 L0,224 Z')).toBe(true);
   expect([chart.start, chart.middle, chart.end]).toEqual(['Sep 30', 'Oct 1', 'Oct 2']);
+});
+
+test('Muse Code sessions draw a Muse Code series in #0866ff, last in the provider order', () => {
+  const summary = { contractVersion: 6, readAt: 'x', sources: [source('pi', '/p', 1), source('muse', '/m', 2)],
+    buckets: [bucket({ provider: 'pi', model: 'pi-model', costUsd: 5 }), bucket({ provider: 'muse', model: 'muse-model', costUsd: 7 })] };
+  const merged = mergeUsage([{ id: 'env', label: 'Mac', summary }]);
+  const chart = buildChart(merged, ['2026-10-01'], 'day', 'cost', 600);
+  expect(chart.series.map(series => [series.key, series.light, series.dark])).toEqual([['muse', '#0866ff', '#0866ff'], ['pi', '#4d9f8a', '#4d9f8a']]);
+  const page = presentUsage(emptyUsage('cost', 30, 'model', 600), merged, { sinceDay: '2026-09-05', untilDay: '2026-10-04', timeZone: 'UTC', resolution: 'day' }, summary);
+  expect(page.providers.map(row => [row.label, row.sessions, row.value])).toEqual([['Pi', '1 session', '$5.00'], ['Muse Code', '2 sessions', '$7.00']]);
+  expect(page.periods[0]!.cells.map(cell => [cell.key, cell.text])).toEqual([['pi', '$5.00'], ['muse', '$7.00']]);
+});
+
+// UsagePage.tsx at 7c3b3b3605ef: the modal's trap wraps Shift+Tab from its first stop to the page's last tabbable, in
+// Cost › Breakdown › Day the "Usage breakdown by time" region (tabIndex 0). The runner's querySelectorAll lists only nodes
+// with their own id (runner/src/geometry.rs data_matches), in tree order; RouteFocusGuard focuses the last of them.
+test("Shift+Tab from the Usage modal's first stop wraps to the page's last control, the breakdown by time in Cost › Day", async () => {
+  const lines = (await Promise.all(['pages-usage.contract', 'usage-pooled.contract', 'usage-bars.contract'].map(file => Bun.file(appPath(file)).text()))).join('\n').split('\n');
+  const stops = lines.filter(line => /data-focus-stop=(\([^)]*"enabled page"\)|"enabled page")/.test(line));
+  expect(stops.length).toBeGreaterThan(15);
+  // Every one is a node the runner can list: an id of its own.
+  for (const line of stops) expect(line).toMatch(/ id=[`"\w]/);
+  // The page's stops in tree order, as the runner lists them in Cost with Breakdown by Day: the header's, then the body's,
+  // the breakdown region last (the Limits view's stops live in usage-pooled and usage-bars).
+  const usage = (await Bun.file(appPath('pages-usage.contract')).text()).split('\n');
+  const last = usage.filter(line => /data-focus-stop=(\([^)]*"enabled page"\)|"enabled page")/.test(line)).at(-1)!;
+  expect(last).toContain('scroll id="usage-period-scroll"');
+  expect(last).toContain('aria-label="Usage breakdown by time" tabindex=0');
+  const guard = contractComponent('dialog-trap.contract', 'RouteFocusGuard'), focused: string[] = [];
+  const listed = ['usage-environment', 'usage-provider', 'usage-period-1', 'usage-period-7', 'usage-period-30', 'usage-period-90', 'usage-metric-cost', 'usage-metric-tokens',
+    'usage-metric-limits', 'usage-refresh', 'usage-breakdown-model', 'usage-breakdown-time', 'usage-period-scroll'];
+  guard.call('hold', {}, { targets: ['usage-environment', 'close-usage'], popup: 'usage-modal', preventDefault() {}, stopPropagation() {},
+    querySelectorAll: (selector: string) => (selector.includes('"page"') ? listed : ['usage-environment', 'close-usage', ...listed]), focus: (id: string) => focused.push(id) },
+    ['Tab', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: true }]);
+  expect(focused).toEqual(['usage-period-scroll']);
+  // A disabled control is no stop; a popover's rows and the dialogs' buttons are not the page's.
+  const stop = (marker: string) => lines.find(line => line.includes(marker))?.match(/data-focus-stop=(\([^)]*\)|"[^"]*")/)?.[1];
+  expect(stop('id="usage-refresh"')).toBe('(busy ? "" : "enabled page")');
+  expect(stop('testId="reset-credit-confirm"') ?? '').not.toContain('page');
+  expect(stop('testId=`usage-seg-reset-${seg.id}`') ?? '').not.toContain('page');
 });
 
 test('the plot spans the chart column at both reference widths', () => {
