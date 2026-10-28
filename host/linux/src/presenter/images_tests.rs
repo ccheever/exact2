@@ -2,6 +2,7 @@
 //! `display: none` box (no painted box) is not on screen, so a failed
 //! download of it is not asked again until it shows.
 use super::*;
+use crate::image::LoadEvent;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -226,18 +227,29 @@ fn a_load_waiting_is_sent_only_to_the_node_and_source_it_landed_for_and_owes_a_t
     let node = k.node_by_key(k.find_by_test_id("picture")[0]).unwrap();
     let (id, key) = (node.id, node.key);
     let packed = u64::from(key.index) | (u64::from(key.generation) << 32);
+    let assignment = p.images.assignment(id).unwrap();
+    let event = |key: u64, source: &str, assignment: u64| LoadEvent {
+        id,
+        key,
+        source: source.into(),
+        assignment,
+    };
     let loads = |p: &mut Presenter<()>| {
         let state = crate::agent::handle(p, r#"{"op":"state"}"#);
         let state: serde_json::Value = serde_json::from_str(&state).unwrap();
         state["slots"]["loads"].as_f64().unwrap()
     };
-    // Landed for another source (the node's changed since), or another node at this id: not sent.
+    // Landed for another source (the node's changed since), another node at this id, or another
+    // assignment of the source: not sent.
     p.images
         .load_events
-        .push((id, packed, "pictures/old.png".into()));
+        .push(event(packed, "pictures/old.png", assignment));
     p.images
         .load_events
-        .push((id, packed + 1, "pictures/a.png".into()));
+        .push(event(packed + 1, "pictures/a.png", assignment));
+    p.images
+        .load_events
+        .push(event(packed, "pictures/a.png", assignment + 1));
     assert_eq!(
         p.image_turn_due_in_ms(),
         Some(0.0),
@@ -249,7 +261,7 @@ fn a_load_waiting_is_sent_only_to_the_node_and_source_it_landed_for_and_owes_a_t
     // Its own node and source: sent.
     p.images
         .load_events
-        .push((id, packed, "pictures/a.png".into()));
+        .push(event(packed, "pictures/a.png", assignment));
     p.apply_reports(Vec::new());
     assert_eq!(loads(&mut p), 1.);
 }
@@ -282,8 +294,12 @@ fn a_load_is_not_sent_once_an_earlier_loads_action_changed_its_source() {
     let event = |p: &Presenter<()>, test_id: &str, source: &str| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
-        let packed = u64::from(node.key.index) | (u64::from(node.key.generation) << 32);
-        (node.id, packed, source.to_owned())
+        LoadEvent {
+            id: node.id,
+            key: u64::from(node.key.index) | (u64::from(node.key.generation) << 32),
+            source: source.to_owned(),
+            assignment: p.images.assignment(node.id).unwrap(),
+        }
     };
     let one = event(&p, "one", "pictures/a.png");
     let two = event(&p, "two", "pictures/b.png");
@@ -331,8 +347,12 @@ fn a_load_waiting_is_dropped_when_actions_change_its_source_away_and_back() {
     let event = |p: &Presenter<()>, test_id: &str, source: &str| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
-        let packed = u64::from(node.key.index) | (u64::from(node.key.generation) << 32);
-        (node.id, packed, source.to_owned())
+        LoadEvent {
+            id: node.id,
+            key: u64::from(node.key.index) | (u64::from(node.key.generation) << 32),
+            source: source.to_owned(),
+            assignment: p.images.assignment(node.id).unwrap(),
+        }
     };
     let events = [
         event(&p, "one", "pictures/one.png"),

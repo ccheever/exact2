@@ -89,6 +89,19 @@ struct View {
     retry_at: Option<Instant>,
     /// Its source's `load` has been sent: once a source, at its first picture.
     load_sent: bool,
+    /// Counts its source's assignments: a load waiting is for one of them.
+    assignment: u64,
+}
+
+/// A source's first picture has landed: its view's `load`, waiting for the
+/// presenter, which sends it if the view is still that node (`key`, packed)
+/// with that source, assigned that time.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LoadEvent {
+    pub id: ViewId,
+    pub key: u64,
+    pub source: String,
+    pub assignment: u64,
 }
 
 /// When a picture on screen whose download failed (the network, a timeout, a
@@ -127,7 +140,7 @@ pub struct Images {
     /// The views whose source's first picture has landed since the presenter
     /// last took them, with the node (its key, packed) and the source they
     /// landed for: each hears its `load` (LLP 1011 §4) if it is still that.
-    pub(crate) load_events: Vec<(ViewId, u64, String)>,
+    pub(crate) load_events: Vec<LoadEvent>,
     decode_enabled: bool,
     deferred: usize,
     /// The last [`Images::sync_visible`] met a picture (an image that is not
@@ -315,6 +328,7 @@ impl Images {
                 retries: 0,
                 retry_at: None,
                 load_sent: false,
+                assignment: 0,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
             view.fit = plain_box(node.style).then_some(node.style.object_fit);
@@ -405,7 +419,8 @@ impl Images {
                 view.refusal = None;
                 (view.retries, view.retry_at) = (0, None);
                 view.load_sent = false;
-                self.load_events.retain(|(at, ..)| at != id);
+                view.assignment += 1;
+                self.load_events.retain(|e| e.id != *id);
                 // The old lease, bitmap and natural size stay until acceptance.
                 if source.is_empty() {
                     view.lease = None;
@@ -458,7 +473,7 @@ impl Images {
         }
         self.bitmaps.remove(&id);
         self.package.forget(id);
-        self.load_events.retain(|(at, ..)| *at != id);
+        self.load_events.retain(|e| e.id != id);
     }
     /// Consume bounded completions and retry metadata/decode admission once.
     pub fn poll(&mut self) -> Vec<Report> {
@@ -581,11 +596,12 @@ impl Images {
                                 view.accepted = Some(request);
                                 view.displayed_source = view.source.clone();
                                 if !std::mem::replace(&mut view.load_sent, true) {
-                                    (self.load_events).push((
-                                        *id,
-                                        view.key.view,
-                                        view.source.clone(),
-                                    ));
+                                    self.load_events.push(LoadEvent {
+                                        id: *id,
+                                        key: view.key.view,
+                                        source: view.source.clone(),
+                                        assignment: view.assignment,
+                                    });
                                 }
                             }
                         }
@@ -703,11 +719,12 @@ impl Images {
                                     view.accepted = Some(request);
                                     view.displayed_source = view.source.clone();
                                     if !std::mem::replace(&mut view.load_sent, true) {
-                                        (self.load_events).push((
-                                            *id,
-                                            view.key.view,
-                                            view.source.clone(),
-                                        ));
+                                        self.load_events.push(LoadEvent {
+                                            id: *id,
+                                            key: view.key.view,
+                                            source: view.source.clone(),
+                                            assignment: view.assignment,
+                                        });
                                     }
                                 }
                             }
@@ -727,6 +744,10 @@ impl Images {
             })
             .collect();
         reports
+    }
+    /// Which assignment of its source view `id` shows ([`LoadEvent`]).
+    pub(crate) fn assignment(&self, id: ViewId) -> Option<u64> {
+        self.views.get(&id).map(|view| view.assignment)
     }
     /// Pending work, including capacity waits; this is not an animation request.
     pub fn pending(&self) -> bool {

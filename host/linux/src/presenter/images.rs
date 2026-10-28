@@ -27,42 +27,45 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// A source's first picture sends its `load` to an image that hears it
-    /// (LLP 1011 §4) and is still that node showing that source as it is
-    /// sent: since it landed, input, a timer or an earlier load's action may
-    /// have changed either. What is due by now (a mutation's `then`, armed
-    /// at an earlier load's commit with no gap) runs before the check, as
-    /// dispatching would run it before the handler. Whether any was sent.
+    /// (LLP 1011 §4) and is still that node showing that source, assigned
+    /// that time, as it is sent: since it landed, input, a timer or an
+    /// earlier load's action may have changed any of them. The work due by
+    /// the host's time (a mutation's `then` armed at an earlier load's
+    /// commit; a timer a loop deferred) runs first, with the load still
+    /// queued, so a source it changes drops it (`Images::sync_shown`); the
+    /// load is then sent at that same time, so dispatching runs nothing
+    /// before its handler. Loads that land meanwhile wait for the next turn
+    /// (owed at once). Whether any was sent.
     pub(crate) fn deliver_image_loads(&mut self) -> bool {
         let mut loads = false;
-        // One at a time from the queue, so the rest stay where a source an
-        // action changes drops them (`Images::sync_shown`); those that land
-        // meanwhile wait for the next turn (owed at once).
         for _ in 0..self.images.load_events.len() {
-            if self.images.load_events.is_empty() {
-                break;
-            }
-            let (id, key, source) = self.images.load_events.remove(0);
-            let now = self.host.now();
-            if self.host.timer_due_ms().is_some_and(|due| due <= now) {
+            let mut now = self.host.now();
+            for _ in 0..8 {
+                if !self.host.timer_due_ms().is_some_and(|due| due <= now) {
+                    break;
+                }
                 if let Some(error) = self.advance(now) {
                     self.host.log(error);
                 }
+                now = self.host.now();
             }
-            let same = self.host.kernel().node(id).is_some_and(|n| {
-                n.node_type == NodeType::Image
-                    && (u64::from(n.key.index) | (u64::from(n.key.generation) << 32)) == key
-                    && n.props.str(PropId::ImageSource) == Some(source.as_str())
-            });
-            if !same
-                || !self
-                    .host
-                    .runner()
-                    .handlers_of(id)
-                    .contains(&EventKind::Load)
+            // Still owed work at this time (a live clock running on): the
+            // next turn sends it.
+            if self.host.timer_due_ms().is_some_and(|due| due <= now)
+                || self.images.load_events.is_empty()
             {
+                break;
+            }
+            let event = self.images.load_events.remove(0);
+            let same = self.host.kernel().node(event.id).is_some_and(|n| {
+                n.node_type == NodeType::Image
+                    && (u64::from(n.key.index) | (u64::from(n.key.generation) << 32)) == event.key
+                    && n.props.str(PropId::ImageSource) == Some(event.source.as_str())
+            }) && self.images.assignment(event.id) == Some(event.assignment);
+            if !same || !(self.host.runner().handlers_of(event.id)).contains(&EventKind::Load) {
                 continue;
             }
-            let sent = self.host.dispatch_at(id, Event::Load, now);
+            let sent = self.host.dispatch_at(event.id, Event::Load, now);
             let after = self.after_commit();
             if let Some(error) = sent.or(after) {
                 self.host.log(error);

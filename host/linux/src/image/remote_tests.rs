@@ -906,7 +906,7 @@ fn a_picture_shown_again_with_its_source_unchanged_sends_no_second_load() {
     assert_eq!(
         events
             .iter()
-            .map(|e| (e.0, e.2.as_str()))
+            .map(|e| (e.id, e.source.as_str()))
             .collect::<Vec<_>>(),
         [(1, url.as_str())]
     );
