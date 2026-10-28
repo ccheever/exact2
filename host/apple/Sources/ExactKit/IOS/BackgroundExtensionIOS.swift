@@ -8,6 +8,11 @@
 import UIKit
 
 extension NodeView {
+    /// PROTO (safe-area design r6 §3): `-exact-safe-area="extend"` (the old property's `auto` until migrated).
+    var extendsBackground: Bool {
+        props["backgroundExtension"] == "auto" || (props["safeArea"]?.split(separator: ",").contains { $0.split(separator: " ").first == "extend" } ?? false)
+    }
+
     /// Each image's extension view, out of `NodeView`'s stored properties,
     /// which every view pays for.
     private static let extensions = NSMapTable<NodeView, UIView>.weakToStrongObjects()
@@ -16,7 +21,7 @@ extension NodeView {
     /// image is now; removed where it has nothing to fill.
     func syncBackgroundExtension() {
         let held = Self.extensions.object(forKey: self)
-        guard #available(iOS 26.0, tvOS 26.0, *), kind == "image", props["backgroundExtension"] == "auto", !cssVisibilityHidden,
+        guard #available(iOS 26.0, tvOS 26.0, *), kind == "image", extendsBackground, !cssVisibilityHidden,
               window != nil, let image = raster?.image, let place = extensionPlace() else { return removeBackgroundExtension() }
         let view = held as? UIBackgroundExtensionView ?? {
             let view = UIBackgroundExtensionView()
@@ -113,7 +118,7 @@ extension Presenter {
     /// `view`'s opacity or display changed: the extensions of the images in
     /// it follow, as they are outside the images' subtrees.
     func compositingChanged(_ view: UIView) {
-        for image in carrying("backgroundExtension") where image.isDescendant(of: view) { image.syncBackgroundExtension() }
+        for image in extendingImages() where image.isDescendant(of: view) { image.syncBackgroundExtension() }
     }
 }
 #endif

@@ -9,7 +9,7 @@ struct ChromeIndex {
                        "contextTarget", "contextPopover", "toolbarPlacement", "accessibilityKeyShortcuts", "menuPlacement",
                        "commandfor", "swipeContent", "id", "accessibilityLive", "autofocus", "listStyle",
                        "accessibilityModal", "accessibilityDescribedBy", "accessibilityLabelledBy", "focusGuide", "statusBarStyle",
-                       "backgroundExtension"]
+                       "backgroundExtension", "safeArea"]
     /// Props a pass reads for one value. Every list row has a role and every
     /// `main` or `header` a tag, so these are indexed by that value, never by
     /// presence.

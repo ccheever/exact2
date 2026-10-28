@@ -301,7 +301,7 @@ component DuoLab
               // The note screen takes its bottom edge (LLP 1123 D4): its sheet's surface reaches
               // the display's bottom, as a sheet's does, and pads its controls by the route's inset there.
               if entry.name != "images" and entry.name != "reflow" and t.name != "keyboard"
-                column navigationKey=`${entry.id}` -exact-safe-area=(entry.name == "note" ? "bottom" : "auto") class=Screen testId=`screen-${entry.name}`
+                column navigationKey=`${entry.id}` -exact-safe-area=(entry.name == "note" ? "ignore bottom" : "auto") class=Screen testId=`screen-${entry.name}`
                   header class=Head
                     text (entry.name == "fold" ? "Fold" : entry.name == "combos" ? "Combinations" : "Note") role="heading" aria-level=(entry.name == "note" ? 2 : 1) testId=`${entry.name}-title`
                   if entry.name == "fold"

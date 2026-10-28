@@ -166,7 +166,7 @@ final class AnimatedRasters {
             CATransaction.commit()
             // Its background extension shows the same frame; a drawn image's
             // follows from `display`.
-            if view.props["backgroundExtension"] == "auto" { view.syncBackgroundExtension() }
+            if view.extendsBackground { view.syncBackgroundExtension() }
         } else {
             view.setNeedsDisplay()
         }

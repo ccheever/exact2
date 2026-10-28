@@ -330,31 +330,13 @@ impl NavPlace {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
         let path = |p: &[String]| [p, &[tag.to_string()]].concat();
         if let Some(a) = attrs.iter().rev().find(|a| a.name == "-exact-safe-area") {
-            // PROTO (safe-area design r2 §3.1): any box takes `contain` or `ignore` groups.
-            // A computed value the host reads; an invalid one is `auto` there, journalled once.
+            // PROTO (safe-area design r6 §3): any box takes `auto` or comma-separated `ignore` and `extend`
+            // groups over logical edges. A computed value the host reads; an invalid one is `auto` there.
             let mut literals = Vec::new();
             crate::theme::literal_leaves(&a.value, &mut literals);
             for (word, span) in literals {
-                let mut edges: Vec<_> = word.split_whitespace().collect();
-                // PROTO: a leading `contain` or `ignore` keyword, its edges optional.
-                let keyword = matches!(edges.first(), Some(&"contain") | Some(&"ignore"));
-                if keyword {
-                    edges.remove(0);
-                }
-                if word != "auto"
-                    && word != "none"
-                    && !(keyword && edges.is_empty())
-                    && (edges.is_empty()
-                        || edges.iter().enumerate().any(|(i, edge)| {
-                            !matches!(*edge, "top" | "right" | "bottom" | "left")
-                                || edges[..i].contains(edge)
-                        }))
-                {
-                    return err(
-                        "lower-attr-value",
-                        "`-exact-safe-area` takes \"auto\", \"none\", or a space-separated list of top, right, bottom and left without duplicates",
-                        span,
-                    );
+                if let Some(why) = safe_area_value_error(&word) {
+                    return err("lower-attr-value", &why, span);
                 }
             }
         }
@@ -766,4 +748,36 @@ fn scrolls_y(tag: &str, attrs: &[Attr]) -> Option<bool> {
     }
     let y = if scroller { "scroll" } else { "visible" };
     crate::overflow::Overflow::of(attrs, y).scrolls_y()
+}
+
+/// PROTO (safe-area design r6 §3): why `-exact-safe-area`'s literal `word` is refused, or nothing:
+/// `auto`, or comma-separated groups of `ignore` or `extend` and optional edges among `top`,
+/// `bottom`, `start` and `end`, no edge in two groups.
+pub(crate) fn safe_area_value_error(word: &str) -> Option<String> {
+    let word = word.trim();
+    if word == "auto" {
+        return None;
+    }
+    let mut seen: Vec<&str> = Vec::new();
+    for group in word.split(',') {
+        let mut words = group.split_whitespace();
+        match words.next() {
+            Some("ignore" | "extend") => {}
+            Some("none") => return Some("`-exact-safe-area=\"none\"` is now `ignore`: the box and its content take every edge it touches".into()),
+            Some("contain") => return Some("`-exact-safe-area` has no `contain`: a surface at the safe area's edge reaches it, as the HIG asks; to keep a box off the edge, pad the route's root or give the box a margin".into()),
+            Some("top" | "bottom" | "left" | "right" | "start" | "end") => {
+                return Some(format!("`-exact-safe-area=\"{word}\"` names edges without a keyword: write `ignore {word}` for a box laid out into those edges, or `extend {word}` for artwork mirrored there"))
+            }
+            _ => return Some("`-exact-safe-area` takes `auto`, or `ignore` or `extend` followed by any of `top`, `bottom`, `start` and `end`, groups separated by commas".into()),
+        }
+        for edge in words {
+            match edge {
+                "left" | "right" => return Some(format!("`-exact-safe-area` edges are logical, as CSS's `inline-start` and `inline-end`: write `start` or `end` for `{edge}` (right to left mirrors them)")),
+                "top" | "bottom" | "start" | "end" if !seen.contains(&edge) => seen.push(edge),
+                "top" | "bottom" | "start" | "end" => return Some(format!("`-exact-safe-area` names `{edge}` in two groups: an edge is ignored or extended, not both")),
+                _ => return Some(format!("`-exact-safe-area` has no edge `{edge}`: the edges are `top`, `bottom`, `start` and `end`")),
+            }
+        }
+    }
+    None
 }

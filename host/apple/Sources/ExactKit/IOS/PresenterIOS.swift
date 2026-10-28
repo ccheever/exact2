@@ -71,6 +71,8 @@ package final class Presenter {
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh(); view.relook() }
     package func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
+    /// PROTO (safe-area design r6 §3): the images that extend their artwork, by either spelling.
+    package func extendingImages() -> [NodeView] { (carrying("backgroundExtension") + carrying("safeArea")).filter { $0.kind == "image" && $0.extendsBackground } }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []

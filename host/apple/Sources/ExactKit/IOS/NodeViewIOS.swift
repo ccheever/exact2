@@ -727,6 +727,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package var reachInsetView: ObjectIdentifier?
     /// PROTO: the main-axis bounce the reach pass set, to undo when it no longer applies.
     package var reachBounce = false
+    /// PROTO: the part of the reach that crosses an enclosing scroller's padding, which the composer insets too.
+    package var reachOwn: UIEdgeInsets = .zero
     /// PROTO: how far a leaf that takes its edges is laid out past its box, content and all (bounds origin kept).
     package var take: UIEdgeInsets = .zero
 

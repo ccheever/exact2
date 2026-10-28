@@ -31,7 +31,7 @@ final class RouteSafeArea {
         let raw = route.node.props["safeArea"] ?? "auto"
         if value != raw {
             value = raw
-            if let parsed = Self.parse(raw) { edges = parsed } else {
+            if let parsed = Self.parse(raw, rtl: route.viewIfLoaded?.effectiveUserInterfaceLayoutDirection == .rightToLeft) { edges = parsed } else {
                 edges = []
                 if !invalidReported {
                     invalidReported = true
@@ -43,27 +43,25 @@ final class RouteSafeArea {
         return NavigationHost.transparentBar(route.node) ? edges.union(.top) : edges
     }
 
-    private static func parse(_ value: String) -> UIRectEdge? {
+    private static func parse(_ value: String, rtl: Bool) -> UIRectEdge? {
+        // PROTO (safe-area design r6 §3): the route's root takes the edges its `ignore` groups name
+        // (logical `start` and `end` under its direction); `extend` groups take nothing.
         if value == "auto" { return [] }
-        if value == "none" { return .all }
-        // PROTO (safe-area design r2 §3.1): `ignore [edges]` is D4's opt-out; a root's `contain` is not prototyped.
-        if value.hasPrefix("contain") { return [] }
-        if value == "ignore" { return .all }
-        let value = value.hasPrefix("ignore ") ? String(value.dropFirst(7)) : value
-        let words = value.split(whereSeparator: { $0.isWhitespace })
-        guard !words.isEmpty else { return nil }
         var out: UIRectEdge = []
-        for word in words {
-            let edge: UIRectEdge
-            switch word {
-            case "top": edge = .top
-            case "right": edge = .right
-            case "bottom": edge = .bottom
-            case "left": edge = .left
-            default: return nil
+        for group in value.split(separator: ",") {
+            let words = group.split(whereSeparator: { $0.isWhitespace })
+            guard let first = words.first else { return nil }
+            guard first == "ignore" else { if first == "extend" { continue } else { return nil } }
+            if words.count == 1 { return .all }
+            for word in words.dropFirst() {
+                switch word {
+                case "top": out.insert(.top)
+                case "bottom": out.insert(.bottom)
+                case "start": out.insert(rtl ? .right : .left)
+                case "end": out.insert(rtl ? .left : .right)
+                default: return nil
+                }
             }
-            guard !out.contains(edge) else { return nil }
-            out.insert(edge)
         }
         return out
     }

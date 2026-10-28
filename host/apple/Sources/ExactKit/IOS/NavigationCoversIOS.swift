@@ -52,7 +52,7 @@ extension NavigationHost {
     /// after the batch being applied.
     func reportCovers() {
         // An image's extension grows with the safe areas it meets.
-        defer { for image in presenter.carrying("backgroundExtension") { image.syncBackgroundExtension() } }
+        defer { for image in presenter.extendingImages() { image.syncBackgroundExtension() } }
         var changes: [(UInt32, HostCover?)] = []
         var wanted: [UInt32: HostCover] = [:]
         var owners: [UInt32: OwnerValues] = [:]
@@ -110,9 +110,13 @@ extension NavigationHost {
             }
             if settled, c.viewIfLoaded?.window != nil {
                 var safe = c.view.safeAreaInsets
-                // PROTO (safe-area design r2 §2.5): a collapsing large title is UIKit's alone; the content root's top
-                // stays at the expanded title's bottom (its scroller's widest resting inset).
-                if let origin = c.collapseScroll?.scrollOrigin, origin > safe.top { safe.top = origin }
+                // PROTO (safe-area design r6 §2.4): the content root is laid out against the resting safe area: its top
+                // is the bar's at full height, a large title expanded and the bar unminimized, as UIKit sizes it
+                // (`sizeThatFits`, measured equal to both while collapsed or minimized), whatever the bar shows now.
+                if let bar = barNav.map({ $0.navigationBar }), !(barNav?.isNavigationBarHidden ?? true), bar.window != nil {
+                    let full = c.view.convert(bar.bounds, from: bar).minY + bar.sizeThatFits(CGSize(width: bar.bounds.width, height: .greatestFiniteMagnitude)).height
+                    if full > safe.top { safe.top = full }
+                }
                 // PROTO (r2 §2.1): the bottom clearance is the part of the inset the block still overlaps (a block the
                 // keyboard ends above the bars has none), measured from the block, not the root laid out inside it.
                 let block = presenter.owners.block(in: c.view)
