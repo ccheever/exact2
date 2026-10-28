@@ -1033,13 +1033,24 @@ it goes on with the rejection then, natively too, without waiting for the
 reply. So an app's own rule of one request in flight may count an aborted
 request done when its fetch rejects: the request is closing and its reply will
 never be read. The one caveat is the cancel's own latency: the host's own
-capacity (its connections and per-origin places, and on the ordered lane the
-lane itself) comes back when the transport has actually ended, a moment later,
-so the next request may wait briefly behind the closing one. A request already
-sent may still have reached the server and counted against its rate limits,
-and a reply it never reads can't say so (a 429 included): treat an aborted
-request as an unknown outcome. A stream (`exactStream`) runs until the runner
-lets its ticket go, as before.
+capacity (its connections, per-origin places and buffers, and on some hosts
+the ordered lane) comes back when the transport has actually ended, a moment
+later, so the next request may wait briefly behind the closing one. On a
+worker-placed source, whose answers run one at a time behind an ordered fetch,
+another answer can abort it only once its turn comes: give a fetch another
+answer may abort `exactIndependentHttp`. A request already sent may still have
+reached the server and counted against its rate limits, and a reply it never
+reads can't say so (a 429 included): treat an aborted request as an unknown
+outcome. A stream (`exactStream`) runs until the runner lets its ticket go, as
+before. Natively and on the wasm target, a fetch made by a module callback
+that answers no resource or mutation (a payment sheet's or a tool's handler) is
+not cancelled yet: it rejects at once, and its request runs to its end. One
+known limit, natively, on a worker-placed source: a retirement race there (being
+fixed) can leave a replaced call's fetch abortable after the runner let it go,
+and once 256 more requests have been let go its abort may no longer cancel it.
+This is the TypeScript runtime 5: an older prelude would leave an aborted request
+running, so it moves `typescriptRuntime` to 5, and a native app with a
+TypeScript data module needs a new binary once more.
 
 A poll loop (`for (;;) { await sleep(5000); … }`) belongs in a Contract
 `task`, not in an answer: an answer that always has a timer armed never
