@@ -150,19 +150,22 @@ passes 3,722 tests. Temporary probes are removed; the normal build restores the
 saved environment, conversation and photo reply after restart. Actual delivery
 still compares complete server configurations. No phone parity or new TestFlight
 checkpoint is claimed.
-Home now distinguishes an unread native catalog from a successfully loaded empty
-catalog. It shows the existing Loading environments presentation during startup,
-then the saved environment and threads. Readiness survives transient failures;
-status or preference failure does not discard a successful catalog read. The
-normal build restores the saved conversation and unsent text after this change.
-All 3,723 mobile tests pass, including a bounded fresh-process reader lifecycle.
-A fresh ordinary follow-up currently remains at Saving on the large catalog.
-The journal records a 102.4 ms turn before the first native request is dispatched.
-Complete native recovery finds no queue row or ordinary transfer claim, and the
-64-character draft survives restart. One safe retry reproduces the failure. Do not
-submit that draft again until the synchronous preparation is corrected. The source
-performs three full-config reads before its first native await. Send-policy
-projection is the next bounded target; no fix or successful follow-up is claimed.
+The catalog reader distinguishes unread from successfully loaded empty state and
+retains readiness through later failures. Home consumes that explicit fact. A
+normal first-frame capture shows Loading environments; later launches still
+briefly show No environments connected before the saved threads appear. Startup
+presentation parity therefore remains open.
+Ordinary Send now captures only its policy fields before validation and copying.
+Workspace skills, commands and snapshots do not enter that capture. It retains
+upload limits, selected model availability and toggle settings, driver fallback,
+and complete pooled provider usage data. The three reads and synchronous ownership
+boundary remain unchanged. This corrects the observed 102.4 ms pre-admission turn.
+The preserved 64-character draft reaches the real environment once and receives
+`CACHE_ROUNDTRIP_OK`. The normal build displays the reply and restores it after
+restart. All 3,727 mobile tests, strict TypeScript, boot and the native build pass.
+Independent source review finds no introduced correctness blocker. Its redundant
+comment is removed. Delivery still performs its existing full-config comparisons.
+A refreshed full POC drive and signed TestFlight build remain to be completed.
 The inactive native NewTask editor prerequisite reserves eight final-source slots
 and retains teardown receipts until explicit acknowledgment. Its actual UIKit
 fixture passes 86 checks, including text/chip source recovery, repeated reads,

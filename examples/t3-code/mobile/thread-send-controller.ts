@@ -19,7 +19,7 @@ import { fleet } from './shared/settings-b-fleet';
 import { pendingRequests } from './shared/requests';
 import { queueState } from './shared/composer-controls-queue';
 import { activeRun, ClientError, type Native, type Files } from './shared/protocol';
-import { arr, obj, str, type Obj } from './shared/domain';
+import { arr, str, type Json, type Obj } from './shared/domain';
 
 export interface ThreadSendControllerInput {
   editor?:MountedSendAdmission;
@@ -51,7 +51,7 @@ const blocked=(reason:string):ThreadSendControllerRefusal=>({kind:'blocked',reas
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const plain=(value:unknown):value is Record<string,unknown>=>value!==null&&typeof value==='object'&&!Array.isArray(value)
   &&[Object.prototype,null].includes(Object.getPrototypeOf(value));
-function json(value:unknown,parents=new Set<object>()):boolean {
+function json(value:unknown,parents=new Set<object>()):value is Json {
   if(value===null||typeof value==='string'||typeof value==='boolean')return true;
   if(typeof value==='number')return Number.isFinite(value);
   if(!Array.isArray(value)&&!plain(value)||parents.has(value as object))return false;
@@ -60,6 +60,51 @@ function json(value:unknown,parents=new Set<object>()):boolean {
   const valid=(!array||keys.length===value.length&&Array.from({length:value.length},(_,i)=>Object.hasOwn(value,i)).every(Boolean))
     &&keys.every(k=>{const d=Object.getOwnPropertyDescriptor(value,k)!;return typeof k==='string'&&d.enumerable&&'value'in d&&json(d.value,parents)});
   parents.delete(value as object);return valid;
+}
+function captureSendPolicy(raw:unknown,instanceId:string):Obj {
+  const parents=new Set<object>(),invalid=():never=>{throw Error('The captured Send policy is invalid.')};
+  const own=(value:object,key:string)=>{
+    const descriptor=Object.getOwnPropertyDescriptor(value,key);
+    if(descriptor&&(!descriptor.enumerable||!('value'in descriptor)))invalid();
+    return descriptor;
+  };
+  const retain=(value:unknown):Json=>json(value,parents)?value:invalid();
+  const fields=(value:unknown,keys:readonly string[],project:((key:string,value:unknown)=>Json)=(_key,value)=>retain(value)):Obj=>{
+    if(!plain(value)||parents.has(value))return invalid();
+    parents.add(value);const selected:Obj=Object.create(null);
+    for(const key of keys){const descriptor=own(value,key);if(descriptor)selected[key]=project(key,descriptor.value)}
+    parents.delete(value);return selected;
+  };
+  const rows=(value:unknown,project:(row:Record<string,unknown>)=>Json):Json[]=>{
+    if(!Array.isArray(value)||parents.has(value))return invalid();
+    const length:unknown=Object.getOwnPropertyDescriptor(value,'length')?.value;
+    if(typeof length!=='number'||!Number.isSafeInteger(length)||length<0||Reflect.ownKeys(value).length!==length+1)return invalid();
+    parents.add(value);const selected:Json[]=[];
+    for(let i=0;i<length;i++){
+      const descriptor=own(value,String(i));
+      if(!descriptor||!plain(descriptor.value))return invalid();
+      selected.push(project(descriptor.value));
+    }
+    parents.delete(value);return selected;
+  };
+  let matched=false;
+  const policy=fields(raw,['environment','providers','settings','usageLimitSources'],(key,value)=>{
+    if(key==='environment')return fields(value,['capabilities'],(_key,value)=>fields(value,['attachmentUploads','fileAttachments'],
+      (key,value)=>key==='fileAttachments'?fields(value,['maxUploadBytes']):retain(value)));
+    if(key==='providers')return rows(value,row=>{
+      const provider=fields(row,['instanceId','driver','enabled','installed','availability','displayName','accentColor','auth','usageLimits']);
+      if(matched||provider.instanceId!==instanceId)return provider;
+      matched=true;return {...provider,...fields(row,['showInteractionModeToggle','models'],
+        (key,value)=>key==='models'?rows(value,row=>fields(row,['slug'])):retain(value))};
+    });
+    if(key==='settings')return fields(value,['providerInstances'],(_key,value)=>fields(value,[instanceId],
+      (_key,value)=>fields(value,['driver'])));
+    return rows(value,row=>{
+      const accounts=own(row,'accounts');if(accounts)rows(accounts.value,retain);
+      return retain(row);
+    });
+  });
+  return copy(policy);
 }
 function settings(client:MobileDraftClient,key:string) {
   const raw:unknown=client.local.composerControls;
@@ -106,8 +151,9 @@ export function mobileThreadSendRead(client:MobileDraftClient,input:ThreadSendCo
     if(outbox.rows.some(row=>creation(row.record))||outbox.transfers.some(claim=>creation(claim.record)))return {kind:'separate',lane:'pending-creation'};
     if(mobileComposerAttachmentPicking(client))return blocked('Finish attaching files before sending.');
     const selection=settings(client,key);
-    if(!selection||!json(client.config))return blocked('The captured model or mode is invalid.');
-    const provider=arr(client.config.providers).find(p=>p.instanceId===selection.modelSelection.instanceId);
+    if(!selection)return blocked('The captured model or mode is invalid.');
+    const config=captureSendPolicy(client.config,selection.modelSelection.instanceId);
+    const provider=arr(config.providers).find(p=>p.instanceId===selection.modelSelection.instanceId);
     // Classification-only absence sentinel, never a wire provider or installed claim.
     // Source enables local feedback only from an actual provider row, not a saved
     // instance driver. Model unavailability still reads config.settings in admission.
@@ -121,7 +167,7 @@ export function mobileThreadSendRead(client:MobileDraftClient,input:ThreadSendCo
       activeProviderThreadId:str(shell.activeProviderThreadId)||null,showInteractionModeToggle:provider?.showInteractionModeToggle!==false};
     // Pinned hasProviderUsageLimits, reusing its exact provider filter and the
     // existing structural config adapter rather than the older shared notice filter.
-    const usage=mobileUsageConfig(client.config);
+    const usage=mobileUsageConfig(config);
     const offered=!!provider&&(providersWithLimits(usage.providers).some(p=>p.driver===driver)
       ||usage.usageLimitSources.some(source=>source.accounts.some(account=>account.driver===driver)
         ||source.error!==undefined&&source.accounts.length===0));
@@ -131,7 +177,7 @@ export function mobileThreadSendRead(client:MobileDraftClient,input:ThreadSendCo
       uploadStates:copy(input.activity.uploadStates),uploadOwners:copy(input.activity.uploadOwners),voiceBlocked:mobileVoiceBlocksSubmission(client),
       usageLimitsOffered:offered,planModeEnabled:input.preferences.planModeEnabled,activeThreadBusy:!!activeRun(client.projection),
       canSteerActiveTurn:!!queue.canSteer,followUpBehavior:input.preferences.followUpBehavior,
-      ...(input.alternate?{followUpOverride:input.preferences.followUpBehavior==='queue'?'steer' as const:'queue' as const}:{}),config:copy(client.config)};
+      ...(input.alternate?{followUpOverride:input.preferences.followUpBehavior==='queue'?'steer' as const:'queue' as const}:{}),config};
     const plan=mobileThreadSendPlan(snapshot,facts);
     if(plan.kind==='refused')return blocked(plan.reason);
     return {kind:'ready',target,snapshot:copy(snapshot),facts,plan,hasContent:!!saved.text.trim()||attachments.length>0};

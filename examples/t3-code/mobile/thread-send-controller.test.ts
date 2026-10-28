@@ -12,7 +12,8 @@ import type {ThreadSendTransferClaim} from './thread-send-transfer-model';
 import type {ThreadSendRecord} from './thread-send-admission';
 import {mobileOutboxTransferCanonical as canonical} from './mobile-outbox-transfer-model';
 import {fleet} from './shared/settings-b-fleet';
-import {obj,type Obj} from './shared/domain';
+import {arr,obj,type Obj} from './shared/domain';
+import {collectProviderUsageLimits} from './thread-local-usage-model';
 import {stage} from './shared/composer-controls';
 import {mobileOutboxSettingsRequests} from './mobile-outbox-wire';
 import type {MobileOutboxRecord} from './mobile-outbox-model';
@@ -227,4 +228,85 @@ test('usage offering reuses source available-provider filter and account/error c
  f.client.config.providers=[provider];expect(ready(f).plan.kind).toBe('usage-limits');
  f.client.config.providers=[{...provider,enabled:false}];f.client.config.usageLimitSources=[{id:'source',label:'Source',error:'unavailable',accounts:[]}];expect(ready(f).plan.kind).toBe('usage-limits');
  f.client.config.usageLimitSources=[{id:'source',label:'Source',accounts:[{id:'a',driver:'codex',usageLimits:provider.usageLimits}]}];expect(ready(f).plan.kind).toBe('usage-limits');
+});
+test('Send reads named policy fields without inspecting excluded getters, nested catalogues or toJSON',async()=>{
+ const f=await fixture(),trap=():never=>{throw Error('Excluded catalogue was inspected')};
+ const catalogue=new Proxy({},{ownKeys:trap});
+ const hidden=(value:Obj)=>{
+  Object.defineProperties(value,{skills:{enumerable:true,get:trap},toJSON:{enumerable:true,get:trap}});
+  value.workspaceSnapshots=catalogue;value.slashCommands=catalogue;return new Proxy(value,{ownKeys:trap});
+ };
+ const provider:Obj={instanceId:'provider',driver:'codex',enabled:false,installed:null,availability:null,auth:null,usageLimits:null,
+  showInteractionModeToggle:false,models:[hidden({slug:'model'})]};
+ const other:Obj={instanceId:'provider',driver:'antigravity'};Object.defineProperties(other,{models:{enumerable:true,get:trap},showInteractionModeToggle:{enumerable:true,get:trap}});
+ f.client.config=hidden({environment:hidden({capabilities:hidden({attachmentUploads:null,fileAttachments:hidden({maxUploadBytes:21})})}),
+  providers:[hidden(provider),hidden(other)],settings:hidden({providerInstances:hidden({provider:hidden({driver:'codex'}),other:catalogue})}),usageLimitSources:[]});
+ const r=ready(f);expect(r.facts.config).toEqual({environment:{capabilities:{attachmentUploads:null,fileAttachments:{maxUploadBytes:21}}},
+  providers:[{instanceId:'provider',driver:'codex',enabled:false,installed:null,availability:null,auth:null,usageLimits:null,showInteractionModeToggle:false,models:[{slug:'model'}]},
+   {instanceId:'provider',driver:'antigravity'}],settings:{providerInstances:{provider:{driver:'codex'}}},usageLimitSources:[]});
+ expect(r.snapshot.showInteractionModeToggle).toBe(false);expect(r.plan.kind==='message'&&r.plan.record.interactionMode).toBe('default');
+ delete provider.showInteractionModeToggle;expect(ready(f).snapshot.showInteractionModeToggle).toBe(true);
+ expect(Object.hasOwn(arr(ready(f).facts.config?.providers)[0]!,'showInteractionModeToggle')).toBe(false);
+ provider.showInteractionModeToggle=null;expect(arr(ready(f).facts.config?.providers)[0]!.showInteractionModeToggle).toBeNull();
+ expect(f.events).toEqual([]);
+});
+test('retained malformed policy refuses before IO or draft mutation without invoking accessors',async()=>{
+ const f=await fixture(),before=copy(f.client.local),revision=f.client.revision;let invoked=0;
+ const accessor=(key:string):Obj=>Object.defineProperty({},key,{enumerable:true,get(){invoked++;throw Error('Accessor was invoked')}});
+ const cyclic:Obj={};cyclic.self=cyclic;
+ const providers=new Array(1),models=new Array(1),accounts=new Array(1);
+ const invalid:unknown[]=[null,{environment:null},{environment:{capabilities:{fileAttachments:false}}},{providers:{}},{providers:[null]},
+  {providers},{providers:[{instanceId:'provider',models}]},{providers:[{instanceId:'provider',models:[null]}]},
+  {settings:{providerInstances:{provider:null}}},{usageLimitSources:[{accounts:false}]},{usageLimitSources:[{accounts}]},
+  {providers:[Object.assign(accessor('driver'),{instanceId:'provider'})]},
+  {providers:[Object.assign(accessor('auth'),{instanceId:'provider'})]},{environment:{capabilities:accessor('attachmentUploads')}},
+  {providers:[{instanceId:'provider',auth:cyclic}]},{usageLimitSources:[{accounts:[],error:accessor('message')}]}];
+ for(const value of [undefined,NaN,Infinity,()=>true,Symbol('invalid'),1n,new Date(),new Array(1)])invalid.push({providers:[{instanceId:'provider',usageLimits:value}]});
+ const ancestor:Obj={};ancestor.environment=ancestor;invalid.push(ancestor);
+ for(const config of invalid){Object.assign(f.client,{config});expect((await submit(f.client,f.native,f.storage,f.input,commands)).kind).toBe('blocked');
+  expect(f.client.local).toEqual(before);expect(f.client.revision).toBe(revision);expect(f.events).toEqual([])}
+ expect(invoked).toBe(0);
+});
+test('selected Antigravity policy and inclusive upload cap are recaptured on every tap',async()=>{
+ const f=await fixture();f.client.connection='connected';f.client.scopes=['orchestration:operate'];
+ const provider={instanceId:'provider',driver:'antigravity',enabled:true,installed:true,auth:{status:'authenticated'},models:[{slug:'model'}]};
+ f.client.config={providers:[provider]};expect(ready(f).plan.kind).toBe('message');
+ for(const patch of [{enabled:false},{installed:false},{availability:'unavailable'},{auth:{status:'unauthenticated'}},{models:[{slug:'other'}]}]){
+  f.client.config.providers=[{...provider,...patch}];expect(read(f.client,f.input)).toMatchObject({kind:'blocked',reason:expect.stringContaining('Antigravity')});
+ }
+ f.client.config.providers=[provider];files(f,[file(f)]);f.input.activity.uploadStates[id(1)]='failed';
+ for(const [cap,kind] of [[20,'ready'],[21,'blocked'],[22,'blocked']] as const){f.client.config.environment={capabilities:{attachmentUploads:true,fileAttachments:{maxUploadBytes:cap}}};expect(read(f.client,f.input).kind).toBe(kind)}
+ f.client.config.environment={capabilities:{attachmentUploads:false,fileAttachments:{maxUploadBytes:21}}};expect(read(f.client,f.input).kind).toBe('ready');
+ f.client.connection='disconnected';f.client.config.environment={capabilities:{attachmentUploads:true,fileAttachments:{maxUploadBytes:21}}};expect(read(f.client,f.input).kind).toBe('ready');
+ expect(f.events).toEqual([]);
+});
+test('captured local usage keeps complete pooled reports and detaches raw metadata before its first await',async()=>{
+ const f=await fixture();f.client.local.drafts[f.target.key]='/usage-limits';
+ const limits=(checkedAt:string,availableCount:number,credentialFingerprint:string):Obj=>({checkedAt,credentialFingerprint,
+  windows:[{id:'primary',kind:'primary',label:'Raw daily',usedPercent:27,resetsAt:'2026-10-10T00:00:00Z',windowDurationMins:1440,extra:{raw:true}}],
+  resetCredits:{availableCount,nextCreditId:`credit-${availableCount}`},externalUsage:{label:'Usage',url:'https://usage.test/limits'}});
+ const first={instanceId:'provider',driver:'codex',enabled:true,installed:true,displayName:'Personal',accentColor:'#123456',
+  auth:{status:'authenticated',email:'a@example.com',label:'Plus',subscriptionSharing:true,extra:{raw:true}},usageLimits:limits('2026-10-09T12:00:00Z',3,'first')};
+ const second={...first,instanceId:'second',displayName:'Work',auth:{status:'authenticated',label:'Team'},usageLimits:limits('2026-10-09T11:00:00Z',1,'second')};
+ const sources=[{id:'hub',label:'Hub',accounts:[{id:'same-email',driver:'codex',email:' A@EXAMPLE.COM ',usageLimits:limits('2026-10-09T10:00:00Z',2,'first')},
+  {id:'same-credential',driver:'codex',usageLimits:limits('2026-10-09T13:00:00Z',5,'second')},
+  {id:'hub-only',driver:'codex',email:'hub@example.com',plan:'Pro',usageLimits:limits('2026-10-09T12:00:00Z',4,'third')}]},
+  {id:'failed',label:'Failed source',error:{message:'Read failed'},accounts:[]},
+  {id:'empty',label:'Empty source',error:'Offline',accounts:[]}];
+ f.client.config={providers:[first,second,{...first,instanceId:'other-driver',driver:'claudeAgent'},{...first,instanceId:'unavailable',availability:'unavailable'}],usageLimitSources:sources};
+ const expected=copy(collectProviderUsageLimits('provider',arr(f.client.config.providers),sources,now));
+ expect(expected?.accounts).toHaveLength(3);expect(expected?.notices).toEqual(['Failed source: Read failed','Empty source: Offline']);
+ expect(obj(expected?.accounts[0]!.limits.resetCredits).availableCount).toBe(3);
+ expect(obj(expected?.accounts[1]!.limits.resetCredits).availableCount).toBe(5);
+ expect(expected?.accounts[0]!.resetCreditInput).toEqual({sourceId:'hub',accountId:'same-email',creditId:'credit-2'});
+ const wait=gate();let entered=false;
+ const pending=submit(f.client,f.native,f.storage,f.input,{...commands,async usageLimits(c){entered=true;await wait.promise;
+  expect(c.facts.usageLimitsOffered).toBe(true);expect(arr(c.facts.config?.providers)).toHaveLength(4);
+  expect(obj(arr(c.facts.config?.providers)[0]!.auth).extra).toEqual({raw:true});
+  expect(collectProviderUsageLimits('provider',arr(c.facts.config?.providers),arr(c.facts.config?.usageLimitSources),now)).toEqual(expected);
+  return {accepted:false,message:'Captured'};
+ }});
+ expect(entered).toBe(true);first.auth.extra.raw=false;first.usageLimits.windows=[];sources[0]!.accounts=[];
+ f.client.config={};wait.resolve();expect(await pending).toMatchObject({kind:'local',command:'usage-limits',result:{accepted:false,message:'Captured'}});
+ expect(f.client.draft).toBe('/usage-limits');expect(f.events).toEqual([]);
 });
