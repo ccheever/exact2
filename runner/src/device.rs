@@ -64,6 +64,9 @@ pub struct Device {
     /// `geolocation-approximate` is of `geolocation`, LLP 1133.002 D7): an app
     /// grants one or the other, never both (`grant-twice`).
     pub narrows: Option<&'static str>,
+    /// A row the platforms will not give beside this one (D13: no region is
+    /// watched under approximate location): refused together (`grant-conflict`).
+    pub conflicts: Option<&'static str>,
     /// Whether the line names a purpose: false for a row no platform asks
     /// the person about, written `device.<name>` alone (LLP 1133.017 D14).
     pub purpose: bool,
@@ -73,7 +76,8 @@ pub struct Device {
     /// bundle id and a dot in `BGTaskSchedulerPermittedIdentifiers`.
     pub ios_tasks: &'static [&'static str],
     /// The row another must stand beside (`grant-needs`, LLP 1133.033 D3):
-    /// a capture in the background is a capture first.
+    /// a capture in the background is a capture first, and background
+    /// location is asked of an app with foreground location (LLP 1133.021 D13).
     pub needs: Option<&'static str>,
     /// The Android reader's foreground services the row declares in the
     /// manifest, each `<kind>:<type>` (`capture:microphone`; LLP 1133.033
@@ -99,6 +103,7 @@ const ROW: Device = Device {
     tvos: true,
     keeps_no_answers: false,
     narrows: None,
+    conflicts: None,
     purpose: true,
     ios_modes: &[],
     ios_tasks: &[],
@@ -199,6 +204,28 @@ pub const DEVICES: &[Device] = &[
         hardened: Some("com.apple.security.personal-information.location"),
         web: Some("geolocation"),
         narrows: Some("geolocation"),
+        ..ROW
+    },
+    // Background location, as geofencing needs it (LLP 1133.021 D13): iOS
+    // asks with its own key beside the When In Use one; a Mac's location
+    // authorization is one grant; Android adds the background permission and
+    // the boot broadcast its geofences are re-armed by. Neither platform
+    // watches a region under approximate location. No tvOS cell.
+    Device {
+        name: "geolocation-background",
+        ios: &["NSLocationAlwaysAndWhenInUseUsageDescription"],
+        macos: &[
+            "NSLocationUsageDescription",
+            "NSLocationWhenInUseUsageDescription",
+        ],
+        hardened: Some("com.apple.security.personal-information.location"),
+        android: &[
+            "android.permission.ACCESS_BACKGROUND_LOCATION",
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+        ],
+        tvos: false,
+        needs: Some("geolocation"),
+        conflicts: Some("geolocation-approximate"),
         ..ROW
     },
     // iOS's prompt text is fixed and the web's is not policy-controlled; the
@@ -397,6 +424,22 @@ pub const DEVICES: &[Device] = &[
         purpose: false,
         ..ROW
     },
+    // A login item and global shortcuts (LLP 1133.025 D10): nothing asks the
+    // person, so the lines name no purpose; each is the app's statement of
+    // what it may do, checked at bake. The installed Windows build's
+    // `desktop:StartupTask` derives from `login-item`. Desktop only.
+    Device {
+        name: "login-item",
+        purpose: false,
+        tvos: false,
+        ..ROW
+    },
+    Device {
+        name: "global-shortcuts",
+        purpose: false,
+        tvos: false,
+        ..ROW
+    },
     // App Attest and Play Integrity (LLP 1133.028 D6): nothing is shown or
     // asked. The entitlement's value, `development` or `production`, is the
     // build's to choose (`host/apple/build.mjs`); a Mac takes it only with a
@@ -534,6 +577,14 @@ pub fn device_grants(spec: &str) -> Result<Vec<DeviceGrant<'_>>, Vec<String>> {
                 ));
             }
         }
+        if let Some(other) = g.device.conflicts {
+            if grants.iter().any(|h| h.device.name == other) {
+                errors.push(format!(
+                    "`device.{}` and `device.{other}` both: no platform gives the first beside the second (grant-conflict)",
+                    g.device.name
+                ));
+            }
+        }
         if let Some(wider) = g.device.narrows {
             if grants.iter().any(|h| h.device.name == wider) {
                 errors.push(format!(
@@ -601,6 +652,27 @@ mod tests {
         let both = format!("{one}\ndevice.geolocation locationPurpose");
         let errors = device_grants(&both).unwrap_err();
         assert!(errors[0].contains("(grant-twice)"), "{errors:?}");
+    }
+
+    /// LLP 1133.021 D13: background location adds to precise location, and
+    /// is refused without it and beside the approximate line.
+    #[test]
+    fn background_location_needs_precise_location() {
+        let ok = "device.geolocation where\ndevice.geolocation-background arrival";
+        assert!(granted(ok, "geolocation-background") && granted(ok, "geolocation"));
+        let alone = device_grants("device.geolocation-background arrival").unwrap_err();
+        assert!(alone[0].contains("(grant-needs)"), "{alone:?}");
+        let approximate =
+            "device.geolocation-approximate where\ndevice.geolocation-background arrival";
+        let errors = device_grants(approximate).unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.contains("(grant-needs)")),
+            "{errors:?}"
+        );
+        assert!(
+            errors.iter().any(|e| e.contains("(grant-conflict)")),
+            "{errors:?}"
+        );
     }
 
     #[test]

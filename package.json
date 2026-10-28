@@ -53,6 +53,9 @@
     "@exact/barcode-detection": "workspace:*",
     "@exact/text-detection": "workspace:*",
     "@exact/translation": "workspace:*",
-    "@exact/calls": "workspace:*"
+    "@exact/calls": "workspace:*",
+    "@exact/maps": "workspace:*",
+    "@exact/geocoding": "workspace:*",
+    "@exact/geofencing": "workspace:*"
   }
 }

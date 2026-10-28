@@ -1,0 +1,29 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/maps@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos",
+    "tvos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [
+    "exact-map"
+  ],
+  "hatches": [
+    "mapView"
+  ],
+  "sources": {
+    "swift": [
+      "Maps.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "MapsModule",
+  "frameworks": {
+    "MapKit": { "ios": "17.0", "macos": "14.0", "tvos": "17.0" }
+  }
+}

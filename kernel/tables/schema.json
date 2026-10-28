@@ -1564,13 +1564,13 @@
       "id": 261,
       "name": "menuPlacement",
       "kind": "str",
-      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal about|app|file|edit|view|go|window|help|none. AppKit projects the button into that menu, with or without a chord (none: no item, the chord kept); other hosts retain the ordinary button. No layout effect."
+      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal about|app|file|edit|view|go|window|help|none, `dock` beside one or alone, or `status` alone (LLP 1133.025 D4, D5). AppKit projects the button into that menu, with or without a chord (none: no item, the chord kept), and `dock` into the Dock menu; `status` is the app's status item on macOS and its notification-area icon on Windows. Other hosts retain the ordinary button. No layout effect."
     },
     {
       "id": 263,
       "name": "menuRemove",
       "kind": "str",
-      "_comment": "@ref LLP 1021 §5.3: root -exact-menu-remove, a literal whitespace-separated list of standard AppKit menu item ids. Other hosts ignore this presentation hint."
+      "_comment": "@ref LLP 1021 §5.3: root -exact-menu-remove, a literal whitespace-separated list of standard AppKit menu item ids, and status-quit, the host's quit item ending a status menu (LLP 1133.025 D7). Other hosts ignore this presentation hint."
     },
     {
       "id": 264,

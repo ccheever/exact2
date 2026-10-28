@@ -1,0 +1,11 @@
+{
+  "name": "@exact/global-shortcuts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A chord that reaches the app while another app is in front (LLP 1133.025 D3).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

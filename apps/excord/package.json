@@ -4,7 +4,9 @@
   "private": true,
   "dependencies": {
     "@exact/age-range": "file:../../packages/age-range",
+    "@exact/dock": "file:../../packages/dock",
     "@exact/local-auth": "file:../../packages/local-auth",
+    "@exact/login-item": "file:../../packages/login-item",
     "@exact/translation": "file:../../packages/translation",
     "fflate": "0.8.3"
   }

@@ -1,0 +1,25 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/login-item@^1.0",
+  "platform": "apple",
+  "targets": [
+    "macos"
+  ],
+  "shapes": {
+    "AppleLoginItemStatus": {
+      "status": "enum<notRegistered|enabled|requiresApproval|notFound>",
+      "loginLaunch": "enum<marked|unmarked>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "LoginItem.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "LoginItemModule"
+}

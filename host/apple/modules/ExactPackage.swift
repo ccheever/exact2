@@ -41,6 +41,14 @@ public final class ExactPackageEvents {
     public func submit() { send(6, "") }
     public func load() { send(7, "") }
     public func message(_ text: String) { send(8, text) }
+    /// An event the view declares beyond the nine (LLP 1133.021 §9 item 2),
+    /// `args` in the declared types' JSON: the handler named for it runs
+    /// with them decoded. Sent as a message the runner recognises.
+    public func emit(_ name: String, _ args: [Any]) {
+        let body: [String: Any] = ["exact:event": name, "args": args]
+        guard let data = try? JSONSerialization.data(withJSONObject: body), let text = String(data: data, encoding: .utf8) else { return }
+        send(8, text)
+    }
     /// Preferred content size in points; an authored size wins; nil forgets it.
     public func intrinsicSize(_ s: CGSize?) { size(s) }
 }
@@ -111,6 +119,8 @@ public final class ExactPackageContext {
     /// older than them, where a pad module reads no pads (item 4).
     public let pads: ExactPads?
     private let afterFn: (Double, @escaping () -> Void) -> () -> Void
+    /// The host's region carrier (LLP 1133.021 D14).
+    public let regions: ExactRegions
 
     public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
@@ -130,13 +140,14 @@ public final class ExactPackageContext {
                     let work = DispatchWorkItem(block: body)
                     DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: work)
                     return work.cancel
-                }) {
+                },
+                regions: ExactRegions = ExactRegions { _, _ in nil }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; viewFn = view; invokeFn = invoke
         emitFn = emit; activationFn = activation; wakeFn = wake; self.wakes = wakes; self.transfers = transfers
-        self.pads = pads; afterFn = after
+        self.pads = pads; afterFn = after; self.regions = regions
     }
 
     /// `body` once, `ms` later on the session's clock: the agent's under the
@@ -408,9 +419,35 @@ public final class ExactTransfers {
     public var ids: [String] { callFn("ids", [:]) as? [String] ?? [] }
 }
 
+/// The host's region carrier (LLP 1133.021 D14): one `CLMonitor` the host
+/// makes again at launch, before a package loads, whenever its store holds
+/// a region, and the store, which is the truth. A crossing is written to
+/// the store as the region's undelivered transition, then offered to the
+/// implementation that added the region as `woke(_:)` of kind `region`, its
+/// keys the regions' names; a transition stays until `delivered(name:)`,
+/// and is offered again at each later launch. macOS hears crossings only
+/// while the app runs.
+public final class ExactRegions {
+    private let callFn: (String, [String: Any]) -> Any?
+    public init(_ call: @escaping (String, [String: Any]) -> Any?) { callFn = call }
+    /// Watch a circle of `radius` metres around the coordinate as `name`,
+    /// replacing a region of that name. Nil, or the error's name.
+    public func add(name: String, latitude: Double, longitude: Double, radius: Double) -> String? {
+        callFn("add", ["name": name, "latitude": latitude, "longitude": longitude, "radius": radius]) as? String
+    }
+    /// Stop watching `name`, and forget its undelivered transition.
+    public func remove(name: String) { _ = callFn("remove", ["name": name]) }
+    /// This implementation's regions: `{name, latitude, longitude, radius, inside?}`.
+    public func list() -> [[String: Any]] { callFn("list", [:]) as? [[String: Any]] ?? [] }
+    /// The undelivered transition of `name`: `{event: "enter"|"leave", timestamp}`, ms since the epoch.
+    public func pending(name: String) -> [String: Any]? { callFn("pending", ["name": name]) as? [String: Any] }
+    /// The transition of `name` was delivered: the store forgets it.
+    public func delivered(name: String) { _ = callFn("delivered", ["name": name]) }
+}
+
 /// A wake the host was given for an implementation's due requests.
 public final class ExactWake {
-    /// `refresh`, `processing`, or `transfer`.
+    /// `refresh`, `processing`, `transfer`, or `region`.
     public let kind: String
     /// The keys of the requests now due.
     public let keys: [String]

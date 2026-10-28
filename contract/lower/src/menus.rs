@@ -9,6 +9,45 @@ use crate::{err, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use exact_kernel::StyleId;
 
+/// LLP 1021 §5.3 and LLP 1133.025 D4, D5: a button's place in the Mac's
+/// menu bar, as one menu id; `dock` beside it or alone files it in the Dock
+/// menu too; `status` alone presents it as the app's status item, which
+/// takes the button's place and so joins no menu.
+pub(crate) fn check_menu_placement(tag: &str, attr: &Attr) -> Result<(), LowerError> {
+    const MENUS: &[&str] = &[
+        "about", "app", "file", "edit", "view", "go", "window", "help", "none",
+    ];
+    let ids: Vec<&str> = match &attr.value {
+        Expr::Str(value, _) if tag == "button" => value.split_whitespace().collect(),
+        _ => Vec::new(),
+    };
+    let known = |id: &&str| MENUS.contains(id) || matches!(*id, "status" | "dock");
+    if ids.is_empty() || !ids.iter().all(known) {
+        return err(
+            "lower-menu-placement",
+            "`-exact-menu` belongs to a button and takes a literal about, app, file, edit, view, go, window, help or none, `dock` beside one of them or alone, or `status` alone",
+            attr.span,
+        );
+    }
+    if ids.contains(&"status") && ids.len() > 1 {
+        return err(
+            "lower-menu-status",
+            "`-exact-menu=\"status\"` stands alone: the status item takes the button's place, so it joins no menu (LLP 1133.025 D4)",
+            attr.span,
+        );
+    }
+    let menus = ids.iter().filter(|id| MENUS.contains(id)).count();
+    let docks = ids.iter().filter(|id| **id == "dock").count();
+    if menus > 1 || docks > 1 {
+        return err(
+            "lower-menu-placement",
+            "`-exact-menu` names one menu, and `dock` at most once beside it",
+            attr.span,
+        );
+    }
+    Ok(())
+}
+
 /// LLP 1021 §5.3: a root's bounded opt-out from the Mac's standard items.
 pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerError> {
     const IDS: &[&str] = &[
@@ -35,6 +74,8 @@ pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerE
         "actual-size",
         "zoom-in",
         "zoom-out",
+        // The host's Quit at the end of the status item's menu (LLP 1133.025 D7).
+        "status-quit",
     ];
     for attr in attrs.iter().filter(|a| a.name == "-exact-menu-remove") {
         if !root

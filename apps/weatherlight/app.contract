@@ -6,6 +6,9 @@
 // @ref LLP 1133.002 §7 — "Use my location": the device's position, approximate,
 // through @exact/geolocation; from then on the forecast follows the person.
 use getCurrentPosition, geolocationStatus, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
+// The platform's geocoder names the followed position's city (LLP 1133.021
+// §13); where there is none (the web, Linux) it stays "Current location".
+use reverseGeocode, geocodingStatus, Place as GeoPlace, GeocodingStatus from "@exact/geocoding"
 
 routes nav
   tab home "/" render=build
@@ -123,6 +126,8 @@ component Weatherlight
   resource outlook = outlook(forecast, units, selected, lat, lon, following) as shape Outlook
   resource location = geolocationStatus() as shape GeolocationStatus else empty()
   mutation located as shape GeolocationPosition then arrived
+  resource geocoding = geocodingStatus() as shape GeocodingStatus else empty()
+  mutation named as shape GeoPlace[] then labelled
   resource places = places(submitted) as shape Places
   resource viewport = exactViewport() as shape Viewport
   derive wide = viewport.width >= 1100 and viewport.width > viewport.height
@@ -173,9 +178,32 @@ component Weatherlight
           lat = p.coords.latitude
           lon = p.coords.longitude
           selected = "now"
+          if geocoding.available
+            send named = reverseGeocode(latitude=p.coords.latitude, longitude=p.coords.longitude)
         // Never: a `then` runs only after an answer.
         case none
           following = following
+  // The followed position's place: its city and country, else the label stays.
+  action labelled
+    if following
+      match named
+        case some(places)
+          match first(places)
+            case some(place)
+              match place.city
+                case some(c)
+                  city = c
+                  match place.country
+                    case some(k)
+                      region = k
+                    case none
+                      region = ""
+                case none
+                  city = city
+            case none
+              city = city
+        case none
+          city = city
   action openSettings
     openURL("app-settings:")
   action setUnits(value: string)

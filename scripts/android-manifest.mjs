@@ -63,6 +63,27 @@ const ONE = { receivers: 'receiver', services: 'service', queries: 'query', acti
 
 const escape = (s) => s.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
+/** The application meta-data a package's configuration may become (LLP 1133.021 §9 item 7, D18): by interface and
+ * configuration key, the meta-data name. The Maps SDK reads its key from `com.google.android.geo.API_KEY`. */
+export const CONFIG_META = { '@exact/maps': { apiKey: 'com.google.android.geo.API_KEY' } };
+
+/** The `<meta-data>` lines `config` (`packageConfig`'s map, extension to values) carries under [CONFIG_META]. */
+export function configMetaData(config) {
+  const lines = [];
+  for (const [name, keys] of Object.entries(CONFIG_META)) {
+    const values = config.get(name.split('/').at(-1)) ?? {};
+    for (const [key, meta] of Object.entries(keys)) if (typeof values[key] === 'string') lines.push(`        <meta-data android:name="${meta}" android:value="${escape(values[key])}" />`);
+  }
+  return lines;
+}
+
+/** `fragment` (from [manifestFragment]) with `meta` lines inside its `<application>`, made if it has none. */
+export function withMetaData(fragment, meta) {
+  if (!meta.length) return fragment;
+  if (fragment.includes('    <application>\n')) return fragment.replace('    <application>\n', `    <application>\n${meta.join('\n')}\n`);
+  return [fragment, '    <application>', ...meta, '    </application>'].filter(Boolean).join('\n');
+}
+
 /** The manifest's children for every bound implementation's fragment (a `<queries>` element and an `<application>`
  * one, each when it has entries), or '' when none declares one. Throws, naming the package and what the allow-list
  * refuses. `bound` is `androidImplementations`' list; `privacyPolicy` is the app's `privacy_policy`, carried as

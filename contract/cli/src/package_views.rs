@@ -25,6 +25,9 @@ pub struct PackageView {
     pub package: String,
     pub displayed: bool,
     pub binds: Vec<String>,
+    /// Its declared props' types and its events beyond the nine, which the
+    /// lowering holds the tag's attributes to (LLP 1133.021 §9 items 1, 2).
+    pub declared: contract_lower::DeclaredView,
 }
 
 /// Every view the app's direct dependencies declare, by tag; two packages
@@ -111,6 +114,7 @@ fn views(json: &Value, extension: &str, package: &str) -> Vec<PackageView> {
                     .collect()
             })
             .unwrap_or_default(),
+        declared: decl.map(declared_view).unwrap_or_default(),
     };
     match &json["views"] {
         Value::Object(map) => map
@@ -125,6 +129,35 @@ fn views(json: &Value, extension: &str, package: &str) -> Vec<PackageView> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// A view declaration's props, each `"type"` or `{"type": …}`, and its
+/// events written `{"event": name, "args": [types]}`.
+fn declared_view(decl: &Map<String, Value>) -> contract_lower::DeclaredView {
+    let props = (decl
+        .get("props")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten())
+    .filter_map(|(name, p)| {
+        let ty = p.as_str().or_else(|| p["type"].as_str())?;
+        Some((name.clone(), ty.to_owned()))
+    })
+    .collect();
+    let events = (decl
+        .get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten())
+    .filter_map(|e| {
+        let name = e["event"].as_str()?;
+        let args = (e["args"].as_array().into_iter().flatten())
+            .filter_map(|a| a.as_str().map(str::to_owned))
+            .collect();
+        Some((name.to_owned(), args))
+    })
+    .collect();
+    contract_lower::DeclaredView { props, events }
 }
 
 /// The nearest `package.json` above `app_root`: its `dependencies`' names.

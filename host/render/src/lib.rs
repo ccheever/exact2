@@ -462,6 +462,8 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
         ),
         Err(e) => return Err(format!("boot: {e:?}")),
     };
+    // The page is the web's: its packages answer as there, not as on this machine.
+    runner.set_module_target("web");
     // A rendered page holds every tab panel, which the JS target adopts at
     // boot, building every one (LLP 1075.003 §9.14).
     runner

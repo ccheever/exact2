@@ -1,0 +1,11 @@
+{
+  "name": "@exact/login-item",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Open the app when the person logs in, and read whether it will (LLP 1133.025 D2).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

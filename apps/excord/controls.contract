@@ -69,3 +69,16 @@ component MessageMenu
         button press=remove destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
           image "symbol:delete"
           text "Delete Message"
+
+// Excord's icon in Windows' notification area (LLP 1133.025 §12.2): a click shows the window, and
+// its menu opens Excord above the host's Exit.
+component TrayIcon
+  props
+    unread: bool
+    open: action
+  view
+    button -exact-menu="status" aria-label="Excord" press=open popovertarget="tray-menu" testId="tray"
+      image (unread ? "symbol:notifications" : "symbol:messages")
+    column id="tray-menu" popover="auto" role="menu" aria-label="Excord"
+      button press=open testId="tray-open"
+        text "Open Excord"

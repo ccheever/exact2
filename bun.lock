@@ -20,11 +20,14 @@
         "@exact/cards": "workspace:*",
         "@exact/contacts": "workspace:*",
         "@exact/gamepad": "workspace:*",
+        "@exact/geocoding": "workspace:*",
+        "@exact/geofencing": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/health": "workspace:*",
         "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
+        "@exact/maps": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
         "@exact/nfc": "workspace:*",
@@ -120,12 +123,28 @@
       "name": "@exact/contacts",
       "version": "1.0.0",
     },
+    "packages/dock": {
+      "name": "@exact/dock",
+      "version": "1.0.0",
+    },
     "packages/gamepad": {
       "name": "@exact/gamepad",
       "version": "1.0.0",
     },
+    "packages/geocoding": {
+      "name": "@exact/geocoding",
+      "version": "1.0.0",
+    },
+    "packages/geofencing": {
+      "name": "@exact/geofencing",
+      "version": "1.0.0",
+    },
     "packages/geolocation": {
       "name": "@exact/geolocation",
+      "version": "1.0.0",
+    },
+    "packages/global-shortcuts": {
+      "name": "@exact/global-shortcuts",
       "version": "1.0.0",
     },
     "packages/health": {
@@ -142,6 +161,14 @@
     },
     "packages/local-auth": {
       "name": "@exact/local-auth",
+      "version": "1.0.0",
+    },
+    "packages/login-item": {
+      "name": "@exact/login-item",
+      "version": "1.0.0",
+    },
+    "packages/maps": {
+      "name": "@exact/maps",
       "version": "1.0.0",
     },
     "packages/media-capture": {
@@ -254,9 +281,17 @@
 
     "@exact/contacts": ["@exact/contacts@workspace:packages/contacts"],
 
+    "@exact/dock": ["@exact/dock@workspace:packages/dock"],
+
     "@exact/gamepad": ["@exact/gamepad@workspace:packages/gamepad"],
 
+    "@exact/geocoding": ["@exact/geocoding@workspace:packages/geocoding"],
+
+    "@exact/geofencing": ["@exact/geofencing@workspace:packages/geofencing"],
+
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
+
+    "@exact/global-shortcuts": ["@exact/global-shortcuts@workspace:packages/global-shortcuts"],
 
     "@exact/health": ["@exact/health@workspace:packages/health"],
 
@@ -265,6 +300,10 @@
     "@exact/lists": ["@exact/lists@workspace:packages/lists"],
 
     "@exact/local-auth": ["@exact/local-auth@workspace:packages/local-auth"],
+
+    "@exact/login-item": ["@exact/login-item@workspace:packages/login-item"],
+
+    "@exact/maps": ["@exact/maps@workspace:packages/maps"],
 
     "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
 

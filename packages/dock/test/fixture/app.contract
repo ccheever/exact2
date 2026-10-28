@@ -1,0 +1,79 @@
+// LLP 1133.025's desktop fixture: a menu-bar item with its menu, a Dock
+// menu item, a login item's settings, a global shortcut and a request for
+// attention. `desktop.mjs` makes it an app and drives it.
+use loginItemStatus, registerLoginItem, unregisterLoginItem, openLoginItemSettings, LoginItemStatus from "@exact/login-item"
+use globalShortcut, checkGlobalShortcut, GlobalShortcut, GlobalShortcutCheck from "@exact/global-shortcuts"
+use requestAttention from "@exact/dock"
+
+component App
+  state chord = "Control+Alt+Meta+K"
+  state presses = 0
+  state heard = ""
+  state opened = 0
+  state composed = 0
+  state tray = true
+  resource snap = globalShortcut(id="snap", keys=chord) as shape GlobalShortcut else empty(id="snap", registered=false)
+  resource login = loginItemStatus() as shape LoginItemStatus else empty(available=false, state="unknown")
+  mutation registered as shape LoginItemStatus
+  mutation checked as shape GlobalShortcutCheck
+  action atLogin
+    send registered = registerLoginItem(hidden=true)
+  action notAtLogin
+    send registered = unregisterLoginItem()
+  action settings
+    openLoginItemSettings()
+  action check
+    send checked = checkGlobalShortcut(keys="Control+Alt+Meta+J")
+  action rebind
+    chord = "Control+Alt+Meta+J"
+  action pressed(id: string)
+    presses = presses + 1
+    heard = id
+  action attend
+    requestAttention()
+  action open
+    opened = opened + 1
+    focus()
+  action compose
+    composed = composed + 1
+  action toggleTray
+    tray = not tray
+  view
+    column globalshortcut=pressed padding=16 gap=8
+      h1 "Desktop"
+      text testId="login" `Login item: ${login.state}${login.hidden ? " (hidden)" : ""}${login.launchedAtLogin ? ", launched at login" : ""}`
+      text testId="presses" `Presses: ${presses} ${heard}`
+      text testId="opened" `Opened: ${opened}; composed: ${composed}`
+      match checked
+        case some(c)
+          text testId="checked" `Check: ${c.registered} ${match c.reason { case some(r) => r, case none => "" }}`
+        case none
+          text testId="checked" "Check: none"
+      text testId="snap" `Shortcut ${snap.keys}: ${snap.registered ? "registered" : "not registered"} ${match snap.reason { case some(r) => r, case none => "" }}`
+      button testId="at-login" press=atLogin
+        text "Open at Login, Hidden"
+      button testId="not-at-login" press=notAtLogin
+        text "Don't Open at Login"
+      button testId="login-settings" press=settings
+        text "Login Items Settings…"
+      button testId="check" press=check
+        text "Check ⌃⌥⌘J"
+      button testId="rebind" press=rebind
+        text "Use ⌃⌥⌘J"
+      button testId="attend" press=attend
+        text "Request Attention"
+      button testId="toggle-tray" press=toggleTray
+        text (tray ? "Hide Menu Bar Item" : "Show Menu Bar Item")
+      button testId="compose" -exact-menu="file dock" press=compose
+        text "New Note"
+      if tray
+        button testId="tray" -exact-menu="status" aria-label="Desktop Fixture" popovertarget="tray-menu"
+          image "symbol:star"
+      column id="tray-menu" popover="auto" role="menu" aria-label="Desktop Fixture"
+        button testId="tray-open" press=open
+          text "Open Desktop Fixture"
+        button testId="tray-compose" press=compose
+          text "New Note"
+        hr
+        button testId="tray-disabled" disabled=true
+          text "Unavailable"

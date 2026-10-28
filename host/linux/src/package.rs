@@ -254,6 +254,12 @@ impl Context {
         self.0.notifier.emit(name, args);
     }
 
+    /// The host's services for the desktop's modules (LLP 1133.025 D11
+    /// item 2), or `None` on a host that keeps none.
+    pub fn desktop(&self) -> Option<std::rc::Rc<dyn crate::desktop::Services>> {
+        crate::desktop::services()
+    }
+
     /// The host's pads (LLP 1133.022 D4): the process's one registry, which
     /// a canvas reads too, with this instance's claims, which end with it.
     pub fn pads(&self) -> crate::pads::Pads {

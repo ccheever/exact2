@@ -388,7 +388,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); MalformedOperation.reply(r); if (r.error) throw new Error(r.error); await frame(); return r; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
-        const point = kind === 'contextmenu' || kind === 'press' ? opts.at : null;
+        const point = ['contextmenu', 'press', 'clicks'].includes(kind) ? opts.at : null;
         let x = box ? box.x + (point?.[0] ?? box.w / 2) : undefined, y = box ? box.y + (point?.[1] ?? box.h / 2) : undefined;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press' ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
@@ -454,6 +454,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         else if (kind === 'hover') await page.mouse.move(x, y);
         else if (kind === 'contextmenu') await page.mouse.click(x, y, { button: 'right' });
         else if (kind === 'dblclick') await page.mouse.dblclick(x, y);
+        // `clicks <n> at x y`, the mouse form a part's tap uses (agent-inspect.mjs `partTap`), as Chrome's carrier has it.
+        else if (kind === 'clicks') await withHeldKeys(page.keyboard, opts.modifiers, () => page.mouse.click(x, y, { clickCount: opts.clicks }));
         else if (kind === 'press') await withHeldKeys(page.keyboard, opts.modifiers, () => page.mouse.click(x, y));
         else if (kind === 'type') { await focus(id); await page.keyboard.insertText(opts.text); }
         else if (kind === 'key') return browserKey(id, opts, false);

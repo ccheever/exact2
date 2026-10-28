@@ -389,7 +389,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const instance = extension => {
     if (!bound[extension]) return null;
     if (!loaded.has(extension)) loaded.set(extension, chunk(extension).then(m => {
-      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession,
+      const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, config: m.config ?? {}, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession,
         revokePicture: source => pictures?.revokePicture(source), pictureChanged: source => pictures?.pictureChanged(source), invoke: invoker(extension),
         // A package's own raising has the device's origin; a person's is the host's to give (LLP 1133.004 D6).
         emit: (name, args) => raise(`${extension}.${name}`, args, "device"),
@@ -842,8 +842,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       }
       if (d.forward) return viaImplementation(row, given, reader, { name, origin }).then(json => { disposeDropped(row, json, name, n); if (reader) sampled.answered(row, reader, json); return answer(row, json); });
       if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet, origin }) : null, given);
-      // A send refused now fails its mutation, as on native, rather than the action that sent it.
-      return row.send && errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
+      // A name refused now fails its mutation or resource, as on native, rather than the action that sent it or the
+      // commit that read it: a source absent on the web shows its `else` (LLP 1133.025 D14).
+      return errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
     };
   }
   // `allow` sets the status fields the app's grant line names (its approximate grant reads `approximate`).
@@ -929,6 +930,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         const extension = q.key.split(".")[0], e = out[extension] ??= { bound: false, preferred: {}, readers: {}, held: [] };
         (e.queued ??= []).push({ event: q.key.split(".")[1], args: q.args, origin: q.origin });
       }
+      // An extension of views alone (`@exact/maps`, LLP 1133.021 §12) has an entry once its implementation is loaded.
+      for (const [extension, impl] of ready) if (impl && !out[extension]) out[extension] = { bound: !clock.agent && !!bound[extension], preferred: {}, readers: {}, held: [] };
       // What a loaded implementation discloses of its own (`state()`: a language model's sessions, LLP 1133.016 §9).
       for (const [extension, e] of Object.entries(out)) {
         Object.assign(e, sampled.state(extension));

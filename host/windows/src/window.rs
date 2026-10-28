@@ -55,6 +55,7 @@ struct App<D: DataSource> {
     ime: crate::ime::InputMethod,
     appearance: crate::appearance::Changes,
     modal: crate::modal::Schedule,
+    desktop: Rc<crate::desktop::Desktop>,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -180,6 +181,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     }
     let mut builder = EventLoop::<crate::accessibility::Event>::with_user_event();
     let ime = crate::ime::InputMethod::install(&mut builder);
+    let desktop = crate::desktop::Desktop::install(name, &mut builder);
     let event_loop = match builder.build() {
         Ok(value) => value,
         Err(e) => {
@@ -189,6 +191,10 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     };
     crate::jump_list::set_from_compat(compat);
     let proxy = event_loop.create_proxy();
+    let wake = proxy.clone();
+    desktop.set_wake(move || {
+        let _ = wake.send_event(crate::accessibility::Event::Wake);
+    });
     let wake = proxy.clone();
     exact_linux::set_event_waker(Some(Arc::new(move || {
         let _ = wake.send_event(crate::accessibility::Event::Wake);
@@ -228,6 +234,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         ime,
         appearance: Default::default(),
         modal: Default::default(),
+        desktop,
         refit_after_scale: false,
     };
     if let Err(e) = event_loop.run_app(&mut state) {
@@ -624,6 +631,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 self.appearance
                     .install(handle.hwnd.get(), self.proxy.clone());
                 self.modal.install(handle.hwnd.get(), self.proxy.clone());
+                self.desktop.set_window(handle.hwnd.get());
                 if let Err(error) = self.clicks.install(handle.hwnd.get()) {
                     self.fail(events, error);
                     return;

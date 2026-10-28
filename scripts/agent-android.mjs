@@ -34,8 +34,8 @@ import { basename, dirname, resolve } from 'node:path';
 import { HOST_DEV, buildBake, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
-import { androidImplementations } from '../js/bake/src/typescript.mjs';
-import { manifestFragment } from './android-manifest.mjs';
+import { androidImplementations, packageConfig } from '../js/bake/src/typescript.mjs';
+import { configMetaData, manifestFragment, withMetaData } from './android-manifest.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -284,6 +284,10 @@ function buildApk(app, env, profile, writeLocks = false) {
   const crate = app.crate('android');
   if (!app.manifest.game && !existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
+  // The packages' configuration (LLP 1133.021 §9 item 7), before anything compiles: a required value that is absent
+  // refuses the build by its code (`maps-key-missing` for a release without the Maps key).
+  let config;
+  try { config = packageConfig(app.dir, 'android', { release: profile === 'release' }); } catch (error) { console.error(`${app.name}: ${error.message}`); return null; }
   let gpu = null, out = null;
   if (app.manifest.game || app.hasGpu) {
     try { buildBake(app, 'linux', ANDROID_TARGET, { profile, env, kind: 'android' }); }
@@ -316,7 +320,7 @@ function buildApk(app, env, profile, writeLocks = false) {
   if (!graph) return null;
   let gradle;
   try {
-    gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+    gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
     if (gradle.status === 0) graph.kept();
   } finally {
     graph.done();
@@ -351,8 +355,9 @@ function mavenGraph(app, writeLocks) {
 /** What the modules the app uses add to the APK (LLP 1133.001 D4, D5; LLP 1133.002 D6): each bound implementation's
  * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), and the
  * permissions the app's grant lines derive (the bake's `reach.android`) with those its names derive, and the
- * components its packages' manifest fragments declare, as Gradle properties. */
-function extensionArgs(app, out) {
+ * components its packages' manifest fragments declare with the meta-data `config` (`packageConfig`'s) carries, as
+ * Gradle properties. */
+function extensionArgs(app, out, config) {
   const bound = androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
   rmSync(generated, { recursive: true, force: true });
   let permissions = [], services = {};
@@ -376,7 +381,12 @@ function extensionArgs(app, out) {
   }
   // The queries and components the packages' manifest fragments declare, under the allow-list (LLP 1133.030 D9), with
   // the app's privacy policy for an activity that shows it (LLP 1133.026 D4).
-  const fragment = manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
+  // And the meta-data the packages' configuration carries (LLP 1133.021 §9 item 7): the Maps key, read from the
+  // variable `app.json` names, never from the repo. A development build without it says so and builds.
+  for (const [name, targets] of Object.entries(app.manifest?.packages ?? {})) for (const [key, value] of Object.entries(targets?.android ?? {})) {
+    if (typeof value?.env === 'string' && !process.env[value.env] && config.has(name.split('/').at(-1))) console.warn(`${app.name}: ${value.env} is unset, so ${name}'s ${key} is absent from this development build (a release build refuses it)`);
+  }
+  const fragment = withMetaData(manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), configMetaData(config)), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
   rmSync(fragmentFile, { force: true });
   if (fragment) { mkdirSync(dirname(fragmentFile), { recursive: true }); writeFileSync(fragmentFile, fragment); }
   return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : []),

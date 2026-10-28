@@ -130,6 +130,7 @@ package final class Presenter {
     lazy var toolbar = WindowToolbarHost(self)
     /// What native presentations cover of boxes (LLP 1115.002 D8.1, CoversMac.swift).
     lazy var covers = HostCovers(self)
+    lazy var statusItems = StatusItemHost(self)
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
     /// The root tab bar as the window's sidebar (LLP 1115.002 D3), and the kernel's rule for a root's tabs.
     lazy var sidebar = SidebarHost(self)
@@ -618,6 +619,7 @@ package final class Presenter {
         toolbar.reset() // its header's cover goes with `covers.reset()` below, untold
         navigation.reset()
         sidebar.reset()
+        statusItems.reset()
         covers.reset()
         segments.reset()
         controls.reset()
@@ -1293,6 +1295,7 @@ package final class Presenter {
         positionContexts()
         if bar { toolbar.sync() }
         shortcuts.sync()
+        statusItems.sync()
         if structureChanged { selection.structureChanged() }
         // The key-view loop is read only by a key event (Tab): it is marked
         // stale here and rebuilt when one arrives (`flushKeyViewLoop`), not

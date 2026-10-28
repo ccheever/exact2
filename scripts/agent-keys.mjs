@@ -538,7 +538,7 @@ export function pointerGap(host, browser, opts) {
   const held = opts.modifiers ?? opts.drag?.modifiers;
   const gaps = [
     opts.auxclick && 'a middle-button click (auxclick)',
-    opts.clicks !== undefined && `clicks ${opts.clicks}`,
+    opts.clicks !== undefined && host !== 'web' && `clicks ${opts.clicks}`, // the Playwright carrier clicks at a point (agent-playwright.mjs)
     opts.wheel && opts.at !== undefined && 'a wheel at a point',
     opts.dblclick && opts.at !== undefined && !['ios', 'host-ios'].includes(host) && 'a double click at a point', // iOS: the double tap that selects a word there
     host === 'web' && opts.mouse && 'a mouse click', // the Playwright carrier has none

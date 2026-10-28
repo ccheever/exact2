@@ -57,6 +57,7 @@ mod menus;
 mod metrics;
 pub mod motion;
 mod native;
+mod native_typed;
 mod nodes;
 mod overflow;
 pub mod params;
@@ -93,6 +94,7 @@ pub use identity::compiler_identity;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
+pub use native_typed::{DeclaredView, DeclaredViews, EVENT_MARKER};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites, Written};
 pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
@@ -1135,17 +1137,10 @@ impl<'a> Lowerer<'a> {
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
-        // @ref LLP 1021 §5.3 — stable menu ids, never localized titles.
-        if a.name == "-exact-menu"
-            && (tag != "button"
-                || !matches!(&a.value, Expr::Str(value, _) if matches!(value.as_str(),
-                    "about" | "app" | "file" | "edit" | "view" | "go" | "window" | "help" | "none")))
-        {
-            return err(
-                "lower-menu-placement",
-                "`-exact-menu` belongs to a button and takes a literal about, app, file, edit, view, go, window, help or none",
-                a.span,
-            );
+        // @ref LLP 1021 §5.3, LLP 1133.025 D11 item 4 — stable menu ids,
+        // never localized titles.
+        if a.name == "-exact-menu" {
+            menus::check_menu_placement(tag, a)?;
         }
         // HTML's global `title` on any element but `head`: advisory text, the
         // platform's tooltip (studio diary R24); `head`'s is the document's.

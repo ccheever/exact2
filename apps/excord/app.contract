@@ -18,10 +18,12 @@ use DirectoryList from "./directory.contract"
 use ImageViewer, ViewerRoute, viewerFade from "./viewer.contract"
 use MemberList, ProfileCard from "./members.contract"
 use PickerFrames, DeleteConfirm from "./picker.contract"
-use RoundButton, MessageMenu from "./controls.contract"
+use RoundButton, MessageMenu, TrayIcon from "./controls.contract"
 use Badge from "exact:content"
 use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@exact/local-auth"
 use requestAgeRange, AgeRange from "@exact/age-range"
+use loginItemStatus, registerLoginItem, unregisterLoginItem, openLoginItemSettings, LoginItemStatus from "@exact/login-item"
+use requestAttention from "@exact/dock"
 
 // A picture's route is the list's child, not its channel's: a reload at its address opens over the
 // list alone, so `strayViewer` can give that one history entry the channel's address.
@@ -131,6 +133,9 @@ component Excord
   resource mediaPreferences = exactViewport() as shape MediaPreferences
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
+  resource login = loginItemStatus() as shape LoginItemStatus else empty(available=false, state="unknown")
+  mutation loginSet as shape LoginItemStatus
+  state keepInTray = true persist
   // Translate: the aimed message's language, the pair to the person's, and each translation for the session.
   state translated: Translated[] = []
   state translating = ""
@@ -304,6 +309,8 @@ component Excord
   derive lockLabel = match lock.android { case some(a) => match a.label { case some(l) => l, case none => biometryLabel }, case none => biometryLabel }
   derive unreadText = `${win.unread}${win.unreadMore ? "+" : ""} new ${win.unread == 1 and not win.unreadMore ? "message" : "messages"} since ${formatTime(win.unreadAt, time.utcOffset, "short")}`
 
+  task attend when not page.hasFocus and mentionTotal + dms.filter(c => c.unread > 0).length > 0 key=`${mentionTotal} ${sum(dms.map(c => c.unread))}`
+    after(1, attend)
   task tick mount
     every(60000, step)
   task directory when directoryFor != gw.me and (gw.me == "" or (gw.queued == 0 and not pending(guilds) and not pending(categories) and not pending(dms) and not directoryFailed))
@@ -1173,6 +1180,19 @@ component Excord
       send lockChecked = authenticate(reason="reason.unlock")
   action lockAfterCheck
     send lockSet = protectToken()
+  action setLogin(on: bool, hidden: bool)
+    if on
+      send loginSet = registerLoginItem(hidden=hidden)
+    else
+      send loginSet = unregisterLoginItem()
+  action loginSettings
+    openLoginItemSettings()
+  action toggleTray
+    keepInTray = not keepInTray
+  action showWindow
+    focus()
+  action attend
+    requestAttention()
   action signInFixture
     dmsShownCount = 100
     send unlocked = signInAgain()
@@ -1180,6 +1200,8 @@ component Excord
   view
     main testId="excord" navigationKey=`${top(nav).id}` navigationBack="back" navigate=leave key=windowKey interactive-widget="resizes-content" width="100%" height="100%"
       head title=pageTitle
+      if keepInTray and match login.windows { case some(w) => true, case none => false }
+        TrayIcon(unread=(mentionTotal > 0 or dmUnread), open=showWindow)
       for e in stack(nav) key=e.id
         if e.name == "home" and signedOutNow
           column navigationKey=`${e.id}` navigationScroll="sign-in" position="absolute" inset=0 inert=covered
@@ -1222,6 +1244,18 @@ component Excord
                 hr
                 button press=toggleLock popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=session.lockOn testId="lock-switch"
                   text lockLabel
+              if login.available
+                button press=setLogin(login.state == "disabled", false) popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=(login.state != "disabled") testId="login-switch"
+                  text "Open Excord at Login"
+                if login.state == "enabled"
+                  button press=setLogin(true, not login.hidden) popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=login.hidden testId="login-hidden"
+                    text "Start Hidden"
+                if login.state == "requires-approval"
+                  button press=loginSettings popovertarget="account-menu" popovertargetaction="hide" testId="login-approve"
+                    text "Allow in Login Items Settings…"
+              if match login.windows { case some(w) => true, case none => false }
+                button press=toggleTray popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=keepInTray testId="tray-switch"
+                  text "Keep Excord Running in the Notification Area"
               if not gw.fixture
                 hr
                 button press=askSignOut destructive=true popovertarget="account-menu" popovertargetaction="hide" testId="menu-sign-out"

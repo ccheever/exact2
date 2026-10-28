@@ -1,5 +1,5 @@
-//! The map demo's data source: none. The pins are literal Contract; the map
-//! is the app's native module (LLP 1024).
+//! The map demo's data source: none. The markers are literal Contract; the
+//! map is `exact-map` from `@exact/maps` (LLP 1133.021).
 
 #![deny(missing_docs)]
 

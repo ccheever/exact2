@@ -68,6 +68,10 @@ pub use presence::{PresenceAnswer, PresenceAsk};
 pub(super) use services::CLAIMED;
 use std::sync::{Arc, Mutex};
 use values::{absent_is_none, fill, set_path};
+
+/// The key of the answer `decide` gives a send that lists what it answers,
+/// which its caller turns into the entry (`region_list.rs`, `listed_or`).
+const LISTS: &str = "exact:lists";
 pub use wakes::WakeHow;
 pub(super) use wakes::TOLD;
 
@@ -392,6 +396,7 @@ impl<D: DataSource> Runner<D> {
                 Ok(Answer::Later(self.bound_request(&row, args, reader)))
             }
             Decision::Now(json) => {
+                let json = self.listed_or(&row, &args, json);
                 // The runner's own answer (an implementation's permission status
                 // under the agent) is the substitute's, not a refusal.
                 let how = if route == Route::Substitute || error_code(&json).is_none() {
@@ -702,6 +707,16 @@ impl<D: DataSource> Runner<D> {
         if sub["ticket"].is_string() && from.is_some() {
             return Decision::Hold(Waits::Value);
         }
+        // A send that lists what it answers does so once admitted
+        // (`region_list.rs`), where the caller can change the state.
+        if sub["list"].is_object() {
+            return Decision::Now(json!({ LISTS: true }));
+        }
+        // A send with nothing preferred answers its declared default (LLP
+        // 1133.021 §12: a geocode answers `[]`).
+        if !sub["default"].is_null() {
+            return Decision::Now(sub["default"].clone());
+        }
         Decision::Now(json!({ "error": "NotSupportedError" }))
     }
 
@@ -743,6 +758,10 @@ impl<D: DataSource> Runner<D> {
             if let Some(object) = value.as_object_mut() {
                 object.insert(field.clone(), known);
             }
+        }
+        // A login item's status with the app's registration (LLP 1133.025 §11).
+        if sub["login"] == "status" {
+            value = self.login_status(value);
         }
         Some(value)
     }
@@ -1026,8 +1045,9 @@ impl<D: DataSource> Runner<D> {
         self.resolve_of(&row, &mut args);
         let origin = self.data_origin();
         let causes = self.data_causes();
-        // A send that answers nothing (LLP 1133.004 D5) settles once done.
-        if self.is_effect(&row) {
+        // A send that answers nothing (LLP 1133.004 D5) settles once done,
+        // as does one that lists what it answers (`region_list.rs`).
+        if self.is_effect(&row) || self.lists_answer(&row) {
             return Some(self.calling(causes, |r| r.effect_call(&row, args, origin)));
         }
         let held_args = args.clone();
@@ -1224,13 +1244,14 @@ impl<D: DataSource> Runner<D> {
         )
     }
 
-    /// `text`, the agent's answer to a value ticket: JSON, or the `short`
-    /// form, numbers by comma into the declared paths; checked, filled, as
-    /// the source's shape takes it.
+    /// `text`, the agent's answer to a value ticket: JSON (a record, or a
+    /// list for a source answering one, as `reverseGeocode`'s places), or
+    /// the `short` form, numbers by comma into the declared paths; checked,
+    /// filled, as the source's shape takes it.
     fn typed(&self, row: &ModulesRow, text: &str) -> Result<Json, String> {
         let key = self.key(row);
         let value = match serde_json::from_str::<Json>(text.trim()) {
-            Ok(v) if v.is_object() => v,
+            Ok(v) if v.is_object() || v.is_array() => v,
             _ => {
                 let short: Vec<String> = (self.substitute(row)["short"]
                     .as_array()
