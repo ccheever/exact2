@@ -109,13 +109,12 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The requests waiting for an answer's timer, for the agent's
-    /// `state.pending`: each target's name, its ticket and when it is due.
+    /// `state.pending`: each target's name (a tool handler's, as
+    /// `tool_tickets` names it), its ticket and when it is due.
     pub fn data_timer_waits(&self) -> Vec<(String, u64, f64)> {
-        (self.pending.iter())
-            .filter_map(|p| {
-                let due = self.data_timer_due(p.ticket)?;
-                Some((self.target_name(p.target), p.ticket, due))
-            })
+        let targets = (self.pending.iter()).map(|p| (self.target_name(p.target), p.ticket));
+        (targets.chain(self.tool_tickets()))
+            .filter_map(|(name, ticket)| Some((name, ticket, self.data_timer_due(ticket)?)))
             .collect()
     }
 

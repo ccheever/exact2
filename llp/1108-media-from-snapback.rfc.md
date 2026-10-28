@@ -582,8 +582,9 @@ read the file when the source answers and hold no URL.
    whose body names `asset.id`, nothing less. `E_RATE_LIMIT` is returned
    with `retryable` and `retryAfter` in milliseconds. `Retry-After` is
    seconds, or an HTTP date that the driver turns into milliseconds from the
-   caller's `now` (`upload(path, now)`). A data module has no timers
-   (LLP 1027.000), so the app asks again from Contract, for example from an
+   caller's `now` (`upload(path, now)`). A data module had no timers
+   (LLP 1027.000; since 2026-10-28 an answer may wait on its own, D1, and
+   this choice stands), so the app asks again from Contract, for example from an
    action a `task` runs. An upload is never retried by the driver. A lost reply
    may follow a stored upload, and the server's one-asset-one-home rule
    (`E_ASSET_PLACED`) makes a duplicate harmless but wasteful.

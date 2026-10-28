@@ -238,7 +238,8 @@ return { value: { ok: false, username: "", error: json?.errors?.[0]?.message ?? 
 
 **The module has no I/O because it has no bindings.** The executor
 creates a runtime with `eval` closed and installs nothing: no `fetch`,
-no timers, no `console` unless D10 admits it, no filesystem, no
+no timers (LLP 1027.000 D1 later gave an answer its own), no `console`
+unless D10 admits it, no filesystem, no
 `URL`. A module that reaches for one throws a `ReferenceError` at the
 call, which the executor reports as `DataError::Unavailable` naming
 the source — the LLP 1026 D3 discipline ("not 'the data crate does no

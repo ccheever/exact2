@@ -73,8 +73,8 @@ function init(message) {
   admitted = message.admitted;
   // Disable accidental browser I/O before the module captures globals: a
   // function, so `new WebSocket(url)` refuses by name too, as the JS target's
-  // ts-fetch.js does. The prelude refuses timers and the clock, by name, as
-  // Hermes does.
+  // ts-fetch.js does. The prelude refuses the clock and every timer but an
+  // answer's own (binary.js `timers`), by name, as Hermes does.
   for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
     Object.defineProperty(self, name, { value: function () { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }

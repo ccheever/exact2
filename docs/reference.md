@@ -1009,15 +1009,21 @@ answer has given its value) throws, and an answer that gives its value, fails
 or is let go clears the rest, whose callbacks never run. At build each timer
 fires at once, so a source that waits still bakes.
 
-Natively an answer waits on one thing at a time, and a fetch it awaits goes
-first: a timer raced against that fetch (`Promise.race`, or a `setTimeout`
-that calls `abort()`) runs only after the fetch lands, so it cannot cut the
-fetch short, and the journal says so once per answer. On the web, whose
-answers run in the page, both work. For a deadline on every host, give the
-fetch `AbortSignal.timeout(ms)` or `exactTimeout`: the host keeps it on real
-time, not the app's clock, and the signal aborts with `TimeoutError` when it
-passes. A wait for another answer's work (a shared fetch) and a timer of its
-own is woken by whichever comes first, on every host.
+Natively, and in the web's wasm target, an answer waits on one thing at a
+time, and a fetch it awaits goes first: a timer raced against that fetch
+(`Promise.race`, or a `setTimeout` that calls `abort()`) runs only after the
+fetch lands, so it cannot cut the fetch short, and the journal says so once
+per answer. On the web JS target, whose answers run in the page, both work.
+For a deadline on every host, give the fetch `exactTimeout`: the host keeps
+it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too,
+on a different clock by host: natively and in the wasm target the fetch
+carries its time left as the host's real-time deadline; on the web JS target
+it is a timer on the page's clock, so under the agent `clock +N` fires it.
+Either way the signal aborts with `TimeoutError`. An answer waiting both for
+another answer's work (a shared fetch) and for a timer of its own is woken by
+whichever comes first on native hosts, for a source on the main thread, and on
+the web JS target; in the wasm target and in a worker-placed source it wakes
+only when its timer is due.
 
 A poll loop (`for (;;) { await sleep(5000); … }`) belongs in a Contract
 `task`, not in an answer: an answer that always has a timer armed never
