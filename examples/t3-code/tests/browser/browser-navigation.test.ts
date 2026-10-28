@@ -1,6 +1,6 @@
 // The clone's rows for the data module's half (browser-navigation.ts), each named after the
 // reference code it follows (T3 Code 1e2ecbd975, MIT, see LICENSE-T3): PreviewEmptyState / PreviewRecentUrlCard /
-// PreviewLocalServerCard, PreviewView handleSubmitUrl / handleOpenServerUrl / the title effect, PreviewMoreMenu's zoom
+// PreviewLocalServerCard, PreviewView handleSubmitUrl / handleOpenServerUrl (7c3b3b3605ef's registration), PreviewMoreMenu's zoom
 // and appearance, handleToggleDeviceToolbar, BrowserDeviceToolbar, useBrowserViewportResize, ZoomIndicator, the
 // `previewFocus` keybindings and ChatView `togglePreviewPanel` (⇧⌘J). The module and the server are fakes. Ported:
 // PreviewEmptyState.test.tsx (4, under their own names), over the projection the Contract view draws (a group shows
@@ -189,9 +189,9 @@ describe('PreviewEmptyState', () => {
     const s = setup({ nav: { _tag: 'Idle' } });
     const history = browserHistory(s.client.local);
     await navigationPrepare(s.client, module, { ...s.state, visible: true });
-    history.registerThreadProject(ref, 'proj'); // a thread whose project mapping was saved before de34391427
+    history.registerThreadProject(ref, 'proj'); // a saved mapping
     for (let i = 9; i >= 0; i--) history.recordVisitForThread(ref, `http://localhost:${3000 + i}/`, Date.now() - i * 120_000);
-    history.setTitleForThreadUrl(ref, 'http://localhost:3000/', 'Home');
+    history.setTitleForUrl('proj', 'http://localhost:3000/', 'Home');
     discoveredServersEvent(s.client, { subscriptionId: 'sub-1', value: { servers: [
       { host: 'localhost', port: 9000, url: 'http://localhost:9000/', processName: null, pid: null, terminal: null },
       { host: 'localhost', port: 8080, url: 'http://localhost:8080/', processName: 'vite', pid: 7, terminal: null },
@@ -214,23 +214,24 @@ describe('PreviewEmptyState', () => {
 });
 
 describe('PreviewView handleSubmitUrl and handleOpenServerUrl', () => {
-  it('records a typed address, which waits unregistered as at 1e2ecbd975 (nothing registers the thread\'s project)', async () => {
+  it('records a typed address under the thread\'s project, titled by the page the tab settled on', async () => {
     const s = setup();
+    (s.client as unknown as { preferencesLoaded: boolean }).preferencesLoaded = true;
     await navigationPrepare(s.client, module, s.state);
     await local(s, 'navigate', 'localhost:5173');
-    await navigationPrepare(s.client, module, s.state);
+    const history = browserHistory(s.client.local);
+    expect(history.state.projectKeyByThreadKey).toEqual({ 'local:thread-1': 'local:/p' }); // the separate grouping's key
+    expect(history.projectHistory('local:/p', 8)).toEqual([expect.objectContaining({ url: 'http://localhost:5173/', title: 'Vite' })]);
+  });
+  it('keeps a visit waiting until the preferences, and so the grouping, are known', async () => {
+    const s = setup();
+    await local(s, 'navigate', 'localhost:5173');
     const history = browserHistory(s.client.local);
     expect(history.state.projectKeyByThreadKey).toEqual({});
     expect(history.state.pendingVisitsByThreadKey['local:thread-1']?.map(visit => visit.url)).toEqual(['http://localhost:5173/']);
-    expect(history.threadRecentHistory(ref, 8)).toEqual([]);
-    expect(browserView(s.client, s.surface, Date.now()).recents).toEqual([]);
-  });
-  it('records and titles a typed address for a thread whose project mapping was saved', async () => {
-    const s = setup();
-    browserHistory(s.client.local).registerThreadProject(ref, 'proj');
-    await local(s, 'navigate', 'localhost:5173');
-    await navigationPrepare(s.client, module, s.state);
-    expect(browserHistory(s.client.local).threadRecentHistory(ref, 8)).toEqual([expect.objectContaining({ url: 'http://localhost:5173/', title: 'Vite' })]);
+    (s.client as unknown as { preferencesLoaded: boolean }).preferencesLoaded = true;
+    await local(s, 'navigate', 'localhost:5174');
+    expect(history.projectHistory('local:/p', 8).map(entry => [entry.url, entry.title])).toEqual([['http://localhost:5174/', undefined], ['http://localhost:5173/', 'Vite']]);
   });
   it('opens a local server at the environment\'s host and keeps the address it was found at', async () => {
     const s = setup({ origin: 'http://192.168.1.25:3773' });
@@ -238,9 +239,9 @@ describe('PreviewView handleSubmitUrl and handleOpenServerUrl', () => {
     await navigationPrepare(s.client, module, s.state);
     await local(s, 'open-url', 'http://localhost:5173/app');
     expect(commands(s)).toEqual([{ kind: 'navigate', url: 'http://192.168.1.25:5173/app', delta: 0, flag: false }]);
-    expect(browserHistory(s.client.local).threadRecentHistory(ref, 8).map(entry => entry.url)).toEqual(['http://localhost:5173/app']);
+    expect(browserHistory(s.client.local).projectHistory('proj', 8).map(entry => entry.url)).toEqual(['http://localhost:5173/app']);
     await local(s, 'remove-recent', 'http://localhost:5173/app');
-    expect(browserHistory(s.client.local).threadRecentHistory(ref, 8)).toEqual([]);
+    expect(browserHistory(s.client.local).projectHistory('proj', 8)).toEqual([]);
   });
 });
 

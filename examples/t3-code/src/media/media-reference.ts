@@ -1,6 +1,6 @@
 // The authored location of a piece of media (T3 Code 1e2ecbd975, MIT; see
 // LICENSE-T3): packages/client-runtime/src/mediaReference.ts, with the two helpers it imports
-// (packages/shared/src/path.ts isWindowsAbsolutePath, markdownLinks.ts safeDecodeURIComponent).
+// (packages/shared/src/path.ts isWindowsAbsolutePath and isNetworkPath, markdownLinks.ts safeDecodeURIComponent).
 // No imports, so every media module can use it.
 
 /** The authored media location, never the temporary URL used to load its bytes. */
@@ -11,6 +11,11 @@ export type MediaReference =
 export const isWindowsDrivePath = (value: string): boolean => /^[a-zA-Z]:([/\\]|$)/.test(value);
 export const isUncPath = (value: string): boolean => value.startsWith('\\\\');
 export const isWindowsAbsolutePath = (value: string): boolean => isUncPath(value) || isWindowsDrivePath(value);
+/**
+ * isNetworkPath (path.ts at 7c3b3b3605ef): Windows treats `/` and `\` alike, so any two leading separators name a UNC or
+ * device path, and touching one makes Windows sign in to that host with the user's NTLM credentials.
+ */
+export const isNetworkPath = (value: string): boolean => /^[\\/]{2}/.test(value);
 
 export function safeDecodeURIComponent(value: string): string {
   try { return decodeURIComponent(value); } catch { return value; }

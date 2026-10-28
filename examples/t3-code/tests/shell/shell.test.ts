@@ -150,7 +150,7 @@ describe('thread notifications', () => {
     const client = fakeClient({ shell: { threads: [thread('a'), thread('b')], projects: [] } });
     const first = threadTransitions(client, null);
     expect(first.transitions).toEqual([]);
-    client.shell.threads = [thread('a', { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:01:00.000Z' }),
+    client.shell.threads = [thread('a', { status: 'completed', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:01:00.000Z' }),
       thread('b', { pendingRuntimeRequest: { kind: 'approval' } })];
     const second = threadTransitions(client, first.next);
     expect(second.transitions.map(entry => [entry.threadId, entry.kind, entry.title])).toEqual([['a', 'completion', 'Thread completed'], ['b', 'input', 'Approval needed']]);
@@ -175,7 +175,7 @@ describe('thread notifications', () => {
     expect(requests.filter(request => request.op === 'notifySound').map(request => request.kind)).toEqual(['input', 'input']);
     // The open thread gets neither a toast nor, while focused, a system notification.
     expect(requests.filter(request => request.op === 'notifyPost')).toEqual([]);
-    client.shell.threads = [thread('a', { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:05:00.000Z' }), thread('open')];
+    client.shell.threads = [thread('a', { status: 'completed', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:05:00.000Z' }), thread('open')];
     await threadNotifications(client, native, { active: false, authorization: 'authorized', agent: false, opened: '', openedThread: '' }, none);
     expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag, request.threadId])).toEqual([['Thread completed', 'T a', 'env:a', 'fleet:env:a']]);
   });
@@ -184,7 +184,7 @@ describe('thread notifications', () => {
   // environment, so a turn that ends in a background environment notifies while another one is focused.
   describe('every connected environment (ThreadNotificationCoordinator)', () => {
     const active = { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' };
-    const done = (id: string, at: string, extra: Obj = {}) => thread(id, { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: at, ...extra });
+    const done = (id: string, at: string, extra: Obj = {}) => thread(id, { status: 'completed', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: at, ...extra });
     function setup(clientExtra: Obj = {}) {
       const requests: Obj[] = [];
       const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;

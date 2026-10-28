@@ -1,7 +1,7 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.test.ts),
 // with 9c161462c9's tests of the history keys, Select all, the resize on release and the selection
-// autoscroll at the window edge, and 74541bab17's of Kitty key releases, the single paste and a
-// wrapped quoted link.
+// autoscroll at the window edge, 74541bab17's of Kitty key releases, the single paste and a
+// wrapped quoted link, and 7c3b3b3605ef's of the autoscroll's speed past the edge.
 // Changes from the reference:
 // - split for the 1,500-line cap: the key helper and browser harness are surfaceHarness.ts, and
 //   74541bab17's synchronized output tests are surfaceSynchronized.test.ts.
@@ -38,6 +38,7 @@ import {
   terminalFontFamily,
   terminalFontSize,
   terminalWheelArrowData,
+  terminalSelectionAutoscrollRows,
   terminalWheelDeltaRows,
   GhosttyTerminalSurface,
 } from "./surface";
@@ -1154,6 +1155,21 @@ describe("terminalWheelDeltaRows", () => {
     const result = terminalWheelDeltaRows({ deltaY: -1, deltaMode: 2 }, 16, 24, 0);
     expect(result.rows).toBe(-24);
     expect(result.remainder).toBe(0);
+  });
+});
+
+// regression: #19492 drag selection scrolled one row per tick however far past the edge
+describe("terminalSelectionAutoscrollRows", () => {
+  it("scrolls more rows per tick the farther the pointer is past an edge", () => {
+    const top = 100;
+    const bottom = 500;
+    expect(terminalSelectionAutoscrollRows(300, top, bottom)).toBe(0);
+    expect(terminalSelectionAutoscrollRows(99, top, bottom)).toBe(-1);
+    expect(terminalSelectionAutoscrollRows(75, top, bottom)).toBe(-8);
+    expect(terminalSelectionAutoscrollRows(501, top, bottom)).toBe(1);
+    expect(terminalSelectionAutoscrollRows(525, top, bottom)).toBe(8);
+    expect(terminalSelectionAutoscrollRows(550, top, bottom)).toBe(15);
+    expect(terminalSelectionAutoscrollRows(2_000, top, bottom)).toBe(15);
   });
 });
 
