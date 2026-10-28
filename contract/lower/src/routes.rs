@@ -755,13 +755,16 @@ fn scrolls_y(tag: &str, attrs: &[Attr]) -> Option<bool> {
 /// `bottom`, `start` and `end`, no edge in two groups.
 pub(crate) fn safe_area_value_error(word: &str) -> Option<String> {
     let word = word.trim();
-    if word == "auto" {
+    if word == "auto" || word == "bar" {
         return None;
     }
     let mut seen: Vec<&str> = Vec::new();
     for group in word.split(',') {
-        let mut words = group.split_whitespace();
+        let mut words = group.split_whitespace().peekable();
+        // A keyword without edges takes all four, so it shares them with any other group
+        let bare = words.clone().count() == 1;
         match words.next() {
+            Some("bar") => return Some("`-exact-safe-area=\"bar\"` stands alone: the box is part of the edge it is pinned to".into()),
             Some("ignore" | "extend") => {}
             Some("none") => return Some("`-exact-safe-area=\"none\"` is now `ignore`: the box and its content take every edge it touches".into()),
             Some("contain") => return Some("`-exact-safe-area` has no `contain`: a surface at the safe area's edge reaches it, as the HIG asks; to keep a box off the edge, pad the route's root or give the box a margin".into()),
@@ -769,6 +772,12 @@ pub(crate) fn safe_area_value_error(word: &str) -> Option<String> {
                 return Some(format!("`-exact-safe-area=\"{word}\"` names edges without a keyword: write `ignore {word}` for a box laid out into those edges, or `extend {word}` for artwork mirrored there"))
             }
             _ => return Some("`-exact-safe-area` takes `auto`, or `ignore` or `extend` followed by any of `top`, `bottom`, `start` and `end`, groups separated by commas".into()),
+        }
+        if bare && matches!(group.split_whitespace().next(), Some("ignore" | "extend")) {
+            if !seen.is_empty() || word.split(',').count() > 1 {
+                return Some("`-exact-safe-area` names an edge in two groups: a keyword without edges takes all four".into());
+            }
+            seen.extend(["top", "bottom", "start", "end"]);
         }
         for edge in words {
             match edge {
