@@ -144,7 +144,7 @@ describe('client behaviour', () => {
     expect(rpcPermissions('git.runStackedAction', { action: 'commit_push_pr', threadId: 't' })).toEqual(['source-control:write', 'orchestration:read']);
     expect(rpcPermissions('git.runStackedAction', { action: 'create_pr', projectId: 'p' })).toEqual(['source-control:write']);
     expect(rpcPermissions('git.runStackedAction', { action: 'commit', threadId: 't' })).toEqual(['source-control:write']);
-    expect(['preview.close', 'projects.listIgnoredFiles', 'pullRequests.changeBreakdown', 'device.easAccount'].map(method => rpcPermissions(method, {})))
-      .toEqual([['preview:operate'], ['filesystem:read'], ['orchestration:read'], ['settings:write']]);
+    expect(['preview.close', 'projects.listIgnoredFiles', 'pullRequests.changeBreakdown', 'device.easAccount', 'pullRequests.filterOptions'].map(method => rpcPermissions(method, {})))
+      .toEqual([['preview:operate'], ['filesystem:read'], ['orchestration:read'], ['settings:write'], ['orchestration:read']]);
   });
 });
