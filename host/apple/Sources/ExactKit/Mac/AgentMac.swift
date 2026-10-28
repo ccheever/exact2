@@ -451,23 +451,7 @@ extension Agent {
     /// a popover's, nor one of a scroller inside `clip`.
     private func clearPort(_ clip: NSClipView, of v: NSView) -> CGRect {
         var port = clip.bounds
-        guard let content = v.window?.contentView, let frame = content.superview else { return port }
-        // The sticky box a click at `at` (in the window) lands in, within `clip` (none of a scroller inside it, none in
-        // a popover), not holding `v`.
-        func cover(at: NSPoint) -> NodeView? {
-            guard let hit = content.hitTest(frame.convert(at, from: nil)), hit !== v, !hit.isDescendant(of: v) else { return nil }
-            var up: NSView? = hit, found: NodeView?
-            while let u = up, u !== clip {
-                if u is NSScrollView { return nil }
-                if let n = u as? NodeView {
-                    if n.props["popover"] != nil { return nil }
-                    if found == nil, ["sticky", "fixed"].contains(n.layoutPosition) { found = n }
-                }
-                up = u.superview
-            }
-            guard up === clip, let found, !v.isDescendant(of: found) else { return nil }
-            return found
-        }
+        func cover(at: NSPoint) -> NodeView? { stickyCover(clip, of: v, at: at) }
         // The cover at the target's middle, then each one at the middle of the band that leaves (a header across
         // from a dock): above one in the lower half, below one in the upper.
         let x = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: clip).x, mid = port.midY
@@ -481,6 +465,24 @@ extension Agent {
             at = clip.convert(NSPoint(x: x, y: port.midY), to: nil)
         }
         return port
+    }
+
+    /// The sticky (or fixed) box a click at `at` (in the window) lands in, within `clip` (none of a scroller inside it,
+    /// none in a popover), not holding `v`.
+    private func stickyCover(_ clip: NSClipView, of v: NSView, at: NSPoint) -> NodeView? {
+        guard let content = v.window?.contentView, let frame = content.superview,
+              let hit = content.hitTest(frame.convert(at, from: nil)), hit !== v, !hit.isDescendant(of: v) else { return nil }
+        var up: NSView? = hit, found: NodeView?
+        while let u = up, u !== clip {
+            if u is NSScrollView { return nil }
+            if let n = u as? NodeView {
+                if n.props["popover"] != nil { return nil }
+                if found == nil, ["sticky", "fixed"].contains(n.layoutPosition) { found = n }
+            }
+            up = u.superview
+        }
+        guard up === clip, let found, !v.isDescendant(of: found) else { return nil }
+        return found
     }
 
     /// A contact held across requests (LLP 1035.003 D1): the mouse button
@@ -812,6 +814,12 @@ extension Agent {
         var avoided: PressReach?
         if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
            (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
+            // A middle a sticky (or fixed) box of its scroller still covers (one no scroll could clear, theme2's 14:49
+            // ruling): refused, naming it, as the web's and Linux's taps are; a click there would land on the box.
+            if let clip = sequence(first: v.superview, next: { $0?.superview }).first(where: { $0 is NSClipView }) as? NSClipView,
+               let cover = stickyCover(clip, of: v, at: p) {
+                return ["error": "tap #\(v.id): #\(cover.id) (\(cover.layoutPosition)) covers its middle, and no scroll clears it", "covered": Int(cover.id)]
+            }
             let window = { [self] (q: CGPoint) in pointerPoint(q, in: win) }
             switch Agent.addressedAim(v, middle: center, area: apart ? b : b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
             case .refused(let refusal): return refusal.reply
