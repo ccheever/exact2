@@ -10,6 +10,7 @@ import {
 import { inlineReference, type InlineReference } from './inline-documents';
 import { compactDynamicToolOutput } from './inline-tool-output';
 import { t3ToolDefinition } from './timeline-t3tools';
+import { compactions, IDLE_COMPACTING_LABELS, isCompactionCommand, resumeCompactionAge } from './timeline-compaction';
 import { groupToolPresentation } from './timeline-work-rows';
 import { agentStarted } from './timeline-worktree';
 import { turnItemIsWorkspacePreparation } from './workspace-retry';
@@ -29,12 +30,18 @@ export type Row =
   | { kind: 'live'; id: string; createdAt: string; entry: WorkEntry; entries: WorkEntry[]; groupId: string; expanded: boolean; active: boolean; label: string; continues?: boolean;
       /** The group's latest reasoning, shown above the status line. */
       thought?: WorkEntry }
-  | { kind: 'working'; id: string; createdAt: string }
+  | { kind: 'working'; id: string; createdAt: string;
+      /** A running compaction owns the Working row, so its divider appears only once it ends. */
+      compacting?: string }
   | { kind: 'thinking'; id: string; createdAt: string; continues?: boolean; groupId?: string; expanded?: boolean }
   | { kind: 'group'; id: string; createdAt: string; runId: string; groupId: string; count: number; expanded: boolean; summary: string; icon: string; toolIcon: Obj | null; failed: boolean; continues?: boolean }
   | { kind: 'fold'; id: string; createdAt: string; runId: string; label: string; expanded: boolean }
   | { kind: 'attempt'; id: string; createdAt: string; runId: string; attemptId: string; expanded: boolean }
-  | { kind: 'compaction'; id: string; createdAt: string; label: string; tokenCounts: { before: string; after: string } | null; active: boolean }
+  | { kind: 'compaction'; id: string; createdAt: string; label: string; tokenCounts: { before: string; after: string } | null; active: boolean;
+      /** Replaces "Context compacted" when T3 Code compacted without being asked. */
+      title?: string; failed?: boolean;
+      /** The provider's reason, when a failed compaction gave one. */
+      failure?: string }
   | { kind: 'message'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'message' }>; meta: boolean; inProgress: boolean; revert: number }
   | { kind: 'meta'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'message' }> }
   | { kind: 'event'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'event' }>; subagents: Obj[]; summary: boolean }
@@ -217,8 +224,13 @@ export function deriveRows(input: RowInput): Row[] {
       label: liveEntryLabel(entry, input.root, keepsLive), ...(latestThought ? { thought: latestThought.entry } : {}) };
   })() : null;
   const liveIds = new Set(liveRow || latestFailed ? activeTail.map(entry => entry.id) : []);
+  const compaction = compactions(entries, input.isWorking, unsettled, entryActive, runOf);
   const rows: Row[] = [];
-  let activity = false, compacting = false;
+  const pushWorking = () => {
+    if (compaction.onlyFinished || compaction.running !== null && compaction.waiting === null) return;
+    rows.push({ kind: 'working', id: 'working-indicator-row', createdAt: input.activeStartedAt, ...(compaction.label ? { compacting: compaction.label } : {}) });
+  };
+  let activity = false;
   const pushLive = () => {
     if (!liveRow) return;
     rows.push(liveRow); activity ||= liveRow.active;
@@ -229,9 +241,11 @@ export function deriveRows(input: RowInput): Row[] {
 
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index]!;
-    if (input.isWorking && index === headerIndex) rows.push({ kind: 'working', id: 'working-indicator-row', createdAt: input.activeStartedAt });
+    if (input.isWorking && index === headerIndex) pushWorking();
     if (entry.id === latestVisible?.id) pushLive();
-    if (entry.kind === 'event' && entry.item.type === 'run_interrupt_request') continue;
+    // A stopped compaction's own divider already says it stopped.
+    if (entry.kind === 'event' && (entry.item.type === 'run_interrupt_request' || entry.item.type === 'run_interrupt_result'
+      && compaction.runs.has(str(entry.item.runId)) && compaction.compacted.has(str(entry.item.runId)))) continue;
     const fold = folds.get(entry.id);
     if (fold) rows.push({ kind: 'fold', id: `turn-fold:${fold.runId}`, createdAt: fold.createdAt, runId: fold.runId, label: fold.label, expanded: input.expandedRuns.has(fold.runId) });
     if (collapsed.has(entry.id)) continue;
@@ -240,10 +254,15 @@ export function deriveRows(input: RowInput): Row[] {
       attemptId: attemptFold.attemptId, expanded: input.expandedAttempts.has(attemptFold.attemptId) });
     if (collapsedAttempts.has(entry.id) || liveIds.has(entry.id)) continue;
     if (entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction') {
-      const active = entryActive(entry.entry); compacting ||= active;
-      rows.push({ kind: 'compaction', id: entry.id, createdAt: entry.createdAt, label: entry.entry.label, tokenCounts: contextCompactionTokenCounts(entry.entry.item), active });
+      const active = entryActive(entry.entry), runId = entry.entry.runId;
+      if (active && compaction.waiting !== null && runId === compaction.waiting) continue;
+      const item = entry.entry.item, title = compaction.title(runId, entry.id), reason = runId ? compaction.runs.get(runId) : undefined;
+      const failed = item.type === 'compaction' && item.status === 'failed', failure = failed ? str(item.summary).trim() : '';
+      rows.push({ kind: 'compaction', id: entry.id, createdAt: entry.createdAt, ...(title ? { title } : {}), ...(failed ? { failed } : {}), ...(failure ? { failure } : {}),
+        label: active && reason ? IDLE_COMPACTING_LABELS[reason] : entry.entry.label, tokenCounts: contextCompactionTokenCounts(item), active });
       continue;
     }
+    if (entry.kind === 'work' && compaction.compacted.has(entry.entry.runId) && entry.entry.questionAnswer && resumeCompactionAge(entry.entry.questionAnswer) !== null) continue;
     if (entry.kind === 'work') {
       const work = entry.entry;
       if (work.runId && failedRuns.has(work.runId) || work.itemType === 'error' && work.status === 'failed' || work.tone === 'error'
@@ -306,7 +325,16 @@ export function deriveRows(input: RowInput): Row[] {
       rows.push({ kind: 'event', id: entry.id, createdAt: entry.createdAt, entry, subagents: [], summary: false });
       continue;
     }
-    const inProgress = entry.role === 'assistant' && inActive(str(entry.item.runId));
+    const runId = str(entry.item.runId);
+    if (runId && isCompactionCommand(entry.item)) {
+      if (!compaction.compacted.has(runId) && runId !== compaction.waiting) {
+        const pending = runId === compaction.running, reason = compaction.runs.get(runId);
+        rows.push({ kind: 'compaction', id: `compaction:${runId}`, createdAt: entry.createdAt, tokenCounts: null, active: pending,
+          label: pending ? reason ? IDLE_COMPACTING_LABELS[reason] : 'Compacting context' : 'Context compaction' });
+      }
+      continue;
+    }
+    const inProgress = entry.role === 'assistant' && inActive(runId);
     rows.push({ kind: 'message', id: entry.id, createdAt: entry.createdAt, entry, inProgress,
       meta: entry.role === 'assistant' && terminalIds.has(entry.id) && !inProgress,
       revert: entry.role === 'user' ? revertCounts.get(str(entry.item.messageId)) ?? -1 : -1 });
@@ -325,11 +353,9 @@ export function deriveRows(input: RowInput): Row[] {
     else rows.splice(firstUser >= 0 ? firstUser + 1 : rows.length, 0,
       ...(setupOwnsWorkingSlot ? [{ kind: 'working', id: 'working-indicator-row', createdAt: str(setup.startedAt) } as Row, setupRow] : [setupRow]));
   }
-  if (input.isWorking && !rows.some(row => row.kind === 'working') && headerIndex === entries.length) {
-    rows.push({ kind: 'working', id: 'working-indicator-row', createdAt: input.activeStartedAt });
-  }
+  if (input.isWorking && !rows.some(row => row.kind === 'working') && headerIndex === entries.length) pushWorking();
   // A setup that owns the working slot shows no activity row of its own.
-  if (input.isWorking && input.latestRunTurnEnded !== true && !setupOwnsWorkingSlot && !compacting && (!activity || latestFailed)) {
+  if (input.isWorking && input.latestRunTurnEnded !== true && !setupOwnsWorkingSlot && !compaction.active && !compaction.onlyFinished && (!activity || latestFailed)) {
     // A failed latest tool hands the row back to thinking; its group stays
     // reachable through the same disclosure the live row offers.
     if (latestFailed && anchor) {
@@ -482,9 +508,9 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
       const compaction = isCompaction(entry);
       const trailing = entry.kind === 'work' && entry.entry.status !== 'inProgress' && !displayFailed(entry.entry);
       if (!compaction && index > terminalIndex && !trailing) return;
-      // Linked resources, still-working children and finished replies a steer superseded outlive the fold.
-      // An answered question stays visible after the surrounding work settles.
-      if (persistentResource(entry) || kept.has(entry.id) || entry.kind === 'work' && (entry.entry.itemType === 'notification' || entry.entry.questionAnswer !== undefined)) return;
+      // Compactions, linked resources, still-working children and finished replies a steer superseded outlive the
+      // fold. An answered question stays visible after the surrounding work settles.
+      if (compaction || persistentResource(entry) || kept.has(entry.id) || entry.kind === 'work' && (entry.entry.itemType === 'notification' || entry.entry.questionAnswer !== undefined)) return;
       hidden.add(entry.id);
     });
     const hidesWork = (segment: Entry[]) => segment.some(entry => hidden.has(entry.id) && !isCompaction(entry));

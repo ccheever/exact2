@@ -298,7 +298,7 @@ component ChatColumn
       HeroWidthProbe(name=home.projectName)
       // z-index 20 here as on the header inside: z-index orders siblings only (LLP 1001), and the header's menus overhang the transcript.
       box width="100%" flex-shrink=0 position="relative" z-index=20 dragenter=headerDragged(true) dragleave=headerDragged(false)
-        ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi, command=command)
+        ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, local=chatLocal, panel=panelUi, details=detailsAct, title=titleUi, command=command)
       if threadFind.open
         box position="absolute" top=64 right=12 width=min(280, max(0, conversationWidth - 24)) z-index=39
           for focus in [threadFind.focus] key=focus
@@ -325,11 +325,13 @@ component ChatColumn
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
             TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas))
           TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown, wheel=minimapWheel, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 6 * rem)) / 2), windowHeight=viewport.height, jump=turnJump)
-          for owner in [composerOwner] key=owner
+          // The spot comes back once the thread's rows are in (MessagesTimeline restoreReady: rows.length > 0): while its
+          // detail loads the list holds only the footer (the status line, "Loading messages..."), with no row to return to.
+          for owner in (data.threadLoading ? [] : [composerOwner]) key=owner
             box intersect=transcriptOpened(owner) position="absolute" top=0 left=0 width=0 height=0 pointer-events="none"
           // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
           if data.transcriptAway
-            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary="")
+            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary=data.composer.endSummary)
       // The composer overlays the transcript (ChatView's data-chat-composer-overlay; composer-overlay.ts
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.

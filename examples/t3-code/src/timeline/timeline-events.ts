@@ -69,8 +69,9 @@ const PROVIDER_TEXT_COLOR: Record<string, [string, string]> = {
 };
 
 /**
- * HandoffEndpoint: the provider's icon (`detail` the driver, `initials`, `driverIcon`) and the model's trigger name, else the
- * reported model, else the instance's name, in the provider's colour (`iconLight`, `iconDark`); `result` is its tooltip.
+ * HandoffEndpoint: the provider's icon (`detail` the driver, `initials`, `driverIcon`) and a catalog model's trigger name
+ * (its spoken short name under the driver, getTriggerDisplayModelName at 7c3b3b3605ef), else the reported model as
+ * reported, else the instance's name, in the provider's colour (`iconLight`, `iconDark`); `result` is its tooltip.
  * Between two accounts of one provider, the icon carries the instance's badge (`badge`, `badgeColor`; 74541bab17).
  */
 export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], index: number): Activity {
@@ -78,7 +79,7 @@ export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], ind
   const model = endpoint.model?.trim();
   const providerModel = model ? arr(entry?.models).find(candidate => candidate.slug === model) : undefined;
   const displayName = entry ? instanceDisplayName(entry) : endpoint.instanceId;
-  const label = providerModel !== undefined ? triggerModelName(providerModel) : model ? model : displayName;
+  const label = providerModel !== undefined ? triggerModelName(providerModel, str(entry?.driver)) : model ? model : displayName;
   const driver = str(entry?.driver) || endpoint.instanceId;
   const [light, dark] = PROVIDER_TEXT_COLOR[driver] ?? ['', ''];
   return { id: `${index}:${endpoint.instanceId}:${endpoint.model ?? ''}`, label, body: '', icon: '', output: '', result: `${displayName} · ${label}`,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { threadErrorBannerMessage, threadErrorView } from '../../src/timeline/timeline-errors';
+import { CHATGPT_WORKSPACE_ADMIN_REQUEST, threadErrorBannerMessage, threadErrorView } from '../../src/timeline/timeline-errors';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 
@@ -18,6 +18,40 @@ describe('thread error banner variants', () => {
     expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'provider_error', latestRunId: 'r1' }, 'provider_error'), base)).toMatchObject({ error: base.error, errorWarning: false });
     expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'usage_limit', latestRunId: 'r1' }, 'usage_limit'), { error: 'Could not send.', clientError: 'Could not send.' }))
       .toMatchObject({ error: 'Could not send.', errorWarning: false });
+  });
+});
+
+describe('ChatGPT sharing limits (#23361)', () => {
+  const workspace = 'subscription_sharing_workplace_individual_usage_limit_exceeded', plan = 'subscription_sharing_usage_limit_exceeded';
+  test('a limit named by its code is a warning that offers its own recovery', () => {
+    expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'provider_error', lastErrorCode: workspace, latestRunId: 'r1' }, 'provider_error'), base))
+      .toMatchObject({ error: base.error, errorWarning: true, errorLimit: 'workspace' });
+    expect(threadErrorView(client({ status: 'idle', lastErrorClass: 'usage_limit', lastErrorCode: plan }, 'usage_limit'), base))
+      .toMatchObject({ errorWarning: true, errorLimit: 'chatgpt' });
+    expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'provider_error', lastErrorCode: 'rate_limit' }, 'provider_error'), base)).toMatchObject({ errorLimit: '' });
+  });
+  test('the composer still owns a failed run its usage limit stopped, and a local error is no limit', () => {
+    expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'usage_limit', lastErrorCode: workspace, latestRunId: 'r1' }, 'usage_limit'), base))
+      .toMatchObject({ error: '', errorWarning: false, errorLimit: '' });
+    expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'provider_error', lastErrorCode: workspace }, 'provider_error'), { error: 'Could not send.', clientError: 'Could not send.' }))
+      .toMatchObject({ errorWarning: false, errorLimit: '' });
+  });
+});
+
+describe('Copy request for admin', () => {
+  test('copies the fixed request and says so, or says it could not', async () => {
+    const { chatLocal } = await import('../../src/timeline/timeline-presentation');
+    const { toasts } = await import('../../src/shell/toast');
+    const calls: Obj[] = [];
+    let fail = false;
+    const c = { restAccess: () => ({ call: async (call: Obj) => { calls.push(call); if (fail) throw new Error('pasteboard busy'); return {}; } }) } as unknown as T3Client;
+    await chatLocal(c, { available: true } as never, 'admin-request', '', '');
+    expect(calls).toEqual([{ op: 'copyText', text: CHATGPT_WORKSPACE_ADMIN_REQUEST }]);
+    expect(CHATGPT_WORKSPACE_ADMIN_REQUEST).toStartWith("I've reached the limit for using my ChatGPT plan in T3 Code.");
+    expect(toasts(c).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['success', 'Request copied', 'Send it to your workspace admin.']]);
+    fail = true;
+    await chatLocal(c, { available: true } as never, 'admin-request', '', '');
+    expect(toasts(c).at(-1)).toMatchObject({ kind: 'error', title: 'Could not copy the request' });
   });
 });
 

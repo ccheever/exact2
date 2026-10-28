@@ -10,6 +10,9 @@ import { chatLocal } from '../../src/timeline/timeline-presentation';
 import { timestamp, thread, storage, Backend, connected, opened } from '../support/client-fixture';
 import { appPath } from '../support/app-files';
 import { noteTranscriptFacts } from '../../src/timeline/transcript-facts';
+import { attachmentUrls } from '../../src/timeline/timeline-attachments';
+import { serveAssets } from '../support/asset-server';
+import { memoryFiles } from '../support/image-accent-fixture';
 
 describe('desktop presentation and model options', () => {
   const capabilities = { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', label: 'Reasoning', currentValue: 'medium',
@@ -160,6 +163,81 @@ describe('desktop presentation and model options', () => {
     expect(obj(native.calls.at(-1)?.payload).toTurnCount).toBe(1);
     await command('checkpoint-diff', '', '', 99);
     expect(client.diffError).toContain('No completed checkpoint');
+  });
+
+  test("the chat header's title reads in its majority direction (#22777)", async () => {
+    const { client } = await opened();
+    obj(client.projection.thread).title = 'إصلاح الشريط الجانبي في Exact';
+    expect(snapshot(client)).toMatchObject({ threadTitle: 'إصلاح الشريط الجانبي في Exact', threadTitleDir: 'rtl' });
+    obj(client.projection.thread).title = 'Fix the sidebar';
+    expect(snapshot(client).threadTitleDir).toBe('ltr');
+  });
+
+  test("the header's rename field reads the direction of what is typed (dir=\"auto\")", async () => {
+    const { client, command } = await opened();
+    obj(client.projection.thread).title = 'Fix the sidebar';
+    expect(snapshot(client).renameDir).toBe('ltr');
+    await command('chatlocal:rename-input', client.threadId, 'مرحبا Exact');
+    expect(snapshot(client).renameDir).toBe('rtl');
+    // Another thread's text is not this field's; a closed field reads the title again.
+    await command('chatlocal:rename-input', 'other-thread', 'Hello');
+    expect(snapshot(client).renameDir).toBe('ltr');
+    await command('chatlocal:rename-input', client.threadId, 'شريط');
+    await command('chatlocal:rename-input', '', '');
+    expect(snapshot(client).renameDir).toBe('ltr');
+  });
+
+  test("a sent SVG's chip is its file chip while its picture fails at its URL, and a file the server does not hand out is no button", async () => {
+    const { client, native, command } = await opened();
+    const svg = { type: 'file', id: 'att-svg', name: 'badge.svg', mimeType: 'image/svg+xml', sizeBytes: 120 };
+    const record = (contextId: string, attachment: Obj) => ({ version: 1, kind: 'file', contextId, label: str(attachment.name), attachmentId: str(attachment.id), name: str(attachment.name), mimeType: str(attachment.mimeType), sizeBytes: 120 });
+    const gone = { type: 'file', id: 'att-gone', name: 'gone.pdf', mimeType: 'application/pdf', sizeBytes: 120, downloadable: false };
+    client.thread!.projection.visibleTurnItems = [{ sourceThreadId: 't1', sourceItemId: 'ask', item: { id: 'ask', type: 'user_message', messageId: 'ask',
+      text: 'See [badge.svg](t3-context://v1/file/file_svg) and [gone.pdf](t3-context://v1/file/file_gone)', attachments: [svg, gone],
+      context: { version: 1, records: [record('file_svg', svg), record('file_gone', gone)] } } }];
+    const chips = () => snapshot(client).messages[0]!.md.chips.map(chip => [chip.kind, chip.target, chip.tip]);
+    expect(chips()).toEqual([['image', 'att-svg', 'File attachment, badge.svg, 1 KB'], ['file', '', 'gone.pdf\n1 KB']]);
+    // Both are chips in the prose, so neither has a file row of its own.
+    expect(snapshot(client).messages[0]!.attachFiles).toEqual([]);
+    // The thumbnail's URL is the one attachmentUrls signed (SvgFileChip's failedPreviewUrl names the URL that failed).
+    let sign = 0;
+    client.rpc = (async (_native: Native, method: string) => method === 'assets.createUrl'
+      ? { relativeUrl: `/api/assets/att-svg?sig=${++sign}`, expiresAt: Date.now() + (sign > 1 ? 3_600_000 : 30_000) } : {}) as typeof client.rpc;
+    memoryFiles(null);
+    const accents = serveAssets(() => ({ status: 404 }));
+    try {
+      const signed = async () => (await attachmentUrls(client, native, Date.now())).items.find(entry => entry.id === 'att-svg')!.url;
+      const url = await signed();
+      await command('chatlocal:chip-preview-failed', 'att-svg', 'http://127.0.0.1:1/another');
+      expect(chips()[0]![0]).toBe('image');
+      await command('chatlocal:chip-preview-failed', 'att-svg', url);
+      expect(chips()[0]).toEqual(['file', 'att-svg', 'badge.svg\n1 KB']);
+      // Signed again (the first URL was near its expiry), the picture is tried again.
+      expect(await signed()).not.toBe(url);
+      expect(chips()[0]![0]).toBe('image');
+    } finally { accents.restore(); }
+  });
+
+  test('a checkpoint that changed no files is no row, so the transcript holds no zero-height row', async () => {
+    const { client } = await opened();
+    client.thread!.projection.runs = [{ id: 'r1', status: 'completed', startedAt: timestamp, completedAt: '2026-10-03T01:00:00.847Z' },
+      { id: 'r2', status: 'completed', startedAt: timestamp, completedAt: '2026-10-03T01:00:01.000Z' }];
+    client.thread!.projection.checkpoints = [{ id: 'cp1', runId: 'r1', appRunOrdinal: 1, status: 'ready' },
+      { id: 'cp2', runId: 'r2', appRunOrdinal: 2, status: 'ready' }];
+    client.thread!.projection.visibleTurnItems = [
+      { sourceThreadId: 't1', sourceItemId: 'ask1', item: { id: 'ask1', type: 'user_message', messageId: 'ask1', text: 'Look', runId: 'r1' } },
+      { sourceThreadId: 't1', sourceItemId: 'answer1', item: { id: 'answer1', type: 'assistant_message', text: 'Nothing to change', runId: 'r1' } },
+      { sourceThreadId: 't1', sourceItemId: 'cp1', item: { id: 'cp1', type: 'checkpoint', checkpointId: 'cp1', runId: 'r1', files: [] } },
+      { sourceThreadId: 't1', sourceItemId: 'ask2', item: { id: 'ask2', type: 'user_message', messageId: 'ask2', text: 'Fix it', runId: 'r2' } },
+      { sourceThreadId: 't1', sourceItemId: 'answer2', item: { id: 'answer2', type: 'assistant_message', text: 'Fixed', runId: 'r2' } },
+      { sourceThreadId: 't1', sourceItemId: 'cp2', item: { id: 'cp2', type: 'checkpoint', checkpointId: 'cp2', runId: 'r2',
+        files: [{ path: 'a.ts', additions: 3, deletions: 1 }] } },
+    ];
+    const rows = snapshot(client).messages;
+    expect(rows.map(row => row.kind)).toEqual(['user', 'assistant', 'user', 'assistant', 'checkpoint']);
+    expect(rows.at(-1)).toMatchObject({ checkpointId: 'cp2', fileCount: 1, attached: true, last: true });
+    client.thread!.projection.visibleTurnItems = client.thread!.projection.visibleTurnItems.slice(0, 3);
+    expect(snapshot(client).messages.map(row => [row.kind, row.last])).toEqual([['user', false], ['assistant', true]]);
   });
 
   test('model browsing is read-only, favorites use environment settings, and choosing commits one selection', async () => {

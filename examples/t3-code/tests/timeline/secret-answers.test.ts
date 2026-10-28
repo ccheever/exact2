@@ -63,7 +63,16 @@ test('projected local and inherited secret requests stay standalone through nati
     Object.assign(item, { ordinal: 1, runId: null, nodeId: null, status: 'pending', startedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
     const rows = timelineMessages(client, transcriptRows(client), Date.parse('2026-01-01T00:00:00.000Z'));
     expect(rows.filter(row => row.kind === 'secret')).toHaveLength(1);
-    expect(rows.find(row => row.kind === 'secret')?.secret[0]).toMatchObject({ label: 'Webhook key', kind: visibility === 'local' ? 'pending' : 'pending-elsewhere' });
+    expect(rows.find(row => row.kind === 'secret')?.secret[0]).toMatchObject({ label: 'Webhook key', kind: visibility === 'local' ? 'pending' : 'pending-elsewhere',
+      privacy: 'Stored securely, never shown to the agent' });
     expect(JSON.stringify(rows)).not.toContain('private-fixture-value');
   }
+});
+
+test("a file secret's card does not promise to hide a value the agent's commands can read (#24809)", async () => {
+  const { transcriptRows, timelineMessages } = await import('../../src/timeline/timeline-presentation');
+  const { client, item } = await fixture('local');
+  Object.assign(item, { ordinal: 1, runId: null, nodeId: null, status: 'pending', delivery: 'file', startedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+  const card = timelineMessages(client, transcriptRows(client), Date.parse('2026-01-01T00:00:00.000Z')).find(row => row.kind === 'secret')?.secret[0];
+  expect(card?.privacy).toBe("Kept out of chat, in a private file this agent's commands can read for 24 hours");
 });

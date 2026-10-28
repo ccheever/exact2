@@ -15,6 +15,7 @@ import { fanoutSelections } from '../composer/composer-controls-fanout';
 import { handoffEndpoint } from './timeline-events';
 import { formatRelativeTimeLabel } from '../browser/browser-history';
 import { snoozeWakeLabel } from '../sidebar/sidebar-model';
+import { threadEndRows } from '../composer/thread-end';
 
 /**
  * threadStatusLine: one quiet line for thread state that does not change what
@@ -71,9 +72,13 @@ export function pendingHandoff(projection: Obj, selection: Endpoint | null, prov
   return needsHandoff ? { from: { instanceId: str(from.instanceId), model: str(from.model) }, to: selection } : null;
 }
 
-/** The timeline's footer rows: the pending handoff ("Context handoff pending"), then the status line. */
+/** The timeline's footer rows: the pending handoff ("Context handoff pending"), then threadEndRows (what the thread is doing
+ *  now, the status line and the queued turns; ChatView timelineFooter). */
 export function threadFooterRows(client: T3Client, now: number): Message[] {
-  if (!client.threadId || !client.thread) return [];
+  if (!client.threadId) return [];
+  // Before the thread's detail arrives: ThreadNow's sync line ("Loading messages...") and the status line, which reads
+  // the shell.
+  if (!client.thread) return threadEndRows(client, [], threadStatusLine(client, now));
   const providers = arr(client.config.providers), chosen = composerSelection(client, !!fanoutSelections(client));
   const instanceId = chosen.instanceId || client.providerId, model = chosen.entry ? chosen.model : client.modelId;
   // A provider the next send would skip (disabled or unavailable) previews no handoff.
@@ -81,6 +86,5 @@ export function threadFooterRows(client: T3Client, now: number): Message[] {
   const endpoints = handoff ? [handoffEndpoint(handoff.from, providers, 0), handoffEndpoint(handoff.to, providers, 1)] : [];
   const rows: Message[] = handoff ? [{ id: `pending-handoff:${client.threadId}`, kind: 'handoff', title: 'Context handoff pending', body: '', tone: 'neutral',
     icon: 'arrow-right-left', detail: endpoints.map(endpoint => endpoint.label).join(' → '), activities: endpoints }] : [];
-  const status = threadStatusLine(client, now);
-  return status ? [...rows, status] : rows;
+  return threadEndRows(client, rows, threadStatusLine(client, now));
 }

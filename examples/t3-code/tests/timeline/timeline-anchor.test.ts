@@ -162,10 +162,18 @@ describe('each thread keeps its own place', () => {
 describe('one writer per navigation', () => {
   test('the marker beside the list reports each thread\'s transcript', () => {
     const main = source('app-main.contract');
-    expect(main).toContain('          for owner in [composerOwner] key=owner\n            box intersect=transcriptOpened(owner) position="absolute"');
+    expect(main).toContain('          for owner in (data.threadLoading ? [] : [composerOwner]) key=owner\n            box intersect=transcriptOpened(owner) position="absolute"');
     const c = chat();
     expect(column.drawn('intersect=transcriptOpened(owner)', c.state, c.scope)).toBe(true);
     (c.scope.data as Env).messages = [];
     expect(column.drawn('intersect=transcriptOpened(owner)', c.state, c.scope)).toBe(false);
+  });
+
+  test('the marker waits for the thread\'s rows, not the footer drawn while its detail loads', () => {
+    // MessagesTimeline.tsx restoreReady (rows.length > 0): the status line alone is no row to return to.
+    const owners = /for owner in (.+) key=owner\n\s+box intersect=transcriptOpened/.exec(source('app-main.contract'))![1]!;
+    const status = [{ id: 'thread-status', kind: 'status' }];
+    expect(value(owners, { composerOwner: A, data: { threadLoading: true, messages: status } })).toEqual([]);
+    expect(value(owners, { composerOwner: A, data: { threadLoading: false, messages: rowsOf('a') } })).toEqual([A]);
   });
 });

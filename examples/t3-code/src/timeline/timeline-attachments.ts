@@ -53,6 +53,31 @@ export function isSentAudio(attachment: Obj): boolean {
   const generic = !mime || mime === 'application/octet-stream' || mime === 'text/plain';
   return attachment.downloadable !== false && (mime.startsWith('audio/') || generic && /\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff|weba)$/i.test(str(attachment.name)));
 }
+const GENERIC_MIME_TYPES = new Set(['application/octet-stream', 'binary/octet-stream', 'application/unknown']);
+/** shared/image.ts isSvgAttachment: an SVG MIME type, or a `.svg` name under a generic one. */
+export function isSvgAttachment(attachment: Obj): boolean {
+  const mime = str(attachment.mimeType).split(';', 1)[0]!.trim().toLowerCase();
+  return mime === 'image/svg+xml' || (!mime || GENERIC_MIME_TYPES.has(mime)) && /\.svg$/i.test(str(attachment.name));
+}
+/** Whether `id` is a sent SVG file of the shown thread, which its chip opens as a file, not in the image dialog. */
+export function isSentSvg(client: T3Client, id: string): boolean {
+  return !!id && arr(client.projection.visibleTurnItems).some(row => obj(row.item).type === 'user_message'
+    && arr(obj(row.item).attachments).some(attachment => attachment.type === 'file' && str(attachment.id) === id && isSvgAttachment(attachment)));
+}
+// SvgFileChip's failedPreviewUrl: per sent SVG (keyed as `urls` is), the signed URL whose picture did not load.
+const failedSvgs = new WeakMap<T3Client, Map<string, string>>();
+const svgKey = (client: T3Client, id: string) => JSON.stringify([client.generation, client.environmentId, id]);
+/** A chip's thumbnail at `url` did not load. */
+export function noteChipPreviewFailed(client: T3Client, id: string, url: string): void {
+  if (!url || !isSentSvg(client, id)) return;
+  const failed = failedSvgs.get(client) ?? new Map<string, string>();
+  failed.set(svgKey(client, id), url); failedSvgs.set(client, failed);
+}
+/** Whether a sent SVG's chip is its file chip: its picture failed at the URL it still has (a URL signed again is tried). */
+export function svgPreviewFailed(client: T3Client, id: string): boolean {
+  const key = svgKey(client, id), failed = failedSvgs.get(client)?.get(key);
+  return failed !== undefined && urls.get(key)?.url === failed;
+}
 const CONTEXT_FILE_REFERENCE = /!?\[[^\]\n]{0,512}\]\(t3-context:\/\/v1\/file\/([a-z0-9_-]{1,128})\)/gi;
 /**
  * A sent sound's reference leaves the prompt: TimelineUserMessageRow's renderContextReference returns null for a file
@@ -81,13 +106,15 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
     for (const attachment of arr(item.attachments)) if (attachment.type === 'image' && str(attachment.id) && !str(attachment.name).startsWith('preview-annotation-')) wanted.push(attachment);
     // buildAttachmentVideoAsset signs a sent video under its video MIME type.
     for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && isSentVideo(attachment)) wanted.push({ ...attachment, mimeType: videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) });
+    // SvgFileChip: a sent SVG's chip shows the picture, signed as one (a file the server does not hand out has none).
+    for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && attachment.downloadable !== false && isSvgAttachment(attachment)) wanted.push({ ...attachment, mimeType: 'image/svg+xml' });
     // InlineAudioPreview: a sent sound plays from its inline attachment resource.
     for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && !isSentVideo(attachment) && isSentAudio(attachment)) wanted.push(attachment);
   }
   // Queued messages' images (the queued rows' thumbnails and the edit's kept attachments).
   const queuedMessages = new Set(arr(client.projection.runs).filter(run => run.status === 'queued').map(run => str(run.userMessageId)));
   for (const message of arr(client.projection.messages)) if (queuedMessages.has(str(message.id))) for (const attachment of arr(message.attachments)) if (attachment.type === 'image' && str(attachment.id)) wanted.push(attachment);
-  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file').map(entry => str(entry.id)));
+  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file' && !isSvgAttachment(entry)).map(entry => str(entry.id)));
   for (const attachment of wanted.slice(-64)) {
     const id = str(attachment.id), key = JSON.stringify([client.generation, client.environmentId, id]);
     const cached = urls.get(key);
@@ -259,7 +286,7 @@ const NO_INKS = { fill: '', hover: '', border: '', ink: '' };
 async function withAccents(client: T3Client, items: { id: string; url: string }[], videoIds = new Set<string>()): Promise<AttachmentUrl[]> {
   const out: AttachmentUrl[] = [];
   for (const item of items) {
-    if (videoIds.has(item.id)) { out.push({ ...item, ...NO_INKS }); continue; } // a video has no image chip to tint
+    if (videoIds.has(item.id)) { out.push({ ...item, ...NO_INKS }); continue; } // a video or a sound has no image chip to tint
     const key = JSON.stringify([client.environmentId, item.id]);
     if (!accents.has(key)) {
       // A passing failure (null) is not kept: the next answer reads the image again.
