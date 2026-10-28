@@ -69,6 +69,7 @@ mod painter;
 mod pan_release;
 mod picker;
 mod pointer;
+mod pump;
 mod radio;
 mod range_frame;
 #[cfg(test)]
@@ -816,6 +817,9 @@ impl<D: DataSource> Presenter<D> {
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
         // is parked and released after a later commit.
+        // An app's aborted fetches first (any method), then what the runner let go.
+        self.executor
+            .cancel(&self.host.runner_mut().take_explicit_aborts());
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
@@ -865,6 +869,10 @@ impl<D: DataSource> Presenter<D> {
             if let Some(r) = self.parked.remove(&token) {
                 self.run_dispatch(r, dispatch);
             }
+        }
+        // An abort made in this batch's turns is answered at the next pump: wake it.
+        if self.host.runner_mut().collected_aborts() {
+            self.executor.notify();
         }
         // The platform's checks for presence calls: the shell's (LLP 1133.010 D8).
         for ask in self.host.runner_mut().take_presence_asks() {
@@ -1326,50 +1334,6 @@ impl<D: DataSource> Presenter<D> {
             return Err(e);
         }
         Ok(format!("{{\"tapped\":{id},\"into\":true}}"))
-    }
-
-    /// The executor's replies into the runner (LLP 1016 D2), each a
-    /// commit: the display loop calls this when the executor's fd is
-    /// readable, the agent when it waits. `None` when nothing was queued.
-    pub fn pump(&mut self, now_ms: f64) -> Option<String> {
-        let region_error = self.poll_content_region();
-        self.executor.begin_pump();
-        let region_error = region_error.or(self.dispatch_authored_scroll());
-        self.refusal_turn = !self.refusal_turn;
-        let mut outcomes = if self.refusal_turn {
-            self.host
-                .take_request_refusal(self.executor.ordered_idle())
-                .into_iter()
-                .map(|(ticket, outcome)| (ticket, outcome, None))
-                .collect()
-        } else {
-            self.executor.drain()
-        };
-        if outcomes.is_empty() {
-            outcomes = if self.refusal_turn {
-                self.executor.drain()
-            } else {
-                self.host
-                    .take_request_refusal(self.executor.ordered_idle())
-                    .into_iter()
-                    .map(|(ticket, outcome)| (ticket, outcome, None))
-                    .collect()
-            };
-        }
-        if self.host.has_request_refusals(self.executor.ordered_idle()) {
-            self.executor.notify();
-        }
-        if outcomes.is_empty() && !self.host.has_announced() {
-            let refined = self.refine_collections();
-            return region_error
-                .or(refined)
-                .or(self.refresh_transform_geometry())
-                .or(self.deliver_scroll_ends());
-        }
-        let e = self.host.fulfill_all(outcomes, now_ms);
-        let after = self.after_commit();
-        let ends = self.deliver_scroll_ends();
-        region_error.or(e).or(after).or(ends)
     }
 
     /// The executor's wake: readable when a reply is queued (for `poll`).

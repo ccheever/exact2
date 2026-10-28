@@ -107,6 +107,10 @@ impl Executor {
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
+    /// Cancel the requests the app aborted, whatever their method.
+    pub fn cancel(&self, tickets: &[u64]) {
+        self.core.cancel(tickets);
+    }
 
     /// Wait until the core has news, or until `until`.
     pub fn wait(&self, until: Instant) {
