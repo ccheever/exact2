@@ -954,6 +954,30 @@ fn an_errors_links_lose_their_queries() {
     assert_eq!(without_queries("HTTP 404"), "HTTP 404");
     assert_eq!(without_queries("why? because"), "why? because");
     assert_eq!(
+        without_queries("`https://h/a.svg?file=(1).png&hm=secret`: x"),
+        "`https://h/a.svg`: x"
+    );
+    assert_eq!(
+        without_queries("url(a.css?file=(1).png&hm=secret)"),
+        "url(a.css)"
+    );
+    assert_eq!(
+        without_queries("`https://h/a.png?)ex=1&is=2&hm=secret`: x"),
+        "`https://h/a.png`: x"
+    );
+    assert_eq!(
+        without_queries("`https://h/a.svg?x=),&hm=secret`: x"),
+        "`https://h/a.svg`: x"
+    );
+    assert_eq!(
+        without_queries("https://h/a.svg?x=))&hm=secret"),
+        "https://h/a.svg"
+    );
+    assert_eq!(
+        without_queries("https://h/a.svg?)&hm=secret"),
+        "https://h/a.svg"
+    );
+    assert_eq!(
         without_queries("`https://h/a.svg?x=)&hm=secret`: x"),
         "`https://h/a.svg`: x"
     );
@@ -982,7 +1006,7 @@ fn an_errors_links_lose_their_queries() {
     let spaced = "https://h/a b.png?hm=secret";
     assert_eq!(
         super::redacted(&format!("image {spaced}: gone"), spaced),
-        "image https://h/a b.png gone"
+        "image https://h/a b.png: gone"
     );
     assert_eq!(
         without_queries("image `/a.svg?hm=1`: x"),

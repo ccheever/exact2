@@ -77,29 +77,26 @@ enum RasterRetry {
     static func redacted(_ text: String, source: String) -> String { withoutQueries(text) }
     /// `text` with no query or fragment of any link in it: a CDN's links carry
     /// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` quotes
-    /// only the host and path. A `?` with a character after it that is not a
-    /// space or a closing mark starts a query wherever the link sits, dropped
-    /// up to the next space, or the next closing mark that ends the token (a
-    /// space, the end, punctuation or another closing mark after it); a `#`
-    /// does the same in a word with a `/`, a `:` or a `url(`. A question
-    /// (`why?`) is left be. One pass (the Linux host's `remote::without_queries`).
+    /// only the host and path. A `?` with anything but a space after it starts
+    /// a query wherever the link sits; a `#` does too in a word with a `/`, a
+    /// `:` or a `url(`. The rest of the word goes, all of it, and only the run
+    /// of closing marks and punctuation that ended the word comes back. A
+    /// question (`why?`) is left be. One pass (the Linux host's
+    /// `remote::without_queries`).
     static func withoutQueries(_ text: String) -> String {
-        let closing: (Character) -> Bool = { ")\"'`>]".contains($0) }
-        let afterClose: (Character?) -> Bool = { c in c.map { $0.isWhitespace || closing($0) || ",;:.".contains($0) } ?? true }
+        let trailing: (Character) -> Bool = { ")\"'`>],;:.".contains($0) }
         let characters = Array(text)
         var out = "", i = 0, linked = false, last: [Character] = ["\0", "\0", "\0"]
         while i < characters.count {
             let c = characters[i]
-            let next: Character? = i + 1 < characters.count ? characters[i + 1] : nil
-            let opens = next.map { !$0.isWhitespace && !closing($0) } ?? false
-            if opens && (c == "?" || (c == "#" && linked)) {
-                i += 1
-                while i < characters.count {
-                    let n = characters[i]
-                    if n.isWhitespace { break }
-                    if closing(n), afterClose(i + 1 < characters.count ? characters[i + 1] : nil) { break }
-                    i += 1
-                }
+            let continues = i + 1 < characters.count && !characters[i + 1].isWhitespace
+            if continues && (c == "?" || (c == "#" && linked)) {
+                var end = i
+                while end < characters.count, !characters[end].isWhitespace { end += 1 }
+                var kept = end
+                while kept > i + 1, trailing(characters[kept - 1]) { kept -= 1 }
+                out.append(contentsOf: characters[kept..<end])
+                i = end
                 continue
             }
             if c.isWhitespace { linked = false; last = ["\0", "\0", "\0"] } else {

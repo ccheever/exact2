@@ -31,43 +31,33 @@ pub(crate) fn redacted(text: &str, _source: &str) -> String {
 
 /// `text` with no query or fragment of any link in it: a CDN's links carry
 /// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` and the log
-/// quote only the host and path. A `?` with a character after it that is not a
-/// space or a closing mark starts a query, wherever the link sits (in
-/// backticks, `url( … )`, a source with a space in it). It is dropped up to the
-/// next space, or the next closing mark (`)`, `"`, `'`, `` ` ``, `>`, `]`)
-/// that ends the token (a space, the end, punctuation or another closing mark
-/// after it: a `)` inside a query does not end it). A `#` does the same in a
-/// word with a `/`, a `:` or a `url(` (a colour, `#fff`, stays). A question
-/// (`why?`) is left be. One pass, linear in `text`.
+/// quote only the host and path. A `?` with anything but a space after it
+/// starts a query, wherever the link sits (in backticks, `url( … )`, a source
+/// with a space in it); a `#` does too in a word with a `/`, a `:` or a `url(`
+/// (a colour, `#fff`, stays). The rest of the word goes, all of it, and only
+/// the run of closing marks and punctuation that ended the word comes back
+/// (`)`, `"`, `'`, `` ` ``, `>`, `]`, `,`, `;`, `:`, `.`): whatever a query
+/// holds, none of it stays. A question (`why?`) is left be. One pass.
 pub(crate) fn without_queries(text: &str) -> String {
-    let closing = |c: char| ")\"'`>]".contains(c);
-    let after_close =
-        |c: Option<char>| c.is_none_or(|c| c.is_whitespace() || closing(c) || ",;:.".contains(c));
+    let trailing = |c: char| ")\"'`>],;:.".contains(c);
+    let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
     // Whether the word so far has a link's mark, and its last three characters (for `url(`).
     let (mut linked, mut last) = (false, ['\0'; 3]);
-    while let Some(c) = chars.next() {
-        let next = chars.peek().copied();
-        let opens = next.is_some_and(|n| !n.is_whitespace() && !closing(n));
-        if opens && (c == '?' || (c == '#' && linked)) {
-            loop {
-                match chars.peek().copied() {
-                    None => break,
-                    Some(n) if n.is_whitespace() => break,
-                    Some(n) if closing(n) => {
-                        let mut ahead = chars.clone();
-                        ahead.next();
-                        if after_close(ahead.peek().copied()) {
-                            break;
-                        }
-                        chars.next();
-                    }
-                    Some(_) => {
-                        chars.next();
-                    }
-                }
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let continues = chars.get(i + 1).is_some_and(|n| !n.is_whitespace());
+        if continues && (c == '?' || (c == '#' && linked)) {
+            let end = (i..chars.len())
+                .find(|&j| chars[j].is_whitespace())
+                .unwrap_or(chars.len());
+            let mut kept = end;
+            while kept > i + 1 && trailing(chars[kept - 1]) {
+                kept -= 1;
             }
+            out.extend(&chars[kept..end]);
+            i = end;
             continue;
         }
         if c.is_whitespace() {
@@ -77,6 +67,7 @@ pub(crate) fn without_queries(text: &str) -> String {
             last = [last[1], last[2], c];
         }
         out.push(c);
+        i += 1;
     }
     out
 }
