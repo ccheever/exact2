@@ -9,10 +9,9 @@ import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue,
 import { toasts } from '../../src/shell/toast';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { applyBrowserDefault, browserDefaultsView } from '../../src/browser/browser-defaults';
-import { integrationRows, SEARCH_TARGETS } from '../../src/settings/source-control-view';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { APP } from '../support/app-files';
+import { branchNamingRows, integrationRows, sourceControlRows } from '../../src/settings/source-control-view';
+import { buildRows } from '../../src/settings/keybinding-view';
+import { appText } from '../support/app-files';
 
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
@@ -444,6 +443,8 @@ describe('navigation and search', () => {
     expect(titles('pull request sharing')).toEqual(['Pull request sharing / Environments']);
     expect(settingsNavigation('git fetch', desktop)).toMatchObject({ firstRoute: 'maintenance', firstTarget: 'background-activity' });
     expect(titles('diff colors')).toEqual(['Diff colors / Diffs & pull requests']);
+    // Environment icon is offered wherever Sharing & access is, as upstream's item has no condition.
+    expect(searchSettings('environment icon', { ...desktop, localBackend: false }).map(item => item.id)).toContain('environment-icon');
   });
   test('the settings answer names the jump it is for and the reveal stop of the fold its row sits under', async () => {
     const core = await settingsCore(as(fake()), native, '', '', '', '', 'chat', 'skills-in-slash-menu', true);
@@ -451,26 +452,51 @@ describe('navigation and search', () => {
     expect(core.sections.find(section => section.id === 'composer')!.advanced.map(row => row.id)).toEqual(['skills-in-slash-menu']);
     expect(await settingsCore(as(fake()), native, '', '', '', '', 'chat', 'send-shortcut', true)).toMatchObject({ jumpTarget: 'send-shortcut', jumpStop: '' });
   });
-  test('every result lands on an element its page draws', () => {
-    // Upstream's hash is `targetId ?? id`, the id SettingsRow, SettingsSection, FoldedSettingsSection and SettingsSearchTarget
-    // carry. Here: core sections and rows (CoreSections, CoreRowView), scoped rows' targets, and the ids the contracts write.
+  test('every result lands on an element its own page draws, keybinding commands included', () => {
+    // Upstream's hash is `targetId ?? id`, the id its page's SettingsRow, SettingsSection, FoldedSettingsSection or
+    // SettingsSearchTarget carries. Each route counts only what its own page draws: its contracts' ids, its core
+    // sections and rows (CoreSections, CoreRowView), its scoped rows' targets and its keybinding rows' anchors.
     const client = as(fake());
-    const core = serverContext(client, resolveScope(client, '', '', ''), new Map());
-    const drawn = new Set<string>([diagnosticsRow(false).id, cliCommandRow({ supported: true, installedPath: null, onPath: false })!.id, ...Object.values(SEARCH_TARGETS)]);
-    const add = (sections: { id: string; rows: { id: string }[]; advanced?: { id: string }[] }[]) => {
-      for (const section of sections) for (const id of [section.id, ...section.rows.map(row => row.id), ...(section.advanced ?? []).map(row => row.id)]) drawn.add(id);
+    const context = serverContext(client, resolveScope(client, '', '', ''), new Map());
+    const ids = (...files: string[]) => files.flatMap(file => [...appText(file).matchAll(/\b(?:id|sectionId|selectId|switchId)="([a-z0-9.-]+)"/g)].map(match => match[1]!));
+    type Sections = { id: string; rows: { id: string }[]; advanced?: { id: string }[] }[];
+    const sectionIds = (sections: Sections) => sections.flatMap(section => [section.id, ...section.rows.map(row => row.id), ...(section.advanced ?? []).map(row => row.id)]);
+    const core = (route: string) => sectionIds(generalSections(client, context, route));
+    const targets = (rows: { target: string }[]) => rows.map(row => row.target).filter(Boolean);
+    const sourceControl = sourceControlRows({}, '', 'Local', [], true);
+    // DiscoveryItem draws `source-control-host-<kind>` in the details of the hosts that have a settings form.
+    const hostKinds = [...appText('source-control-view.ts').match(/details: \[([^\]]*)\]\.includes/)![1]!.matchAll(/'(\w+)'/g)].map(match => match[1]!);
+    const keybindings = [{ command: 'sidebar.toggle', key: 'mod+b' }, { command: 'thread.stop', key: 'mod+.' }];
+    const anchors = buildRows(keybindings.map(({ command }) => ({ command, shortcut: { key: 'b', modKey: true } })), '').map(row => row.anchor).filter(Boolean);
+    const pages: Record<string, string[]> = {
+      general: core('general'), chat: core('chat'), diffs: core('diffs'), threads: core('threads'), labs: core('labs'),
+      about: [...core('about'), cliCommandRow({ supported: true, installedPath: null, onPath: false })!.id],
+      maintenance: [...core('maintenance'), ...ids('settings-storage.contract'), diagnosticsRow(false).id],
+      worktrees: [...core('worktrees'), ...ids('settings-storage.contract'), ...targets(branchNamingRows({}, '', 'Local', true))],
+      // Typography's separate font rows show with Separate fonts on, which a jump to one turns on first.
+      appearance: [...[false, true].flatMap(typographyAdvanced => sectionIds(appearanceSections(decodeClientPrefs({ typographyAdvanced }), true, []))), ...ids('settings-appearance.contract')],
+      'source-control': [...ids('settings-source-control.contract'), ...targets([...sourceControl.repositories, ...sourceControl.writing, ...sourceControl.writingAdvanced]),
+        ...hostKinds.map(kind => `source-control-host-${kind}`)],
+      browser: [...ids('settings-source-control.contract', 'browser-defaults.contract'), ...targets(integrationRows({}, '', 'Local', true).browser)],
+      devices: ids('settings-source-control.contract', 'settings-a-hosts.contract'),
+      providers: ids('providers.contract'), projects: ids('settings-projects.contract'), archived: ids('settings-archive.contract'),
+      keybindings: [...ids('settings-keybindings.contract'), ...anchors],
+      connections: ids('connections.contract'), 'snap-shot': ids('snapshot.contract'),
+      access: [], // the shell mounts the page with the sidebar's view split
     };
-    for (const route of ['general', 'chat', 'diffs', 'threads', 'worktrees', 'maintenance', 'about', 'labs']) add(generalSections(client, core, route));
-    // Typography's separate font rows show with Separate fonts on, which a jump to one turns on first.
-    for (const typographyAdvanced of [false, true]) add(appearanceSections(decodeClientPrefs({ typographyAdvanced }), true, []));
-    const contracts = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
-      .flatMap(entry => entry.isDirectory() ? contracts(join(dir, entry.name)) : entry.name.endsWith('.contract') ? [join(dir, entry.name)] : []);
-    for (const file of contracts(join(APP, 'src'))) for (const match of readFileSync(file, 'utf8').matchAll(/\b(?:id|sectionId|selectId|switchId)="([a-z0-9.-]+)"/g)) drawn.add(match[1]!);
-    // Drawn by their pages' owners: Environments and Sharing & access, SnapShots, Typography's Separate fonts row.
-    const elsewhere = new Set(['local-environment', 'remote-environments', 'pull-request-routing', 'wsl-backend', 'snap-shot-enabled', 'separate-fonts']);
-    const items = settingsCatalog({ ...context, keybindings: [], localBackend: true, localEnvironment: true });
-    // A host's settings (source-control-host-<kind>) are its row's details, drawn by kind.
-    expect(items.map(item => item.target).filter(target => !drawn.has(target) && !elsewhere.has(target) && !target.startsWith('source-control-host-'))).toEqual([]);
+    // Results whose element their page's owner has yet to draw (the shell, the sidebar).
+    const waiting: Record<string, string[]> = {
+      access: ['environment-icon', 'network-access', 'tailscale-https', 'connections-environment'],
+      connections: ['local-environment', 'remote-environments', 'pull-request-routing'],
+      'snap-shot': ['snap-shot-enabled', 'snap-shot-accessibility', 'snap-shot-shortcut', 'snap-shot-sound', 'snap-shot-flash', 'snap-shot-animations'],
+      appearance: ['separate-fonts'],
+    };
+    const items = settingsCatalog({ connected: true, autoSettle: true, scopeKind: 'all', keybindings, localBackend: true, localEnvironment: true });
+    expect(items.filter(item => item.route === 'keybindings').map(item => item.target)).toEqual(['keybindings', 'keybinding-sidebar.toggle', 'keybindings']);
+    const lands = (item: { route: string; target: string }) => (pages[item.route] ?? []).includes(item.target);
+    expect(items.filter(item => !lands(item) && !(waiting[item.route] ?? []).includes(item.id)).map(item => `${item.route}#${item.target}`)).toEqual([]);
+    // The waiting list holds only results that do not land yet, so it shrinks as their pages draw them.
+    expect(items.filter(item => (waiting[item.route] ?? []).includes(item.id) && lands(item)).map(item => item.id)).toEqual([]);
   });
 });
 

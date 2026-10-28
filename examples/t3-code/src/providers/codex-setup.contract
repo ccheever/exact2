@@ -206,14 +206,14 @@ component CodexSetupRow
           if setup.kind == "managed"
             row flex-shrink=0 min-width=0 gap="0.5rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
               if setup.control == "waiting"
-                button press=op("setup:codex-open", setup.target, setup.token, "", true) class=PvOutline disabled=setup.controlDisabled opacity=(setup.controlDisabled ? 0.64 : 1) testId=`codex-open-${setup.instanceId}` id=`codex-open-${setup.instanceId}` data-focus-stop=(setup.controlDisabled ? "" : "enabled")
+                button press=op("setup:codex-open", setup.target, setup.token, "", true) class=PvOutline disabled=setup.controlDisabled opacity=(setup.controlDisabled ? 0.64 : 1) testId=`codex-open-${setup.instanceId}` id=`codex-open-${setup.instanceId}` data-focus-stop=(setup.controlDisabled ? "" : "enabled page")
                   text setup.controlLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
                 if setup.showCancel
                   CodexGhost(label="Cancel", muted=false, small=false, disabled=setup.cancelDisabled, icon="", target="", testId=`codex-cancel-${setup.instanceId}`, press=cancel, first=false)
               if setup.control == "install"
                 CodexGhost(label="Cancel", muted=false, small=false, disabled=setup.cancelDisabled, icon="", target="", testId=`codex-install-cancel-${setup.instanceId}`, press=op("setup:codex-install-cancel", setup.target, setup.token, "", true), first=false)
               if setup.control == "authenticated"
-                button press=ui("codex-picker", setup.target) id=`codex-account-${setup.instanceId}` class=PvOutline disabled=(setup.accountDisabled or pending) opacity=(setup.accountDisabled or pending ? 0.64 : 1) testId=`codex-change-account-${setup.instanceId}` data-focus-stop=(setup.accountDisabled or pending ? "" : "enabled")
+                button press=ui("codex-picker", setup.target) id=`codex-account-${setup.instanceId}` class=PvOutline disabled=(setup.accountDisabled or pending) opacity=(setup.accountDisabled or pending ? 0.64 : 1) testId=`codex-change-account-${setup.instanceId}` data-focus-stop=(setup.accountDisabled or pending ? "" : "enabled page")
                   text "Change account" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
                 CodexGhost(label="Disconnect", muted=false, small=false, disabled=(setup.accountDisabled or pending), icon="", target="", testId=`codex-disconnect-${setup.instanceId}`, press=op("setup:codex-logout", setup.target, setup.token, "", true), first=false)
               if setup.control == "connect"
@@ -314,7 +314,7 @@ component CodexRuntimeSection
   view
     column width="100%" gap="0.625rem" testId=`codex-runtime-${runtime.key}`
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="flex-start" box-sizing="border-box" width="100%"
-        button press=toggle aria-expanded=open testId=`codex-runtime-toggle-${runtime.key}` cursor="pointer" min-height="1.75rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" role="heading" aria-level=2 id=`codex-runtime-toggle-${runtime.key}` data-focus-stop="enabled"
+        button press=toggle aria-expanded=open testId=`codex-runtime-toggle-${runtime.key}` cursor="pointer" min-height="1.75rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" role="heading" aria-level=2 id=`codex-runtime-toggle-${runtime.key}` data-focus-stop="enabled page"
           text "Runtime" font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)"
           box display="flex" rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)")
             PgIcon(name="chevron-right", size=16, color="light-dark(#18181bb3, #f5f5f5b3)")

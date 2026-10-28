@@ -99,15 +99,17 @@ members T3Code
   // A jump lands on the row or section its target names (SettingsRow's own id, settings-search.ts searchTarget). Under a
   // fold (an Advanced fold, a source control host's details), the fold's reveal stop takes the focus first, which opens
   // it (settings-advanced.contract); while the row is not drawn yet the jump lands on the stop. A fold not drawn here
-  // leaves the target as it is.
+  // leaves the target as it is. The scroll centres what scrollAndFocusSettingsTarget centres (settingsLayout.tsx): a
+  // section's header, its `<id>-scroll-target`, else the target itself.
   action focusSettingsTarget
     if settingsJumpReady
       let stop = settingsCore.jumpStop != "" and querySelectorAll("[data-focus-stop~=\"reveal\"]").includes(settingsCore.jumpStop) ? settingsCore.jumpStop : ""
       let target = stop != "" and frame(settingsFocusTarget).height == 0 ? stop : settingsFocusTarget
+      let anchor = frame(`${target}-scroll-target`).height > 0 ? `${target}-scroll-target` : target
       if stop != "" and target != stop
         focus(stop)
       settingsScrollPage = settingsPage
-      settingsScrollTop = max(0, frame(target).y - frame("settings-content-column").y + frame(target).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
+      settingsScrollTop = max(0, frame(anchor).y - frame("settings-content-column").y + frame(anchor).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
       focus(target)
       settingsFocusTarget = ""
   // As scrollToSettingsTarget runs once the hash target mounts: a native `after(1, …)` runs after the layout the

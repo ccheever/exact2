@@ -121,7 +121,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["review-guide-model", "Review guide model", "source-control", "review-guides", "pull request pr guided review guide brief maintainer", "project-defaults", "environment"],
   ["review-guide-instructions", "Review guide instructions", "source-control", "review-guides", "pull request pr guided review guide preferences taste prompt custom", "project-defaults", "environment"],
   ["project-actions", "Actions", "projects", "", "commands scripts setup run dev server checkout worktree t3.json import", "", ""],
-  ["environment-icon", "Environment icon", "access", "connections-environment", "machine glyph sidebar mac mini studio laptop desktop server cloud vm", "", "localBackend"],
+  ["environment-icon", "Environment icon", "access", "connections-environment", "machine glyph sidebar mac mini studio laptop desktop server cloud vm", "", ""],
   ["local-environment", "Local environment", "connections", "", "turn off on disable enable local server agents remote only restart", "", "desktop"],
   ["network-access", "Network access", "access", "connections-environment", "expose backend remote pairing local machine interfaces host restart", "", "localBackend"],
   ["tailscale-https", "Tailscale HTTPS", "access", "connections-environment", "serve magicdns endpoint remote secure network", "", "desktop,localBackend"],

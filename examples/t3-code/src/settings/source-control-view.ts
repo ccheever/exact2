@@ -56,7 +56,7 @@ const WRITING_MODES: Record<string, { label: string; description: string }> = {
 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 // The search results each scoped row answers to (settings-catalog.ts), by the row's key.
-export const SEARCH_TARGETS: Readonly<Record<string, string>> = { defaultAutoPull: 'automatic-pull', removeAgentCreditsOnMerge: 'remove-agent-credits-on-merge',
+const SEARCH_TARGETS: Readonly<Record<string, string>> = { defaultAutoPull: 'automatic-pull', removeAgentCreditsOnMerge: 'remove-agent-credits-on-merge',
   pullRequestMergeMethod: 'pull-request-merge-method', branchNamingMode: 'worktree-branch-naming', sourceControlWritingStyle: 'source-control-writing-style',
   'sourceControlWritingStyle.followChangeRequestTemplates': 'follow-change-request-templates', sourceControlWriterModelSelection: 'source-control-writer-model',
   reviewGuidesEnabled: 'review-guides', enableAgentBrowserAccess: 'agent-browser-access' };

@@ -176,8 +176,9 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     const selected = liveEnvironments(client, native).filter(environment => scope.selected.some(selected => selected.environmentId === environment.environmentId) && environment.connected);
     const supports = (key: string) => selected.length > 0 && selected.every(environment => obj(obj(environment.config.environment).capabilities)[key] === true);
     const directorySupported = !project && supports('worktreesDirectory');
-    const page = { ...empty, ...(await worktreeRows(client, native, scope, directorySupported)), diagnostics: diagnostics(scope.selected.length) };
     const configurable = supports('storageCleanup') && (!project || supports('projectWorktreeCleanup'));
+    // Start from remote is divided from Worktree location only where the page draws that row (settings-storage.contract).
+    const page = { ...empty, ...(await worktreeRows(client, native, scope, directorySupported && configurable)), diagnostics: diagnostics(scope.selected.length) };
     if (project && !configurable) return { ...page, project, notice: 'Update the selected environments to configure storage cleanup.' };
     const settings = representative.settings;
     const policy = (target: typeof representative) => obj(obj(obj(target.settings.projectSettingsOverrides)[target.projectId ?? '']).worktreeCleanup);

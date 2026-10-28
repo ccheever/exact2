@@ -129,6 +129,11 @@ describe('settings scope across environments', () => {
     // A machine without settled cleanup keeps only unchanged worktrees under Advanced.
     fleet.entries.set(key, { ...fleet.entries.get(key)!, config: { ...fleet.entries.get(key)!.config, environment: { environmentId: 'env-storage-groups', label: 'Server', capabilities: { ...capabilities, settledWorktreeCleanup: false } } } });
     expect((await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '')).worktreesAdvanced.map(rule => rule.key)).toEqual(['worktreeUnchanged']);
+    // Without storage cleanup the page draws no Worktree location row (settings-storage.contract), so Start from remote
+    // starts its card undivided.
+    fleet.entries.set(key, { ...fleet.entries.get(key)!, config: { ...fleet.entries.get(key)!.config, environment: { environmentId: 'env-storage-groups', label: 'Server', capabilities: { ...capabilities, storageCleanup: false } } } });
+    const older = await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '');
+    expect([older.available, older.directorySupported, older.creation.map(row => [row.id, row.divider])]).toEqual([false, true, [['start-from-origin', false]]]);
   });
   test('Storage keeps maintenance available on a supported machine while an older machine hides configuration', async () => {
     const client = focused();

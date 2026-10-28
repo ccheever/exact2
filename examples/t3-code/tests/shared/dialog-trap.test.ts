@@ -255,7 +255,7 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
     const id = /\bid=(`[^`]+`|[A-Za-z]+)/.exec(control)![1]!;
     for (const [env, eligible] of [[on, true], [off, false]] as const) {
       expect(value(id, env)).toBe(first);
-      const enabled = marker && value(marker, env) === 'enabled' ? [first, `${popup}-close`] : [`${popup}-close`];
+      const enabled = marker && String(value(marker, env)).split(' ').includes('enabled') ? [first, `${popup}-close`] : [`${popup}-close`]; // `~=`: one of its words
       const targets = contractComponent(frameFile, frameComponent).derives({}, { first, testId: popup, dialogId: popup }).dialogTargets;
       const focused: string[] = [];
       guard.call('enter', {}, { start: false, targets, popup, querySelectorAll: (q: string) => q.includes('dialog-focus') ? [popup] : enabled, stopPropagation() {}, focus: (id: string) => focused.push(id) }, []);

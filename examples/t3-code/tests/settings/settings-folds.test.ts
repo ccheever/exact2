@@ -122,11 +122,48 @@ describe('page contracts', () => {
     expect(kit).toContain('circle cx=7.5 cy=12 r=1 fill="currentColor" stroke="none"');
   });
 
-  test("page controls carry the focus-stop word the Settings guard reads", () => {
-    for (const [file, marker] of [['settings-kit.contract', 'id=switchId testId=switchId'], ['settings-scoped-switch.contract', 'role="switch"'], ['settings-advanced.contract', 'press=toggle']]) {
-      const line = appText(file).split('\n').find(text => text.includes(marker))!;
-      expect([file, line.includes('data-focus-stop=')]).toEqual([file, true]);
+  test("Shift+Tab from the first stop wraps to the page's last control, not Close (RouteFocusGuard)", () => {
+    const guard = contractComponent('dialog-trap.contract', 'RouteFocusGuard');
+    const focused: string[] = [];
+    // The modal's own stops (search, Close) are `enabled`; the page's are `enabled page`, in tree order.
+    const page = ['setting-rich-text', 'send-shortcut-select', 'settings-advanced-composer'];
+    const scope = (marks: string[]) => ({ guardId: 'route-modal-guard-start', targets: ['settings-search', 'settings-close'], popup: 'settings-modal',
+      preventDefault() {}, stopPropagation() {}, focus: (id: string) => focused.push(id),
+      querySelectorAll: (selector: string) => selector.includes('"page"') ? marks : selector.includes('"open"') ? ['settings-modal'] : ['settings-search', 'settings-close', ...marks] });
+    const shiftTab = { shiftKey: true, metaKey: false, ctrlKey: false, altKey: false };
+    guard.call('hold', {}, scope(page), ['Tab', shiftTab]);
+    guard.call('enter', {}, scope(page), []);
+    // A page with no controls leaves Close last.
+    guard.call('hold', {}, scope([]), ['Tab', shiftTab]);
+    expect(focused).toEqual(['settings-advanced-composer', 'settings-advanced-composer', 'settings-close']);
+  });
+
+  test("every Settings page stop carries `page`, and the switches and selects behind the modal do not", () => {
+    // The page components of this lane's files (dialogs, menus and popovers stay `enabled`: the guard wraps the page).
+    const pages: Record<string, string[] | 'all'> = {
+      'providers.contract': 'all', 'settings-projects.contract': 'all', 'settings-source-control.contract': 'all', 'settings-storage.contract': 'all',
+      'source-control-credentials.contract': 'all', 'settings-rows.contract': ['ScopeSentence', 'CoreSections', 'CoreRowView', 'CoreSelect', 'CoreField', 'CoreSlider', 'PanelPreview'],
+      'settings-keybindings.contract': ['KeybindingsPanel', 'KeybindingRow', 'WhenButton'], 'settings-scheduled.contract': ['ScheduledPanel', 'TaskCard', 'TaskRow'],
+      'settings-advanced.contract': ['AdvancedFold'], 'settings-archive.contract': ['ArchivedRow'], 'settings-a-telemetry.contract': ['DxRefresh', 'DxSignals', 'DxName', 'DxTableView', 'TelemetrySections'],
+      'settings-b-kit.contract': ['CnFolded', 'CnSelect'], 'settings-inheritance.contract': ['InheritanceGroupView'], 'settings-scoped-switch.contract': ['ScopedSwitch'],
+      'providers-setup.contract': ['ProviderAccountRow'],
+      'providers-upkeep.contract': ['UpkeepButton', 'UpkeepSelect', 'ProviderVersionAdvisory', 'ProviderUpdatesAllButton', 'CustomModelEditor'],
+    };
+    for (const [file, components] of Object.entries(pages)) {
+      let component = '';
+      for (const line of appText(file).split('\n')) {
+        component = line.match(/^component (\w+)/)?.[1] ?? component;
+        if (components !== 'all' && !components.includes(component)) continue;
+        const marks = [...line.matchAll(/data-focus-stop=("[^"]*"|\((?:[^()]|\([^()]*\))*\))/g)].map(match => match[1]!).filter(mark => mark.includes('enabled'));
+        expect([file, component, marks.length <= 1 || line.match(/data-focus-stop=/g)!.length <= 1]).toEqual([file, component, true]);
+        for (const mark of marks) expect([file, component, mark.includes('enabled page')]).toEqual([file, component, true]);
+        expect([file, component, /(?<![A-Za-z])Settings(Switch|Select)\(/.test(line)]).toEqual([file, component, false]);
+      }
     }
+    const kit = appText('settings-kit.contract');
+    expect(kit).toContain('SwitchControl(checked=checked, label=label, disabled=disabled, switchId=switchId, stop="enabled", toggle=toggle)');
+    expect(kit).toContain('SwitchControl(checked=checked, label=label, disabled=disabled, switchId=switchId, stop="enabled page", toggle=toggle)');
+    expect(kit.match(/data-focus-stop=\(disabled \? "" : stop\)/g)).toHaveLength(2);
   });
 });
 

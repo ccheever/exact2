@@ -105,6 +105,55 @@ describe('a Settings page owns its scroller', () => {
     expect(focused).toEqual(['skills-in-slash-menu']);
   });
 
+  test("a section's result centres the section's header, as scrollAndFocusSettingsTarget does; a row's centres the row", () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const text = appText('app.contract');
+    const derive = (name: string) => text.match(new RegExp(`^  derive ${name} = (.+)$`, 'm'))![1]!;
+    const focused: string[] = [];
+    const box = (y: number, height: number) => ({ x: 0, y, width: 600, height });
+    const frames: Record<string, { x: number; y: number; width: number; height: number }> = {
+      'settings-content-column': box(100, 4000), 'settings-content-scroll': { x: 0, y: 60, width: 600, height: 600 },
+      // Keybindings' and Providers' first sections top their pages, so their results leave the scroller at its top.
+      keybindings: box(100, 120), 'keybindings-scroll-target': box(100, 28), providers: box(100, 900), 'providers-scroll-target': box(100, 28),
+      // Browsing sits lower on its page: its header, not its middle, comes to the scroller's centre.
+      browser: box(900, 700), 'browser-scroll-target': box(900, 28),
+      'send-shortcut': box(900, 60),
+    };
+    const state: Env = { settingsOpen: true, settingsRoute: 'general', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
+      settingsFocusTarget: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '', keybindingQuery: '' };
+    const available = { available: true };
+    let core = { ready: true, route: 'general', sections: [{}], jumpTarget: '', jumpStop: '', notice: '' };
+    const scope = (): Env => {
+      const env: Env = { ...state, settingsCore: core, storageSettings: available, archives: available, diagnostics: available, bindings: available, scheduled: available,
+        sourceControl: available, integrations: available, providerPage: available, projectsSettings: { ready: true }, max: Math.max, floor: Math.floor,
+        frame: (id: string) => frames[id] ?? box(0, 0), focus: (id: string) => focused.push(id), querySelectorAll: () => [] };
+      for (const name of ['settingsPage', 'settingsPageScrollTop', 'settingsJumpReady']) env[name] = value(derive(name), env);
+      return env;
+    };
+    const jump = (route: string, target: string) => {
+      root.call('corePick', state, scope(), [route, target, '', '']);
+      core = { ...core, route, jumpTarget: target };
+      root.call('focusSettingsTarget', state, scope(), []);
+      return [Math.floor(state.settingsScrollTop as number), focused.at(-1)];
+    };
+    expect(jump('keybindings', 'keybindings')).toEqual([0, 'keybindings']); // the filter stays in view
+    expect(jump('providers', 'providers')).toEqual([0, 'providers']); // the top of the list stays in view
+    expect(jump('browser', 'browser')).toEqual([900 - 100 + 28 / 2 - 300, 'browser']);
+    expect(jump('chat', 'send-shortcut')).toEqual([900 - 100 + 60 / 2 - 300, 'send-shortcut']);
+  });
+
+  test("Keybindings' and Providers' results name their first section, and every section's header is its scroll target", () => {
+    const keys = appText('settings-keybindings.contract'), providers = appText('providers.contract');
+    // KeybindingsSettings.tsx and ProviderSettingsPanel.tsx spread searchableSetting(…) on the first SettingsSection.
+    expect(keys).toContain('column width="100%" gap="2rem" testId="keybindings-settings"\n');
+    expect(keys).toMatch(/column width="100%" gap="0\.625rem" id="keybindings" tabindex=-1\n\s+row [^\n]* id="keybindings-scroll-target"\n\s+text "Keybindings"/);
+    expect(providers).toContain('column width="100%" gap="2rem" testId="providers-settings"\n');
+    expect(providers).toMatch(/column width="100%" gap="0\.625rem" id="providers" tabindex=-1\n(\s+\/\/[^\n]*\n)+\s+row [^\n]* id="providers-scroll-target"\n/);
+    expect(appText('settings-kit.contract')).toMatch(/id=sectionId tabindex=-1 testId=sectionId\n\s+row [^\n]* id=`\$\{sectionId\}-scroll-target`\n/);
+    expect(appText('settings-rows.contract').match(/id=`\$\{section\.id\}-scroll-target`/g)).toHaveLength(1); // no result names Legacy features itself
+    expect(appText('settings-members.contract')).toContain('let anchor = frame(`${target}-scroll-target`).height > 0 ? `${target}-scroll-target` : target');
+  });
+
   test('a jump to a legacy row opens Legacy features first, by Return as by a press on the result', () => {
     const window = contractComponent('app-settings.contract', 'SettingsWindow');
     const results = (query: string) => settingsNavigation(query, { connected: true, autoSettle: true, scopeKind: 'environment' });

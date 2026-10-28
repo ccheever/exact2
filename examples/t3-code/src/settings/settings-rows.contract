@@ -75,7 +75,7 @@ component ScopeSentence
       row align-items="center" gap="0.375rem" min-width=0
         text "Applying settings for" font-size="0.875rem" line-height="1.25rem" color=pal.muted flex-shrink=0 id="paint-ScopeSentence-1" data-paint="mutedForeground" data-pick="mutedForeground"
         box position="relative"
-          button id="settings-scope-project" popovertarget="settings-scope-project-menu" key=projectKey class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" aria-label=`Project scope: ${projectLabel}` testId="settings-scope-project" title="" data-focus-stop="enabled"
+          button id="settings-scope-project" popovertarget="settings-scope-project-menu" key=projectKey class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" aria-label=`Project scope: ${projectLabel}` testId="settings-scope-project" title="" data-focus-stop="enabled page"
             if projectMark != ""
               CoreMark(label=projectMark, ink=projectInk, surface=projectSurface)
             // Keyed by its label: a reused one-line text kept drawing the old string clipped to the new width.
@@ -91,7 +91,7 @@ component ScopeSentence
       row align-items="center" gap="0.375rem" min-width=0
         text connective font-size="0.875rem" line-height="1.25rem" color=pal.muted flex-shrink=0 id="paint-ScopeSentence-3" data-paint="mutedForeground" data-pick="mutedForeground"
         box position="relative"
-          button id="settings-scope-environment" popovertarget="settings-scope-environment-menu" key=environmentKey class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" aria-label=`Environment scope: ${environmentLabel}` testId="settings-scope-environment" title="" data-focus-stop="enabled"
+          button id="settings-scope-environment" popovertarget="settings-scope-environment-menu" key=environmentKey class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" aria-label=`Environment scope: ${environmentLabel}` testId="settings-scope-environment" title="" data-focus-stop="enabled page"
             if environmentIcon != ""
               CnMachineIcon(kind=environmentIcon, size=14, color=pal.text)
             for keyed in environmentKeyed key=keyed.id
@@ -265,18 +265,18 @@ component CoreSections
           if section.collapsible
             // LegacyFeaturesSection's trigger (CollapsibleTrigger, a button) holds `<h2>Legacy features</h2>` and the
             // chevron: button › heading [level=2] (main #451).
-            button press=toggleLegacy class=SettingsGhost justify-content="flex-start" gap="0.5rem" min-height="2rem" padding-left="1rem" padding-right="1rem" width="100%" aria-expanded=legacyOpen testId=`settings-section-toggle-${section.id}` id=`settings-section-toggle-${section.id}` data-focus-stop="enabled"
+            button press=toggleLegacy class=SettingsGhost justify-content="flex-start" gap="0.5rem" min-height="2rem" padding-left="1rem" padding-right="1rem" width="100%" aria-expanded=legacyOpen testId=`settings-section-toggle-${section.id}` id=`settings-section-toggle-${section.id}` data-focus-stop="enabled page"
               text section.title font-size="1rem" font-weight=600 line-height="1.5rem" color=pal.text role="heading" aria-level=2 id=`paint-CoreSections-1-${section.id}` data-paint="text" data-pick="text"
               box rotate=(legacyOpen ? "90deg" : "0deg")
                 CorePaintIcon(ownId=`paint-icon-CoreSections-1-${section.id}`, paint="mutedForeground", name="chevron-right", size=16, color=pal.muted)
           else
-            row min-height="1.75rem" align-items="center" justify-content="space-between" padding-left="1rem" padding-right="1rem"
+            row min-height="1.75rem" align-items="center" justify-content="space-between" padding-left="1rem" padding-right="1rem" id=`${section.id}-scroll-target`
               // SettingsSection's title is an `<h2>`, SettingsRow's an `<h3>` (settingsLayout.tsx).
               text section.title font-size="1rem" font-weight=600 line-height="1.5rem" color=pal.text role="heading" aria-level=2 id=`paint-CoreSections-2-${section.id}` data-paint="text" data-pick="text"
               if section.id == "typography"
                 row gap="0.5rem" align-items="center"
                   text "Advanced" font-size="0.875rem" line-height="1.25rem" color=pal.muted id=`paint-CoreSections-3-${section.id}` data-paint="mutedForeground" data-pick="mutedForeground"
-                  button press=change("typography-advanced", "typographyAdvanced", section.toggle ? "false" : "true") role="switch" aria-checked=section.toggle aria-label="Advanced Show advanced typography settings" disabled=busy class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(section.toggle ? pal.accent : pal.switchOff) testId="setting-typography-advanced" title="" id="setting-typography-advanced" data-paint=`${(section.toggle ? "accent" : "input")}` data-pick=((section.toggle ? "accent" : "input") != "" ? (section.toggle ? "accent" : "input") : "") data-focus-stop=(busy ? "" : "enabled")
+                  button press=change("typography-advanced", "typographyAdvanced", section.toggle ? "false" : "true") role="switch" aria-checked=section.toggle aria-label="Advanced Show advanced typography settings" disabled=busy class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(section.toggle ? pal.accent : pal.switchOff) testId="setting-typography-advanced" title="" id="setting-typography-advanced" data-paint=`${(section.toggle ? "accent" : "input")}` data-pick=((section.toggle ? "accent" : "input") != "" ? (section.toggle ? "accent" : "input") : "") data-focus-stop=(busy ? "" : "enabled page")
                     box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=(section.toggle ? pal.thumb : pal.thumbOff) margin-left=(section.toggle ? "0.75rem" : "0px") box-shadow="0 1px 3px #0000000d" id=`paint-CoreSections-5-${section.id}` data-paint="canvas" data-pick="canvas"
           if not section.collapsible or legacyOpen
             column width="100%" border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box" id=`paint-CoreSections-6-${section.id}` data-paint="border surface" data-pick="surface"
@@ -339,7 +339,7 @@ component CoreRowView
                 CorePaintIcon(ownId=`paint-icon-CoreRowView-1-${row.id}`, paint="mutedForeground", name="info", size=14, color=pal.muted)
             if row.inheritance != ""
               box position="relative" opacity=(quietMarker and not rowHovered and not markerFocused and not markerOpen ? 0 : 1)
-                button popovertarget=`inherit-${section}-${row.id}` focus=markerFocus(true) blur=markerFocus(false) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}` title="" id=`setting-inheritance-${row.id}` data-focus-stop="enabled"
+                button popovertarget=`inherit-${section}-${row.id}` focus=markerFocus(true) blur=markerFocus(false) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}` title="" id=`setting-inheritance-${row.id}` data-focus-stop="enabled page"
                   // SettingInheritance: LayersIcon size-3, text-primary only when overridden, text-warning when mixed.
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-2-${row.id}`, paint=(row.inheritance == "overridden" ? "accent" : (row.inheritance == "mixed" ? "" : "mutedForeground")), name="layers", size=12, color=(row.inheritance == "overridden" ? pal.accent : (row.inheritance == "mixed" ? "#fe9a00" : pal.muted)))
                 column id=`inherit-${section}-${row.id}` toggle=markerToggled popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="19.375rem"
@@ -350,7 +350,7 @@ component CoreRowView
                     else
                       InheritanceGroupView(group=InheritanceGroup(id=row.id, title=row.layerTitle, winner="", value="", labels=[], folded=false, sameEverywhere=false, layers=row.layers, overrides=[], overrideTargets="[]"), textColor=pal.text, muted=pal.muted, highlight=pal.highlight, accent=pal.accent, rowId=row.id, clear=change(row.id, "clear-overrides", "[]"))
             if row.resettable
-              button press=change(row.id, "reset", row.target) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" disabled=busy aria-label=`Reset ${row.resetLabel} to default` testId=`setting-reset-${row.id}` title="" id=`setting-reset-${row.id}` data-focus-stop=(busy ? "" : "enabled")
+              button press=change(row.id, "reset", row.target) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" disabled=busy aria-label=`Reset ${row.resetLabel} to default` testId=`setting-reset-${row.id}` title="" id=`setting-reset-${row.id}` data-focus-stop=(busy ? "" : "enabled page")
                 CorePaintIcon(ownId=`paint-icon-CoreRowView-5-${row.id}`, paint="mutedForeground", name="undo-2", size=12, color=pal.muted)
           if row.description != ""
             text row.description font-size="0.75rem" line-height="1.125rem" color=pal.muted max-width="42rem" text-wrap="balance" testId=`setting-description-${row.id}` id=`setting-description-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
@@ -367,13 +367,13 @@ component CoreRowView
             if row.kind == "select"
               CoreSelect(rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
               if row.value2 == "configure"
-                button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled")
+                button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-6-${row.id}`, paint="text", name="settings", size=16, color=pal.text)
             if row.kind == "model"
               // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger;
               // a Mixed value shows its neutral label without a provider mark.
               box position="relative"
-                button press=change(row.id, "picker", "") class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=row.label aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled")
+                button press=change(row.id, "picker", "") class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=row.label aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
                   if not row.mixed
                     ComposerInstanceMark(driver=row.driver, icon=row.markIcon, size=16, color=pal.muted, badge=row.badge, accent=row.badgeColor)
                   text row.label font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 id=`paint-CoreRowView-13-${row.id}` data-paint="text" data-pick="text"
@@ -381,7 +381,7 @@ component CoreRowView
                     CorePaintIcon(ownId=`paint-icon-CoreRowView-7-${row.id}`, paint="text", name="chevron-down", size=14, color=pal.text)
               if row.label2 != ""
                 box position="relative"
-                  button id=`setting-${section}-${row.id}-effort` popovertarget=`effort-${section}-${row.id}` key=traitsKey class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled")
+                  button id=`setting-${section}-${row.id}-effort` popovertarget=`effort-${section}-${row.id}` key=traitsKey class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
                     // TraitsPicker's trigger: the brain glyph before the label.
                     CcIcon(name="brain", size=16, color=pal.muted, weight=1.75)
                     text row.label2 font-size="0.875rem" line-height="1.25rem" color=pal.text id=`paint-CoreRowView-14-${row.id}` data-paint="text" data-pick="text"
@@ -395,10 +395,10 @@ component CoreRowView
             if row.kind == "number" or row.kind == "text"
               CoreField(value=row.value, rowId=row.id, width=row.width, placeholder=row.placeholder, numeric=(row.kind == "number"), label=row.title, pal=pal, disabled=(busy or row.inert), commit=change(row.id, row.target))
             if row.kind == "action"
-              button press=change(row.id, "", row.value) disabled=(busy or row.inert or row.disabled) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}` data-focus-stop=(busy or row.inert or row.disabled ? "" : "enabled")
+              button press=change(row.id, "", row.value) disabled=(busy or row.inert or row.disabled) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}` data-focus-stop=(busy or row.inert or row.disabled ? "" : "enabled page")
                 text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
             if row.kind == "link"
-              button press=navigate(row.target) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}-link` data-paint="input canvas" data-pick="canvas" data-focus-stop="enabled"
+              button press=navigate(row.target) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}-link` data-paint="input canvas" data-pick="canvas" data-focus-stop="enabled page"
                 text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text id=`paint-CoreRowView-17-${row.id}` data-paint="text" data-pick="text"
             if row.kind == "slider"
               if row.info == "preview"
@@ -444,7 +444,7 @@ component CoreSelect
           focus(target)
   view
     box position="relative" flex-shrink=0
-      button popovertarget=`select-${section}-${rowId}` key=triggerKey disabled=disabled role="combobox" aria-label=value id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000" data-focus-stop=(disabled ? "" : "enabled")
+      button popovertarget=`select-${section}-${rowId}` key=triggerKey disabled=disabled role="combobox" aria-label=value id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000" data-focus-stop=(disabled ? "" : "enabled page")
         SelectFace(rowId=rowId, value=value, icon=icon, width=width, pal=pal, dim=dim)
       CoreMenu(options=options, pal=pal, width=(menuWidth > 0 ? menuWidth : width), checks=(icon == "checks"), menuId=`select-${section}-${rowId}`, items=keyItems, keyed=0, choose=choose, testId=`setting-${rowId}-menu`)
 
@@ -526,7 +526,7 @@ component CoreField
   action edit(next: string)
     draft = next
   view
-    input value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=`${width / 16}rem` height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}` autocorrect="off" data-paint="input canvas text" data-pick="canvas" data-editable="yes" data-focus-stop=(disabled ? "" : "enabled")
+    input value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=`${width / 16}rem` height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}` autocorrect="off" data-paint="input canvas text" data-pick="canvas" data-editable="yes" data-focus-stop=(disabled ? "" : "enabled page")
       ::placeholder
         color=pal.muted
 
@@ -571,7 +571,7 @@ component CoreSlider
         box position="absolute" left=0 top="0.5625rem" width=(ratio * (trackWidth - rem) + 0.5 * rem) height="0.375rem" border-radius="0.1875rem" background-color=pal.accent testId=`setting-${row.id}-fill` id=`setting-${row.id}-fill` data-paint="accent" data-pick="accent"
         box position="absolute" left=0 top="0.5625rem" width=trackWidth height="0.375rem" border-radius="0.1875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff0d)" box-sizing="border-box"
         box position="absolute" left=(ratio * (trackWidth - rem)) top="0.25rem" width="1rem" height="1rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f" id=`paint-CoreSlider-3-${row.id}` data-paint="accent canvas" data-pick="canvas"
-        input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height="1.5rem" margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}` data-focus-stop=(disabled ? "" : "enabled")
+        input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height="1.5rem" margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}` data-focus-stop=(disabled ? "" : "enabled page")
 
 // TerminalFontPreview: the dev-server transcript, kept to its last lines as the terminal is.
 component FontTerminalPreview
@@ -656,7 +656,7 @@ component PanelPreview
   action replay
     open = not open
   view
-    button press=replay aria-label="Replay panel animation preview" class=SettingsGhost justify-content="flex-start" align-items="stretch" width="7rem" height="2.5rem" padding="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas overflow="hidden" box-shadow="0 1px 2px #0000000d" testId="panel-animation-preview" title="" id="panel-animation-preview" data-paint="border canvas" data-pick="canvas" data-focus-stop="enabled"
+    button press=replay aria-label="Replay panel animation preview" class=SettingsGhost justify-content="flex-start" align-items="stretch" width="7rem" height="2.5rem" padding="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas overflow="hidden" box-shadow="0 1px 2px #0000000d" testId="panel-animation-preview" title="" id="panel-animation-preview" data-paint="border canvas" data-pick="canvas" data-focus-stop="enabled page"
       box height="100%" width=(open ? "1rem" : "0px") border-radius="0.375rem" background-color=pal.sidebar flex-shrink=0 transition=`width ${duration}ms ease-out` id="paint-PanelPreview-2" data-paint="sidebar" data-pick="sidebar"
       column flex=1 min-width=0 padding-left="0.25rem" padding-right="0.25rem"
         column flex=1 gap="0.25rem" padding-top="0.25rem"
