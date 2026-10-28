@@ -117,9 +117,9 @@ struct SafeReach {
             v.reachBehavior = sv.contentInsetAdjustmentBehavior
         }
         v.fitScroll()
-        // A carousel inside a vertical list bounces along its main axis, from style alone, so that UIKit counts it
-        // scrollable while short; `fitScroll` owns vertical bounce.
-        let bounce = nested && Self.mainAxis(v) == .x && Self.outerMainAxis(v) == .y
+        // A scroller whose main axis is horizontal bounces along it, from style alone (a carousel in a vertical list,
+        // a top-level pager), so that UIKit counts it scrollable while short; `fitScroll` owns vertical bounce.
+        let bounce = Self.mainAxis(v) == .x && (!nested || Self.outerMainAxis(v) == .y)
         if bounce != v.reachBounce || (bounce && !sv.alwaysBounceHorizontal) {
             if bounce { sv.alwaysBounceHorizontal = true } else if v.reachBounce { sv.alwaysBounceHorizontal = false }
             v.reachBounce = bounce
@@ -183,14 +183,15 @@ struct SafeReach {
         return .y
     }
 
-    /// The axes a scroller scrolls, as UIKit counts them under this configuration: its main axis (it bounces or
-    /// UIKit always adjusts it), an axis whose overflow is `scroll`, and an `auto` axis whose content overflows its
-    /// port, which UIKit then adjusts (consuming that band, so nothing inside reaches along it).
+    /// The axes a scroller scrolls, as UIKit counts them under this configuration: its main axis (it bounces, or
+    /// UIKit always adjusts the page's), and an axis UIKit finds scrollable by its own test (`UIScrollView.h`:
+    /// `contentSize` past the scroll view's frame, or bounce), which UIKit then adjusts, consuming that band, so
+    /// nothing inside reaches along it.
     static func axes(_ v: NodeView) -> (x: Bool, y: Bool) {
         guard let sv = v.scroll else { return (false, false) }
-        let main = mainAxis(v), box = v.boxBounds
-        let x = sv.scrollsX && (main == .x || v.style["overflow_x"]?.string == "scroll" || v.content.width > box.width + 0.5)
-        let y = sv.scrollsY && (main == .y || v.style["overflow_y"]?.string == "scroll" || v.content.height > box.height + 0.5)
+        let main = mainAxis(v)
+        let x = sv.scrollsX && (main == .x || sv.alwaysBounceHorizontal || sv.contentSize.width > sv.frame.width + 0.5)
+        let y = sv.scrollsY && (main == .y || sv.alwaysBounceVertical || sv.contentSize.height > sv.frame.height + 0.5)
         return (x, y)
     }
     /// Outsets a leaf that takes its edges, its bounds origin kept.
