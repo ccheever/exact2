@@ -10,7 +10,7 @@ import { isWindowsAbsolutePath } from '../media/media-reference';
 import { inlineCodeFilePathCandidate } from './inline-code-files';
 import { workspaceLookupPath } from './workspace-file-lookup';
 import { chatFileLink } from './markdown-file-links';
-import { isSentAudio } from './timeline-attachments';
+import { isSentAudio, isSvgAttachment } from './timeline-attachments';
 import { workspaceValues } from '../composer/composer-workspace-snapshots';
 import { selectedProvider, workspaceCwd } from '../composer/composer-editor';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -247,8 +247,13 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       if (kind === 'image') return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `Image attachment, ${name}, ${size}`, target: str(attachment.id) };
       // A sent sound plays in its audio chip above the text, so its reference draws nothing here.
       if (isSentAudio(attachment)) return { ...base, kind: 'audio', label: middleTruncate(name), target: str(attachment.id) };
+      // FileChip's `disabled`: a file the server does not hand out is no button (no `target`).
+      const target = attachment.downloadable === false ? '' : str(attachment.id);
+      // SvgFileChip: an SVG draws as an image chip with the picture as its thumbnail, named and tipped as the file it
+      // opens as (`detail` is its tooltip); `icon` is the file's glyph for when the picture does not load.
+      if (isSvgAttachment(attachment)) return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `File attachment, ${name}, ${size}`, detail: `${name}\n${size}`, icon: fileIconToken(name), target };
       const video = isVideo(attachment);
-      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target: str(attachment.id) };
+      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target };
     }
     case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label), size: num(record.lineStart) === num(record.lineEnd) ? `Line ${num(record.lineStart)}` : `Lines ${num(record.lineStart)}–${num(record.lineEnd)}`,
       tip: str(record.terminalLabel), detail: str(record.text) };
@@ -274,9 +279,15 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
 }
 const num = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
-/** Attachment ids a chip in the prose already shows: their standalone file rows are left out. */
-export function chippedAttachmentIds(chips: ChipView[]): Set<string> {
-  return new Set(chips.filter(chip => chip.kind === 'file' || chip.kind === 'video').map(chip => chip.target));
+/** Attachment ids a chip in the prose already shows, a disabled one's too: their standalone file rows are left out. */
+export function chippedAttachmentIds(chips: ChipView[], item: Obj = {}): Set<string> {
+  const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), str(record.attachmentId)]));
+  return new Set(chips.filter(chip => chip.kind === 'file' || chip.kind === 'video' || chip.kind === 'image')
+    .map(chip => chip.target || records.get(chip.href.split('/').pop() ?? '') || '').filter(Boolean));
+}
+/** SvgFileChip's fallback: an SVG whose picture did not load is the plain file chip, as FileChip draws it. */
+export function asFileChip(chip: ChipView): ChipView {
+  return { ...chip, kind: 'file', tip: chip.detail, detail: '' };
 }
 
 /** appearanceFonts.ts: the code family and clamped size (10–18, default 13) and the word-wrap default chat Markdown reads. */

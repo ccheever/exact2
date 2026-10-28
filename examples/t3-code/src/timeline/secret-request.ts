@@ -1,10 +1,17 @@
-// T3 Code 9c161462c9 packages/client-runtime/src/secretRequest.ts (MIT, LICENSE-T3).
+// T3 Code 9c161462c9 packages/client-runtime/src/secretRequest.ts (MIT, LICENSE-T3; the privacy note at 7c3b3b3605ef).
 export type SecretRequestItem = { id: string; threadId: string; type: 'secret_request'; label: string; reason: string;
-  placeholder?: string; secretStatus: 'pending' | 'saved' | 'declined' | 'cancelled' };
+  placeholder?: string;
+  /** `file`: the value goes to an owner-only file the agent's shell commands can read. */
+  delivery?: 'file';
+  secretStatus: 'pending' | 'saved' | 'declined' | 'cancelled' };
 export type SecretRequestAnswerInput = { threadId: string; turnItemId: string;
   answer: { type: 'save'; secret: string } | { type: 'decline' } };
 
-export const SECRET_REQUEST_PRIVACY_NOTE = "Stored securely, never shown to the agent";
+/** A `file` request lets the agent's commands read the value, so its card must not promise more. */
+export const secretRequestPrivacyNote = (item: Pick<SecretRequestItem, "delivery">) =>
+  item.delivery === "file"
+    ? "Kept out of chat, in a private file this agent's commands can read for 24 hours"
+    : "Stored securely, never shown to the agent";
 export const SECRET_REQUEST_DEFAULT_PLACEHOLDER = "Paste the secret";
 
 export type SecretRequestDisplay =

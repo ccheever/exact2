@@ -1,7 +1,7 @@
 // T3's own MCP tools in the work log, adapted from T3 Code (MIT, see LICENSE-T3):
-// Sources at 74541bab17: packages/shared/src/t3McpToolPresentation.ts (the inventory and name
-// resolution), packages/client-runtime/src/work-log/presentation.ts
-// (resolveT3McpToolPresentation: tense, failure and the PR target, in the host's term at 7c3b3b3605ef) and
+// Sources at 7c3b3b3605ef: packages/shared/src/t3McpToolPresentation.ts (the inventory, name resolution and
+// action tools), packages/client-runtime/src/work-log/presentation.ts
+// (resolveT3McpToolPresentation: tense, failure and the PR target, in the host's term) and
 // packages/client-runtime/src/t3ToolSummary.ts (group summaries).
 
 /**
@@ -25,7 +25,7 @@ function changeRequestTarget(target: string): { number: number; term: string } |
 
 export type T3SummaryAction = 'capabilities' | 'delegate' | 'task-status' | 'task-cancel' | 'schedule-run' | 'schedule-create'
   | 'schedule-list' | 'schedule-update' | 'schedule-delete' | 'thread-create' | 'thread-list' | 'thread-read' | 'thread-send'
-  | 'workflow-stop' | 'thread-wait' | 'thread-interrupt' | 'thread-configuration' | 'thread-configure' | 'thread-fork' | 'thread-merge'
+  | 'workflow-stop' | 'background-wait' | 'thread-wait' | 'thread-interrupt' | 'thread-configuration' | 'thread-configure' | 'thread-fork' | 'thread-merge'
   | 'thread-search' | 'thread-transfers' | 'thread-organize' | 'thread-update' | 'queue-list' | 'queue-read' | 'queue-edit'
   | 'queue-cancel' | 'queue-reorder' | 'queue-steer' | 'question-list' | 'question-read' | 'question-respond' | 'secret-request'
   | 'worktree-handoff' | 'worktree-list' | 'worktree-status' | 'project-list' | 'project-read' | 'project-create'
@@ -66,6 +66,7 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   t3_thread_send: tool(['Send', 'Sending', 'Sent', 'to a T3 thread'], 'thread-send'),
   t3_thread_wait: tool(['Wait', 'Waiting', 'Waited', 'for a T3 thread'], 'thread-wait'),
   t3_workflow_stop: tool(['Stop', 'Stopping', 'Requested a stop for', 'a workflow'], 'workflow-stop'),
+  t3_background_wait: tool(['Update', 'Updating', 'Updated', 'background waits'], 'background-wait'),
   t3_thread_interrupt: tool(['Interrupt', 'Interrupting', 'Requested an interrupt of', 'a T3 thread'], 'thread-interrupt'),
   t3_worktree_handoff: tool(['Hand off', 'Handing off', 'Handed off', 'thread to a git worktree'], 'worktree-handoff'),
   t3_worktree_status: tool(['Get', 'Getting', 'Got', 'thread worktree status'], 'worktree-status'),
@@ -73,9 +74,15 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   preview_open: browser(['Open', 'Opening', 'Opened', 'a page in the preview browser']),
   preview_navigate: browser(['Navigate', 'Navigating', 'Navigated', 'the preview browser']),
   preview_snapshot: browser(['Take a snapshot of', 'Taking a snapshot of', 'Took a snapshot of', 'the preview page'], 'Snapshot the preview page'),
+  preview_dialog: browser(['Respond', 'Responding', 'Responded', 'to a preview browser dialog']),
+  preview_act: browser(['Use', 'Using', 'Used', 'the preview browser']),
   preview_click: browser(['Click', 'Clicking', 'Clicked', 'in the preview browser']),
   preview_press: browser(['Press', 'Pressing', 'Pressed', 'a key in the preview browser']),
   preview_type: browser(['Type', 'Typing', 'Typed', 'in the preview browser']),
+  preview_hover: browser(['Hover', 'Hovering', 'Hovered', 'in the preview browser']),
+  preview_select: browser(['Choose', 'Choosing', 'Chose', 'an option in the preview browser']),
+  preview_drag: browser(['Drag', 'Dragging', 'Dragged', 'in the preview browser']),
+  preview_upload: browser(['Upload', 'Uploading', 'Uploaded', 'files to the preview browser']),
   preview_scroll: browser(['Scroll', 'Scrolling', 'Scrolled', 'the preview browser']),
   preview_resize: browser(['Resize', 'Resizing', 'Resized', 'the preview browser']),
   preview_evaluate: browser(['Evaluate', 'Evaluating', 'Evaluated', 'script in the preview browser']),
@@ -88,6 +95,8 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   device_screenshot: device(['Take a screenshot of', 'Taking a screenshot of', 'Took a screenshot of', 'the device']),
   device_close: device(['Close', 'Closing', 'Closed', 'a device']),
   run_scheduled_task_now: tool(['Run', 'Running', 'Requested a run of', 'a scheduled task'], 'schedule-run'),
+  t3_queue: tool(['Manage', 'Managing', 'Managed', 'queued messages'], 'queue-edit'),
+  t3_pending_request: tool(['Handle', 'Handling', 'Handled', 'pending questions'], 'question-respond'),
   t3_queue_list: tool(['List', 'Listing', 'Listed', 'queued messages'], 'queue-list'),
   t3_queue_read: tool(['Read', 'Reading', 'Read', 'a queued message'], 'queue-read'),
   t3_queue_edit: tool(['Edit', 'Editing', 'Edited', 'a queued message'], 'queue-edit'),
@@ -98,7 +107,8 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   t3_pending_request_read: tool(['Read', 'Reading', 'Read', 'pending questions'], 'question-read'),
   t3_pending_request_respond: tool(['Answer', 'Answering', 'Answered', 'pending questions'], 'question-respond'),
   t3_thread_configuration: tool(['Read', 'Reading', 'Read', 'thread configuration'], 'thread-configuration'),
-  t3_thread_configure: tool(['Set', 'Setting', 'Set', 'thread model'], 'thread-configure'),
+  t3_thread_configure: tool(['Use', 'Using', 'Used', 'thread model settings'], 'thread-configure'),
+  t3_thread_transfer: tool(['Use', 'Using', 'Used', 'thread transfers'], 'thread-fork'),
   t3_thread_fork: tool(['Fork', 'Forking', 'Requested a fork of', 'this thread'], 'thread-fork'),
   t3_thread_merge_back: tool(['Merge', 'Merging', 'Requested a merge of', 'thread context'], 'thread-merge'),
   t3_thread_search: tool(['Search', 'Searching', 'Searched', 'thread content'], 'thread-search'),
@@ -135,13 +145,36 @@ export function resolveName(value: string): string | null {
   const candidate = prefixed?.[1] ?? label;
   return own(candidate) || candidate === 'html_render' ? candidate : null;
 }
-export function t3ToolDefinition(toolName: string | null | undefined): T3ToolDefinition | null {
-  const name = toolName ? resolveName(toolName) : null;
-  return name !== null && own(name) ? TOOLS[name]! : null;
-}
-
 type Rec = Record<string, unknown>;
 const record = (value: unknown): Rec | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Rec : undefined;
+
+/** Action tools present each call as the single-purpose tool its action replaced. */
+const ACTION_TOOLS: Readonly<Record<string, (action: string) => string | undefined>> = {
+  preview_act: action => `preview_${action}`,
+  t3_queue: action => `t3_queue_${action}`,
+  t3_pending_request: action => `t3_pending_request_${action}`,
+  t3_thread_transfer: action => ({ fork: 't3_thread_fork', merge_back: 't3_thread_merge_back', status: 't3_thread_transfers' } as Record<string, string>)[action],
+};
+/** resolveT3McpToolDefinition: pass the call's input so an action tool resolves to the labels and summary of its action. */
+export function t3ToolDefinition(toolName: string | null | undefined, input?: unknown): T3ToolDefinition | null {
+  const name = toolName ? resolveName(toolName) : null;
+  if (name === null || !own(name)) return null;
+  const action = record(input)?.action;
+  const actionTool = typeof action === 'string' ? ACTION_TOOLS[name]?.(action) : undefined;
+  return actionTool !== undefined && own(actionTool) ? TOOLS[actionTool]! : TOOLS[name]!;
+}
+/** Tools whose summary depends on which fields a call sets. */
+const ACTION_SUMMARIES: Readonly<Record<string, (input: Rec) => T3SummaryAction>> = {
+  t3_thread_configure: ({ modelSelection }) => modelSelection === undefined ? 'thread-configuration' : 'thread-configure',
+  schedule_task: ({ scheduledTaskId }) => scheduledTaskId === undefined ? 'schedule-create' : 'schedule-update',
+};
+/** resolveT3McpSummaryAction: the summary a call counts under, its action's for an action tool. */
+export function t3SummaryAction(toolName: string | null | undefined, input: unknown): T3SummaryAction | null {
+  const definition = t3ToolDefinition(toolName, input);
+  if (definition === null) return null;
+  const fields = record(input), summarize = ACTION_SUMMARIES[resolveName(toolName!) ?? ''];
+  return (fields && summarize?.(fields)) ?? definition.summaryAction;
+}
 const id = (value: unknown): string | undefined => typeof value === 'string' && value.trim() !== '' ? value : undefined;
 
 /** readResult: the structured or JSON MCP result envelopes the adapters keep. */
@@ -228,6 +261,7 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
       case 'thread-list': return phrase('Listed', 'list', `threads ${times}`);
       case 'thread-interrupt': return phrase('Requested interrupts for', 'interrupt', quantity(countEntities(threadIds), 'thread'));
       case 'workflow-stop': return phrase('Requested stops for', 'stop', count('subagentId', 'workflow'));
+      case 'background-wait': return phrase('Updated', 'update', `background waits ${times}`);
       case 'task-status': return phrase('Checked', 'check', `task status ${times}`);
       case 'task-cancel': return phrase('Requested cancellation of', 'cancel', count('taskId', 'task'));
       case 'schedule-create': return phrase('Scheduled', 'schedule', count('scheduledTaskId', 'task'));
@@ -299,7 +333,7 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
 
 /** summaryActionPriority: actions with effects lead the group sentence. */
 export function t3ActionPriority(action: string): number {
-  return ['command', 'edit', 'delegate', 'task-cancel', 'thread-create', 'thread-send', 'thread-interrupt', 'workflow-stop', 'schedule-create', 'schedule-update',
+  return ['command', 'edit', 'delegate', 'task-cancel', 'thread-create', 'thread-send', 'thread-interrupt', 'workflow-stop', 'background-wait', 'schedule-create', 'schedule-update',
     'schedule-delete', 'schedule-run', 'thread-configure', 'thread-fork', 'thread-merge', 'thread-organize', 'thread-update', 'queue-edit',
     'queue-cancel', 'queue-reorder', 'queue-steer', 'question-respond', 'worktree-handoff', 'project-create', 'project-update', 'project-delete',
     'project-clone', 'environment-update', 'attachment-prepare', 'attachment-discard', 'attachment-send'].includes(action) ? 0

@@ -32,15 +32,14 @@ describe('timeline rows', () => {
     expect(rows[2]).toMatchObject({ fileCount: 1, targetId: 'fixture-result.md' });
   });
 
-  test('a checkpoint from another run, another thread or without files stays standalone', () => {
+  test('a checkpoint from another run stays standalone; one from another thread or without files is no row', () => {
     const files = [{ path: 'a.ts', additions: 1, deletions: 1 }];
     const rows = timelineMessages(fakeClient(), [row('a', 'assistant'), row('c', 'checkpoint', { runId: 'r2', files }),
       row('b', 'assistant'), row('d', 'checkpoint', { files: [] }), row('e', 'checkpoint', { sourceThreadId: 'source', files })], Date.parse(at));
-    expect(rows.map(message => message.id)).toEqual(['a', 'c', 'b', 'd']);
+    expect(rows.map(message => message.id)).toEqual(['a', 'c', 'b']);
     expect(rows[1]).toMatchObject({ attached: false, actionsId: '' });
     expect(rows[0]).toMatchObject({ actionsId: 'a' });
-    expect(rows[3]).toMatchObject({ attached: false });
-    expect(rows[2]).toMatchObject({ actionsId: 'b' });
+    expect(rows[2]).toMatchObject({ actionsId: 'b', last: true });
   });
 
   test('timestamps follow the selected 12/24-hour format and say yesterday across midnight', () => {

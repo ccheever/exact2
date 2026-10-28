@@ -293,14 +293,68 @@ describe('live runs', () => {
       expect(divider.activities![0]!.detail ?? '').toBe('');
     }
   });
-  test('a /compact the server has not drawn a compaction for yet reads "Compacting…" in the working row', () => {
-    const running = { runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null }] };
-    const pending = rows(client([user('u', 0, '/compact')], running));
-    expect(pending.find(row => row.kind === 'working')).toMatchObject({ title: 'Compacting…', live: true, icon: 'minimize' });
-    // Once the compaction row runs, it carries the activity and the working row reads as usual.
-    const drawn = rows(client([user('u', 0, '/compact'), item('c', 'compaction', 1, { status: 'running' })], running));
-    expect(drawn.find(row => row.kind === 'working')).toMatchObject({ title: 'Working for', live: false });
-    expect(drawn.find(row => row.kind === 'compaction')).toMatchObject({ title: 'Compacting context', live: true });
+});
+
+describe('compactions T3 Code starts (#24334, #25837)', () => {
+  const running = { runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null }] };
+  const prompt = (idleCompaction?: string) => user('u', 0, '/compact', idleCompaction ? { idleCompaction } : {});
+  const compaction = (id: string, status: string, extra: Obj = {}) => item(id, 'compaction', 1, { status, beforeTokenCount: 899_000, ...extra });
+
+  test('a bare /compact turn is one live row; only compacting on return speaks through the Working row', () => {
+    for (const [reason, live] of [
+      ['beforeCacheExpires', { kind: 'compaction', live: true, title: 'Compacting before the cache expires…' }],
+      ['onReturn', { kind: 'working', live: true, icon: 'minimize', title: 'Compacting after being idle…' }],
+      [undefined, { kind: 'compaction', live: true, title: 'Compacting context' }],
+    ] as const) {
+      for (const items of [[prompt(reason)], [prompt(reason), compaction('c', 'running')]]) expect(rows(client(items, running))).toMatchObject([live]);
+    }
+  });
+  test('the finished divider leads with why T3 Code compacted, and a compaction-only run leaves no Working row', () => {
+    const done = compaction('c', 'completed', { afterTokenCount: 19_000 });
+    for (const [reason, title] of [['beforeCacheExpires', 'Context automatically compacted before cache expiry 899K → 19K tokens'],
+      ['onReturn', 'Context compacted after being idle 899K → 19K tokens'], [undefined, 'Context compacted 899K → 19K tokens']] as const) {
+      const settled = rows(client([prompt(reason), done]));
+      expect(settled).toMatchObject([{ kind: 'compaction', live: false, title }]);
+      expect(settled[0]!.activities![0]).toMatchObject({ body: title.split(' 899K')[0], detail: '899K', result: '19K' });
+      expect(rows(client([prompt(reason), done], running))).toMatchObject([{ kind: 'compaction', live: false, title }]);
+      const continuing = rows(client([prompt(reason), done, answer('a', 2, 'Continuing', { streaming: true })], running));
+      expect(continuing.filter(row => row.kind === 'compaction')).toHaveLength(1);
+      expect(continuing.filter(row => row.kind === 'working')).toMatchObject([{ title: 'Working for', live: false }]);
+    }
+  });
+  test('a failed compaction reads in the destructive colour with its reason', () => {
+    const retries = rows(client([prompt('onReturn'), compaction('c1', 'failed', { summary: ' retry needed ' }), compaction('c2', 'completed')]))
+      .filter(row => row.kind === 'compaction');
+    expect(retries).toHaveLength(2);
+    expect(retries[0]).toMatchObject({ failed: true, title: 'Context compaction failed: retry needed' });
+    expect(retries[0]!.activities![0]).toMatchObject({ label: 'Context compaction failed', output: 'retry needed' });
+    expect(retries[1]).toMatchObject({ failed: false });
+    expect(new Set(retries.map(row => row.id)).size).toBe(2);
+  });
+  test('a completed divider stays while the settled work folds', () => {
+    for (const text of ['/compact', 'Continue']) {
+      const result = rows(client([user('u', 0, text), command('cat', 1, 'cat a.ts'), compaction('c', 'completed', { beforeTokenCount: 100_000, afterTokenCount: 20_000 })]));
+      expect(kinds(result)).toEqual(text === '/compact' ? ['work', 'compaction'] : ['user', 'work', 'compaction']);
+      expect(result.at(-1)).toMatchObject({ title: 'Context compacted 100K → 20K tokens' });
+    }
+  });
+  test('an answered compact-on-return question folds into the compaction it asked for', () => {
+    const question = 'This session is 1h 5m old and uses 412,000 tokens. Compact it before continuing?';
+    const answered = item('q', 'user_input_request', 1, { requestId: 'rq', questions: [],
+      questionAnswer: { requestId: 'rq', questionTextById: { resume: question }, answers: { resume: 'Compact and continue' }, attachmentsByQuestionId: {} } });
+    const after = (items: Obj[], projection: Obj = {}) => rows(client([user('u', 0, 'Continue'), answered, ...items], projection)).slice(1);
+    expect(after([compaction('c', 'running')], running)).toMatchObject([{ kind: 'working', title: 'Compacting after 1h 5m idle…' }]);
+    expect(after([compaction('c', 'completed')])).toMatchObject([{ kind: 'compaction', title: 'Context compacted after 1h 5m idle' }]);
+    const later = after([compaction('c', 'completed'), compaction('c2', 'running')], running);
+    expect(later.filter(row => row.kind === 'compaction')).toMatchObject([{ title: 'Context compacted after 1h 5m idle', live: false }, { title: 'Compacting context', live: true }]);
+    expect(later.filter(row => row.kind === 'working')).toMatchObject([{ title: 'Working for' }]);
+  });
+  test('a skipped compaction shows as stopped, without a separate interrupted divider', () => {
+    const interrupted = { runs: [{ id: 'r1', status: 'interrupted', startedAt: at(0), completedAt: at(9) }] };
+    const result = item('i', 'run_interrupt_result', 2, { status: 'interrupted', message: 'Skipped compaction to send a queued message' });
+    expect(rows(client([prompt('onReturn'), compaction('c', 'interrupted'), result], interrupted))).toMatchObject([{ kind: 'compaction', title: 'Context compaction stopped' }]);
+    // Stopped before the provider started: no compaction row says so, so the interrupt stays.
+    expect(rows(client([prompt('onReturn'), result], interrupted)).map(row => row.id)).toContain(key('i'));
   });
 });
 
