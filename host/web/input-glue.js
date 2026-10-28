@@ -1141,19 +1141,29 @@ export function watchGlides() {
   glides = true;
   addEventListener('scroll', () => { scrolls += 1; }, { capture: true, passive: true });
 }
-/** Waits until two frames pass with no `scroll` event, or `deadline` (performance.now()), whichever is first:
- * whether they did. A frame that doesn't come by the deadline (a throttled page) is the deadline's. */
-export async function glidesSettled(deadline) {
+/** The `scroll` events seen so far: a settle round compares it before and after its work. */
+export const scrollsSeen = () => scrolls;
+/** Waits until two frames pass with no `scroll` event: whether they did before scrolling outlasted `budget.ms`, which
+ * the wait spends (one budget for a whole `clock settle`, so only time spent waiting on scrolls counts against its
+ * 4 s; a round that comes after it is spent still answers true when nothing scrolls). A frame that doesn't come
+ * (a throttled page) answers false. */
+export async function glidesSettled(budget) {
+  const started = performance.now(), deadline = started + budget.ms;
+  // (a frame gets at least 250 ms, past the budget too: a page drawing frames, however slowly, shows two quiet ones)
   const frame = () => new Promise(r => {
-    const timer = setTimeout(() => r(false), Math.max(0, deadline - performance.now()));
+    const timer = setTimeout(() => r(false), Math.max(250, deadline - performance.now()));
     requestAnimationFrame(() => { clearTimeout(timer); r(true); });
   });
-  for (;;) {
-    const before = scrolls;
-    if (!(await frame()) || !(await frame())) return false;
-    if (scrolls === before) return true;
-    if (performance.now() >= deadline) return false;
+  try {
+    for (;;) {
+      const before = scrolls;
+      if (!(await frame()) || !(await frame())) return false;
+      if (scrolls === before) return true;
+      if (performance.now() >= deadline) return false;
+    }
+  } finally {
+    budget.ms = Math.max(0, budget.ms - (performance.now() - started));
   }
 }
-export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, watchGlides, glidesSettled };
+export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, watchGlides, glidesSettled, scrollsSeen };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

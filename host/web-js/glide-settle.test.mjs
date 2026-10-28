@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
-import { driveGlide, expectGlide, glideApp } from '../../scripts/glide-fixture.mjs';
+import { driveGlide, expectGlide, glideApp, glideServer } from '../../scripts/glide-fixture.mjs';
 import { webCompiler } from './module.mjs';
 
 // `clock settle` on the JS target waits for a list a drag left gliding, so its last scroll is delivered before it
@@ -11,9 +11,10 @@ import { webCompiler } from './module.mjs';
 test('the JS target settles after a drag\'s glide, at once after a held drag, and gives up on a scroller that never stops', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..');
-  let dir, page, s;
+  let server, dir, page, s;
   try {
-    dir = glideApp(root);
+    server = glideServer();
+    dir = glideApp(root, server.origin);
     const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'glide-settle', '--out', resolve(dir, 'dist'), '--render', 'none'], {
       cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
     });
@@ -29,6 +30,7 @@ test('the JS target settles after a drag\'s glide, at once after a held drag, an
   } finally {
     await s?.close?.();
     page?.stop(true);
+    server?.stop();
     if (dir) rmSync(dir, { recursive: true, force: true });
   }
 }, 180_000);
