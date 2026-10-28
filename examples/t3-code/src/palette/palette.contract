@@ -70,6 +70,8 @@ shape PaletteRow
   current: bool
   matchLabel: string
   matchParts: PalettePart[]
+  context: string
+  titleDir: string
   titleParts: PalettePart[]
   line: string
   orbs: ThemeOrb[]
@@ -214,8 +216,9 @@ component PaletteOrb
         rect width=56 height=56 fill=`url(#p-accent-${id})`
         rect width=56 height=56 fill=`url(#p-action-${id})`
 
-// The two-line body: title (with an optional bold tail or fuzzy marks), the message
-// match, and the description (thread meta, project path, or plain text).
+// The two-line body: title (with an optional bold tail or fuzzy marks), then one second line: a message match or the
+// field a search matched (ThreadSearchMatchExcerpt, SearchMatchHintLine), else the description (thread meta, project
+// path, or plain text).
 component PaletteText
   props
     row: PaletteRow
@@ -223,7 +226,7 @@ component PaletteText
     dark: bool
   view
     column flex=1 min-width=0 align-items="flex-start"
-      row min-width=0 max-width="100%" gap="0.375rem" align-items="center"
+      row min-width=0 max-width="100%" gap="0.375rem" align-items="center" align-self=(row.context != "" ? "stretch" : "auto")
         if row.titleParts.length > 0
           text font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
             for part in row.titleParts key=part.id
@@ -234,46 +237,58 @@ component PaletteText
               text row.prefix
               text row.bold font-weight=600
           else
-            text row.title font-size="0.875rem" line-height="1.25rem" color=(highlighted ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#18181b, #f5f5f5)") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+            text row.title direction=(row.titleDir == "rtl" ? "rtl" : "ltr") font-size="0.875rem" line-height="1.25rem" color=(highlighted ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#18181b, #f5f5f5)") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        // ThreadRowContext: the project and environment, while the second line shows a match in their place.
+        if row.context != ""
+          text row.context max-width="45%" flex-shrink=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       if row.matchLabel != ""
         text min-width=0 max-width="100%" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #a1a1a1d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-          text `${row.matchLabel} ` color=(row.matchLabel == "You:" ? "light-dark(#1447e6, #50a2ff)" : "light-dark(#007a55, #00d492)")
+          text `${row.matchLabel} ` color=(row.matchLabel == "You:" ? "light-dark(#1447e6, #50a2ff)" : (row.matchLabel == "Agent:" ? "light-dark(#007a55, #00d492)" : "light-dark(#71717bb3, #a1a1a1b3)"))
           for part in row.matchParts key=part.id
             text part.text font-weight=(part.hit ? 600 : 400) color=(part.hit ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717bd9, #a1a1a1d9)")
-      if row.icon == "project"
-        row gap="0.25rem" align-items="center" min-width=0 max-width="100%" height="1rem"
-          if row.envMachine != ""
-            box opacity=0.7 display="flex" flex-shrink=0
-              CnMachineIcon(kind=row.envMachine, size=12, color=(dark ? "#a1a1a1" : "#71717b"))
-          text row.env font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
-          if row.description != ""
-            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
-          text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
-      if row.env != "" and row.icon != "project"
-        row gap="0.25rem" align-items="center" min-width=0 max-width="100%" height="1.125rem"
-          if row.project != ""
-            ProjectMark(label=row.project, muted=false, ink=row.projectInk, surface=row.projectSurface, size=12)
-          text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
+      else
+        PaletteDescription(row=row, dark=dark)
+
+// The second line when no match takes its place: a project's location and path, a thread's meta, or the description.
+component PaletteDescription
+  props
+    row: PaletteRow
+    dark: bool
+  view
+    if row.icon == "project"
+      row gap="0.25rem" align-items="center" min-width=0 max-width="100%" height="1rem"
+        if row.envMachine != ""
+          box opacity=0.7 display="flex" flex-shrink=0
+            CnMachineIcon(kind=row.envMachine, size=12, color=(dark ? "#a1a1a1" : "#71717b"))
+        text row.env font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
+        if row.description != ""
           text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
-          text row.env font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" flex-shrink=0
-          if row.branch != ""
-            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
-            text row.branch font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
-          if row.provider != ""
-            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
-            box opacity=0.7 display="flex"
-              ProviderMark(driver=row.provider, size=12, color=(dark ? "#a1a1a1" : "#71717b"))
-          if row.current
-            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
-            text "Current thread" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" flex-shrink=0
-      if row.env == ""
-        if row.titleParts.length > 0
-          text font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
-            for part in row.matchParts key=part.id
-              text part.text font-weight=(part.hit ? 600 : 400) color=(part.hit ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
-        else
-          if row.description != ""
-            text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 max-width="100%"
+        text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
+    if row.env != "" and row.icon != "project"
+      row gap="0.25rem" align-items="center" min-width=0 max-width="100%" height="1.125rem"
+        if row.project != ""
+          ProjectMark(label=row.project, muted=false, ink=row.projectInk, surface=row.projectSurface, size=12)
+        text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
+        text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
+        text row.env font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" flex-shrink=0
+        if row.branch != ""
+          text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
+          text row.branch font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        if row.provider != ""
+          text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
+          box opacity=0.7 display="flex"
+            ProviderMark(driver=row.provider, size=12, color=(dark ? "#a1a1a1" : "#71717b"))
+        if row.current
+          text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" flex-shrink=0
+          text "Current thread" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" flex-shrink=0
+    if row.env == ""
+      if row.titleParts.length > 0
+        text font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+          for part in row.matchParts key=part.id
+            text part.text font-weight=(part.hit ? 600 : 400) color=(part.hit ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+      else
+        if row.description != ""
+          text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 max-width="100%"
 
 component PaletteRowView
   props
