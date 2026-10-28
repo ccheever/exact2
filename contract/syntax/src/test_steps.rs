@@ -216,6 +216,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `authorize` / `authorize cancel`: complete the held sign-in (LLP 1146
+    /// D4). The driver requests its authorization URL from the app's
+    /// declared fixture server, redirects not followed, and answers the hold
+    /// with the `Location` it returns; `cancel` answers 499.
+    Authorize {
+        /// `authorize cancel`.
+        cancel: bool,
+        /// Where.
+        span: Span,
+    },
     /// `type "testId" copy`, `… cut`, `… paste "text"`: the clipboard's
     /// event at the node, a paste carrying `text` as the clipboard's.
     Clipboard {

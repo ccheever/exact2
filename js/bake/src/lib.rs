@@ -1233,6 +1233,8 @@ fn bake_in(
     module.set_budget_ms(f64::INFINITY);
     let app_id = module.app_id().to_owned();
     let grants = module.grants().to_owned();
+    exact_runner::auth::session_grant_refusal(&grants)
+        .map_or(Ok(()), |refusal| Err(format!("app.ts: {refusal}")))?;
     let surfaces: serde_json::Map<String, serde_json::Value> = module
         .canvas_roster()
         .iter()
