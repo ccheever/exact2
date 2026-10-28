@@ -366,7 +366,7 @@ component MobileRouteContent
         if focused and (routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia")
           t3-document-menu document-menu=documentMenu.configuration route-key=routeId document-tint=threadLook.foreground change=documentAction width=0 height=0 aria-hidden=true
         if focused and (routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.fileReady))
-          t3-document-menu document-menu=fileMenu route-key=routeId document-tint=reviewLook.icon change=fileMenuAction width=0 height=0 aria-hidden=true
+          t3-document-menu document-menu=fileMenu route-key=routeId document-tint=reviewLook.icon document-background=reviewLook.sheet change=fileMenuAction width=0 height=0 aria-hidden=true
         if focused and routeName == "threadTerminal"
           t3-terminal-menu terminal-source=terminalMenuConfiguration route-key=routeId menu-tint=threadLook.foreground change=terminalMenuEvent width=0 height=0 aria-hidden=true
         if focused and not threadData.queued and threadHeaderConfiguration != "" and (routeName == "thread" or routeName == "threadReview" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))

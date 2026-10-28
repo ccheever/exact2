@@ -44,6 +44,8 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
     private var configuration = "", identifier = "", title = "", rendered = ""
     private var rows: [[String: Any]] = []
     private var tint: UIColor?, renderedTint: UIColor?
+    private var background: UIColor?, appearanceBackground: UIColor?, appearanceInk: UIColor?
+    private var appearance: UINavigationBarAppearance?
     override var view: UIView { button }
     init(owner: T3MobileDocumentMenus, events: ExactNativeEvents) {
         self.owner = owner
@@ -59,6 +61,7 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
         let key = props["route-key"] ?? ""
         guard props["route-key"] == nil || !key.isEmpty else { throw ExactNativeRefusal("Invalid file menu route.") }
         let nextTint = try props["document-tint"].map(T3SymbolView.color)
+        background = try props["document-background"].map(T3SymbolView.color)
         if key != routeKey { detach(); owner?.unbind(self, key: routeKey); routeKey = key }
         configuration = raw; self.identifier = identifier; title = config["title"] as? String ?? ""
         rows = config["actions"] as? [[String: Any]] ?? []; tint = nextTint
@@ -76,6 +79,7 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
         if routeKey.isEmpty { removeItem(); button.menu = makeMenu(); return }
         guard let route, route.isLive else { return }
         if #available(iOS 26.0, *) { route.controller.navigationItem.style = .editor }
+        refreshAppearance(route)
         if let group, rendered == configuration, renderedTint == tint {
             if !route.controller.navigationItem.trailingItemGroups.contains(where: { $0 === group }) {
                 route.controller.navigationItem.trailingItemGroups.append(group)
@@ -90,6 +94,21 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
         let next = UIBarButtonItemGroup.fixedGroup(representativeItem: nil, items: [item])
         group = next; rendered = configuration; renderedTint = tint
         route.controller.navigationItem.trailingItemGroups.append(next)
+    }
+    private func refreshAppearance(_ route: ExactRoute) {
+        guard let background else { clearAppearance(); return }
+        let item = route.controller.navigationItem
+        let base = item.standardAppearance ?? route.controller.navigationController?.navigationBar.standardAppearance ?? UINavigationBarAppearance()
+        let ink = base.titleTextAttributes[.foregroundColor] as? UIColor
+        if appearance == nil || appearanceBackground != background || appearanceInk != ink {
+            let style = base.copy() as! UINavigationBarAppearance
+            style.configureWithOpaqueBackground(); style.backgroundColor = background; style.shadowColor = .clear
+            style.titleTextAttributes[.font] = UIFont.systemFont(ofSize: 18, weight: .heavy)
+            if let ink { style.titleTextAttributes[.foregroundColor] = ink }
+            appearance = style; appearanceBackground = background; appearanceInk = ink
+        }
+        item.standardAppearance = appearance; item.compactAppearance = appearance
+        item.scrollEdgeAppearance = appearance; item.compactScrollEdgeAppearance = appearance
     }
     private func makeMenu() -> UIMenu {
         let token = revision, raw = configuration, identifier = identifier
@@ -128,7 +147,16 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
         }
         group = nil; rendered = ""; renderedTint = nil
     }
-    fileprivate func detach() { removeItem(); route = nil }
+    private func clearAppearance() {
+        if let item = route?.controller.navigationItem, let appearance {
+            if item.standardAppearance === appearance { item.standardAppearance = nil }
+            if item.compactAppearance === appearance { item.compactAppearance = nil }
+            if item.scrollEdgeAppearance === appearance { item.scrollEdgeAppearance = nil }
+            if item.compactScrollEdgeAppearance === appearance { item.compactScrollEdgeAppearance = nil }
+        }
+        appearance = nil; appearanceBackground = nil; appearanceInk = nil
+    }
+    fileprivate func detach() { removeItem(); clearAppearance(); route = nil }
     override func destroy() {
         alive = false; configuration = ""; rows = []; button.menu = nil; detach(); owner?.unbind(self, key: routeKey)
     }
