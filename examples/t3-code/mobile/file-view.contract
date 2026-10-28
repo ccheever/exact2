@@ -3,6 +3,18 @@
 use ReviewColors from "./review-shapes.contract"
 use ThreadCodeToken from "./thread-shapes.contract"
 
+shape FileTableRun
+  id: string
+  kind: string
+  text: string
+shape FileTableCell
+  id: string
+  numeric: bool
+  runs: FileTableRun[]
+shape FileTableRow
+  id: string
+  header: bool
+  cells: FileTableCell[]
 shape FileMarkdownBlock
   id: string
   kind: string
@@ -10,6 +22,8 @@ shape FileMarkdownBlock
   language: string
   tokens: ThreadCodeToken[]
   level: number
+  columns: number
+  rows: FileTableRow[]
 
 shape FileSourceRow
   id: string
@@ -130,7 +144,7 @@ component MobileFileView
               text "Loading file..." font-size=14 color=colors.muted
           else
             if preview and data.markdown
-              scroll flex=1 min-height=0 refresh=refresh
+              scroll flex=1 min-height=0 overflow-x="hidden" refresh=refresh
                 MobileFileMarkdown(blocks=data.previewBlocks, colors=colors, owner=data.owner, path=data.path, routeId=routeId, active=active, bodySize=bodySize, bodyLine=bodyLine)
             else
               // The reference remounts its source renderer when wrapping changes.
@@ -182,8 +196,8 @@ component MobileFileMarkdown
     bodySize: number
     bodyLine: number
   view
-    column padding=18 align-items="center"
-      column width="100%" max-width=760 gap=14
+    column width="100%" min-width=0 box-sizing="border-box" padding=18 align-items="center"
+      column width="100%" min-width=0 max-width=760 gap=14
         for block in blocks key=block.id
           if block.kind == "code"
             column min-width=0 overflow="hidden" border-radius=10 border-width=1 border-style="solid" border-color=colors.markdownBorder background-color=colors.codeBackground
@@ -196,6 +210,16 @@ component MobileFileMarkdown
                     text token.text color=token.color font-weight=token.weight font-style=token.slant
           else if block.kind == "heading"
             text block.text role="heading" aria-level=block.level font-size=fileMarkdownHeadingSize(block.level, bodySize) line-height=`${max(fileMarkdownHeadingSize(block.level, bodySize) + 6, bodyLine + 2)}px` font-weight=700 color=colors.markdownStrong user-select="text"
+          else if block.kind == "table"
+            view width="100%" box-sizing="border-box" overflow-x="auto" overflow-y="hidden" scrollbar-width="none" max-width="100%" min-width=0
+              column width=(block.columns * 160 + 2) box-sizing="border-box" border-width=1 border-style="solid" border-color=colors.markdownBorder border-radius=8 corner-shape="-exact-continuous" overflow="hidden"
+                for item in block.rows key=item.id
+                  row border-top-width=(item.header ? 0 : 1) border-top-style="solid" border-top-color=colors.markdownBorder background-color=(item.header ? colors.codeBackground : "transparent")
+                    for cell, index in item.cells key=cell.id
+                      column width=160 flex-shrink=0 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 border-left-width=(index == 0 ? 0 : 1) border-left-style="solid" border-left-color=colors.markdownBorder
+                        text user-select="text" overflow-wrap="break-word" font-family="DM Sans" font-size=bodySize line-height=`${bodyLine}px` font-weight=(item.header ? 700 : 400) font-variant-numeric=(cell.numeric ? "tabular-nums" : "normal") color=(item.header ? colors.markdownStrong : colors.markdownBody)
+                          for run in cell.runs key=run.id
+                            text run.text font-family=(run.kind == "code" ? "monospace" : "DM Sans") font-size=(run.kind == "code" ? max(12, bodySize - 2) : bodySize) color=(run.kind == "code" ? colors.codeForeground : item.header ? colors.markdownStrong : colors.markdownBody)
           else
             text block.text markup="markdown" font-size=bodySize line-height=`${bodyLine}px` color=colors.markdownBody user-select="text"
 

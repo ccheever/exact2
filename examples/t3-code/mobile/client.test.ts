@@ -223,7 +223,7 @@ describe('mobile thread selection error ownership', () => {
 describe('pinned shared sources', () => {
   test('every TS copy matches its immutable pin apart from explicit mobile adaptations', () => {
     const directory = new URL('./shared/', import.meta.url).pathname;
-    const generated = new Set(['r12-render-grammar.ts', 'r12-render-grammar-more.ts', 'r7-polish-css-words.ts', 'settings-b-lucide.ts']);
+    const generated = new Set(['r12-render-grammar.ts', 'r12-render-grammar-more.ts', 'r7-polish-css-words.ts', 'settings-b-lucide.ts', 'file-markdown-parser.d.ts']);
     const names: string[] = [];
     function visit(dir: string) {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {

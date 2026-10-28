@@ -101,7 +101,7 @@ draft text and removed files cannot open it. Other rich context actions remain i
 workspace file code cards: Preview/Source round trips, horizontal code scrolling,
 and the exact 344-character code-body copy pass on iPhone. Preview parsing accepts
 CRLF/CR while Source retains original newlines. Generic Markdown prose,
-tables and images still differ from the reference. These later changes are
+complex tables and images still differ from the reference. These later changes are
 outside the POC TestFlight build.
 
 The ordinary thread also imports a 567,032-byte PNG through Files. Its restored
@@ -278,13 +278,37 @@ Code copies remain 344 characters, Source copying matches after the device
 tool's final-newline normalization, native word selection copies `measured`, and
 code-card panning remains independent. System appearance and 16-point text are
 restored. Independent review and fifteen projection probes find no introduced issue. Complex
-soft breaks, tables, images and heading spacing remain parity gaps. These
+soft breaks, richer table cells, images and heading spacing remain parity gaps. These
 changes are outside maintenance build `20261028202307`.
+File previews now render GFM tables with plain text and inline-code cells through
+one generated adapter over the existing pinned Remark parser. The adapter parses
+complete preview source and requires exact agreement with existing code and prose
+records before extracting tables. Unsupported cells, references and footnotes retain their original chunk.
+Code identities and raw Source remain unchanged. Both preview owners share the
+same table projection and cache behavior. Cells retain the reference 160-point
+width, borders, padding and header styling. Numeric cell values use tabular digits.
+The normal iPhone verifies the real Caltrain table in workspace and sent attachment
+previews at 16-point System appearance and 20-point dark appearance. Code copying
+remains exactly 344 characters, and workspace Source copying matches after the
+device tool's final-newline normalization. Native selection copies an inline-code
+cell word. Three-column and five-column repository tables pan together and stop
+at their content edge. A five-column drive exposed sideways movement of surrounding
+prose; the corrected outer scroll keeps that prose fixed across repeated pans.
+A large-text filename also crossed its cell boundary. Cell text now breaks an
+overlong word, and the rebuilt app shows the complete filename inside its cell.
+System appearance and 16-point text restore and persist after normal restart.
+The mobile suite passes 3,822 tests. The combined parser and minimap run passes 46.
+Strict app TypeScript, boot, generated-output verification and the normal native
+build pass. Independent
+review of the projection and 525 comparisons find no introduced issue. Richer
+cell formatting, table accessibility and general Markdown parity remain open.
+These changes are outside maintenance build `20261028202307`.
 A later ordinary restart once leaves the conversation open after its first
 enabled Files tap; the second tap opens Files. Three instrumented and three
-normal cold launches then open Files on the first tap. Their successful traces
-do not establish the original cause. No admission policy changed, and the
-temporary native probe is removed. Keep this intermittent symptom open.
+normal cold launches then open Files on the first tap. Another normal restart
+reproduces the miss while the saved-message ownership warning clears. The second
+tap opens Files. The successful traces do not establish the cause. No admission
+policy changed, and the temporary native probe is removed. Keep this symptom open.
 Unclosed/nested fences and reference links across preview chunks remain open.
 The draft file route shares this projection but has no new native acceptance.
 Files rows now align their labels beside the icons without
@@ -318,7 +342,7 @@ one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
 unchanged from the original PR head. A bounded extraction attempt made no changes;
 the desktop checkpoint needs broader integration. Keep the failure visible.
 
-The full mobile suite passes 3,788 tests, strict app TypeScript passes, and the
+The full mobile suite passes 3,822 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
 with `QueueFull` on the former eager-send action and passes with coalesced text.
 

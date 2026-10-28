@@ -39,13 +39,14 @@ describe('attachment document reads', () => {
     expect(filePreviewKind({ name: 'table.csv', mimeType: 'application/pdf' })).toBe('pdf');
   });
   test('Markdown attachments expose separate copyable code bodies without changing Source', async () => {
-    const content = '# Notes\r\n\r\nFirst line\r\ncontinues with `code`.\r\n\r\n```ts\r\nconst n = 1;\r\n```\r\n\r\n```sh\r\npwd\r\n```', f = fixture('notes.md', 'text/markdown', content);
+    const content = '# Notes\r\n\r\nFirst line\r\ncontinues with `code`.\r\n\r\n```ts\r\nconst n = 1;\r\n```\r\n\r\n| Name | Value |\r\n| --- | --- |\r\n| `item` | 42 |\r\n\r\n```sh\r\npwd\r\n```', f = fixture('notes.md', 'text/markdown', content);
     const preview = await read(f);
     expect(preview.previewBlocks.filter(block => block.kind === 'code').map(block => [block.language, block.text])).toEqual([
       ['ts', 'const n = 1;'], ['sh', 'pwd']]);
     expect(preview.previewBlocks[0]).toMatchObject({ kind: 'heading', level: 1, text: 'Notes' });
     expect(preview.previewBlocks.filter(block => block.kind === 'markdown').map(block => block.text.trim()))
       .toEqual(['First line continues with `code`.']);
+    expect(preview.previewBlocks.find(block => block.kind === 'table')).toMatchObject({ columns: 2, rows: [{ header: true }, { header: false }] });
     expect((await read(f, false)).text).toBe(content);
     expect((await read(f)).previewBlocks).toBe(preview.previewBlocks);
     expect(f.calls.map(call => call.op)).toEqual(['request', 'mobileDocumentRead']);

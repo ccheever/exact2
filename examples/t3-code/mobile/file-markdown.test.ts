@@ -9,7 +9,7 @@ test('file preview projects isolated plain headings and preserves fenced code id
   expect(blocks.filter(block => block.kind === 'heading').map(block => [block.level, block.text]))
     .toEqual([[1, 'Title'], [2, 'Section']]);
   expect(blocks.find(block => block.kind === 'code'))
-    .toEqual({ ...mobileMarkdownBlocks(body, false).find(block => block.kind === 'code'), level: 0 });
+    .toEqual({ ...mobileMarkdownBlocks(body, false).find(block => block.kind === 'code'), level: 0, columns: 0, rows: [] });
   expect(new Set(blocks.map(block => block.id)).size).toBe(blocks.length);
   expect(blocks.filter(block => block.kind === 'markdown').map(block => block.text).join(''))
     .toContain('Paragraph with `code`.');
@@ -35,7 +35,7 @@ test.each([
   '[link][target]\n\n# Title\n\n[target]: https://example.test',
   '# Title\n\n```ts\n# Inside an unfinished fence', '# Title\n\n~~~\n# Inside an unfinished fence',
 ])('unsupported heading context keeps the existing complete prose projection: %s', body => {
-  expect(mobileFileMarkdownBlocks(body, false)).toEqual(mobileMarkdownBlocks(body, false).map(block => ({ ...block, level: 0 })));
+  expect(mobileFileMarkdownBlocks(body, false)).toEqual(mobileMarkdownBlocks(body, false).map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
 });
 
 test('heading sizes follow the pinned reference at default, larger and minimum sizes', () => {
@@ -68,7 +68,7 @@ test('prose folding keeps source-based heading identity and complete code record
   expect(blocks.filter(block => block.kind === 'markdown').map(block => block.text))
     .toEqual(['\nOne line.\n\n', '\nMore text\n\n']);
   expect(blocks.find(block => block.kind === 'code'))
-    .toEqual({ ...mobileMarkdownBlocks(body, false).find(block => block.kind === 'code'), level: 0 });
+    .toEqual({ ...mobileMarkdownBlocks(body, false).find(block => block.kind === 'code'), level: 0, columns: 0, rows: [] });
 });
 
 test.each([
@@ -76,18 +76,52 @@ test.each([
   'A `multiline\n\ncode` span', 'A ``longer code``\nspan', 'A `unmatched\nspan',
   'Text\n===', 'Text\n---', 'Text\n***', 'Text\n1.', 'Text\n1)', 'Text\n1. item',
   'Text\n- item', 'Text\n> quote', 'Text\n    indented', 'Text\n# Adjacent heading',
-  'A | table\n--- | ---', '[link][target]\n\n[target]: https://example.test',
+  '[link][target]\n\n[target]: https://example.test',
   '[^note]: first\nsecond', 'An <em>HTML</em>\nparagraph', '<!--\nPlain\nwrapped\n-->',
   'A **bold**\nparagraph', 'A ~~strike~~\nparagraph', 'A [link](https://example.test)\nparagraph',
   'A &amp; entity\nparagraph', 'Visit https://example.test\ntoday', 'Math $x$\ncontinues',
   'One\u2028line\ncontinues', '```ts\nPlain\nwrapped', '~~~\nPlain\nwrapped',
 ])('unsupported prose keeps the existing complete Markdown input: %s', body => {
   expect(mobileFileMarkdownBlocks(body, false))
-    .toEqual(mobileMarkdownBlocks(body, false).map(block => ({ ...block, level: 0 })));
+    .toEqual(mobileMarkdownBlocks(body, false).map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
 });
 
 test('an unsupported fragment preserves other prose in the same original Markdown chunk', () => {
   const blocks = mobileFileMarkdownBlocks('Plain\nwrapped.\n\n# Heading\n\nA `span\n\nacross paragraphs`.', false);
   expect(blocks.filter(block => block.kind === 'markdown').map(block => block.text))
     .toEqual(['Plain\nwrapped.\n\n', '\nA `span\n\nacross paragraphs`.']);
+});
+
+test('file tables preserve headings, numeric values, inline code and accepted code records', () => {
+  const body = '# Files\n\nIntro.\n\n| File | Count |\n| --- | --- |\n| `app.contract` | 12.5 |\n\nAfter.\n\n```sh\npwd\n\n```';
+  const blocks = mobileFileMarkdownBlocks(body, false), table = blocks.find(block => block.kind === 'table');
+  expect(blocks.map(block => block.kind)).toEqual(['heading', 'markdown', 'table', 'markdown', 'code']);
+  expect(blocks[0]).toMatchObject({ id: '0:heading:0', level: 1, text: 'Files' });
+  expect(table).toMatchObject({ id: `0:table:${body.indexOf('| File')}`, columns: 2,
+    rows: [{ header: true }, { header: false }] });
+  expect(table?.rows[0]?.cells.map(cell => cell.runs.map(run => run.text).join(''))).toEqual(['File', 'Count']);
+  expect(table?.rows[1]?.cells[0]).toMatchObject({ numeric: false, runs: [{ kind: 'code', text: 'app.contract' }] });
+  expect(table?.rows[1]?.cells[1]).toMatchObject({ numeric: true, runs: [{ kind: 'text', text: '12.5' }] });
+  expect(blocks.find(block => block.kind === 'code'))
+    .toEqual({ ...mobileMarkdownBlocks(body, false).find(block => block.kind === 'code'), level: 0, columns: 0, rows: [] });
+  expect(new Set(blocks.map(block => block.id)).size).toBe(blocks.length);
+});
+
+test('source interval binding handles repeated text and preserves previews when code parsers disagree', () => {
+  const body = 'Same\n\n```sh\nSame\n```\n\n| A |\n| - |\n| B |\n\nSame';
+  const blocks = mobileFileMarkdownBlocks(body.replaceAll('\n', '\r\n'), true);
+  expect(blocks.filter(block => block.kind === 'table')).toHaveLength(1);
+  expect(blocks.find(block => block.kind === 'code')).toMatchObject({ id: '1', text: 'Same', language: 'sh' });
+  expect(blocks.filter(block => block.kind === 'markdown').map(block => block.text.trim())).toEqual(['Same', 'Same']);
+  const indented = '    code\n\n| A |\n| - |\n| B |';
+  expect(mobileFileMarkdownBlocks(indented, false))
+    .toEqual(mobileMarkdownBlocks(indented, false).map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
+});
+
+test('an unsupported table chunk keeps its existing heading projection while other chunks gain tables', () => {
+  const unsupported = '# Later\n\n| A |\n| - |\n| **bold** |';
+  const blocks = mobileFileMarkdownBlocks('| Good |\n| - |\n| value |\n\n```sh\npwd\n```\n\n' + unsupported, false);
+  expect(blocks.filter(block => block.kind === 'table')).toHaveLength(1);
+  expect(blocks.find(block => block.kind === 'heading')).toMatchObject({ level: 1, text: 'Later' });
+  expect(blocks.at(-1)).toMatchObject({ kind: 'markdown', text: '\n| A |\n| - |\n| **bold** |' });
 });
