@@ -1297,9 +1297,9 @@ list virtualized=true height=600 keep-mounted=[first(ids), ids.at(-1)]
   pin: it is built in a report with any limit, never retired as the window
   passes it, and published with its `listitem` position like any row. A key
   the list does not hold is passed over; a repeated key keeps its first row.
-  When the set changes, its new rows mount and the rows it dropped go once the
-  window does not hold them, in the same commit, and the revision moves so the
-  host measures the new rows.
+  When the set changes, the commit that changes it mounts the rows it now
+  names and retires the rows it no longer names unless the window holds them;
+  the revision moves, so the host measures the new rows.
 - **Bound.** At most 64 keys, the most rows a list builds before its first
   report (`initial-item-count`). Another value (more keys, a non-key) is
   invalid at computed-value time: the list keeps none and the journal says so,
@@ -1308,8 +1308,10 @@ list virtualized=true height=600 keep-mounted=[first(ids), ids.at(-1)]
 - **Hosts.** The runner owns it (`runner/src/instance/collection/keep.rs`), so
   every host the runner windows for keeps the rows: the Apple hosts, Linux,
   Windows and the wasm web host. A kept row is an ordinary mounted row, a
-  subview of the scroll document at its offset, so AppKit and UIKit expose it
-  to accessibility as they expose the window's rows. The JS target's `list.js`
-  reads it as the runner does. Scrolling a kept row into view when VoiceOver
-  lands on it is the platform's, as for any element of a scroll view, and the
-  window follows that scroll; it was not driven with VoiceOver on 2026-10-28.
+  subview of the scroll document at its offset, which the platform exposes to
+  accessibility as it does the window's rows. On macOS, `tree --ax` shows
+  messages-stress's first and last message, kept, above and below a port
+  scrolled to the middle (2026-10-28); iOS was not driven. The JS target's
+  `list.js` reads it as the runner does. Scrolling a kept row into view when
+  VoiceOver lands on it is the platform's, as for any element of a scroll
+  view, and the window follows that scroll; no VoiceOver session was run.

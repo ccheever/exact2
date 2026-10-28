@@ -44,13 +44,7 @@ use std::rc::Rc;
 /// refuses virtualized lists when this table is absent.
 pub struct ListLinks {
     create: CreateList,
-    update: fn(
-        &mut collection::Collection,
-        &mut Update<'_>,
-        &[Frame],
-        bool,
-        Option<&Value>,
-    ) -> Result<(), InstanceError>,
+    update: UpdateList,
     typography: ListTypography,
     pub(crate) collections_json: fn(&Tree) -> String,
     /// `scrollIntoView` (LLP 1070.000): a request begun on its list.
@@ -82,6 +76,15 @@ type CreateList = fn(
     ViewId,
     &[Frame],
 ) -> Result<Option<Box<collection::Collection>>, InstanceError>;
+/// A list's data update, given whether it follows its end and its
+/// `keep-mounted` value.
+type UpdateList = fn(
+    &mut collection::Collection,
+    &mut Update<'_>,
+    &[Frame],
+    bool,
+    Option<&Value>,
+) -> Result<(), InstanceError>;
 type ListTypography = fn(&mut [Child], &mut Update<'_>, &[Frame]) -> Result<(), InstanceError>;
 
 /// The list engine.
