@@ -91,7 +91,7 @@ export function projectGlyph(client: T3Client, project: Obj | undefined, identit
   const icon = decodeIcon(project?.projectIcon);
   if (icon.kind === 'monogram') return glyph('monogram', icon.color ? inkOf(icon.color) : auto.projectInk, icon.color ? surfaceOf(icon.color) : auto.projectSurface, { text: icon.text || auto.projectMark });
   if (icon.kind === 'emoji' && icon.emoji) return glyph('emoji', auto.projectInk, auto.projectSurface, { emoji: icon.emoji });
-  if (icon.kind === 'lucide') return glyph('lucide', icon.color ? inkOf(icon.color) : 'light-dark(#71717b, #818181)', '#00000000', { d: iconPath(icon.name) });
+  if (icon.kind === 'lucide') return glyph('lucide', icon.color ? inkOf(icon.color) : 'light-dark(#71717b, #a3a3a3)', '#00000000', { d: iconPath(icon.name) });
   const src = project ? faviconSrc(client, project, environmentId) : '';
   return src ? glyph('image', auto.projectInk, auto.projectSurface, { src }) : glyph('monogram', auto.projectInk, auto.projectSurface);
 }

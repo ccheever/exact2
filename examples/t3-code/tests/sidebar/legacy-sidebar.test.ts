@@ -103,7 +103,7 @@ describe('Sidebar.logic.test.ts cases', () => {
   });
   test('resolveThreadStatusPill: waiting while background work holds the completion, not for left-running commands', () => {
     expect(resolveThreadStatusPill(thread('t', { ...running, activeRunId: null, status: 'idle', pendingBackgroundTasks: [{ taskId: 'bg-1', kind: 'monitor' }] }), undefined))
-      .toMatchObject({ label: 'Waiting', color: 'light-dark(#71717b, #818181)', pulse: false });
+      .toMatchObject({ label: 'Waiting', color: 'light-dark(#71717b, #a3a3a3)', pulse: false });
     expect(resolveThreadStatusPill(thread('t', { ...running, pendingBackgroundTasks: [{ taskId: 'bg-1', kind: 'command' }] }), undefined)).toMatchObject({ label: 'Working', pulse: true });
     expect(resolveThreadStatusPill(thread('t', { ...running, activeRunId: null, status: 'idle', pendingBackgroundTasks: [] }), undefined)).toBeNull();
   });
@@ -177,7 +177,7 @@ describe('legacy menus (LegacySidebar.tsx)', () => {
     const two = legacyProjectMenuItems([{ id: 'p1', physicalKey: 'env:/a', title: 'A', workspaceRoot: '/a', environmentLabel: '', remote: false },
       { id: 'fleet:r:p9', physicalKey: 'r:/b', title: 'A', workspaceRoot: '/b', environmentLabel: 'Studio', remote: true }]);
     expect(two[0]).toMatchObject({ id: 'rename:submenu', label: 'Rename' });
-    expect(two[0]!.children!.map(item => item.label)).toEqual(['/a', 'Studio — /b']);
+    expect(two[0]!.children!.map(item => item.label)).toEqual(['/a', 'Studio: /b']);
     expect(two[2]!.children![1]).not.toHaveProperty('disabled');
     // A background member's rows act on its own environment, none disabled.
     expect(two[4]!.children![1]).toMatchObject({ id: 'delete:r:/b', destructive: true });

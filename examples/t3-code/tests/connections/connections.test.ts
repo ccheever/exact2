@@ -111,7 +111,7 @@ test('every paired environment, a loopback one included, is a saved row under En
   expect(withPrimary.machines.map(machine => [machine.label, machine.subtitle])).toEqual([['Morgan’s Mac', 'This machine'], ['Fixture A', 'http://127.0.0.1:14796/'], ['Remote', 'https://remote.example.com/']]);
   expect(withPrimary.environments.map(row => row.label)).toEqual(['Fixture A', 'Remote', 'Off box']);
   expect(withPrimary.thisMachine).toMatchObject({ title: 'Morgan’s Mac', menu: true, enabled: true, canManage: true });
-  expect(page).toMatchObject({ loadBalancing: false, loadSummary: 'Off', githubSummary: 'Off', updateCount: 0 });
+  expect(page).toMatchObject({ loadBalancing: false, loadSummary: 'Off', routingSummary: 'Off', updateCount: 0 });
   expect(JSON.stringify(page)).not.toContain('token');
 });
 
@@ -133,7 +133,7 @@ test('failure tone, trace ID and unsupported clients follow the row rules', () =
   expect(focused.environments[0]).toMatchObject({ active: true, errorTone: true, traceId: 'trace-f', subtitle: 'https://remote.example.com/ · Connection failed: The server returned HTTP 401.' });
 });
 
-test('load balancing and GitHub sharing preferences decode and summarize like the reference', () => {
+test('load balancing and pull request sharing preferences decode and summarize like the reference', () => {
   expect(loadPreference(undefined)).toBe(50);
   expect(loadPreference(10)).toBe(25);
   expect(loadPreference(70)).toBe(100);
@@ -145,7 +145,7 @@ test('load balancing and GitHub sharing preferences decode and summarize like th
   const saved = [{ origin: 'http://127.0.0.1:14796', environmentId: 'env-a', label: 'Fixture A' }, { origin: 'https://remote.example.com', environmentId: 'env-b', label: 'Remote' }];
   const page = connectionsProjection(host(), saved, new Map(), JSON.stringify({ loadBalancingEnabled: true, loadBalancingWeights: { 'env-b': 0 },
     githubRouting: { [routingKey('https://remote.example.com', 'env-b')]: 'read-write' } }));
-  expect(page).toMatchObject({ loadBalancing: true, loadSummary: 'Remote manual only', githubSummary: 'Remote read and act' });
+  expect(page).toMatchObject({ loadBalancing: true, loadSummary: 'Remote manual only', routingSummary: 'Remote read and act' });
   expect(page.machines[1]!.weights.find(choice => choice.selected)).toEqual({ value: '0', label: 'Manual only', selected: true });
 });
 
@@ -205,9 +205,9 @@ test('trace IDs copy, preferences persist on this device, and icon writes need a
   await expect(runConnectionOp(native, 'environment-trace', 'k', '', true)).rejects.toThrow('That trace ID is unavailable.');
   await runConnectionOp(native, 'load-balancing', '', 'true', true);
   await runConnectionOp(native, 'load-weight', 'env-b', '25', true);
-  await runConnectionOp(native, 'github-routing', environmentKey('https://remote.example.com', 'env-b'), 'read', true);
+  await runConnectionOp(native, 'pull-request-routing', environmentKey('https://remote.example.com', 'env-b'), 'read', true);
   expect(decodePrefs(native.prefs)).toEqual({ loadBalancingEnabled: true, loadBalancingWeights: { 'env-b': 25 }, githubRouting: { [routingKey('https://remote.example.com', 'env-b')]: 'read' } });
-  await runConnectionOp(native, 'github-routing', environmentKey('https://remote.example.com', 'env-b'), 'off', true);
+  await runConnectionOp(native, 'pull-request-routing', environmentKey('https://remote.example.com', 'env-b'), 'off', true);
   expect(decodePrefs(native.prefs).githubRouting).toEqual({});
   await expect(runConnectionOp(native, 'load-weight', 'env-b', '42', true)).rejects.toThrow('Choose a load preference.');
   await expect(runConnectionOp(native, 'environment-icon', environmentKey('https://remote.example.com', 'env-b'), 'cloud', true)).rejects.toThrow('Connect to this environment to change its icon.');
