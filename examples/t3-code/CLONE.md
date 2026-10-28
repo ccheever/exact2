@@ -94,9 +94,13 @@ app opens the real tree and README source on first entry, then switches to
 Markdown preview. Source rows use authored presentation without native cell
 separators. File title, subtitle and actions now share the native navigation bar
 with the reference editor style. Unwrapped source uses the regular platform
-monospace font and reference gutter geometry. Wrapped typography, the header
-hairline, shared horizontal scrolling and Markdown code styling still differ
-from the reference. Source rows now carry only source fields and reuse their
+monospace font and reference gutter geometry. Wrapped source uses Menlo and the
+reference token traits and insets. One virtualized viewport now pans every line
+together while its opaque line-number gutter stays fixed. The normal iPhone
+drive verifies this on the large schema file, including newly revealed rows,
+wrapping after a pan, a pull to refresh, and opening a second file. Wrapping
+remounts the viewer and resets both offsets as the reference does. The header
+hairline and Markdown code styling still differ. Source rows carry only source fields and reuse their
 highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
 Read failures show an error and Try again instead of an empty body. All 3,705

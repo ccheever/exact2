@@ -119,14 +119,31 @@ component MobileFileView
               scroll flex=1 min-height=0 refresh=refresh
                 text data.contents markup="markdown" padding=14 font-size=16 line-height="23px" color=colors.foreground
             else
-              list id="file-source" appearance="none" flex=1 min-height=0 virtualized=true estimated-item-height=22 padding-bottom=rowHeight refresh=refresh
-                for row in data.rows key=row.id
-                  row min-height=rowHeight align-items="start" background-color=(row.selected ? colors.selection : colors.codeBackground)
-                    text row.newNumber width=46 box-sizing="border-box" padding-right=7 text-align="right" font-family="monospace" font-size=numberSize line-height=`${rowHeight}px` color=colors.tertiary
-                    view flex=1 min-width=0 overflow-x=(wrap ? "hidden" : "auto")
-                      text padding-left=7 padding-right=(wrap ? 17 : 0) font-family="monospace" font-size=fontSize line-height=`${rowHeight}px` white-space=(wrap ? "pre-wrap" : "pre") color=colors.foreground
-                        if row.tokens.length == 0
-                          text (row.text == "" ? " " : row.text)
-                        else
-                          for token in row.tokens key=token.id
-                            text token.text color=token.color
+              // The reference remounts its source renderer when wrapping changes.
+              if wrap
+                MobileFileSource(rows=data.rows, colors=colors, wrap=true, fontSize=fontSize, rowHeight=rowHeight, numberSize=numberSize, refresh=refresh)
+              else
+                MobileFileSource(rows=data.rows, colors=colors, wrap=false, fontSize=fontSize, rowHeight=rowHeight, numberSize=numberSize, refresh=refresh)
+
+component MobileFileSource
+  props
+    rows: FileSourceRow[]
+    colors: ReviewColors
+    wrap: bool
+    fontSize: number
+    rowHeight: number
+    numberSize: number
+    refresh: action
+  view
+    list id="file-source" appearance="none" flex=1 min-height=0 min-width=0 overflow="auto" virtualized=true estimated-item-height=22 padding-top=(wrap ? 8 : 0) padding-bottom=rowHeight refresh=refresh
+      for row in rows key=row.id
+        row min-height=rowHeight min-width="100%" width=(wrap ? "100%" : "32046px") align-items="start" background-color=(row.selected ? colors.selection : colors.codeBackground)
+          column position="sticky" left=0 z-index=1 width=46 flex-shrink=0 align-self="stretch" background-color=colors.codeBackground
+            text row.newNumber flex=1 box-sizing="border-box" padding-right=(wrap ? 10.5 : 7) text-align="right" font-family=(wrap ? "Menlo" : "monospace") font-size=numberSize line-height=`${rowHeight}px` color=colors.tertiary background-color=(row.selected ? colors.selection : colors.codeBackground)
+          view flex=1 min-width=0
+            text padding-left=(wrap ? 0 : 7) font-family=(wrap ? "Menlo" : "monospace") font-size=fontSize line-height=`${rowHeight}px` white-space=(wrap ? "pre-wrap" : "pre") color=colors.foreground
+              if row.tokens.length == 0
+                text (row.text == "" ? " " : row.text)
+              else
+                for token in row.tokens key=token.id
+                  text token.text color=token.color font-weight=(wrap ? token.weight : 400) font-style=(wrap ? token.slant : "normal")
