@@ -125,9 +125,8 @@ test "the lead pages on with no scroll by the reader and stops once 100 rows sta
   clock settle
   tap "mark-read"
   // One scroll: the reader's row, 40 from the end, is 9 rows below the window's first. The first page
-  // brings 50 rows above it (59), so the lead asks the next with no scroll by the reader; at 109 it
-  // stops. (Here a prepend's offset correction is itself a scroll event, which `scrolled` also follows;
-  // `leadOlder` is what keeps the chain on a host that sends none.)
+  // brings 50 rows above it (59), so the lead (leadOlder) asks the next with no scroll by the reader;
+  // at 109 it stops. Without leadOlder the window stops after the first page.
   tap "transcript" into "1562732896249194217"
   clock settle
   expect state topKey == "1562732896249194217"
