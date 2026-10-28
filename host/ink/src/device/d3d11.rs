@@ -45,6 +45,25 @@ struct Prepared {
 }
 
 impl Preparing {
+    /// Prepare WARP first so hardware initialization cannot delay its first frame.
+    /// Both devices overlap app boot; the returned workers are WARP, then hardware.
+    pub fn composition_startup(wake: impl FnOnce() + Send + 'static) -> Result<(Self, Self)> {
+        let (warp_send, warp_receive) = std::sync::mpsc::channel();
+        let (hardware_send, hardware_receive) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("ink-device".into())
+            .spawn(move || {
+                for (warp, send) in [(true, warp_send), (false, hardware_send)] {
+                    let result = std::panic::catch_unwind(|| Prepared::open(warp))
+                        .unwrap_or_else(|_| Err(Error::Device("device worker panicked".into())));
+                    let _ = send.send(result);
+                }
+                wake();
+            })
+            .map_err(|e| Error::Device(e.to_string()))?;
+        Ok((Self(warp_receive), Self(hardware_receive)))
+    }
+
     pub fn start(force_warp: bool) -> Result<Self> {
         Self::with_wake(force_warp, || {})
     }
