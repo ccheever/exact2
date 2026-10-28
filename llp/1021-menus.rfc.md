@@ -5,7 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below). §5.3.3, 2026-10-28 (Claude, Opus 5.5): File ▸ Close Window's chord, `-exact-menu-keys`.
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below). §5.3.3, 2026-10-28 (Claude, Opus 5.5): File ▸ Close Window's chord, `-exact-menu-keys`. §5.1, 2026-10-28 (Claude, Opus 5.5): a keyboard or VoiceOver menu request no node answers gets the menu a right-click there would show, on macOS.
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -1080,8 +1080,21 @@ on a preview as the commit, as QUEUE's reaction-picker note found, so
 the Signal message menu's reaction bar is not a preview, and stays
 authored (a reaction bar beside the menu is its own work). A preview for a node that does not name a
 popover. macOS's preview (none exists). Linux's popover presentation. The
-keyboard route to a context menu (Shift+F10, the context-menu key; QUEUE's
-"Keyboard access to a message's context menu"). Compile-time checks: a
+keyboard route to a context menu outside Apple hosts (Shift+F10, the
+context-menu key; QUEUE's "Keyboard access to a message's context menu").
+On macOS the key and VoiceOver's show menu take the authored path (#314,
+#486). Since 2026-10-28 (Claude, Opus 5.5) a request no node answers gets the
+menu a right-click at the same point would show, as Chrome's own menu follows
+a `contextmenu` nothing prevented: the menu of the view drawn there or of the
+first view above it with one (selected text's, which keeps its selection),
+else the session's view and the responders past it, which hear a secondary
+click's press and release. With nothing focused and text selected, the key
+opens at the left edge of the selection's first line, halfway down it, as
+Blink's `ShowNonLocatedContextMenu` places it. Show menu is offered where an
+authored node answers or a view there holds selected text or a menu; a node
+only a responder past the session's view answers is not offered, and AppKit's
+accessibility server performs show menu there all the same when another
+process asks (measured on macOS 27.2). Compile-time checks: a
 literal `contextPopover` naming no popover, or two `contextPreview` rows,
 is not refused by the compiler. iOS logs both at the press, macOS logs a
 missing popover, and the web logs neither.

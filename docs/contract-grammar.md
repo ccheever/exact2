@@ -1692,7 +1692,15 @@ focused node's centre, after `key` handlers run, with `buttons=0` and
 is sufficient. A text field keeps its editing menu. Drive it with
 `type "row" key "ContextMenu"` or `type "row" key "Shift+F10"`. UIKit presents
 keyboard-invoked actions through its native menu without the long-press preview.
-Disabled controls and inert nodes do not open menus.
+Disabled controls and inert nodes do not open menus. On macOS a request that
+no node answers, from the key or from VoiceOver's show menu, gets the menu a
+right-click at that point would show, as Chrome shows its own menu then: the
+menu of the view drawn there or above it (selected text's), else whatever
+answers past the session's view (an embedder's or an app's responder). No
+`pointerdown` or `contextmenu` fires, and selected text keeps its selection.
+With nothing focused and text selected, the key opens at the selection's first
+line, as Chrome's does. The web shows the browser's own menu; the other hosts
+have no page menu to show.
 
 `wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
 every node from it up that declares it, innermost first. Its `WheelEvent` is

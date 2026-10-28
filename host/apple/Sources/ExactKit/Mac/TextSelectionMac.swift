@@ -218,14 +218,41 @@ package final class TextSelection {
         reported = reported.filter { seen.contains($0.key) }
     }
 
-    private func rectangles(_ node: NodeView, range: NSRange?) -> [CGRect]? {
+    /// Where the ContextMenu key opens with nothing focused while text is
+    /// selected in `window`, as Blink's `ShowNonLocatedContextMenu` places
+    /// it: at the caret where the selection starts, halfway down its line;
+    /// the line's left edge, or its right edge in a right-to-left paragraph,
+    /// in the window; with the paragraph that holds it. Of the selected
+    /// lines, the first one part of which is drawn counts, clipped as
+    /// `Presenter.contextPoint` clips; nil when none is, and the key lands
+    /// at (1,1) as it does with nothing selected.
+    func keyboardMenuPoint(in window: NSWindow) -> (NodeView, NSPoint)? {
+        guard let presenter else { return nil }
+        for node in paragraphs where node.window === window {
+            guard let range = range(node), range.length > 0, let rects = rectangles(node, range: range, inWindow: true) else { continue }
+            let rtl = node.userInterfaceLayoutDirection == .rightToLeft
+            for rect in rects {
+                let shown = presenter.visiblePart(of: rect, in: node)
+                guard !shown.isEmpty else { continue }
+                // The right edge itself is outside the line (`NSPointInRect`).
+                return (node, NSPoint(x: rtl ? max(shown.minX, shown.maxX - 1) : shown.minX, y: shown.midY))
+            }
+        }
+        return nil
+    }
+
+    /// The selected lines of `range` in `node`, as drawn: in the page's
+    /// client space (the clip's, from its scroll origin), or in the window.
+    private func rectangles(_ node: NodeView, range: NSRange?, inWindow: Bool = false) -> [CGRect]? {
         guard let range, let presenter else { return [] }
         let clip = presenter.viewport.contentView
+        let drawn = { (rect: CGRect) in
+            inWindow ? node.drawnRect(rect) : node.drawnRect(rect, in: clip).offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY)
+        }
         if let reader = node.readerParagraph {
             guard let rects = reader.selectionRects(range) else { return nil }
             let origin = node.contentBox().origin
-            return rects.map { node.drawnRect($0.offsetBy(dx: origin.x, dy: origin.y), in: clip)
-                .offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY) }
+            return rects.map { drawn($0.offsetBy(dx: origin.x, dy: origin.y)) }
         }
         guard let paragraph = node.paragraphLayout() else { return [] }
         let selected = paragraph.selectedLines(range, align: node.paragraphSpec().align, in: node.paragraphBox(), dirty: .infinite)
@@ -238,7 +265,7 @@ package final class TextSelection {
                 }
             }
         } else { local = selected.map(\.rect) }
-        return local.map { node.drawnRect($0, in: clip).offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY) }
+        return local.map(drawn)
     }
 
     func set(_ node: NodeView, _ selection: FieldSelection) {
@@ -995,7 +1022,7 @@ extension NodeView: NSServicesMenuRequestor {
     package override func menu(for event: NSEvent) -> NSMenu? {
         guard isParagraph, let selection = presenter?.selection, !contextMenuAuthored,
               inlineContextTarget(at: local(event.locationInWindow)) == nil else { return super.menu(for: event) }
-        if event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+        if !Self.keyboardMenuRequest, event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
            !selection.secondaryClick(self, event: event, answered: {
                // The reader's worker placed the click: its menu opens on the
                // next turn, once the reader has taken the answer in.
@@ -1008,6 +1035,11 @@ extension NodeView: NSServicesMenuRequestor {
         }
         return textMenu(event) ?? super.menu(for: event)
     }
+    /// A request from the keyboard is asking `menu(for:)` (the ContextMenu
+    /// key, VoiceOver's show menu: `Presenter.keyboardMenu`): no pointer
+    /// landed, so selectable text keeps its selection and a list's row
+    /// hears nothing.
+    static var keyboardMenuRequest = false
     /// AppKit's menu for the selection, with the Services that take its text.
     private func textMenu(_ event: NSEvent) -> NSMenu? {
         guard let menu = presenter?.selection.systemMenu(for: self, event: event) else { return nil }
