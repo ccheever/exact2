@@ -1448,7 +1448,8 @@ component Composer
   bound `color` takes one (`light-dark()`, a theme entry's name, a role, a
   `-exact-platform-color()` only as one of the app's literals), or empty for
   the kind's. A colour that is none, or `inherit`, leaves the kind's paint, and
-  the journal says so.
+  the journal says so. A face takes no colour in a profile's space
+  (`color(--…)`).
 - `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that
