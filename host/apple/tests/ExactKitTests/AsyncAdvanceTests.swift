@@ -146,6 +146,12 @@ final class AsyncAdvanceTests: XCTestCase {
     func testADelayedAdvanceObservesWhenItRunsAndKeepsItsPhase() throws {
         let session = try booted()
         session.presenter.onPress?(try XCTUnwrap(id(session, "beat")))
+        // On a loaded machine the press's batch can land after its first beat is due, and landing posts that beat's
+        // advance itself (landFill's advanceIfDue): each such lands first, so the advance this test posts is the only
+        // one in flight, and its beats count from there.
+        for _ in 0..<10 where session.advanceInFlight { session.drainFill() }
+        XCTAssertFalse(session.advanceInFlight)
+        let before = try XCTUnwrap(slot(session, "beats") as? Double)
         let due = try XCTUnwrap(session.timerDue)
         while session.now() < due + 1 { Thread.sleep(forTimeInterval: 0.002) }
         let release = DispatchSemaphore(value: 0)
@@ -154,12 +160,16 @@ final class AsyncAdvanceTests: XCTestCase {
         session.sendAdvance(now: posted) // returns while the owner is busy: main is free
         Thread.sleep(forTimeInterval: 0.06)
         release.signal()
-        session.drainFill()
-        XCTAssertFalse(session.advanceInFlight)
-        XCTAssertEqual(slot(session, "beats") as? Double, 1, "missed beats fire once")
+        // What the posted advance did, read through the owner before main lands it: landing it posts the next
+        // beat's advance at once when that beat is due already (on a loaded machine, landFill's advanceIfDue),
+        // whose beat a later read would count too.
+        XCTAssertEqual(slot(session, "beats") as? Double, before + 1, "missed beats fire once")
         let seen = try XCTUnwrap(slot(session, "seen") as? Double)
         XCTAssertGreaterThanOrEqual(seen, posted + 55, "`now` is when the owner ran it")
+        session.drainFill()
+        // (the landed advance's next beat: one posted on landing has not landed, and is in flight only if that beat is due)
         let next = try XCTUnwrap(session.timerDue)
+        XCTAssert(!session.advanceInFlight || session.now() >= next, "nothing in flight but the next beat's, due already")
         XCTAssertGreaterThan(next, seen)
         XCTAssertLessThanOrEqual(next, seen + 40)
         XCTAssertEqual((next - due).truncatingRemainder(dividingBy: 40), 0, accuracy: 0.001, "on the phase of the beat it was scheduled for")
@@ -176,7 +186,11 @@ final class AsyncAdvanceTests: XCTestCase {
         XCTAssertTrue(session.advanceInFlight, "posted")
         XCTAssertEqual(slot(session, "beats") as? Double, 1, "the owner runs it before a later read")
         session.drainFill()
-        XCTAssertFalse(session.advanceInFlight)
+        // Landed: its next beat is scheduled past it. Landing posts that beat's advance at once when it is due already
+        // (on a loaded machine, landFill's advanceIfDue), so one in flight now is only that beat's.
+        let next = try XCTUnwrap(session.timerDue)
+        XCTAssertGreaterThan(next, due, "landed")
+        XCTAssert(!session.advanceInFlight || session.now() >= next, "nothing in flight but the next beat's, due already")
     }
 }
 #endif
