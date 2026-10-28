@@ -29,7 +29,7 @@ test('the clone\'s live reads land within clock data, and fall back when they fa
     const run = async (name, text) => {
       const file = resolve(dir, name);
       writeFileSync(file, text);
-      return runTests({ host: 'web', file, app: dir, url: page.url.href, atStep: () => server.arm() });
+      return runTests({ host: 'web', file, app: dir, url: page.url.href, atStep: () => server.arm(), atEnd: async () => { server.gate(); } });
     };
     const answered = await run('app.test.contract', TESTS);
     expect(answered.results.map(r => [r.name, r.failures])).toEqual(answered.results.map(r => [r.name, []]));

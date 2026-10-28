@@ -24,7 +24,7 @@ test.skipIf(!process.env.EXACT_LIVE_READS_WASM_DIST)('the clone\'s live reads la
     const run = async (name, text) => {
       const file = resolve(dir, name);
       writeFileSync(file, text);
-      return runTests({ host: 'web', file, url: page.url.href, webDist: dist, atStep: () => server.arm() });
+      return runTests({ host: 'web', file, url: page.url.href, webDist: dist, atStep: () => server.arm(), atEnd: async () => { server.gate(); } });
     };
     const answered = await run('app.test.contract', TESTS);
     expect(answered.results.map(r => [r.name, r.failures])).toEqual(answered.results.map(r => [r.name, []]));

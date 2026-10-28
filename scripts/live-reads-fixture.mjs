@@ -122,6 +122,7 @@ component LiveReads
 
 /** The tests with every read answered. */
 export const TESTS = `test "Discover's poll: a timer's re-ask lands within clock data, and the load-new-posts button follows the scroll"
+  before data
   tap "arm"
   clock data
   expect state posts == 30
@@ -148,6 +149,7 @@ export const TESTS = `test "Discover's poll: a timer's re-ask lands within clock
   expect tree missing "loadLatestBtn"
 
 test "Explore's tabs: each tap's fetch is waited on, and Top's 403 is the source's to shape"
+  before data
   tap "arm"
   clock data
   tap "search-tab-top"
@@ -162,6 +164,7 @@ test "Explore's tabs: each tap's fetch is waited on, and Top's 403 is the source
   expect tree has "feed-results"
 
 test "Content & Media: a config read gates the switches, and the setting kept on the device survives a reload"
+  before data
   tap "arm"
   clock data
   expect tree has "show_trending_topics"
@@ -178,6 +181,7 @@ test "Content & Media: a config read gates the switches, and the setting kept on
 
 /** The same reads failing: each falls back, and every `clock data` still ends. */
 export const FAILING_TESTS = `test "a poll that fails leaves no new posts"
+  before data
   tap "arm"
   clock data
   expect state posts == 0
@@ -188,6 +192,7 @@ export const FAILING_TESTS = `test "a poll that fails leaves no new posts"
   expect tree missing "loadLatestBtn"
 
 test "a search that fails says so"
+  before data
   tap "arm"
   clock data
   tap "search-tab-people"
@@ -199,6 +204,7 @@ test "a search that fails says so"
   expect tree has "feeds-failed"
 
 test "a config read that fails shows no switches"
+  before data
   tap "arm"
   clock data
   expect state configAnswered == true
@@ -206,7 +212,8 @@ test "a config read that fails shows no switches"
   expect tree missing "show_trending_videos"
 `;
 
-/** Bluesky's reads, each answered no sooner than `delay` ms after it came or after the last `arm`: Discover's feed
+/** Bluesky's reads, each answered no sooner than `delay` ms after it came or after the last `arm`, and not before the
+ * first `arm` after a `gate`: Discover's feed
  * (30 posts, one more for each load of new posts) and a poll of it (`count` new), searchPosts (403, a search
  * refused), searchActors, getPopularFeedGenerators and unspecced.getConfig, typed as Bluesky types them. `failing`
  * answers every one 500. `seen` lists the paths asked, in order. */
@@ -214,9 +221,15 @@ export function blueskyServer({ delay = 300, port = 0 } = {}) {
   const seen = [];
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'content-type': 'application/json' };
   const state = { failing: false };
-  // Each answer waits `delay` ms; `arm` restarts that wait for every answer still withheld.
+  // Each answer waits `delay` ms; `arm` restarts that wait for every answer still withheld. Gated (from the start,
+  // and from each test's end, `gate`), an answer waits for the next `arm`: a launch's reads land only after the
+  // test's first input, however long the launch took.
   const withheld = new Set();
-  const hold = answer => { answer.timer = setTimeout(() => { withheld.delete(answer); answer(); }, delay); withheld.add(answer); };
+  let gated = true;
+  const hold = answer => {
+    withheld.add(answer);
+    if (!gated) answer.timer = setTimeout(() => { withheld.delete(answer); answer(); }, delay);
+  };
   const json = (body, status = 200) => new Promise(ok => hold(() => ok(new Response(JSON.stringify(body), { status, headers: cors }))));
   const server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch(req) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
@@ -241,7 +254,9 @@ export function blueskyServer({ delay = 300, port = 0 } = {}) {
   return {
     origin: `http://127.0.0.1:${server.port}`, seen, state,
     /** An input step landed (runTests' `atStep`): what it asked is answered no sooner than `delay` ms from now. */
-    arm: () => { for (const answer of [...withheld]) { clearTimeout(answer.timer); withheld.delete(answer); hold(answer); } },
+    arm: () => { gated = false; for (const answer of [...withheld]) { clearTimeout(answer.timer); withheld.delete(answer); hold(answer); } },
+    /** A test ended (runTests' `atEnd`): the next launch's reads wait for its first input. */
+    gate: () => { gated = true; },
     stop: () => server.stop(true),
   };
 }
