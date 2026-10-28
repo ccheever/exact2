@@ -100,18 +100,7 @@ final class Viewport: ScrollView {
 }
 /// Bound focus search to a native route or modal presentation, as the
 /// document viewport does (LLP 1123 D2).
-final class PresentationMount: UIView, RestsTint {
-    /// Its tint undimmed, for the nodes mounted here, as the viewport keeps its own (`RestsTint`)
-    var restingTint: UIColor? { tintAdjustmentMode == .dimmed ? undimmedTint : tintColor }
-    private var undimmedTint: UIColor?
-    override func tintColorDidChange() {
-        super.tintColorDidChange()
-        if tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
-    }
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil, tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
-    }
+final class PresentationMount: RestingTintView {
     #if os(iOS)
     /// Relay a modal presentation's events to its logical ancestors (`MountRelay`).
     var relay: MountRelay?

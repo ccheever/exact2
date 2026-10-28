@@ -365,6 +365,68 @@ final class TintDimmingIOSTests: XCTestCase {
         embedder.tintAdjustmentMode = .automatic
     }
 
+    /// Text in the tint in a lifted popover keeps the tint its layer had undimmed while dimmed: the
+    /// layer keeps it, as a route's view does
+    func testAStatusInAPopoverLayerKeepsItsTintWhileDimmed() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Parked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let embedder = UIView(frame: window.bounds)
+        embedder.tintColor = color(red)
+        window.addSubview(embedder)
+        let layer = PopoverLayer(presenter: p, order: 0, popover: UIView())
+        embedder.addSubview(layer)
+        let status = try XCTUnwrap(p.views[1])
+        layer.addSubview(status)
+        assertChannels(try runChannels(status), red, "the embedder's tint before the dimming")
+        embedder.tintAdjustmentMode = .dimmed
+        window.layoutIfNeeded()
+        assertChannels(try runChannels(status), red, "the embedder's tint while dimmed")
+        embedder.tintAdjustmentMode = .automatic
+    }
+
+    /// Text in the tint in a dialog's sheet keeps the tint the sheet had undimmed while an alert over
+    /// the sheet dims it and its window: the sheet's view keeps it, as a route's does
+    func testAStatusInADialogSheetKeepsItsTintWhileTheSheetIsDimmed() throws {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+            throw missing("scene", "a sheet's view joins its window only in a scene")
+        }
+        let p = Presenter(), controller = UIViewController()
+        window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        window.tintColor = color(red)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { p.menus.reset(); window.isHidden = true }
+        p.viewport.frame = controller.view.bounds
+        controller.view.addSubview(p.viewport)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "props": ["id": "page"]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "form", "semanticTag": "dialog"]],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 300.0, "w": 300.0, "h": 180.0],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
+            ["op": "frame", "id": 3, "x": 20.0, "y": 20.0, "w": 100.0, "h": 22.0],
+            ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+        ]))
+        p.dialogCommand("showModal", "form")
+        let sheet = try XCTUnwrap(controller.presentedViewController as? DialogSheetController, "the dialog's sheet")
+        until("the sheet is shown") { sheet.view.window != nil && !p.menus.inTransition }
+        let status = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(status.isDescendant(of: sheet.view), "the status is in the dialog's sheet")
+        assertChannels(try runChannels(status), red, "the window's tint before the dimming")
+        // UIKit dims the presenting controller's view under an alert: here the sheet's
+        window.tintAdjustmentMode = .dimmed
+        sheet.view.tintAdjustmentMode = .dimmed
+        window.layoutIfNeeded()
+        XCTAssertEqual(status.tintAdjustmentMode, .dimmed, "the status is dimmed")
+        assertChannels(try runChannels(status), red, "the window's tint while the sheet is dimmed")
+        sheet.view.tintAdjustmentMode = .automatic
+        window.tintAdjustmentMode = .automatic
+    }
+
     /// A symbol in a custom control greys with it, and its colour comes back
     func testASymbolInAControlGreysWithIt() throws {
         let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]]

@@ -40,7 +40,8 @@ enum TintDimming {
 }
 
 /// A view a session's nodes are mounted in: the viewport, the `DocumentMount` native navigation
-/// holds the document fixed in, or a route's or a modal's `PresentationMount`. It keeps its tint
+/// holds the document fixed in, a route's or a modal's `PresentationMount`, a dialog sheet's view,
+/// or a `PopoverLayer`. It keeps its tint
 /// undimmed, its embedder's or its window's, which a
 /// status outside a control keeps while UIKit dims tints (`NodeView.restingTint`): the one it last
 /// had, while it is dimmed. It takes one as it joins a window and whenever its tint changes undimmed.
@@ -51,6 +52,20 @@ protocol RestsTint: UIView {
 }
 
 extension Viewport: RestsTint {}
+
+/// A view nodes are mounted in that keeps its tint undimmed (`RestsTint`), as the viewport does
+package class RestingTintView: UIView, RestsTint {
+    private var undimmedTint: UIColor?
+    var restingTint: UIColor? { tintAdjustmentMode == .dimmed ? undimmedTint : tintColor }
+    package override func tintColorDidChange() {
+        super.tintColorDidChange()
+        if tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
+    }
+    package override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil, tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
+    }
+}
 
 extension NodeView {
     /// This node or one above it is a control
@@ -158,7 +173,7 @@ extension NodeView {
     /// The paragraph's runs as it paints them now: every run greyed while it dims its paint, and
     /// outside a control a link's where the paragraph names the tint (`tinted`), as UIKit greys a
     /// link in the tint. A link is a run with an `href`, or in a paragraph of inline runs one at or
-    /// beneath a run with an `href` or a press (`activates`). A run keeps no record of where its
+    /// beneath a run with an `href` or a press (`activationTarget(from:)`). A run keeps no record of where its
     /// colour came from, so a link in a fixed colour greys too when another run in its paragraph
     /// names the tint.
     func dimmedRuns(_ runs: inout [Run], strut: inout Run, tinted: Bool) {
@@ -167,22 +182,11 @@ extension NodeView {
         // The inline runs `paragraphSpec` made `runs` from, one each
         let painted = props["text"] == nil ? inlineText.filter(\.paints) : []
         for i in runs.indices {
-            if all { runs[i].greyColors() } else if tinted, !runs[i].href.isEmpty || (i < painted.count && activates(painted[i])) {
+            if all { runs[i].greyColors() } else if tinted, !runs[i].href.isEmpty || (i < painted.count && activationTarget(from: painted[i]) != nil) {
                 runs[i].greyColors(uikitAlpha: true)
             }
         }
         if all { strut.greyColors() }
-    }
-
-    /// Whether a press on inline run `leaf` does something: it or a run it stands in has an `href`
-    /// or a press, as `inlineActivationTarget` finds them
-    private func activates(_ leaf: InlineText) -> Bool {
-        var run: InlineText? = leaf
-        while let current = run {
-            if current.handlers.contains("press") || !(current.props["href"] ?? "").isEmpty { return true }
-            run = presenter?.inlineText(current.parent)
-        }
-        return false
     }
 }
 
