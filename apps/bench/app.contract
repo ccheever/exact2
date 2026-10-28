@@ -1,0 +1,240 @@
+// Bench (LLP 1133.037 §12.2): a serial monitor for a development board, and a firmware updater for a board in
+// USB DFU mode. Native hosts list what is plugged in (the attached list, D3); the web asks the browser's chooser.
+use serialStatus, requestPort, open as openPort, serialConnection, setSignals, close as closePort, SerialStatus, SerialPortRecord, SerialOpened, SerialConnection from "@exact/serial"
+use usbStatus, requestDevice as requestBoard, USBStatus, USBDeviceRecord, USBDeviceFilter from "@exact/usb"
+
+shape LogLine
+  id: number
+  text: string
+  error: string
+shape SerialLog
+  lines: LogLine[]
+  total: number
+  done: bool
+  error: string
+shape Cleared
+  cleared: bool
+shape Sent
+  sent: bool
+  error: string
+shape Started
+  job: string
+  total: number
+  error: string
+shape Stepped
+  job: string
+  written: number
+  total: number
+  wait: number
+  done: bool
+  error: string
+
+fn portLabel(p: SerialPortRecord): string = p.name != "" ? p.name : p.id
+fn inUse(code: string): bool = code == "InvalidStateError" or code == "NetworkError"
+
+component App
+  state tab = "monitor"
+  // The serial monitor.
+  // The last port, rate and line ending, as a serial monitor keeps them.
+  state port = "" persist
+  state baud = 115200 persist
+  state ending = "crlf" persist
+  state draft = ""
+  state connection = ""
+  state resetting = false
+  resource serial = serialStatus() as shape SerialStatus else empty()
+  // The ports plugged in where the platform lists them (D3), else those the person chose in the browser.
+  resource ports = portList(serial.attachedList) as shape SerialPortRecord[] else empty()
+  derive chosen = ports.filter(p => p.id == port)
+  derive portHere = chosen.filter(p => p.connected).length > 0
+  derive portRefused = chosen.filter(p => not p.granted).length > 0 and serial.state == "granted"
+  mutation picked as shape SerialPortRecord then pickedPort
+  mutation opened as shape SerialOpened then connected
+  resource conn = serialConnection(connection=connection) as shape SerialConnection else empty()
+  resource log = serialLog(connection) as shape SerialLog else empty()
+  derive unplugged = connection != "" and (not conn.connected or log.error == "Disconnected")
+  derive openFailure = match failure(opened) { case some(f) => f.code, case none => "" }
+  mutation sent as shape Sent
+  mutation cleared as shape Cleared refreshes log
+  task release when resetting
+    after(100, released)
+  // The firmware updater.
+  state board = ""
+  state image = ""
+  state imageName = ""
+  state job = ""
+  state written = 0
+  state total = 0
+  state stepAt = 0
+  state updateError = ""
+  state updated = false
+  resource usb = usbStatus() as shape USBStatus else empty()
+  resource boards = boardList(usb.attachedList) as shape USBDeviceRecord[] else empty()
+  mutation pickedBoard as shape USBDeviceRecord then boardPicked
+  mutation started as shape Started then begun
+  mutation stepped as shape Stepped then stepDone
+  derive updating = job != ""
+  // The DFU interfaces: the application-specific class's DFU subclass (USB class codes, 0xFE/0x01).
+  derive dfuFilter = [USBDeviceFilter(vendorId=none, productId=none, classCode=some(254), subclassCode=some(1), protocolCode=none, serialNumber=none)]
+  derive startedJob = match started { case some(s) => s.job, case none => "" }
+  derive startedError = match started { case some(s) => s.error, case none => "" }
+  derive startedTotal = match started { case some(s) => s.total, case none => 0 }
+  derive stepDoneNow = match stepped { case some(s) => s.done, case none => true }
+  derive stepWait = match stepped { case some(s) => s.wait, case none => 0 }
+  derive stepWritten = match stepped { case some(s) => s.written, case none => 0 }
+  derive stepError = match stepped { case some(s) => s.error, case none => "" }
+  // One step of the update at a time, each after the wait the board asked for (DFU's bwPollTimeout).
+  task stepping when updating and not pending(stepped)
+    every(10, step)
+
+  action show(t: string)
+    tab = t
+  action pickPort(id: string)
+    port = id
+  action choosePort
+    send picked = requestPort()
+  action pickedPort
+    port = match picked { case some(p) => p.id, case none => port }
+  action pickBaud(b: string)
+    baud = match parseNumber(b) { case some(n) => n, case none => baud }
+  action pickEnding(e: string)
+    ending = e
+  action connect
+    send opened = openPort(port=port, baudRate=baud)
+  action connected
+    connection = match opened { case some(o) => o.connection, case none => "" }
+  action disconnect
+    closePort(connection=connection)
+    connection = ""
+  action resetBoard
+    setSignals(connection=connection, requestToSend=true)
+    resetting = true
+  action released
+    setSignals(connection=connection, requestToSend=false)
+    resetting = false
+  action type(v: string)
+    draft = v
+  action sendDraft
+    send sent = sendLine(connection, draft, ending)
+    draft = ""
+  action clear
+    send cleared = clearLog(connection)
+
+  action pickBoard(id: string)
+    board = id
+  action chooseBoard
+    send pickedBoard = requestBoard(filters=dfuFilter)
+  action boardPicked
+    board = match pickedBoard { case some(b) => b.id, case none => board }
+  action filePicked(files: Picked[])
+    image = match files.at(0) { case some(f) => f.path, case none => image }
+    imageName = match files.at(0) { case some(f) => f.name, case none => imageName }
+  action pickFile
+    showPicker("image")
+  action update
+    updateError = ""
+    updated = false
+    written = 0
+    send started = startUpdate(board, image)
+  action begun
+    updateError = startedError
+    job = startedJob
+    total = startedTotal
+    stepAt = 0
+  action step
+    if performanceNow() >= stepAt
+      send stepped = continueUpdate(job)
+  action stepDone
+    written = stepWritten
+    stepAt = performanceNow() + stepWait
+    if stepDoneNow
+      job = ""
+      updateError = stepError
+      updated = stepError == ""
+
+  view
+    column height="100%" testId="app"
+      header appearance="none" display="flex" align-items="center" gap=12 padding="8px 16px"
+        h1 "Bench" flex=1
+        row role="tablist" aria-label="Tools" gap=4
+          button role="tab" aria-selected=(tab == "monitor") press=show("monitor") testId="tab-monitor"
+            text "Serial Monitor"
+          button role="tab" aria-selected=(tab == "update") press=show("update") testId="tab-update"
+            text "Firmware Update"
+      if tab == "monitor"
+        column role="tabpanel" flex=1 min-height=0 gap=8 padding="0px 16px 16px"
+          if not serial.available
+            text "This device has no serial ports." testId="no-serial"
+          else
+            row gap=8 align-items="center" flex-wrap="wrap"
+              if serial.attachedList
+                select value=port change=pickPort aria-label="Port" testId="port"
+                  option (ports.length == 0 ? "No Ports" : "Choose a Port") value=""
+                  for p in ports key=p.id
+                    option portLabel(p) value=p.id
+              else
+                button press=choosePort testId="choose-port"
+                  text "Choose Port…"
+                for p in chosen key=p.id
+                  text portLabel(p) testId="chosen-port"
+              select value=`${baud}` change=pickBaud aria-label="Baud rate" testId="baud"
+                for b in [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600] key=b
+                  option `${b}` value=`${b}`
+              select value=ending change=pickEnding aria-label="Line ending" testId="ending"
+                option "No Line Ending" value="none"
+                option "LF" value="lf"
+                option "CR" value="cr"
+                option "CR LF" value="crlf"
+              if connection == ""
+                button press=connect disabled=(port == "" or not portHere or pending(opened)) testId="connect"
+                  text "Connect"
+              else
+                button press=disconnect testId="disconnect"
+                  text "Disconnect"
+                button press=resetBoard disabled=(resetting or unplugged) testId="reset-board"
+                  text "Reset Board"
+              button press=clear disabled=(connection == "") testId="clear"
+                text "Clear"
+            if inUse(openFailure) and connection == ""
+              text "In use: another program or window has this port open." color="-exact-system-red" testId="in-use"
+            if portRefused
+              text "This port can't be opened: add a udev rule that gives your user access to it." testId="udev"
+            if unplugged
+              text "Disconnected" color="-exact-secondary-label" testId="disconnected"
+            list aria-label="Log" flex=1 min-height=0 testId="log"
+              for l in log.lines key=l.id
+                row gap=8
+                  text l.text font="-exact-footnote" font-family="monospace" color=(l.error != "" ? "-exact-secondary-label" : "-exact-label") flex=1 testId=`line-${l.id}`
+            row gap=8
+              input value=draft input=type submit=sendDraft disabled=(connection == "" or unplugged) placeholder="Send to the board" aria-label="Send" testId="send" flex=1 min-width=0
+      else
+        column role="tabpanel" flex=1 min-height=0 gap=12 padding="0px 16px 16px"
+          if not usb.available
+            text "This device can't reach USB devices." testId="no-usb"
+          else
+            if usb.attachedList
+              select value=board change=pickBoard aria-label="Board" testId="board"
+                option (boards.length == 0 ? "No Boards in DFU Mode" : "Choose a Board") value=""
+                for b in boards key=b.id
+                  option (b.productName != "" ? b.productName : b.id) value=b.id
+            else
+              button press=chooseBoard testId="choose-board"
+                text "Choose Board…"
+              for b in boards.filter(b => b.id == board) key=b.id
+                text b.productName testId="chosen-board"
+            if boards.length == 0
+              text "Put the board in DFU mode and plug it in. On Windows, the board must use the WinUSB driver." color="-exact-secondary-label" testId="no-boards"
+            input type="file" id="image" display="none" change=filePicked testId="image-input"
+            row gap=8 align-items="center"
+              button press=pickFile disabled=updating testId="choose-file"
+                text "Choose File…"
+              text (imageName == "" ? "No file chosen" : imageName) flex=1 testId="file-name"
+            button press=update disabled=(board == "" or image == "" or updating) buttonStyle="bordered-prominent" testId="update"
+              text (updating ? "Updating…" : "Update")
+            if total > 0
+              progress value=written max=total aria-label="Update progress" testId="progress"
+              text `${floor(written * 100 / total)} %` font-variant-numeric="tabular-nums" testId="percent"
+            if updateError != ""
+              text updateError color="-exact-system-red" testId="update-error"
+            if updated
+              text "Updated. The board restarts with the new firmware." testId="updated"

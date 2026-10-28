@@ -8,7 +8,6 @@
 // Paging moves the anchor a page ahead of the reader (`scrolled`, with
 // `reachstart` and `reachend` behind it); a jump replaces the window and places
 // its target with `scrollIntoView`.
-
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, MediaPreferences, Place, Viewport, Page, noAnswers, channelOf, connected, draftOf, withDraft, placeOf, piece, keyOf, Time, typingDot from "./shapes.contract"
 use MessageLanguage, Translated, withTranslated, pendingLineOf from "./translate.contract"
 use translatorAvailability, createTranslator, translate, createLanguageDetector, TranslatorAvailability, TranslatorInfo, TranslatorResult, LanguageDetectorInfo from "@exact/translation"
@@ -24,7 +23,7 @@ use authenticate, localAuthStatus, LocalAuthentication, LocalAuthStatus from "@e
 use requestAgeRange, AgeRange from "@exact/age-range"
 use loginItemStatus, registerLoginItem, unregisterLoginItem, openLoginItemSettings, LoginItemStatus from "@exact/login-item"
 use requestAttention from "@exact/dock"
-
+use MentionLightItems from "./light.contract"
 // A picture's route is the list's child, not its channel's: a reload at its address opens over the
 // list alone, so `strayViewer` can give that one history entry the channel's address.
 routes nav
@@ -338,6 +337,7 @@ component Excord
     after(1, toSignIn)
   members "./routing.contract"
   members "./viewer.contract"
+  members "./light.contract"
   task digest when gw.queued > 0 and not pending(digested) key=gw.seq
     after(1, digestNow)
   task traffic when live and open != ""
@@ -1257,6 +1257,7 @@ component Excord
               if match login.windows { case some(w) => true, case none => false }
                 button press=toggleTray popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=keepInTray testId="tray-switch"
                   text "Keep Excord Running in the Notification Area"
+              MentionLightItems(hid=hid, lightId=lightId, known=(lights.length > 0), on=mentionLight, toggle=toggleLight, choose=chooseLight)
               if not gw.fixture
                 hr
                 button press=askSignOut destructive=true popovertarget="account-menu" popovertargetaction="hide" testId="menu-sign-out"

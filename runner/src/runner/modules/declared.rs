@@ -111,7 +111,7 @@ impl<D: DataSource> Runner<D> {
         self.extensions.declared.app = Some(state);
     }
 
-    fn app_state(&mut self) -> AppState {
+    pub(in crate::runner) fn app_state(&mut self) -> AppState {
         self.extensions
             .declared
             .app
@@ -336,6 +336,12 @@ impl<D: DataSource> Runner<D> {
     /// What `row`'s declaration says its call does to the agent's state: a
     /// refusal where an `update` finds nothing in the state it changes.
     fn apply_effect(&mut self, row: &ModulesRow, args: &Json) -> Result<(), Json> {
+        if let Some(answer) = self.device_effect(row, args) {
+            return match error_code(&answer) {
+                Some(_) => Err(answer),
+                None => Ok(()),
+            };
+        }
         if let Some(answer) = self.apply_reach(row, args) {
             return if answer.is_null() {
                 Ok(())

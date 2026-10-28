@@ -617,7 +617,10 @@ impl<D: DataSource> Runner<D> {
                 self.shortcut_released(row, None);
                 self.decide_timed(row, send, timeout, args)
             }
-            Route::Substitute => self.decide_timed(row, send, timeout, args),
+            Route::Substitute => match self.device_decide(row, send, args) {
+                Some(decision) => decision,
+                None => self.decide_timed(row, send, timeout, args),
+            },
         };
         // A name whose grants are per argument asks permission only for an
         // argument it was given: `getUserMedia(audio=false)` asks for no

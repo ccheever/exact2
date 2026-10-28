@@ -169,7 +169,12 @@ impl<D: DataSource> Runner<D> {
         if let Some(state) = self.extensions.permission.get(name) {
             return state.clone();
         }
-        (declared["initial"].as_str().map(str::to_owned)).unwrap_or_else(|| "prompt".into())
+        // By target where it differs (`{"android": "prompt", "*": "granted"}`, LLP 1133.037 D17).
+        let initial = &declared["initial"];
+        (initial.as_str())
+            .or(initial[self.host_target()].as_str())
+            .or(initial["*"].as_str())
+            .map_or_else(|| "prompt".into(), str::to_owned)
     }
 
     /// A `choose` send's ticket, where its status reads what `while` names

@@ -360,12 +360,14 @@ function mavenGraph(app, writeLocks) {
 function extensionArgs(app, out, config) {
   const bound = androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
   rmSync(generated, { recursive: true, force: true });
-  let permissions = [], services = {};
+  let permissions = [], services = {}, features = [];
   try {
     const reach = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).reach;
     permissions = reach?.android ?? [];
     // The reader's foreground services the lines declare, with their purposes' text (LLP 1133.033 D2).
     services = reach?.androidServices ?? {};
+    // Hardware the lines use where it is present, never required (LLP 1133.037 D17: USB host mode).
+    features = reach?.androidFeatures ?? [];
   } catch { /* no bake output: none */ }
   // And what the module names the app calls derive beside their lines (`android_entry`'s `permissions.txt`, LLP 1133.018 D11).
   try { permissions = [...new Set([...permissions, ...readFileSync(resolve(out, 'permissions.txt'), 'utf8').split('\n').filter(Boolean)])].sort(); } catch { /* none */ }
@@ -390,7 +392,8 @@ function extensionArgs(app, out, config) {
   rmSync(fragmentFile, { force: true });
   if (fragment) { mkdirSync(dirname(fragmentFile), { recursive: true }); writeFileSync(fragmentFile, fragment); }
   return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : []),
-    ...(fragment ? [`-PmanifestFragment=${fragmentFile}`] : []), ...(Object.keys(services).length ? [`-PforegroundServices=${JSON.stringify(services)}`] : [])];
+    ...(fragment ? [`-PmanifestFragment=${fragmentFile}`] : []), ...(Object.keys(services).length ? [`-PforegroundServices=${JSON.stringify(services)}`] : []),
+    ...(features.length ? [`-PandroidFeatures=${features.join(',')}`] : [])];
 }
 
 if (import.meta.main && process.argv[2] === 'relay') {

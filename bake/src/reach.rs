@@ -165,6 +165,7 @@ pub(crate) fn derive(
     let (mut modes, mut tasks): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     // Android's permissions: the Canvas host on Android bakes as Linux.
     let mut android: Vec<&str> = Vec::new();
+    let mut features: Vec<&str> = Vec::new();
     // The reader's foreground services the lines declare, each with every
     // type its lines give it and the base locale's purpose text of the first
     // line naming it, its notification's title and channel name (LLP
@@ -211,6 +212,7 @@ pub(crate) fn derive(
             }
             "linux" => {
                 android.extend(grant.device.android);
+                features.extend(grant.device.android_features);
                 for pair in grant.device.android_services {
                     let (kind, kind_type) = pair.split_once(':').unwrap_or((pair, ""));
                     let service = services
@@ -333,6 +335,11 @@ pub(crate) fn derive(
     }
     if !values.is_empty() {
         compat.reach["entitlementValues"] = Value::Object(values);
+    }
+    features.sort_unstable();
+    features.dedup();
+    if !features.is_empty() {
+        compat.reach["androidFeatures"] = json!(features);
     }
     Ok(())
 }

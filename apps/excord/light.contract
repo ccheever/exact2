@@ -1,0 +1,41 @@
+// The mention light (LLP 1133.037 §12.1): a blink(1) on the desk lit red while mentions wait, the account
+// menu's switch for it, and on the web the browser's chooser the first time. Native hosts find the light
+// plugged in (`hid.attachedList`); `light.ts` chooses that list or the remembered one, and sends the reports.
+use hidStatus, requestDevice as requestLight, HIDStatus, HIDDeviceRecord, HIDDeviceFilter from "@exact/hid"
+use Lit from "./shapes.contract"
+
+members Excord
+  state mentionLight = false persist
+  derive lightFilter = [HIDDeviceFilter(vendorId=some(10168), productId=some(493), usagePage=none, usage=none)]
+  resource hid = hidStatus() as shape HIDStatus else empty()
+  resource lights = mentionLights(hid.attachedList) as shape HIDDeviceRecord[] else empty()
+  mutation chosenLight as shape HIDDeviceRecord[]
+  derive lightId = match lights.filter(l => l.connected).at(0) { case some(l) => l.id, case none => "" }
+  resource lit = setMentionLight(lightId, mentionLight and not locked and mentionTotal > 0) as shape Lit else empty()
+  action toggleLight
+    mentionLight = not mentionLight
+  action chooseLight
+    send chosenLight = requestLight(filters=lightFilter)
+    mentionLight = true
+
+// The account menu's items: the switch, Not Connected for a light unplugged, Choose Light… on the web.
+component MentionLightItems
+  props
+    hid: HIDStatus
+    lightId: string
+    known: bool
+    on: bool
+    toggle: action
+    choose: action
+  view
+    if hid.available and (lightId != "" or on or not hid.attachedList)
+      hr
+      if lightId != ""
+        button press=toggle popovertarget="account-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=on testId="light-switch"
+          text "Mention Light"
+      else if known or (on and hid.attachedList)
+        button disabled=true testId="light-missing"
+          text "Mention Light: Not Connected"
+      if lightId == "" and not hid.attachedList
+        button press=choose popovertarget="account-menu" popovertargetaction="hide" testId="choose-light"
+          text "Choose Light…"

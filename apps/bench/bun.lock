@@ -1,0 +1,18 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "bench",
+      "dependencies": {
+        "@exact/serial": "file:../../packages/serial",
+        "@exact/usb": "file:../../packages/usb",
+      },
+    },
+  },
+  "packages": {
+    "@exact/serial": ["@exact/serial@file:../../packages/serial", {}],
+
+    "@exact/usb": ["@exact/usb@file:../../packages/usb", {}],
+  }
+}

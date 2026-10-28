@@ -7,6 +7,7 @@
       "dependencies": {
         "@exact/age-range": "file:../../packages/age-range",
         "@exact/dock": "file:../../packages/dock",
+        "@exact/hid": "file:../../packages/hid",
         "@exact/local-auth": "file:../../packages/local-auth",
         "@exact/login-item": "file:../../packages/login-item",
         "@exact/translation": "file:../../packages/translation",
@@ -18,6 +19,7 @@
     "@exact/age-range": ["@exact/age-range@file:../../packages/age-range", {}],
 
     "@exact/dock": ["@exact/dock@file:../../packages/dock", {}],
+    "@exact/hid": ["@exact/hid@file:../../packages/hid", {}],
 
     "@exact/local-auth": ["@exact/local-auth@file:../../packages/local-auth", {}],
 

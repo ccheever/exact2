@@ -1965,3 +1965,10 @@ its valid bindings disappear and return. Read it with
   `O_RDONLY` can fail under the file’s security scope even though the file itself
   is readable. Verify with a file selected from another app’s Documents folder;
   a simulator fixture in the app’s own container does not exercise this boundary.
+
+- **A module name that fails on one target stops that target's boot as a resource.** A
+  Contract resource that fails at launch refuses the web app's boot, and
+  `attachedPorts`/`attachedDevices` fail `NotSupportedError` on the web by design (LLP
+  1133.037 D3). Read such a name from `app.ts`, choosing it or its other target's name by
+  the status (`attachedList ? attachedPorts({}) : getPorts({})`), as
+  `docs/recipes/usb-hid-serial.md` does.

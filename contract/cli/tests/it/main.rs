@@ -51,6 +51,7 @@ mod dataset;
 mod delete_rows;
 mod delivery;
 mod desktop;
+mod devices;
 mod diagnostic_edits;
 mod diagnostics;
 mod disabled_look;
