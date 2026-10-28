@@ -28,6 +28,26 @@ describe('a message result\'s find request', () => {
     expect([model.open, model.query]).toEqual([true, 'Café']);
     expect(findOpening(c, 4_000)).toBe(true);
     expect(findOpening(c, 5_000)).toBe(false);
+    // The window over, the request is gone: a later return to the thread restores its remembered row.
+    takeRequestedFind(c, 5_000);
+    expect(findOpening(c, 5_000)).toBe(false);
+  });
+  // openThreadFindOnQuery at 7c3b3b3605ef: with no matched message (a server from before upstream #24343 names none), find
+  // still opens on the query and searches, as a typed query does.
+  it('searches when the server named no message', () => {
+    const c = client('t1');
+    requestThreadFind(c, 'env:t1', { query: 'sidebar' }, 1_000);
+    takeRequestedFind(c, 1_000);
+    const model = threadFindState(c).model;
+    expect([model.open, model.query, model.start]).toEqual([true, 'sidebar', undefined]);
+    expect(model.request('t1', [], 1_000)).toBeNull(); // the typed query's short wait
+    expect(model.request('t1', [], 1_100)?.payload).toEqual({ threadId: 't1', query: 'sidebar', skills: [] });
+  });
+  it('searches at once from the matched message', () => {
+    const c = client('t1');
+    requestThreadFind(c, 'env:t1', { query: 'Café', start: { entryId: 'message-1', occurrence: 0 } }, 1_000);
+    takeRequestedFind(c, 1_000);
+    expect(threadFindState(c).model.request('t1', [], 1_000)?.payload).toEqual({ threadId: 't1', query: 'Café', skills: [], start: { entryId: 'message-1', occurrence: 0 } });
   });
   it('expires after 30 s, and a server without find keeps the remembered position', () => {
     const late = client('other');

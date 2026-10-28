@@ -302,9 +302,10 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const opened = await activationOpen(client, native, state.status);
   const announce = announcements(client, now); // before `ticking`: a region it just wrote keeps the clock running
   takeRequestedFind(client, now); // thread-find-requests.ts: a ⌘K message result's find opens in its thread
+  const opening = findOpening(client, now); // the transcript yields its remembered row; the clock runs until that ends
   settleAgentHolds(client, now, runtimeId => frameEntry(client, runtimeId) !== null, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return {
-    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: announcing(client) || notificationsWaiting(client) || guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client) || agentHoldWaiting(client, now),
+    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: announcing(client) || notificationsWaiting(client) || guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client) || agentHoldWaiting(client, now) || opening,
     ...opened, openGuideSelected: decodeGuideOpenTarget(opened.openThreadId) ?? '', // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),
@@ -319,6 +320,6 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
     highlightPending: highlightPending(), // after the panel's code texts asked for their tokens
     announce,
-    findOpening: findOpening(client, now),
+    findOpening: opening,
   };
 }

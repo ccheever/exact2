@@ -40,17 +40,23 @@ export function requestThreadFind(client: T3Client, threadKey: string, find: Thr
 
 const openKey = (client: T3Client) => (client.environmentId && client.threadId ? `${client.environmentId}:${client.threadId}` : '');
 
-/** Each shell answer: the open thread's waiting request opens find, where the server can search the thread. */
+/**
+ * Each shell answer: the open thread's waiting request opens find, where the server can search the thread. The shell's
+ * clock runs while a request waits or just opened (shell.ts `ticking`), so both windows end on time.
+ */
 export function takeRequestedFind(client: T3Client, now: number): void {
   const request = requests.get(client);
   if (!request) return;
-  if (!request.takenAt && now - request.at > PENDING_MS) { requests.delete(client); return; }
+  if (request.takenAt ? now - request.takenAt >= OPENING_MS : now - request.at > PENDING_MS) { requests.delete(client); return; }
   if (request.takenAt || request.threadKey !== openKey(client) || !client.ready) return;
   // A server that cannot search the thread drops the request, and the transcript keeps its remembered position.
   if (client.config.threadFind !== true) { requests.delete(client); return; }
+  // openThreadFindOnQuery: find opens on the query and searches, at the matched message when the server named it (one
+  // from before upstream #24343 names none), else as a typed query does.
   const model = threadFindState(client).model;
+  model.show();
   model.edit(request.query, now);
-  model.show(request.start);
+  if (request.start) model.show(request.start);
   request.takenAt = now;
 }
 
