@@ -15,6 +15,19 @@ fn rows_plan(n: usize, index: bool, mark: bool) -> Plan {
 /// and when `nested` with a last text from a `for` inside the row over one
 /// item that shows the OUTER row's position.
 fn plan_with(n: usize, index: bool, mark: bool, virtualized: bool, nested: bool) -> Plan {
+    plan_full(n, index, mark, false, virtualized, nested)
+}
+
+/// [`plan_with`]'s rows, where `lit` makes the outside text Excord's
+/// `lit=(m.id == highlight)`: whether the row's item is the slot `mark`.
+fn plan_full(
+    n: usize,
+    index: bool,
+    mark: bool,
+    lit: bool,
+    virtualized: bool,
+    nested: bool,
+) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let num = b.primitive(TypeKind::Number);
     let list = b.list(num);
@@ -78,7 +91,11 @@ fn plan_with(n: usize, index: bool, mark: bool, virtualized: bool, nested: bool)
     }
     if mark {
         text(&mut b, &|a: &mut Asm| {
-            a.load_slot(marked);
+            if lit {
+                a.load_item(0).load_slot(marked).op(Opcode::Eq, &[]);
+            } else {
+                a.load_slot(marked);
+            }
         });
     }
     if nested {
@@ -551,6 +568,69 @@ fn after_a_prepend_the_rows_equal_a_fresh_build_of_the_new_list() {
             shown(&h),
             shown(&fresh),
             "index {index}, mark {mark}, nested {nested}"
+        );
+    }
+}
+
+#[test]
+fn a_kept_moved_row_lit_in_the_same_commit_as_the_prepend_shows_it_and_so_does_the_new_first_row() {
+    // reload1's condition: Excord's `lit=(m.id == highlight)` changing in the commit that prepends, on a kept row
+    // that moved (the old first row, no longer first) and on the newly first row.
+    for virtualized in [false, true] {
+        let mut h = Harness::from_parts(
+            plan_full(100, false, true, true, virtualized, false),
+            vec![values(100), Value::Number(-5.0)],
+        );
+        let read = |h: &Harness| {
+            if virtualized {
+                texts(h)
+            } else {
+                plain_texts(h)
+            }
+        };
+        if virtualized {
+            // The window from its start, so the old first row is mounted.
+            h.send(h.feedback(0.0));
+        }
+        let before = read(&h);
+        let (old_first, was) = before[0].clone();
+        assert_eq!(was, ["0", "false"]);
+        // The old first row lit as the prepend lands.
+        h.slots[0] = prepended(100);
+        h.slots[1] = Value::Number(0.0);
+        h.update().unwrap();
+        let after = read(&h);
+        let moved = after
+            .iter()
+            .position(|(r, _)| *r == old_first)
+            .expect("the old first row is kept");
+        assert_eq!(
+            moved, 1,
+            "virtualized {virtualized}: the old first row is no longer first"
+        );
+        assert_eq!(after[1].1, ["0", "true"]);
+        assert!(
+            after
+                .iter()
+                .filter(|(r, _)| *r != old_first)
+                .all(|(_, t)| t[1] == "false"),
+            "{after:?}"
+        );
+        // The newly first row lit, the old one unlit, with another prepend.
+        h.slots[0] = Value::list(
+            [-2.0, -1.0]
+                .into_iter()
+                .chain((0..100).map(|i| i as f64))
+                .map(Value::Number)
+                .collect(),
+        );
+        h.slots[1] = Value::Number(-2.0);
+        h.update().unwrap();
+        let after = read(&h);
+        assert_eq!(after[0].1, ["-2", "true"]);
+        assert!(
+            after[1..].iter().all(|(_, t)| t[1] == "false"),
+            "virtualized {virtualized}: {after:?}"
         );
     }
 }

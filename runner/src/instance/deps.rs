@@ -161,9 +161,11 @@ impl Reads {
     pub(crate) fn constant(&self) -> bool {
         self.bits.is_empty() && self.frames == 0 && !self.opaque
     }
-    /// Whether these reads, a row's body's, read the row's own position.
+    /// Whether these reads, a row's body's, read the row's own position:
+    /// opaque reads count, since a scan that stops at code it can't decode
+    /// knows no more of them.
     pub(crate) fn reads_position(&self) -> bool {
-        self.positions & 1 != 0
+        self.positions & 1 != 0 || self.opaque
     }
     /// The same reads seen from `shift` scopes further out.
     pub(crate) fn frames_outside(&self, shift: u32) -> u64 {
@@ -611,5 +613,38 @@ mod tests {
         assert_eq!(into_scope(0b1, false), 0b10);
         assert_eq!(into_scope(1 << 62, false), 1 << 63);
         assert_eq!(into_scope(1 << 63, false), 1 << 63);
+    }
+
+    #[test]
+    fn position_reads_shift_as_frames_do_with_the_same_sticky_far_bit() {
+        let at = |positions: u64| Reads {
+            frames: positions,
+            positions,
+            ..Reads::default()
+        };
+        // An inner body reading the position one scope out: the row's own, seen from the row.
+        let mut row = Reads::default();
+        row.union(&at(0b10), 1);
+        assert!(row.reads_position());
+        assert_eq!(row.positions, row.frames);
+        // Its own position read from one scope further in is not this row's.
+        let mut outer = Reads::default();
+        outer.union(&at(0b1), 1);
+        assert!(!outer.reads_position());
+        // Bit 63 is 63 scopes out or farther, as for frames: seen `shift` scopes out it spreads from 63 - shift up,
+        // so it reaches this row's bit 0 once 63 shifts have passed, and no shift drops it.
+        for shift in [1, 30, 62, 63, 64] {
+            let mut far = Reads::default();
+            far.union(&at(1 << 63), shift);
+            assert_eq!(far.positions, !0 << (63 - shift.min(63)), "shift {shift}");
+            assert_eq!(far.reads_position(), shift >= 63, "shift {shift}");
+            assert_eq!(far.positions, far.frames);
+        }
+        // An opaque body counts as reading it.
+        assert!(Reads {
+            opaque: true,
+            ..Reads::default()
+        }
+        .reads_position());
     }
 }
