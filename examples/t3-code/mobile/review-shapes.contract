@@ -28,6 +28,7 @@ shape ReviewColors
   codeForeground: string
   selection: string
   markdownBody: string
+  markdownStrong: string
   markdownBorder: string
   markdownLink: string
 

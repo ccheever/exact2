@@ -1,8 +1,7 @@
 // AttachmentFileScreen365aa87982. Native HTML; bounded text/table over Contract.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 use ReviewColors, ReviewRow from "./review-shapes.contract"
-use ThreadBlock from "./thread-shapes.contract"
-use MobileFileMarkdown from "./file-view.contract"
+use MobileFileMarkdown, FileMarkdownBlock from "./file-view.contract"
 shape AttachmentCell
   id: string
   text: string
@@ -18,7 +17,7 @@ shape AttachmentDocumentSnapshot
   ready: bool
   error: string
   text: string
-  previewBlocks: ThreadBlock[]
+  previewBlocks: FileMarkdownBlock[]
   hasContent: bool
   truncated: bool
   tableTruncated: bool

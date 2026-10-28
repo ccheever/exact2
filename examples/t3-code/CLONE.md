@@ -256,8 +256,19 @@ geometry and scales with the base text size. The normal phone copies the same
 blocks independently. UIKit word selection copies the selected code word.
 Preview/Source switching, pulling to refresh and returning to the filtered Files
 list pass. The shared splitter now requires a valid closing fence on its own
-line and preserves meaningful trailing blank lines. Prose still uses portable
-Markdown; heading sizes, soft line breaks, tables and images remain parity gaps.
+line and preserves meaningful trailing blank lines. Plain isolated ATX headings now use the pinned reference sizes, line heights
+and strong-text color. Workspace and attachment previews share this projection.
+The normal iPhone drive verifies the Caltrain title and Run it metrics, native
+heading selection, the unchanged 344-character code copy, and an exact
+2,043-character Source copy including its final newline. The temporary paste
+draft is cleared and remains empty after ordinary restart. All 3,754 mobile
+tests, strict app TypeScript, boot and the normal native build pass. Independent
+review found strikethrough and bare-link headings losing formatting; those now
+retain the generic reader and their regressions pass. Formatted, nested, setext
+and unsafe-context headings retain generic rendering. Alternate-size, dark-mode
+and attachment heading acceptance remain open. Soft line breaks, tables, images
+and heading spacing remain parity gaps. This change is outside maintenance
+build `20261028202307`.
 Unclosed/nested fences and reference links across preview chunks remain open.
 The draft file route shares this projection but has no new native acceptance.
 Files rows now align their labels beside the icons without

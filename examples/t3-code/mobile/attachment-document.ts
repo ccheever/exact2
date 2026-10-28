@@ -1,5 +1,5 @@
 import { mobileComposerTarget } from './composer-target';
-import { mobileMarkdownBlocks, type MarkdownBlock } from './markdown-blocks';
+import { mobileFileMarkdownBlocks, type FileMarkdownBlock } from './file-markdown';
 // AttachmentFileScreen/useAttachmentDocument at365aa87982, over the existing media owner.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 import { mobileClient, mobileNative } from './client';
@@ -15,13 +15,13 @@ import { reviewRow, reviewLineTokens, type ReviewRow } from './review-model';
 
 export interface AttachmentDocumentSnapshot {
   identifier: string; name: string; subtitle: string; kind: string; ready: boolean; error: string;
-  text: string; previewBlocks: MarkdownBlock[]; hasContent: boolean; truncated: boolean; tableTruncated: boolean;
+  text: string; previewBlocks: FileMarkdownBlock[]; hasContent: boolean; truncated: boolean; tableTruncated: boolean;
   renderedMode: string; activeMode: string; sourceJSON: string; uri: string; draft: boolean;
   htmlRenderSource: string; rows: ReviewRow[]; table: { id: string; header: boolean; cells: { id: string; text: string }[] }[];
 }
 export type AttachmentDocumentCache = { name: string; kind: ReturnType<typeof filePreviewKind>; mimeType: string; sizeBytes: number;
   content: ReturnType<typeof decodeFilePreviewText> | null; contentError: string; sourceJSON: string;
-  uri: string; authorizedAt: number; dark: boolean | null; rows: ReviewRow[]; previewBlocks: MarkdownBlock[] };
+  uri: string; authorizedAt: number; dark: boolean | null; rows: ReviewRow[]; previewBlocks: FileMarkdownBlock[] };
 const caches = new WeakMap<T3Client, Map<string, AttachmentDocumentCache>>();
 export const EMPTY_ATTACHMENT_DOCUMENT: AttachmentDocumentSnapshot = { identifier: '', name: '', subtitle: '', kind: '',
   ready: false, error: '', text: '', previewBlocks: [], hasContent: false, truncated: false, tableTruncated: false, renderedMode: '',
@@ -50,7 +50,7 @@ export function attachmentDocumentProjection(identifier: string, entry: Attachme
     const tokens = reviewLineTokens(lines.map((content, index) => ({ content, change: 'context', oldLineNumber: null, newLineNumber: index + 1 })), entry.name, dark);
     entry.rows = lines.map((text, index) => ({ ...reviewRow(`attachment-line:${index}`, 'line'), text: text.replace(/\t/g, '    '),
       newNumber: String(index + 1), tokens: tokens[index] ?? [] }));
-    entry.previewBlocks = entry.kind === 'markdown' ? mobileMarkdownBlocks(entry.content.text, dark) : [];
+    entry.previewBlocks = entry.kind === 'markdown' ? mobileFileMarkdownBlocks(entry.content.text, dark) : [];
     entry.dark = dark;
   }
   return { identifier, name: entry.name, subtitle: `${scope === 'composer' ? 'Draft attachment' : 'Attachment'}${entry.sizeBytes > 0 ? ` · ${formattedSize(entry.sizeBytes)}` : ''}`,

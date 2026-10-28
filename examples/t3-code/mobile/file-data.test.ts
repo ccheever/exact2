@@ -253,9 +253,9 @@ test('file previews preserve prose and independently copyable fenced code under 
   const present = (path = 'README.md', dark = false) => mobileFilePresentation({ owner: 'owner', revision: 1,
     projectName: 'Project', loading: false, error: '', read }, path, dark);
   const light = present(), codes = light.previewBlocks.filter(block => block.kind === 'code');
-  expect(light.previewBlocks.map(block => block.kind)).toEqual(['markdown', 'code', 'markdown', 'code']);
+  expect(light.previewBlocks.map(block => block.kind)).toEqual(['heading', 'code', 'markdown', 'code']);
   expect(codes.map(block => [block.language, block.text])).toEqual([['ts', 'const first = 1;'], ['', 'second']]);
-  expect(light.previewBlocks.filter(block => block.kind === 'markdown').map(block => block.text.trim())).toEqual(['# File', 'Between']);
+  expect(light.previewBlocks.filter(block => block.kind === 'markdown').map(block => block.text.trim())).toEqual(['Between']);
   for (const block of codes) expect(block.tokens.map(token => token.text).join('')).toBe(block.text);
   expect(light.copyContents).toBe(read.contents);
   expect(present().previewBlocks).toBe(light.previewBlocks);

@@ -29,7 +29,7 @@ export function mobileReviewColors(scheme: string, palette = 't3-code') {
     additionBackground: isDark ? '#0d2f28' : '#e5f8f5', deletionBackground: isDark ? '#391415' : '#ffe6e7',
     additionBar, deletionBar, additionHighlight: withAlpha(additionBar, .28), deletionHighlight: withAlpha(deletionBar, .28),
     codeBackground: token('md-code-bg'), codeForeground: token('md-code-text'),
-    markdownBody: token('md-body'), markdownBorder: token('md-hr'), markdownLink: token('md-link'),
+    markdownBody: token('md-body'), markdownStrong: token('md-strong'), markdownBorder: token('md-hr'), markdownLink: token('md-link'),
     selection: withAlpha(token('primary'), .1) };
 }
 

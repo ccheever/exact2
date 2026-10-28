@@ -1,7 +1,15 @@
 // SourceFileSurface365aa87982, over shared reads and mobile syntax colors.
 // @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#mobile-presentation
 use ReviewColors from "./review-shapes.contract"
-use ThreadCodeToken, ThreadBlock from "./thread-shapes.contract"
+use ThreadCodeToken from "./thread-shapes.contract"
+
+shape FileMarkdownBlock
+  id: string
+  kind: string
+  text: string
+  language: string
+  tokens: ThreadCodeToken[]
+  level: number
 
 shape FileSourceRow
   id: string
@@ -26,7 +34,7 @@ shape FileSnapshot
   copyContents: string
   rows: FileSourceRow[]
   maxColumns: number
-  previewBlocks: ThreadBlock[]
+  previewBlocks: FileMarkdownBlock[]
   truncated: bool
   notice: string
   markdown: bool
@@ -165,7 +173,7 @@ component MobileFileSource
 
 component MobileFileMarkdown
   props
-    blocks: ThreadBlock[]
+    blocks: FileMarkdownBlock[]
     colors: ReviewColors
     owner: string
     path: string
@@ -186,5 +194,9 @@ component MobileFileMarkdown
                 text font-family="monospace" font-size=max(10, round(bodySize * 0.8)) line-height=`${max(10, round(bodySize * 0.8)) + 6}px` white-space="pre" user-select="text" color=colors.codeForeground
                   for token in block.tokens key=token.id
                     text token.text color=token.color font-weight=token.weight font-style=token.slant
+          else if block.kind == "heading"
+            text block.text role="heading" aria-level=block.level font-size=fileMarkdownHeadingSize(block.level, bodySize) line-height=`${max(fileMarkdownHeadingSize(block.level, bodySize) + 6, bodyLine + 2)}px` font-weight=700 color=colors.markdownStrong user-select="text"
           else
             text block.text markup="markdown" font-size=bodySize line-height=`${bodyLine}px` color=colors.markdownBody user-select="text"
+
+fn fileMarkdownHeadingSize(level: number, bodySize: number): number = max(level == 1 ? 16 : level == 2 ? 14 : level == 3 ? 13 : 12, round((level == 1 ? 21 : level == 2 ? 19 : level == 3 ? 17 : 15) * bodySize / 16))

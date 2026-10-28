@@ -43,7 +43,7 @@ describe('attachment document reads', () => {
     const preview = await read(f);
     expect(preview.previewBlocks.filter(block => block.kind === 'code').map(block => [block.language, block.text])).toEqual([
       ['ts', 'const n = 1;'], ['sh', 'pwd']]);
-    expect(preview.previewBlocks[0]).toMatchObject({ kind: 'markdown', text: '# Notes\n\n' });
+    expect(preview.previewBlocks[0]).toMatchObject({ kind: 'heading', level: 1, text: 'Notes' });
     expect((await read(f, false)).text).toBe(content);
     expect((await read(f)).previewBlocks).toBe(preview.previewBlocks);
     expect(f.calls.map(call => call.op)).toEqual(['request', 'mobileDocumentRead']);

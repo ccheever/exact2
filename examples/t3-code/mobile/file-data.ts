@@ -11,7 +11,7 @@ import { assertReviewOwner, reviewFileAccess, reviewNative, reviewOwner } from '
 import { buildFileTree, flattenFileTree, type ProjectEntry } from './file-tree-model';
 import { reviewLineTokens } from './review-model';
 import type { ThreadCodeToken } from './thread-highlight';
-import { mobileMarkdownBlocks, type MarkdownBlock } from './markdown-blocks';
+import { mobileFileMarkdownBlocks, type FileMarkdownBlock } from './file-markdown';
 
 export interface FileTreeItem { id: string; path: string; name: string; directory: boolean; expanded: boolean; selected: boolean;
   ignored: boolean; depth: number; loaded: boolean; count: string; token: string }
@@ -19,7 +19,7 @@ export interface FileTreeSnapshot { owner: string; revision: number; title: stri
   rows: FileTreeItem[]; loading: boolean; error: string; truncated: boolean; emptyTitle: string; emptyDetail: string }
 export interface FileSourceRow { id: string; text: string; newNumber: string; selected: boolean; tokens: ThreadCodeToken[] }
 export interface FileSnapshot { owner: string; revision: number; path: string; title: string; subtitle: string;
-  loading: boolean; error: string; contents: string; copyContents: string; rows: FileSourceRow[]; maxColumns: number; previewBlocks: MarkdownBlock[]; truncated: boolean; notice: string;
+  loading: boolean; error: string; contents: string; copyContents: string; rows: FileSourceRow[]; maxColumns: number; previewBlocks: FileMarkdownBlock[]; truncated: boolean; notice: string;
   markdown: boolean; initialRowId: string; svg: boolean; svgSource: string; svgRetry: string; svgFailure: string;
   svgSharing: boolean; svgCanRead: boolean; svgShareAction: string; svgShareMessage: string; svgShareReceipt: string; fullPath: string; relativePath: string; svgPhase: string; svgTitle: string;
   svgDetail: string; svgTrace: string; svgTraceCopy: string; svgRetrying: boolean; svgRetryAllowed: boolean; svgSymbol: string }
@@ -165,7 +165,7 @@ function sourceProjection(read: SourceRead | undefined, path: string, dark: bool
     newNumber: String(at + 1), selected: at === target, tokens: (tokens[at] ?? []).map(token => ({ id: token.id, text: token.text.replace(/\t/g, '    '),
       color: token.color, weight: token.weight, slant: token.slant })) })) : [];
   const maxColumns = rows.reduce((longest, row) => Math.max(longest, row.text.length), 0);
-  const previewBlocks = read && !read.error && /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? '') ? mobileMarkdownBlocks(contents, dark) : [];
+  const previewBlocks = read && !read.error && /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? '') ? mobileFileMarkdownBlocks(contents, dark) : [];
   const value = { contents, rows, maxColumns, previewBlocks, initialRowId: target >= 0 ? `source-line:${target}` : '' };
   if (read) sourceProjections.set(read, { raw: read.contents, error: read.error, path, dark, initialLine, value });
   return value;
