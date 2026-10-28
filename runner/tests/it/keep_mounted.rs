@@ -68,7 +68,11 @@ fn send(r: &mut Runner<NoData>, offset: f64) {
 }
 
 fn mounted(r: &Runner<NoData>) -> Vec<usize> {
-    r.collections()[0].rows.iter().map(|row| row.index).collect()
+    r.collections()[0]
+        .rows
+        .iter()
+        .map(|row| row.index)
+        .collect()
 }
 
 #[test]
@@ -83,7 +87,11 @@ fn the_kept_rows_stay_mounted_wherever_the_window_is() {
     send(&mut r, 3200.);
     let rows = mounted(&r);
     assert!(rows.contains(&0) && rows.contains(&199), "{rows:?}");
-    assert!(rows.iter().all(|&p| p == 0 || p == 199 || (90..=120).contains(&p)), "{rows:?}");
+    assert!(
+        rows.iter()
+            .all(|&p| p == 0 || p == 199 || (90..=120).contains(&p)),
+        "{rows:?}"
+    );
     // At the end: the first row and the playing one are still there.
     send(&mut r, 6080.);
     let rows = mounted(&r);
@@ -101,7 +109,10 @@ fn a_changed_set_mounts_its_new_rows_and_lets_the_old_ones_go() {
     r.act("play", vec![Value::Number(150.)]).unwrap();
     let rows = mounted(&r);
     assert!(rows.contains(&150) && !rows.contains(&100), "{rows:?}");
-    assert!(r.collections()[0].revision > before, "a host measures the new row");
+    assert!(
+        r.collections()[0].revision > before,
+        "a host measures the new row"
+    );
     // New rows at the end: the last row kept is the new last one.
     r.act("grow", vec![]).unwrap();
     let rows = mounted(&r);

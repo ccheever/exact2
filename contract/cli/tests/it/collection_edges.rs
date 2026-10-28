@@ -859,7 +859,14 @@ fn keep_mounted_is_a_virtualized_lists_list_of_keys() {
             "component App\n  state ids = [\"a\", \"b\"]\n  view\n    list virtualized=true height=320 keep-mounted={value}\n      for x in ids key=x\n        text x\n"
         )
     };
-    for value in ["[]", "ids", "[first(ids), ids.at(-1)]", "[1, 2]", "[true]", "[none]"] {
+    for value in [
+        "[]",
+        "ids",
+        "[first(ids), ids.at(-1)]",
+        "[1, 2]",
+        "[true]",
+        "[none]",
+    ] {
         contract::compile(&list(value)).expect(value);
     }
     for value in ["\"a\"", "1", "[[1]]", "[ids]"] {

@@ -59,7 +59,12 @@ impl Lowerer<'_> {
         bindings: &mut Vec<exact_plan::BindingsRow>,
     ) -> Result<(), LowerError> {
         let (code, ty) = self.typed_code(&attr.value, scope, locals)?;
-        let key = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Enum(_) | Ty::Unknown);
+        let key = |t: &Ty| {
+            matches!(
+                t,
+                Ty::String | Ty::Number | Ty::Bool | Ty::Enum(_) | Ty::Unknown
+            )
+        };
         let keys = match &ty {
             Ty::List(item) => match item.as_ref() {
                 Ty::Option(inner) => key(inner),

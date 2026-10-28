@@ -25,11 +25,11 @@ mod within;
 pub(super) mod work;
 use super::*;
 pub use api::*;
-pub(crate) use keep::idents as keep_mounted;
 use exact_kernel::PropId;
 use exact_plan::EventKind;
 use index::{MeasurementToken, SizeIndex};
 pub use into_view::{Align, IntoView, IntoViewStatus};
+pub(crate) use keep::idents as keep_mounted;
 pub use reorder_api::*;
 pub(super) use traversal::{collections_json, invalidate_typography};
 

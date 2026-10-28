@@ -1234,7 +1234,13 @@ impl NodeInst {
                 retheme: false,
                 ..u.theme.clone()
             };
-            (u.env.lists.ok_or_else(unlinked)?.update)(collection, u, frames, follow, keep.as_ref())?;
+            (u.env.lists.ok_or_else(unlinked)?.update)(
+                collection,
+                u,
+                frames,
+                follow,
+                keep.as_ref(),
+            )?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
         }
