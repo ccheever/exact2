@@ -52,7 +52,7 @@ export const shownNumber = (n: number, length = false) => {
   if (!Number.isFinite(n)) return n;
   let shortest = n;
   // (An integer a 32-bit int holds, a z-index or an order, is as written: snapping it to a float could change it.)
-  if (Math.fround(n) === n && !(Number.isInteger(n) && Math.abs(n) < 2 ** 31)) {
+  if (Math.fround(n) === n && !(Number.isInteger(n) && n >= -(2 ** 31) && n < 2 ** 31)) {
     // By significant digits, so any magnitude shortens; a digit either side of the rounded one too, as the float's
     // nearest short decimal can sit on the far side of a rounding boundary.
     const e = Math.floor(Math.log10(Math.abs(n)));

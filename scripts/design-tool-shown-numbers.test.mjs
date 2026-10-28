@@ -27,6 +27,7 @@ test('a row shows its float as the plan wrote it, a length at most 3 decimals, a
     { name: 'translate', value: [Math.fround(16.00625), 0], source: 'authored' },
     { name: 'r', value: Math.fround(16.00625), source: 'authored' },
     { name: 'z_index', value: 100000008, source: 'authored' },
+    { name: 'order', value: -(2 ** 31), source: 'authored' },
     { name: 'scale', value: 2 ** -96, source: 'authored' },
     { name: 'stroke_opacity', value: Math.fround(1e-10), source: 'authored' },
     { name: 'translate_percent', value: [Math.fround(33.33333), 0], source: 'authored' },
@@ -48,6 +49,7 @@ test('a row shows its float as the plan wrote it, a length at most 3 decimals, a
   expect(shown.translate).toBe('[16.006,0]');
   expect(shown.r).toBe('16.006');
   expect(shown['z-index']).toBe('100000008');
+  expect(shown.order).toBe('-2147483648');
   expect(shown.scale).toBe('1.2621775e-29');
   expect(shown['stroke-opacity']).toBe('1e-10');
   expect(shown['translate-percent']).toBe('[33.33333,0]');
