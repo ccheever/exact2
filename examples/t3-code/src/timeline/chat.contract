@@ -167,7 +167,7 @@ component AlertStack
               column flex-shrink=1 min-width=0 padding-top="0.125rem" gap="0.25rem" testId="error-banner-text"
                 text "ChatGPT usage limit reached" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#bb4d00cc, #ffb900cc)"
                 text (data.errorLimit == "workspace" ? "You've reached your workspace's limit for using your ChatGPT plan in other apps. Copy a request to ask your workspace admin for increased usage limits." : "Review your usage settings in ChatGPT.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#bb4d00cc, #ffb900cc)"
-              LimitButton(label=(data.errorLimit == "workspace" ? "Copy request for admin" : "Manage usage"), external=(data.errorLimit != "workspace"), press=(data.errorLimit == "workspace" ? command("chatlocal:admin-request", "", "", 0) : command("pageslocal:chatgpt-usage", "", "", 0)))
+              LimitButton(label=(data.errorLimit == "workspace" ? "Copy request for admin" : "Manage usage"), external=(data.errorLimit != "workspace"), press=command((data.errorLimit == "workspace" ? "chatlocal:admin-request" : "pageslocal:chatgpt-usage"), "", "", 0))
             else
               // A new error starts collapsed.
               for error in [data.error] key=error
