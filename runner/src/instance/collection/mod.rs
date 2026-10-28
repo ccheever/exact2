@@ -636,10 +636,14 @@ impl Collection {
             self.restore(anchor)?;
         }
         self.start_at_end();
+        // A changed set that mounts a row: the host measures it.
+        let mounts = remount
+            && !changed
+            && (self.kept_rows().iter()).any(|p| !self.mounted.iter().any(|m| m.position == *p));
         let realized = self.realize_window(u, frames, true, CollectionFill::default());
         self.instant = false;
         realized?;
-        if remount && !changed {
+        if mounts {
             advance(&mut self.revision)?;
         }
         if changed {
@@ -669,105 +673,6 @@ impl Collection {
             self.index.invalidate_row(&key).map_err(index_error)?;
         }
         Ok(())
-    }
-    /// Key every item, reusing a key only where the list kept its length and an item its
-    /// position ([`Self::rekey_shared`] handles the rest). Whether any key changed.
-    fn rekey_full(
-        &mut self,
-        u: &mut Update<'_>,
-        frames: &[Frame],
-        key_code: exact_plan::Code,
-        items: &[Value],
-        compare_previous: bool,
-        keys_stale: bool,
-    ) -> Result<bool, InstanceError> {
-        let reuse_items = compare_previous && !keys_stale;
-        // No candidate N-vector or canonical strings until an actual key
-        // mismatch. All equal results reuse the existing uniqueness proof.
-        let mut changed = !compare_previous;
-        let mut keys = Vec::new();
-        let mut text_keys = Vec::new();
-        if changed {
-            keys.reserve(items.len());
-            text_keys.reserve(items.len());
-        }
-        // Membership only: hashed, and holding the identities the index
-        // keeps (no copy of each key's text).
-        // Each identity's position: the index takes it as its key map.
-        let mut unique: std::collections::HashMap<Rc<str>, usize> = Default::default();
-        if changed {
-            unique.reserve(items.len());
-        }
-        let mut dups = BTreeMap::new();
-        // Each key's text, written here before its identity is made.
-        let mut text = String::new();
-        let mut inner = frames.to_vec();
-        inner.push(Frame::default());
-        for (position, item) in items.iter().enumerate() {
-            let key = if reuse_items && crate::compare::same(item, &self.items[position]) {
-                if !changed {
-                    continue;
-                }
-                self.keys[position].clone()
-            } else {
-                u.work.rows_keyed += 1;
-                inner.last_mut().unwrap().item = Some(item.clone());
-                inner.last_mut().unwrap().index = Some(position);
-                u.eval(key_code, &inner)?
-            };
-            if !changed && same_key(&key, &self.keys[position]) {
-                continue;
-            }
-            if !changed {
-                // Seed only the already-validated prefix. Checking each
-                // following row now preserves duplicate-before-later-trap.
-                keys.reserve(items.len());
-                text_keys.reserve(items.len());
-                unique.reserve(items.len());
-                for prefix in 0..position {
-                    let text = self.index.shared_key(prefix).unwrap().clone();
-                    unique.insert(text.clone(), prefix);
-                    text_keys.push(text);
-                    keys.push(self.keys[prefix].clone());
-                }
-                dups.extend(self.dups.range(..position).map(|(p, d)| (*p, *d)));
-                changed = true;
-            }
-            text.clear();
-            if !super::key_text_into(&key, &mut text) {
-                return Err(InstanceError::KeyKind {
-                    region: self.region,
-                });
-            }
-            // A repeated key is the data's error: the repeat takes the
-            // next identity in order (as a `for` does).
-            let mut dup = 0;
-            let ident: Rc<str> = if unique.contains_key(text.as_str()) {
-                let mut ident = text.clone();
-                while unique.contains_key(ident.as_str()) {
-                    dup += 1;
-                    ident = super::disambiguate(text.clone(), dup);
-                }
-                Rc::from(ident)
-            } else {
-                Rc::from(text.as_str())
-            };
-            unique.insert(ident.clone(), position);
-            if dup > 0 {
-                dups.insert(position, dup);
-            }
-            keys.push(key);
-            text_keys.push(ident);
-        }
-        if changed {
-            self.index
-                .replace_keys_indexed(text_keys, unique)
-                .map_err(index_error)?;
-            self.string_keys = keys.iter().all(|key| key.as_str().is_some());
-            self.keys = keys;
-            self.dups = dups;
-        }
-        Ok(changed)
     }
     fn anchor(&self) -> Result<Option<index::Anchor>, InstanceError> {
         self.geometry
@@ -916,7 +821,8 @@ impl Collection {
             std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
         // The rows it keeps mounted are owed wherever the window is.
-        for position in required.into_iter().chain(self.kept_rows()) {
+        let keeping = self.kept_rows();
+        for position in required.into_iter().chain(keeping.iter().copied()) {
             owed.push(position..position + 1);
             if !ranges.iter().any(|range| range.contains(&position)) {
                 ranges.push(position..position + 1);
@@ -1065,11 +971,11 @@ impl Collection {
             // viewport of rows (a thousand on an iPad at 48,000 pt/s, each
             // with its canvas's Metal layer and surface) until the list
             // stopped, and every report and frame walked them all.
-            let cap = cap.max(
-                leaving
-                    .len()
-                    .saturating_sub(self.mounted.len() + needed.len()),
-            );
+            // Kept rows (`keep-mounted`) are not the window's.
+            let window = (self.mounted.iter())
+                .filter(|m| !keeping.contains(&m.position))
+                .count();
+            let cap = cap.max(leaving.len().saturating_sub(window + needed.len()));
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
             let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
             kept = leaving.split_off(far.max(cap).min(leaving.len()));

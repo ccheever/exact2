@@ -105,7 +105,11 @@ fn a_changed_set_mounts_its_new_rows_and_lets_the_old_ones_go() {
     let mut r = boot("[0, n - 1, playing]");
     send(&mut r, 0.);
     send(&mut r, 0.);
+    // A row the window already holds: nothing new to measure.
     let before = r.collections()[0].revision;
+    r.act("play", vec![Value::Number(5.)]).unwrap();
+    assert!(!mounted(&r).contains(&100), "{:?}", mounted(&r));
+    assert_eq!(r.collections()[0].revision, before);
     r.act("play", vec![Value::Number(150.)]).unwrap();
     let rows = mounted(&r);
     assert!(rows.contains(&150) && !rows.contains(&100), "{rows:?}");
