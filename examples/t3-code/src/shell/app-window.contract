@@ -658,9 +658,10 @@ component T3Window
     citeParked = ""
     if citeFor != "" and not (e.clientX >= frame("cite-action").x and e.clientX < frame("cite-action").x + frame("cite-action").width and e.clientY >= frame("cite-action").y and e.clientY < frame("cite-action").y + frame("cite-action").height)
       citeFor = ""
-    // A skill chip's details close on a primary press outside them (Base UI's outside press); a press in
-    // the chip's own text is the native editor's (T3ComposerChipPress.swift), which never reaches here.
-    if chipShown and e.buttons == 1 and not (e.clientX >= frame("chip-popover").x and e.clientX < frame("chip-popover").x + frame("chip-popover").width and e.clientY >= frame("chip-popover").y and e.clientY < frame("chip-popover").y + frame("chip-popover").height)
+    // A skill chip's details close on a primary press outside them (Base UI's outside press). A press on the chip's
+    // pill reaches here too, but it is the trigger's, as Base UI's outside press leaves its trigger alone: the pill's
+    // atom press toggles the details (composer-chip-state.ts `open`).
+    if chipShown and e.buttons == 1 and not (e.clientX >= frame("chip-popover").x and e.clientX < frame("chip-popover").x + frame("chip-popover").width and e.clientY >= frame("chip-popover").y and e.clientY < frame("chip-popover").y + frame("chip-popover").height) and not (e.clientX >= chip.x and e.clientX < chip.x + chip.width and e.clientY >= chip.y and e.clientY < chip.y + chip.height)
       if chip.kind == "citation"
         citeSettle()
       else
