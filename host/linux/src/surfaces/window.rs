@@ -289,6 +289,8 @@ impl DirectWindow {
             if let Err(e) = presented {
                 eprintln!("exact-ink: recovery present: {e}");
                 self.fallback = None;
+                self.starting = false;
+                self.recovering = true;
             } else {
                 p.last_frame_succeeded = true;
                 if !self.starting && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {

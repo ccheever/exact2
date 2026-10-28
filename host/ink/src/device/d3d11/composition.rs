@@ -108,6 +108,7 @@ struct Visual {
     device: IDCompositionDevice,
     target: IDCompositionTarget,
     visual: IDCompositionVisual,
+    content: std::cell::Cell<usize>,
 }
 impl Drop for Visual {
     fn drop(&mut self) {
@@ -128,6 +129,7 @@ pub(super) struct Composition {
     swap_ms: f64,
     visual_ms: f64,
     active: bool,
+    reported_display: bool,
 }
 impl Drop for Composition {
     fn drop(&mut self) {
@@ -182,6 +184,7 @@ impl Composition {
                         device,
                         target,
                         visual,
+                        content: Default::default(),
                     });
                     *window.visual.borrow_mut() = Rc::downgrade(&scene);
                     scene
@@ -208,13 +211,14 @@ impl Composition {
                 swap_ms,
                 visual_ms,
                 active: false,
+                reported_display: false,
             })
         }
     }
 
     fn activate(&mut self) -> Result<()> {
         use windows::Win32::UI::WindowsAndMessaging::*;
-        if self.active {
+        if self.active && self.scene.content.get() == self.swap.as_raw() as usize {
             return Ok(());
         }
         // Change content only after the new swap chain has its first picture.
@@ -245,6 +249,7 @@ impl Composition {
             )?;
             self.scene.visual.SetContent(&self.swap)?;
             self.scene.device.Commit()?;
+            self.scene.content.set(self.swap.as_raw() as usize);
         }
         self.active = true;
         Ok(())
@@ -279,20 +284,33 @@ impl Composition {
 impl D3d11 {
     /// Keep the old device until its commands and the replacement present finish.
     /// A swap-chain handoff never waits for either on the frame path.
-    pub fn retire_after_present(&mut self, previous: D3d11) -> Result<()> {
-        let c = self
+    pub fn retire_after_present(&mut self, previous: D3d11) {
+        // The completion query follows Present; no later WARP frame will flush it.
+        unsafe { previous.context.Flush() };
+        // If statistics fail, keep the old device until this window closes.
+        let present = self
             .composition
             .as_ref()
-            .ok_or(Error::Unsupported("no composition window"))?;
-        let present = unsafe { c.swap.GetLastPresentCount()? };
+            .and_then(|c| unsafe { c.swap.GetLastPresentCount().ok() })
+            .unwrap_or(u32::MAX);
         self.retiring_device = Some((Box::new(previous), present));
-        Ok(())
     }
 
     fn collect_presented_device(&mut self) {
         let Some((previous, present)) = &mut self.retiring_device else {
             return;
         };
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+            && previous
+                .composition
+                .as_ref()
+                .is_some_and(|c| !c.reported_display)
+        {
+            if let Ok(ms) = previous.presented_process_ms() {
+                eprintln!("exact-ink: process to displayed WARP frame {ms:.3} ms (DXGI)");
+                previous.composition.as_mut().unwrap().reported_display = true;
+            }
+        }
         let complete = previous
             .completed()
             .map_or(true, |done| done >= previous.submitted);
@@ -334,13 +352,14 @@ impl D3d11 {
             .as_mut()
             .ok_or(Error::Unsupported("no composition window"))?;
         composition.resize(size)?;
-        let activating = !composition.active;
+        let activating = !composition.active
+            || composition.scene.content.get() != composition.swap.as_raw() as usize;
         let swap = composition.swap.clone();
         let mut did_present;
         unsafe {
             // Before Commit, DXGI can consider the unattached visual occluded.
             // A TEST present would prevent drawing its first image.
-            if composition.active && !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
+            if !activating && !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
                 return Ok(0.);
             }
             if WaitForSingleObject(composition.latency, 1000) != WAIT_OBJECT_0 {
@@ -557,7 +576,7 @@ mod tests {
         started.recv().unwrap();
         d.attach_window(window.clone(), [320, 240]).unwrap();
         d.present(t).unwrap();
-        d.retire_after_present(warp).unwrap();
+        d.retire_after_present(warp);
         for _ in 0..3 {
             assert_eq!(wait_for(Some(color)), color);
         }

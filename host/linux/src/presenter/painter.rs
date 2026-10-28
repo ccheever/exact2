@@ -271,7 +271,7 @@ impl<D: DataSource> Presenter<D> {
             device.present(target)?;
             device.retire_texture(target)?;
             if let Some((previous, _)) = direct.fallback.take() {
-                device.retire_after_present(previous)?;
+                device.retire_after_present(previous);
             }
             Ok::<_, exact_ink::device::Error>(())
         })();

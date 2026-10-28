@@ -629,36 +629,41 @@ fn shelf_idle_caret() {
 }
 
 #[test]
-#[ignore = "NucBox desktop; operator changes Settings display scaling 100% to 150% to 100%"]
+#[ignore = "NucBox desktop; operator cycles Settings scaling 100%, 150%, 100%, 150%, 100%"]
 fn shelf_dpi_roundtrip() {
     let mut app = Shelf::open("dpi", false);
     assert_eq!(unsafe { GetDpiForWindow(app.hwnd) }, 96);
     fs::write(out().join("dpi-waiting"), app.child.id().to_string()).unwrap();
-    until("Settings display scaling 150%", || {
-        app.alive();
-        (unsafe { GetDpiForWindow(app.hwnd) == 144 }) && app.text().contains("scale 1.5,")
-    });
-    unsafe {
-        let _ = SetForegroundWindow(app.hwnd);
+    for pass in ["150", "roundtrip-150"] {
+        until("Settings display scaling 150%", || {
+            app.alive();
+            (unsafe { GetDpiForWindow(app.hwnd) == 144 }) && app.text().contains("scale 1.5,")
+        });
+        unsafe {
+            let _ = SetForegroundWindow(app.hwnd);
+        }
+        app.place(1024, 720);
+        let changed = app.capture(&format!("dpi-{pass}"));
+        let mut fresh = Shelf::open(&format!("dpi-fresh-{pass}"), false);
+        assert_eq!(unsafe { GetDpiForWindow(fresh.hwnd) }, 144);
+        let image = fresh.capture(&format!("dpi-fresh-{pass}"));
+        let score = band(&changed, &image);
+        println!("S2_BAND dpi-{pass} mean={} over32={}", score.0, score.1);
+        assert!(
+            score.0 < 5. && score.1 < 0.06,
+            "150% differs from fresh launch: {score:?}"
+        );
+        fresh.close();
+        fs::write(out().join(format!("dpi-at-{pass}")), "return to 100%").unwrap();
+        until("Settings display scaling 100%", || {
+            app.alive();
+            unsafe { GetDpiForWindow(app.hwnd) == 96 }
+        });
+        app.place(1024, 720);
+        app.capture(&format!("dpi-after-{pass}-100"));
+        fs::write(out().join(format!("dpi-after-{pass}")), "at 100%").unwrap();
     }
-    app.place(1024, 720);
-    let changed = app.capture("dpi-150");
-    let mut fresh = Shelf::open("dpi-fresh-150", false);
-    assert_eq!(unsafe { GetDpiForWindow(fresh.hwnd) }, 144);
-    let image = fresh.capture("dpi-fresh-150");
-    let score = band(&changed, &image);
-    println!("S2_BAND dpi-150 mean={} over32={}", score.0, score.1);
-    assert!(
-        score.0 < 5. && score.1 < 0.06,
-        "150% differs from fresh launch: {score:?}"
-    );
-    fresh.close();
-    fs::write(out().join("dpi-at-150"), "return to 100%").unwrap();
-    until("Settings display scaling 100%", || {
-        app.alive();
-        unsafe { GetDpiForWindow(app.hwnd) == 96 }
-    });
-    println!("S2_DPI 96 -> 144 -> 96");
+    println!("S2_DPI 96 -> 144 -> 96 -> 144 -> 96");
     fresh_comparison("dpi", app);
 }
 
