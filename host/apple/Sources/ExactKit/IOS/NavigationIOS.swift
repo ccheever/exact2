@@ -170,7 +170,8 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// The route's own background, if it paints one.
     private func ownBackdrop(dark: Bool) -> [Double]? {
         if node.groundIsSheets { return nil }
-        return node.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
+        // As written, never greyed: the view keeps the colour its provider gave (TintDimmingIOS.swift)
+        return node.undimmedChannels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
     }
 
     /// What shows behind the route where it paints nothing: its own
@@ -179,7 +180,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// through a transparent route (LLP 1116 D2: a root's
     /// `-exact-grouped-background` under every screen).
     func backdrop(dark: Bool) -> [Double]? {
-        let painted = { (n: NodeView) in n.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
+        let painted = { (n: NodeView) in n.undimmedChannels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
         if let own = ownBackdrop(dark: dark) { return own }
         guard let host, let root = host.container else { return nil }
         var next: UIView? = host.logicalParent(of: node)

@@ -325,6 +325,42 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try runChannels(paragraph), grey, "the link once the dimming ends")
     }
 
+    /// A link at a fifth of the tint greys to a fifth of UIKit's dimmed tint: UIKit scales a
+    /// translucent tint's alpha when it dims it
+    func testALinkAtAFifthOfTheTintKeepsItsShareWhileDimmed() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "text"],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        var faint = InlineStyle()
+        faint.colorRef = .object(["sys": .string("@tint/0.2"), "c": [0, 122, 255, 51]])
+        p.applyParagraph(1, [InlineText(id: 2, parent: 1, props: ["text": "terms", "href": "https://example.com/terms"], style: faint, handlers: [], paints: true)])
+        let paragraph = try XCTUnwrap(p.views[1])
+        p.viewport.tintColor = color(blue)
+        dim(p, true)
+        let dimmed = uikitGrey(blue, uikitAlpha: true)
+        assertChannels(try runChannels(paragraph), Array(dimmed[0...2]) + [Int((Double(dimmed[3]) * 0.2).rounded())], "a fifth of UIKit's dimmed tint")
+        dim(p, false)
+        assertChannels(try runChannels(paragraph), [0, 122, 255, 51], "a fifth of the tint once the dimming ends")
+    }
+
+    /// A pressable route's backdrop, which its controller's view keeps, takes its fill as written
+    /// while dimmed, so the view shows it once the dimming ends
+    func testAPressableRoutesBackdropIsAsWrittenWhileDimmed() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "props": ["navigationKey": "home"],
+             "style": ["background_color": blue, "written": ["background_color"]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let node = try XCTUnwrap(p.views[1]), route = RouteController(node)
+        node.tintAdjustmentMode = .dimmed
+        route.loadViewIfNeeded()
+        node.tintAdjustmentMode = .automatic
+        assertChannels(try components(XCTUnwrap(route.view.layer.backgroundColor)), blue, "the backdrop once the dimming ends")
+    }
+
     /// A run in the tint beneath a link it stands in, and one a press acts on, grey as links do,
     /// while the paragraph's plain text keeps its colour
     func testANestedLinkAndAPressedRunDimAsLinks() throws {
