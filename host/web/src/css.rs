@@ -685,6 +685,8 @@ fn spell_property(out: &mut String, id: StyleId) {
         // @ref LLP 1077 D7 — the Compat Standard's prefixed names.
         StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
         StyleId::TextStrokeColor => return out.push_str("-webkit-text-stroke-color"),
+        // @ref LLP 1019 D12 — WebKit's and Chromium's name.
+        StyleId::FontSmoothing => return out.push_str("-webkit-font-smoothing"),
         id => id.name(),
     };
     for (prefix, suffix) in [

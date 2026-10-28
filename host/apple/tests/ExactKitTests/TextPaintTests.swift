@@ -504,6 +504,35 @@ final class TextPaintTests: XCTestCase {
         #endif
     }
 
+    #if os(macOS)
+    /// `-webkit-font-smoothing: antialiased` (LLP 1019 D12): AppKit's raster,
+    /// both its paths, draws with font smoothing off, as Chrome does on the
+    /// Mac: thinner stems, so less ink. The raster's key tells the two apart.
+    func testAntialiasedTextRastersWithoutFontSmoothing() throws {
+        func ink(_ antialiased: Bool, glyphs: Bool) throws -> Int {
+            var spec = Spec(runs: [run("Settings General", weight: 500)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.antialiased = antialiased
+            let p = engine.paragraph(spec, width: 300)
+            let box = CGRect(x: 0, y: 0, width: 300, height: 30)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map { CTLineGetStringRange($0) },
+                                    baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 2, antialiased: antialiased,
+                                    measuredGlyphs: glyphs ? try XCTUnwrap(MeasuredGlyphs(p, spec: spec, width: 300)) : nil,
+                                    measuredColor: glyphs ? CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1) : nil)
+            let bytes = rasterBytes(try XCTUnwrap(job.render()))
+            return stride(from: 3, to: bytes.count, by: 4).reduce(0) { $0 + Int(bytes[$1]) }
+        }
+        for glyphs in [false, true] {
+            let smoothed = try ink(false, glyphs: glyphs), antialiased = try ink(true, glyphs: glyphs)
+            XCTAssertLessThan(Double(antialiased), Double(smoothed) * 0.97, "glyphs \(glyphs): \(antialiased) against \(smoothed)")
+        }
+        var spec = Spec(runs: [run("Settings")], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let box = CGRect(x: 0, y: 0, width: 100, height: 20)
+        let smoothed = TextRasterKey(spec: spec, size: box.size, box: box, scale: 2)
+        spec.antialiased = true
+        XCTAssertNotEqual(TextRasterKey(spec: spec, size: box.size, box: box, scale: 2), smoothed)
+    }
+    #endif
+
     /// LLP 1100 D2: a paragraph whose colour is wide rasterizes into Display
     /// P3, so its ink is not clipped to sRGB; any other stays sRGB.
     func testAWideColouredParagraphRastersInDisplayP3() throws {

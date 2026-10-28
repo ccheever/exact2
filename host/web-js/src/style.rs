@@ -1383,6 +1383,7 @@ pub(crate) fn css_property(id: StyleId) -> String {
         StyleId::SvgMask => return "mask".into(),
         StyleId::TextStrokeWidth => return "-webkit-text-stroke-width".into(),
         StyleId::TextStrokeColor => return "-webkit-text-stroke-color".into(),
+        StyleId::FontSmoothing => return "-webkit-font-smoothing".into(),
         id => id.name(),
     };
     for (prefix, suffix) in [
