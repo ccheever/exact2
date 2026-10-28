@@ -13,7 +13,9 @@ import { cloneDestination, cloneDirectoryName, flowOf, newProjectPublishTargets,
 import { sortedThreads } from './palette';
 import { activeTarget } from './palette-files';
 import { favoriteEditor } from '../shell/keyboard-dispatch';
-import { openFavoriteHere } from '../connections/remote-open'; // remote Open: an SSH environment's workspace opens over SSH
+import { openFavoriteHere, remoteCapableEditors, remoteOpenFor } from '../connections/remote-open'; // remote Open: an SSH environment's workspace opens over SSH
+import { announce } from '../shell/announce';
+import { editorLabel } from '../shared/editors';
 import { lastEditor } from '../details/shell-details';
 import { linkPullRequest } from './palette-linkpr';
 import { linkFromPicker } from '../pull-requests/pages-pr-links';
@@ -260,7 +262,14 @@ async function restartSession(client: T3Client, native: Native, storage: Files, 
  */
 async function openInEditor(client: T3Client, native: Native, op: string, id: string, line: string): Promise<PaletteResult> {
   const editor = favoriteEditor(client.config, lastEditor(client)); // the last-used editor (t3-code.json)
-  if (op === 'open-favorite') { if (id) await openFavoriteHere(client, native, id, editor); return done(client); }
+  if (op === 'open-favorite') {
+    // useOpenFavoriteEditorShortcut: a screen reader hears which editor took the workspace, the one openFavoriteHere
+    // opens with (the favorite here, else the first editor this Mac has that takes remote links).
+    const mode = remoteOpenFor(client).state.mode;
+    const opened = mode === 'local-exec' ? editor : mode === 'remote-links' ? (await remoteCapableEditors(native))[0] ?? '' : '';
+    if (id && await openFavoriteHere(client, native, id, editor)) announce(client, `Opened in ${editorLabel(opened)}`);
+    return done(client);
+  }
   const target = activeTarget(client);
   const path = op === 'open-file' ? (target ? `${target.cwd.replace(/\/+$/, '')}/${id}` : '') : id;
   if (!path) throw new Error('Open a project to open its files.');

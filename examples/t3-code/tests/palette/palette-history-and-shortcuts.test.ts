@@ -9,11 +9,16 @@ import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { parseWhen } from '../../src/settings/keybinding-view';
 import { keyboardDispatch, type DispatchContext } from '../../src/shell/keyboard-dispatch';
 import { newThreadInItems, rootActions } from '../../src/palette/palette';
+import { paletteCommand } from '../../src/palette/palette-commands';
+import { announcements } from '../../src/shell/announce';
+import { fleet } from '../../src/connections/settings-b-fleet';
+import type { Files, Native } from '../../src/client/protocol';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
 import { primaryAt, primaryOff, resetPrimary } from '../support/local-primary-fixture';
 
 const root = contractComponent('app.contract', 'T3Code');
+const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('none'); }, async atomicWriteFile() {} } };
 type Palette = { parent: string; popOnEmpty: boolean; back: boolean; count: number; rows: Obj[] };
 
 /** The palette's root state, with the scope its actions read; calls to the root's own actions run in place. */
@@ -199,6 +204,20 @@ describe('⌘O opens the shown file once, else the workspace (#18983)', () => {
     expect(opens({ fileSurface: true, fileOpenPath: '/repo/README.md' })).toEqual([['command', 'chatlocal:surface-files-open-editor', '/repo/README.md']]);
     // The file shown, its picker unable to open it: the window's fallback, on this machine only.
     expect(opens({ fileSurface: true, fileOpenPath: '' })).toEqual([['flow', 'open-favorite', '/repo']]);
+  });
+  test('the editor that opened is announced, as useOpenFavoriteEditorShortcut announces it', async () => {
+    primaryAt('http://127.0.0.1:16891', 'env1');
+    const c = client(), opened: Obj[] = [];
+    const native = { available: true, watch() {}, later: async (input: unknown) => {
+      const request = input as Obj;
+      if (request.method === 'shell.openInEditor') opened.push(request.payload as Obj);
+      return { ok: true, generation: 1, value: {} };
+    } } as Native;
+    await paletteCommand(c, native, files, 'open-favorite', '/repo', '');
+    expect(opened).toEqual([{ cwd: '/repo', editor: 'vscode' }]);
+    // announce's messages wait for the focus to settle, then speak (shell/announce.ts).
+    announcements(c, 1_000, fleet);
+    expect(announcements(c, 1_500, fleet).first).toBe('Opened in VS Code');
   });
   test('a remote file surface without a picker opens nothing', () => {
     // Not this machine (no primary at this origin): the bearer route has no local editor fallback.
