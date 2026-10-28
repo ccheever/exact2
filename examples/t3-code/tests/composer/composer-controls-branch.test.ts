@@ -2,13 +2,63 @@
 // (BranchToolbar, BranchToolbarBranchSelector, BranchToolbar.logic).
 import { describe, expect, test } from 'bun:test';
 import { obj, str, type Obj } from '../../src/client/domain';
-import { composerBranches, sanitizeNewRefName, previousWorktree, stripShortcuts } from '../../src/composer/composer-controls-branch';
+import { composerBranches, patchDraftContext, sanitizeNewRefName, previousWorktree, stripShortcuts } from '../../src/composer/composer-controls-branch';
+import { branchLocal, cardBranchView } from '../../src/details/git-branch';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { connected, thread } from '../support/composer-controls-fixture';
 import { toasts } from '../../src/shell/toast';
 import { appPath, appText } from '../support/app-files';
 
 describe('workspace strip details', () => {
+  // handleOpenChange (BranchToolbarBranchSelector): each picker that opens asks for the checkout's current branch once.
+  const refreshes = (native: Awaited<ReturnType<typeof connected>>['native']) => {
+    native.later = (later => async (input: unknown) => {
+      const request = obj(input);
+      if (request.op === 'request' && request.method === 'vcs.refreshStatus') native.committed.push({ method: request.method, ...obj(request.payload) });
+      return later(input);
+    })(native.later.bind(native));
+    return () => native.committed.filter(entry => entry.method === 'vcs.refreshStatus' && entry.localOnly === true).map(entry => entry.cwd);
+  };
+  test('opening the strip\'s picker asks for the current branch once, without a remote fetch', async () => {
+    const { client, native } = await connected();
+    const asked = refreshes(native);
+    await composerBranches(client, native, false, '');
+    expect(asked()).toEqual([]);
+    await composerBranches(client, native, true, '');
+    await composerBranches(client, native, true, 'ma');
+    expect(asked()).toEqual(['/repo']);
+    await composerBranches(client, native, false, '');
+    await composerBranches(client, native, true, '');
+    expect(asked()).toEqual(['/repo', '/repo']);
+  });
+  test('the picker\'s own open state decides, whatever folder or read closed it', async () => {
+    const { client, native, command } = await connected();
+    const asked = refreshes(native);
+    // Opened on the checkout, closed after the draft moved to a worktree (a ref checked out there): the next opening on
+    // the checkout asks again.
+    await composerBranches(client, native, true, '');
+    patchDraftContext(client, { envMode: 'local', worktreePath: '/repo-wt/b' });
+    await composerBranches(client, native, false, '');
+    patchDraftContext(client, { worktreePath: '' });
+    await composerBranches(client, native, true, '');
+    expect(asked()).toEqual(['/repo', '/repo']);
+    // Closed while a thread hides the strip (its read returns early): the next opening asks again.
+    await command('select-thread', 't1');
+    await composerBranches(client, native, false, '');
+    await command('new-thread');
+    await composerBranches(client, native, true, '');
+    expect(asked()).toEqual(['/repo', '/repo', '/repo']);
+  });
+  test("the workspace card's reads never ask: its picker asks as its popover opens (git-branch.ts `opened`)", async () => {
+    const { client, native } = await connected();
+    const asked = refreshes(native);
+    await cardBranchView(client, native, '/repo', '/repo', true);
+    await cardBranchView(client, native, '/repo', '/repo', true);
+    expect(asked()).toEqual([]);
+    branchLocal(client, 'opened', '', '', native);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(asked()).toEqual(['/repo']);
+  });
   test('a typed name is offered as a sanitized new ref, and Return picks the highlighted first item', async () => {
     const { client, native } = await connected();
     expect(sanitizeNewRefName('  my new\tbranch ')).toBe('my-new-branch');

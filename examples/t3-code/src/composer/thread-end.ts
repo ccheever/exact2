@@ -56,12 +56,12 @@ function backgroundWork(client: T3Client): Line | null {
     actions: [action('stop', stopping ? 'Stopping...' : 'Stop', 'cc:stop-background', '', '', canOperate && !stopping)] };
 }
 
-/** goalNowItem: the thread's goal. Its commands run as turns, so they wait while the thread works. */
+/** goalNowItem: the thread's goal. Clear stops goal work; Resume would stop unrelated work, so it waits. */
 function goal(client: T3Client): Line | null {
   const thread = client.shell.threads.find(thread => thread.id === client.threadId), current = providerGoal(thread?.goal);
   if (!current) return null;
   const working = providerGoalWorking(client), view = presentProviderGoal(current, working);
-  const actions = working ? [] : [...(view.canResume ? [action('resume', 'Resume', 'cc:goal-resume', '')] : []), action('clear', 'Clear', 'cc:goal-clear', '', 'muted')];
+  const actions = [...(view.canResume && !working ? [action('resume', 'Resume', 'cc:goal-resume', '')] : []), action('clear', 'Clear', 'cc:goal-clear', '', 'muted')];
   return { id: `goal:${client.threadId}`, icon: 'target', title: view.usage ? `${view.title} · ${view.usage}` : view.title, detail: view.objective, actions };
 }
 
@@ -136,8 +136,9 @@ export function queuedTurnRows(client: T3Client): Message[] {
   const items = queuedItems(client);
   if (!items.length) { forgetQueueShownInFull(client); return []; }
   const state = queueState(client.projection), edit = queuedEdit(client), blocked = queuedEditBlockedReason(client);
-  // canPromoteToSteer: a running turn whose provider steers.
-  const canSend = state.canSteer;
+  // QueuedRunsControl's canSend: no active run (the message starts one), or one it can steer or a compaction it stops.
+  const canSend = state.canSendNow || state.canSteer;
+  const intent = state.canSendNow ? 'Start a turn with this message' : state.promoteSkipsCompaction ? 'Skip compaction and send this message' : 'Send into the current turn';
   const steerKey = chordGlyphs(commandChords(client.config, 'thread.steerQueuedMessage', 'Meta+Shift+Enter', false, { terminalFocus: false }).split(' ')[0] ?? '');
   const editKey = chordGlyphs(commandChords(client.config, 'thread.editQueuedMessage', 'Alt+ArrowUp', false, { composerFocus: true }).split(' ')[0] ?? '');
   const collapsible = items.length > QUEUE_VISIBLE_ROWS, full = queueShownInFull(client);
@@ -148,7 +149,7 @@ export function queuedTurnRows(client: T3Client): Message[] {
       images: item.thumbnails.map(thumb => ({ id: thumb.id, name: thumb.name, snapshot: false, appName: '', appInitial: '', windowTitle: '', accessible: true, video: false })),
       status: editing ? 'editing' : item.pending ? 'pending' : '',
       actionLabel: canSend && !editing ? 'Send now' : '',
-      intentTip: `Send into the current turn${item.serverIndex === 0 && steerKey ? ` (${steerKey})` : ''}`,
+      intentTip: `${intent}${item.serverIndex === 0 && steerKey ? ` (${steerKey})` : ''}`,
       detail: blocked || `Edit in the composer${item.serverIndex === state.queued.length - 1 && editKey ? ` (${editKey})` : ''}`,
       failed: !!blocked || !item.editable, continues: position < visible.length - 1, collapsible: collapsible && position === visible.length - 1,
       attribution: position === 0 ? `${items.length} queued` : '' };

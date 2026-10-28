@@ -63,6 +63,18 @@ export function setKeepFullHistory(client: T3Client, keep: boolean, threadId = c
   fullHistory.set(client, keys);
 }
 
+const IDLE_COMPACTION_MODES = ['onReturn', 'beforeCacheExpires', 'off'];
+/**
+ * resolveIdleCompaction (contracts settings.ts): the provider instance's own mode, else the environment's
+ * (globalIdleCompaction), which an older server keeps in `compactIdleThreads`, as a mode or its boolean switch.
+ */
+export function resolveIdleCompaction(settings: Obj, instanceId: string): string {
+  const mode = (value: unknown) => typeof value === 'string' && IDLE_COMPACTION_MODES.includes(value) ? value : '';
+  const instances = obj(settings.providerInstances);
+  const override = Object.hasOwn(instances, instanceId) ? mode(obj(obj(instances[instanceId]).config).idleCompaction) : '';
+  return override || mode(settings.idleCompaction) || mode(settings.compactIdleThreads) || (settings.compactIdleThreads === true ? 'beforeCacheExpires' : 'onReturn');
+}
+
 /** compactThreadUnavailable and its reason (the context meter's Compact while disabled). */
 export function compactBlocked(client: T3Client): string {
   const projection = client.projection;
@@ -87,6 +99,7 @@ export function compactBlocked(client: T3Client): string {
  */
 export function resumeCompactionTokens(client: T3Client, now: number, usage: { used: number; updatedAt: string; promptCacheTtlMs?: number } | null): number | null {
   if (!usage || !client.threadId || !usage.updatedAt) return null;
+  if (resolveIdleCompaction(obj(client.config.settings), client.providerId || 'claudeAgent') === 'off') return null;
   const local = prefs(client);
   if (nativelyDismissed(client.projection)) local.resumeCompactionDismissed = { ...local.resumeCompactionDismissed, [permanentKey(client)]: true };
   if (local.resumeCompactionDismissed?.[permanentKey(client)] || compactBlocked(client) || resumeState(client.projection).heldQueue || fanoutSelections(client)) return null;

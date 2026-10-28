@@ -3,9 +3,8 @@ import { arr, obj, str, num, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
-import { ThreadFind, findCount, type FindResult, type FindMatch, type FindPosition } from './thread-find';
+import { ThreadFind, findCount, type FindResult, type FindMatch } from './thread-find';
 import { markdownSkills } from './message-chips';
-import { findSearchTokenRanges, messagePhrase, messageSearchTokens } from '../palette/palette-search';
 
 type State = { model: ThreadFind; key: string; serial: number; now: number; loading: string; retired: string[]; viewport: string };
 const states = new WeakMap<T3Client, State>();
@@ -17,43 +16,8 @@ export function threadFindState(client: T3Client): State {
   if (!state || state.model.owner !== owner(client)) {
     state = { model: new ThreadFind(owner(client)), key: '', serial: 0, now: 0, loading: '', viewport: '', retired: [...(state?.retired ?? []), ...(state?.key ? [state.key] : [])] };
     states.set(client, state);
-    const pending = pendingFinds.get(client), shown = threadOf(client);
-    if (pending && pending.from !== shown) pendingFinds.delete(client);
-    if (pending?.thread === shown) state.model.openOn(pending.find.query, pending.find.start);
   }
   return state;
-}
-
-/** PendingThreadFind: the query find opens on, and where it starts, such as the message a search result came from. */
-export type PendingFind = { query: string; start?: FindPosition };
-// A find opened for a thread that is not shown yet (`from` is the one shown then): that thread's find takes it once it
-// shows. Find belongs to the thread it opened in (retainThreadFindForRoute), so a third thread showing first drops it.
-const pendingFinds = new WeakMap<T3Client, { thread: string; from: string; find: PendingFind }>();
-const threadOf = (client: T3Client, threadId = client.threadId) => `${client.environmentId}|${threadId}`;
-
-/** openThreadFindOnQuery: find opens on the query in that thread, now or once it shows, where the server can search it. */
-export function openThreadFindOnQuery(client: T3Client, threadId: string, find: PendingFind): void {
-  if (!threadId || client.config.threadFind !== true || !find.query.trim()) return;
-  if (threadId !== client.threadId) { pendingFinds.set(client, { thread: threadOf(client, threadId), from: threadOf(client), find }); return; }
-  pendingFinds.delete(client);
-  threadFindState(client).model.openOn(find.query, find.start);
-}
-
-/**
- * findForMessageMatch: the find a message search result opens, at the matched message. The whole query when the
- * snippet holds it as typed ("vp run dev"), else its longest word, as the most telling ("sidebar" in "fix sidebar"),
- * written as the snippet writes it ("Café" for "cafe", since find matches accents).
- */
-export function findForMessageMatch(match: { snippet: string; messageId?: string }, query: string): PendingFind {
-  const start = match.messageId ? { start: { entryId: match.messageId, occurrence: 0 } } : {};
-  // Apostrophes are straight in the query; straightening keeps offsets.
-  const together = messagePhrase(query)?.exec(match.snippet.replace(/[\u2018\u2019]/g, "'"));
-  if (together) return { query: match.snippet.slice(together.index, together.index + together[0].length), ...start };
-  const word = messageSearchTokens(query).long.reduce((longest, token) => token.length > longest.length ? token : longest, '') || query;
-  const ranges = findSearchTokenRanges(match.snippet, word);
-  // A whole word first, as search ranked it: "Café", not "Cafe" in "Cafeteria".
-  const shown = ranges.find(range => !/[\p{L}\p{N}]/u.test(match.snippet[range.end] ?? '')) ?? ranges[0];
-  return { query: shown ? match.snippet.slice(shown.start, shown.end) : word, ...start };
 }
 export const threadFindExpanded = (client: T3Client): boolean => { const m = threadFindState(client).model; return m.open && !!m.query.trim(); };
 export function threadFindAction(client: T3Client, op: string, value: string): string {

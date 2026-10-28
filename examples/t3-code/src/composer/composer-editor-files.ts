@@ -112,6 +112,13 @@ export function stageFold(local: object, draftKey: string, environmentId: string
 /** The chip a staged file shows in the prompt. */
 export function fileChipLink(file: DraftFile): string { return contextLink('file', file.contextId, file.name); }
 
+const GENERIC_MIME_TYPES = new Set(['application/octet-stream', 'binary/octet-stream', 'application/unknown']);
+/** isSvgAttachment (shared image.ts): an SVG by its type, or by its name when the type says nothing. */
+export function isSvgAttachment(name: string, mimeType: string): boolean {
+  const type = mimeType.split(';', 1)[0]!.trim().toLowerCase();
+  return type === 'image/svg+xml' || ((type === '' || GENERIC_MIME_TYPES.has(type)) && /\.svg$/i.test(name));
+}
+
 /** The draft's files its prompt references, in prompt order. */
 export function referencedFiles(local: object, draftKey: string, text: string): DraftFile[] {
   const files = draftFiles(local).filter(file => file.draftKey === draftKey);
@@ -401,7 +408,11 @@ export function composerFileRecords(client: T3Client, text: string): Obj[] {
 export function fileChipContexts(client: T3Client, text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const file of referencedFiles(client.local, client.draftKey, text)) {
-    if (file.status === 'ready' || file.source === 'attached' || mapFor(texts, client).has(file.id)) out[`file/${file.contextId}`] = `${videoMimeType(file) ? 'video' : 'file'}\t${formatAttachmentSize(file.sizeBytes)}`; // a video's chip (FilmIcon, kind video)
+    // A video's chip is kind video (FilmIcon). An SVG's stays kind file, so its press opens the file, and draws as an
+    // image chip (FileChip's SvgFileChip): the record's third field names the glyph.
+    if (file.status === 'ready' || file.source === 'attached' || mapFor(texts, client).has(file.id)) {
+      out[`file/${file.contextId}`] = `${videoMimeType(file) ? 'video' : 'file'}\t${formatAttachmentSize(file.sizeBytes)}${isSvgAttachment(file.name, file.mimeType) ? '\timage' : ''}`;
+    }
   }
   return out;
 }

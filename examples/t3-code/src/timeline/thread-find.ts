@@ -31,12 +31,6 @@ export class ThreadFind {
     if (this.query.trim() && position) { this.start = position; this.offset = 0; this.schedule(0); }
   }
   close(): void { this.open = false; this.query = ''; this.result = null; this.pending = false; this.error = ''; this.due = 0; this.serial++; }
-  /** openThreadFindOnQuery: open on `query`, searching from `position` (the message a search result came from). */
-  openOn(query: string, position?: FindPosition): void {
-    this.open = true; this.focus++; this.navigation++;
-    this.query = query.slice(0, 200); this.start = position; this.offset = 0; this.result = null; this.error = ''; this.serial++; this.pending = false;
-    this.schedule(0);
-  }
   edit(query: string, now: number): void {
     this.query = query.slice(0, 200); this.start = undefined; this.offset = 0; this.result = null; this.error = ''; this.serial++; this.pending = false;
     this.schedule(now + 100);

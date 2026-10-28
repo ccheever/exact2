@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
-import { findForMessageMatch, openThreadFindOnQuery, threadFindAction, threadFindEvent, threadFindState, threadFindTick, threadFindView } from '../../src/timeline/thread-find-runtime';
+import { threadFindAction, threadFindEvent, threadFindState, threadFindTick, threadFindView } from '../../src/timeline/thread-find-runtime';
 const native = { available: true } as Native;
 const result = { snapshotSequence: 1, totalMatches: 1, activeIndex: 0, match: { entryId: 'old', runId: 'r', occurrence: 0 } };
 function fixture(progressive = false) {
@@ -146,31 +146,3 @@ for (const field of ['threadId', 'environmentId'] as const) {
     expect(threadFindState(client).retired).toEqual([]);
   });
 }
-
-// threadFindStore.ts openThreadFindOnQuery and findForMessageMatch at 7c3b3b3605ef (#24343, #25463).
-describe('a message search result opens find at its message', () => {
-  test('on the longest word as the snippet writes it, or the whole query when the snippet holds it as typed', () => {
-    expect(findForMessageMatch({ snippet: 'The cafeteria, then the Café', messageId: 'message-1' }, 'cafe')).toEqual({ query: 'Café', start: { entryId: 'message-1', occurrence: 0 } });
-    expect(findForMessageMatch({ snippet: 'fix the sidebar lag' }, 'fix sidebar')).toEqual({ query: 'sidebar' });
-    expect(findForMessageMatch({ snippet: 'then Vp  run dev again' }, 'vp run dev')).toEqual({ query: 'Vp  run dev' });
-  });
-  test('the thread it names opens find on the query once it shows, searching from the message', async () => {
-    const { client, calls } = fixture();
-    client.threadId = 'other';
-    openThreadFindOnQuery(client, 't', { query: 'needle', start: { entryId: 'm1', occurrence: 0 } });
-    expect(threadFindView(client).open).toBeFalse();
-    client.threadId = 't';
-    expect(threadFindView(client)).toMatchObject({ open: true, query: 'needle' });
-    await threadFindTick(client, native, 1000);
-    expect(calls[0]).toEqual({ method: 'orchestration.searchThread', payload: { threadId: 't', query: 'needle', skills: [], start: { entryId: 'm1', occurrence: 0 } } });
-  });
-  test('another thread showing first drops it, and a thread already shown opens at once', () => {
-    const { client } = fixture();
-    client.threadId = 'other';
-    openThreadFindOnQuery(client, 't', { query: 'needle' });
-    client.threadId = 'third'; expect(threadFindView(client).open).toBeFalse();
-    client.threadId = 't'; expect(threadFindView(client).open).toBeFalse();
-    openThreadFindOnQuery(client, 't', { query: 'again' });
-    expect(threadFindView(client)).toMatchObject({ open: true, query: 'again' });
-  });
-});
